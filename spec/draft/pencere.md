@@ -1020,10 +1020,10 @@ terminal.
 
 ## 13. Fallback
 
-- **stdin is not a tty.** The program is started by something that is not a
-  terminal — an MCP client, a chat application — and is an ordinary MCP server on
-  stdio: it sends no frame of this protocol, and its tool and `ui://` resource
-  work in any MCP Apps host.
+- **stdin is not a tty**, and the program is not a filter (below). The program is
+  started by something that is not a terminal — an MCP client, a chat application —
+  and is an ordinary MCP server on stdio: it sends no frame of this protocol, and its
+  tool and `ui://` resource work in any MCP Apps host.
 - **A tty, and no host.** Section 5.3. The program sends no further frame and
   continues as a program with no view: it offers its own text interface, or says
   what it needs and exits. It leaves the terminal as it found it.
@@ -1033,6 +1033,24 @@ terminal.
 A tool of a pencere program SHOULD always return a useful `content` (MCP Apps §
 Client\<\>Server Capability Negotiation → Graceful Degradation), so that its
 results read without a view.
+
+**A program in a pipeline.** A filter, a program whose stdin and stdout carry a
+pipeline's data (`… | tool --select | mail`), speaks this protocol on its controlling
+terminal (`/dev/tty`) and not on stdin and stdout: it puts that tty in the modes of
+Section 4.9, takes the alternate screen and writes its frames there, reads the host's
+replies there, and keeps stdin and stdout for the data. A program MUST decide this
+explicitly, with an option or a flag of its own, and MUST NOT infer it from stdin and
+stdout: a pipeline and an MCP client that started the program look alike from inside,
+both with pipes for stdin and stdout, and a program that took one for the other would
+write frames into a terminal an MCP client is using, whose host would answer into that
+client's input. A filter is never an MCP server on stdio. One with no controlling
+terminal, or whose terminal has no host, has no view and goes on as the second case
+above says.
+
+The host sees nothing different: the tty is the pane's, and so are its modes. Every
+process of the pipeline shares that tty, so one that reads it while the view is open
+(a command that asks for a password) can read the host's replies, the token among them.
+Such a pipeline is the person's own to arrange.
 
 ## 14. Security considerations
 

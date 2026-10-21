@@ -7,7 +7,8 @@
  * still reaches the program as SIGINT (§10.4). Node cannot do that by itself:
  * `setRawMode(true)` clears ISIG along with ICANON and ECHO, and the runtime has
  * no call that changes one flag. The modes are therefore set with `stty`, which
- * every system that has a tty has, on the tty that is the program's own stdin.
+ * every system that has a tty has, on the tty that is the program's own stdin,
+ * or, for a filter in a pipeline, on the terminal the program opened itself.
  */
 
 import { spawnSync } from "node:child_process";
@@ -39,18 +40,23 @@ export interface SttyResult {
   readonly stdout: string;
 }
 
-/** Runs `stty` with `args` on the program's own stdin. */
+/** Runs `stty` with `args` on the program's tty. */
 export type RunStty = (args: readonly string[]) => SttyResult;
 
+/** `stty` on the tty that is `stdin`: the program's own stdin (`inherit`), or a descriptor of a tty. */
+export function sttyOn(stdin: "inherit" | number): RunStty {
+  return (args) => {
+    const result = spawnSync("stty", [...args], {
+      stdio: [stdin, "pipe", "ignore"],
+      encoding: "utf8",
+      timeout: 2000,
+    });
+    return { status: result.status, stdout: result.stdout ?? "" };
+  };
+}
+
 /** `stty`, as `spawnSync` runs it with the tty inherited as its stdin. */
-export const runStty: RunStty = (args) => {
-  const result = spawnSync("stty", [...args], {
-    stdio: ["inherit", "pipe", "ignore"],
-    encoding: "utf8",
-    timeout: 2000,
-  });
-  return { status: result.status, stdout: result.stdout ?? "" };
-};
+export const runStty: RunStty = sttyOn("inherit");
 
 /** What `enter` asks of the tty: the modes of §4.9. */
 export const PROGRAM_MODES: readonly string[] = [

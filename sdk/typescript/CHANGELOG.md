@@ -28,5 +28,11 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
   answer in time ends `serve` as `no-view` with the new reason `timeout`, which says that a host
   that had answered went quiet: it is not `no-host`, which says that there is none. The wait for the
   first `hello` is `answerTimeout` as before.
+- `ServeOptions.filter`: a program in the middle of a pipeline (`… | tool --select | mail`),
+  whose stdin and stdout are its data, opens its view on its controlling terminal (`/dev/tty`)
+  instead, and leaves stdin and stdout alone. It is never an MCP server on stdio; with no
+  controlling terminal it has no view (`no-host`) and its `fallback` runs. A tool sets it from a
+  flag of its own: a pipeline and an MCP client's launch look the same from inside, so `serve`
+  does not guess.
 - Speaks version 1 of the wire (draft), including `dismiss` (specification §10.8) and `closed`
   `reason` `program`.

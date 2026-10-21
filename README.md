@@ -42,7 +42,10 @@ Early: nothing here is stable yet. The repository holds
 - an example tool to try it all with ([`examples/containers`](examples/containers));
 - the same kind of tool in Python, with the official MCP SDK and no pencere library, to show that a
   server in any language gets its view in the pane from `pencere run`
-  ([`examples/python`](examples/python)).
+  ([`examples/python`](examples/python));
+- a table in the middle of a pipeline: the rows come in on stdin, the person chooses some in
+  the pane, and they go out on stdout to what comes next, as with
+  `… | tablepen --select | mail` ([`examples/tablepen`](examples/tablepen)).
 
 [bateri](https://github.com/bateri/bateri) will be the first host. Nothing is on npm or
 crates.io yet; how a package is released is in [RELEASING.md](RELEASING.md).

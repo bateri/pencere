@@ -8,12 +8,16 @@
  * MCP server of the view over the stream (§9) and, when the view closes, gives
  * the terminal back (§10). With no host it returns, and the tool's own text
  * interface takes over (§13). A program that wants to close its view and go on,
- * or show another, holds a `ViewControl` (§10.8).
+ * or show another, holds a `ViewControl` (§10.8). A filter in a pipeline, whose
+ * stdin and stdout are its data, asks with `filter` and talks to the terminal it
+ * opens itself (§13).
  */
 
 import type { Transport } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import { closeSync, openSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
+import { ReadStream, WriteStream } from "node:tty";
 
 import type { Bundle } from "./bundle.js";
 import { bindControl, unbindControl } from "./control.js";
@@ -45,6 +49,7 @@ import {
   ENTER_ALTERNATE_SCREEN,
   LEAVE_ALTERNATE_SCREEN,
   SttyTerminal,
+  sttyOn,
 } from "./terminal.js";
 import type { Terminal } from "./terminal.js";
 import { PencereTransport } from "./transport.js";
@@ -88,6 +93,17 @@ export interface ServeOptions {
    * runs (§10.8). `serve` itself works as it did without one.
    */
   control?: ViewControl;
+  /**
+   * The program is a filter in a pipeline (`… | tool | …`): its stdin and stdout
+   * carry the pipeline's data, and `serve` leaves them alone. It asks for the view
+   * on the program's controlling terminal (`/dev/tty`) whatever stdin and stdout
+   * are, and never serves MCP on stdio; a program with no controlling terminal has
+   * no view (`no-host`) and its `fallback` runs. A tool chooses this itself, with a
+   * flag of its own such as `--select`: from inside, a pipeline and an MCP client
+   * that started the program look the same, and a guess that took one for the
+   * other would write frames into a terminal the client is using (§13).
+   */
+  filter?: boolean;
   /** How long to wait for the host's answer, in milliseconds (§5.3). 2000 by default. */
   answerTimeout?: number;
   /**
@@ -180,6 +196,32 @@ export function systemEnvironment(): Environment {
 }
 
 /**
+ * The controlling terminal of this process, opened for a filter: one descriptor to
+ * read and one to write, and `stty` on the first. `undefined` when the process has
+ * none. `close` lets the terminal go, without which the open handle would keep the
+ * process alive once its pipeline is done.
+ */
+export function controllingTerminal(): { environment: Environment; close(): void } | undefined {
+  let read: number | undefined;
+  try {
+    read = openSync("/dev/tty", "r");
+    const write = openSync("/dev/tty", "w");
+    const input = new ReadStream(read);
+    const output = new WriteStream(write);
+    return {
+      environment: { input, output, terminal: new SttyTerminal(sttyOn(read)), process },
+      close: () => {
+        input.destroy();
+        output.destroy();
+      },
+    };
+  } catch {
+    if (read !== undefined) closeSync(read);
+    return undefined;
+  }
+}
+
+/**
  * Serves `server`: see the module's description. Resolves when the view has
  * closed, when there is no view to show (after the `fallback` ran), or, on
  * stdio, when the client has gone.
@@ -190,7 +232,17 @@ export function systemEnvironment(): Environment {
  * end the process. The same happens when the process exits while the view is up.
  */
 export async function serve(server: Connectable, options: ServeOptions): Promise<ServeResult> {
-  return serveWith(server, options, systemEnvironment());
+  if (options.filter !== true) return serveWith(server, options, systemEnvironment());
+  const terminal = controllingTerminal();
+  if (terminal === undefined) {
+    const aborted = options.signal?.aborted === true;
+    return ended(options, { kind: "no-view", reason: aborted ? "aborted" : "no-host" });
+  }
+  try {
+    return await serveWith(server, options, terminal.environment);
+  } finally {
+    terminal.close();
+  }
 }
 
 /** {@link serve} in an environment of the caller's choosing. */
@@ -200,12 +252,13 @@ export async function serveWith(
   environment: Environment,
 ): Promise<ServeResult> {
   const { input, output } = environment;
-  // Started by something that is not a terminal: an ordinary MCP server (§13).
-  if (!input.isTTY) return serveStdio(server, input, output);
+  // Started by something that is not a terminal: an ordinary MCP server (§13). A
+  // filter's stdin is its data, never an MCP client.
+  if (!input.isTTY && options.filter !== true) return serveStdio(server, input, output);
   let result: ServeResult;
   if (options.signal?.aborted) result = { kind: "no-view", reason: "aborted" };
-  // There is a tty to read and nowhere to write the question.
-  else if (!output.isTTY) result = { kind: "no-view", reason: "no-host" };
+  // There is no tty to read, or nowhere to write the question.
+  else if (!input.isTTY || !output.isTTY) result = { kind: "no-view", reason: "no-host" };
   else {
     const session = new TerminalSession(server, options, environment);
     const control = options.control;
@@ -216,6 +269,11 @@ export async function serveWith(
       if (control !== undefined) unbindControl(control, session);
     }
   }
+  return ended(options, result);
+}
+
+/** How `serve` ends: with the `fallback` first when no view was shown, unless the wait was aborted. */
+async function ended(options: ServeOptions, result: ServeResult): Promise<ServeResult> {
   if (result.kind === "no-view" && result.reason !== "aborted") await options.fallback?.();
   return result;
 }

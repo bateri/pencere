@@ -1147,3 +1147,83 @@ fn pencere_dev_says_what_the_server_wrote_and_waits_for_the_next_change_when_it_
         assert!(gone(pid), "the server {pid} outlived pencere dev");
     }
 }
+
+// ---- a filter in a pipeline -------------------------------------------------------
+
+/// `text` in single quotes, for `sh -c`.
+fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+/// `tablepen` (`examples/tablepen`) in the middle of a pipeline: CSV in from
+/// `printf`, its stdout to `out`, and its status after it.
+fn pipeline(dir: &Path, options: &[&str], args: &str) -> (Run, String, String) {
+    let main = root().join("examples/tablepen/dist/main.js");
+    assert!(
+        main.is_file(),
+        "{} is missing: build the TypeScript half first with `npx tsc -b` (make check does)",
+        main.display()
+    );
+    let out = dir.join("out.csv");
+    let status = dir.join("status");
+    let script = format!(
+        r#"printf 'name,size\nweb,3\ndb,40\n"cache, hot",5\n' | node {} {args} > {}; echo $? > {}"#,
+        quoted(&main.to_string_lossy()),
+        quoted(&out.to_string_lossy()),
+        quoted(&status.to_string_lossy()),
+    );
+    let run = run(options, &["sh", "-c", &script]);
+    let out = fs::read_to_string(&out).expect("the pipeline wrote its output");
+    let status = fs::read_to_string(&status).expect("the pipeline wrote its status");
+    (run, out, status.trim().to_owned())
+}
+
+#[test]
+fn a_filter_asks_for_its_view_on_the_terminal_and_writes_what_was_chosen_to_the_pipe() {
+    let dir = fresh("filter-chosen");
+    let (run, out, status) = pipeline(
+        &dir,
+        &["--call", r#"choose_rows={"rows":[2,0]}"#],
+        "--select",
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        "host: sees the tty: canonical=false echo=false",
+        "screen: alternate screen on",
+        "program: open id=2 tool=show_table bundle of 3 files",
+        r#"view: <- ui/notifications/tool-result "3 rows, 2 columns: name, size""#,
+        r#"view: -> tools/call choose_rows {"rows":[2,0]}"#,
+        // The program answers the call before it closes the view, so the view hears
+        // that the rows were taken.
+        "program: msg id=* response",
+        "program: dismiss",
+        "host: closed id=* reason=program",
+        "screen: alternate screen off",
+    ]);
+    assert_eq!(
+        run.count(r#"view: <- tool result "Chose 2 of 3 rows, 2 columns.""#),
+        1,
+        "{}",
+        run.text()
+    );
+    // The terminal had the protocol; the pipe has the data and nothing else.
+    assert_eq!(out, "name,size\nweb,3\n\"cache, hot\",5\n");
+    assert_eq!(status, "0");
+}
+
+#[test]
+fn a_filter_whose_view_closes_with_nothing_chosen_writes_nothing_and_fails() {
+    let dir = fresh("filter-nothing");
+    let (run, out, status) = pipeline(&dir, &["--then", "close"], "--select");
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "screen: alternate screen on",
+        "host: the person closes the view",
+        "host: closed id=* reason=user",
+        "screen: alternate screen off",
+    ]);
+    // `rows=$(… | tablepen --select) && mail …` stops here.
+    assert_eq!(out, "");
+    assert_eq!(status, "1");
+}

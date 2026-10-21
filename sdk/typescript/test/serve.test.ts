@@ -111,6 +111,36 @@ describe("when stdin is not a terminal", () => {
   });
 });
 
+describe("a filter in a pipeline", () => {
+  it("is never an MCP server on stdio: its stdin is data, nothing is read or written, and the fallback runs", async () => {
+    const rig = new Rig();
+    const ran: string[] = [];
+    const result = await serveWith(
+      makeServer(),
+      { tool: "list_containers", ...FAST, filter: true, fallback: () => void ran.push("fallback") },
+      {
+        ...rig.environment(),
+        input: Object.assign(rig.input, { isTTY: false }),
+        output: Object.assign(rig.output, { isTTY: false }),
+      },
+    );
+    expect(result).toEqual({ kind: "no-view", reason: "no-host" });
+    expect(ran).toEqual(["fallback"]);
+    expect(rig.written).toEqual([]);
+    expect(rig.terminal.calls).toEqual([]);
+    expect(rig.input.listenerCount("data")).toBe(0);
+  });
+
+  it("asks on the terminal it is given, and opens its view there as any program does", async () => {
+    const rig = new Rig();
+    const { result } = await start(rig, { filter: true });
+    await rig.next("open");
+    rig.say("closed", toWire({ reason: "user" }));
+    expect(await result).toEqual({ kind: "closed", by: "user" });
+    expect(rig.terminal.calls).toEqual(["enter", "restore"]);
+  });
+});
+
 describe("with no host", () => {
   it("concludes it when the terminal answers CSI c first, and gives the terminal back before the fallback", async () => {
     const rig = new Rig();
