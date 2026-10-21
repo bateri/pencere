@@ -424,7 +424,9 @@ base64url without padding (RFC 4648 § 5), 22 characters. A host keeps at most o
 outstanding token per pane.
 
 - A token is spent by the first `open` that carries it, whatever the outcome of
-  that `open`.
+  that `open`. A token that opened a view stays that view's identity for as long as the
+  view is opening, open or closing: the program's `bye` (Section 10.3) is believed only
+  when it carries it, and no `open` can spend it again.
 - A token is replaced when the host issues another for the same pane (another
   answered `hello`, or Section 10.7). The replaced token is no longer valid.
 - A token ends when the pane's program or view ends, and a host MAY end it
@@ -757,9 +759,13 @@ the host's to choose.
 A host learns that the program ended from either of two sources and acts on
 whichever comes first:
 
-- the program's `bye` message, `reason` `exit`, `signal` or `error`; a program
-  library SHOULD send it on a normal exit and from its SIGINT and SIGTERM
-  handlers; it is best effort;
+- the program's `bye` message, `reason` `exit`, `signal` or `error`, carrying the
+  `token` the view was opened with; a program library SHOULD send it on a normal exit and
+  from its SIGINT and SIGTERM handlers; it is best effort. A host ignores a `bye` that has
+  no `token`, or another token than the one that opened the view that is opening, open or
+  closing, and a `bye` that arrives when no view is: whoever can write the stream can send
+  one, only the program that read its token can send this one (Section 14), and a program
+  that opened no view has no `bye` to send, the host's own observation (below) covers it;
 - the host's own observation where it has one: shell integration reports the
   command finished (OSC 133 `D`), the tty's foreground process group changed, or the
   stream ended.
@@ -773,7 +779,7 @@ person close a view regardless. After the program has ended the host does not
 write frames (Section 4.8).
 
 ```frame fixtures/to-host/bye.frame
-<ESC>_pencere;bye;id=6;{"reason":"signal"}<ESC>\
+<ESC>_pencere;bye;id=6;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","reason":"signal"}<ESC>\
 ```
 
 ### 10.4 Interrupt
@@ -950,6 +956,12 @@ limit how often that happens.
 is worthless. An open that fails because of a wrong token leaves the outstanding token
 alone, so a hostile stream cannot use up the token of the program that is running.
 
+**Ending a view.** `bye` needs no answer, so a stream anyone can write could send it; it
+carries the token that opened the view, which that stream cannot read, and a `bye` without
+it or with another is ignored (Section 10.3). A stream that cannot open a view cannot close
+the view of the program that is running either. The token is the view's identity while it
+lives, not a secret that outlasts it: a host forgets it when the view has closed.
+
 **Bundles.** A file is kept only under the digest it was verified to have, and only if
 it was asked for, so a stream cannot fill the store with files nobody asked for or put a file
 under a digest it does not match. Paths are a closed grammar and the host serves only
@@ -1037,6 +1049,7 @@ interface Closed {
 }
 
 interface Bye {
+  token: string; // the token the view was opened with (Section 10.3)
   reason?: "exit" | "signal" | "error";
 }
 ```
@@ -1150,7 +1163,7 @@ number each side's messages.
 ```
 
 ```frame fixtures/to-host/bye.frame
-<ESC>_pencere;bye;id=6;{"reason":"signal"}<ESC>\
+<ESC>_pencere;bye;id=6;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","reason":"signal"}<ESC>\
 ```
 
 ## Appendix D. References

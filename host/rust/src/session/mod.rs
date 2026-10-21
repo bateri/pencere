@@ -387,6 +387,10 @@ pub struct Session<S: Store, E: Entropy> {
     view_rpc: i64,
     links: u32,
     token: Option<Token>,
+    /// The token the view that is opening, open or closing was opened with. The
+    /// `open` spends it, and it stays the view's identity until the view has
+    /// closed: the program's `bye` is believed only with it (§10.3).
+    view_token: Option<Token>,
     /// The outstanding token came with an unsolicited `welcome` (§10.7).
     restart_offer: bool,
     /// A restart is to follow the close that is running.
@@ -415,6 +419,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             view_rpc: 1,
             links: 0,
             token: None,
+            view_token: None,
             restart_offer: false,
             restart_after: false,
             ended: false,
@@ -504,6 +509,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
     pub fn program_ended(&mut self) {
         self.ended = true;
         self.token = None;
+        self.view_token = None;
         self.restart_offer = false;
         self.restart_after = false;
         self.close(Cause::Program, None);
@@ -797,7 +803,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             return;
         }
         // Spent by the first open that carries it, whatever comes of it.
-        self.token = None;
+        let spent = self.token.take();
         self.restart_offer = false;
         if !matches!(self.phase, Phase::Idle) {
             self.refuse(message.id, "busy");
@@ -848,6 +854,9 @@ impl<S: Store, E: Entropy> Session<S, E> {
             }
         }
         let waiting = matches!(stage, Stage::Files(_));
+        // The view is the one this token opened. A refused open, a busy one
+        // above all, has left the token of the view that runs where it was.
+        self.view_token = spent;
         self.phase = Phase::Opening(Box::new(Opening {
             open: message.id,
             tool: body.tool,
@@ -901,12 +910,24 @@ impl<S: Store, E: Entropy> Session<S, E> {
         }
     }
 
+    /// The program ended, if it says so with the token that opened the view. The
+    /// stream may be written by anyone and `bye` has no answer to read, so a
+    /// `bye` that carries no token, another token, or arrives when no view is
+    /// opening, open or closing, changes nothing (§10.3, §14).
     fn on_bye(&mut self, message: &Message) {
-        if crate::json::from_object::<Bye>(&message.payload).is_none() {
+        let Some(bye) = crate::json::from_object::<Bye>(&message.payload) else {
             self.ignored();
             return;
+        };
+        let believed = match (&self.view_token, &bye.token) {
+            (Some(opened), Some(presented)) => opened.matches(presented),
+            _ => false,
+        };
+        if believed {
+            self.program_ended();
+        } else {
+            self.ignored();
         }
-        self.program_ended();
     }
 
     // ---- writing ---------------------------------------------------------
@@ -1077,6 +1098,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             }
         }
         self.token = None;
+        self.view_token = None;
         self.restart_offer = false;
         if cause == Cause::Program {
             self.ended = true;

@@ -1,7 +1,7 @@
 {
   "protocol": 1,
   "tokens": {
-    "issued": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"]
+    "issued": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg", "Hn5xQ2wTj8Vb0YcLrE4aMg"]
   },
   "decode": [
     {
@@ -139,7 +139,7 @@
     {
       "file": "to-host/bye.frame",
       "direction": "to-host",
-      "note": "bye after SIGINT",
+      "note": "bye after SIGINT, carrying the token the view was opened with",
       "scope": "body",
       "canonical": true,
       "messages": [
@@ -147,7 +147,7 @@
           "kind": "bye",
           "id": 6,
           "control": {},
-          "payload": "{\"reason\":\"signal\"}"
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"reason\":\"signal\"}"
         }
       ],
       "errors": []
@@ -602,6 +602,40 @@
       "errors": []
     },
     {
+      "file": "to-program/noise-around.frame",
+      "direction": "to-program",
+      "note": "a welcome with a typed escape sequence and another protocol's string before it, and the terminal's answer to CSI c and typed text after",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [
+        {
+          "kind": "welcome",
+          "id": 1,
+          "control": {
+            "re": "1"
+          },
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\"]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/noise-between-chunks.frame",
+      "direction": "to-program",
+      "note": "the chunks of one message with the terminal's answer to CSI c and typed text between them: a host may let a keystroke through between frames",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 4,
+          "control": {},
+          "payload": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"stop_container\",\"arguments\":{\"id\":\"c3\",\"reason\":\"Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue.\"}}}"
+        }
+      ],
+      "errors": []
+    },
+    {
       "file": "to-program/limit-frame.frame",
       "direction": "to-program",
       "note": "a frame of exactly 511 bytes is accepted",
@@ -943,6 +977,68 @@
         },
         {
           "out": "session/bundle-path-escape/04-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "bye-needs-the-token",
+      "note": "a bye ends the view only with the token that opened it; the open that is busy does not take that token's place",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg", "Hn5xQ2wTj8Vb0YcLrE4aMg"],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/bye-needs-the-token/01-in.frame"
+        },
+        {
+          "out": "session/bye-needs-the-token/02-out.frame"
+        },
+        {
+          "in": "session/bye-needs-the-token/03-in.frame"
+        },
+        {
+          "out": "session/bye-needs-the-token/04-out.frame"
+        },
+        {
+          "in": "session/bye-needs-the-token/05-in.frame"
+        },
+        {
+          "out": null
+        },
+        {
+          "in": "session/bye-needs-the-token/07-in.frame"
+        },
+        {
+          "out": "session/bye-needs-the-token/08-out.frame"
+        },
+        {
+          "in": "session/bye-needs-the-token/09-in.frame"
+        },
+        {
+          "out": "session/bye-needs-the-token/10-out.frame"
+        },
+        {
+          "in": "session/bye-needs-the-token/11-in.frame"
+        },
+        {
+          "out": null
+        },
+        {
+          "in": "session/bye-needs-the-token/13-in.frame"
+        },
+        {
+          "out": "session/bye-needs-the-token/14-out.frame"
+        },
+        {
+          "in": "session/bye-needs-the-token/15-in.frame"
+        },
+        {
+          "out": "session/bye-needs-the-token/16-out.frame"
         }
       ]
     }

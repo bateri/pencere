@@ -48,7 +48,7 @@ fn run(session: &Value, how: impl Fn(usize) -> Feed) {
     let manifest_session = session;
     let mut host = common::session_of(
         &manifest_session["config"],
-        &common::manifest()["tokens"]["issued"],
+        &manifest_session["config"]["tokens"],
     );
     for (index, step) in steps(manifest_session).iter().enumerate() {
         match how(index) {
@@ -88,7 +88,7 @@ fn run(session: &Value, how: impl Fn(usize) -> Feed) {
 fn every_session_gives_the_bytes_the_fixtures_name() {
     let manifest = common::manifest();
     let sessions = manifest["session"].as_array().unwrap();
-    assert_eq!(sessions.len(), 9);
+    assert_eq!(sessions.len(), 10);
     for session in sessions {
         run(session, |_| Feed::Whole);
         run(session, |_| Feed::OneByOne);

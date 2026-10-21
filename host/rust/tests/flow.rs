@@ -222,6 +222,14 @@ fn open_payload(token: &str, bundle: Option<Value>) -> String {
     pencere::json::to_wire(&value).unwrap()
 }
 
+/// The payload of a `bye` with the given token, as a program writes it.
+fn bye(token: Option<&str>) -> String {
+    match token {
+        Some(token) => json!({"token": token, "reason": "signal"}).to_string(),
+        None => r#"{"reason":"signal"}"#.to_owned(),
+    }
+}
+
 fn send_file(rig: &mut Rig, body: &str) {
     let digest = Digest::of(body.as_bytes()).to_string();
     rig.send(
@@ -620,7 +628,7 @@ fn the_program_ending_tears_the_view_down_and_nothing_is_written_to_it() {
     let mut rig = running(None);
     view_handshake(&mut rig, true);
     rig.take();
-    rig.send("bye", None, None, r#"{"reason":"signal"}"#);
+    rig.send("bye", None, None, &bye(Some(TOKENS[0])));
     let (wrote, acted) = rig.take();
     assert!(wrote.is_empty(), "{wrote:?}");
     // The view is told, and given the time to answer. The call of the tool is still out.
@@ -648,6 +656,121 @@ fn the_program_ending_tears_the_view_down_and_nothing_is_written_to_it() {
     let token = rig.hello();
     assert_eq!(token, TOKENS[1]);
     assert_eq!(rig.host.state(), State::Offered);
+}
+
+#[test]
+fn a_bye_ends_the_view_only_with_the_token_that_opened_it() {
+    // The view runs; the token that opened it is TOKENS[0].
+    let mut rig = running(None);
+    view_handshake(&mut rig, true);
+    rig.take();
+    for payload in [
+        bye(None),
+        bye(Some(TOKENS[1])),
+        bye(Some("AAAAAAAAAAAAAAAAAAAAAA")),
+        r#"{"token":7}"#.to_owned(),
+        r#"{"token":["q7Vh2sB0xJm9kLw4TzN1cA"]}"#.to_owned(),
+        "[]".to_owned(),
+        "not json".to_owned(),
+    ] {
+        rig.send("bye", None, None, &payload);
+        let (wrote, acted) = rig.take();
+        assert!(wrote.is_empty() && acted.is_empty(), "{payload}");
+        assert_eq!(rig.host.state(), State::Open, "{payload}");
+    }
+    // A hello is answered with a new token while the view runs. That token is the
+    // pane's next offer and not the view's, and an open with it, which is busy,
+    // does not take the place of the token that opened the view.
+    let offered = rig.hello();
+    assert_eq!(offered, TOKENS[1]);
+    rig.send("bye", None, None, &bye(Some(&offered)));
+    assert!(rig.take().1.is_empty());
+    assert_eq!(rig.host.state(), State::Open);
+    rig.send("open", None, None, &open_payload(&offered, None));
+    let (wrote, _) = rig.take();
+    assert_eq!(wrote[0].kind, "closed");
+    assert!(wrote[0].payload.contains("busy"), "{wrote:?}");
+    assert_eq!(rig.host.state(), State::Open);
+    // The token that opened it ends it.
+    rig.send("bye", None, None, &bye(Some(TOKENS[0])));
+    let (wrote, acted) = rig.take();
+    assert!(wrote.is_empty());
+    assert_eq!(rig.host.state(), State::Closing);
+    let teardown = acted
+        .iter()
+        .find_map(|a| match a {
+            Action::ToView(text) => {
+                let value: Value = serde_json::from_str(text).unwrap();
+                (value["method"] == "ui/resource-teardown").then_some(value)
+            }
+            _ => None,
+        })
+        .expect("a teardown");
+    rig.view(&json!({"jsonrpc": "2.0", "id": teardown["id"], "result": {}}));
+    assert_eq!(rig.host.state(), State::Ended);
+    // The view is gone and so is its token: the same `bye` is no one's now.
+    rig.send("bye", None, None, &bye(Some(TOKENS[0])));
+    assert!(rig.take().0.is_empty());
+}
+
+#[test]
+fn a_bye_when_no_view_is_opening_or_open_changes_nothing() {
+    let mut rig = Rig::new();
+    // Nothing yet.
+    rig.send("bye", None, None, &bye(Some(TOKENS[0])));
+    assert_eq!(rig.host.state(), State::Idle);
+    // A token is offered and not used: the token of the offer is not a view's.
+    let token = rig.hello();
+    rig.send("bye", None, None, &bye(Some(&token)));
+    assert_eq!(rig.host.state(), State::Offered);
+    // The offer still opens a view.
+    rig.send("open", None, None, &open_payload(&token, None));
+    assert_eq!(rig.host.state(), State::Opening);
+}
+
+#[test]
+fn a_bye_ends_an_open_that_is_still_waiting_for_files_and_one_that_is_closing() {
+    let mut rig = Rig::new();
+    let token = rig.hello();
+    rig.send(
+        "open",
+        None,
+        None,
+        &open_payload(&token, Some(bundle(None))),
+    );
+    rig.take();
+    assert_eq!(rig.host.state(), State::Opening);
+    rig.send("bye", None, None, &bye(None));
+    assert_eq!(rig.host.state(), State::Opening);
+    rig.send("bye", None, None, &bye(Some(&token)));
+    let (wrote, acted) = rig.take();
+    assert!(wrote.is_empty() && acted.is_empty(), "{wrote:?} {acted:?}");
+    assert_eq!(rig.host.state(), State::Ended);
+
+    // A view being closed by the person: the program's `bye` with its token
+    // still counts, and nothing is written when the teardown ends.
+    let mut rig = running(None);
+    view_handshake(&mut rig, true);
+    rig.take();
+    rig.host.close_view();
+    assert_eq!(rig.host.state(), State::Closing);
+    let (_, acted) = rig.take();
+    let teardown = acted
+        .iter()
+        .find_map(|a| match a {
+            Action::ToView(text) => {
+                let value: Value = serde_json::from_str(text).unwrap();
+                (value["method"] == "ui/resource-teardown").then_some(value)
+            }
+            _ => None,
+        })
+        .expect("a teardown");
+    rig.send("bye", None, None, &bye(Some(TOKENS[1])));
+    rig.send("bye", None, None, &bye(Some(TOKENS[0])));
+    rig.view(&json!({"jsonrpc": "2.0", "id": teardown["id"], "result": {}}));
+    let (wrote, _) = rig.take();
+    assert!(wrote.is_empty(), "{wrote:?}");
+    assert_eq!(rig.host.state(), State::Ended);
 }
 
 #[test]
@@ -1455,6 +1578,8 @@ fn a_session_survives_any_order_of_messages_and_only_ever_writes_frames_a_tty_ma
     let mut visited = std::collections::HashSet::new();
     for round in 0..400 {
         let mut rig = Rig::new();
+        // The token of the last open the program wrote, for a `bye` that says whose it is.
+        let mut opened = String::new();
         for _ in 0..80 {
             let token = TOKENS[dice.below(TOKENS.len())];
             match dice.below(26) {
@@ -1470,6 +1595,7 @@ fn a_session_survives_any_order_of_messages_and_only_ever_writes_frames_a_tty_ma
                         .unwrap_or_else(|| token.to_owned());
                     let payload = open_payload(&token, with_bundle.then(|| bundle(None)));
                     rig.send("open", None, None, &payload);
+                    opened = token;
                 }
                 4..=6 => {
                     let n = dice.below(3);
@@ -1483,7 +1609,12 @@ fn a_session_survives_any_order_of_messages_and_only_ever_writes_frames_a_tty_ma
                     rig.send("file", None, Some(&digests[n]), &payload);
                 }
                 7 => {
-                    rig.send("bye", None, None, "{}");
+                    let payload = match dice.below(3) {
+                        0 => "{}".to_owned(),
+                        1 => bye(Some(token)),
+                        _ => bye(Some(&opened)),
+                    };
+                    rig.send("bye", None, None, &payload);
                 }
                 8..=12 => {
                     // Answer the oldest request the host has out, the way a program does.

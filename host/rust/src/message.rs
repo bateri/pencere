@@ -120,8 +120,17 @@ fn wire<T: Serialize>(value: &T) -> String {
 /// The program's `bye`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Bye {
+    /// The token the view was opened with (specification §10.3). Absent, or not a
+    /// string, it cannot match anything: the `bye` is ignored.
+    #[serde(default, deserialize_with = "string_or_none")]
+    pub token: Option<String>,
     /// `exit`, `signal` or `error`, when it says.
     pub reason: Option<String>,
+}
+
+/// A member that is a string, or absent, or anything else, which reads as absent.
+fn string_or_none<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
+    Ok(MaybeString::deserialize(deserializer)?.0)
 }
 
 // ---- open ------------------------------------------------------------------
