@@ -76,14 +76,15 @@ fn open(size: Size) -> io::Result<(File, OwnedFd)> {
         ws_ypixel: 0,
     };
     // SAFETY: both descriptor out-pointers are valid, the name and the termios
-    // are null, and the winsize outlives the call.
+    // are null, and the winsize outlives the call. The winsize goes as a raw
+    // pointer because macOS declares it `*mut` and Linux `*const`.
     check(unsafe {
         libc::openpty(
             &mut master,
             &mut slave,
             ptr::null_mut(),
             ptr::null_mut(),
-            &mut winsize,
+            &raw mut winsize,
         )
     })?;
     // SAFETY: openpty returned two fresh descriptors that nothing else owns.
