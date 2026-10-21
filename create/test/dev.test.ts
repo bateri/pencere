@@ -48,6 +48,7 @@ ${body}
      if (process.env.FAIL_VITE) process.exit(1);
      // A rebuild, after a change: it can fail, or be ended by a signal (^C reaches it with the rest).
      const builds = readFileSync(calls, "utf8").split("\\n").filter((l) => l.startsWith("vite ")).length;
+     if (builds >= 2) writeFileSync(${JSON.stringify(join(dir, "rebuild.pid"))}, String(process.pid));
      if (builds >= 2 && process.env.VITE_REBUILD === "fail") process.exit(1);
      if (builds >= 2 && process.env.VITE_REBUILD === "signal") process.kill(process.pid, "SIGINT");
      mkdirSync(${JSON.stringify(join(dir, "dist/view"))}, { recursive: true });
@@ -58,15 +59,22 @@ ${body}
     `mkdirSync(${JSON.stringify(join(dir, "dist/server"))}, { recursive: true });
      writeFileSync(${JSON.stringify(join(dir, "dist/server/main.js"))}, "");`,
   );
-  // pencere dev stays up until the view has been built a second time, which is the rebuild, and
-  // then, for as long as the test says, a while longer: it takes the view down before it ends.
+  // pencere dev stays up until the rebuild has ended, and then, for as long as the test says, a
+  // while longer: it takes the view down before it ends. The rebuild has ended once its process is
+  // gone, which is after the script has reaped it and seen how it ended; that it has started is
+  // not enough, since the script stops a build still running when pencere ends.
   if (options.pencere !== false)
     await standIn(
       "pencere",
       `const deadline = Date.now() + 15000;
+       const ended = () => {
+         let pid = 0;
+         try { pid = Number(readFileSync(${JSON.stringify(join(dir, "rebuild.pid"))}, "utf8")); } catch {}
+         if (!(pid > 0)) return false;
+         try { process.kill(pid, 0); return false; } catch { return true; }
+       };
        (function wait() {
-         const built = readFileSync(calls, "utf8").split("\\n").filter((l) => l.startsWith("vite ")).length;
-         if (built >= 2) return setTimeout(() => process.exit(7), Number(process.env.PENCERE_LINGER ?? 0));
+         if (ended()) return setTimeout(() => process.exit(7), Number(process.env.PENCERE_LINGER ?? 0));
          if (Date.now() > deadline) process.exit(99);
          setTimeout(wait, 20);
        })();`,
