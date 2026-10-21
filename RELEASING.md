@@ -63,12 +63,13 @@ never moved; a broken release is followed by a new version.
 - a branch other than `main`, a working tree that is not clean, a `main` that has diverged from
   `origin/main`;
 - a tag that already exists, here or on `origin`;
-- a package without its `LICENSE` (byte for byte the repository's), `README.md`,
+- a package without its `LICENSE` and `NOTICE` (byte for byte the repository's), `README.md`,
   `CHANGELOG.md` or entry point, or one that carries tests. The npm package is checked from
   `npm pack`, which runs its clean build first. The crate is checked from `cargo package` and
   `cargo publish --dry-run`.
 
-`make check` compares the `LICENSE` copies at every run, so they cannot drift between releases.
+`make check` compares the `LICENSE` and `NOTICE` copies at every run, so they cannot drift between
+releases.
 
 ## A line's first release
 

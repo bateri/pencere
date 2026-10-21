@@ -29,8 +29,16 @@ const LINES = {
 
 /** The files a package must carry, beyond what its manager adds by itself. */
 const REQUIRED = {
-  npm: ["LICENSE", "README.md", "CHANGELOG.md", "package.json", "dist/index.js", "dist/index.d.ts"],
-  cargo: ["LICENSE", "README.md", "CHANGELOG.md", "Cargo.toml", "src/lib.rs"],
+  npm: [
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "CHANGELOG.md",
+    "package.json",
+    "dist/index.js",
+    "dist/index.d.ts",
+  ],
+  cargo: ["LICENSE", "NOTICE", "README.md", "CHANGELOG.md", "Cargo.toml", "src/lib.rs"],
 };
 
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?$/;
@@ -221,11 +229,12 @@ function check(name) {
   if (run("git", ["ls-remote", "--tags", "origin", `refs/tags/${tag}`]) !== "") {
     refuse(`the tag ${tag} exists on origin`);
   }
-  if (
-    readFileSync(join(root, line.dir, "LICENSE"), "utf8") !==
-    readFileSync(join(root, "LICENSE"), "utf8")
-  ) {
-    refuse(`${line.dir}/LICENSE is not the repository's LICENSE`);
+  for (const name of ["LICENSE", "NOTICE"]) {
+    if (
+      readFileSync(join(root, line.dir, name), "utf8") !== readFileSync(join(root, name), "utf8")
+    ) {
+      refuse(`${line.dir}/${name} is not the repository's ${name}`);
+    }
   }
 
   const files = contents(line);

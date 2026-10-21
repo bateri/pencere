@@ -26,7 +26,8 @@
   "files": [
     "dist",
     "src",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "NOTICE"
   ],
   "scripts": {
     "prepack": "rm -rf dist tsconfig.tsbuildinfo && tsc -b"

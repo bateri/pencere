@@ -13,7 +13,7 @@ keywords = ["mcp", "mcp-apps", "terminal", "pencere"]
 categories = ["parser-implementations"]
 # The tests read the specification's fixtures from the repository, outside the crate,
 # so the package carries the library and what a reader of it needs, not the tests.
-include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

@@ -43,4 +43,5 @@ crates.io yet; how a package is released is in [RELEASING.md](RELEASING.md).
 
 Apache-2.0 — see [LICENSE](LICENSE). The specification, the libraries and the tools are
 all under it, so any terminal or tool, open or closed, can implement the protocol or embed
-this code.
+this code. Copyright belongs to the pencere Authors ([NOTICE](NOTICE), [AUTHORS](AUTHORS)):
+everyone who contributes keeps the copyright of their contribution.

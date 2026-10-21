@@ -17,7 +17,7 @@ fmt:
 check:
 	@test -d node_modules || { echo "check: node_modules is missing, run 'make setup' first"; exit 1; }
 	node tools/check-spec.mjs
-	@for copy in sdk/typescript/LICENSE host/rust/LICENSE; do cmp -s LICENSE $$copy || { echo "check: $$copy is not the repository's LICENSE"; exit 1; }; done
+	@for name in LICENSE NOTICE; do for dir in sdk/typescript host/rust; do cmp -s $$name $$dir/$$name || { echo "check: $$dir/$$name is not the repository's $$name"; exit 1; }; done; done
 	npx tsc -b
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
