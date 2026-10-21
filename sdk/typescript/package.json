@@ -1,6 +1,6 @@
 {
   "name": "@pencere/sdk",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Show an MCP App view in the terminal pane your MCP server runs in",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bateri/pencere/tree/main/sdk/typescript#readme",

@@ -6,6 +6,8 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-21
+
 ### Added
 
 - `serve`: run an MCP server as a pencere program — ask the terminal for a host, open the
