@@ -15,6 +15,7 @@ mod common;
 use pencere::base64;
 use pencere::bundle::{Digest, MemoryStore, Store, Verified};
 use pencere::frame::{Direction, Event, Ids, Message, Outgoing, Split, StreamDecoder, encode};
+use pencere::icon::{self, Icon, IconFormat, IconTheme};
 use pencere::jsonrpc::Id;
 use pencere::message::HostInfo;
 use pencere::sandbox::Grant;
@@ -2429,7 +2430,7 @@ fn what_the_program_wrote_is_cut_and_cleaned_before_the_terminal_has_it() {
 }
 
 #[test]
-fn the_names_reach_the_terminal_whichever_way_the_view_is_started() {
+fn the_names_and_the_icons_reach_the_terminal_whichever_way_the_view_is_started() {
     // After the person has been asked.
     let meta = json!({"csp": {"connectDomains": ["https://api.example.com"]}});
     let mut rig = Rig::new();
@@ -2445,10 +2446,11 @@ fn the_names_reach_the_terminal_whichever_way_the_view_is_started() {
         send_file(&mut rig, body);
     }
     let tools = json!([{"name": "list_containers", "title": "Containers",
+        "icons": [{"src": png_uri(16)}],
         "_meta": {"ui": {"resourceUri": "ui://containers/view"}}}]);
     let actions = start_up_as(
         &mut rig,
-        json!({"title": "Container Manager"}),
+        json!({"title": "Container Manager", "icons": [{"src": png_uri(32)}]}),
         tools.clone(),
     );
     let [Action::Consent(consent)] = actions.as_slice() else {
@@ -2459,12 +2461,18 @@ fn the_names_reach_the_terminal_whichever_way_the_view_is_started() {
     let start = view_started(&acted);
     assert_eq!(start.title.as_deref(), Some("Containers"));
     assert_eq!(start.program.as_deref(), Some("Container Manager"));
+    assert_eq!(widths(&start.tool_icons), [16]);
+    assert_eq!(widths(&start.program_icons), [32]);
 
     // After the program has been asked for the document.
     let mut rig = Rig::new();
     let token = rig.hello();
     rig.send("open", None, None, &open_payload(&token, None));
-    start_up_as(&mut rig, json!({"name": "containers"}), tools);
+    start_up_as(
+        &mut rig,
+        json!({"name": "containers", "icons": [{"src": png_uri(32)}]}),
+        tools,
+    );
     let read = rig.msgs();
     rig.json(
         &json!({"jsonrpc": "2.0", "id": read[0]["id"], "result": {"contents": [{
@@ -2475,6 +2483,70 @@ fn the_names_reach_the_terminal_whichever_way_the_view_is_started() {
     let start = view_started(&acted);
     assert_eq!(start.title.as_deref(), Some("Containers"));
     assert_eq!(start.program.as_deref(), Some("containers"));
+    assert_eq!(widths(&start.tool_icons), [16]);
+    assert_eq!(widths(&start.program_icons), [32]);
+}
+
+// ---- what the terminal is given to draw beside the names --------------------------
+
+/// A PNG `side` pixels a side, as a `data:` URI: its signature, its header and an
+/// empty image data chunk, which is as much of it as the host reads.
+fn png_uri(side: u32) -> String {
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut header = [side.to_be_bytes(), side.to_be_bytes()].concat();
+    header.extend([8, 6, 0, 0, 0]);
+    for (kind, data) in [(b"IHDR", header), (b"IDAT", Vec::new())] {
+        bytes.extend(u32::try_from(data.len()).unwrap().to_be_bytes());
+        bytes.extend(kind);
+        bytes.extend(data);
+        bytes.extend([0; 4]);
+    }
+    format!("data:image/png;base64,{}", base64::encode(&bytes))
+}
+
+fn widths(icons: &[Icon]) -> Vec<u32> {
+    icons.iter().map(|icon| icon.width).collect()
+}
+
+#[test]
+fn a_view_starts_with_the_icons_of_its_tool_and_of_the_program() {
+    let start = started_with(
+        json!({"name": "containers", "icons": [
+            {"src": png_uri(64), "mimeType": "image/png", "sizes": ["64x64"], "theme": "dark"},
+            {"src": png_uri(48), "theme": "light"}]}),
+        json!({"title": "Containers", "icons": [{"src": png_uri(24)}]}),
+    );
+    let [tool] = start.tool_icons.as_slice() else {
+        panic!("{:?}", start.tool_icons)
+    };
+    assert_eq!(
+        (tool.format, tool.width, tool.height, tool.theme),
+        (IconFormat::Png, 24, 24, None)
+    );
+    assert_eq!(widths(&start.program_icons), [64, 48]);
+    // The terminal chooses for its background.
+    let light = icon::pick(&start.program_icons, false, 32).unwrap();
+    assert_eq!((light.width, light.theme), (48, Some(IconTheme::Light)));
+    let dark = icon::pick(&start.program_icons, true, 32).unwrap();
+    assert_eq!((dark.width, dark.theme), (64, Some(IconTheme::Dark)));
+}
+
+#[test]
+fn an_icon_the_host_does_not_take_is_left_out_and_the_view_starts_without_it() {
+    // One to fetch, one that could run script, one of a list the program got wrong.
+    let start = started_with(
+        json!({"name": "containers", "icons": [
+            {"src": "https://example.com/icon.png", "mimeType": "image/png"},
+            {"src": "data:image/svg+xml;base64,PHN2Zy8+"}]}),
+        json!({"title": "Containers", "icons": "icon.png"}),
+    );
+    assert_eq!(start.title.as_deref(), Some("Containers"));
+    assert_eq!(start.program.as_deref(), Some("containers"));
+    assert!(start.tool_icons.is_empty(), "{:?}", start.tool_icons);
+    assert!(start.program_icons.is_empty(), "{:?}", start.program_icons);
+    // And without any, as before icons were read.
+    let start = started_with(json!({"name": "containers"}), json!({}));
+    assert!(start.tool_icons.is_empty() && start.program_icons.is_empty());
 }
 
 // ---- what the person is told the question is about ------------------------------

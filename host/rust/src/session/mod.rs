@@ -41,6 +41,7 @@ use crate::frame::{
     BodyDecoder, DecodeError, Direction, Event, Ids, Message, Outgoing, Split, StreamDecoder,
     encode,
 };
+use crate::icon::Icon;
 use crate::jsonrpc::Id;
 use crate::message::{
     self, Bye, Dismiss, FEATURE_BUNDLE, FEATURE_DISMISS, Hello, HostInfo, OpenBody, Reason,
@@ -220,6 +221,20 @@ pub struct ViewStart {
     /// result, else `serverInfo.name`. `None` when it says neither. Cut and
     /// cleaned as [`title`](Self::title) is.
     pub program: Option<String>,
+    /// The icons the program gives for the tool: its `icons` in `tools/list`
+    /// (MCP 2025-11-25 § icons), those the [`icon`](crate::icon) module takes, in
+    /// the program's order. Empty when it gives none. [`icon::pick`](crate::icon::pick)
+    /// chooses one for the terminal's background and the size it draws at.
+    ///
+    /// Like the names, they are for the terminal's own chrome, beside
+    /// [`title`](Self::title). [`Consent`] has none of them: a question the terminal
+    /// asks in its own name must not carry a picture the program chose, which could
+    /// pass for the terminal's own or for another application's.
+    pub tool_icons: Vec<Icon>,
+    /// The icons the program gives for itself: `serverInfo.icons` of its MCP
+    /// `initialize` result, taken as [`tool_icons`](Self::tool_icons) are, beside
+    /// [`program`](Self::program).
+    pub program_icons: Vec<Icon>,
 }
 
 /// What the session asks the terminal to do. Actions come in the order they must
@@ -317,6 +332,8 @@ struct Found {
     uri: String,
     title: Option<String>,
     program: Option<String>,
+    tool_icons: Vec<Icon>,
+    program_icons: Vec<Icon>,
 }
 
 enum Stage {
@@ -357,6 +374,8 @@ struct Opening {
     stage: Stage,
     /// What the program calls itself, once its `initialize` has answered.
     program: Option<String>,
+    /// The icons the program gives for itself, once its `initialize` has answered.
+    program_icons: Vec<Icon>,
     /// The lists the program said it announces changes of, once its `initialize`
     /// has answered.
     announces: Announces,
@@ -675,6 +694,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             bundle,
             stage,
             program,
+            program_icons,
             announces,
         } = *open;
         let Stage::Consent {
@@ -691,6 +711,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 bundle,
                 stage,
                 program,
+                program_icons,
                 announces,
             }));
             return;
@@ -976,6 +997,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             bundle,
             stage,
             program: None,
+            program_icons: Vec::new(),
             announces: Announces::default(),
         }));
         if !waiting {

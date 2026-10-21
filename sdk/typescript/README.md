@@ -64,6 +64,21 @@ A bundle is for a view of many files. The server should also serve one self-cont
 document at the view's `ui://` resource, which is what an MCP Apps host that knows nothing
 of pencere reads.
 
+The terminal names the view as any MCP client would, from the server's own metadata: the
+tool's `title` and the server's `title` (else its `name`), and their `icons`. A terminal
+draws an icon only from the bytes it is given and never fetches one, so give it as a PNG,
+JPEG or WebP in a `data:` URI, small and not animated; an `https:` icon is shown by other
+clients and left out in the pane.
+
+```ts
+const server = new McpServer({
+  name: "containers",
+  title: "Containers",
+  version: "1.0.0",
+  icons: [{ src: "data:image/png;base64,iVBORw0KGgo…", mimeType: "image/png" }],
+});
+```
+
 ## Versions
 
 This release speaks version 1 of the pencere wire, which is still a draft: until the

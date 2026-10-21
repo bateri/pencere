@@ -18,6 +18,14 @@ import { z } from "zod";
 
 export const VIEW_URI = "ui://containers/view";
 
+/**
+ * Three stacked containers, 64 pixels a side, as a PNG in a `data:` URI. A
+ * terminal draws an icon only from the bytes it is given and never fetches one,
+ * so an `https:` icon would be shown by a chat client and not in the pane.
+ */
+export const ICON =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAy0lEQVR42u3YsQ3CMBBG4QzowhJTsIMrClgD0dEyAYUHSEXrUYwcKR1VSOP4e9JJVqr4j+zcvWkCAAD4QUg5hpRLSLl2Wu3d4z+brwepuCWAcqAAypYA6pFqtwBOt3c9P19LtfVQAbQNX+ZHvX7uS7V1LyHsEkD76uvm12rPBOAIuATHCWCk3+DwjdDYrfDwwxDAB/ABfAAfoBU2DBmHBeAIuAT5AD6AD+ADwAfwAXwAH8AH8AF8AB/AB/ABfAAfwAfwAXwAAAAAOucLnVucWIVm/igAAAAASUVORK5CYII=";
+
 /** Where the view's files are: `index.html`, `style.css` and `app.js`. */
 export const VIEW_DIRECTORY = new URL("../view/", import.meta.url);
 
@@ -78,7 +86,12 @@ export async function inlineDocument(directory: URL = VIEW_DIRECTORY): Promise<s
 
 /** The server, over `containers`; the tools change them in place. */
 export function createServer(containers: Container[] = sampleContainers()): McpServer {
-  const server = new McpServer({ name: "containers", version: "1.0.0" });
+  const server = new McpServer({
+    name: "containers",
+    version: "1.0.0",
+    // What a terminal draws beside the view's title, and a chat client beside the server.
+    icons: [{ src: ICON, mimeType: "image/png", sizes: ["64x64"] }],
+  });
 
   const listed = (text: string) => ({
     content: [{ type: "text" as const, text }],

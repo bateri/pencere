@@ -57,6 +57,19 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   it has just heard of; one reading is out at a time. A view that has not initialized hears
   nothing. The view's `ui/initialize` answer says `listChanged: true` under `serverTools` and
   `serverResources` for what the program announces.
+- `ViewStart::tool_icons` and `ViewStart::program_icons`, and the `icon` module (specification
+  §7.3): the icons the program gives for the tool (its MCP `icons` in `tools/list`) and for itself
+  (`serverInfo.icons`), so a terminal can draw them beside `title` and `program`. Only a base64
+  `data:` URI is read; an `https:` icon is never fetched, since fetching it would tell whoever
+  serves it who opened the program. The bytes are the program's and a terminal decodes them in its
+  own process, so an icon is kept only when its first bytes say PNG, JPEG or WebP (a `mimeType`
+  or media type naming another type rejects it), it is at most `MAX_ICON_BYTES` (64 KiB) and
+  `MAX_ICON_SIDE` (512) pixels a side by its header, and it is a still image; at most `MAX_ICONS`
+  (4) of the first `MAX_ICON_ENTRIES` (16) entries. Each `Icon` carries its format, size, MCP
+  `theme` and bytes, and `icon::pick` chooses one for the terminal's background and the size it
+  draws at. `Consent` has no icons: a question the terminal asks in its own name must not carry a
+  picture the program chose. An icon the session does not take does not stop the view. `ViewStart`
+  is not `#[non_exhaustive]`, so a terminal that builds one itself adds the two fields.
 - The view lists what the program has and gives up what it asked (§9.4): `resources/list`,
   `resources/templates/list` and `prompts/list` are forwarded like `tools/call`, and the view's
   `notifications/cancelled` reaches the program under the id the session gave the request, whose

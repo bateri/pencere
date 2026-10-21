@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use pencere::bundle::MemoryStore;
 use pencere::frame::{Direction, Event, Message, StreamDecoder};
+use pencere::icon::{Icon, IconTheme};
 use pencere::message::HostInfo;
 use pencere::sandbox::Grant;
 use pencere::session::{Action, Config, Observed, Session, Size, State, ViewSource, ViewStart};
@@ -395,6 +396,15 @@ impl Host {
                 said(&start.program)
             ),
         );
+        // And the pictures it would draw beside them, as the session took them.
+        log::line(
+            "view",
+            format!(
+                "icons tool={} program={}",
+                drawn(&start.tool_icons),
+                drawn(&start.program_icons)
+            ),
+        );
         log::line("view", format!("policy {}", start.policy));
         let mut view = ScriptedView::new(self.calls.clone());
         let reaction = view.start();
@@ -489,6 +499,24 @@ impl Host {
 fn said(text: &Option<String>) -> String {
     text.as_ref()
         .map_or("none".to_owned(), |t| format!("{t:?}"))
+}
+
+/// Icons the session took, as the record shows them (`png 32x32 dark`, comma
+/// separated); `none` when it took none.
+fn drawn(icons: &[Icon]) -> String {
+    if icons.is_empty() {
+        return "none".to_owned();
+    }
+    let one = |icon: &Icon| {
+        let format = icon.format.media_type().trim_start_matches("image/");
+        let theme = match icon.theme {
+            None => "",
+            Some(IconTheme::Light) => " light",
+            Some(IconTheme::Dark) => " dark",
+        };
+        format!("{format} {}x{}{theme}", icon.width, icon.height)
+    };
+    icons.iter().map(one).collect::<Vec<_>>().join(",")
 }
 
 /// A payload as JSON, if it is small enough to be worth reading.

@@ -25,6 +25,8 @@
 //! * [`sandbox`]: what a view declares, what the person is asked, and the
 //!   content security policy built from the answer.
 //! * [`theme`]: the terminal's look as MCP Apps styling.
+//! * [`icon`]: the icons a program gives for itself and its tools, as a
+//!   terminal may draw them.
 //! * [`token`]: the single-use token and the source of bytes it is made from.
 //! * [`base64`]: the two forms of base64 the wire uses.
 //!
@@ -37,6 +39,7 @@
 pub mod base64;
 pub mod bundle;
 pub mod frame;
+pub mod icon;
 pub mod json;
 pub mod jsonrpc;
 pub mod message;

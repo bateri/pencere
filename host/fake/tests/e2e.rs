@@ -164,6 +164,8 @@ fn a_tool_goes_from_the_question_to_the_interrupt() {
         // What the strip above the view says: the tool's title and the server's
         // name, where a terminal would otherwise show `list_containers` and `node`.
         r#"view: title="Containers" program="containers""#,
+        // The server's icon, a PNG in a `data:` URI; the tool gives none.
+        "view: icons tool=none program=png 64x64",
         "view: <- ui/initialize result: theme=dark displayMode=inline container=640x384 pane=true",
         "view: -> ui/notifications/initialized",
         "view: <- ui/notifications/tool-input",

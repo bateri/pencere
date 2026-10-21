@@ -12,6 +12,7 @@ use super::{
 use crate::base64;
 use crate::bundle::Store;
 use crate::frame::Message;
+use crate::icon::{self, Icon};
 use crate::jsonrpc::{self, Envelope, Id, Kind, METHOD_NOT_FOUND};
 use crate::message::{HostInfo, ToolCall};
 use crate::sandbox::{self, Grant, UiMeta};
@@ -100,6 +101,8 @@ struct ServerInfo {
     title: Option<Box<RawValue>>,
     #[serde(default)]
     name: Option<Box<RawValue>>,
+    #[serde(default)]
+    icons: Option<Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -109,6 +112,8 @@ struct ToolHead {
     title: Option<Box<RawValue>>,
     #[serde(default)]
     annotations: Option<Box<RawValue>>,
+    #[serde(default)]
+    icons: Option<Box<RawValue>>,
     #[serde(rename = "_meta", default)]
     meta: Option<ToolMeta>,
 }
@@ -273,13 +278,23 @@ fn label(text: &str) -> Option<String> {
     (!kept.is_empty()).then(|| kept.to_owned())
 }
 
-/// What the program calls itself: `serverInfo.title`, else `serverInfo.name`.
-fn program_name(envelope: &Envelope) -> Option<String> {
+/// The program's `serverInfo`, when its `initialize` result has one.
+fn server_info(envelope: &Envelope) -> Option<ServerInfo> {
     let result: InitializeResult = envelope.result_as()?;
-    let info: ServerInfo = crate::json::from_object(result.server_info?.get())?;
+    crate::json::from_object(result.server_info?.get())
+}
+
+/// What the program calls itself: `serverInfo.title`, else `serverInfo.name`.
+fn program_name(info: Option<&ServerInfo>) -> Option<String> {
+    let info = info?;
     [info.title.as_deref(), info.name.as_deref()]
         .into_iter()
         .find_map(|raw| as_text(raw).as_deref().and_then(label))
+}
+
+/// The icons the program gives for itself: `serverInfo.icons`.
+fn program_icons(info: Option<&ServerInfo>) -> Vec<Icon> {
+    icon::read(info.and_then(|info| info.icons.as_deref()))
 }
 
 /// The lists the program announces changes of: those of its capabilities whose
@@ -440,7 +455,9 @@ impl<S: Store, E: Entropy> Session<S, E> {
                     self.fail("mcp");
                     return;
                 }
-                open.program = program_name(envelope);
+                let info = server_info(envelope);
+                open.program = program_name(info.as_ref());
+                open.program_icons = program_icons(info.as_ref());
                 open.announces = announced(envelope);
                 let initialized = jsonrpc::notification("notifications/initialized", None::<()>);
                 let next = self.next_rpc();
@@ -538,6 +555,8 @@ impl<S: Store, E: Entropy> Session<S, E> {
                     uri,
                     title: head.title(),
                     program: open.program.clone(),
+                    tool_icons: icon::read(head.icons.as_deref()),
+                    program_icons: open.program_icons.clone(),
                 });
             }
             tools.push(ToolEntry {
@@ -673,6 +692,8 @@ impl<S: Store, E: Entropy> Session<S, E> {
             tool_label: label(&tool.name),
             title: found.title.clone(),
             program: found.program.clone(),
+            tool_icons: found.tool_icons.clone(),
+            program_icons: found.program_icons.clone(),
             meta: meta.clone(),
             grant: grant.clone(),
         };

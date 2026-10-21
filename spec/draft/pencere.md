@@ -97,7 +97,7 @@ tool checks that they match.
   Apps § Client\<\>Server Capability Negotiation).
 
 **Added by this document**: the transport (Section 4), the capability query
-(5), the token and the open request (6), the way a view is placed in a pane (7),
+(5), the token and the open request (6), the way a view is placed in a pane and named there (7),
 bundles (8), the mapping to an MCP session (9), including the program's progress
 passed to the view (9.6), the lifecycle of a view in a terminal (10), the terminal's context (11), consent for network access (12) and
 the fallback (13).
@@ -574,6 +574,45 @@ sends `ui/notifications/host-context-changed` with the new `containerDimensions`
 `ui/notifications/size-changed`, with which a view asks a host whose container follows
 its content to resize it (MCP Apps § Container Dimensions), changes nothing: the
 container is the pane, and its size is the person's.
+
+### 7.3 Names and icons
+
+A host names a view in its own chrome (a tab, the header of a pane, a list of panes), never
+inside the view's container (Section 7.2). What it draws there comes from the program's MCP
+session (Section 9.3) and not from a message of this document, so a program names itself
+and its tools to a terminal as it does to any other MCP client (MCP 2025-11-25):
+
+- the tool's name for people is its `title` in `tools/list`, else its `annotations.title`;
+  the program's is `serverInfo.title` of its `initialize` result, else `serverInfo.name`.
+  The program wrote them, so a host draws them as text, without control characters,
+  bidirectional overrides or invisible format characters, cut to a length of its choosing;
+- the icons are the tool's `icons` and `serverInfo.icons` (MCP 2025-11-25 § Basic → General
+  fields → `icons`).
+
+MCP asks a consumer of icons to treat their metadata and their bytes as untrusted, to fetch
+them without credentials and only from the server's origin, and to bound what they cost and
+what they can run. A terminal host does so by fetching nothing:
+
+- A host MUST NOT fetch an icon. It uses only an icon whose `src` is a `data:` URI with
+  base64 data (RFC 2397). The host draws on the person's machine, where a view has no
+  network unless the person allows it (Section 12.2), and a program at the other end of an
+  ssh connection has no origin an icon could be checked against: fetching an icon would tell
+  whoever serves it who opened the program, from where and when.
+- A host uses an icon only when its bytes are, by their own first bytes, an image of a type
+  it allows, and MUST NOT draw an SVG icon in a way that runs what it contains. A `mimeType`,
+  or a media type in the `data:` URI, that names another type than the bytes makes the icon
+  unusable (MCP: the media type is advisory, a mismatch is a reason to reject).
+- A host bounds an icon's bytes, its dimensions and its frames before it decodes the image.
+- A host MUST NOT draw a program's icon in a question it asks the person in its own name
+  (Section 12.2), where the picture could pass for the terminal's own or another
+  application's.
+- An icon the host does not use, and an `icons` member that is not a list of icons, are no
+  reason to refuse the view.
+
+The reference host (`host/rust` in this document's repository) takes PNG, JPEG and WebP, at
+most 64 KiB, at most 512 pixels a side and only a still image, at most four icons of the
+first sixteen entries of a list, and passes the tool's and the program's icons to the
+terminal apart, as it passes their names.
 
 ## 8. Bundles
 
@@ -1094,6 +1133,11 @@ without navigation, in an origin of its own, with its own requests audited as MC
 Security Implications requires. A view can still say anything on its own surface; the
 host's indication (Section 12.4) is how the person tells the terminal from a view.
 
+**Icons.** A program's icon is drawn in the terminal's chrome by the terminal's own image
+decoder. A host fetches none, so an icon cannot reveal who opened a program; it takes only
+images whose bytes it has checked and bounded; and it draws none in a question it asks in its
+own name (Section 7.3).
+
 **Resource use.** Frame, message and bundle limits (Sections 4.6, 8.2) bound what a
 receiver buffers; hosts SHOULD also limit how often one pane may ask (answers to `hello`,
 `open`).
@@ -1296,7 +1340,8 @@ number each side's messages.
 Normative:
 
 - BCP 14: RFC 2119 and RFC 8174.
-- RFC 4648, base64 and base64url. RFC 5234, ABNF. RFC 8259, JSON.
+- RFC 4648, base64 and base64url. RFC 5234, ABNF. RFC 8259, JSON. RFC 2397, the `data:` URL
+  scheme.
 - MCP Apps (SEP-1865), revision 2026-01-26:
   <https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx>
 
@@ -1311,7 +1356,8 @@ Informative:
   `PROBE_TIMEOUT` and `FENCE_TIMEOUT`).
 - The Model Context Protocol, revision 2025-11-25, the revision the host speaks as an MCP
   client (Section 9.3). Its sections named here: Lifecycle (the capabilities of `initialize`),
-  Cancellation and Progress (Sections 9.4 and 9.6):
+  Cancellation and Progress (Sections 9.4 and 9.6), Tools and Basic → General fields →
+  `icons` (Section 7.3):
   <https://modelcontextprotocol.io/specification/2025-11-25>
 - MCP Apps draft, `ui/notifications/request-teardown` (Section 10.6):
   <https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/draft/apps.mdx>
