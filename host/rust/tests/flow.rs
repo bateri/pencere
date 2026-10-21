@@ -1212,6 +1212,44 @@ fn a_hello_gets_a_new_token_and_is_answered_only_when_the_pane_looks_as_a_waitin
     rig.send("open", None, None, &open_payload(&token, None));
     assert!(rig.take().0.is_empty());
     assert_eq!(rig.host.state(), State::Offered);
+    // A refusal is written where an answer would be, so it is held to the same
+    // checks: a stream that only writes cannot have text typed into a shell by
+    // sending an `open` it has no token for.
+    for observed in [
+        Observed {
+            prompt_editing: true,
+            ..Observed::default()
+        },
+        Observed {
+            shell_in_foreground: Some(true),
+            ..Observed::default()
+        },
+        Observed {
+            tty_canonical_or_echo: Some(true),
+            ..Observed::default()
+        },
+    ] {
+        let mut rig = Rig::new();
+        rig.host.observe(observed);
+        rig.send(
+            "open",
+            None,
+            None,
+            &open_payload("AAAAAAAAAAAAAAAAAAAAAA", None),
+        );
+        assert!(rig.take().0.is_empty(), "{observed:?}");
+        // Seen to be fine, the same frame is refused as any other.
+        rig.host.observe(Observed::default());
+        rig.send(
+            "open",
+            None,
+            None,
+            &open_payload("AAAAAAAAAAAAAAAAAAAAAA", None),
+        );
+        let (wrote, _) = rig.take();
+        assert_eq!(wrote.len(), 1);
+        assert_eq!(wrote[0].kind, "closed");
+    }
     // A hello that shares no version is answered without a token.
     let mut rig = Rig::new();
     rig.send("hello", None, None, r#"{"versions":[2,3]}"#);

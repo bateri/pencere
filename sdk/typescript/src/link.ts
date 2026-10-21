@@ -86,6 +86,7 @@ export class Link {
   readonly #decoder: StreamDecoder;
   #queue: Promise<void> = Promise.resolve();
   #running = false;
+  #stopped = false;
   #failure: Error | undefined;
 
   readonly #onData = (chunk: Uint8Array | string): void => {
@@ -129,8 +130,14 @@ export class Link {
     this.#input.resume();
   }
 
-  /** Stops reading: nothing more is delivered, and the input is left paused. */
+  /**
+   * Stops reading: nothing more is delivered, and the input is left paused. What
+   * was queued and has not begun to be written is dropped: a program that stops
+   * is giving the terminal back, and a frame written after that would land on the
+   * screen it was just given.
+   */
   stop(): void {
+    this.#stopped = true;
     if (!this.#running) return;
     this.#running = false;
     this.#input.removeListener("data", this.#onData);
@@ -197,10 +204,21 @@ export class Link {
     const written = this.#queue.then(
       () =>
         new Promise<void>((resolve) => {
-          this.#output.write(bytes, (error) => {
-            if (error) this.#failure = error;
+          if (this.#stopped) {
             resolve();
-          });
+            return;
+          }
+          // A write to a stream that is gone may throw as well as report: neither
+          // is thrown at the program, and the queue goes on to its end.
+          try {
+            this.#output.write(bytes, (error) => {
+              if (error) this.#failure = error;
+              resolve();
+            });
+          } catch (error) {
+            this.#failure = error instanceof Error ? error : new Error(String(error));
+            resolve();
+          }
         }),
     );
     this.#queue = written;

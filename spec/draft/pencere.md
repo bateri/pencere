@@ -448,7 +448,10 @@ the token was spent by the first.
 
 The answer is written into the pane's input, where whatever reads the tty
 next takes it for typed characters (Section 14). A host SHOULD therefore answer
-only when what it can observe fits a program that is waiting for it:
+only when what it can observe fits a program that is waiting for it. The same
+holds for the refusal of an `open` whose token is not the outstanding one
+(Section 6.4): a stream anyone can write to can send that as easily as a
+`hello`, so where a `hello` would go unanswered such an `open` is ignored.
 
 - **Shell integration.** While the shell reports that a prompt is being edited
   (OSC 133 between the end of the prompt and the start of the command), a host

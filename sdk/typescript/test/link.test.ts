@@ -199,6 +199,36 @@ describe("what the link writes", () => {
     expect(output.writes.map(start)).toEqual(["\x1b[?1049l", "\x1b_pencere;by", "\x1b_pencere;ms"]);
   });
 
+  it("drops what was queued and has not begun to be written once it is stopped", async () => {
+    const output = new FakeOutput();
+    output.delay = 5;
+    const link = new Link(new FakeInput(), output, { message() {}, reply() {} });
+    link.start();
+    // The first write is under way; two more wait behind it.
+    link.send("msg", '{"a":1}');
+    link.send("msg", '{"b":2}');
+    void link.raw("\x1b[c");
+    await new Promise((resolve) => setImmediate(resolve));
+    link.stop();
+    await link.flush();
+    expect(output.writes).toHaveLength(1);
+    // A message sent after the stop goes nowhere either.
+    await link.send("msg", "{}").written;
+    expect(output.writes).toHaveLength(1);
+  });
+
+  it("survives an output that throws when it is written to", async () => {
+    const output = new FakeOutput();
+    output.write = () => {
+      throw new Error("EPIPE");
+    };
+    const link = new Link(new FakeInput(), output, { message() {}, reply() {} });
+    await link.send("msg", "{}").written;
+    await link.send("msg", "{}").written;
+    await link.flush();
+    expect(link.failure?.message).toBe("EPIPE");
+  });
+
   it("refuses a message a frame cannot carry and queues nothing", () => {
     const output = new FakeOutput();
     const link = new Link(new FakeInput(), output, { message() {}, reply() {} });

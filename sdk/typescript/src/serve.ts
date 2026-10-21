@@ -366,6 +366,8 @@ class TerminalSession {
   }
 
   async #restart(welcome: Offer): Promise<void> {
+    // The new open is a new view: whether the host runs it is not yet known.
+    this.#viewRan = false;
     try {
       // A fresh MCP session; the bundle is served from the host's store, and its
       // files are sent again for whatever the store lacks (§10.7).
@@ -414,7 +416,11 @@ class TerminalSession {
     if (re !== undefined && re !== String(this.#openId)) return;
     const closed = parseClosed(message.payload);
     if (closed === undefined) return;
-    void this.#hostClosed(closed);
+    void this.#hostClosed(closed).catch(() => {
+      // Whatever went wrong while the view was being let go, the host said how it ended.
+      this.#cleanup(undefined);
+      this.#settle(resultOf(closed, this.#viewRan));
+    });
   }
 
   async #hostClosed(closed: Closed): Promise<void> {
@@ -508,10 +514,7 @@ class TerminalSession {
     }
     this.#asking?.settle({ kind: "aborted" });
     this.#draining?.();
-    if (phase === "opening") {
-      void this.#closeSession();
-      this.#settle({ kind: "closed", by: "signal" });
-    }
+    if (phase === "opening") this.#leaveOpening("signal");
   }
 
   #aborted(): void {
@@ -520,10 +523,16 @@ class TerminalSession {
     this.#cleanup("exit");
     this.#asking?.settle({ kind: "aborted" });
     this.#draining?.();
-    if (phase === "opening") {
-      void this.#closeSession();
-      this.#settle({ kind: "closed", by: "aborted" });
-    }
+    if (phase === "opening") this.#leaveOpening("aborted");
+  }
+
+  /**
+   * The program ends its own wait while a view is opening or open. `closed` says
+   * a view ran; before the host has called the tool there was none to close.
+   */
+  #leaveOpening(by: "signal" | "aborted"): void {
+    void this.#closeSession();
+    this.#settle(this.#viewRan ? { kind: "closed", by } : { kind: "no-view", reason: "aborted" });
   }
 }
 

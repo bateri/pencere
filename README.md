@@ -25,10 +25,18 @@ domain and the person allows it.
 
 ## Status
 
-Early: nothing here is stable yet. The repository will hold the specification
-(`spec/`), a TypeScript SDK for tool authors (`@pencere/sdk`), a Rust library
-for terminals that host views (crate `pencere`), conformance tests and
-examples. [bateri](https://github.com/bateri/bateri) will be the first host.
+Early: nothing here is stable yet. The repository holds
+
+- the specification and its fixtures, the one truth both libraries are tested from
+  ([`spec/draft`](spec/draft/pencere.md));
+- a TypeScript SDK for tool authors ([`@pencere/sdk`](sdk/typescript));
+- a Rust library for terminals that host views, doing no I/O (crate `pencere`,
+  [`host/rust`](host/rust));
+- a stand-in terminal that plays the host, for trying a tool and for tests
+  ([`host/fake`](host/fake));
+- an example tool to try it all with ([`examples/containers`](examples/containers)).
+
+[bateri](https://github.com/bateri/bateri) will be the first host.
 
 ## License
 

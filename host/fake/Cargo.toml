@@ -1,0 +1,19 @@
+[package]
+name = "pencere-fake-host"
+description = "A stand-in terminal for tool authors and for tests: runs a program on a pty and plays the host of its views, so a tool can be tried without a terminal that hosts pencere"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+pencere = { path = "../rust" }
+serde_json = "1"
+# The pty and the poll: what a terminal does and the crate, which does no I/O,
+# leaves to it.
+libc = "0.2"
+
+[lints]
+workspace = true

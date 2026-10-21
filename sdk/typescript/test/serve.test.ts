@@ -122,6 +122,8 @@ describe("with no host", () => {
     const hello = await rig.next("hello");
     expect(hello.payload).toBe(payloadOf("to-host/hello.frame"));
     expect(log).toEqual(["enter"]);
+    // A terminal answers after it has been asked: the fence is written first.
+    await rig.settle();
     rig.sayBytes(DA_REPLY);
     expect(await result).toEqual({ kind: "no-view", reason: "no-host" });
     expect(log).toEqual(["enter", "restore", "fallback"]);
@@ -507,6 +509,7 @@ describe("when the program ends while the view is up", () => {
 
   it("leaves the signal to the program's own listener when it has one, and says so", async () => {
     const { rig, result } = await up();
+    await mcpStartUp(rig);
     rig.process.on("SIGINT", () => {});
     rig.process.emit("SIGINT");
     expect(await result).toEqual({ kind: "closed", by: "signal" });
@@ -538,11 +541,36 @@ describe("when the program ends while the view is up", () => {
   it("sends bye with reason exit when its own code aborts the view", async () => {
     const controller = new AbortController();
     const { rig, result } = await up({ signal: controller.signal });
+    await mcpStartUp(rig);
     controller.abort();
     expect(await result).toEqual({ kind: "closed", by: "aborted" });
     expect(rig.messages().at(-1)?.payload).toBe(`{"token":"${TOKEN}","reason":"exit"}`);
     expect(rig.terminal.calls).toEqual(["enter", "restore"]);
     expect(rig.process.kills).toEqual([]);
+  });
+
+  it("says there was no view when its own code ends the wait before the host has run it", async () => {
+    // `closed` says a view ran; the host has not yet called the tool.
+    const controller = new AbortController();
+    const { rig, result } = await up({ signal: controller.signal });
+    controller.abort();
+    expect(await result).toEqual({ kind: "no-view", reason: "aborted" });
+    expect(rig.messages().at(-1)?.payload).toBe(`{"token":"${TOKEN}","reason":"exit"}`);
+
+    const own = await up();
+    own.rig.process.on("SIGTERM", () => {});
+    own.rig.process.emit("SIGTERM");
+    expect(await own.result).toEqual({ kind: "no-view", reason: "aborted" });
+  });
+
+  it("does not take a view the host restarted for one that ran: its open may be refused", async () => {
+    const { rig, result } = await up();
+    await mcpStartUp(rig);
+    rig.say("welcome", welcomePayload(TOKEN_2, ["bundle"], { restart: true }));
+    const second = await rig.next("open");
+    expect(second.id).toBeGreaterThan(0);
+    rig.say("closed", toWire({ reason: "refused", code: "policy" }), second.id);
+    expect(await result).toEqual({ kind: "no-view", reason: "refused", code: "policy" });
   });
 
   it("gives the terminal back without a bye when the signal comes before there is a view", async () => {
@@ -553,6 +581,7 @@ describe("when the program ends while the view is up", () => {
       rig.environment(),
     );
     await rig.next("hello");
+    await rig.settle();
     rig.process.emit("SIGINT");
     expect(rig.process.kills).toEqual([[4242, "SIGINT"]]);
     expect(rig.terminal.calls).toEqual(["enter", "restore"]);

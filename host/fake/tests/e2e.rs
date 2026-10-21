@@ -1,0 +1,465 @@
+//! End to end, on a real pty: the example tool (`examples/containers`, built
+//! with `npx tsc -b`, which the gate runs before these) against the stand-in
+//! host, which holds the `pencere` crate's rules and a scripted view.
+//!
+//! What is read here is the record the host writes to stderr, the bytes the
+//! program wrote to its tty, and how the processes ended. Nothing goes to a
+//! network, and every file written is under the target directory.
+
+// A test fails by panicking, and the helpers here are the test's.
+#![allow(clippy::expect_used, clippy::panic)]
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus, Stdio};
+
+const FAKE_HOST: &str = env!("CARGO_BIN_EXE_pencere-fake-host");
+const TMP: &str = env!("CARGO_TARGET_TMPDIR");
+
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn tool() -> String {
+    let main = root().join("examples/containers/dist/main.js");
+    assert!(
+        main.is_file(),
+        "{} is missing: build the TypeScript half first with `npx tsc -b` (make check does)",
+        main.display()
+    );
+    main.to_string_lossy().into_owned()
+}
+
+/// A directory of the test's own under the target directory, empty.
+fn fresh(name: &str) -> PathBuf {
+    let dir = Path::new(TMP).join(format!("e2e-{name}"));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("a directory under the target directory");
+    dir
+}
+
+/// Whether `event` has the parts of `pattern`, split at `*`, one after the other.
+fn matches(event: &str, pattern: &str) -> bool {
+    let mut rest = event;
+    for part in pattern.split('*') {
+        match rest.find(part) {
+            Some(at) => rest = rest.get(at + part.len()..).unwrap_or(""),
+            None => return false,
+        }
+    }
+    true
+}
+
+struct Run {
+    /// The record, one line per event.
+    events: Vec<String>,
+    /// What the program wrote to its tty.
+    output: Vec<u8>,
+    status: ExitStatus,
+}
+
+impl Run {
+    fn text(&self) -> String {
+        self.events.join("\n")
+    }
+
+    /// Each of `wanted` occurs in an event, in this order. A `*` in a pattern
+    /// stands for whatever the event has there (the ids of messages, which no
+    /// test is about).
+    fn in_order(&self, wanted: &[&str]) {
+        let mut at = 0;
+        for want in wanted {
+            let found = self
+                .events
+                .get(at..)
+                .and_then(|rest| rest.iter().position(|event| matches(event, want)));
+            match found {
+                Some(index) => at += index + 1,
+                None => panic!(
+                    "no event with {want:?} after event {at}; the record:\n{}",
+                    self.text()
+                ),
+            }
+        }
+    }
+
+    fn never(&self, unwanted: &str) {
+        assert!(
+            !self.events.iter().any(|event| event.contains(unwanted)),
+            "an event with {unwanted:?} where there should be none; the record:\n{}",
+            self.text()
+        );
+    }
+
+    fn count(&self, text: &str) -> usize {
+        self.events.iter().filter(|e| e.contains(text)).count()
+    }
+
+    fn output_has(&self, text: &str) -> Option<usize> {
+        String::from_utf8_lossy(&self.output).find(text)
+    }
+}
+
+fn run(options: &[&str], program: &[&str]) -> Run {
+    let output = Command::new(FAKE_HOST)
+        .args(["--limit", "30", "--passthrough"])
+        .args(options)
+        .arg("--")
+        .args(program)
+        .stdin(Stdio::null())
+        .output()
+        .expect("the fake host starts");
+    let events = String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    Run {
+        events,
+        output: output.stdout,
+        status: output.status,
+    }
+}
+
+fn run_tool(options: &[&str]) -> Run {
+    run(options, &["node", &tool()])
+}
+
+fn view_file_size(name: &str) -> u64 {
+    fs::metadata(root().join("examples/containers/view").join(name))
+        .expect("a file of the view")
+        .len()
+}
+
+#[test]
+fn a_tool_goes_from_the_question_to_the_interrupt() {
+    let store = fresh("first");
+    let store = store.to_string_lossy();
+    let run = run_tool(&[
+        "--store",
+        &store,
+        "--call",
+        r#"stop_container={"id":"cache"}"#,
+        "--then",
+        "interrupt",
+    ]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        // The host looked at the tty before it answered (§6.2): the SDK had made
+        // it non-canonical with echo off.
+        "host: sees the tty: canonical=false echo=false",
+        "host: welcome id=1 re=1 version=1 with a token",
+        // The answer to the question comes before the reply to `CSI c` (§5.2).
+        "host: answers CSI c",
+        "screen: alternate screen on",
+        "program: open id=2 tool=list_containers bundle of 3 files",
+        "host: need id=2 re=2 missing=3",
+        "program: file",
+        "program: file",
+        "program: file",
+        "host: msg id=* request initialize",
+        "host: msg id=* notification notifications/initialized",
+        "request tools/list",
+        "view: started from the bundle: entry index.html, 3 files",
+        "view: <- ui/initialize result: theme=dark displayMode=inline container=640x384 pane=true",
+        "view: -> ui/notifications/initialized",
+        "view: <- ui/notifications/tool-input",
+        "host: msg id=* request tools/call list_containers",
+        "view: <- ui/notifications/tool-result",
+        r#"view: -> tools/call stop_container {"id":"cache"}"#,
+        "host: msg id=* request tools/call stop_container",
+        r#"view: <- tool result "Stopped cache (redis:7)""#,
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "view: <- ui/resource-teardown (request)",
+        "view: destroyed",
+        "screen: alternate screen off",
+        "program: was killed by signal 2",
+    ]);
+    assert_eq!(run.count("program: file"), 3, "{}", run.text());
+
+    // The files the view would fetch are the files on disk, whole.
+    for (name, media_type) in [
+        ("index.html", "text/html"),
+        ("app.js", "text/javascript"),
+        ("style.css", "text/css"),
+    ] {
+        let wanted = format!(
+            "view: fetched {name} {media_type} {} bytes",
+            view_file_size(name)
+        );
+        assert!(
+            run.events.contains(&wanted),
+            "no {wanted:?}:\n{}",
+            run.text()
+        );
+    }
+}
+
+#[test]
+fn a_second_run_finds_the_bundle_in_the_store_and_the_person_can_close_the_view() {
+    let store = fresh("second");
+    let store = store.to_string_lossy();
+    let first = run_tool(&["--store", &store, "--then", "close"]);
+    first.in_order(&["host: need id=2 re=2 missing=3", "program: file"]);
+
+    let second = run_tool(&["--store", &store, "--then", "close"]);
+    assert!(second.status.success(), "{}", second.text());
+    second.in_order(&[
+        "host: need id=2 re=2 missing=0",
+        "view: started from the bundle: entry index.html, 3 files",
+        "view: fetched app.js",
+        "view: <- ui/notifications/tool-result",
+        "host: the person closes the view",
+        "view: destroyed",
+        "host: closed id=* reason=user",
+        "program: exited with status 0",
+    ]);
+    // No file crossed the stream the second time.
+    second.never("program: file");
+
+    // The program took the alternate screen before it opened the view and gave
+    // it back before it said anything on the screen it returned to.
+    let on = second
+        .output_has("\x1b[?1049h")
+        .expect("it took the alternate screen");
+    let open = second.output_has(";open;").expect("it opened the view");
+    let off = second
+        .output_has("\x1b[?1049l")
+        .expect("it gave the screen back");
+    let farewell = second
+        .output_has("containers: the view closed (user)")
+        .expect("it said how the view ended");
+    assert!(
+        on < open && open < off && off < farewell,
+        "{on} {open} {off} {farewell}"
+    );
+}
+
+#[test]
+fn only_the_files_the_store_lacks_cross_the_stream() {
+    let dir = fresh("partial");
+    let store = dir.to_string_lossy();
+    let first = run_tool(&["--store", &store, "--then", "close"]);
+    assert!(first.status.success(), "{}", first.text());
+
+    // The store loses one file: the first one the program sent.
+    let sent = first
+        .events
+        .iter()
+        .find(|event| event.starts_with("program: file id="))
+        .and_then(|event| event.split_whitespace().last())
+        .expect("the first run sent files");
+    let lost: Vec<PathBuf> = fs::read_dir(&dir)
+        .expect("the store")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(sent))
+        })
+        .collect();
+    assert_eq!(lost.len(), 1, "{lost:?}");
+    fs::remove_file(&lost[0]).expect("a file of the store");
+
+    let second = run_tool(&["--store", &store, "--then", "close"]);
+    assert!(second.status.success(), "{}", second.text());
+    second.in_order(&[
+        "host: need id=2 re=2 missing=1",
+        &format!("program: file id=3 {sent}"),
+        "view: started from the bundle: entry index.html, 3 files",
+    ]);
+    assert_eq!(second.count("program: file"), 1, "{}", second.text());
+    // The three files are served, the lost one from what was just sent.
+    assert_eq!(second.count("view: fetched"), 3, "{}", second.text());
+}
+
+#[test]
+fn a_message_far_larger_than_the_ttys_input_queue_gets_through() {
+    // The tty takes about a kilobyte of input at a time (specification Appendix B):
+    // the host writes the message's frames as the tty takes them, none inside
+    // another, and the program's answer comes back in frames of its own.
+    let id = "a".repeat(60_000);
+    let call = format!(r#"stop_container={{"id":"{id}"}}"#);
+    let run = run_tool(&["--call", &call, "--then", "interrupt"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: -> tools/call stop_container",
+        "host: msg id=* request tools/call stop_container",
+        "program: msg id=* response",
+        r#"view: <- tool result error "There is no container \"aaaa"#,
+        "program: bye id=* reason=signal",
+    ]);
+    run.never("dropped a frame");
+}
+
+#[test]
+fn a_tool_that_is_killed_leaves_no_view_behind() {
+    let run = run_tool(&["--then", "kill"]);
+    run.in_order(&[
+        "view: <- ui/notifications/tool-result",
+        "host: kills the program with SIGKILL",
+        "program: was killed by signal 9",
+        // Nobody said goodbye: the host saw the stream end.
+        "view: <- ui/resource-teardown (request)",
+        "view: destroyed",
+    ]);
+    run.never("program: bye");
+    assert!(run.status.success(), "{}", run.text());
+}
+
+#[test]
+fn a_terminal_that_does_not_host_pencere_gets_the_text_interface() {
+    let run = run_tool(&["--no-host"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        "host: does not host pencere: no answer",
+        "host: answers CSI c",
+        "program: exited with status 0",
+    ]);
+    run.never("welcome");
+    run.never("program: open");
+    assert!(
+        run.output_has("nginx:1.27").is_some(),
+        "the fallback did not print the table"
+    );
+    assert!(run.output_has("cache").is_some());
+    // It never took the screen: there was nothing to put on it.
+    assert!(run.output_has("\x1b[?1049h").is_none());
+}
+
+/// A program that writes frames and cannot read what the host answers, as a
+/// file shown with `cat` or a program in the background is.
+fn forger(name: &str, with_raw_tty: bool) -> Run {
+    let dir = fresh(name);
+    let script = dir.join("forger.sh");
+    let stty = if with_raw_tty {
+        "stty -icanon -echo\n"
+    } else {
+        ""
+    };
+    fs::write(
+        &script,
+        format!(
+            r#"{stty}printf '\033_pencere;hello;id=1;{{"versions":[1]}}\033\\'
+printf '\033[c'
+sleep 0.3
+printf '\033[?1049h'
+printf '\033_pencere;open;id=2;{{"token":"AAAAAAAAAAAAAAAAAAAAAA","tool":{{"name":"x\\u001b[2J","arguments":{{}}}}}}\033\\'
+sleep 0.3
+"#
+        ),
+    )
+    .expect("a script under the target directory");
+    run(&[], &["sh", &script.to_string_lossy()])
+}
+
+#[test]
+fn a_program_that_cannot_read_the_answer_cannot_open_a_view() {
+    // The tty is as a program waiting for the answer leaves it, so the host
+    // answers: but the program never reads it, and a guessed token opens nothing.
+    let run = forger("forger-raw", true);
+    run.in_order(&[
+        "program: hello id=1",
+        "host: sees the tty: canonical=false echo=false",
+        "host: welcome id=1 re=1 version=1 with a token",
+        // The tool's name has an escape in it; the record writes it out and does
+        // not put it on the person's terminal.
+        "program: open id=2 tool=x\\u{1b}[2J without a bundle",
+        "reason=refused code=token",
+    ]);
+    assert!(!run.text().contains('\u{1b}'), "{:?}", run.text());
+    run.never("view: started");
+    run.never("need");
+}
+
+#[test]
+fn a_program_that_leaves_the_tty_as_the_shell_set_it_is_not_answered() {
+    // `cat file`: the tty is canonical with echo on, so what the host wrote would
+    // be typed text for whatever reads next. It writes nothing: not the `welcome`
+    // a hello would get, and not the refusal an `open` with no token would get.
+    let run = forger("forger-canonical", false);
+    run.in_order(&[
+        "program: hello id=1",
+        "host: sees the tty: canonical=true echo=true",
+        "program: open id=2",
+    ]);
+    run.never("welcome");
+    run.never("closed");
+    run.never("view: started");
+}
+
+#[test]
+fn the_answer_to_hello_comes_before_the_reply_to_csi_c() {
+    // What the program finds in its input, byte for byte, in the order it is
+    // there (specification §5.2): a program that sees the reply first has to
+    // conclude that no host answered.
+    let dir = fresh("order");
+    let script = dir.join("reader.sh");
+    fs::write(
+        &script,
+        r#"stty -icanon -echo min 0 time 5
+printf '\033_pencere;hello;id=1;{"versions":[1]}\033\\'
+printf '\033[c'
+dd bs=512 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n'
+"#,
+    )
+    .expect("a script under the target directory");
+    let run = run(&[], &["sh", &script.to_string_lossy()]);
+    let seen = String::from_utf8_lossy(&run.output).into_owned();
+    // `;welcome` and the reply `ESC [ ? 6 2 ; 4 c`, as hex.
+    let welcome_at = seen.find("3b77656c636f6d65");
+    let reply_at = seen.find("1b5b3f36323b3463");
+    assert!(
+        welcome_at.is_some(),
+        "no welcome in what the program read: {seen:?}"
+    );
+    assert!(
+        reply_at.is_some(),
+        "no reply in what the program read: {seen:?}"
+    );
+    assert!(welcome_at < reply_at, "the reply came first: {seen:?}");
+}
+
+/// Runs the host with its output discarded, for programs that write a lot, and
+/// checks it gave up on the program at the time limit and did not wait for it.
+fn cut_short(program: &[&str]) {
+    let started = std::time::Instant::now();
+    let output = Command::new(FAKE_HOST)
+        .args(["--limit", "1", "--"])
+        .args(program)
+        .stdin(Stdio::null())
+        .output()
+        .expect("the fake host starts");
+    assert_eq!(output.status.code(), Some(124));
+    let record = String::from_utf8_lossy(&output.stderr);
+    assert!(record.contains("the time limit is up"), "{record}");
+    assert!(record.contains("was killed by signal 9"), "{record}");
+    assert!(
+        started.elapsed().as_secs() < 10,
+        "it waited for the program: {record}"
+    );
+}
+
+#[test]
+fn a_program_that_never_ends_is_cut_short() {
+    cut_short(&["sleep", "30"]);
+}
+
+#[test]
+fn a_program_that_never_stops_writing_is_cut_short_too() {
+    // Reading its output must not keep the host from watching the clock.
+    cut_short(&[
+        "sh",
+        "-c",
+        "while true; do echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx; done",
+    ]);
+}
+
+#[test]
+fn a_program_that_closes_its_tty_and_goes_on_is_cut_short_as_well() {
+    // The pane reports its end, the program is still there: the host must not
+    // wait for it without a limit.
+    cut_short(&["sh", "-c", "exec >/dev/null 2>&1 </dev/null; sleep 30"]);
+}

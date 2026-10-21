@@ -1,0 +1,103 @@
+/* The colours and the font are the terminal's: the host sends them as the
+   standard MCP Apps variables, and the fallbacks only matter in a host that
+   sends none. */
+:root {
+  color-scheme: dark light;
+  --row-height: 2rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem 2rem;
+  background: var(--color-background-primary, #111318);
+  color: var(--color-text-primary, #d8dbe2);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 14px;
+}
+
+h1 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--color-text-secondary, #8b909c);
+  border-bottom: 1px solid var(--color-border-primary, #2a2d36);
+  padding: 0 0.75rem 0.4rem 0;
+}
+
+td {
+  height: var(--row-height);
+  padding: 0 0.75rem 0 0;
+}
+
+tr.chosen td {
+  background: var(--color-background-secondary, #1c1f27);
+}
+
+.state {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--color-text-secondary, #8b909c);
+}
+
+tr.running .state {
+  background: var(--color-text-success, #3fb950);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid var(--color-border-primary, #2a2d36);
+  border-radius: 4px;
+  padding: 0.1rem 0.7rem;
+  cursor: pointer;
+}
+
+button:hover,
+button:focus-visible {
+  border-color: var(--color-ring-primary, #58a6ff);
+  outline: none;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+#status {
+  min-height: 1.2rem;
+  margin: 1rem 0 0;
+  color: var(--color-text-secondary, #8b909c);
+}
+
+#status.failed {
+  color: var(--color-text-danger, #f85149);
+}
+
+.keys {
+  margin: 0.5rem 0 0;
+  color: var(--color-text-secondary, #8b909c);
+}
+
+kbd {
+  font: inherit;
+  border: 1px solid var(--color-border-primary, #2a2d36);
+  border-radius: 3px;
+  padding: 0 0.3rem;
+}

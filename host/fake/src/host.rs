@@ -1,0 +1,541 @@
+//! The host's side of one pane, around the `pencere` crate.
+//!
+//! The crate holds every rule: who may open a view, what is refused, which files
+//! are missing, what the view is told, what ends it. What it does not do, this
+//! does as a terminal does: it tells the session what the program wrote and what
+//! it can see of the pane (the alternate screen, the tty's modes), carries out
+//! what the session asks (write into the pane, start and destroy a view, ask the
+//! person), and keeps the clock the crate does not have. The view is a script
+//! (`view`), and the program's fate comes from the caller (`program_ended`).
+
+use std::io::{self, Write};
+use std::time::{Duration, Instant};
+
+use pencere::bundle::MemoryStore;
+use pencere::frame::{Direction, Event, Message, StreamDecoder};
+use pencere::message::HostInfo;
+use pencere::sandbox::Grant;
+use pencere::session::{Action, Config, Observed, Session, Size, State, ViewSource, ViewStart};
+use pencere::theme::{Rgb, Theme};
+use serde_json::Value;
+
+use crate::args::{Args, Call, Then};
+use crate::log;
+use crate::pty::{self, Modes};
+use crate::screen::{Screen, Seen};
+use crate::store::{DirStore, Keep};
+use crate::view::{Reaction, ScriptedView};
+
+/// What a terminal answers to `CSI c`.
+const DEVICE_ATTRIBUTES: &[u8] = b"\x1b[?62;4c";
+
+/// The keystroke the person ends a program with.
+const INTERRUPT: u8 = 0x03;
+
+/// How long a terminal waits for the files and the start-up of an open before it
+/// gives up on it, and for a view to answer its teardown. The crate has no clock:
+/// these are the host's.
+const OPENING_PATIENCE: Duration = Duration::from_secs(5);
+const CLOSING_PATIENCE: Duration = Duration::from_secs(1);
+
+/// The most bytes waiting for the pane's input before replies to `CSI c` stop
+/// being queued: a program that asks without ever reading would otherwise grow
+/// the queue as long as it likes.
+const QUEUE_LIMIT: usize = 1 << 20;
+
+/// The most bytes of a payload the record reads. The crate reads a hostile stream
+/// with care; a line of the record is not worth a tree of sixteen mebibytes.
+const READ_LIMIT: usize = 64 * 1024;
+
+/// A pixel is not a cell, but the view's container is told in pixels.
+const CELL_WIDTH: u32 = 8;
+const CELL_HEIGHT: u32 = 16;
+
+type Entropy = Box<dyn FnMut() -> [u8; 16]>;
+
+/// The operating system's random bytes, which the token is made of, from a
+/// descriptor opened before anything runs: a host that cannot get them has no
+/// token to give and does not start. Reading a descriptor that is open does not
+/// fail; if it ever did, stopping is better than a token that is not random.
+fn secure_bytes(mut urandom: std::fs::File) -> Entropy {
+    use std::io::Read;
+    Box::new(move || {
+        let mut bytes = [0u8; 16];
+        if let Err(error) = urandom.read_exact(&mut bytes) {
+            log::line(
+                "host",
+                format!("no secure random bytes for a token: {error}"),
+            );
+            std::process::exit(70);
+        }
+        bytes
+    })
+}
+
+pub struct Host {
+    session: Session<Keep, Entropy>,
+    answering: bool,
+    allow_network: bool,
+    passthrough: bool,
+    then: Then,
+    calls: Vec<Call>,
+    view: Option<ScriptedView>,
+    screen: Screen,
+    on_alternate_screen: bool,
+    modes: Option<Modes>,
+    /// What the program's output holds, read once more for the record.
+    heard: StreamDecoder,
+    /// What the session wrote into the pane's input, read for the record.
+    said: StreamDecoder,
+    /// Bytes for the pane's input that the tty has not taken yet. Everything
+    /// the pane is typed goes through here, so that nothing lands inside a frame
+    /// (specification §4.8).
+    typed: Vec<u8>,
+    kill: bool,
+    waiting_since: Option<(State, Instant)>,
+}
+
+impl Host {
+    pub fn new(args: &Args, size: pty::Size) -> io::Result<Self> {
+        let urandom = std::fs::File::open("/dev/urandom")?;
+        let store = match &args.store {
+            Some(dir) => Keep::Directory(DirStore::open(dir)?),
+            None => Keep::Memory(MemoryStore::new()),
+        };
+        let theme = Theme::new(
+            Rgb(0x11, 0x13, 0x18),
+            Rgb(0xd8, 0xdb, 0xe2),
+            "Menlo, monospace",
+        );
+        let host = HostInfo {
+            name: "pencere-fake-host".to_owned(),
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+        };
+        let config = Config::new(
+            host,
+            theme,
+            Size {
+                width: u32::from(size.cols) * CELL_WIDTH,
+                height: u32::from(size.rows) * CELL_HEIGHT,
+            },
+        );
+        Ok(Self {
+            session: Session::new(config, store, secure_bytes(urandom)),
+            answering: args.answer,
+            allow_network: args.allow_network,
+            passthrough: args.passthrough,
+            then: args.then,
+            calls: args.calls.clone(),
+            view: None,
+            screen: Screen::new(),
+            on_alternate_screen: false,
+            modes: None,
+            heard: StreamDecoder::new(Direction::ToHost),
+            said: StreamDecoder::new(Direction::ToProgram),
+            typed: Vec::new(),
+            kill: false,
+            waiting_since: None,
+        })
+    }
+
+    // ---- what the loop asks of the host ----------------------------------
+
+    /// Bytes for the pane's input that are waiting for the tty.
+    pub fn pending(&self) -> &[u8] {
+        &self.typed
+    }
+
+    /// The tty took `count` of them.
+    pub fn typed(&mut self, count: usize) {
+        self.typed.drain(..count.min(self.typed.len()));
+    }
+
+    /// The person typed these into this terminal; they go to the pane as they
+    /// are, after whatever is already waiting.
+    pub fn person_typed(&mut self, bytes: &[u8]) {
+        self.typed.extend_from_slice(bytes);
+    }
+
+    /// Whether the host wants the program killed, once.
+    pub fn take_kill(&mut self) -> bool {
+        std::mem::take(&mut self.kill)
+    }
+
+    // ---- the program's output --------------------------------------------
+
+    /// What the program wrote, with what the tty's modes were as it wrote it.
+    pub fn program_output(&mut self, bytes: &[u8], modes: Option<Modes>) {
+        self.modes = modes;
+        if self.passthrough {
+            let mut out = io::stdout().lock();
+            let _ = out.write_all(bytes).and_then(|()| out.flush());
+        }
+        // The stream is cut where the terminal must act in step with it.
+        let mut start = 0;
+        for (at, &byte) in bytes.iter().enumerate() {
+            let Some(seen) = self.screen.advance(byte) else {
+                continue;
+            };
+            if let Some(part) = bytes.get(start..=at) {
+                self.segment(part);
+            }
+            start = at + 1;
+            match seen {
+                Seen::Query => {
+                    log::line("host", "answers CSI c");
+                    if self.typed.len() < QUEUE_LIMIT {
+                        self.typed.extend_from_slice(DEVICE_ATTRIBUTES);
+                    }
+                }
+                Seen::Alternate(on) => {
+                    self.on_alternate_screen = on;
+                    log::line(
+                        "screen",
+                        if on {
+                            "alternate screen on"
+                        } else {
+                            "alternate screen off"
+                        },
+                    );
+                }
+            }
+        }
+        if let Some(rest) = bytes.get(start..) {
+            self.segment(rest);
+        }
+    }
+
+    fn segment(&mut self, part: &[u8]) {
+        if part.is_empty() {
+            return;
+        }
+        let mut events = Vec::new();
+        self.heard.feed(part, &mut events);
+        for event in events {
+            self.noted(&event);
+        }
+        if !self.answering {
+            return;
+        }
+        // What the host can see of the pane, for the checks of §6.2 and §6.5:
+        // there is no shell here to ask about, so only the modes and the screen.
+        self.session.observe(Observed {
+            prompt_editing: false,
+            alternate_screen: Some(self.on_alternate_screen),
+            shell_in_foreground: None,
+            tty_canonical_or_echo: self.modes.map(|m| m.canonical || m.echo),
+        });
+        self.session.feed(part);
+        self.settle();
+    }
+
+    /// The program's frames, for the record.
+    fn noted(&self, event: &Event) {
+        match event {
+            Event::Error(error) => log::line("program", format!("dropped a frame ({error})")),
+            Event::Message(message) => {
+                log::line("program", describe_program(message));
+                if message.kind == "hello" {
+                    match self.modes {
+                        Some(m) => log::line(
+                            "host",
+                            format!("sees the tty: canonical={} echo={}", m.canonical, m.echo),
+                        ),
+                        None => log::line("host", "cannot read the tty's modes"),
+                    }
+                    if !self.answering {
+                        log::line("host", "does not host pencere: no answer");
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- what the session asks -------------------------------------------
+
+    /// Carries out what the session queued, and what that queues, until nothing
+    /// is left.
+    fn settle(&mut self) {
+        loop {
+            let actions = self.session.take_actions();
+            if actions.is_empty() {
+                return;
+            }
+            for action in actions {
+                self.act(action);
+            }
+        }
+    }
+
+    fn act(&mut self, action: Action) {
+        match action {
+            Action::Write(bytes) => {
+                let mut events = Vec::new();
+                self.said.feed(&bytes, &mut events);
+                for event in &events {
+                    if let Event::Message(message) = event {
+                        log::line("host", describe_host(message));
+                    }
+                }
+                self.typed.extend_from_slice(&bytes);
+            }
+            Action::Consent(consent) => {
+                let grant = if self.allow_network {
+                    consent.grant_all()
+                } else {
+                    Grant::none()
+                };
+                log::line(
+                    "host",
+                    format!(
+                        "asked the person about {} domains and {} permissions: {}",
+                        consent.domains.len(),
+                        consent.permissions.len(),
+                        if self.allow_network {
+                            "allowed"
+                        } else {
+                            "refused"
+                        },
+                    ),
+                );
+                self.session.consent(grant);
+            }
+            Action::StartView(start) => self.start_view(&start),
+            Action::ToView(text) => {
+                let reaction = self.view.as_mut().map(|view| view.receive(&text));
+                if let Some(reaction) = reaction {
+                    self.react(reaction);
+                }
+            }
+            Action::OpenLink { link, url } => {
+                log::line("host", format!("refuses to open {url} for the view"));
+                self.session.link_decision(link, false);
+            }
+            Action::DestroyView => {
+                log::line("view", "destroyed");
+                self.view = None;
+            }
+            Action::ViewLog(text) => log::line("view", format!("logged {text}")),
+            // An action a later version adds is one this host does not know.
+            _ => {}
+        }
+    }
+
+    fn start_view(&mut self, start: &ViewStart) {
+        match &start.source {
+            ViewSource::Bundle => {
+                let manifest = self.session.bundle().cloned();
+                if let Some(manifest) = manifest {
+                    log::line(
+                        "view",
+                        format!(
+                            "started from the bundle: entry {}, {} files",
+                            manifest.entry(),
+                            manifest.files().len()
+                        ),
+                    );
+                    // What a web view would ask for, served from the store.
+                    for file in manifest.files() {
+                        match self.session.serve(&file.path) {
+                            Some((media_type, bytes)) => log::line(
+                                "view",
+                                format!("fetched {} {media_type} {} bytes", file.path, bytes.len()),
+                            ),
+                            None => log::line("view", format!("could not fetch {}", file.path)),
+                        }
+                    }
+                }
+            }
+            ViewSource::Document(html) => log::line(
+                "view",
+                format!(
+                    "started from resources/read: a document of {} bytes",
+                    html.len()
+                ),
+            ),
+        }
+        log::line("view", format!("policy {}", start.policy));
+        let mut view = ScriptedView::new(self.calls.clone());
+        let reaction = view.start();
+        self.view = Some(view);
+        self.react(reaction);
+    }
+
+    fn react(&mut self, reaction: Reaction) {
+        for message in &reaction.send {
+            self.session.view_message(message);
+        }
+        if reaction.done {
+            self.calls_done();
+        }
+    }
+
+    /// The script has no more to do: what the command line said to do next.
+    fn calls_done(&mut self) {
+        match self.then {
+            Then::Wait => log::line("view", "has nothing more to do"),
+            Then::Interrupt => {
+                log::line("host", "the person presses ^C");
+                self.typed.push(INTERRUPT);
+            }
+            Then::Kill => {
+                log::line("host", "kills the program with SIGKILL");
+                self.kill = true;
+            }
+            Then::Close => {
+                log::line("host", "the person closes the view");
+                self.session.close_view();
+            }
+        }
+    }
+
+    // ---- the clock the crate does not have --------------------------------
+
+    /// Gives up on what has been waited for too long.
+    pub fn tick(&mut self, now: Instant) {
+        let state = self.session.state();
+        let patience = match state {
+            State::Opening => OPENING_PATIENCE,
+            State::Closing => CLOSING_PATIENCE,
+            _ => {
+                self.waiting_since = None;
+                return;
+            }
+        };
+        match self.waiting_since {
+            Some((waiting, since)) if waiting == state => {
+                if now.duration_since(since) >= patience {
+                    log::line("host", format!("gave up waiting while {state:?}"));
+                    self.waiting_since = None;
+                    self.session.timed_out();
+                    self.settle();
+                }
+            }
+            _ => self.waiting_since = Some((state, now)),
+        }
+    }
+
+    /// The program is gone: the stream ended and the process with it. Whatever
+    /// was open is closed, as §10.3 says, whether or not it said goodbye.
+    pub fn program_ended(&mut self) {
+        self.session.program_ended();
+        self.settle();
+    }
+}
+
+// ---- the record ------------------------------------------------------------
+
+/// A payload as JSON, if it is small enough to be worth reading.
+fn parsed(payload: &str) -> Value {
+    if payload.len() > READ_LIMIT {
+        return Value::Null;
+    }
+    serde_json::from_str(payload).unwrap_or(Value::Null)
+}
+
+/// What a JSON-RPC payload is, in a few words.
+fn describe_rpc(payload: &str) -> String {
+    let message = parsed(payload);
+    if let Some(method) = message.get("method").and_then(Value::as_str) {
+        let what = if message.get("id").is_some() {
+            "request"
+        } else {
+            "notification"
+        };
+        let name = match message.pointer("/params/name").and_then(Value::as_str) {
+            Some(name) if method == "tools/call" => format!(" {name}"),
+            _ => String::new(),
+        };
+        return format!("{what} {method}{name}");
+    }
+    if message.get("error").is_some() {
+        return "error response".to_owned();
+    }
+    if message.get("result").is_some() {
+        return "response".to_owned();
+    }
+    format!("message of {} bytes", payload.len())
+}
+
+fn payload_str<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
+    payload.get(key).and_then(Value::as_str)
+}
+
+/// A message of the program, without the secrets in it (the token, the bytes of
+/// files).
+fn describe_program(message: &Message) -> String {
+    let id = message.id;
+    // Only the kinds that are read for what they say are parsed.
+    let payload = match message.kind.as_str() {
+        "open" | "bye" => parsed(&message.payload),
+        _ => Value::Null,
+    };
+    match message.kind.as_str() {
+        "hello" => format!("hello id={id}"),
+        "open" => {
+            let tool = payload
+                .pointer("/tool/name")
+                .and_then(Value::as_str)
+                .unwrap_or("?");
+            let files = payload
+                .pointer("/bundle/files")
+                .and_then(Value::as_array)
+                .map(Vec::len);
+            match files {
+                Some(files) => format!("open id={id} tool={tool} bundle of {files} files"),
+                None => format!("open id={id} tool={tool} without a bundle"),
+            }
+        }
+        "file" => {
+            let digest = message.digest().unwrap_or("?");
+            format!("file id={id} {}", digest.get(..8).unwrap_or(digest))
+        }
+        "msg" => format!("msg id={id} {}", describe_rpc(&message.payload)),
+        "bye" => format!(
+            "bye id={id} reason={}",
+            payload_str(&payload, "reason").unwrap_or("?")
+        ),
+        kind => format!("{kind} id={id}"),
+    }
+}
+
+/// A message the host wrote into the pane's input.
+fn describe_host(message: &Message) -> String {
+    let id = message.id;
+    let re = message
+        .re()
+        .map(|re| format!(" re={re}"))
+        .unwrap_or_default();
+    let payload: Value = serde_json::from_str(&message.payload).unwrap_or(Value::Null);
+    match message.kind.as_str() {
+        "welcome" => {
+            if payload.get("version").is_some() {
+                let restart = if payload.get("restart") == Some(&Value::Bool(true)) {
+                    " (restart)"
+                } else {
+                    ""
+                };
+                let version = payload.get("version").and_then(Value::as_u64).unwrap_or(0);
+                format!("welcome id={id}{re} version={version} with a token{restart}")
+            } else {
+                format!("welcome id={id}{re} (no common version)")
+            }
+        }
+        "need" => {
+            let missing = payload
+                .get("missing")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            format!("need id={id}{re} missing={missing}")
+        }
+        "closed" => {
+            let reason = payload_str(&payload, "reason").unwrap_or("?");
+            match payload_str(&payload, "code") {
+                Some(code) => format!("closed id={id}{re} reason={reason} code={code}"),
+                None => format!("closed id={id}{re} reason={reason}"),
+            }
+        }
+        "msg" => format!("msg id={id} {}", describe_rpc(&message.payload)),
+        kind => format!("{kind} id={id}{re}"),
+    }
+}

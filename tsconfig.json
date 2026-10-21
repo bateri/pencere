@@ -1,4 +1,9 @@
 {
   "files": [],
-  "references": [{ "path": "sdk/typescript" }, { "path": "sdk/typescript/test" }]
+  "references": [
+    { "path": "sdk/typescript" },
+    { "path": "sdk/typescript/test" },
+    { "path": "examples/containers" },
+    { "path": "examples/containers/test" }
+  ]
 }

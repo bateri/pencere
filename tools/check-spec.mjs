@@ -101,14 +101,18 @@ function checkSpecDir(dir) {
   for (const file of listed) {
     if (!onDisk.has(file)) fail(`${name}/fixtures`, `the manifest lists ${file}, which is missing`);
   }
-  const readme = readFileSync(join(fixtures, "README.md"), "utf8");
+  const readmePath = join(fixtures, "README.md");
+  if (!existsSync(readmePath)) return fail(name, "fixtures/README.md is missing");
+  const readme = readFileSync(readmePath, "utf8");
+  // A path counts as mentioned when it stands as a whole: not as the tail of a longer one.
+  const mentions = (text) =>
+    new RegExp(`(^|[^\\w./-])${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "m").test(readme);
   for (const file of onDisk.keys()) {
     if (file === "manifest.json" || file === "README.md") continue;
     if (!listed.has(file)) fail(`${name}/fixtures`, `${file} is not in the manifest`);
     const inSession = file.startsWith("session/");
     const mention = inSession ? file.split("/").slice(0, 2).join("/") + "/" : file;
-    if (!readme.includes(mention))
-      fail(`${name}/fixtures/README.md`, `does not mention ${mention}`);
+    if (!mentions(mention)) fail(`${name}/fixtures/README.md`, `does not mention ${mention}`);
   }
   for (const entry of manifest.decode ?? []) {
     if (!["to-host", "to-program"].includes(entry.direction))

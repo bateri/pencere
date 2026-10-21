@@ -799,7 +799,14 @@ impl<S: Store, E: Entropy> Session<S, E> {
         if !matched {
             // A wrong token leaves the outstanding one alone, so a hostile
             // stream cannot use up the token of the program that is running.
-            self.refuse(message.id, "token");
+            // The refusal goes into the same input as the answer to a hello, and
+            // a stream anyone can write to can send an `open` as easily as a
+            // `hello`: where a hello would go unanswered, so does this.
+            if self.answers() {
+                self.refuse(message.id, "token");
+            } else {
+                self.ignored();
+            }
             return;
         }
         // Spent by the first open that carries it, whatever comes of it.
