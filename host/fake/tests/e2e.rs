@@ -536,14 +536,24 @@ fn cli() -> String {
     main.to_string_lossy().into_owned()
 }
 
-/// `pencere run [own] -- <server>` in the pane of the stand-in host.
-fn run_cli(options: &[&str], own: &[&str], server: &[&str]) -> Run {
+/// `pencere <command> [own] -- <server>` in the pane of the stand-in host.
+fn run_command(command: &str, options: &[&str], own: &[&str], server: &[&str]) -> Run {
     let main = cli();
-    let mut program = vec!["node", main.as_str(), "run"];
+    let mut program = vec!["node", main.as_str(), command];
     program.extend_from_slice(own);
     program.push("--");
     program.extend_from_slice(server);
     run(options, &program)
+}
+
+/// `pencere run [own] -- <server>` in the pane of the stand-in host.
+fn run_cli(options: &[&str], own: &[&str], server: &[&str]) -> Run {
+    run_command("run", options, own, server)
+}
+
+/// `pencere dev [own] -- <server>` in the pane of the stand-in host.
+fn run_dev(options: &[&str], own: &[&str], server: &[&str]) -> Run {
+    run_command("dev", options, own, server)
 }
 
 /// The example tool as a chat client would start it, through a shell that writes
@@ -830,4 +840,223 @@ fn pencere_run_says_what_a_server_that_ends_under_its_view_wrote() {
         .output_has("  Traceback: boom")
         .expect("it showed what the server wrote");
     assert!(off < said && said < wrote, "{off} {said} {wrote}");
+}
+
+// ---- `pencere dev`: the view is shown again when files change -------------------
+
+/// `program` with `args` as a chat client would start it, through a shell that
+/// writes its pid to `log` first, as `logged_tool` does for the example tool.
+fn logged_program(log: &Path, program: &Path, args: &[&str]) -> Vec<String> {
+    let mut server = vec![
+        "sh".to_owned(),
+        "-c".to_owned(),
+        r#"echo $$ >> "$0"; exec node "$@""#.to_owned(),
+        log.to_string_lossy().into_owned(),
+        program.to_string_lossy().into_owned(),
+    ];
+    server.extend(args.iter().map(|word| (*word).to_owned()));
+    server
+}
+
+fn writes_on_call() -> PathBuf {
+    root().join("host/fake/tests/programs/writes-on-call.mjs")
+}
+
+#[test]
+fn pencere_dev_shows_the_view_again_when_a_file_of_it_changes() {
+    let dir = fresh("cli-dev-view");
+    let view = dir.join("view");
+    fs::create_dir(&view).expect("a view directory");
+    fs::write(
+        view.join("index.html"),
+        "<!doctype html><link rel=stylesheet href=style.css>",
+    )
+    .expect("a page");
+    let style = view.join("style.css");
+    fs::write(&style, "body {}").expect("a stylesheet");
+    let log = dir.join("starts");
+    // Calling the tool edits the stylesheet, which is what a build does under a view.
+    let server = logged_program(
+        &log,
+        &writes_on_call(),
+        &[&style.to_string_lossy(), "body { color: red }"],
+    );
+    let view_arg = view.to_string_lossy();
+    let run = run_dev(
+        &["--then", "interrupt", "--on-view", "2"],
+        &["--tool", "show", "--view", &view_arg],
+        &words(&server),
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss",
+        "screen: alternate screen on",
+        "program: open id=2 tool=show bundle of 2 files",
+        "host: need id=2 re=2 missing=2",
+        "program: file",
+        "program: file",
+        "view: started from the bundle: entry index.html, 2 files",
+        "host: msg id=* request tools/call show",
+        // The file changed under the view: the program closes it, and the host
+        // tells the view first and the program after the view is gone.
+        "program: dismiss id=",
+        "host: the program asks to close its view",
+        "view: destroyed",
+        "host: closed id=* re=* reason=program",
+        // A new token and a new open, as for a first view. The terminal holds the
+        // page, so the stylesheet is the only file it asks for.
+        "program: hello id=",
+        "host: welcome id=* re=* version=1 with a token",
+        "program: open id=* tool=show bundle of 2 files",
+        "host: need id=* re=* missing=1",
+        "program: file",
+        "view: started from the bundle: entry index.html, 2 files",
+        "host: msg id=* request tools/call show",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "screen: alternate screen off",
+        "program: was killed by signal 2",
+    ]);
+    assert_eq!(run.count("program: file"), 3, "{}", run.text());
+    assert_eq!(run.count("program: open"), 2, "{}", run.text());
+    // The second view asks for no second capability query and no second screen,
+    // and its server finds the file edited already: nothing makes a third.
+    assert_eq!(run.count("program: hello"), 2, "{}", run.text());
+    assert_eq!(run.count("program: dismiss"), 1, "{}", run.text());
+    assert_eq!(run.count("answers CSI c"), 1, "{}", run.text());
+    assert_eq!(
+        String::from_utf8_lossy(&run.output)
+            .matches("\x1b[?1049h")
+            .count(),
+        1
+    );
+    assert_eq!(
+        fs::read_to_string(&style).expect("the stylesheet"),
+        "body { color: red }"
+    );
+    // Each view is a server of its own, and neither outlives `pencere dev`.
+    let pids = started(&log);
+    assert_eq!(pids.len(), 2, "{pids:?}");
+    assert_ne!(pids[0], pids[1]);
+    for pid in pids {
+        assert!(gone(pid), "the server {pid} outlived pencere dev");
+    }
+    assert!(run.output_has("pencere:").is_none());
+}
+
+#[test]
+fn pencere_dev_starts_the_server_again_when_a_file_it_watches_changes() {
+    let dir = fresh("cli-dev-watch");
+    let watched = dir.join("settings");
+    fs::write(&watched, "before").expect("a file the server reads");
+    let log = dir.join("starts");
+    let server = logged_program(
+        &log,
+        &writes_on_call(),
+        &[&watched.to_string_lossy(), "after"],
+    );
+    let watched_arg = watched.to_string_lossy();
+    let run = run_dev(
+        &["--then", "interrupt", "--on-view", "2"],
+        &["--tool", "show", "--watch", &watched_arg],
+        &words(&server),
+    );
+    assert!(run.status.success(), "{}", run.text());
+    // No view directory: the terminal reads the page from the server each time.
+    run.in_order(&[
+        "program: open id=2 tool=show without a bundle",
+        "view: started from resources/read",
+        "host: msg id=* request tools/call show",
+        "program: dismiss id=",
+        "host: closed id=* re=* reason=program",
+        "program: hello id=",
+        "program: open id=* tool=show without a bundle",
+        "view: started from resources/read",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "program: was killed by signal 2",
+    ]);
+    run.never("program: file");
+    assert_eq!(run.count("program: open"), 2, "{}", run.text());
+    assert_eq!(run.count("program: dismiss"), 1, "{}", run.text());
+    assert_eq!(fs::read_to_string(&watched).expect("the file"), "after");
+    let pids = started(&log);
+    assert_eq!(pids.len(), 2, "{pids:?}");
+    for pid in pids {
+        assert!(gone(pid), "the server {pid} outlived pencere dev");
+    }
+}
+
+#[test]
+fn pencere_dev_names_a_path_to_watch_that_is_not_there_and_asks_the_terminal_for_nothing() {
+    let dir = fresh("cli-dev-missing");
+    let log = dir.join("starts");
+    let server = logged_program(&log, &writes_on_call(), &["x", "y"]);
+    let run = run_dev(
+        &[],
+        &["--tool", "show", "--watch", "/nonexistent/server.py"],
+        &words(&server),
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&["program: exited with status 2"]);
+    run.never("program: hello");
+    assert!(
+        run.output_has("--watch /nonexistent/server.py: no such file or directory")
+            .is_some(),
+        "{:?}",
+        String::from_utf8_lossy(&run.output)
+    );
+    assert!(started(&log).is_empty());
+}
+
+#[test]
+fn pencere_dev_ends_and_says_what_the_server_wrote_when_it_will_not_start_again() {
+    // What saving a syntax error does: the first server runs, the one that is
+    // started for the reopened view dies at once.
+    let dir = fresh("cli-dev-broken");
+    let watched = dir.join("settings");
+    fs::write(&watched, "before").expect("a file the server reads");
+    let log = dir.join("starts");
+    let server = vec![
+        "sh".to_owned(),
+        "-c".to_owned(),
+        concat!(
+            r#"echo $$ >> "$0"; "#,
+            r#"if [ "$(wc -l < "$0")" -ge 2 ]; then echo "SyntaxError: nope" >&2; exit 3; fi; "#,
+            r#"exec node "$@""#
+        )
+        .to_owned(),
+        log.to_string_lossy().into_owned(),
+        writes_on_call().to_string_lossy().into_owned(),
+        watched.to_string_lossy().into_owned(),
+        "after".to_owned(),
+    ];
+    let watched_arg = watched.to_string_lossy();
+    let run = run_dev(
+        &["--then", "interrupt", "--on-view", "2"],
+        &["--tool", "show", "--watch", &watched_arg],
+        &words(&server),
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: dismiss id=",
+        "host: closed id=* re=* reason=program",
+        "program: hello id=",
+        "screen: alternate screen off",
+        "program: exited with status 1",
+    ]);
+    let off = run
+        .output_has("\x1b[?1049l")
+        .expect("the screen was given back");
+    let said = run
+        .output_has("ended (exit status 3) while its view was opening")
+        .expect("it said that the server ended");
+    let wrote = run
+        .output_has("  SyntaxError: nope")
+        .expect("it showed what the server wrote");
+    assert!(off < said && said < wrote, "{off} {said} {wrote}");
+    for pid in started(&log) {
+        assert!(gone(pid), "the server {pid} outlived pencere dev");
+    }
 }

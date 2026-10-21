@@ -36,7 +36,8 @@ Run it from a terminal and the program's keys are yours: ⌃C reaches the progra
 does in any terminal. Otherwise the script decides how the run ends (`--then`): the view
 makes the calls it was given (`--call`), and then ^C is typed into the pane, the program
 is killed with SIGKILL, the person closes the view, the host starts the view again once, as after a
-reconnection, or nothing happens. `--no-host` plays
+reconnection, or nothing happens. A program that shows several views, as `pencere dev` does,
+takes the action at the Nth view (`--on-view`). `--no-host` plays
 a terminal that does not host pencere, `--store` keeps verified files between runs, and
 `--help` lists the rest.
 

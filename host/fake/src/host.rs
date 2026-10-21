@@ -78,6 +78,10 @@ pub struct Host {
     allow_network: bool,
     passthrough: bool,
     then: Then,
+    /// The view whose finished calls `then` waits for.
+    on_view: u32,
+    /// How many views have been started: each reopening of the program's is one.
+    views: u32,
     calls: Vec<Call>,
     view: Option<ScriptedView>,
     screen: Screen,
@@ -127,6 +131,8 @@ impl Host {
             allow_network: args.allow_network,
             passthrough: args.passthrough,
             then: args.then,
+            on_view: args.on_view,
+            views: 0,
             calls: args.calls.clone(),
             view: None,
             screen: Screen::new(),
@@ -328,6 +334,7 @@ impl Host {
     }
 
     fn start_view(&mut self, start: &ViewStart) {
+        self.views += 1;
         match &start.source {
             ViewSource::Bundle => {
                 let manifest = self.session.bundle().cloned();
@@ -378,6 +385,11 @@ impl Host {
 
     /// The script has no more to do: what the command line said to do next.
     fn calls_done(&mut self) {
+        // A program that shows its view again is waited for, whatever the action is.
+        if self.views < self.on_view {
+            log::line("view", "has nothing more to do");
+            return;
+        }
         match self.then {
             Then::Wait => log::line("view", "has nothing more to do"),
             Then::Interrupt => {

@@ -5,6 +5,7 @@ in the terminal pane you ran it in.
 
 ```sh
 npx @pencere/cli run -- python server.py
+npx @pencere/cli dev --view dist/view -- node dist/server.js
 ```
 
 [pencere](https://github.com/bateri/pencere) shows an MCP App view in the terminal pane a
@@ -13,7 +14,8 @@ and `@pencere/sdk` is how a TypeScript one asks the terminal for a view. `pencer
 every other server: Python, Go, Rust, a shell script, anything that speaks MCP over stdio. It
 runs the server as an MCP client would, talks pencere's protocol with the terminal, and carries
 the messages between the two. The server is the one you would give Claude Desktop or VS Code,
-unchanged.
+unchanged. `pencere dev` is the same while you work on the view or the server: when their files
+change, the view is shown again.
 
 ## Use
 
@@ -30,6 +32,8 @@ Everything after `--` is the server's command, taken as it is.
 | `--view <dir>`    | Show the view from the files in `<dir>` (it needs an `index.html`). They cross the terminal's stream once and the terminal keeps them by content. Without it the terminal reads the server's `ui://` resource. |
 | `-h`, `--help`    | Usage.                                                                                                                                                                                                         |
 | `-v`, `--version` | The version.                                                                                                                                                                                                   |
+
+The same options and exit status are `pencere dev`'s, which adds `--watch` (see below).
 
 If the server has no tool with a view, or several, `pencere run` says which tools there are
 and, for several, asks you to choose one with `--tool`.
@@ -52,6 +56,48 @@ is not attached to the terminal, and with `--tool` it is not started for it at a
 When the server fails, what it wrote to stderr is shown on the screen you get back. While a
 view is up the screen is the view's, so the end of it is kept (the last 16 KiB) and printed
 after the view has closed, as text.
+
+## Reloading with `pencere dev`
+
+```
+pencere dev [options] -- <command> [args...]
+```
+
+```sh
+pencere dev --view dist/view -- node dist/server.js     # a view that is built into dist/view
+pencere dev --watch server.py -- python server.py        # a server whose own files are the work
+```
+
+`pencere dev` is `pencere run`, and it watches files. When they change, the view in the pane
+closes, the server is started again, and the view opens again, in the same pane and without
+leaving the alternate screen. What the view held in its own memory is gone, as it is when the
+terminal reconnects: its state is rebuilt from the server's tool results, as at the first open.
+
+| Option           | What it watches                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--view <dir>`   | The view's files. A change that leaves the files as they were (a save that wrote the same bytes) shows nothing; the terminal is sent only what changed. |
+| `--watch <path>` | A file or directory the server reads, as often as needed. A change to what it holds (size or modification time) starts the server and the view again.   |
+
+One of the two is needed. Names that begin with a dot, `node_modules` and `__pycache__` are not
+watched under a directory: a server that writes into a directory it is watched through would end
+every run with a change.
+
+- **A burst is one reopening.** A build writes many files; the view is reopened once they have
+  been quiet for a moment, and a change that comes while it is reopening is shown after it.
+- **A half-built view is not shown.** A build that has emptied its output directory and not yet
+  written `index.html` leaves something that is not a view. The change is looked at again at the
+  next one, which is the build writing more.
+- **The terminal does the swap.** The view is closed and opened by the terminal's own messages
+  (`dismiss`; specification §10.8), which is why this works when the server runs over plain ssh
+  and the terminal is on the other side: the files cross the stream, not a port. A terminal that
+  does not list `dismiss` in its `welcome` cannot reopen a view: `pencere dev` runs the view as
+  `pencere run` would, and says after the view has closed that the changes were not shown.
+- **What it tells you is told after.** While the view is up the screen is the view's, so notes
+  (a view that could not be read at the last change, a watch that failed) are printed on the
+  screen you get back, as the server's stderr is.
+- **A server that ends is not restarted for you.** If the server exits while its view is up, as
+  after a syntax error is saved, `pencere dev` ends as `pencere run` does and shows what the
+  server wrote to stderr: fix it and run the command again.
 
 ## How the server is run
 

@@ -71,9 +71,13 @@ describe("pencere run", () => {
     expect(fails(["run", "--args", '"x"', "--", "s"])).toContain("JSON object");
   });
 
-  it("is the only command, and it is needed", () => {
+  it("is one of two commands, and one is needed", () => {
     expect(fails([])).toContain("no command");
-    expect(fails(["dev", "--", "s"])).toContain('unknown command "dev"');
+    expect(fails(["watch", "--", "s"])).toContain('unknown command "watch"');
+  });
+
+  it("does not watch: that is for dev", () => {
+    expect(fails(["run", "--watch", "server.py", "--", "s"])).toContain("`pencere dev`");
   });
 
   it("answers help and version without a server's command", () => {
@@ -82,5 +86,60 @@ describe("pencere run", () => {
     expect(parse(["run", "--tool", "a", "--help"])).toEqual({ kind: "help" });
     expect(parse(["--version"])).toEqual({ kind: "version" });
     expect(parse(["-v"])).toEqual({ kind: "version" });
+    expect(parse(["dev", "--help"])).toEqual({ kind: "help" });
+    expect(parse(["dev", "--watch", "a", "-h"])).toEqual({ kind: "help" });
+  });
+});
+
+describe("pencere dev", () => {
+  it("takes a view directory, the server's own paths and the server's command", () => {
+    expect(
+      parse([
+        "dev",
+        "--view",
+        "dist/view",
+        "--watch",
+        "server.py",
+        "--watch=lib",
+        "--tool",
+        "list",
+        "--",
+        "python",
+        "server.py",
+        "--watch",
+        "x",
+      ]),
+    ).toEqual({
+      kind: "dev",
+      command: "python",
+      args: ["server.py", "--watch", "x"],
+      tool: "list",
+      view: "dist/view",
+      watch: ["server.py", "lib"],
+    });
+  });
+
+  it("is enough with either the view or the server's paths", () => {
+    expect(parse(["dev", "--view", "v", "--", "s"])).toEqual({
+      kind: "dev",
+      command: "s",
+      args: [],
+      view: "v",
+      watch: [],
+    });
+    expect(parse(["dev", "--watch", "s.py", "--", "python", "s.py"])).toEqual({
+      kind: "dev",
+      command: "python",
+      args: ["s.py"],
+      watch: ["s.py"],
+    });
+  });
+
+  it("names what is wrong", () => {
+    expect(fails(["dev", "--", "s"])).toContain("nothing to watch");
+    expect(fails(["dev", "--view", "v"])).toContain("after --");
+    expect(fails(["dev", "--watch", "", "--", "s"])).toContain("--watch needs a value");
+    expect(fails(["dev", "--watch", "--", "s"])).toContain("--watch");
+    expect(fails(["dev", "--view", "v", "--args", "[]", "--", "s"])).toContain("JSON object");
   });
 });

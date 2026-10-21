@@ -1,26 +1,35 @@
 /**
- * `pencere run`: an MCP server written in any language as a pencere program.
+ * `pencere run` and `pencere dev`: an MCP server written in any language as a
+ * pencere program.
  *
  * What a program does to show its view is `serve` of the SDK, and everything of
  * that is the SDK's: the question to the terminal, the token, the bundle, ⌃C and
- * `bye`, the host starting the view again, the fallback. What is this file's is
- * what a program of someone else's language cannot do for itself: choosing the
- * tool, making the server a process the SDK can connect to (`connector.ts`),
- * keeping what the server says on stderr for the screen the person gets back, and
- * saying what happened, in an exit status as well as in words.
+ * `bye`, the host starting the view again, the fallback, and closing the view to
+ * show it again. What is this file's is what a program of someone else's language
+ * cannot do for itself: choosing the tool, making the server a process the SDK can
+ * connect to (`connector.ts`), keeping what the server says on stderr for the
+ * screen the person gets back, saying what happened, in an exit status as well as
+ * in words, and, for `dev`, handing the SDK a control and the changes of the
+ * files to reopen the view with (`dev.ts`).
  */
 
-import { BundleError, bundleFromDirectory, serve } from "@pencere/sdk";
+import { BundleError, ViewControl, bundleFromDirectory, serve } from "@pencere/sdk";
 import type { Bundle, Connectable, ServeOptions, ServeResult, ToolCall } from "@pencere/sdk";
 import { readFileSync } from "node:fs";
+import { stat } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import { USAGE, UsageError, parse } from "./args.js";
 import type { Command } from "./args.js";
 import { ProcessConnector } from "./connector.js";
+import { Reloader } from "./dev.js";
+import type { ReloadTiming } from "./dev.js";
 import { DiscoveryError, Interrupted, discoverTool } from "./discover.js";
 import { StartError } from "./server-process.js";
 import type { CloseTiming, Exit, ServerCommand } from "./server-process.js";
 import { Tail } from "./tail.js";
+import { WatchError, fingerprintOf, watchRoots } from "./watch.js";
+import type { Root, Watch, Watching } from "./watch.js";
 
 /** The exit statuses of `pencere run` (the signals aside, which end the process as they would any other). */
 export const EXIT = {
@@ -53,6 +62,10 @@ export interface Environment {
   /** How long the server has to answer a question of the discovery, in milliseconds. */
   readonly discoveryTimeout: number;
   readonly timing?: CloseTiming | undefined;
+  /** How `pencere dev` waits for the files to be quiet, and asks again for a view that is not up. */
+  readonly reload: ReloadTiming;
+  /** Watches files for `pencere dev`. */
+  readonly watch: Watch;
 }
 
 /** The environment of this process. */
@@ -68,6 +81,8 @@ export function systemEnvironment(): Environment {
     serve,
     version: manifest.version,
     discoveryTimeout: 30_000,
+    reload: { settle: 150, retry: 250, tries: 20 },
+    watch: watchRoots,
   };
 }
 
@@ -89,11 +104,12 @@ export async function run(argv: readonly string[], env: Environment): Promise<Fi
       env.stdout.write(`pencere ${env.version}\n`);
       return { code: EXIT.ok };
     case "run":
+    case "dev":
       return runServer(command, env);
   }
 }
 
-type RunCommand = Extract<Command, { kind: "run" }>;
+type RunCommand = Extract<Command, { kind: "run" | "dev" }>;
 
 /** The command as the person would type it, to say which server a message is about. */
 export function shown(spec: ServerCommand): string {
@@ -112,12 +128,22 @@ async function runServer(command: RunCommand, env: Environment): Promise<Finish>
   const say = (text: string): void => void env.stderr.write(`${text}\n`);
   if (env.stdin.isTTY !== true || env.stdout.isTTY !== true) {
     say(
-      "pencere: run shows the view in the terminal it runs in, and its input or output is not a terminal here.",
+      `pencere: ${command.kind} shows the view in the terminal it runs in, and its input or output is not a terminal here.`,
     );
     say(
       `${shown(spec)} is an MCP server: an MCP client (a chat app, an editor) takes its own command, not pencere's.`,
     );
     return { code: EXIT.noView };
+  }
+  if (command.kind === "dev") {
+    for (const path of command.watch) {
+      try {
+        await stat(path);
+      } catch (error) {
+        say(`pencere: --watch ${path}: ${pathProblem(error)}`);
+        return { code: EXIT.usage };
+      }
+    }
   }
 
   // ⌃C and SIGTERM end this process in the end, and the server first: the SDK
@@ -152,6 +178,7 @@ async function runServer(command: RunCommand, env: Environment): Promise<Finish>
   };
   const interruptedBy = (): Finish | undefined =>
     interrupted === undefined ? undefined : { signal: interrupted };
+  let reloading: Reloading | undefined;
 
   try {
     const chosen = await choose(command, spec, env, interrupt.signal);
@@ -172,12 +199,25 @@ async function runServer(command: RunCommand, env: Environment): Promise<Finish>
     const early = interruptedBy();
     if (early !== undefined) return early;
 
+    // The files are watched before the view is asked for, so that a change that comes while it opens is not missed.
+    const control = command.kind === "dev" ? new ViewControl() : undefined;
+    if (command.kind === "dev" && control !== undefined) {
+      try {
+        reloading = await startReloading(command, bundle, control, env);
+      } catch (error) {
+        if (!(error instanceof WatchError)) throw error;
+        say(`pencere: ${error.message}`);
+        return interruptedBy() ?? { code: error.missing ? EXIT.usage : EXIT.failed };
+      }
+    }
+
     let result: ServeResult | undefined;
     let thrown: unknown;
     try {
       result = await env.serve(connector, {
         tool: chosen.tool,
         ...(bundle === undefined ? {} : { bundle }),
+        ...(control === undefined ? {} : { control }),
         signal: abort.signal,
       });
     } catch (error) {
@@ -185,6 +225,10 @@ async function runServer(command: RunCommand, env: Environment): Promise<Finish>
     }
     // `serve` lets go of a server without waiting for it; leaving is not for a server that lingers.
     await connector.drain();
+    // The view is over: what the files do from here is nothing, and what was learned of them is told now,
+    // on the screen the person has back.
+    reloading?.close();
+    for (const note of reloading?.reloader.notes ?? []) say(`pencere: ${note}`);
 
     const finish = interruptedBy();
     if (finish !== undefined) return finish;
@@ -209,8 +253,52 @@ async function runServer(command: RunCommand, env: Environment): Promise<Finish>
     if (result === undefined) return { code: EXIT.failed };
     return finishedWith(result, spec, said, say);
   } finally {
+    reloading?.close();
     for (const { signal, handler } of handlers) env.process.removeListener(signal, handler);
   }
+}
+
+/** What `pencere dev` watches the files with, and what it does about a change. */
+interface Reloading {
+  readonly reloader: Reloader;
+  /** Ends the watching and the acting on changes. */
+  close(): void;
+}
+
+/** @throws {WatchError} when a path cannot be watched. */
+async function startReloading(
+  command: Extract<Command, { kind: "dev" }>,
+  bundle: Bundle | undefined,
+  control: ViewControl,
+  env: Environment,
+): Promise<Reloading> {
+  const view = command.view === undefined ? undefined : resolve(command.view);
+  const server = command.watch.map((path) => resolve(path));
+  const reloader = new Reloader({
+    control,
+    ...(view === undefined ? {} : { view }),
+    ...(bundle === undefined ? {} : { bundle }),
+    ...(server.length === 0 ? {} : { fingerprint: () => fingerprintOf(server) }),
+    timing: env.reload,
+  });
+  // What the server's files hold now is what the view that opens next is made with.
+  await reloader.start();
+  const roots: Root[] = [
+    ...(view === undefined ? [] : [{ path: view, role: "view" as const }]),
+    ...server.map((path) => ({ path, role: "server" as const })),
+  ];
+  const watching: Watching = env.watch(
+    roots,
+    (role) => (role === "view" ? reloader.viewChanged() : reloader.serverChanged()),
+    (message) => reloader.warn(message),
+  );
+  return {
+    reloader,
+    close: () => {
+      watching.close();
+      reloader.stop();
+    },
+  };
 }
 
 /** The tool to show, or what to say about why there is none. */
@@ -280,6 +368,13 @@ function viewProblem(error: unknown): string {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (code === "ENOENT") return "no such directory";
   if (code === "ENOTDIR") return "not a directory";
+  if (code === "EACCES") return "permission denied";
+  return error instanceof Error ? error.message : String(error);
+}
+
+function pathProblem(error: unknown): string {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  if (code === "ENOENT") return "no such file or directory";
   if (code === "EACCES") return "permission denied";
   return error instanceof Error ? error.message : String(error);
 }

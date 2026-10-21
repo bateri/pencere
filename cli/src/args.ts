@@ -1,5 +1,6 @@
 /**
- * The command line: `pencere run [options] -- <command> [args...]`.
+ * The command line: `pencere run [options] -- <command> [args...]` and
+ * `pencere dev [options] -- <command> [args...]`.
  *
  * Everything after the first `--` is the server's command, taken as it is: a
  * server's own flags are not pencere's to read. What comes before it is read with
@@ -11,13 +12,21 @@ import { parseArgs } from "node:util";
 
 export const USAGE = `\
 usage: pencere run [options] -- <command> [args...]
+       pencere dev [options] -- <command> [args...]
 
-Runs <command>, an MCP server that speaks stdio and is written in any language,
-and shows its view in this terminal pane. The server is started as an MCP client
-would start it, so it is the same server an MCP Apps host runs.
+run: runs <command>, an MCP server that speaks stdio and is written in any
+language, and shows its view in this terminal pane. The server is started as an
+MCP client would start it, so it is the same server an MCP Apps host runs.
 
   pencere run -- python server.py
   pencere run --tool list_containers --view ./view -- node dist/server.js
+
+dev: the same, and the view is shown again when its files change (--view) or
+when the server's own files do (--watch): the view closes, the server is
+started again and the view opens again, with only the files that changed sent.
+
+  pencere dev --view dist/view -- node dist/server.js
+  pencere dev --watch server.py -- python server.py
 
 options:
   --tool <name>   the tool whose view to show; without it, the one tool of the
@@ -26,6 +35,9 @@ options:
   --view <dir>    show the view from the files in <dir> (sent to the terminal
                   once, then kept by content) instead of the server's own
                   ui:// resource
+  --watch <path>  dev only, repeatable: a file or directory whose change starts
+                  the server and the view again; --view's directory is watched
+                  already, and one of --view and --watch is needed
   -h, --help      this text
   -v, --version   the version of pencere
 
@@ -35,18 +47,25 @@ command line; 3 this terminal does not show pencere views; 130 and 143 after ^C
 and SIGTERM.
 `;
 
+/** The server to run and the view to show, which `run` and `dev` are both given. */
+export interface Launch {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly tool?: string;
+  readonly arguments?: Record<string, unknown>;
+  readonly view?: string;
+}
+
 /** What the command line asks for. */
 export type Command =
   | { readonly kind: "help" }
   | { readonly kind: "version" }
-  | {
-      readonly kind: "run";
-      readonly command: string;
-      readonly args: readonly string[];
-      readonly tool?: string;
-      readonly arguments?: Record<string, unknown>;
-      readonly view?: string;
-    };
+  | ({ readonly kind: "run" } & Launch)
+  | ({
+      readonly kind: "dev";
+      /** The files whose change starts the server and the view again, besides the view's directory. */
+      readonly watch: readonly string[];
+    } & Launch);
 
 /** A mistake in the command line: what it is, so that the person can fix it. */
 export class UsageError extends Error {
@@ -69,17 +88,16 @@ function toolArguments(text: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+const COMMANDS = "use `pencere run [options] -- <command> [args...]` or `pencere dev ...`";
+
 /** @throws {UsageError} for anything that is not a command of pencere. */
 export function parse(argv: readonly string[]): Command {
   const [name, ...rest] = argv;
-  if (name === undefined)
-    throw new UsageError("no command: use `pencere run [options] -- <command> [args...]`");
+  if (name === undefined) throw new UsageError(`no command: ${COMMANDS}`);
   if (name === "-h" || name === "--help" || name === "help") return { kind: "help" };
   if (name === "-v" || name === "--version") return { kind: "version" };
-  if (name !== "run")
-    throw new UsageError(
-      `unknown command "${name}": use \`pencere run [options] -- <command> [args...]\``,
-    );
+  if (name !== "run" && name !== "dev")
+    throw new UsageError(`unknown command "${name}": ${COMMANDS}`);
 
   // The server's command is everything after the first `--`.
   const dash = rest.indexOf("--");
@@ -100,14 +118,25 @@ export function parse(argv: readonly string[]): Command {
   if (command === undefined || command === "") throw new UsageError("no command after --");
   for (const option of ["tool", "view"] as const)
     if (values[option] === "") throw new UsageError(`--${option} needs a value`);
-  return {
-    kind: "run",
+  const watch = values.watch ?? [];
+  if (watch.includes("")) throw new UsageError("--watch needs a value");
+  const launch: Launch = {
     command,
     args,
     ...(values.tool === undefined ? {} : { tool: values.tool }),
     ...(values.args === undefined ? {} : { arguments: toolArguments(values.args) }),
     ...(values.view === undefined ? {} : { view: values.view }),
   };
+  if (name === "run") {
+    if (values.watch !== undefined)
+      throw new UsageError("--watch is for `pencere dev`: `pencere run` shows the view once");
+    return { kind: "run", ...launch };
+  }
+  if (launch.view === undefined && watch.length === 0)
+    throw new UsageError(
+      "nothing to watch: give --view <dir> for the view's files, or --watch <path> for the server's own",
+    );
+  return { kind: "dev", watch, ...launch };
 }
 
 function parseOwn(args: readonly string[]) {
@@ -117,6 +146,7 @@ function parseOwn(args: readonly string[]) {
       tool: { type: "string" },
       args: { type: "string" },
       view: { type: "string" },
+      watch: { type: "string", multiple: true },
       help: { type: "boolean", short: "h" },
     },
     allowPositionals: true,

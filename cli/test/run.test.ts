@@ -1,11 +1,22 @@
-import { Bundle } from "@pencere/sdk";
-import type { Connectable, ServeOptions, ServeResult } from "@pencere/sdk";
+import { Bundle, ViewControl } from "@pencere/sdk";
+import type {
+  Connectable,
+  ReopenOptions,
+  ReopenResult,
+  ServeOptions,
+  ServeResult,
+} from "@pencere/sdk";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { EXIT, run, shown } from "../src/run.js";
 import type { Environment, Finish } from "../src/run.js";
 import type { CloseTiming } from "../src/server-process.js";
+import { WatchError } from "../src/watch.js";
+import type { Role, Root } from "../src/watch.js";
 import { ECHO, FakeTransport, alive, node, tools, until } from "./support.js";
 
 const QUICK: CloseTiming = { stdin: 100, term: 100, kill: 2000 };
@@ -19,6 +30,12 @@ function terminal(serve: Serve = async () => ({ kind: "closed", by: "user" })) {
   const err: string[] = [];
   const listeners = new Map<string, (() => void)[]>();
   const served: { server: Connectable; options: ServeOptions }[] = [];
+  const watches: {
+    roots: readonly Root[];
+    onChange: (role: Role) => void;
+    onError: (message: string) => void;
+    closed: boolean;
+  }[] = [];
   const env: Environment = {
     stdin: { isTTY: true },
     stdout: { isTTY: true, write: (text) => out.push(text) },
@@ -38,10 +55,21 @@ function terminal(serve: Serve = async () => ({ kind: "closed", by: "user" })) {
     version: "1.2.3",
     discoveryTimeout: 10_000,
     timing: QUICK,
+    reload: { settle: 0, retry: 0, tries: 3 },
+    watch: (roots, onChange, onError) => {
+      const watch = { roots, onChange, onError, closed: false };
+      watches.push(watch);
+      return {
+        close: () => {
+          watch.closed = true;
+        },
+      };
+    },
   };
   return {
     env,
     served,
+    watches,
     out: () => out.join(""),
     err: () => err.join(""),
     emit: (signal: string) => (listeners.get(signal) ?? []).forEach((listener) => listener()),
@@ -346,5 +374,149 @@ describe("a command shown as it is typed", () => {
     expect(shown({ command: "python", args: ["my server.py", "--flag=1", "it's"] })).toBe(
       "python 'my server.py' --flag=1 'it'\\''s'",
     );
+  });
+});
+
+describe("pencere dev", () => {
+  const dirs: string[] = [];
+  afterEach(async () => {
+    for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true });
+  });
+
+  /** A view directory of the test's own, with an `index.html` that says `text`. */
+  async function view(text = "one"): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), "pencere-cli-dev-"));
+    dirs.push(dir);
+    await writeFile(join(dir, "index.html"), `<!doctype html><p>${text}`);
+    return dir;
+  }
+
+  const devArgv = (...own: string[]) => ["dev", "--tool", "t", ...own, "--", "s"];
+
+  it("watches the view's directory and the server's paths, and ends the watching with the view", async () => {
+    const dir = await view();
+    const server = fileURLToPath(new URL("support.ts", import.meta.url));
+    const t = terminal();
+    expect(await run(devArgv("--view", `${dir}/`, "--watch", server), t.env)).toEqual({
+      code: EXIT.ok,
+    });
+    expect(t.served[0]?.options.control).toBeInstanceOf(ViewControl);
+    expect(t.served[0]?.options.bundle).toBeInstanceOf(Bundle);
+    expect(t.watches).toHaveLength(1);
+    expect(t.watches[0]?.roots).toEqual([
+      { path: resolve(dir), role: "view" },
+      { path: server, role: "server" },
+    ]);
+    expect(t.watches[0]?.closed).toBe(true);
+    expect(t.err()).toBe("");
+  });
+
+  it("is not what run does: run is given no control and watches nothing", async () => {
+    const t = terminal();
+    expect(await run(["run", "--tool", "t", "--", "s"], t.env)).toEqual({ code: EXIT.ok });
+    expect(t.served[0]?.options.control).toBeUndefined();
+    expect(t.watches).toEqual([]);
+  });
+
+  it("reopens the view with the files as they are now when they change", async () => {
+    const dir = await view("one");
+    const asked: ReopenOptions[] = [];
+    const t = terminal(async (_server, options) => {
+      const control = options.control;
+      if (control === undefined) throw new Error("no control");
+      control.reopen = async (next) => {
+        asked.push(next ?? {});
+        return { kind: "reopened" };
+      };
+      await writeFile(join(dir, "index.html"), "<!doctype html><p>two");
+      t.watches[0]?.onChange("view");
+      await until(() => asked.length === 1, "the view to be reopened");
+      return { kind: "closed", by: "user" };
+    });
+    expect(await run(devArgv("--view", dir), t.env)).toEqual({ code: EXIT.ok });
+    const bundle = asked[0]?.bundle;
+    expect(bundle).toBeInstanceOf(Bundle);
+    const shown = t.served[0]?.options.bundle;
+    expect(bundle?.manifest.files[0]?.sha256).not.toBe(shown?.manifest.files[0]?.sha256);
+    expect(t.err()).toBe("");
+  });
+
+  it("restarts the view, with no new files, when the server's own files change", async () => {
+    const dir = await view();
+    const server = join(dir, "index.html");
+    const asked: ReopenOptions[] = [];
+    const t = terminal(async (_server, options) => {
+      const control = options.control;
+      if (control === undefined) throw new Error("no control");
+      control.reopen = async (next) => {
+        asked.push(next ?? {});
+        return { kind: "reopened" };
+      };
+      // What the server's file holds has changed (its size does), not only been written to.
+      await writeFile(server, "a script that is longer than it was");
+      t.watches[0]?.onChange("server");
+      await until(() => asked.length === 1, "the view to be reopened");
+      return { kind: "closed", by: "user" };
+    });
+    expect(await run(devArgv("--watch", server), t.env)).toEqual({ code: EXIT.ok });
+    expect(asked).toEqual([{}]);
+  });
+
+  it("says, once the view has closed, that the terminal cannot reopen a view", async () => {
+    const dir = await view();
+    let asked = 0;
+    const t = terminal(async (_server, options) => {
+      const control = options.control;
+      if (control === undefined) throw new Error("no control");
+      control.reopen = async () => {
+        asked += 1;
+        return { kind: "unsupported" } satisfies ReopenResult;
+      };
+      await writeFile(join(dir, "index.html"), "<!doctype html><p>two");
+      t.watches[0]?.onChange("view");
+      await until(() => asked === 1, "the view to be asked to reopen");
+      // Said while the view is up, it would be under the view's screen.
+      expect(t.err()).toBe("");
+      return { kind: "closed", by: "user" };
+    });
+    expect(await run(devArgv("--view", dir), t.env)).toEqual({ code: EXIT.ok });
+    expect(t.err()).toContain("does not reopen a view when asked");
+    expect(t.err()).toContain("changes were not shown");
+  });
+
+  it("names a path to watch that is not there, before it starts anything", async () => {
+    const t = terminal();
+    expect(await run(devArgv("--watch", "/nonexistent/server.py"), t.env)).toEqual({
+      code: EXIT.usage,
+    });
+    expect(t.err()).toContain("--watch /nonexistent/server.py: no such file or directory");
+    expect(t.served).toEqual([]);
+    expect(t.watches).toEqual([]);
+  });
+
+  it("says what could not be watched, and shows no view", async () => {
+    const dir = await view();
+    const t = terminal();
+    for (const [missing, code] of [
+      [true, EXIT.usage],
+      [false, EXIT.failed],
+    ] as const) {
+      const env: Environment = {
+        ...t.env,
+        watch: () => {
+          throw new WatchError("cannot watch it: no", missing);
+        },
+      };
+      expect(await run(devArgv("--view", dir), env)).toEqual({ code });
+    }
+    expect(t.err()).toContain("pencere: cannot watch it: no");
+    expect(t.served).toEqual([]);
+  });
+
+  it("ends the watching when the terminal had no view to show", async () => {
+    const dir = await view();
+    const t = terminal(async () => ({ kind: "no-view", reason: "no-host" }));
+    expect(await run(devArgv("--view", dir), t.env)).toEqual({ code: EXIT.noView });
+    expect(t.watches[0]?.closed).toBe(true);
   });
 });

@@ -17,5 +17,13 @@ All notable changes to `@pencere/cli` are recorded here. The format follows
   terminal's ⌃C reaches `pencere run` and not the server, and is ended by closing its stdin, then
   SIGTERM and SIGKILL to its group. What it wrote to stderr is shown on the screen the person gets
   back when it failed.
+- `pencere dev [--view <dir>] [--watch <path>]... [--tool <name>] [--args <json>] -- <command>
+[args...]`: `pencere run`, and when the files of the view (`--view`) or the files the server reads
+  (`--watch`, a file or a directory, as often as needed) change, the view closes, the server is
+  started again and the view opens again in the same pane. Changes that come together are one
+  reopening. The terminal keeps the view's files by content, so only the files that changed cross
+  the stream. A change that leaves the files as they were, or a build that has not finished writing
+  the view, shows nothing; a terminal that cannot reopen a view is told of once, after the view has
+  closed, and the view runs as it does under `pencere run`.
 - Exit status: 0 the view ran and closed, 1 it could not run, 2 a mistake in the command line,
   3 the terminal does not show pencere views; ⌃C and SIGTERM end the process by the same signal.

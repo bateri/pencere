@@ -23,6 +23,10 @@ options:
                        (the person closes the view), restart (the view is
                        started again once, as after a reconnection, and when
                        its calls are done again ^C is typed into the pane)
+  --on-view N          the action of --then waits for the Nth view the program
+                       opens (default 1): a program that reopens its view, as
+                       `pencere dev` does, shows several, and the earlier ones
+                       only run their calls
   --store DIR          keep verified bundle files in DIR, as a terminal that
                        remembers them between runs does (default: in memory)
   --no-host            act as a terminal that does not host pencere: answer
@@ -57,6 +61,8 @@ pub struct Args {
     pub program: Vec<String>,
     pub calls: Vec<Call>,
     pub then: Then,
+    /// The view whose finished calls the `then` action waits for, counting from 1.
+    pub on_view: u32,
     pub store: Option<PathBuf>,
     pub answer: bool,
     pub allow_network: bool,
@@ -115,6 +121,7 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
         program: Vec::new(),
         calls: Vec::new(),
         then: Then::Wait,
+        on_view: 1,
         store: None,
         answer: true,
         allow_network: false,
@@ -132,7 +139,7 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
             "--no-host" => parsed.answer = false,
             "--allow-network" => parsed.allow_network = true,
             "--passthrough" => parsed.passthrough = true,
-            "--call" | "--then" | "--store" | "--size" | "--limit" => {
+            "--call" | "--then" | "--on-view" | "--store" | "--size" | "--limit" => {
                 let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
                 option(&mut parsed, &arg, &value)?;
             }
@@ -161,6 +168,13 @@ fn option(parsed: &mut Args, name: &str, value: &str) -> Result<(), String> {
                     ));
                 }
             };
+        }
+        "--on-view" => {
+            parsed.on_view = value
+                .parse()
+                .ok()
+                .filter(|&n| n > 0)
+                .ok_or_else(|| format!("--on-view {value}: want a number from 1"))?;
         }
         "--store" => parsed.store = Some(PathBuf::from(value)),
         "--size" => {
@@ -221,12 +235,27 @@ mod tests {
     }
 
     #[test]
+    fn the_action_can_wait_for_a_later_view() {
+        let Outcome::Run(args) = parsed(&["--then", "interrupt", "--on-view", "2", "--", "p"])
+        else {
+            panic!("did not parse");
+        };
+        assert_eq!(args.on_view, 2);
+        let Outcome::Run(args) = parsed(&["--", "p"]) else {
+            panic!("did not parse");
+        };
+        assert_eq!(args.on_view, 1);
+    }
+
+    #[test]
     fn mistakes_say_what_they_are() {
         for bad in [
             &["--"][..],
             &["--then", "later", "--", "p"],
             &["--call", "x=[1]", "--", "p"],
             &["--size", "80", "--", "p"],
+            &["--on-view", "0", "--", "p"],
+            &["--on-view", "two", "--", "p"],
             &["--wat", "--", "p"],
             &["--limit"],
         ] {
