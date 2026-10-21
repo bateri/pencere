@@ -286,7 +286,12 @@ function tag(name) {
   // Verbatim: the default cleanup would take the section's "### Added" lines for comments.
   const message = `${line.name} ${version}\n\n${section.body}\n`;
   run("git", ["tag", "--annotate", "--cleanup=verbatim", tagName, "--message", message]);
-  console.log(`tagged ${tagName}; nothing is pushed. Next: make publish LINE=${line.id}`);
+  // The workflow cannot stage a package the registry does not know yet, nor publish the crate.
+  const next =
+    line.kind === "npm" && succeeds("npm", ["view", line.name, "name"])
+      ? "publish"
+      : "publish-local";
+  console.log(`tagged ${tagName}; nothing is pushed. Next: make ${next} LINE=${line.id}`);
 }
 
 function currentTag(line) {
