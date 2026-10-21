@@ -6,6 +6,8 @@ All notable changes to `create-pencere` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-21
+
 ### Added
 
 - `npm create pencere@latest [directory] [--template react|vue]`: write a pencere tool, an MCP

@@ -1,6 +1,6 @@
 {
   "name": "create-pencere",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Start a pencere tool: an MCP server whose view opens in the terminal pane, with a React or Vue view built by Vite",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bateri/pencere/tree/main/create#readme",
