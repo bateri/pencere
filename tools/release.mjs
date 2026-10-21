@@ -316,12 +316,27 @@ function push(name) {
   console.log(`pushed main and ${tagName}; the release workflow takes it from here`);
 }
 
+/** How long `local` waits for npm to list what it published, and how often it asks. */
+const LISTING = { minutes: 15, every: 15_000 };
+
 function local(name) {
   const line = lineOf(name);
-  const { tagName } = currentTag(line);
+  const { version, tagName } = currentTag(line);
   const cwd = join(root, line.dir);
   if (line.kind === "npm") {
     run("npm", ["publish"], { cwd, stdio: "inherit" });
+    // npm processes a new package for minutes before it lists it, and the workflow the push
+    // starts asks npm whether the version is there: one that asks too early fails.
+    console.log(`waiting for npm to list ${line.name} ${version} before pushing`);
+    const deadline = Date.now() + LISTING.minutes * 60_000;
+    while (!succeeds("npm", ["view", `${line.name}@${version}`, "version"])) {
+      if (Date.now() > deadline) {
+        refuse(
+          `npm has not listed ${line.name} ${version} in ${LISTING.minutes} minutes; once it does: git push --atomic origin main ${tagName}`,
+        );
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LISTING.every);
+    }
   } else {
     run("cargo", ["publish", "-p", line.name], { stdio: "inherit" });
   }

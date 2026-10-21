@@ -118,12 +118,14 @@ maintainer's machine, with the same steps:
 1. `make release-prepare LINE=sdk-typescript VERSION=0.1.0`, review, commit.
 2. `make release LINE=sdk-typescript`.
 3. `make publish-local LINE=sdk-typescript` runs `npm publish` (npm asks for the second factor,
-   so run it in a terminal), then pushes `main` and the tag. The workflow sees that the version
-   is already on npm, stages nothing, and writes the GitHub release.
+   so run it in a terminal), waits until npm lists the version, then pushes `main` and the tag.
+   The workflow sees that the version is already on npm, stages nothing, and writes the GitHub
+   release.
 
 npm processes a new package before it lists it ("Your package is being processed and may take a
-few minutes to become available"), and the push does not wait for that. If the workflow's `npm`
-job runs first, it fails with "not on npm yet" and the GitHub release is not written: once
+few minutes to become available"), and the workflow's `npm` job asks npm whether the version is
+there, so the push waits for the listing, up to 15 minutes. If the job still finds nothing, it
+fails with "not on npm yet" and the GitHub release is not written: once
 `npm view <package> version` answers, run what failed again (`gh run rerun <run-id> --failed`).
 
 Each of `@pencere/sdk`, `@pencere/cli` and `create-pencere` is released this way once, **in
