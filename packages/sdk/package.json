@@ -1,0 +1,24 @@
+{
+  "name": "@pencere/sdk",
+  "version": "0.0.0",
+  "description": "Show an MCP App view in the terminal pane your MCP server runs in",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bateri/pencere.git",
+    "directory": "packages/sdk"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}

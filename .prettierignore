@@ -1,0 +1,9 @@
+target/
+dist/
+node_modules/
+package-lock.json
+LICENSE
+.tasks/
+.claude/
+.notes/
+CLAUDE.md
