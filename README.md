@@ -39,7 +39,10 @@ Early: nothing here is stable yet. The repository holds
   [`host/rust`](host/rust));
 - a stand-in terminal that plays the host, for trying a tool and for tests
   ([`host/fake`](host/fake));
-- an example tool to try it all with ([`examples/containers`](examples/containers)).
+- an example tool to try it all with ([`examples/containers`](examples/containers));
+- the same kind of tool in Python, with the official MCP SDK and no pencere library, to show that a
+  server in any language gets its view in the pane from `pencere run`
+  ([`examples/python`](examples/python)).
 
 [bateri](https://github.com/bateri/bateri) will be the first host. Nothing is on npm or
 crates.io yet; how a package is released is in [RELEASING.md](RELEASING.md).

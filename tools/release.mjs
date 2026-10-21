@@ -4,12 +4,14 @@
 // Each published package is a line with its own version, CHANGELOG.md and tags
 // (`<line>-v<version>`); RELEASING.md is the procedure, this file the checks.
 //
-//   prepare <line> <version>  set the version and move Unreleased into a dated section
+//   prepare <line> <version>  set the version, move Unreleased into a dated section, and move the
+//                             ranges the repository's other packages name for this one
 //   check <line>              everything a release needs, without changing anything
 //   tag <line>                check, then create the annotated tag
 //   push <line>               push main and the tag together (what starts the workflow)
 //   local <line>              publish from this machine, then push (a line's first release)
-//   verify-tag <tag>          in the workflow: the tag names the line's version on main
+//   verify-tag <tag>          in the workflow: the tag names the line's version on main; prints
+//                             the line, its package, directory and kind, and the version
 //   registry <line> <version> in the workflow: is the package, and this version, published
 //   notes <line> [<version>]  the CHANGELOG section of a version
 //
@@ -20,25 +22,14 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { LINES, moveRanges, needs, strayRanges } from "./lines.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const LINES = {
-  "sdk-typescript": { dir: "sdk/typescript", kind: "npm", name: "@pencere/sdk" },
-  "host-rust": { dir: "host/rust", kind: "cargo", name: "pencere" },
-};
-
-/** The files a package must carry, beyond what its manager adds by itself. */
+/** The files a package must carry, beyond what its manager adds by itself and the line's own entries. */
 const REQUIRED = {
-  npm: [
-    "LICENSE",
-    "NOTICE",
-    "README.md",
-    "CHANGELOG.md",
-    "package.json",
-    "dist/index.js",
-    "dist/index.d.ts",
-  ],
-  cargo: ["LICENSE", "NOTICE", "README.md", "CHANGELOG.md", "Cargo.toml", "src/lib.rs"],
+  npm: ["LICENSE", "NOTICE", "README.md", "CHANGELOG.md", "package.json"],
+  cargo: ["LICENSE", "NOTICE", "README.md", "CHANGELOG.md", "Cargo.toml"],
 };
 
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?$/;
@@ -189,6 +180,12 @@ function prepare(name, version) {
   writeFileSync(changelogPath(line), lines.join("\n"));
   setVersion(line, version);
   console.log(`${line.name} ${current} -> ${version}`);
+  // The packages that name this one must keep naming a version that exists here: their ranges
+  // move with it, in the same commit, so that every commit installs (see lines.mjs).
+  const moved = line.kind === "npm" ? moveRanges(root, line.name, version) : [];
+  if (moved.length > 0) {
+    console.log(`the range ^${version} of ${line.name} is now also in: ${moved.join(", ")}`);
+  }
   console.log(
     `next: review, commit ("Release ${line.name} ${version}"), then make release LINE=${line.id}`,
   );
@@ -208,6 +205,14 @@ function check(name) {
     refuse(`${line.dir}/CHANGELOG.md: the newest section is not ${version}`);
   }
   releasedSection(line, version);
+  if (line.kind === "npm") {
+    for (const wrong of strayRanges(root, line.name, version)) {
+      refuse(
+        `${wrong.dir}/package.json names ${line.name} as ${wrong.range} and the line is at ${version}: ` +
+          `make release-prepare moves the ranges together with the version`,
+      );
+    }
+  }
 
   if (run("git", ["branch", "--show-current"]) !== "main") refuse("not on main");
   if (run("git", ["status", "--porcelain"]) !== "") refuse("the working tree is not clean");
@@ -237,8 +242,18 @@ function check(name) {
     }
   }
 
+  // A package that names another line's package is installable only once that is on npm.
+  for (const { name, range } of needs(root, line)) {
+    if (!succeeds("npm", ["view", `${name}@${range}`, "version"])) {
+      refuse(
+        `${line.name} needs ${name}@${range}, which npm does not list (not released yet, or ` +
+          `the registry could not be reached): release that line first`,
+      );
+    }
+  }
+
   const files = contents(line);
-  for (const file of REQUIRED[line.kind]) {
+  for (const file of [...REQUIRED[line.kind], ...line.entries]) {
     if (!files.includes(file)) refuse(`the package lacks ${file}`);
   }
   const stray = files.filter((file) => file.startsWith("test/") || file.startsWith("tests/"));
@@ -323,6 +338,9 @@ function verifyTag(tagName) {
   }
   // Read by the workflow from its output file.
   console.log(`line=${line.id}`);
+  console.log(`kind=${line.kind}`);
+  console.log(`name=${line.name}`);
+  console.log(`dir=${line.dir}`);
   console.log(`version=${version}`);
 }
 

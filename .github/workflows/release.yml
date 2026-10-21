@@ -1,14 +1,16 @@
 # A release tag (`<line>-v<version>`, made by `make release`) on main becomes a
-# release (RELEASING.md). For @pencere/sdk the package is staged on npm with
-# provenance, through trusted publishing; it becomes public only when a
-# maintainer approves it there with 2FA. The crate is published from the
-# maintainer's machine, so its tag only gets its GitHub release here.
+# release (RELEASING.md). A package of an npm line (@pencere/sdk, @pencere/cli,
+# create-pencere) is staged on npm with provenance, through trusted publishing; it
+# becomes public only when a maintainer approves it there with 2FA. The crate is
+# published from the maintainer's machine, so its tag only gets its GitHub release here.
 name: release
 
 on:
   push:
     tags:
       - "sdk-typescript-v*"
+      - "cli-v*"
+      - "create-v*"
       - "host-rust-v*"
 
 permissions: {}
@@ -20,6 +22,9 @@ jobs:
       contents: read
     outputs:
       line: ${{ steps.tag.outputs.line }}
+      kind: ${{ steps.tag.outputs.kind }}
+      name: ${{ steps.tag.outputs.name }}
+      dir: ${{ steps.tag.outputs.dir }}
       version: ${{ steps.tag.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,7 +46,7 @@ jobs:
 
   npm:
     needs: verify
-    if: needs.verify.outputs.line == 'sdk-typescript'
+    if: needs.verify.outputs.kind == 'npm'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -57,17 +62,25 @@ jobs:
       - run: npm install --global npm@11.21.1
       - run: npm ci
       - id: registry
-        run: node tools/release.mjs registry sdk-typescript "${{ needs.verify.outputs.version }}" >> "$GITHUB_OUTPUT"
+        env:
+          LINE: ${{ needs.verify.outputs.line }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: node tools/release.mjs registry "$LINE" "$VERSION" >> "$GITHUB_OUTPUT"
       # Staging a package the registry does not know would publish a public
       # placeholder, and its trusted publisher can only be set up once it exists.
       - if: steps.registry.outputs.exists != 'true'
+        env:
+          NAME: ${{ needs.verify.outputs.name }}
         run: |
-          echo "::error::@pencere/sdk is not on npm yet: its first release is published by hand (RELEASING.md, First release)."
+          echo "::error::$NAME is not on npm yet: its first release is published by hand (RELEASING.md, A line's first release)."
           exit 1
       - if: steps.registry.outputs.published == 'true'
-        run: echo "::notice::@pencere/sdk ${{ needs.verify.outputs.version }} is already on npm (published by hand); nothing to stage."
+        env:
+          NAME: ${{ needs.verify.outputs.name }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: echo "::notice::$NAME $VERSION is already on npm (published by hand); nothing to stage."
       - if: steps.registry.outputs.exists == 'true' && steps.registry.outputs.published != 'true'
-        working-directory: sdk/typescript
+        working-directory: ${{ needs.verify.outputs.dir }}
         run: npm stage publish
 
   github-release:

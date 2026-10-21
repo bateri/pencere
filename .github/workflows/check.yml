@@ -1,5 +1,6 @@
 # The gate on every push to main and every pull request: `make check`, on the two
-# systems the specification describes (Appendix B measures the tty of both).
+# systems the specification describes (Appendix B measures the tty of both), and the part
+# of it that needs the network, once, on Linux.
 name: check
 
 on:
@@ -31,3 +32,22 @@ jobs:
           components: clippy, rustfmt
       - run: npm ci
       - run: make check
+
+  # What `make check` leaves out because it reaches the network: the two templates
+  # `create-pencere` writes are installed, built, type-checked and opened under the
+  # stand-in host, and so is the Python example, with the packages of this repository
+  # packed and used in place of the published ones. The runner's own python3 serves.
+  network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.88.0
+      - run: npm ci
+      - run: make check-network

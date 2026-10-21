@@ -1,4 +1,4 @@
-.PHONY: setup fmt check release-prepare release publish publish-local
+.PHONY: setup fmt check check-network release-prepare release publish publish-local
 
 # Installs the TypeScript half's dependencies from the lockfile. The only
 # target that reaches the network.
@@ -25,8 +25,18 @@ check:
 	npx prettier --check .
 	npx vitest run --passWithNoTests
 
-# Releasing a package (RELEASING.md). LINE is one of the lines in tools/release.mjs:
-# sdk-typescript (@pencere/sdk) or host-rust (the pencere crate).
+# The part of the gate that needs the network, so it is not in `make check`: the templates
+# `create-pencere` writes and the Python example are installed from the registries, built
+# and opened under the stand-in host, with this repository's packages in place of the
+# published ones (tools/network-check.mjs). TARGETS limits it to react, vue or python. It
+# needs python3 with venv, and cargo; CI runs it as the `network` job.
+check-network:
+	@test -d node_modules || { echo "check-network: node_modules is missing, run 'make setup' first"; exit 1; }
+	node tools/network-check.mjs $(TARGETS)
+
+# Releasing a package (RELEASING.md). LINE is one of the lines in tools/lines.mjs:
+# sdk-typescript (@pencere/sdk), cli (@pencere/cli), create (create-pencere) or host-rust
+# (the pencere crate).
 #
 # release-prepare sets the version and dates the changelog; nothing is committed.
 release-prepare:
