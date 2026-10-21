@@ -33,6 +33,8 @@ Early: nothing here is stable yet. The repository holds
 - a command that runs an MCP server written in any language as a pencere program, so its view
   opens in the terminal pane: `pencere run -- python server.py`, and `pencere dev` for the same
   while the files change, which shows the view again each time ([`@pencere/cli`](cli));
+- a generator for a new tool, with a React or Vue view built by Vite, so that a first view is
+  one command away: `npm create pencere@latest my-tool` ([`create-pencere`](create));
 - a Rust library for terminals that host views, doing no I/O (crate `pencere`,
   [`host/rust`](host/rust));
 - a stand-in terminal that plays the host, for trying a tool and for tests

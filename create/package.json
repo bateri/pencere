@@ -1,0 +1,40 @@
+{
+  "name": "create-pencere",
+  "version": "0.0.0",
+  "description": "Start a pencere tool: an MCP server whose view opens in the terminal pane, with a React or Vue view built by Vite",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/bateri/pencere/tree/main/create#readme",
+  "bugs": "https://github.com/bateri/pencere/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bateri/pencere.git",
+    "directory": "create"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-apps",
+    "terminal",
+    "pencere",
+    "create"
+  ],
+  "type": "module",
+  "bin": {
+    "create-pencere": "./dist/main.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "templates",
+    "CHANGELOG.md",
+    "NOTICE"
+  ],
+  "scripts": {
+    "prepack": "rm -rf dist tsconfig.tsbuildinfo && tsc -b"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

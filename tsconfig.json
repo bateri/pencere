@@ -5,6 +5,9 @@
     { "path": "sdk/typescript/test" },
     { "path": "cli" },
     { "path": "cli/test" },
+    { "path": "create" },
+    { "path": "create/test" },
+    { "path": "create/test/tsconfig.templates.json" },
     { "path": "examples/containers" },
     { "path": "examples/containers/test" }
   ]
