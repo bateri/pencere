@@ -7,5 +7,13 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# `raw_value` lets a message from the program be routed by its id and method
+# without building a tree of its whole body, which a hostile stream could make
+# many times larger than the text.
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.10"
+
 [lints]
 workspace = true

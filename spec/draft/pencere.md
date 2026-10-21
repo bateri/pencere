@@ -284,7 +284,9 @@ NOT rely on any of them.
    error.
 2. After `ESC _`, collect body bytes. Once they differ from the prefix
    `pencere;`, the string is not this protocol's; return to step 1. A string that
-   ends before the prefix is complete is not this protocol's either.
+   ends before the prefix is complete, however it ends, is not this protocol's
+   either: it is skipped without error, and steps 3 and 4 apply only to a string
+   whose prefix is complete.
 3. A byte below 0x20 other than ESC, or above 0x7E, ends the frame (error
    `malformed`); resume scanning after it.
 4. ESC followed by `\` ends the frame. ESC followed by `_` ends it as `malformed`
@@ -994,7 +996,9 @@ Two implementations that pass them agree on the wire.
 
 ## Appendix A. Payload types
 
-Members are written in the order shown (Section 4.5). Unknown members are ignored.
+Members are written in the order shown (Section 4.5), except that `supported` of a
+`Welcome`, when it is present, is written before `host` (§5.2 and the fixtures show it
+so). Unknown members are ignored.
 
 ```ts
 interface Hello {
