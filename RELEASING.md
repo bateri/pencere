@@ -114,13 +114,19 @@ maintainer's machine, with the same steps:
 
 1. `make release-prepare LINE=sdk-typescript VERSION=0.1.0`, review, commit.
 2. `make release LINE=sdk-typescript`.
-3. `make publish-local LINE=sdk-typescript` runs `npm publish` (npm asks for the 2FA code), then
-   pushes `main` and the tag. The workflow sees that the version is already on npm, stages
-   nothing, and writes the GitHub release.
+3. `make publish-local LINE=sdk-typescript` runs `npm publish` (npm asks for the second factor,
+   so run it in a terminal), then pushes `main` and the tag. The workflow sees that the version
+   is already on npm, stages nothing, and writes the GitHub release.
 
-None of `@pencere/sdk`, `@pencere/cli` and `create-pencere` is on npm yet, so each of the three
-is released this way, once, **in that order** (`sdk-typescript`, then `cli`, then `create`: see
+npm processes a new package before it lists it ("Your package is being processed and may take a
+few minutes to become available"), and the push does not wait for that. If the workflow's `npm`
+job runs first, it fails with "not on npm yet" and the GitHub release is not written: once
+`npm view <package> version` answers, run what failed again (`gh run rerun <run-id> --failed`).
+
+Each of `@pencere/sdk`, `@pencere/cli` and `create-pencere` is released this way once, **in
+that order** (`sdk-typescript`, then `cli`, then `create`: see
 [Packages that name each other](#packages-that-name-each-other)), each at `0.1.0` to begin with.
+`@pencere/sdk` 0.1.0 is out; `@pencere/cli` and `create-pencere` are next.
 `create-pencere` is not under the `@pencere` scope, so its first publish also claims the name,
 and `npm create pencere` runs it. From the second release on, the workflow stages.
 

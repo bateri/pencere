@@ -47,8 +47,9 @@ Early: nothing here is stable yet. The repository holds
   the pane, and they go out on stdout to what comes next, as with
   `… | tablepen --select | mail` ([`examples/tablepen`](examples/tablepen)).
 
-[bateri](https://github.com/bateri/bateri) will be the first host. Nothing is on npm or
-crates.io yet; how a package is released is in [RELEASING.md](RELEASING.md).
+[bateri](https://github.com/bateri/bateri) will be the first host. `@pencere/sdk` is on npm;
+`@pencere/cli`, `create-pencere` and the crate are not released yet. How a package is released
+is in [RELEASING.md](RELEASING.md).
 
 ## License
 
