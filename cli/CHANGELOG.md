@@ -6,6 +6,8 @@ All notable changes to `@pencere/cli` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-21
+
 ### Added
 
 - `pencere run [--tool <name>] [--args <json>] [--view <dir>] -- <command> [args...]`: run an MCP

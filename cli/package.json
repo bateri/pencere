@@ -1,6 +1,6 @@
 {
   "name": "@pencere/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Run an MCP server written in any language as a pencere program, so its MCP App view opens in the terminal pane",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bateri/pencere/tree/main/cli#readme",
