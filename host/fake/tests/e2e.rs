@@ -848,6 +848,28 @@ fn pencere_run_says_what_a_server_that_ends_under_its_view_wrote() {
     assert!(off < said && said < wrote, "{off} {said} {wrote}");
 }
 
+#[test]
+fn the_question_to_the_person_names_the_tool_and_the_program() {
+    // The view of this server declares a domain, so the person is asked. The stand-in
+    // person refuses, which is what it does unless it is told otherwise.
+    let program = root().join("host/fake/tests/programs/declares-domains.mjs");
+    let program = program.to_string_lossy();
+    let run = run_cli(
+        &["--then", "interrupt"],
+        &["--tool", "show"],
+        &["node", &program],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: open id=2 tool=show without a bundle",
+        "host: msg id=* request resources/read",
+        // The tool's name, and the words the program has for it and for itself.
+        r#"host: asked the person about 1 domains and 0 permissions of tool="show" title="Show it" program="Domain Desk": refused"#,
+        "view: started from resources/read",
+        r#"view: title="Show it" program="Domain Desk""#,
+    ]);
+}
+
 // ---- `pencere dev`: the view is shown again when files change -------------------
 
 /// `program` with `args` as a chat client would start it, through a shell that

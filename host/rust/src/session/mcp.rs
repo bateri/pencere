@@ -498,7 +498,12 @@ impl<S: Store, E: Entropy> Session<S, E> {
             return;
         };
         match meta.consent() {
-            Some(consent) => {
+            Some(mut consent) => {
+                // The question is about the tool the person is about to see, in
+                // the words the view starts with: one source, one cleaning.
+                consent.tool = label(&open.tool.name);
+                consent.title = found.title.clone();
+                consent.program = found.program.clone();
                 open.stage = Stage::Consent {
                     source,
                     meta,

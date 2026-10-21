@@ -297,12 +297,17 @@ impl Host {
                 } else {
                     Grant::none()
                 };
+                // The question names the tool it is about, in the words the view
+                // will start with.
                 log::line(
                     "host",
                     format!(
-                        "asked the person about {} domains and {} permissions: {}",
+                        "asked the person about {} domains and {} permissions of tool={} title={} program={}: {}",
                         consent.domains.len(),
                         consent.permissions.len(),
+                        said(&consent.tool),
+                        said(&consent.title),
+                        said(&consent.program),
                         if self.allow_network {
                             "allowed"
                         } else {
@@ -370,10 +375,6 @@ impl Host {
         // What a terminal would put in the strip above the view: the program's
         // own words for the tool and for itself, already cut and cleaned by the
         // session.
-        let said = |text: &Option<String>| {
-            text.as_ref()
-                .map_or("none".to_owned(), |t| format!("{t:?}"))
-        };
         log::line(
             "view",
             format!(
@@ -466,6 +467,13 @@ impl Host {
 }
 
 // ---- the record ------------------------------------------------------------
+
+/// A name the session cleaned, quoted as the record shows it; `none` when the
+/// program gave none.
+fn said(text: &Option<String>) -> String {
+    text.as_ref()
+        .map_or("none".to_owned(), |t| format!("{t:?}"))
+}
 
 /// A payload as JSON, if it is small enough to be worth reading.
 fn parsed(payload: &str) -> Value {

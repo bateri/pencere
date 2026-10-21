@@ -429,7 +429,9 @@ impl UiMeta {
     }
 
     /// What the person has to be asked, or `None` when the view declares nothing
-    /// that needs asking.
+    /// that needs asking. The metadata does not know which tool the view is for:
+    /// the question it returns names none, and the session names it
+    /// ([`Consent::tool`]) before it asks.
     pub fn consent(&self) -> Option<Consent> {
         let mut domains = Vec::new();
         if let Some(csp) = &self.csp {
@@ -444,6 +446,9 @@ impl UiMeta {
         }
         let permissions = self.permissions.list();
         (!domains.is_empty() || !permissions.is_empty()).then_some(Consent {
+            tool: None,
+            title: None,
+            program: None,
             domains,
             permissions,
         })
@@ -459,12 +464,41 @@ pub struct Declared {
     pub domain: Domain,
 }
 
-/// What the person is asked: the domains and the permissions a view declared.
-/// The question names them, says where the program runs (the host knows that,
-/// not this crate) and says which ones are on this machine or a private network
-/// ([`Domain::locality`]).
+/// What the person is asked: the domains and the permissions a view declared,
+/// and which tool the view is for. The question names them, says where the
+/// program runs (the host knows that, not this crate) and says which ones are on
+/// this machine or a private network ([`Domain::locality`]).
+///
+/// A host that remembers an answer finds what it was an answer about here: the
+/// tool and what was declared. How long an answer is remembered, and for which
+/// programs, is the host's policy (specification §12.2); `program` is what the
+/// program calls itself, and tells two programs apart no better than its say-so.
+///
+/// This is not `#[non_exhaustive]`: a terminal that builds one itself, in a test
+/// or a stand-in host, names the tool and the two words as well.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Consent {
+    /// The tool the view is for, by the name the `open` gave it: what a host keys
+    /// an answer by, and what it shows when the tool has no
+    /// [`title`](Self::title). `None` when nothing is left of the name once it is
+    /// cleaned: the question is still asked, and there is nothing to remember the
+    /// answer by.
+    ///
+    /// The program wrote it and a terminal draws the question in its own chrome,
+    /// so the session cuts it to [`MAX_LABEL_CHARS`](crate::session::MAX_LABEL_CHARS)
+    /// characters and leaves out control characters and the bidirectional
+    /// overrides, as for [`ViewStart::title`](crate::session::ViewStart::title).
+    /// Names that this makes one are one tool to the person, who was shown one
+    /// name; the tool the view calls is
+    /// [`ViewStart::tool`](crate::session::ViewStart::tool), as the program has it.
+    pub tool: Option<String>,
+    /// What the program calls the tool for people: the same text, from the same
+    /// place and cleaned the same way, as
+    /// [`ViewStart::title`](crate::session::ViewStart::title).
+    pub title: Option<String>,
+    /// What the program calls itself: the same text as
+    /// [`ViewStart::program`](crate::session::ViewStart::program).
+    pub program: Option<String>,
     /// The declared domains.
     pub domains: Vec<Declared>,
     /// The permissions asked for.
@@ -861,6 +895,11 @@ mod tests {
             "permissions": {"camera": {}, "clipboardWrite": {}},
         }));
         let consent = m.consent().unwrap();
+        // The metadata alone names no tool: the session does, when it asks.
+        assert_eq!(
+            (&consent.tool, &consent.title, &consent.program),
+            (&None, &None, &None)
+        );
         assert_eq!(consent.domains.len(), 5);
         assert_eq!(
             consent.permissions,

@@ -26,3 +26,13 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   separators and bidirectional overrides: a terminal can draw them as they are. A title or a name
   that is not a string is no title, and does not stop the view from opening. `ViewStart` is not
   `#[non_exhaustive]`, so a terminal that builds one itself adds the two fields.
+- `Consent::tool`, `Consent::title` and `Consent::program`: which tool the question to the person is
+  about, and the words `ViewStart::title` and `ViewStart::program` carry for it, from the same
+  place and cleaned the same way. A terminal that remembers an answer for "the same tool, the same
+  domains" keys it by `tool` and no longer reads the `open` for the name itself, which would be a
+  second copy of the crate's rules. `tool` is the name the `open` asked for, cut and cleaned like
+  the others (`ViewStart::tool` stays the name the view calls), and is `None` when nothing is left
+  of it: the question is still asked and there is nothing to remember it by. The three are known
+  when the person is asked, since the question comes after `tools/list`. `Consent` is not
+  `#[non_exhaustive]`, so a terminal that builds one itself adds the three fields;
+  `UiMeta::consent` leaves them `None`, because the metadata does not know the tool.

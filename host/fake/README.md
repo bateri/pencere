@@ -29,7 +29,8 @@ screen: alternate screen off
 ```
 
 `program:` is what the program wrote and how it ended, `host:` what the host decided
-and wrote into the program's input, `view:` what the scripted view received and sent
+and wrote into the program's input (and the question it asks the person when a view declares
+domains, which names the tool), `view:` what the scripted view received and sent
 (and the tool's title and the program's name the view starts with, which a terminal
 shows above it), `screen:` the alternate screen. Tokens never appear.
 

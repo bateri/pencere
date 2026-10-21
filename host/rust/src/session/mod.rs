@@ -225,7 +225,7 @@ pub enum Action {
     Write(Vec<u8>),
     /// Ask the person which of the declared domains and permissions the view may
     /// use, then answer with [`Session::consent`]. The view does not start before
-    /// that.
+    /// that. The question says which tool the view is for ([`Consent::tool`]).
     Consent(Consent),
     /// Start the view: create the web view, enforce `policy`, and pass what the
     /// view sends to [`Session::view_message`].

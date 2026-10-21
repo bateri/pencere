@@ -2140,3 +2140,137 @@ fn the_names_reach_the_terminal_whichever_way_the_view_is_started() {
     assert_eq!(start.title.as_deref(), Some("Containers"));
     assert_eq!(start.program.as_deref(), Some("containers"));
 }
+
+// ---- what the person is told the question is about ------------------------------
+
+/// A host that has opened the view of a tool called `name`, whose view declares a
+/// domain, up to the question: the program calls itself `server_info`, and `extra`
+/// is added to the tool's entry in its tool list.
+fn asked_about(name: &str, server_info: Value, extra: Value) -> (Rig, pencere::sandbox::Consent) {
+    let meta = json!({"csp": {"connectDomains": ["https://api.example.com"]}});
+    let mut entry = json!({"name": name, "inputSchema": {"type": "object"},
+        "_meta": {"ui": {"resourceUri": "ui://containers/view"}}});
+    for (key, value) in extra.as_object().unwrap() {
+        entry[key] = value.clone();
+    }
+    let mut rig = Rig::new();
+    let token = rig.hello();
+    let open = pencere::json::to_wire(
+        &json!({"token": token, "tool": {"name": name}, "bundle": bundle(Some(meta))}),
+    )
+    .unwrap();
+    rig.send("open", None, None, &open);
+    rig.take();
+    for body in [INDEX, APP, STYLE] {
+        send_file(&mut rig, body);
+    }
+    // A tool of another view comes first: its words are not the question's.
+    let others = json!({"name": "stop_container", "title": "Stop it",
+        "annotations": {"title": "Stop"}, "_meta": {"ui": {"resourceUri": "ui://containers/view"}}});
+    let actions = start_up_as(&mut rig, server_info, json!([others, entry]));
+    let [Action::Consent(consent)] = actions.as_slice() else {
+        panic!("{actions:?}")
+    };
+    let consent = consent.clone();
+    (rig, consent)
+}
+
+#[test]
+fn the_question_names_the_tool_its_title_and_the_program() {
+    let (_, consent) = asked_about(
+        "list_containers",
+        json!({"name": "containers", "title": "Container Manager", "version": "1.0.0"}),
+        json!({"title": "Containers", "annotations": {"title": "List"}}),
+    );
+    assert_eq!(consent.tool.as_deref(), Some("list_containers"));
+    assert_eq!(consent.title.as_deref(), Some("Containers"));
+    assert_eq!(consent.program.as_deref(), Some("Container Manager"));
+    // What the person is asked is what the view declared, as before.
+    assert_eq!(consent.domains.len(), 1);
+    assert!(consent.permissions.is_empty());
+}
+
+#[test]
+fn the_question_says_the_same_words_as_the_view_that_follows_it() {
+    for (info, extra) in [
+        (
+            json!({"name": "containers", "title": "Container Manager"}),
+            json!({"title": "Containers"}),
+        ),
+        (
+            json!({"name": "containers"}),
+            json!({"annotations": {"title": "List"}}),
+        ),
+        (json!({}), json!({})),
+    ] {
+        let (mut rig, consent) = asked_about("list_containers", info, extra);
+        rig.host.consent(consent.grant_all());
+        let (_, acted) = rig.take();
+        let start = view_started(&acted);
+        assert_eq!(consent.title, start.title);
+        assert_eq!(consent.program, start.program);
+        assert_eq!(consent.tool.as_deref(), Some(start.tool.as_str()));
+    }
+}
+
+#[test]
+fn a_tool_that_says_nothing_of_itself_is_still_named_in_the_question() {
+    let (_, consent) = asked_about("list_containers", json!({}), json!({}));
+    assert_eq!(consent.tool.as_deref(), Some("list_containers"));
+    assert_eq!((consent.title, consent.program), (None, None));
+}
+
+#[test]
+fn a_tool_name_is_cut_and_cleaned_in_the_question_but_the_view_still_calls_the_tool() {
+    // A name the terminal would draw in its own chrome.
+    let hostile = "list\u{1b}[2J_containers";
+    let (mut rig, consent) = asked_about(hostile, json!({}), json!({}));
+    assert_eq!(consent.tool.as_deref(), Some("list[2J_containers"));
+    rig.host.consent(consent.grant_all());
+    let (_, acted) = rig.take();
+    // The tool that is called is the one the program has, not the name that is shown.
+    assert_eq!(view_started(&acted).tool, hostile);
+
+    let long = "x".repeat(500);
+    let (_, consent) = asked_about(&long, json!({}), json!({}));
+    let tool = consent.tool.unwrap();
+    assert_eq!(tool.chars().count(), pencere::session::MAX_LABEL_CHARS);
+    assert!(long.starts_with(&tool));
+}
+
+#[test]
+fn a_tool_name_with_nothing_left_of_it_is_no_name_and_still_asks() {
+    // Nothing to key an answer by: the question is asked, and names no tool.
+    let (_, consent) = asked_about("\u{1b}\u{7} \n", json!({}), json!({}));
+    assert_eq!(consent.tool, None);
+    assert_eq!(consent.domains.len(), 1);
+}
+
+#[test]
+fn a_view_read_from_the_program_asks_about_the_same_tool() {
+    let mut rig = Rig::new();
+    let token = rig.hello();
+    rig.send("open", None, None, &open_payload(&token, None));
+    let tools = json!([{"name": "list_containers", "title": "Containers",
+        "_meta": {"ui": {"resourceUri": "ui://containers/view"}}}]);
+    let actions = start_up_as(
+        &mut rig,
+        json!({"name": "containers", "title": "Container Manager"}),
+        tools,
+    );
+    assert!(actions.is_empty(), "{actions:?}");
+    let read = rig.msgs();
+    rig.json(
+        &json!({"jsonrpc": "2.0", "id": read[0]["id"], "result": {"contents": [{
+        "uri": "ui://containers/view", "mimeType": "text/html;profile=mcp-app",
+        "text": "<!doctype html><p>hi</p>",
+        "_meta": {"ui": {"csp": {"connectDomains": ["https://api.example.com"]}}}}]}}),
+    );
+    let (_, acted) = rig.take();
+    let [Action::Consent(consent)] = acted.as_slice() else {
+        panic!("{acted:?}")
+    };
+    assert_eq!(consent.tool.as_deref(), Some("list_containers"));
+    assert_eq!(consent.title.as_deref(), Some("Containers"));
+    assert_eq!(consent.program.as_deref(), Some("Container Manager"));
+}
