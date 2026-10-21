@@ -15,6 +15,8 @@
  */
 
 export { serve } from "./serve.js";
+export { ViewControl } from "./control.js";
+export type { CloseResult, ReopenOptions, ReopenResult } from "./control.js";
 export type { Connectable, EndedBy, NoViewReason, ServeOptions, ServeResult } from "./serve.js";
 export {
   BUNDLE_LIMITS,

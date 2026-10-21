@@ -42,6 +42,20 @@ const result = await serve(server, {
 - **A terminal that does not.** `serve` returns `{ kind: "no-view" }` after the `fallback`,
   if there is one, has run: the program offers its own text interface.
 
+A program that wants to close its view and go on — to show its own interface for a while,
+or, while a tool is developed, to show the view again with the files that changed — gives
+`serve` a `ViewControl` and calls it while `serve` runs. A host that lists `dismiss` in its
+`welcome` takes it; with another the view is left as it is and the call says `unsupported`.
+
+```ts
+const control = new ViewControl();
+const served = serve(server, { tool: "list_containers", bundle, control });
+// when the view's files changed:
+await control.reopen({ bundle: await bundleFromDirectory(directory) });
+// or to leave the view and show the program's own interface:
+await control.close(); // `serve` then resolves with `{ kind: "closed", by: "program" }`
+```
+
 The terminal's modes are set with `stty`, not with `process.stdin.setRawMode`: raw mode
 also turns off ISIG, and ⌃C would arrive as a byte instead of a SIGINT. A system with no
 `stty`, such as Windows, has no host as far as this library is concerned.

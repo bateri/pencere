@@ -247,6 +247,9 @@ impl Host {
                         log::line("host", "does not host pencere: no answer");
                     }
                 }
+                if message.kind == "dismiss" {
+                    log::line("host", "the program asks to close its view");
+                }
             }
         }
     }
@@ -516,7 +519,15 @@ fn describe_host(message: &Message) -> String {
                     ""
                 };
                 let version = payload.get("version").and_then(Value::as_u64).unwrap_or(0);
-                format!("welcome id={id}{re} version={version} with a token{restart}")
+                let features: Vec<&str> = payload
+                    .get("features")
+                    .and_then(Value::as_array)
+                    .map(|list| list.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
+                format!(
+                    "welcome id={id}{re} version={version} with a token{restart} features={}",
+                    features.join(",")
+                )
             } else {
                 format!("welcome id={id}{re} (no common version)")
             }

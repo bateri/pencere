@@ -42,8 +42,8 @@ use crate::frame::{
 };
 use crate::jsonrpc::Id;
 use crate::message::{
-    self, Bye, FEATURE_BUNDLE, Hello, HostInfo, OpenBody, Reason, SUPPORTED_VERSIONS, TokenProbe,
-    ToolCall,
+    self, Bye, Dismiss, FEATURE_BUNDLE, FEATURE_DISMISS, Hello, HostInfo, OpenBody, Reason,
+    SUPPORTED_VERSIONS, TokenProbe, ToolCall,
 };
 use crate::sandbox::{Consent, Grant, UiMeta};
 use crate::theme::Theme;
@@ -357,6 +357,9 @@ enum Cause {
     Failed(&'static str),
     /// The host is starting the view again.
     Restart,
+    /// The program asked for the view to close and goes on running; carries the
+    /// id of its `dismiss`, which the `closed` that tells it answers.
+    Dismissed(u32),
 }
 
 struct Closing {
@@ -484,6 +487,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             "file" => self.on_file(&message),
             "msg" => self.on_msg(&message),
             "bye" => self.on_bye(&message),
+            "dismiss" => self.on_dismiss(&message),
             // A kind this version does not know, or one that only the host
             // sends: ignored (§4.5).
             _ => self.ignored(),
@@ -713,11 +717,13 @@ impl<S: Store, E: Entropy> Session<S, E> {
         token
     }
 
+    /// What the `welcome` says the host supports: closing a view at the program's
+    /// request is part of every session, bundles are the configuration's.
     fn features(&self) -> &'static [&'static str] {
         if self.config.bundle {
-            &[FEATURE_BUNDLE]
+            &[FEATURE_BUNDLE, FEATURE_DISMISS]
         } else {
-            &[]
+            &[FEATURE_DISMISS]
         }
     }
 
@@ -937,6 +943,26 @@ impl<S: Store, E: Entropy> Session<S, E> {
         }
     }
 
+    /// The program closes its view and keeps running, if it says so with the token
+    /// that opened the view (§10.8). The token is the same proof a `bye` gives and
+    /// is read the same way; a view that is already closing is being closed, and
+    /// the `closed` that ends it is on its way, so a `dismiss` then changes nothing.
+    fn on_dismiss(&mut self, message: &Message) {
+        let Some(dismiss) = crate::json::from_object::<Dismiss>(&message.payload) else {
+            self.ignored();
+            return;
+        };
+        let believed = match (&self.view_token, &dismiss.token) {
+            (Some(opened), Some(presented)) => opened.matches(presented),
+            _ => false,
+        };
+        if believed && matches!(self.phase, Phase::Opening(_) | Phase::Live(_)) {
+            self.close(Cause::Dismissed(message.id), Some(message.id));
+        } else {
+            self.ignored();
+        }
+    }
+
     // ---- writing ---------------------------------------------------------
 
     /// Writes a message to the program, unless it has ended (§4.8).
@@ -1059,6 +1085,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             Cause::View => "view",
             Cause::Failed(_) => "error",
             Cause::Restart => "restart",
+            Cause::Dismissed(_) => "dismissed",
         };
         let text = crate::jsonrpc::request(
             &request,
@@ -1087,6 +1114,12 @@ impl<S: Store, E: Entropy> Session<S, E> {
     }
 
     /// Steps 2 to 4 of §10.2.
+    ///
+    /// Step 4 forgets the view's token and nothing else. A token the host issued
+    /// since (the answer to a `hello` that came while the view was opening, open or
+    /// closing) belongs to a program that is reading the tty, and so does the end
+    /// of the program: `program_ended` has already forgotten what it ended, and a
+    /// `hello` after it has already said there is a program again.
     fn finish(&mut self, cause: Cause, re: Option<u32>, destroy: bool) {
         self.phase = Phase::Idle;
         if destroy {
@@ -1094,6 +1127,13 @@ impl<S: Store, E: Entropy> Session<S, E> {
         }
         match cause {
             Cause::Program | Cause::Restart => {}
+            Cause::Dismissed(dismiss) => {
+                self.send(
+                    "closed",
+                    Some(dismiss),
+                    &message::closed(Reason::Program, None),
+                );
+            }
             Cause::User => {
                 self.send("closed", re, &message::closed(Reason::User, None));
             }
@@ -1104,12 +1144,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 self.send("closed", re, &message::closed(Reason::Error, Some(code)));
             }
         }
-        self.token = None;
         self.view_token = None;
-        self.restart_offer = false;
-        if cause == Cause::Program {
-            self.ended = true;
-        }
         let again = mem::take(&mut self.restart_after);
         if cause == Cause::Restart || again {
             self.offer_restart();

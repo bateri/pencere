@@ -11,8 +11,11 @@ import { parseObject, toWire } from "./json.js";
 /** The protocol versions this library speaks: this version, and the one before it when there is one (§5.4). */
 export const VERSIONS: readonly number[] = [1];
 
-/** A feature a host lists in its `welcome` (§8.1). */
+/** A feature a host lists in its `welcome`: it takes bundles (§8.1). */
 export const FEATURE_BUNDLE = "bundle";
+
+/** A feature a host lists in its `welcome`: it closes a view when the program sends `dismiss` (§10.8). */
+export const FEATURE_DISMISS = "dismiss";
 
 /** The tool a view shows the result of, and what it is called with. */
 export interface ToolCall {
@@ -45,6 +48,11 @@ export function openPayload(open: {
 /** The payload of `bye`: the token the view was opened with, and why the program ends. */
 export function byePayload(token: string, reason: ByeReason): string {
   return toWire({ token, reason });
+}
+
+/** The payload of `dismiss`: the token the view was opened with (§10.8). */
+export function dismissPayload(token: string): string {
+  return toWire({ token });
 }
 
 /** What a host answers to `hello` (§5.2) or offers again unasked (§10.7). */
@@ -107,7 +115,7 @@ export function parseNeed(payload: string): string[] | undefined {
 }
 
 /** Why a host ended or refused a view (`Closed.reason`). */
-export type ClosedReason = "refused" | "error" | "user" | "view";
+export type ClosedReason = "refused" | "error" | "user" | "view" | "program";
 
 /** What a host says when a view ended or was refused (§6.4, §10). */
 export interface Closed {
@@ -116,7 +124,7 @@ export interface Closed {
   readonly code?: string;
 }
 
-const REASONS: readonly string[] = ["refused", "error", "user", "view"];
+const REASONS: readonly string[] = ["refused", "error", "user", "view", "program"];
 
 /**
  * Reads a `closed`. A reason this version does not know still ends the view,

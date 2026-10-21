@@ -7,7 +7,8 @@
  * (§6), sends the files of its bundle that the host lacks (§8), becomes the
  * MCP server of the view over the stream (§9) and, when the view closes, gives
  * the terminal back (§10). With no host it returns, and the tool's own text
- * interface takes over (§13).
+ * interface takes over (§13). A program that wants to close its view and go on,
+ * or show another, holds a `ViewControl` (§10.8).
  */
 
 import type { Transport } from "@modelcontextprotocol/server";
@@ -15,13 +16,23 @@ import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import type { Readable, Writable } from "node:stream";
 
 import type { Bundle } from "./bundle.js";
+import { bindControl, unbindControl } from "./control.js";
+import type {
+  CloseResult,
+  ReopenOptions,
+  ReopenResult,
+  ViewControl,
+  ViewTarget,
+} from "./control.js";
 import type { Message } from "./frame.js";
 import { Link } from "./link.js";
 import type { Input, Output } from "./link.js";
 import {
   FEATURE_BUNDLE,
+  FEATURE_DISMISS,
   VERSIONS,
   byePayload,
+  dismissPayload,
   helloPayload,
   openPayload,
   parseClosed,
@@ -38,7 +49,12 @@ import {
 import type { Terminal } from "./terminal.js";
 import { PencereTransport } from "./transport.js";
 
-/** What `serve` needs of the server: `McpServer` and `Server` of `@modelcontextprotocol/server` have it. */
+/**
+ * What `serve` needs of the server: `McpServer` and `Server` of `@modelcontextprotocol/server` have it.
+ * On a terminal `serve` connects once for each view it opens, and closes the session
+ * when the view is gone: the first view, one the host starts again (§10.7) and one the
+ * program reopens (§10.8).
+ */
 export interface Connectable {
   connect(transport: Transport): Promise<void>;
   close(): Promise<void>;
@@ -61,11 +77,17 @@ export interface ServeOptions {
   /**
    * What the program does when no view is shown: no host answered, the host
    * shares no version, or it refused or ended the open before the view ran. It
-   * runs after the terminal has been given back.
+   * runs after the terminal has been given back, and so it does when a
+   * `ViewControl.reopen` closed the view and could not open another.
    */
   fallback?: () => void | Promise<void>;
   /** Ends the view, or the wait for a host, from the program's own code. */
   signal?: AbortSignal;
+  /**
+   * Lets the program close its view and go on, or show another, while `serve`
+   * runs (§10.8). `serve` itself works as it did without one.
+   */
+  control?: ViewControl;
   /** How long to wait for the host's answer, in milliseconds (§5.3). 2000 by default. */
   answerTimeout?: number;
   /**
@@ -93,6 +115,8 @@ export type NoViewReason =
 export type EndedBy =
   | "user"
   | "view"
+  /** The program closed the view itself, with `ViewControl.close`. */
+  | "program"
   | "error"
   /** The program's own `signal` ended it. */
   | "aborted"
@@ -166,7 +190,16 @@ export async function serveWith(
   if (options.signal?.aborted) result = { kind: "no-view", reason: "aborted" };
   // There is a tty to read and nowhere to write the question.
   else if (!output.isTTY) result = { kind: "no-view", reason: "no-host" };
-  else result = await new TerminalSession(server, options, environment).run();
+  else {
+    const session = new TerminalSession(server, options, environment);
+    const control = options.control;
+    if (control !== undefined) bindControl(control, session);
+    try {
+      result = await session.run();
+    } finally {
+      if (control !== undefined) unbindControl(control, session);
+    }
+  }
   if (result.kind === "no-view" && result.reason !== "aborted") await options.fallback?.();
   return result;
 }
@@ -204,12 +237,35 @@ type Answer =
 /** Asking the host, or opening a view (and running it), or over. */
 type Phase = "asking" | "opening" | "over";
 
-class TerminalSession {
+/** What a `dismiss` that is out is for, and what comes of the answer to it. */
+type Plan =
+  | { readonly kind: "close"; readonly resolve: (result: CloseResult) => void }
+  | {
+      readonly kind: "reopen";
+      readonly next: ReopenOptions;
+      readonly resolve: (result: ReopenResult) => void;
+    };
+
+/** A view is being closed or replaced at the program's request (§10.8), and how far that has come. */
+interface Change {
+  readonly plan: Plan;
+  /** The id of the `dismiss`, which the `closed` that answers it carries as `re`. */
+  readonly id: number;
+  /** `dismissing`: waiting for the `closed`; `greeting`: waiting for a new token; `opening`: the new view's open is out. */
+  stage: "dismissing" | "greeting" | "opening";
+}
+
+class TerminalSession implements ViewTarget {
   readonly #server: Connectable;
   readonly #options: ServeOptions;
   readonly #env: Environment;
-  readonly #tool: ToolCall;
   readonly #link: Link;
+  /** The tool and the files of the view that is opening or open, which a reopening may replace. */
+  #tool: ToolCall;
+  #bundle: Bundle | undefined;
+  /** The host's last `welcome` listed `dismiss`. */
+  #dismiss = false;
+  #change: Change | undefined;
 
   #phase: Phase = "asking";
   #asking: { helloId: number; settle: (answer: Answer) => void } | undefined;
@@ -229,7 +285,8 @@ class TerminalSession {
     this.#server = server;
     this.#options = options;
     this.#env = environment;
-    this.#tool = typeof options.tool === "string" ? { name: options.tool } : options.tool;
+    this.#tool = toolCall(options.tool);
+    this.#bundle = options.bundle;
     this.#link = new Link(environment.input, environment.output, {
       message: (message) => this.#onMessage(message),
       reply: () => this.#onReply(),
@@ -306,6 +363,7 @@ class TerminalSession {
   /** Connects a new MCP session to the stream and asks for the view with the token of `welcome` (§6.3). */
   async #open(welcome: Offer): Promise<void> {
     this.#phase = "opening";
+    this.#dismiss = welcome.features.includes(FEATURE_DISMISS);
     const transport = new PencereTransport(this.#link);
     this.#transport = transport;
     // The session is connected before the open is written, because the host
@@ -318,8 +376,8 @@ class TerminalSession {
     }
     this.#token = welcome.token;
     const bundle =
-      this.#options.bundle !== undefined && welcome.features.includes(FEATURE_BUNDLE)
-        ? this.#options.bundle.manifest
+      this.#bundle !== undefined && welcome.features.includes(FEATURE_BUNDLE)
+        ? this.#bundle.manifest
         : undefined;
     this.#openId = this.#link.send(
       "open",
@@ -348,9 +406,10 @@ class TerminalSession {
 
   #onWelcome(message: Message): void {
     const re = message.control.re;
-    if (this.#phase === "asking") {
-      const asking = this.#asking;
-      if (asking === undefined || re !== String(asking.helloId)) return;
+    // A `hello` is out: the first one, or the one of a reopening (§10.8).
+    const asking = this.#asking;
+    if (asking !== undefined) {
+      if (re !== String(asking.helloId)) return;
       const welcome = parseWelcome(message.payload, VERSIONS);
       if (welcome === undefined) return;
       asking.settle(
@@ -358,7 +417,7 @@ class TerminalSession {
       );
       return;
     }
-    if (this.#phase !== "opening" || re !== undefined) return;
+    if (this.#phase !== "opening" || re !== undefined || this.#change !== undefined) return;
     // Unsolicited: a host that came up after a break asks for the view again (§10.7).
     const welcome = parseWelcome(message.payload, VERSIONS);
     if (welcome?.kind !== "offer" || !welcome.restart) return;
@@ -379,7 +438,7 @@ class TerminalSession {
   }
 
   #onNeed(message: Message): void {
-    const bundle = this.#options.bundle;
+    const bundle = this.#bundle;
     if (this.#phase !== "opening" || bundle === undefined) return;
     if (message.control.re !== String(this.#openId)) return;
     const missing = parseNeed(message.payload);
@@ -403,8 +462,16 @@ class TerminalSession {
       "method" in received &&
       received.method === "tools/call" &&
       (received.params as { name?: unknown } | undefined)?.name === this.#tool.name
-    )
+    ) {
       this.#viewRan = true;
+      // A reopened view that has called its tool is the reopening's end; a call that
+      // comes while the old view is still being closed is not (§10.8).
+      const change = this.#change;
+      if (change?.plan.kind === "reopen" && change.stage === "opening") {
+        this.#change = undefined;
+        change.plan.resolve({ kind: "reopened" });
+      }
+    }
   }
 
   // ---- ending ---------------------------------------------------------------
@@ -412,10 +479,17 @@ class TerminalSession {
   #onClosed(message: Message): void {
     if (this.#phase !== "opening") return;
     const re = message.control.re;
-    // An answer to an open that is no longer the program's one is not about this view.
-    if (re !== undefined && re !== String(this.#openId)) return;
     const closed = parseClosed(message.payload);
     if (closed === undefined) return;
+    const change = this.#change;
+    if (change?.stage === "dismissing" && re === String(change.id)) {
+      // The answer to the program's own `dismiss`: the view is gone and the program goes on.
+      change.stage = "greeting";
+      void this.#dismissed(change.plan).catch((error: unknown) => this.#fail(error));
+      return;
+    }
+    // An answer to an open that is no longer the program's one is not about this view.
+    if (re !== undefined && re !== String(this.#openId)) return;
     void this.#hostClosed(closed).catch(() => {
       // Whatever went wrong while the view was being let go, the host said how it ended.
       this.#cleanup(undefined);
@@ -448,14 +522,86 @@ class TerminalSession {
   #settle(result: ServeResult): void {
     this.#end?.resolve(result);
     this.#end = undefined;
+    // What `serve` ends with is also what a reopening that was under way comes to.
+    const change = this.#change;
+    this.#change = undefined;
+    if (change === undefined) return;
+    if (change.plan.kind === "reopen" && result.kind === "no-view") change.plan.resolve(result);
+    else change.plan.resolve({ kind: "unavailable" });
   }
 
   #fail(error: unknown): void {
     const end = this.#end;
     this.#end = undefined;
+    const change = this.#change;
+    this.#change = undefined;
     this.#phase = "over";
     this.#cleanup("error");
     end?.reject(error);
+    change?.plan.resolve({ kind: "unavailable" });
+  }
+
+  // ---- closing the view at the program's request (§10.8) ---------------------
+
+  reopen(next: ReopenOptions): Promise<ReopenResult> {
+    const blocked = this.#blocked();
+    if (blocked !== undefined) return Promise.resolve({ kind: blocked });
+    return new Promise((resolve) => this.#dismissView({ kind: "reopen", next, resolve }));
+  }
+
+  close(): Promise<CloseResult> {
+    const blocked = this.#blocked();
+    if (blocked !== undefined) return Promise.resolve({ kind: blocked });
+    return new Promise((resolve) => this.#dismissView({ kind: "close", resolve }));
+  }
+
+  /** Why the view cannot be dismissed now, if it cannot: there is none to close, or the host cannot do it. */
+  #blocked(): "unavailable" | "unsupported" | undefined {
+    if (this.#phase !== "opening" || this.#token === undefined || this.#change !== undefined)
+      return "unavailable";
+    return this.#dismiss ? undefined : "unsupported";
+  }
+
+  #dismissView(plan: Plan): void {
+    const token = this.#token;
+    if (token === undefined) return plan.resolve({ kind: "unavailable" });
+    const { id } = this.#link.send("dismiss", dismissPayload(token));
+    this.#change = { plan, id, stage: "dismissing" };
+  }
+
+  /** The `closed` that answers the `dismiss` has come. */
+  async #dismissed(plan: Plan): Promise<void> {
+    // The host has torn the view down and forgotten its token: there is no `bye` to send.
+    this.#token = undefined;
+    if (plan.kind === "close") {
+      this.#phase = "over";
+      await this.#closeSession();
+      await this.#link.flush();
+      this.#cleanup(undefined);
+      this.#change = undefined;
+      plan.resolve({ kind: "closed" });
+      this.#settle({ kind: "closed", by: "program" });
+      return;
+    }
+    // The old MCP session ends before the new one is connected; the alternate screen stays.
+    await this.#closeSession();
+    if (this.#phase !== "opening") return;
+    if (plan.next.bundle !== undefined) this.#bundle = plan.next.bundle;
+    if (plan.next.tool !== undefined) this.#tool = toolCall(plan.next.tool);
+    // The pane is idle: a new token takes a `hello`. The host is known and the fence
+    // is for telling "no host" from "no answer yet", so there is none.
+    const hello = this.#link.send("hello", helloPayload());
+    const answer = await this.#ask(hello.id);
+    if (this.#phase !== "opening" || this.#change === undefined) return;
+    if (answer.kind !== "offer") {
+      this.#phase = "over";
+      this.#settle({ kind: "no-view", reason: noViewReason(answer.kind) });
+      return;
+    }
+    this.#change.stage = "opening";
+    // The new open is a new view: whether the host runs it is not yet known.
+    this.#viewRan = false;
+    await this.#open(answer.welcome);
   }
 
   /**
@@ -536,6 +682,10 @@ class TerminalSession {
   }
 }
 
+function toolCall(tool: string | ToolCall): ToolCall {
+  return typeof tool === "string" ? { name: tool } : tool;
+}
+
 function noViewReason(answer: "unsupported" | "reply" | "timeout" | "aborted"): NoViewReason {
   switch (answer) {
     case "unsupported":
@@ -555,6 +705,8 @@ function resultOf(closed: Closed, viewRan: boolean): ServeResult {
       return { kind: "closed", by: "user" };
     case "view":
       return { kind: "closed", by: "view" };
+    case "program":
+      return { kind: "closed", by: "program" };
     case "refused":
     case "error":
       // Before the view ran, a refusal or a failure is as good as no host.

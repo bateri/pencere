@@ -5,6 +5,7 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
 
 import { bundleFromFiles } from "../src/bundle.js";
+import { ViewControl } from "../src/control.js";
 import { toWire } from "../src/json.js";
 import { serveWith } from "../src/serve.js";
 import type { ServeOptions } from "../src/serve.js";
@@ -478,6 +479,239 @@ describe("a host that starts the view again", () => {
     rig.say("welcome", welcomePayload(TOKEN_2, ["bundle"], { restart: true }));
     await rig.settle();
     expect(rig.messages().map((m) => m.kind)).toEqual(["hello", "open"]);
+  });
+});
+
+describe("a program that closes its view and goes on (§10.8)", () => {
+  const FEATURES = ["bundle", "dismiss"];
+  const CHANGED_APP = 'document.getElementById("app").textContent = "hello again";\n';
+  const changedBundle = () =>
+    bundleFromFiles(
+      Object.entries({ ...EXAMPLE_FILES, "app.js": CHANGED_APP }).map(([path, text]) => ({
+        path,
+        data: Buffer.from(text),
+      })),
+    );
+  const digestOf = (bundle: ReturnType<typeof changedBundle>, path: string) =>
+    bundle.manifest.files.find((file) => file.path === path)?.sha256;
+
+  /** A view that runs: the open answered, the MCP start-up done and the tool called. */
+  async function running(options: Partial<ServeOptions> = {}, features = FEATURES) {
+    const control = new ViewControl();
+    const rig = new Rig();
+    const started = await start(
+      rig,
+      { bundle: exampleBundle(), control, ...options },
+      makeServer(),
+      TOKEN,
+      features,
+    );
+    const open = await rig.next("open");
+    rig.say("need", toWire({ missing: [] }), open.id);
+    await mcpStartUp(rig);
+    return { rig, control, open, ...started };
+  }
+
+  const kinds = (rig: Rig) => rig.messages().map((m) => m.kind);
+
+  it("reopens: the view is dismissed with its token, then a new token, a new open and a fresh MCP session", async () => {
+    const { rig, control, result } = await running();
+    const changed = changedBundle();
+    const reopened = control.reopen({ bundle: changed });
+    const dismiss = await rig.next("dismiss");
+    expect(dismiss.payload).toBe(payloadOf("to-host/dismiss.frame"));
+    // The view is not gone until the host says so: the program does not ask for another yet.
+    await rig.settle();
+    expect(kinds(rig).filter((kind) => kind === "hello")).toHaveLength(1);
+
+    rig.say("closed", payloadOf("to-program/closed-program.frame"), dismiss.id);
+    const hello = await rig.next("hello");
+    // The host is known: no fence behind this hello, and the alternate screen stays.
+    expect(rig.text()).toBe("\x1b[c\x1b[?1049h");
+    rig.say("welcome", welcomePayload(TOKEN_2, FEATURES), hello.id);
+    const open = await rig.next("open");
+    expect(JSON.parse(open.payload)).toMatchObject({
+      token: TOKEN_2,
+      tool: { name: "list_containers" },
+      bundle: changed.manifest,
+    });
+    // Only what changed crosses the stream again.
+    rig.say("need", toWire({ missing: [digestOf(changed, "app.js")] }), open.id);
+    expect((await rig.next("file")).control.d).toBe(digestOf(changed, "app.js"));
+
+    // A new MCP session: it starts with `initialize` again, and the call of the tool ends the wait.
+    const { initialized, called } = await mcpStartUp(rig);
+    expect(initialized.result).toMatchObject({ serverInfo: { name: "containers" } });
+    expect(called.result).toMatchObject({ structuredContent: { containers: CONTAINERS } });
+    expect(await reopened).toEqual({ kind: "reopened" });
+    expect(rig.terminal.calls).toEqual(["enter"]);
+
+    // The view is the new one's: a second reopening works, and its dismiss carries the new token.
+    void control.reopen();
+    const again = await rig.next("dismiss");
+    expect(JSON.parse(again.payload)).toEqual({ token: TOKEN_2 });
+    rig.process.emit("exit", 0);
+    void result;
+  });
+
+  it("shows the same files again when no others are given, and the same tool", async () => {
+    const { rig, control, open } = await running();
+    const reopened = control.reopen();
+    rig.say("closed", payloadOf("to-program/closed-program.frame"), (await rig.next("dismiss")).id);
+    rig.say("welcome", welcomePayload(TOKEN_2, FEATURES), (await rig.next("hello")).id);
+    const second = await rig.next("open");
+    expect(JSON.parse(second.payload)).toEqual({ ...JSON.parse(open.payload), token: TOKEN_2 });
+    void reopened;
+  });
+
+  it("goes on with another tool when the reopening names one", async () => {
+    const { rig, control } = await running();
+    void control.reopen({ tool: { name: "other", arguments: { a: 1 } } });
+    rig.say("closed", payloadOf("to-program/closed-program.frame"), (await rig.next("dismiss")).id);
+    rig.say("welcome", welcomePayload(TOKEN_2, FEATURES), (await rig.next("hello")).id);
+    expect(JSON.parse((await rig.next("open")).payload)).toMatchObject({
+      tool: { name: "other", arguments: { a: 1 } },
+    });
+  });
+
+  it("does not take the call of the tool by the view that is closing for the new view", async () => {
+    const { rig, control } = await running();
+    const reopened = control.reopen();
+    let settled = false;
+    void reopened.then(() => (settled = true));
+    const dismiss = await rig.next("dismiss");
+    // The old view refreshes while the host is still tearing it down.
+    rig.sayJson({
+      jsonrpc: "2.0",
+      id: 9,
+      method: "tools/call",
+      params: { name: "list_containers", arguments: {} },
+    });
+    await rig.settle();
+    expect(settled).toBe(false);
+    rig.say("closed", payloadOf("to-program/closed-program.frame"), dismiss.id);
+    await rig.next("hello");
+  });
+
+  it("closes: the terminal is given back and serve ends as closed by the program", async () => {
+    const { rig, control, result } = await running();
+    const closed = control.close();
+    const dismiss = await rig.next("dismiss");
+    rig.say("closed", payloadOf("to-program/closed-program.frame"), dismiss.id);
+    expect(await closed).toEqual({ kind: "closed" });
+    expect(await result).toEqual({ kind: "closed", by: "program" });
+    expect(rig.terminal.calls).toEqual(["enter", "restore"]);
+    expect(rig.text()).toBe("\x1b[c\x1b[?1049h\x1b[?1049l");
+    // The view's token is gone with the view: no `bye` follows.
+    expect(kinds(rig)).toEqual(["hello", "open", "msg", "msg", "msg", "dismiss"]);
+    expect(rig.process.listenerCount("exit")).toBe(0);
+    // And a control whose serve has ended has nothing to close.
+    expect(await control.close()).toEqual({ kind: "unavailable" });
+    expect(await control.reopen()).toEqual({ kind: "unavailable" });
+  });
+
+  it("touches nothing when the host does not list dismiss, and says so", async () => {
+    const { rig, control, result } = await running({}, ["bundle"]);
+    expect(await control.reopen()).toEqual({ kind: "unsupported" });
+    expect(await control.close()).toEqual({ kind: "unsupported" });
+    await rig.settle();
+    expect(kinds(rig)).toEqual(["hello", "open", "msg", "msg", "msg"]);
+    rig.say("closed", toWire({ reason: "user" }));
+    expect(await result).toEqual({ kind: "closed", by: "user" });
+  });
+
+  it("has no view to close before there is one, while one is being closed, or on stdio", async () => {
+    const control = new ViewControl();
+    expect(await control.reopen()).toEqual({ kind: "unavailable" });
+    expect(await control.close()).toEqual({ kind: "unavailable" });
+
+    const rig = new Rig();
+    const served = serveWith(
+      makeServer(),
+      { tool: "list_containers", control, ...FAST },
+      rig.environment(),
+    );
+    const hello = await rig.next("hello");
+    // Asking for a host is not showing a view.
+    expect(await control.reopen()).toEqual({ kind: "unavailable" });
+    rig.say("welcome", welcomePayload(TOKEN, FEATURES), hello.id);
+    rig.sayBytes(DA_REPLY);
+    await rig.next("open");
+    await rig.settle();
+    // A view that is opening can be dismissed; one being dismissed cannot.
+    const first = control.reopen();
+    expect(await control.reopen()).toEqual({ kind: "unavailable" });
+    expect(await control.close()).toEqual({ kind: "unavailable" });
+    expect(kinds(rig).filter((kind) => kind === "dismiss")).toHaveLength(1);
+    rig.say("closed", toWire({ reason: "user" }));
+    expect(await served).toEqual({ kind: "closed", by: "user" });
+    expect(await first).toEqual({ kind: "unavailable" });
+  });
+
+  it("is told unavailable when someone else closes the view before the host answers the dismiss", async () => {
+    const { rig, control, result } = await running();
+    const reopened = control.reopen();
+    await rig.next("dismiss");
+    rig.say("closed", toWire({ reason: "user" }));
+    expect(await result).toEqual({ kind: "closed", by: "user" });
+    expect(await reopened).toEqual({ kind: "unavailable" });
+    expect(kinds(rig).filter((kind) => kind === "hello")).toHaveLength(1);
+  });
+
+  it("ends as no view, with the fallback, when the host refuses the new open", async () => {
+    const log: string[] = [];
+    const { rig, control, result } = await running({ fallback: () => void log.push("fallback") });
+    const reopened = control.reopen();
+    rig.say("closed", payloadOf("to-program/closed-program.frame"), (await rig.next("dismiss")).id);
+    rig.say("welcome", welcomePayload(TOKEN_2, FEATURES), (await rig.next("hello")).id);
+    const open = await rig.next("open");
+    rig.say("closed", payloadOf("to-program/closed-refused.frame"), open.id);
+    const ended = { kind: "no-view", reason: "refused", code: "token" };
+    expect(await reopened).toEqual(ended);
+    expect(await result).toEqual(ended);
+    expect(rig.terminal.calls).toEqual(["enter", "restore"]);
+    expect(log).toEqual(["fallback"]);
+  });
+
+  it("ends as no view when the host stops answering the hello, and gives the terminal back", async () => {
+    const { rig, control, result } = await running();
+    const reopened = control.reopen();
+    rig.say("closed", payloadOf("to-program/closed-program.frame"), (await rig.next("dismiss")).id);
+    await rig.next("hello");
+    expect(await reopened).toEqual({ kind: "no-view", reason: "no-host" });
+    expect(await result).toEqual({ kind: "no-view", reason: "no-host" });
+    expect(rig.terminal.calls).toEqual(["enter", "restore"]);
+    expect(rig.text()).toBe("\x1b[c\x1b[?1049h\x1b[?1049l");
+  });
+
+  it("gives the terminal back on a signal between the views, with no bye, as the view has none", async () => {
+    const { rig, control, result } = await running();
+    const reopened = control.reopen();
+    rig.say("closed", payloadOf("to-program/closed-program.frame"), (await rig.next("dismiss")).id);
+    await rig.next("hello");
+    rig.process.on("SIGINT", () => {});
+    rig.process.emit("SIGINT");
+    expect(await result).toEqual({ kind: "closed", by: "signal" });
+    expect(await reopened).toEqual({ kind: "unavailable" });
+    expect(kinds(rig)).not.toContain("bye");
+    expect(rig.terminal.calls).toEqual(["enter", "restore"]);
+    expect(rig.text()).toBe("\x1b[c\x1b[?1049h\x1b[?1049l");
+  });
+
+  it("says bye with the view's token when the signal comes before the host has answered the dismiss", async () => {
+    const { rig, control } = await running();
+    void control.reopen();
+    await rig.next("dismiss");
+    rig.process.emit("exit", 0);
+    const bye = rig.messages().at(-1);
+    expect(bye?.kind).toBe("bye");
+    expect(JSON.parse(bye?.payload ?? "")).toEqual({ token: TOKEN, reason: "exit" });
+  });
+
+  it("reads closed by the program as the view's end, whoever asked", async () => {
+    const { rig, result } = await running();
+    rig.say("closed", payloadOf("to-program/closed-program.frame"));
+    expect(await result).toEqual({ kind: "closed", by: "program" });
   });
 });
 

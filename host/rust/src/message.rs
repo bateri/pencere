@@ -25,8 +25,13 @@ pub struct HostInfo {
     pub version: String,
 }
 
-/// A feature a host may list in its `welcome`.
+/// A feature a host may list in its `welcome`: it takes bundles (specification
+/// §8.1).
 pub const FEATURE_BUNDLE: &str = "bundle";
+
+/// A feature a host may list in its `welcome`: it closes a view when the program
+/// sends `dismiss` (specification §10.8).
+pub const FEATURE_DISMISS: &str = "dismiss";
 
 /// The program's `hello`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -98,6 +103,8 @@ pub enum Reason {
     User,
     /// The view asked to close.
     View,
+    /// The program asked for the view to close and keeps running (`dismiss`).
+    Program,
 }
 
 /// The host's `closed`.
@@ -126,6 +133,15 @@ pub struct Bye {
     pub token: Option<String>,
     /// `exit`, `signal` or `error`, when it says.
     pub reason: Option<String>,
+}
+
+/// The program's `dismiss`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Dismiss {
+    /// The token the view was opened with (specification §10.8). Absent, or not a
+    /// string, it cannot match anything: the `dismiss` is ignored.
+    #[serde(default, deserialize_with = "string_or_none")]
+    pub token: Option<String>,
 }
 
 /// A member that is a string, or absent, or anything else, which reads as absent.
@@ -282,12 +298,24 @@ mod tests {
     #[test]
     fn the_answers_are_written_as_the_fixtures_are() {
         assert_eq!(
-            welcome_offer(1, "q7Vh2sB0xJm9kLw4TzN1cA", &host(), &["bundle"], false),
-            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle"]}"#
+            welcome_offer(
+                1,
+                "q7Vh2sB0xJm9kLw4TzN1cA",
+                &host(),
+                &["bundle", "dismiss"],
+                false
+            ),
+            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"]}"#
         );
         assert_eq!(
-            welcome_offer(1, "Zk3mP8rD5uYb1Xe6HqS0vg", &host(), &["bundle"], true),
-            r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle"],"restart":true}"#
+            welcome_offer(
+                1,
+                "Zk3mP8rD5uYb1Xe6HqS0vg",
+                &host(),
+                &["bundle", "dismiss"],
+                true
+            ),
+            r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"restart":true}"#
         );
         assert_eq!(
             welcome_offer(1, "t", &host(), &[], false),
@@ -303,6 +331,7 @@ mod tests {
             r#"{"reason":"refused","code":"token"}"#
         );
         assert_eq!(closed(Reason::User, None), r#"{"reason":"user"}"#);
+        assert_eq!(closed(Reason::Program, None), r#"{"reason":"program"}"#);
     }
 
     #[test]

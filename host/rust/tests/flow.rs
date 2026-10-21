@@ -230,6 +230,25 @@ fn bye(token: Option<&str>) -> String {
     }
 }
 
+/// The payload of a `dismiss` with the given token, as a program writes it.
+fn dismiss(token: Option<&str>) -> String {
+    match token {
+        Some(token) => json!({ "token": token }).to_string(),
+        None => "{}".to_owned(),
+    }
+}
+
+/// The `ui/resource-teardown` request among what the host passed to the view.
+fn teardown_in(actions: &[Action]) -> Option<Value> {
+    actions.iter().find_map(|action| match action {
+        Action::ToView(text) => {
+            let value: Value = serde_json::from_str(text).unwrap();
+            (value["method"] == "ui/resource-teardown").then_some(value)
+        }
+        _ => None,
+    })
+}
+
 fn send_file(rig: &mut Rig, body: &str) {
     let digest = Digest::of(body.as_bytes()).to_string();
     rig.send(
@@ -1090,7 +1109,9 @@ fn what_cannot_be_answered_is_refused_with_a_code_and_the_token_is_spent_by_the_
     let mut rig = Rig::with(config);
     rig.send("hello", None, None, r#"{"versions":[1]}"#);
     let (wrote, _) = rig.take();
-    assert!(!wrote[0].payload.contains("features"));
+    // Closing a view for the program is not a configuration: the answer lists it even
+    // when bundles are off.
+    assert!(wrote[0].payload.contains(r#""features":["dismiss"]"#));
     rig.send(
         "open",
         None,
@@ -1590,6 +1611,224 @@ fn a_restart_asked_for_while_a_view_closes_is_offered_when_it_has_closed() {
     assert_eq!(rig.host.state(), State::Offered);
 }
 
+#[test]
+fn a_dismiss_closes_the_view_and_the_program_is_told_once_the_view_is_gone() {
+    let mut rig = running(None);
+    view_handshake(&mut rig, true);
+    rig.take();
+    let id = rig.send("dismiss", None, None, &dismiss(Some(TOKENS[0])));
+    assert_eq!(rig.host.state(), State::Closing);
+    let (wrote, acted) = rig.take();
+    assert!(
+        wrote.is_empty(),
+        "the program is told after the view is gone"
+    );
+    let texts: Vec<Value> = acted
+        .iter()
+        .filter_map(|a| match a {
+            Action::ToView(t) => Some(serde_json::from_str(t).unwrap()),
+            _ => None,
+        })
+        .collect();
+    // The call of the tool was still out.
+    assert_eq!(texts[0]["method"], "ui/notifications/tool-cancelled");
+    assert_eq!(texts[1]["method"], "ui/resource-teardown");
+    assert_eq!(texts[1]["params"], json!({"reason": "dismissed"}));
+    let teardown = teardown_in(&acted).unwrap();
+    rig.view(&json!({"jsonrpc": "2.0", "id": teardown["id"], "result": {}}));
+    let (wrote, acted) = rig.take();
+    assert_eq!(acted, vec![Action::DestroyView]);
+    assert_eq!(wrote.len(), 1);
+    assert_eq!(wrote[0].kind, "closed");
+    assert_eq!(wrote[0].re(), Some(id));
+    assert_eq!(
+        serde_json::from_str::<Value>(&wrote[0].payload).unwrap(),
+        json!({"reason": "program"})
+    );
+    // The program is not ended: it is idle, and asks again.
+    assert_eq!(rig.host.state(), State::Idle);
+    let token = rig.hello();
+    assert_eq!(token, TOKENS[1]);
+    // The files were verified for the first view: nothing is missing the second time,
+    // and the MCP start-up begins at once.
+    rig.send(
+        "open",
+        None,
+        None,
+        &open_payload(&token, Some(bundle(None))),
+    );
+    let (wrote, _) = rig.take();
+    assert_eq!(wrote[0].kind, "need");
+    assert_eq!(
+        serde_json::from_str::<Value>(&wrote[0].payload).unwrap(),
+        json!({"missing": []})
+    );
+    assert_eq!(wrote[1].kind, "msg");
+    assert_eq!(rig.host.state(), State::Opening);
+}
+
+#[test]
+fn a_dismiss_gives_up_a_view_that_is_not_running_yet_without_a_teardown() {
+    // Still waiting for files: no view has run, nothing to destroy.
+    let mut rig = Rig::new();
+    let token = rig.hello();
+    rig.send(
+        "open",
+        None,
+        None,
+        &open_payload(&token, Some(bundle(None))),
+    );
+    rig.take();
+    let id = rig.send("dismiss", None, None, &dismiss(Some(&token)));
+    let (wrote, acted) = rig.take();
+    assert!(acted.is_empty(), "{acted:?}");
+    assert_eq!(wrote.len(), 1);
+    assert_eq!(wrote[0].kind, "closed");
+    assert_eq!(wrote[0].re(), Some(id));
+    assert_eq!(rig.host.state(), State::Idle);
+
+    // A view that has started and not yet said it is initialized is destroyed
+    // without a word to it, as for any other end.
+    let mut rig = running(None);
+    let id = rig.send("dismiss", None, None, &dismiss(Some(TOKENS[0])));
+    let (wrote, acted) = rig.take();
+    assert!(
+        !acted.iter().any(|a| matches!(a, Action::ToView(_))),
+        "{acted:?}"
+    );
+    assert!(acted.contains(&Action::DestroyView));
+    assert_eq!(wrote.len(), 1);
+    assert_eq!(wrote[0].re(), Some(id));
+    assert_eq!(rig.host.state(), State::Idle);
+}
+
+#[test]
+fn a_dismiss_is_believed_only_with_the_token_of_a_view_that_is_opening_or_open() {
+    let mut rig = running(None);
+    view_handshake(&mut rig, true);
+    rig.take();
+    // The pane's next offer is not the view's token.
+    let offered = rig.hello();
+    assert_eq!(offered, TOKENS[1]);
+    for payload in [
+        dismiss(None),
+        dismiss(Some(&offered)),
+        dismiss(Some("AAAAAAAAAAAAAAAAAAAAAA")),
+        r#"{"token":7}"#.to_owned(),
+        r#"{"token":["q7Vh2sB0xJm9kLw4TzN1cA"]}"#.to_owned(),
+        "[]".to_owned(),
+        "not json".to_owned(),
+    ] {
+        rig.send("dismiss", None, None, &payload);
+        let (wrote, acted) = rig.take();
+        assert!(wrote.is_empty() && acted.is_empty(), "{payload}");
+        assert_eq!(rig.host.state(), State::Open, "{payload}");
+    }
+    // While the view is closing, one that has the token is no more than the `closed`
+    // already on its way: the program is told once.
+    rig.host.close_view();
+    let (_, acted) = rig.take();
+    let teardown = teardown_in(&acted).unwrap();
+    rig.send("dismiss", None, None, &dismiss(Some(TOKENS[0])));
+    assert!(rig.take().0.is_empty());
+    rig.view(&json!({"jsonrpc": "2.0", "id": teardown["id"], "result": {}}));
+    let (wrote, _) = rig.take();
+    assert_eq!(wrote.len(), 1);
+    assert_eq!(
+        serde_json::from_str::<Value>(&wrote[0].payload).unwrap(),
+        json!({"reason": "user"})
+    );
+    // The view is gone and so is its token.
+    rig.send("dismiss", None, None, &dismiss(Some(TOKENS[0])));
+    assert!(rig.take().0.is_empty());
+
+    // Where no view is: nothing yet, an offer not used, a program that ended.
+    let mut rig = Rig::new();
+    rig.send("dismiss", None, None, &dismiss(Some(TOKENS[0])));
+    assert_eq!(rig.host.state(), State::Idle);
+    let token = rig.hello();
+    rig.send("dismiss", None, None, &dismiss(Some(&token)));
+    assert_eq!(rig.host.state(), State::Offered);
+    assert!(rig.take().0.is_empty());
+    rig.host.program_ended();
+    rig.send("dismiss", None, None, &dismiss(Some(&token)));
+    assert_eq!(rig.host.state(), State::Ended);
+    assert!(rig.take().0.is_empty());
+}
+
+#[test]
+fn a_hello_while_a_view_closes_gets_a_token_that_outlasts_the_view() {
+    // Whatever closes the view: the program asks, the person closes it, the view
+    // asks to.
+    for cause in ["dismiss", "user", "view"] {
+        let mut rig = running(None);
+        view_handshake(&mut rig, true);
+        rig.take();
+        match cause {
+            "dismiss" => {
+                rig.send("dismiss", None, None, &dismiss(Some(TOKENS[0])));
+            }
+            "user" => rig.host.close_view(),
+            _ => {
+                rig.view(&json!({"jsonrpc": "2.0", "method": "ui/notifications/request-teardown"}))
+            }
+        }
+        let (_, acted) = rig.take();
+        let teardown = teardown_in(&acted).expect("a teardown");
+        assert_eq!(rig.host.state(), State::Closing, "{cause}");
+        // The answer to the hello does not wait for the view.
+        let token = rig.hello();
+        assert_eq!(token, TOKENS[1], "{cause}");
+        rig.view(&json!({"jsonrpc": "2.0", "id": teardown["id"], "result": {}}));
+        let (wrote, acted) = rig.take();
+        assert_eq!(acted, vec![Action::DestroyView], "{cause}");
+        assert_eq!(wrote.len(), 1, "{cause}");
+        assert_eq!(wrote[0].kind, "closed", "{cause}");
+        // The token that was given while the view closed still opens a view.
+        assert_eq!(rig.host.state(), State::Offered, "{cause}");
+        rig.send("open", None, None, &open_payload(&token, None));
+        let (wrote, _) = rig.take();
+        assert_eq!(wrote[0].kind, "msg", "{cause}: {wrote:?}");
+        assert_eq!(rig.host.state(), State::Opening, "{cause}");
+    }
+}
+
+#[test]
+fn a_hello_while_a_view_closes_because_the_program_ended_says_there_is_a_program_again() {
+    let mut rig = running(None);
+    view_handshake(&mut rig, true);
+    rig.take();
+    rig.send("bye", None, None, &bye(Some(TOKENS[0])));
+    let (_, acted) = rig.take();
+    let teardown = teardown_in(&acted).expect("a teardown");
+    assert_eq!(rig.host.state(), State::Closing);
+    // A new program on the pane reads the tty and asks.
+    let token = rig.hello();
+    rig.view(&json!({"jsonrpc": "2.0", "id": teardown["id"], "result": {}}));
+    let (wrote, acted) = rig.take();
+    assert_eq!(acted, vec![Action::DestroyView]);
+    assert!(wrote.is_empty(), "the program that ended is not told");
+    assert_eq!(rig.host.state(), State::Offered);
+    rig.send("open", None, None, &open_payload(&token, None));
+    assert_eq!(rig.host.state(), State::Opening);
+}
+
+#[test]
+fn a_token_given_while_a_view_runs_is_still_good_after_the_view_closes() {
+    let mut rig = running(None);
+    view_handshake(&mut rig, true);
+    rig.take();
+    let offered = rig.hello();
+    rig.send("dismiss", None, None, &dismiss(Some(TOKENS[0])));
+    let (_, acted) = rig.take();
+    let teardown = teardown_in(&acted).unwrap();
+    rig.view(&json!({"jsonrpc": "2.0", "id": teardown["id"], "result": {}}));
+    rig.take();
+    assert_eq!(rig.host.state(), State::Offered);
+    rig.send("open", None, None, &open_payload(&offered, None));
+    assert_eq!(rig.host.state(), State::Opening);
+}
+
 /// A small xorshift: the same choices on every run.
 struct Dice(u64);
 
@@ -1614,13 +1853,13 @@ fn a_session_survives_any_order_of_messages_and_only_ever_writes_frames_a_tty_ma
         .collect();
     let mut dice = Dice(0x2545_f491_4f6c_dd1d);
     let mut visited = std::collections::HashSet::new();
-    for round in 0..400 {
+    for round in 0..2000 {
         let mut rig = Rig::new();
         // The token of the last open the program wrote, for a `bye` that says whose it is.
         let mut opened = String::new();
         for _ in 0..80 {
             let token = TOKENS[dice.below(TOKENS.len())];
-            match dice.below(26) {
+            match dice.below(27) {
                 0 | 1 => {
                     rig.send("hello", None, None, r#"{"versions":[1]}"#);
                 }
@@ -1711,6 +1950,14 @@ fn a_session_survives_any_order_of_messages_and_only_ever_writes_frames_a_tty_ma
                 22 => rig.host.restart(),
                 23 => rig.host.timed_out(),
                 24 => rig.host.requests_timed_out(),
+                25 => {
+                    let payload = match dice.below(3) {
+                        0 => "{}".to_owned(),
+                        1 => dismiss(Some(token)),
+                        _ => dismiss(Some(&opened)),
+                    };
+                    rig.send("dismiss", None, None, &payload);
+                }
                 _ => {
                     rig.host.set_size(Size {
                         width: 1 + dice.below(500) as u32,

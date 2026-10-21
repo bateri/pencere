@@ -88,7 +88,7 @@ fn run(session: &Value, how: impl Fn(usize) -> Feed) {
 fn every_session_gives_the_bytes_the_fixtures_name() {
     let manifest = common::manifest();
     let sessions = manifest["session"].as_array().unwrap();
-    assert_eq!(sessions.len(), 10);
+    assert_eq!(sessions.len(), 12);
     for session in sessions {
         run(session, |_| Feed::Whole);
         run(session, |_| Feed::OneByOne);

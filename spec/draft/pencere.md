@@ -222,8 +222,9 @@ the frame as written: `ESC _ pencere;`, kind, `;`, control, `;`, payload,
 | `need`    | `to-program` | JSON `Need`                                     | `re`: the open answered                          | 8.3     |
 | `file`    | `to-host`    | base64 (RFC 4648 § 4, with padding) of one file | `d`: its digest                                  | 8.4     |
 | `msg`     | both         | one JSON-RPC 2.0 message                        | none                                             | 9       |
-| `closed`  | `to-program` | JSON `Closed`                                   | `re`: the open it concerns, when it concerns one | 6.4, 10 |
+| `closed`  | `to-program` | JSON `Closed`                                   | `re`: the open or the dismiss it answers, if any | 6.4, 10 |
 | `bye`     | `to-host`    | JSON `Bye`                                      | none                                             | 10.3    |
+| `dismiss` | `to-host`    | JSON `Dismiss`                                  | none                                             | 10.8    |
 
 The JSON types are in Appendix A. A sender MUST NOT send a kind in a direction
 the table does not list. A receiver MUST ignore a message of a kind it does not
@@ -242,7 +243,7 @@ encoder that only escapes non-ASCII text still writes DEL raw: escape it
 yourself. Receivers parse any valid JSON.
 
 ```frame fixtures/to-program/welcome.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle"]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"]}<ESC>\
 ```
 
 ### 4.6 Limits
@@ -327,8 +328,10 @@ number of bytes while the program does not read (Appendix B).
   the tty accepts it. Nothing — a keystroke, another frame — may be written
   between the first and the last byte of a frame; a keystroke that arrives
   meanwhile waits.
-- Once the host knows the program has ended or the view has closed (Section 10) it MUST NOT write any frame, because whatever reads the tty next would
-  receive it as typed input.
+- Once the host knows the program has ended (Section 10.3) it MUST NOT write any frame, because
+  whatever reads the tty next would receive it as typed input, until a `hello` shows that a program
+  is reading again. A view that has closed is not the end of the program: the host still writes the
+  `closed` that tells the program (Sections 10.5, 10.6 and 10.8) and answers a later `hello`.
 
 ### 4.9 Terminal modes
 
@@ -369,8 +372,12 @@ token (Section 6.1) and answers with `version`, `token`, `host` and `features`,
 and `re` set to the hello's id. If there is none, it answers with `supported`
 and `host` only.
 
+`features` lists the optional parts of this document the host supports: `bundle`
+(Section 8.1) and `dismiss` (Section 10.8). A program uses only what is listed and
+ignores a name it does not know.
+
 ```frame fixtures/session/handshake/02-out.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle"]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"]}<ESC>\
 ```
 
 ```frame fixtures/to-program/welcome-unsupported.frame
@@ -396,7 +403,7 @@ A `welcome` is only believed when the program has sent a `hello` and
 the `welcome` answers it; an unsolicited `welcome` is handled by Section 10.7 or ignored.
 
 ```frame fixtures/to-program/noise.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle"]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"]}<ESC>\
 <ESC>[?62;4cls<CR>
 ```
 
@@ -429,8 +436,9 @@ outstanding token per pane.
   when it carries it, and no `open` can spend it again.
 - A token is replaced when the host issues another for the same pane (another
   answered `hello`, or Section 10.7). The replaced token is no longer valid.
-- A token ends when the pane's program or view ends, and a host MAY end it
-  sooner.
+- A token ends when the pane's program ends, and a host MAY end it sooner. It does
+  not end with a view: a token issued while a view was opening, open or closing is
+  still good when the view is gone (Section 10.2).
 - An `open` with a token that does not match has no effect on the outstanding one.
 
 A program that merely writes to the stream — a file shown with `cat`, a
@@ -740,7 +748,7 @@ takes log messages, and `sandbox` with what the person approved (Section 12).
 A pane is idle, or offered (a token is outstanding), or opening (an open
 accepted, files or MCP start-up pending), or open (the view running), or closing.
 A `hello` at any time gets its answer and a new token without affecting a view
-that is opening or open; an `open` while one is opening or open is `busy`.
+that is opening, open or closing; an `open` while one is opening or open is `busy`.
 
 ### 10.2 Closing
 
@@ -750,12 +758,17 @@ Whatever ends a view, the host:
    for a time of its choosing (MCP Apps § Lifecycle → Cleanup);
 2. tears the view down and stops serving its bundle;
 3. if the program is still there and the cause was not the program's own end,
-   writes `closed` into its input (Sections 10.5 and 10.6);
-4. forgets the pane's token.
+   writes `closed` into its input (Sections 10.5, 10.6 and 10.8);
+4. forgets the view's token: the one that opened it (Section 6.1), and no other.
 
 A request the view had in flight fails; if the call of `open.tool` was in flight
 the view gets `ui/notifications/tool-cancelled`. The reason given to the view is
 the host's to choose.
+
+A `hello` that arrives while the view is closing is answered at once (Section 10.1),
+and it shows that a program is reading the tty. The token it gets is not the view's:
+it is still good after step 4, and the end of the view does not make that program
+ended, whatever the cause (Section 4.8). The answer is written ahead of the `closed` of step 3.
 
 ### 10.3 The program ends
 
@@ -830,8 +843,42 @@ open, SHOULD apply the checks of Section 6.2, and gives up if no `open` arrives
 in a time of its choosing.
 
 ```frame fixtures/to-program/welcome-restart.frame
-<ESC>_pencere;welcome;id=2;{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle"],"restart":true}<ESC>\
+<ESC>_pencere;welcome;id=2;{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"restart":true}<ESC>\
 ```
+
+### 10.8 The program closes its view
+
+A program that is done with its view but not with the terminal — it has a text
+interface to show for a while, or it is a tool whose author reloads the view as the
+files change — sends `dismiss` and goes on running. A host that supports it lists
+`dismiss` in the `features` of its `welcome` (Section 5.2), and a program sends
+`dismiss` only to a host that did: any other host ignores a kind it does not know
+(Section 4.5) and the view would stay. `dismiss` carries the token the view was opened
+with, as `bye` does (Section 10.3):
+
+```frame fixtures/to-host/dismiss.frame
+<ESC>_pencere;dismiss;id=6;{"token":"q7Vh2sB0xJm9kLw4TzN1cA"}<ESC>\
+```
+
+A host believes it under the same rule as a `bye`: only with that token, and only while
+a view is opening or open. A `dismiss` that has no token, another token, or arrives when
+no view is opening or open is ignored (Section 14); so is one that arrives while the view
+is already closing, because the `closed` that ends it is on its way. Otherwise the host runs
+Section 10.2 with reason `program` and writes `closed` with `reason` `program` and `re` the
+id of the `dismiss`. A view that is still opening is given up with no teardown to send:
+step 1 of Section 10.2 is for a view that runs.
+
+```frame fixtures/to-program/closed-program.frame
+<ESC>_pencere;closed;id=5,re=6;{"reason":"program"}<ESC>\
+```
+
+The pane is idle then, with the alternate screen as the program left it. A program that
+wants a view again ends the MCP session of the one that closed and sends `hello` and,
+with the token it gets, `open` (Sections 5 and 6) as for any first view, with the same
+bundle or another. The host's store (Section 8.5) holds what it verified before, so
+`need` lists only what is not there. A program SHOULD wait for the `closed` before it
+sends `hello`: until the `closed` is written the view is still closing, and the answer
+to the `hello` would come ahead of it (Section 10.2).
 
 ## 11. Terminal context
 
@@ -961,7 +1008,8 @@ alone, so a hostile stream cannot use up the token of the program that is runnin
 
 **Ending a view.** `bye` needs no answer, so a stream anyone can write could send it; it
 carries the token that opened the view, which that stream cannot read, and a `bye` without
-it or with another is ignored (Section 10.3). A stream that cannot open a view cannot close
+it or with another is ignored (Section 10.3). `dismiss` carries the same token and is held
+to the same rule (Section 10.8). A stream that cannot open a view cannot close
 the view of the program that is running either. The token is the view's identity while it
 lives, not a secret that outlasts it: a host forgets it when the view has closed.
 
@@ -987,9 +1035,10 @@ A **host** conforms if it does everything this document asks of a host with MUST
 MUST NOT, in Sections 4 to 12; a **program library** conforms if it does everything it asks
 of a program. SHOULD is for what an implementation has a reason to skip.
 
-There are two levels. **Core** is Sections 4 to 7, 9, 10 without 10.7, 11 without 11.2, 12 and 13. **Full**
-adds bundles (Section 8), restart (Section 10.7) and the theme of Section 11.2. A host below Full
-does not list `bundle` in its `features`; a program below Full does not send a manifest and
+There are two levels. **Core** is Sections 4 to 7, 9, 10 without 10.7 and 10.8, 11 without 11.2, 12 and 13. **Full**
+adds bundles (Section 8), restart (Section 10.7), the program closing its view (Section 10.8) and
+the theme of Section 11.2. A host below Full does not list `bundle` or `dismiss` in its `features`
+for the part it lacks; a program below Full does not send a manifest or a `dismiss` and
 ignores an unsolicited `welcome`.
 
 The fixtures of this repository are the conformance suite:
@@ -1024,7 +1073,7 @@ interface Welcome {
   version?: number; // present with token, absent with supported
   token?: string;
   host: { name: string; version: string };
-  features?: string[]; // "bundle"
+  features?: string[]; // "bundle" (Section 8.1), "dismiss" (Section 10.8)
   restart?: boolean; // true on an unsolicited welcome
   supported?: number[]; // present when no version is shared
 }
@@ -1046,7 +1095,7 @@ interface Need {
 }
 
 interface Closed {
-  reason: "refused" | "error" | "user" | "view";
+  reason: "refused" | "error" | "user" | "view" | "program";
   code?: string;
   message?: string; // for people; never parsed
 }
@@ -1054,6 +1103,10 @@ interface Closed {
 interface Bye {
   token: string; // the token the view was opened with (Section 10.3)
   reason?: "exit" | "signal" | "error";
+}
+
+interface Dismiss {
+  token: string; // the token the view was opened with (Section 10.8)
 }
 ```
 
@@ -1129,7 +1182,7 @@ number each side's messages.
 2. The host answers before it answers `CSI c`:
 
 ```frame fixtures/to-program/welcome.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle"]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"]}<ESC>\
 ```
 
 3. The program switches to the alternate screen and opens its view with the token and the manifest:

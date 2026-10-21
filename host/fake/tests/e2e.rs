@@ -309,6 +309,66 @@ fn a_tool_that_is_killed_leaves_no_view_behind() {
 }
 
 #[test]
+fn a_tool_closes_its_view_shows_another_and_closes_that_one_and_goes_on() {
+    let program = root().join("host/fake/tests/programs/reopen.mjs");
+    let run = run(&[], &["node", &program.to_string_lossy()]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss",
+        "program: open id=2 tool=show bundle of 1 files",
+        "host: need id=2 re=2 missing=1",
+        "program: file",
+        "view: started from the bundle: entry index.html, 1 files",
+        "host: msg id=* request tools/call show",
+        // The program closes the view that runs; the host tells the view first and
+        // the program after the view is gone.
+        "program: dismiss id=",
+        "host: the program asks to close its view",
+        "view: <- ui/resource-teardown (request)",
+        "view: destroyed",
+        "host: closed id=* re=* reason=program",
+        // A new token and a new open, as for a first view: the file that changed
+        // crosses the stream again.
+        "program: hello id=",
+        "host: welcome id=* re=* version=1 with a token",
+        "program: open id=* tool=show bundle of 1 files",
+        "host: need id=* re=* missing=1",
+        "program: file",
+        "view: started from the bundle: entry index.html, 1 files",
+        "host: msg id=* request tools/call show",
+        "program: dismiss id=",
+        "view: destroyed",
+        "host: closed id=* re=* reason=program",
+        "program: exited with status 0",
+    ]);
+    // The program asked for no second capability query and no second screen.
+    assert_eq!(run.count("program: hello"), 2, "{}", run.text());
+    assert_eq!(run.count("answers CSI c"), 1, "{}", run.text());
+    run.never("program: bye");
+    run.never("dropped a frame");
+    // It said how it went, on the screen it was given back.
+    for line in [
+        r#"reopen: {"kind":"reopened"}"#,
+        r#"close: {"kind":"closed"}"#,
+        r#"serve: {"kind":"closed","by":"program"}"#,
+    ] {
+        let at = run
+            .output_has(line)
+            .unwrap_or_else(|| panic!("no {line:?}:\n{}", run.text()));
+        let off = run
+            .output_has("\x1b[?1049l")
+            .expect("it gave the screen back");
+        assert!(off < at, "{line}");
+    }
+    assert_eq!(
+        String::from_utf8_lossy(&run.output)
+            .matches("\x1b[?1049h")
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn a_terminal_that_does_not_host_pencere_gets_the_text_interface() {
     let run = run_tool(&["--no-host"]);
     assert!(run.status.success(), "{}", run.text());

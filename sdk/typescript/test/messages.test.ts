@@ -6,6 +6,7 @@ import { bundleFromFiles } from "../src/bundle.js";
 import {
   VERSIONS,
   byePayload,
+  dismissPayload,
   helloPayload,
   openPayload,
   parseClosed,
@@ -37,6 +38,10 @@ describe("what the program writes", () => {
     expect(byePayload(TOKEN, "signal")).toBe(payloadOf("to-host/bye.frame"));
   });
 
+  it("is the dismiss of the fixtures: the token of the view, and nothing else", () => {
+    expect(dismissPayload(TOKEN)).toBe(payloadOf("to-host/dismiss.frame"));
+  });
+
   it("writes the arguments of the tool as given", () => {
     expect(openPayload({ token: TOKEN, tool: { name: "t", arguments: { all: true, n: 2 } } })).toBe(
       `{"token":"${TOKEN}","tool":{"name":"t","arguments":{"all":true,"n":2}}}`,
@@ -50,7 +55,7 @@ describe("a welcome", () => {
       kind: "offer",
       version: 1,
       token: TOKEN,
-      features: ["bundle"],
+      features: ["bundle", "dismiss"],
       restart: false,
     });
   });
@@ -130,6 +135,9 @@ describe("a closed", () => {
       code: "bundle",
     });
     expect(parseClosed(payloadOf("to-program/closed-user.frame"))).toEqual({ reason: "user" });
+    expect(parseClosed(payloadOf("to-program/closed-program.frame"))).toEqual({
+      reason: "program",
+    });
   });
 
   it("with a reason this version does not know still ends the view, as an error", () => {

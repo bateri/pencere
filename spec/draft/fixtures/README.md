@@ -60,6 +60,7 @@ limits are covered by files at the limit and one byte over.
 | `to-host/msg.frame`          | body, canonical | msg carrying an MCP initialize result. delivers msg#4; no errors.                                                                                            |
 | `to-host/msg-chunked.frame`  | body            | msg in three chunks of 100 payload bytes, the sender's choice. delivers msg#5; no errors.                                                                    |
 | `to-host/bye.frame`          | body, canonical | bye after SIGINT, with the token the view was opened with. delivers bye#6; no errors.                                                                        |
+| `to-host/dismiss.frame`      | body, canonical | dismiss: the program closes its view and keeps running, with the token the view was opened with. delivers dismiss#6; no errors.                              |
 | `to-host/noise.frame`        | stream          | one hello among terminal output, a foreign APC and a frame of an unknown kind (delivered, then ignored by the receiver). delivers hello#1, zzz#2; no errors. |
 | `to-host/unknown-kind.frame` | body            | a frame of an unknown kind is delivered by the decoder and ignored by the receiver. delivers zzz#1; no errors.                                               |
 | `to-host/unknown-key.frame`  | body            | an unknown control key is ignored but reported with the message. delivers hello#1(x=1); no errors.                                                           |
@@ -78,6 +79,7 @@ limits are covered by files at the limit and one byte over.
 | `to-program/need-chunked.frame`         | body, canonical | twelve missing digests need three frames at the 511 byte limit. delivers need#2(re=2); no errors.                               |
 | `to-program/closed-refused.frame`       | body, canonical | an open that was refused. delivers closed#2(re=2); no errors.                                                                   |
 | `to-program/closed-user.frame`          | body, canonical | the person closed the view. delivers closed#5; no errors.                                                                       |
+| `to-program/closed-program.frame`       | body, canonical | the answer to a dismiss: the view is gone. delivers closed#5(re=6); no errors.                                                  |
 | `to-program/closed-error.frame`         | body, canonical | the bundle failed verification. delivers closed#5(re=2); no errors.                                                             |
 | `to-program/msg-initialize.frame`       | body, canonical | msg carrying an MCP initialize request. delivers msg#3; no errors.                                                              |
 | `to-program/msg-chunked.frame`          | body, canonical | a view's tools/call, longer than one frame, with non-ASCII text written as escapes. delivers msg#4; no errors.                  |
@@ -123,18 +125,20 @@ limits are covered by files at the limit and one byte over.
 
 ## Session fixtures
 
-| Session                | What it shows                                                                | Files                           |
-| ---------------------- | ---------------------------------------------------------------------------- | ------------------------------- |
-| `handshake`            | a hello is answered with a version and a token                               | `session/handshake/`            |
-| `version-mismatch`     | a hello that shares no version gets no token                                 | `session/version-mismatch/`     |
-| `open-without-token`   | an open that carries no token is refused                                     | `session/open-without-token/`   |
-| `open-wrong-token`     | an open with a token the host never issued is refused                        | `session/open-wrong-token/`     |
-| `token-single-use`     | a token opens once; the second open with it is refused and the first goes on | `session/token-single-use/`     |
-| `hello-replaces-token` | a new hello invalidates the token of the previous one                        | `session/hello-replaces-token/` |
-| `open-busy`            | a second view cannot open while one is opening                               | `session/open-busy/`            |
-| `bundle-partial`       | the host names only the digests it lacks, in manifest order                  | `session/bundle-partial/`       |
-| `bundle-path-escape`   | a manifest path that leaves the bundle is refused                            | `session/bundle-path-escape/`   |
-| `bye-needs-the-token`  | a bye without the token, or with another, ends nothing; the one with it does | `session/bye-needs-the-token/`  |
+| Session                   | What it shows                                                                                                       | Files                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `handshake`               | a hello is answered with a version and a token                                                                      | `session/handshake/`               |
+| `version-mismatch`        | a hello that shares no version gets no token                                                                        | `session/version-mismatch/`        |
+| `open-without-token`      | an open that carries no token is refused                                                                            | `session/open-without-token/`      |
+| `open-wrong-token`        | an open with a token the host never issued is refused                                                               | `session/open-wrong-token/`        |
+| `token-single-use`        | a token opens once; the second open with it is refused and the first goes on                                        | `session/token-single-use/`        |
+| `hello-replaces-token`    | a new hello invalidates the token of the previous one                                                               | `session/hello-replaces-token/`    |
+| `open-busy`               | a second view cannot open while one is opening                                                                      | `session/open-busy/`               |
+| `bundle-partial`          | the host names only the digests it lacks, in manifest order                                                         | `session/bundle-partial/`          |
+| `bundle-path-escape`      | a manifest path that leaves the bundle is refused                                                                   | `session/bundle-path-escape/`      |
+| `bye-needs-the-token`     | a bye without the token, or with another, ends nothing; the one with it does                                        | `session/bye-needs-the-token/`     |
+| `dismiss-and-reopen`      | a program closes its view without ending and opens one again; the second open finds its file in the store           | `session/dismiss-and-reopen/`      |
+| `dismiss-needs-the-token` | a dismiss closes the view only with the token that opened it; a token issued while the view was opening outlasts it | `session/dismiss-needs-the-token/` |
 
 Within a session directory the files are numbered by step, in the order of the conversation,
 `NN-in.frame` for what the program wrote and `NN-out.frame` for what the host writes back; a step
