@@ -1,4 +1,4 @@
-.PHONY: setup fmt check check-network release-prepare release publish publish-local
+.PHONY: setup fmt check check-network release-prepare release publish publish-local approve
 
 # Installs the TypeScript half's dependencies from the lockfile. The only
 # target that reaches the network.
@@ -60,3 +60,9 @@ publish:
 publish-local:
 	@test -n "$(LINE)" || { echo "usage: make publish-local LINE=<line>"; exit 2; }
 	node tools/release.mjs local $(LINE)
+
+# approve makes public the version the release workflow staged on npm, with 2FA.
+# Publishing: run on the maintainer's word.
+approve:
+	@test -n "$(LINE)" || { echo "usage: make approve LINE=<line>"; exit 2; }
+	node tools/release.mjs approve $(LINE)

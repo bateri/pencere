@@ -51,9 +51,12 @@ From a clean `main`:
    - it stages the package on npm through trusted publishing, which also signs where it was
      built (provenance);
    - it writes the GitHub release from the changelog section.
-4. Approve the staged version on npm. It is not public until a maintainer approves it with 2FA:
-   on npmjs.com under the package's **Staged Packages** tab, or with `npm stage list` and
-   `npm stage approve <stage-id>`.
+4. `make approve LINE=sdk-typescript` once the workflow has staged the version. It is not public
+   until a maintainer approves it with 2FA: the target shows the staged version (who staged it,
+   its shasum) and approves it, and npm asks for the second factor, so run it in a terminal.
+   `npm stage` needs npm 11.15 or later and Node 22 ships npm 10, so the target runs the npm
+   the workflow uses through `npx`. The same can be done on npmjs.com, under the package's
+   **Staged Packages** tab.
 5. Check it: `npm view @pencere/sdk version`.
 
 If a check fails, nothing has left the machine: fix it, amend or add a commit, and run the step
@@ -130,13 +133,18 @@ that order** (`sdk-typescript`, then `cli`, then `create`: see
 `create-pencere` is not under the `@pencere` scope, so its first publish also claims the name,
 and `npm create pencere` runs it. From the second release on, the workflow stages.
 
-Then, once, on npmjs.com, in the settings of each of the three packages:
+Then, on npmjs.com, in the settings of each of the three packages:
 
-- **Trusted publisher:** GitHub Actions, organization `bateri`, repository `pencere`, workflow
-  `release.yml`, no environment. Allow staged publishing only, so the workflow can never make a
-  version public by itself.
-- **Publishing access:** require two-factor authentication and disallow tokens. From then on a
-  version becomes public only through the workflow and a maintainer's approval.
+- **Publishing access**, once the first release is out: require two-factor authentication and
+  disallow bypass tokens. It does not expire.
+- **Trusted publisher**, on the day of the line's second release, just before `make publish`:
+  GitHub Actions, organization `bateri`, repository `pencere`, workflow `release.yml`, no
+  environment, with "Allow npm publish" and "Allow npm dist-tag" left off, so the workflow can
+  only stage and never make a version public by itself. npm stops a trusted publisher that has
+  not published within two days of being made, and one that has stopped cannot be edited: it is
+  deleted and made again. So it is made when a release is about to use it, not after the first.
+
+From then on a version becomes public only through the workflow and a maintainer's approval.
 
 ## The crate
 
@@ -167,5 +175,5 @@ draft is settled:
 ## Who releases
 
 `make publish` and `make publish-local` publish a package under the project's name. Only a
-maintainer runs them. The approval on npm is a second, separate decision. Everything before
-them (prepare, commit, tag) can be undone locally.
+maintainer runs them. The approval on npm (`make approve`) is a second, separate decision.
+Everything before them (prepare, commit, tag) can be undone locally.

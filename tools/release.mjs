@@ -10,6 +10,7 @@
 //   tag <line>                check, then create the annotated tag
 //   push <line>               push main and the tag together (what starts the workflow)
 //   local <line>              publish from this machine, then push (a line's first release)
+//   approve <line>            make public the version of the line that the workflow staged on npm
 //   verify-tag <tag>          in the workflow: the tag names the line's version on main; prints
 //                             the line, its package, directory and kind, and the version
 //   registry <line> <version> in the workflow: is the package, and this version, published
@@ -323,6 +324,28 @@ function local(name) {
   console.log(`published ${line.name} and pushed ${tagName}`);
 }
 
+/** `npm stage` needs npm 11.15 or later and Node 22 ships npm 10; the release workflow installs the same one. */
+const STAGE_NPM = ["--yes", "npm@11.21.1", "stage"];
+
+function approve(name) {
+  const line = lineOf(name);
+  if (line.kind !== "npm") refuse(`${line.id} is not staged: crates.io publishes at once`);
+  const version = versionOf(line);
+  const staged = JSON.parse(run("npx", [...STAGE_NPM, "list", line.name, "--json"])).filter(
+    (item) => item.version === version,
+  );
+  if (staged.length === 0) {
+    refuse(`npm holds no staged ${line.name} ${version}: has the release workflow staged it?`);
+  }
+  if (staged.length > 1) {
+    const ids = staged.map((item) => `${item.id} (${item.status})`).join(", ");
+    refuse(`npm holds more than one staged ${line.name} ${version}: ${ids}`);
+  }
+  // What is approved is shown first: who staged it and the shasum of what becomes public.
+  run("npx", [...STAGE_NPM, "view", staged[0].id], { stdio: "inherit" });
+  run("npx", [...STAGE_NPM, "approve", staged[0].id], { stdio: "inherit" });
+}
+
 function verifyTag(tagName) {
   const match = /^(.+)-v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(tagName ?? "");
   if (match === null) refuse(`"${tagName}" is not a release tag (<line>-v<version>)`);
@@ -365,6 +388,7 @@ const COMMANDS = {
   tag,
   push,
   local,
+  approve,
   "verify-tag": verifyTag,
   registry,
   notes,
