@@ -1,7 +1,7 @@
 {
   "name": "pencere-workspace",
   "private": true,
-  "license": "GPL-3.0-or-later",
+  "license": "Apache-2.0",
   "type": "module",
   "workspaces": [
     "sdk/*"

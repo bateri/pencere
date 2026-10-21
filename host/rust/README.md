@@ -21,5 +21,4 @@ release changed.
 
 ## License
 
-GPL-3.0-or-later — see [LICENSE](LICENSE). Anyone may implement the protocol; the license covers
-this crate's code.
+Apache-2.0 — see [LICENSE](LICENSE).

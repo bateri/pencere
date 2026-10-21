@@ -41,5 +41,6 @@ crates.io yet; how a package is released is in [RELEASING.md](RELEASING.md).
 
 ## License
 
-GPL-3.0-or-later — see [LICENSE](LICENSE). Anyone may implement the protocol;
-the license covers this repository's code.
+Apache-2.0 — see [LICENSE](LICENSE). The specification, the libraries and the tools are
+all under it, so any terminal or tool, open or closed, can implement the protocol or embed
+this code.
