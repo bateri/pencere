@@ -92,6 +92,8 @@ pub struct Host {
     /// (specification §4.8).
     typed: Vec<u8>,
     kill: bool,
+    /// The view has been started again once, as `--then restart` says.
+    restarted: bool,
     waiting_since: Option<(State, Instant)>,
 }
 
@@ -134,6 +136,7 @@ impl Host {
             said: StreamDecoder::new(Direction::ToProgram),
             typed: Vec::new(),
             kill: false,
+            restarted: false,
             waiting_since: None,
         })
     }
@@ -388,6 +391,15 @@ impl Host {
             Then::Close => {
                 log::line("host", "the person closes the view");
                 self.session.close_view();
+            }
+            Then::Restart if self.restarted => {
+                log::line("host", "the person presses ^C");
+                self.typed.push(INTERRUPT);
+            }
+            Then::Restart => {
+                self.restarted = true;
+                log::line("host", "starts the view again, as after a reconnection");
+                self.session.restart();
             }
         }
     }

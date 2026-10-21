@@ -30,6 +30,8 @@ Early: nothing here is stable yet. The repository holds
 - the specification and its fixtures, the one truth both libraries are tested from
   ([`spec/draft`](spec/draft/pencere.md));
 - a TypeScript SDK for tool authors ([`@pencere/sdk`](sdk/typescript));
+- a command that runs an MCP server written in any language as a pencere program, so its view
+  opens in the terminal pane: `pencere run -- python server.py` ([`@pencere/cli`](cli));
 - a Rust library for terminals that host views, doing no I/O (crate `pencere`,
   [`host/rust`](host/rust));
 - a stand-in terminal that plays the host, for trying a tool and for tests

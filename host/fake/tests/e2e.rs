@@ -523,3 +523,311 @@ fn a_program_that_closes_its_tty_and_goes_on_is_cut_short_as_well() {
     // wait for it without a limit.
     cut_short(&["sh", "-c", "exec >/dev/null 2>&1 </dev/null; sleep 30"]);
 }
+
+// ---- `pencere run`: a server that knows nothing of pencere --------------------
+
+fn cli() -> String {
+    let main = root().join("cli/dist/main.js");
+    assert!(
+        main.is_file(),
+        "{} is missing: build the TypeScript half first with `npx tsc -b` (make check does)",
+        main.display()
+    );
+    main.to_string_lossy().into_owned()
+}
+
+/// `pencere run [own] -- <server>` in the pane of the stand-in host.
+fn run_cli(options: &[&str], own: &[&str], server: &[&str]) -> Run {
+    let main = cli();
+    let mut program = vec!["node", main.as_str(), "run"];
+    program.extend_from_slice(own);
+    program.push("--");
+    program.extend_from_slice(server);
+    run(options, &program)
+}
+
+/// The example tool as a chat client would start it, through a shell that writes
+/// its pid to `log` first (`exec` keeps the pid), so that a test can count how
+/// often the server was started and see that none is left. The words of `node`
+/// come before the tool's path.
+fn logged_tool(log: &Path, node_options: &[&str]) -> Vec<String> {
+    let mut server = vec![
+        "sh".to_owned(),
+        "-c".to_owned(),
+        r#"echo $$ >> "$0"; exec node "$@""#.to_owned(),
+        log.to_string_lossy().into_owned(),
+    ];
+    server.extend(node_options.iter().map(|word| (*word).to_owned()));
+    server.push(tool());
+    server
+}
+
+fn words(server: &[String]) -> Vec<&str> {
+    server.iter().map(String::as_str).collect()
+}
+
+/// The pids of the servers that were started.
+fn started(log: &Path) -> Vec<u32> {
+    fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .map(|line| line.trim().parse().expect("a pid"))
+        .collect()
+}
+
+/// Whether the process is gone, given the time a process table takes to catch up.
+fn gone(pid: u32) -> bool {
+    for _ in 0..100 {
+        let exists = Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(Stdio::null())
+            .status()
+            .expect("kill runs")
+            .success();
+        if !exists {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    false
+}
+
+#[test]
+fn pencere_run_opens_the_view_of_a_server_and_ends_it_on_ctrl_c() {
+    let dir = fresh("cli-first");
+    let log = dir.join("starts");
+    let server = logged_tool(&log, &[]);
+    let run = run_cli(
+        &[
+            "--call",
+            r#"stop_container={"id":"cache"}"#,
+            "--then",
+            "interrupt",
+        ],
+        &[],
+        &words(&server),
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss",
+        "screen: alternate screen on",
+        // Asked which tool has a view, so the open names it; the server gave no
+        // files, so the host reads the view from the server's own resource.
+        "program: open id=2 tool=list_containers without a bundle",
+        "host: msg id=* request initialize",
+        "host: msg id=* notification notifications/initialized",
+        "host: msg id=* request tools/list",
+        "host: msg id=* request resources/read",
+        "view: started from resources/read",
+        r#"view: -> tools/call stop_container {"id":"cache"}"#,
+        "host: msg id=* request tools/call stop_container",
+        "program: msg id=* response",
+        r#"view: <- tool result "Stopped cache (redis:7)""#,
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "view: destroyed",
+        "screen: alternate screen off",
+        "program: was killed by signal 2",
+    ]);
+    // Once to ask which tool has a view, once for the view: and neither is left.
+    let pids = started(&log);
+    assert_eq!(pids.len(), 2, "{pids:?}");
+    for pid in pids {
+        assert!(gone(pid), "the server {pid} outlived pencere run");
+    }
+    // The screen it gave back has nothing on it that was not the program's own.
+    assert!(run.output_has("pencere:").is_none());
+}
+
+#[test]
+fn pencere_run_does_not_start_a_server_to_ask_when_the_tool_is_named() {
+    let dir = fresh("cli-named");
+    let log = dir.join("starts");
+    let server = logged_tool(&log, &[]);
+    let run = run_cli(
+        &["--then", "close"],
+        &["--tool", "list_containers", "--args", "{}"],
+        &words(&server),
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: open id=2 tool=list_containers without a bundle",
+        "view: started from resources/read",
+        "host: the person closes the view",
+        "host: closed id=* reason=user",
+        "program: exited with status 0",
+    ]);
+    let pids = started(&log);
+    assert_eq!(pids.len(), 1, "{pids:?}");
+    assert!(gone(pids[0]));
+}
+
+#[test]
+fn pencere_run_sends_the_files_of_a_view_directory_once() {
+    let dir = fresh("cli-view");
+    let store = dir.join("store");
+    let store = store.to_string_lossy();
+    let view = root().join("examples/containers/view");
+    let view = view.to_string_lossy();
+    let log = dir.join("starts");
+    let server = logged_tool(&log, &[]);
+    let options = ["--store", &store, "--then", "close"];
+    let own = ["--tool", "list_containers", "--view", &view];
+
+    let first = run_cli(&options, &own, &words(&server));
+    assert!(first.status.success(), "{}", first.text());
+    first.in_order(&[
+        "program: open id=2 tool=list_containers bundle of 3 files",
+        "host: need id=2 re=2 missing=3",
+        "program: file",
+        "program: file",
+        "program: file",
+        "view: started from the bundle: entry index.html, 3 files",
+    ]);
+
+    // The terminal kept them: the second time only the manifest crosses the stream.
+    let second = run_cli(&options, &own, &words(&server));
+    assert!(second.status.success(), "{}", second.text());
+    second.in_order(&[
+        "host: need id=2 re=2 missing=0",
+        "view: started from the bundle: entry index.html, 3 files",
+    ]);
+    second.never("program: file");
+}
+
+#[test]
+fn pencere_run_starts_the_server_again_when_the_host_starts_the_view_again() {
+    let dir = fresh("cli-restart");
+    let log = dir.join("starts");
+    let server = logged_tool(&log, &[]);
+    let run = run_cli(
+        &["--then", "restart"],
+        &["--tool", "list_containers"],
+        &words(&server),
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: open id=2 tool=list_containers without a bundle",
+        "view: started from resources/read",
+        "host: starts the view again, as after a reconnection",
+        "view: destroyed",
+        "host: welcome id=* version=1 with a token (restart)",
+        "program: open id=* tool=list_containers without a bundle",
+        "view: started from resources/read",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "program: was killed by signal 2",
+    ]);
+    assert_eq!(run.count("program: open"), 2, "{}", run.text());
+    // A server has one `initialize` for the life of its process: the second view
+    // is a second process, and the first is gone.
+    let pids = started(&log);
+    assert_eq!(pids.len(), 2, "{pids:?}");
+    assert_ne!(pids[0], pids[1]);
+    for pid in pids {
+        assert!(gone(pid), "the server {pid} outlived pencere run");
+    }
+}
+
+#[test]
+fn pencere_run_keeps_the_terminals_ctrl_c_from_the_server() {
+    // ⌃C is the terminal's signal to its foreground group. The server is the
+    // program's to end, with `bye` first: one that took the signal too would die
+    // under the view, and a Python server would print a traceback.
+    let dir = fresh("cli-group");
+    let log = dir.join("starts");
+    let signals = dir.join("signals");
+    let preload = dir.join("record-sigint.cjs");
+    fs::write(
+        &preload,
+        format!(
+            r#"process.on("SIGINT", () => require("node:fs").appendFileSync({signals:?}, "SIGINT\n"));"#,
+            signals = signals.to_string_lossy()
+        ),
+    )
+    .expect("a preload under the target directory");
+    let preload = preload.to_string_lossy().into_owned();
+    let server = logged_tool(&log, &["-r", &preload]);
+    let run = run_cli(
+        &["--then", "interrupt"],
+        &["--tool", "list_containers"],
+        &words(&server),
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: started from resources/read",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "program: was killed by signal 2",
+    ]);
+    let pids = started(&log);
+    assert_eq!(pids.len(), 1, "{pids:?}");
+    assert!(gone(pids[0]));
+    assert!(
+        !signals.exists(),
+        "the server got the terminal's SIGINT: {:?}",
+        fs::read_to_string(&signals)
+    );
+}
+
+#[test]
+fn pencere_run_tells_a_terminal_that_does_not_host_pencere_what_a_server_is_for() {
+    let dir = fresh("cli-nohost");
+    let log = dir.join("starts");
+    let server = logged_tool(&log, &[]);
+    let run = run_cli(
+        &["--no-host"],
+        &["--tool", "list_containers"],
+        &words(&server),
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        "host: does not host pencere: no answer",
+        "program: exited with status 3",
+    ]);
+    run.never("welcome");
+    run.never("program: open");
+    assert!(
+        run.output_has("this terminal does not show pencere views")
+            .is_some(),
+        "{:?}",
+        String::from_utf8_lossy(&run.output)
+    );
+    assert!(run.output_has("is an MCP server").is_some());
+    // It never took the screen, and it started no server for a pane that cannot show it.
+    assert!(run.output_has("\x1b[?1049h").is_none());
+    assert!(started(&log).is_empty());
+}
+
+#[test]
+fn pencere_run_says_what_a_server_that_ends_under_its_view_wrote() {
+    let run = run_cli(
+        &[],
+        &["--tool", "list_containers"],
+        &[
+            "node",
+            "-e",
+            r#"console.error("Traceback: boom"); setTimeout(() => process.exit(5), 100);"#,
+        ],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: open id=2 tool=list_containers without a bundle",
+        "program: bye id=* reason=exit",
+        "screen: alternate screen off",
+        "program: exited with status 1",
+    ]);
+    // It is said on the screen the person got back, not under the view.
+    let off = run
+        .output_has("\x1b[?1049l")
+        .expect("the screen was given back");
+    let said = run
+        .output_has("ended (exit status 5) while its view was opening")
+        .expect("it said that the server ended");
+    let wrote = run
+        .output_has("  Traceback: boom")
+        .expect("it showed what the server wrote");
+    assert!(off < said && said < wrote, "{off} {said} {wrote}");
+}

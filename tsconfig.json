@@ -3,6 +3,8 @@
   "references": [
     { "path": "sdk/typescript" },
     { "path": "sdk/typescript/test" },
+    { "path": "cli" },
+    { "path": "cli/test" },
     { "path": "examples/containers" },
     { "path": "examples/containers/test" }
   ]

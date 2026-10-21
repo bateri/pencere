@@ -35,7 +35,8 @@ and wrote into the program's input, `view:` what the scripted view received and 
 Run it from a terminal and the program's keys are yours: ⌃C reaches the program as it
 does in any terminal. Otherwise the script decides how the run ends (`--then`): the view
 makes the calls it was given (`--call`), and then ^C is typed into the pane, the program
-is killed with SIGKILL, the person closes the view, or nothing happens. `--no-host` plays
+is killed with SIGKILL, the person closes the view, the host starts the view again once, as after a
+reconnection, or nothing happens. `--no-host` plays
 a terminal that does not host pencere, `--store` keeps verified files between runs, and
 `--help` lists the rest.
 

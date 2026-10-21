@@ -20,7 +20,9 @@ options:
   --then ACTION        what happens when the calls are done: wait (the default;
                        the person ends it), interrupt (^C is typed into the
                        pane), kill (the program is killed with SIGKILL), close
-                       (the person closes the view)
+                       (the person closes the view), restart (the view is
+                       started again once, as after a reconnection, and when
+                       its calls are done again ^C is typed into the pane)
   --store DIR          keep verified bundle files in DIR, as a terminal that
                        remembers them between runs does (default: in memory)
   --no-host            act as a terminal that does not host pencere: answer
@@ -40,6 +42,7 @@ pub enum Then {
     Interrupt,
     Kill,
     Close,
+    Restart,
 }
 
 /// A tool the scripted view calls.
@@ -151,9 +154,10 @@ fn option(parsed: &mut Args, name: &str, value: &str) -> Result<(), String> {
                 "interrupt" => Then::Interrupt,
                 "kill" => Then::Kill,
                 "close" => Then::Close,
+                "restart" => Then::Restart,
                 other => {
                     return Err(format!(
-                        "--then {other}: not one of wait, interrupt, kill, close"
+                        "--then {other}: not one of wait, interrupt, kill, close, restart"
                     ));
                 }
             };
@@ -206,6 +210,14 @@ mod tests {
         assert_eq!(args.calls[0].name, "stop_container");
         assert_eq!(args.calls[0].arguments["id"], "web");
         assert_eq!(args.calls[1].arguments, serde_json::json!({}));
+    }
+
+    #[test]
+    fn restart_is_one_of_the_actions() {
+        let Outcome::Run(args) = parsed(&["--then", "restart", "--", "p"]) else {
+            panic!("did not parse");
+        };
+        assert_eq!(args.then, Then::Restart);
     }
 
     #[test]
