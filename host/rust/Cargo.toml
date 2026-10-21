@@ -3,7 +3,7 @@ name = "pencere"
 description = "Host side of pencere, the terminal side of MCP Apps: frames, messages, session rules and bundles, without I/O"
 # The crate's own version line, apart from the workspace's: it is released on its own
 # (RELEASING.md), and the stand-in host that shares the workspace is never published.
-version = "0.0.0"
+version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

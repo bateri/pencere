@@ -6,6 +6,8 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-21
+
 ### Added
 
 - The host side of version 1 of the wire (draft), without I/O: frames read from APC bodies or
