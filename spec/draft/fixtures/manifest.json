@@ -1,0 +1,950 @@
+{
+  "protocol": 1,
+  "tokens": {
+    "issued": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"]
+  },
+  "decode": [
+    {
+      "file": "to-host/hello.frame",
+      "direction": "to-host",
+      "note": "the capability query",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "hello",
+          "id": 1,
+          "control": {},
+          "payload": "{\"versions\":[1]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/hello-fence.frame",
+      "direction": "to-host",
+      "note": "hello followed by the CSI c fence, as a program sends them",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [
+        {
+          "kind": "hello",
+          "id": 1,
+          "control": {},
+          "payload": "{\"versions\":[1]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/open.frame",
+      "direction": "to-host",
+      "note": "open without a bundle",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "open",
+          "id": 2,
+          "control": {},
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"tool\":{\"name\":\"list_containers\",\"arguments\":{}}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/open-bundle.frame",
+      "direction": "to-host",
+      "note": "open with a three-file bundle manifest",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "open",
+          "id": 2,
+          "control": {},
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"tool\":{\"name\":\"list_containers\",\"arguments\":{}},\"bundle\":{\"entry\":\"index.html\",\"files\":[{\"path\":\"index.html\",\"sha256\":\"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54\",\"size\":132,\"type\":\"text/html\"},{\"path\":\"app.js\",\"sha256\":\"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c\",\"size\":67,\"type\":\"text/javascript\"},{\"path\":\"style.css\",\"sha256\":\"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e\",\"size\":61,\"type\":\"text/css\"}],\"meta\":{\"csp\":{\"connectDomains\":[\"https://api.example.com\"]},\"prefersBorder\":false}}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/file.frame",
+      "direction": "to-host",
+      "note": "file in one frame",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "file",
+          "id": 3,
+          "control": {
+            "d": "72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e"
+          },
+          "payload": "Ym9keSB7IG1hcmdpbjogMDsgZm9udDogMTRweCB2YXIoLS1mb250LXNhbnMsIHNhbnMtc2VyaWYpOyB9Cg=="
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/file-chunked.frame",
+      "direction": "to-host",
+      "note": "file in two chunks of 60 base64 characters, the sender's choice",
+      "scope": "body",
+      "canonical": false,
+      "messages": [
+        {
+          "kind": "file",
+          "id": 3,
+          "control": {
+            "d": "bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c"
+          },
+          "payload": "ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoImFwcCIpLnRleHRDb250ZW50ID0gImhlbGxvIGZyb20gcGVuY2VyZSI7Cg=="
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/msg.frame",
+      "direction": "to-host",
+      "note": "msg carrying an MCP initialize result",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 4,
+          "control": {},
+          "payload": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"containers\",\"version\":\"0.0.0\"}}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/msg-chunked.frame",
+      "direction": "to-host",
+      "note": "msg in three chunks of 100 payload bytes, the sender's choice",
+      "scope": "body",
+      "canonical": false,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 5,
+          "control": {},
+          "payload": "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"3 containers\"}],\"structuredContent\":{\"containers\":[{\"id\":\"c1\",\"name\":\"web\",\"state\":\"running\"},{\"id\":\"c2\",\"name\":\"db\",\"state\":\"running\"},{\"id\":\"c3\",\"name\":\"cache\",\"state\":\"exited\"}]}}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/bye.frame",
+      "direction": "to-host",
+      "note": "bye after SIGINT",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "bye",
+          "id": 6,
+          "control": {},
+          "payload": "{\"reason\":\"signal\"}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/noise.frame",
+      "direction": "to-host",
+      "note": "one hello among terminal output, a foreign APC and a frame of an unknown kind (delivered, then ignored by the receiver)",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [
+        {
+          "kind": "hello",
+          "id": 1,
+          "control": {},
+          "payload": "{\"versions\":[1]}"
+        },
+        {
+          "kind": "zzz",
+          "id": 2,
+          "control": {},
+          "payload": "{\"x\":1}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/unknown-kind.frame",
+      "direction": "to-host",
+      "note": "a frame of an unknown kind is delivered by the decoder and ignored by the receiver",
+      "scope": "body",
+      "canonical": false,
+      "messages": [
+        {
+          "kind": "zzz",
+          "id": 1,
+          "control": {},
+          "payload": "{\"x\":1}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/unknown-key.frame",
+      "direction": "to-host",
+      "note": "an unknown control key is ignored but reported with the message",
+      "scope": "body",
+      "canonical": false,
+      "messages": [
+        {
+          "kind": "hello",
+          "id": 1,
+          "control": {
+            "x": "1"
+          },
+          "payload": "{\"versions\":[1]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/incomplete.frame",
+      "direction": "to-host",
+      "note": "a frame that never ends produces nothing, not even an error",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [],
+      "errors": []
+    },
+    {
+      "file": "to-host/limit-frame.frame",
+      "direction": "to-host",
+      "note": "a frame of exactly 4096 bytes is accepted",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 7,
+          "control": {},
+          "payload": "{\"pad\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "invalid/to-host/frame-too-long.frame",
+      "direction": "to-host",
+      "note": "a frame of 4097 bytes is refused",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["too-long"]
+    },
+    {
+      "file": "invalid/to-host/esc-in-body.frame",
+      "direction": "to-host",
+      "note": "an ESC inside the body ends the frame as malformed",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/raw-lf.frame",
+      "direction": "to-host",
+      "note": "a raw line feed inside the body",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/raw-del.frame",
+      "direction": "to-host",
+      "note": "a raw DEL inside the body",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/non-ascii.frame",
+      "direction": "to-host",
+      "note": "a raw non-ASCII character inside the body",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/c1-st.frame",
+      "direction": "to-host",
+      "note": "U+2700 whose UTF-8 encoding contains the byte 0x9C, which some parsers read as ST",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/missing-id.frame",
+      "direction": "to-host",
+      "note": "no id",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/zero-id.frame",
+      "direction": "to-host",
+      "note": "id 0",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/duplicate-key.frame",
+      "direction": "to-host",
+      "note": "a control key twice",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/bad-value.frame",
+      "direction": "to-host",
+      "note": "id is not decimal",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/bad-kind.frame",
+      "direction": "to-host",
+      "note": "kind has an uppercase letter",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/bad-more.frame",
+      "direction": "to-host",
+      "note": "more is neither 0 nor 1",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/bad-chunk-order.frame",
+      "direction": "to-host",
+      "note": "chunk 0 then chunk 2: the open message is discarded",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["chunk-order"]
+    },
+    {
+      "file": "invalid/to-host/chunk-id-mismatch.frame",
+      "direction": "to-host",
+      "note": "the second chunk belongs to another message",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["chunk-order"]
+    },
+    {
+      "file": "invalid/to-host/chunk-kind-mismatch.frame",
+      "direction": "to-host",
+      "note": "the second chunk has another kind",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["chunk-order"]
+    },
+    {
+      "file": "invalid/to-host/orphan-chunk.frame",
+      "direction": "to-host",
+      "note": "a continuation chunk with no message open",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["chunk-order"]
+    },
+    {
+      "file": "invalid/to-host/abandoned-message.frame",
+      "direction": "to-host",
+      "note": "a new message starts before the previous one ended: the old one is dropped, the new one is delivered",
+      "scope": "body",
+      "canonical": false,
+      "messages": [
+        {
+          "kind": "hello",
+          "id": 5,
+          "control": {},
+          "payload": "{\"versions\":[1]}"
+        }
+      ],
+      "errors": ["abandoned"]
+    },
+    {
+      "file": "to-program/welcome.frame",
+      "direction": "to-program",
+      "note": "the answer to a hello",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "welcome",
+          "id": 1,
+          "control": {
+            "re": "1"
+          },
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\"]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/welcome-restart.frame",
+      "direction": "to-program",
+      "note": "an unsolicited welcome that asks a program with an open view to open it again",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "welcome",
+          "id": 2,
+          "control": {},
+          "payload": "{\"version\":1,\"token\":\"Zk3mP8rD5uYb1Xe6HqS0vg\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\"],\"restart\":true}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/welcome-unsupported.frame",
+      "direction": "to-program",
+      "note": "the answer to a hello that shares no version with the host",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "welcome",
+          "id": 1,
+          "control": {
+            "re": "1"
+          },
+          "payload": "{\"supported\":[1],\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/need.frame",
+      "direction": "to-program",
+      "note": "the digests the host lacks",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "need",
+          "id": 2,
+          "control": {
+            "re": "2"
+          },
+          "payload": "{\"missing\":[\"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c\"]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/need-empty.frame",
+      "direction": "to-program",
+      "note": "the host has every file",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "need",
+          "id": 2,
+          "control": {
+            "re": "2"
+          },
+          "payload": "{\"missing\":[]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/need-chunked.frame",
+      "direction": "to-program",
+      "note": "twelve missing digests need three frames at the 511 byte limit",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "need",
+          "id": 2,
+          "control": {
+            "re": "2"
+          },
+          "payload": "{\"missing\":[\"d77f315c50d2294575894c81c0f319f2fc5928091b67f83bfff5a42c0b0d5e69\",\"9f125d7a3308611eeeb07efceb88ac5c2be7c6865b156b3d123730261ac07d83\",\"c8dd55bfb6b8f0193384bf8b190e14ce95254c62472d92ba8d4d18e24d9cb6a4\",\"cea4fd8970ce6553945d6dcd8fe396893bf804ef164d6e599c327551b7777e40\",\"b30f1aa1bbd21a1b1f1531a9f6c7db8e1619dd137947971bb95f5873a70dc004\",\"ebd056c5483307f0ccb7d2e865b5beac35051d944e009758d30589f73eadad9f\",\"ee6fe9dd74004625e1422ec6cd1d51962ac91793a1c6f1a18ecec2eea695663d\",\"65b79f2d5f4b4171e5960c15b2e10d9c110bd0db8b1515ea2bf480e82d41ca9b\",\"1dfe9f6793a7374e8c5f1fa8330f91bb25e947743d5582cb6634c00286415d6a\",\"ca948819b7563459b90d06a8ed44b3a585985f5f786f2ea3769cb5c5ee01aab2\",\"2562874827ca26abe15817c7ee429218cb10f861fe2fe631cc3a08ba2799fc48\",\"ce7bdd9b27c5daf751e64a5649b2fb80332bfc19a6bf81546fefaa7c6fc6ba54\"]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/closed-refused.frame",
+      "direction": "to-program",
+      "note": "an open that was refused",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "closed",
+          "id": 2,
+          "control": {
+            "re": "2"
+          },
+          "payload": "{\"reason\":\"refused\",\"code\":\"token\"}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/closed-user.frame",
+      "direction": "to-program",
+      "note": "the person closed the view",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "closed",
+          "id": 5,
+          "control": {},
+          "payload": "{\"reason\":\"user\"}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/closed-error.frame",
+      "direction": "to-program",
+      "note": "the bundle failed verification",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "closed",
+          "id": 5,
+          "control": {
+            "re": "2"
+          },
+          "payload": "{\"reason\":\"error\",\"code\":\"bundle\"}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/msg-initialize.frame",
+      "direction": "to-program",
+      "note": "msg carrying an MCP initialize request",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 3,
+          "control": {},
+          "payload": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/ui\":{\"mimeTypes\":[\"text/html;profile=mcp-app\"]}}},\"clientInfo\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"}}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/msg-chunked.frame",
+      "direction": "to-program",
+      "note": "a view's tools/call, longer than one frame, with non-ASCII text written as escapes",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 4,
+          "control": {},
+          "payload": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"stop_container\",\"arguments\":{\"id\":\"c3\",\"reason\":\"Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue.\"}}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/noise.frame",
+      "direction": "to-program",
+      "note": "a welcome followed by the terminal's answer to CSI c and stray typed bytes",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [
+        {
+          "kind": "welcome",
+          "id": 1,
+          "control": {
+            "re": "1"
+          },
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\"]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/limit-frame.frame",
+      "direction": "to-program",
+      "note": "a frame of exactly 511 bytes is accepted",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 7,
+          "control": {},
+          "payload": "{\"pad\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "invalid/to-program/frame-too-long.frame",
+      "direction": "to-program",
+      "note": "a frame of 512 bytes is refused",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["too-long"]
+    },
+    {
+      "file": "invalid/to-program/raw-lf.frame",
+      "direction": "to-program",
+      "note": "a raw line feed inside a reply: the shell would run a line",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-program/raw-cr.frame",
+      "direction": "to-program",
+      "note": "a raw carriage return inside a reply",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-program/raw-etx.frame",
+      "direction": "to-program",
+      "note": "a raw ETX inside a reply: a tty with ISIG would deliver SIGINT",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-program/raw-del.frame",
+      "direction": "to-program",
+      "note": "a raw DEL inside a reply: a canonical tty would erase a character",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-program/non-ascii.frame",
+      "direction": "to-program",
+      "note": "a raw non-ASCII character inside a reply",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-program/esc-in-body.frame",
+      "direction": "to-program",
+      "note": "an ESC inside the body",
+      "scope": "stream",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-program/bad-chunk-order.frame",
+      "direction": "to-program",
+      "note": "chunk 0 then chunk 2",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["chunk-order"]
+    }
+  ],
+  "session": [
+    {
+      "name": "handshake",
+      "note": "a hello is answered with a version and a token",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/handshake/01-in.frame"
+        },
+        {
+          "out": "session/handshake/02-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "version-mismatch",
+      "note": "a hello that shares no version gets no token",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/version-mismatch/01-in.frame"
+        },
+        {
+          "out": "session/version-mismatch/02-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "open-without-token",
+      "note": "an open that carries no token is refused",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/open-without-token/01-in.frame"
+        },
+        {
+          "out": "session/open-without-token/02-out.frame"
+        },
+        {
+          "in": "session/open-without-token/03-in.frame"
+        },
+        {
+          "out": "session/open-without-token/04-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "open-wrong-token",
+      "note": "an open with a token the host never issued is refused",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/open-wrong-token/01-in.frame"
+        },
+        {
+          "out": "session/open-wrong-token/02-out.frame"
+        },
+        {
+          "in": "session/open-wrong-token/03-in.frame"
+        },
+        {
+          "out": "session/open-wrong-token/04-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "token-single-use",
+      "note": "a token opens once; the second open with it is refused and the first goes on",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/token-single-use/01-in.frame"
+        },
+        {
+          "out": "session/token-single-use/02-out.frame"
+        },
+        {
+          "in": "session/token-single-use/03-in.frame"
+        },
+        {
+          "out": "session/token-single-use/04-out.frame"
+        },
+        {
+          "in": "session/token-single-use/05-in.frame"
+        },
+        {
+          "out": "session/token-single-use/06-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "hello-replaces-token",
+      "note": "a new hello invalidates the token of the previous one",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/hello-replaces-token/01-in.frame"
+        },
+        {
+          "out": "session/hello-replaces-token/02-out.frame"
+        },
+        {
+          "in": "session/hello-replaces-token/03-in.frame"
+        },
+        {
+          "out": "session/hello-replaces-token/04-out.frame"
+        },
+        {
+          "in": "session/hello-replaces-token/05-in.frame"
+        },
+        {
+          "out": "session/hello-replaces-token/06-out.frame"
+        },
+        {
+          "in": "session/hello-replaces-token/07-in.frame"
+        },
+        {
+          "out": "session/hello-replaces-token/08-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "open-busy",
+      "note": "a second view cannot open while one is opening",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/open-busy/01-in.frame"
+        },
+        {
+          "out": "session/open-busy/02-out.frame"
+        },
+        {
+          "in": "session/open-busy/03-in.frame"
+        },
+        {
+          "out": "session/open-busy/04-out.frame"
+        },
+        {
+          "in": "session/open-busy/05-in.frame"
+        },
+        {
+          "out": "session/open-busy/06-out.frame"
+        },
+        {
+          "in": "session/open-busy/07-in.frame"
+        },
+        {
+          "out": "session/open-busy/08-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "bundle-partial",
+      "note": "the host names only the digests it lacks, in manifest order",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": [
+          "aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54",
+          "72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e"
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/bundle-partial/01-in.frame"
+        },
+        {
+          "out": "session/bundle-partial/02-out.frame"
+        },
+        {
+          "in": "session/bundle-partial/03-in.frame"
+        },
+        {
+          "out": "session/bundle-partial/04-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "bundle-path-escape",
+      "note": "a manifest path that leaves the bundle is refused",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/bundle-path-escape/01-in.frame"
+        },
+        {
+          "out": "session/bundle-path-escape/02-out.frame"
+        },
+        {
+          "in": "session/bundle-path-escape/03-in.frame"
+        },
+        {
+          "out": "session/bundle-path-escape/04-out.frame"
+        }
+      ]
+    }
+  ]
+}
