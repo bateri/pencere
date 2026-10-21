@@ -283,12 +283,23 @@ fn start_up(rig: &mut Rig, tools: Value) -> Vec<Action> {
 
 /// [`start_up`] for a program that calls itself `server_info`.
 fn start_up_as(rig: &mut Rig, server_info: Value, tools: Value) -> Vec<Action> {
+    start_up_declaring(rig, server_info, json!({"tools": {}}), tools)
+}
+
+/// [`start_up`] for a program that calls itself `server_info` and declares
+/// `capabilities`.
+fn start_up_declaring(
+    rig: &mut Rig,
+    server_info: Value,
+    capabilities: Value,
+    tools: Value,
+) -> Vec<Action> {
     let initialize = rig.msgs();
     assert_eq!(initialize.len(), 1, "{initialize:?}");
     assert_eq!(initialize[0]["method"], "initialize");
     let id = initialize[0]["id"].clone();
     rig.json(&json!({"jsonrpc": "2.0", "id": id, "result": {
-        "protocolVersion": "2025-11-25", "capabilities": {"tools": {}}, "serverInfo": server_info}}));
+        "protocolVersion": "2025-11-25", "capabilities": capabilities, "serverInfo": server_info}}));
     let next = rig.msgs();
     assert_eq!(next.len(), 2, "{next:?}");
     assert_eq!(next[0]["method"], "notifications/initialized");
@@ -326,6 +337,11 @@ fn view_handshake(rig: &mut Rig, pane: bool) -> Value {
 
 /// A host in the state of Appendix C: the view runs and the tool was called.
 fn running(meta: Option<Value>) -> Rig {
+    running_declaring(meta, json!({"tools": {}}))
+}
+
+/// [`running`] for a program that declares `capabilities` in its `initialize`.
+fn running_declaring(meta: Option<Value>, capabilities: Value) -> Rig {
     let mut rig = Rig::new();
     let token = rig.hello();
     rig.send(
@@ -341,7 +357,12 @@ fn running(meta: Option<Value>) -> Rig {
     for body in [INDEX, APP, STYLE] {
         send_file(&mut rig, body);
     }
-    let actions = start_up(&mut rig, tools());
+    let actions = start_up_declaring(
+        &mut rig,
+        json!({"name": "containers", "version": "0.0.0"}),
+        capabilities,
+        tools(),
+    );
     if let Some(consent) = actions.iter().find_map(|a| match a {
         Action::Consent(c) => Some(c.clone()),
         _ => None,
@@ -562,13 +583,13 @@ fn a_view_calls_only_the_tools_its_visibility_allows_and_ids_are_two_spaces() {
     assert_eq!(rig.msgs()[0]["method"], "resources/read");
     rig.view(&json!({"jsonrpc": "2.0", "id": 8, "method": "resources/read", "params": {}}));
     assert!(rig.msgs().is_empty());
-    // Messages of the host's own are never passed on.
+    // Messages of the host's own, and requests the host does not name, are never passed on.
     for method in [
         "ui/initialize",
         "ui/resource-teardown",
         "initialize",
-        "tools/list",
         "sampling/createMessage",
+        "resources/subscribe",
     ] {
         rig.view(&json!({"jsonrpc": "2.0", "id": 9, "method": method}));
         assert!(rig.msgs().is_empty(), "{method}");
@@ -611,6 +632,293 @@ fn a_terminal_has_no_conversation_and_a_view_that_asks_is_told_so() {
     rig.view(&json!({"jsonrpc": "2.0", "method": "notifications/message", "params": {"level": "info", "data": "hi"}}));
     let (_, acted) = rig.take();
     assert!(matches!(acted.as_slice(), [Action::ViewLog(text)] if text.contains("\"hi\"")));
+}
+
+// ---- what the view lists and what the program announces (§9.4, §9.6) ------------
+
+/// The capabilities of a program that announces changes of all three of its lists.
+fn announcing() -> Value {
+    json!({"tools": {"listChanged": true}, "resources": {"listChanged": true},
+           "prompts": {"listChanged": true}})
+}
+
+fn tools_changed() -> Value {
+    json!({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
+}
+
+#[test]
+fn a_view_lists_what_the_program_has_through_the_host() {
+    let mut rig = running(None);
+    view_handshake(&mut rig, true);
+    rig.take();
+    for (n, method) in [
+        "tools/list",
+        "resources/list",
+        "resources/templates/list",
+        "prompts/list",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let id = format!("list-{n}");
+        rig.view(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": {"cursor": "c"}}));
+        let passed = rig.msgs();
+        assert_eq!(passed.len(), 1, "{method}");
+        assert_eq!(passed[0]["method"], *method);
+        assert_eq!(passed[0]["params"], json!({"cursor": "c"}));
+        assert_ne!(passed[0]["id"], json!(id));
+        rig.json(&json!({"jsonrpc": "2.0", "id": passed[0]["id"], "result": {"items": n}}));
+        assert_eq!(
+            rig.viewed(),
+            vec![json!({"jsonrpc": "2.0", "id": id, "result": {"items": n}})],
+            "{method}"
+        );
+    }
+}
+
+#[test]
+fn a_program_that_announces_its_lists_is_heard_by_the_view_and_one_that_does_not_is_not() {
+    // Declared: the view is told the host passes the news on, and gets it as the
+    // program wrote it.
+    let mut rig = running_declaring(None, announcing());
+    let answer = view_handshake(&mut rig, true);
+    let capabilities = &answer["hostCapabilities"];
+    assert_eq!(capabilities["serverTools"], json!({"listChanged": true}));
+    assert_eq!(
+        capabilities["serverResources"],
+        json!({"listChanged": true})
+    );
+    rig.take();
+    for method in [
+        "notifications/resources/list_changed",
+        "notifications/prompts/list_changed",
+    ] {
+        let news = json!({"jsonrpc": "2.0", "method": method, "params": {"_meta": {"n": 1}}});
+        rig.json(&news);
+        assert_eq!(rig.viewed(), vec![news], "{method}");
+        assert!(rig.msgs().is_empty());
+    }
+    // Not declared, or declared with something that is not `true`: the view is told
+    // nothing of it, and nothing reaches it.
+    for declared in [
+        json!({"tools": {}}),
+        json!({"tools": {"listChanged": "yes"}, "resources": {"listChanged": 1}, "prompts": []}),
+        json!("all of them"),
+    ] {
+        let mut rig = running_declaring(None, declared.clone());
+        let answer = view_handshake(&mut rig, true);
+        let capabilities = &answer["hostCapabilities"];
+        assert_eq!(capabilities["serverTools"], json!({}), "{declared}");
+        assert_eq!(capabilities["serverResources"], json!({}), "{declared}");
+        rig.take();
+        for method in [
+            "notifications/tools/list_changed",
+            "notifications/resources/list_changed",
+            "notifications/prompts/list_changed",
+            "notifications/message",
+        ] {
+            rig.json(&json!({"jsonrpc": "2.0", "method": method}));
+            assert!(rig.viewed().is_empty(), "{declared} {method}");
+            assert!(rig.msgs().is_empty(), "{declared} {method}");
+        }
+        assert_eq!(rig.host.state(), State::Open);
+    }
+}
+
+#[test]
+fn a_view_is_told_the_tools_changed_once_the_host_has_read_them_again() {
+    let mut rig = running_declaring(None, announcing());
+    view_handshake(&mut rig, true);
+    rig.take();
+    // A tool the program does not have yet.
+    let restart = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                         "params": {"name": "restart_container"}});
+    rig.view(&restart);
+    assert_eq!(rig.viewed()[0]["error"]["code"], -32602);
+    rig.json(&tools_changed());
+    // The host reads the tools first, and the view hears nothing yet.
+    let read = rig.msgs();
+    assert_eq!(read.len(), 1, "{read:?}");
+    assert_eq!(read[0]["method"], "tools/list");
+    assert!(rig.viewed().is_empty());
+    let mut more = tools();
+    more.as_array_mut()
+        .unwrap()
+        .push(json!({"name": "restart_container",
+        "inputSchema": {"type": "object"}, "_meta": {"ui": {"visibility": ["app"]}}}));
+    rig.json(&json!({"jsonrpc": "2.0", "id": read[0]["id"], "result": {"tools": more}}));
+    assert_eq!(rig.viewed(), vec![tools_changed()]);
+    // The tool the view has just heard of is one it may call.
+    rig.view(&restart);
+    assert_eq!(rig.msgs()[0]["params"]["name"], "restart_container");
+}
+
+#[test]
+fn the_tools_are_read_again_page_by_page() {
+    let mut rig = running_declaring(None, announcing());
+    view_handshake(&mut rig, true);
+    rig.take();
+    rig.json(&tools_changed());
+    let first = rig.msgs();
+    rig.json(&json!({"jsonrpc": "2.0", "id": first[0]["id"],
+                     "result": {"tools": tools(), "nextCursor": "2"}}));
+    let second = rig.msgs();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0]["method"], "tools/list");
+    assert_eq!(second[0]["params"], json!({"cursor": "2"}));
+    assert!(rig.viewed().is_empty());
+    rig.json(&json!({"jsonrpc": "2.0", "id": second[0]["id"],
+                     "result": {"tools": [{"name": "late", "inputSchema": {"type": "object"}}]}}));
+    assert_eq!(rig.viewed(), vec![tools_changed()]);
+    rig.view(
+        &json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "late"}}),
+    );
+    assert_eq!(rig.msgs().len(), 1);
+}
+
+#[test]
+fn news_that_comes_while_the_tools_are_read_is_read_once_more_and_told_once() {
+    let mut rig = running_declaring(None, announcing());
+    view_handshake(&mut rig, true);
+    rig.take();
+    rig.json(&tools_changed());
+    let first = rig.msgs();
+    rig.json(&tools_changed());
+    rig.json(&tools_changed());
+    // One reading at a time.
+    assert!(rig.msgs().is_empty());
+    rig.json(&json!({"jsonrpc": "2.0", "id": first[0]["id"], "result": {"tools": tools()}}));
+    assert!(rig.viewed().is_empty());
+    let second = rig.msgs();
+    assert_eq!(second.len(), 1);
+    assert_eq!(second[0]["method"], "tools/list");
+    rig.json(&json!({"jsonrpc": "2.0", "id": second[0]["id"], "result": {"tools": tools()}}));
+    assert_eq!(rig.viewed(), vec![tools_changed()]);
+    assert!(rig.msgs().is_empty());
+}
+
+#[test]
+fn a_reading_of_the_tools_that_fails_keeps_what_the_host_knew_and_the_view_still_hears() {
+    let mut rig = running_declaring(None, announcing());
+    view_handshake(&mut rig, true);
+    rig.take();
+    // The program answers with an error.
+    rig.json(&tools_changed());
+    let read = rig.msgs();
+    rig.json(&json!({"jsonrpc": "2.0", "id": read[0]["id"],
+                     "error": {"code": -1, "message": "no"}}));
+    assert_eq!(rig.viewed(), vec![tools_changed()]);
+    rig.view(&json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                     "params": {"name": "stop_container"}}));
+    assert_eq!(rig.msgs().len(), 1, "the tools the host knew stay callable");
+    // The program does not answer in time.
+    rig.json(&tools_changed());
+    rig.take();
+    rig.host.requests_timed_out();
+    let told = rig.viewed();
+    assert!(told.contains(&tools_changed()), "{told:?}");
+    // Its late answer is nobody's.
+    rig.json(&json!({"jsonrpc": "2.0", "id": 99, "result": {"tools": []}}));
+    assert!(rig.viewed().is_empty());
+}
+
+#[test]
+fn a_view_that_has_not_initialized_hears_no_news_and_the_host_still_reads_the_tools() {
+    let mut rig = running_declaring(None, announcing());
+    rig.take();
+    rig.json(&json!({"jsonrpc": "2.0", "method": "notifications/resources/list_changed"}));
+    assert!(rig.viewed().is_empty());
+    rig.json(&tools_changed());
+    let read = rig.msgs();
+    assert_eq!(read[0]["method"], "tools/list");
+    rig.json(&json!({"jsonrpc": "2.0", "id": read[0]["id"], "result": {"tools": tools()}}));
+    assert!(rig.viewed().is_empty());
+}
+
+#[test]
+fn the_program_s_progress_reaches_the_view_for_the_view_s_own_requests_only() {
+    let mut rig = running(None);
+    view_handshake(&mut rig, true);
+    rig.take();
+    for token in [json!("p1"), json!(7)] {
+        rig.view(
+            &json!({"jsonrpc": "2.0", "id": "slow", "method": "tools/call",
+            "params": {"name": "stop_container", "_meta": {"progressToken": token}}}),
+        );
+        let passed = rig.msgs();
+        assert_eq!(passed[0]["params"]["_meta"]["progressToken"], token);
+        let progress = json!({"jsonrpc": "2.0", "method": "notifications/progress",
+            "params": {"progressToken": token, "progress": 40, "total": 100, "message": "stopping"}});
+        rig.json(&progress);
+        assert_eq!(rig.viewed(), vec![progress.clone()]);
+        // A token of no request of the view's, a token of the wrong type, and none.
+        for params in [
+            json!({"progressToken": "p2", "progress": 1}),
+            json!({"progressToken": {"p1": 1}, "progress": 1}),
+            json!({"progress": 1}),
+        ] {
+            rig.json(
+                &json!({"jsonrpc": "2.0", "method": "notifications/progress", "params": params}),
+            );
+            assert!(rig.viewed().is_empty(), "{params}");
+        }
+        // Once the request is answered, its token is nobody's.
+        rig.json(&json!({"jsonrpc": "2.0", "id": passed[0]["id"], "result": {"content": []}}));
+        assert_eq!(rig.viewed().len(), 1);
+        rig.json(&progress);
+        assert!(rig.viewed().is_empty());
+    }
+}
+
+#[test]
+fn a_view_that_gives_up_a_request_has_the_program_told_and_hears_no_answer() {
+    let mut rig = running(None);
+    view_handshake(&mut rig, true);
+    rig.take();
+    rig.view(
+        &json!({"jsonrpc": "2.0", "id": "slow", "method": "tools/call",
+                     "params": {"name": "stop_container"}}),
+    );
+    let passed = rig.msgs();
+    rig.view(
+        &json!({"jsonrpc": "2.0", "method": "notifications/cancelled",
+                     "params": {"requestId": "slow", "reason": "the person moved on"}}),
+    );
+    assert_eq!(
+        rig.msgs(),
+        vec![
+            json!({"jsonrpc": "2.0", "method": "notifications/cancelled",
+                    "params": {"requestId": passed[0]["id"], "reason": "the person moved on"}})
+        ]
+    );
+    assert!(rig.viewed().is_empty());
+    // The answer that still comes has nobody to go to.
+    rig.json(&json!({"jsonrpc": "2.0", "id": passed[0]["id"], "result": {"content": []}}));
+    assert!(rig.viewed().is_empty());
+    // A reason that is not text is left out.
+    rig.view(&json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                     "params": {"name": "stop_container"}}));
+    let passed = rig.msgs();
+    rig.view(
+        &json!({"jsonrpc": "2.0", "method": "notifications/cancelled",
+                     "params": {"requestId": 2, "reason": {"why": 1}}}),
+    );
+    assert_eq!(
+        rig.msgs()[0]["params"],
+        json!({"requestId": passed[0]["id"]})
+    );
+    // Nothing of the view's in flight by that id, the host's own call of the tool,
+    // and what is not a cancellation: nothing is written.
+    for params in [
+        json!({"requestId": "slow"}),
+        json!({"requestId": 1}),
+        json!({}),
+        json!(["slow"]),
+    ] {
+        rig.view(&json!({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": params}));
+        assert!(rig.msgs().is_empty(), "{params}");
+    }
+    assert_eq!(rig.host.state(), State::Open);
 }
 
 #[test]
@@ -1868,7 +2176,7 @@ fn a_session_survives_any_order_of_messages_and_only_ever_writes_frames_a_tty_ma
         let mut opened = String::new();
         for _ in 0..80 {
             let token = TOKENS[dice.below(TOKENS.len())];
-            match dice.below(27) {
+            match dice.below(29) {
                 0 | 1 => {
                     rig.send("hello", None, None, r#"{"versions":[1]}"#);
                 }
@@ -1908,6 +2216,9 @@ fn a_session_survives_any_order_of_messages_and_only_ever_writes_frames_a_tty_ma
                     if !rig.requests.is_empty() {
                         let (id, method) = rig.requests.remove(0);
                         let result = match method.as_str() {
+                            "initialize" if dice.below(2) == 0 => {
+                                json!({"capabilities": announcing()})
+                            }
                             "tools/list" => json!({"tools": tools()}),
                             "resources/read" => json!({"contents": [{
                                 "uri": "ui://containers/view", "mimeType": "text/html;profile=mcp-app", "text": "<p>"}]}),
@@ -1966,6 +2277,31 @@ fn a_session_survives_any_order_of_messages_and_only_ever_writes_frames_a_tty_ma
                         _ => dismiss(Some(&opened)),
                     };
                     rig.send("dismiss", None, None, &payload);
+                }
+                26 => {
+                    let news = match dice.below(4) {
+                        0 => tools_changed(),
+                        1 => {
+                            json!({"jsonrpc": "2.0", "method": "notifications/resources/list_changed"})
+                        }
+                        2 => {
+                            json!({"jsonrpc": "2.0", "method": "notifications/prompts/list_changed"})
+                        }
+                        _ => json!({"jsonrpc": "2.0", "method": "notifications/progress",
+                                    "params": {"progressToken": "p", "progress": 1}}),
+                    };
+                    rig.json(&news);
+                }
+                27 => {
+                    let id = dice.below(5);
+                    let message = match dice.below(3) {
+                        0 => json!({"jsonrpc": "2.0", "method": "notifications/cancelled",
+                                    "params": {"requestId": id}}),
+                        1 => json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
+                                    "params": {"name": "stop_container", "_meta": {"progressToken": "p"}}}),
+                        _ => json!({"jsonrpc": "2.0", "id": id, "method": "tools/list"}),
+                    };
+                    rig.view(&message);
                 }
                 _ => {
                     rig.host.set_size(Size {

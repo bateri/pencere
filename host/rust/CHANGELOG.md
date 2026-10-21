@@ -49,9 +49,24 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   `title`, cut and cleaned as `title` and `Consent::tool` are. `ViewStart::tool` is the name the view
   calls, as the program wrote it, and is not for drawing; a terminal that fell back to it drew text
   the program chose, control characters and bidirectional overrides among it.
+- What the program announces reaches the view (specification §9.6): its
+  `notifications/tools/list_changed`, `resources/list_changed` and `prompts/list_changed`, when
+  it declared `listChanged` for that list in its `initialize` result, and its
+  `notifications/progress` for a request the view made with a `progressToken`. Before the view
+  hears that the tools changed, the session reads `tools/list` again, so the view can call a tool
+  it has just heard of; one reading is out at a time. A view that has not initialized hears
+  nothing. The view's `ui/initialize` answer says `listChanged: true` under `serverTools` and
+  `serverResources` for what the program announces.
+- The view lists what the program has and gives up what it asked (§9.4): `resources/list`,
+  `resources/templates/list` and `prompts/list` are forwarded like `tools/call`, and the view's
+  `notifications/cancelled` reaches the program under the id the session gave the request, whose
+  late answer is then dropped.
 
 ### Changed
 
+- A view's `tools/list` is forwarded to the program, as the draft of MCP Apps and its reference
+  host do; it was refused as a message of the host's own. A view needs it to act on the news
+  that the tools changed.
 - `Session::consent` takes the question's id: `consent(consent.id, grant)`. An answer for a question
   that is not the one being asked changes nothing. `Consent` and `ViewStart` are not
   `#[non_exhaustive]`, so a terminal that builds either itself adds the new field.

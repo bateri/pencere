@@ -33,6 +33,7 @@ mod view;
 use std::mem;
 use std::sync::Arc;
 
+use serde_json::Value;
 use serde_json::value::RawValue;
 
 use crate::bundle::{BundleLimits, Digest, Manifest, Received, Receiving, Refusal, Store};
@@ -356,6 +357,32 @@ struct Opening {
     stage: Stage,
     /// What the program calls itself, once its `initialize` has answered.
     program: Option<String>,
+    /// The lists the program said it announces changes of, once its `initialize`
+    /// has answered.
+    announces: Announces,
+}
+
+/// The lists whose changes the program said in its `initialize` result it
+/// announces (`listChanged` of its `tools`, `resources` and `prompts`
+/// capabilities): the host passes those notifications on, and no others
+/// (specification §9.6).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Announces {
+    tools: bool,
+    resources: bool,
+    prompts: bool,
+}
+
+/// The host reading the program's tools again after the program said they
+/// changed, so that the view can call a tool it is about to learn of (§9.6).
+struct Refresh {
+    /// The `tools/list` that is out.
+    request: Id,
+    pages: u32,
+    tools: Vec<ToolEntry>,
+    /// The program said the tools changed again while this reading was out: one
+    /// more reading follows it, and the view is told once, after that one.
+    again: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -368,6 +395,9 @@ enum ViewState {
 struct Forward {
     program: Id,
     view: Id,
+    /// The `_meta.progressToken` the view's request carried: the program's
+    /// progress for this token is the view's (§9.6).
+    progress: Option<Value>,
 }
 
 struct Live {
@@ -385,6 +415,10 @@ struct Live {
     open_call: Option<Id>,
     forwards: Vec<Forward>,
     links: Vec<(u32, Id)>,
+    announces: Announces,
+    /// The host's own `tools/list` that is out, if the program said its tools
+    /// changed.
+    refresh: Option<Refresh>,
 }
 
 /// What ended a view.
@@ -641,6 +675,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             bundle,
             stage,
             program,
+            announces,
         } = *open;
         let Stage::Consent {
             source,
@@ -656,11 +691,12 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 bundle,
                 stage,
                 program,
+                announces,
             }));
             return;
         };
         let grant = grant.within(&meta);
-        self.start_view(tool, bundle, source, meta, grant, tools, found);
+        self.start_view(tool, bundle, source, meta, grant, tools, found, announces);
     }
 
     // ---- output ----------------------------------------------------------
@@ -940,6 +976,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             bundle,
             stage,
             program: None,
+            announces: Announces::default(),
         }));
         if !waiting {
             self.begin_mcp();

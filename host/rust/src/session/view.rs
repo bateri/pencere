@@ -1,7 +1,7 @@
 //! The host as an MCP Apps host of the view (specification §9.3 to §9.5, §11):
 //! what the view may send, what it is told, and what is passed on to the program.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 
@@ -46,12 +46,48 @@ struct HostCapabilities {
     #[serde(rename = "openLinks", skip_serializing_if = "Option::is_none")]
     open_links: Option<Empty>,
     #[serde(rename = "serverTools")]
-    server_tools: Empty,
+    server_tools: Proxy,
     #[serde(rename = "serverResources")]
-    server_resources: Empty,
+    server_resources: Proxy,
     #[serde(skip_serializing_if = "Option::is_none")]
     logging: Option<Empty>,
     sandbox: Value,
+}
+
+/// What the host does for the view with the program's tools or resources: it
+/// passes the view's requests on (§9.4), and the program's notifications that the
+/// list changed when the program announces them (`listChanged`, §9.6).
+#[derive(Serialize)]
+struct Proxy {
+    #[serde(rename = "listChanged", skip_serializing_if = "std::ops::Not::not")]
+    list_changed: bool,
+}
+
+/// The parameters of `notifications/cancelled` (MCP § Cancellation).
+#[derive(Deserialize)]
+struct Cancelled {
+    #[serde(rename = "requestId")]
+    request_id: Id,
+    #[serde(default)]
+    reason: Option<Value>,
+}
+
+/// The part of `notifications/progress` the host reads to know whose it is (MCP §
+/// Progress); the rest goes to the view as the program wrote it.
+#[derive(Deserialize)]
+struct Progress {
+    #[serde(rename = "progressToken", default)]
+    progress_token: Option<Value>,
+}
+
+/// What the host writes the program when the view gives up a request: the id
+/// the host gave it, and the view's reason when it is text.
+#[derive(Serialize)]
+struct Cancelling<'a> {
+    #[serde(rename = "requestId")]
+    request_id: &'a Id,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -218,6 +254,11 @@ impl<S: Store, E: Entropy> Session<S, E> {
                     self.tell_view(text);
                 }
             }
+            // What the program has: how a view learns what a notification of the
+            // program announced (§9.4, §9.6).
+            "tools/list" | "resources/list" | "resources/templates/list" | "prompts/list" => {
+                self.forward(live, id, method, params);
+            }
             "ui/open-link" => self.view_open_link(live, id, params.as_ref()),
             // A terminal has no conversation with a model (§9.5).
             "ui/message" | "ui/update-model-context" => {
@@ -247,6 +288,10 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 self.view_ready(live);
                 None
             }
+            "notifications/cancelled" => {
+                self.view_cancelled(live, envelope);
+                None
+            }
             "notifications/message" => {
                 if self.config.logging {
                     if let Some(params) = envelope.params.as_deref() {
@@ -258,7 +303,9 @@ impl<S: Store, E: Entropy> Session<S, E> {
             // The draft of MCP Apps has it and the revision this host follows does
             // not; accepting it is the host's choice (§10.6).
             "ui/notifications/request-teardown" => Some(Cause::View),
-            // The container is fixed: nothing to do with the view's size.
+            // The container is fixed: `ui/notifications/size-changed`, with which a
+            // view asks for a container that follows its content, changes nothing
+            // (§7.2).
             _ => None,
         }
     }
@@ -285,8 +332,12 @@ impl<S: Store, E: Entropy> Session<S, E> {
             host_capabilities: HostCapabilities {
                 experimental: live.pane_aware.then(|| json!({ PANE_CAPABILITY: {} })),
                 open_links: self.config.open_links.then_some(Empty {}),
-                server_tools: Empty {},
-                server_resources: Empty {},
+                server_tools: Proxy {
+                    list_changed: live.announces.tools,
+                },
+                server_resources: Proxy {
+                    list_changed: live.announces.resources,
+                },
                 logging: self.config.logging.then_some(Empty {}),
                 sandbox: live.grant.capability(),
             },
@@ -343,14 +394,109 @@ impl<S: Store, E: Entropy> Session<S, E> {
             self.tell_view(text);
             return;
         }
+        // The parameters go as they are, the view's progress token with them: the
+        // program's progress for it is passed back (§9.6).
+        let progress = params
+            .as_ref()
+            .and_then(|p| p.get("_meta"))
+            .and_then(|m| m.get("progressToken"))
+            .filter(|t| t.is_string() || t.is_i64() || t.is_u64())
+            .cloned();
         let program = self.next_rpc();
         let text = jsonrpc::request(&program, method, params.as_ref());
         if self.send_json(&text) {
-            live.forwards.push(Forward { program, view: id });
+            live.forwards.push(Forward {
+                program,
+                view: id,
+                progress,
+            });
         } else {
             let text = jsonrpc::failure(&id, DENIED, "the request is too large to send");
             self.tell_view(text);
         }
+    }
+
+    /// The view gives up a request it passed on (MCP § Cancellation, §9.4): the
+    /// program is told under the host's id, and its answer, if it still comes,
+    /// has nobody to go to. The view is not answered; it has given up waiting.
+    fn view_cancelled(&mut self, live: &mut Live, envelope: &Envelope) {
+        let cancelled: Option<Cancelled> = envelope
+            .params
+            .as_deref()
+            .and_then(|params| crate::json::from_object(params.get()));
+        let at = cancelled.as_ref().and_then(|cancelled| {
+            live.forwards
+                .iter()
+                .position(|f| f.view == cancelled.request_id)
+        });
+        let (Some(cancelled), Some(at)) = (cancelled, at) else {
+            self.ignored();
+            return;
+        };
+        let forward = live.forwards.remove(at);
+        let params = Cancelling {
+            request_id: &forward.program,
+            reason: cancelled
+                .reason
+                .as_ref()
+                .and_then(Value::as_str)
+                .map(|reason| reason.chars().take(200).collect()),
+        };
+        let text = jsonrpc::notification("notifications/cancelled", Some(params));
+        self.send_json(&text);
+    }
+
+    /// A notification of the program (specification §9.6): that one of its lists
+    /// changed, or the progress of a request of the view. The host drops anything
+    /// else, and a list's change the program did not say it announces.
+    pub(super) fn program_notification(&mut self, method: &str, envelope: &Envelope) {
+        let Some(mut live) = self.take_live() else {
+            self.ignored();
+            return;
+        };
+        // A view is sent nothing before it has initialized, and lists what it
+        // needs once it has.
+        let ready = live.state == ViewState::Ready;
+        let announces = live.announces;
+        match method {
+            "notifications/tools/list_changed" if announces.tools => {
+                self.tools_changed(&mut live);
+            }
+            "notifications/resources/list_changed" if announces.resources && ready => {
+                self.pass_to_view(method, envelope);
+            }
+            "notifications/prompts/list_changed" if announces.prompts && ready => {
+                self.pass_to_view(method, envelope);
+            }
+            "notifications/progress" => {
+                let token = envelope
+                    .params
+                    .as_deref()
+                    .and_then(|params| crate::json::from_object::<Progress>(params.get()))
+                    .and_then(|progress| progress.progress_token);
+                let the_views = token.is_some_and(|token| {
+                    live.forwards
+                        .iter()
+                        .any(|f| f.progress.as_ref() == Some(&token))
+                });
+                if the_views {
+                    self.pass_to_view(method, envelope);
+                } else {
+                    self.ignored();
+                }
+            }
+            _ => self.ignored(),
+        }
+        self.phase = Phase::Live(live);
+    }
+
+    /// A notification of the program, passed to the view as the program wrote it.
+    fn pass_to_view(&mut self, method: &str, envelope: &Envelope) {
+        let text = match envelope.params.as_deref() {
+            Some(params) => jsonrpc::notification_raw(method, params),
+            None => jsonrpc::notification(method, None::<()>),
+        };
+        self.tell_view(text);
     }
 
     fn view_open_link(&mut self, live: &mut Live, id: Id, params: Option<&Value>) {
@@ -413,6 +559,11 @@ impl<S: Store, E: Entropy> Session<S, E> {
             );
             self.tell_view(text);
         }
+        // A reading of the tools that is out is given up: the host keeps the tools
+        // it knew, and the view still hears that they changed.
+        if live.refresh.take().is_some() {
+            self.tools_read(&mut live, None, false);
+        }
         self.phase = Phase::Live(live);
     }
 
@@ -422,7 +573,9 @@ impl<S: Store, E: Entropy> Session<S, E> {
         let Some(mut live) = self.take_live() else {
             return;
         };
-        if live.open_call.as_ref() == Some(id) {
+        if live.refresh.as_ref().is_some_and(|r| &r.request == id) {
+            self.refresh_page(&mut live, envelope);
+        } else if live.open_call.as_ref() == Some(id) {
             live.open_call = None;
             let text = match (envelope.result.as_deref(), envelope.kind()) {
                 (Some(result), Some(Kind::Result { .. })) => {

@@ -53,7 +53,9 @@ they appear in all capitals. Grammar is ABNF (RFC 5234); JSON is RFC 8259.
 the normative reference. "MCP Apps § X" names the section headed X in that
 document. Where this document and MCP Apps disagree about something MCP Apps
 defines, MCP Apps is right and this document is wrong. Nothing here is a
-requirement of a later MCP Apps revision unless the text says so.
+requirement of a later MCP Apps revision unless the text says so. **MCP** is the
+Model Context Protocol, revision 2025-11-25, and "MCP § X" names the section of its
+specification headed X.
 
 | Term         | Meaning                                                                                                           |
 | ------------ | ----------------------------------------------------------------------------------------------------------------- |
@@ -96,8 +98,8 @@ tool checks that they match.
 
 **Added by this document**: the transport (Section 4), the capability query
 (5), the token and the open request (6), the way a view is placed in a pane (7),
-bundles (8), the mapping to an MCP session (9), the lifecycle of a view in a
-terminal (10), the terminal's context (11), consent for network access (12) and
+bundles (8), the mapping to an MCP session (9), including the program's progress
+passed to the view (9.6), the lifecycle of a view in a terminal (10), the terminal's context (11), consent for network access (12) and
 the fallback (13).
 
 **Different for a terminal host**, because there is no conversation and no web
@@ -569,6 +571,9 @@ defines.
 `ui/request-display-mode` is answered with the current mode, which MCP Apps §
 Display Modes asks of a host that does not switch. When the pane is resized the host
 sends `ui/notifications/host-context-changed` with the new `containerDimensions`.
+`ui/notifications/size-changed`, with which a view asks a host whose container follows
+its content to resize it (MCP Apps § Container Dimensions), changes nothing: the
+container is the pane, and its size is the person's.
 
 ## 8. Bundles
 
@@ -721,16 +726,31 @@ The program's answer to the `initialize` of step 1:
 
 ### 9.4 What the view may reach
 
-Of the messages MCP Apps § Standard MCP Messages lists for a view, the host
-forwards `tools/call` and `resources/read` to the program; `ping` and
-`notifications/message` it answers or records itself and need not forward. A tool
-the view calls MUST have `app` in its visibility, which the host knows from
-`tools/list` (MCP Apps § Resource Discovery → Visibility). Messages whose method
-begins with `ui/` belong to the host and are never forwarded. The
-view's request ids and the host's request ids to the program are two spaces; the host
-gives each forwarded request an id of its own and maps the answer back. A request
-the program does not answer in time, or an answer after the view is gone, fails
-the way MCP defines.
+The host forwards these requests of a view to the program:
+
+- `tools/call` and `resources/read`, the two MCP Apps § Standard MCP Messages lists. A
+  tool the view calls MUST have `app` in its visibility, which the host knows from
+  `tools/list` (MCP Apps § Resource Discovery → Visibility);
+- `tools/list`, `resources/list`, `resources/templates/list` and `prompts/list`, as they
+  are. A view lists what the program has to learn what a notification of Section 9.6
+  announced. MCP Apps lets a host forward any message of a view whose method does not
+  begin with `ui/` (MCP Apps § Sandbox proxy); these four are the ones its reference
+  implementation forwards, and the draft of MCP Apps adds `tools/list` to the standard
+  messages.
+
+`ping` and `notifications/message` the host answers or records itself and need not
+forward. Messages whose method begins with `ui/` belong to the host and are never
+forwarded, and nor is any other request of the view. The view's request ids and the
+host's request ids to the program are two spaces; the host gives each forwarded request
+an id of its own and maps the answer back. A request the program does not answer in time,
+or an answer after the view is gone, fails the way MCP defines.
+
+A view gives up a request it forwarded with `notifications/cancelled`, naming the
+request by its own id (MCP § Cancellation). The host sends the program
+`notifications/cancelled` with the id it gave the request, and the view's `reason`
+when it is text, forgets the request, and drops the program's answer if one still
+comes; the view is not answered. A cancellation that names no request of the view in
+flight is ignored.
 
 ### 9.5 No conversation
 
@@ -738,8 +758,39 @@ A terminal has no conversation with a model. The host answers `ui/message` and
 `ui/update-model-context` with a JSON-RPC error, code −32000, the denial MCP Apps §
 MCP Apps Specific Messages gives each. Its host
 capabilities in the `ui/initialize` answer name what it does: `serverTools` and
-`serverResources` (it proxies), `openLinks` if it opens links, `logging` if it
+`serverResources` (it proxies; each with `listChanged` `true` when Section 9.6 passes
+that list's changes on), `openLinks` if it opens links, `logging` if it
 takes log messages, and `sandbox` with what the person approved (Section 12).
+
+### 9.6 What reaches the view from the program
+
+The program's notifications go to the host, its MCP client. The host passes these on to
+the view, as the program wrote them, and drops every other:
+
+- `notifications/tools/list_changed`, `notifications/resources/list_changed` and
+  `notifications/prompts/list_changed`, when the program declared `listChanged` `true` for
+  its `tools`, `resources` or `prompts` in the capabilities of its `initialize` result
+  (MCP § Lifecycle). A capability of another shape, or a `listChanged` that is not `true`,
+  declares nothing, and does not stop the open. The host says which of tools and resources
+  it passes on with `hostCapabilities.serverTools.listChanged` and
+  `serverResources.listChanged` (MCP Apps § Host Capabilities); MCP Apps names no host
+  capability for prompts. A view that hears of a change lists again (Section 9.4).
+
+  Before it tells the view that the tools changed, the host reads `tools/list` again,
+  every page, as in Section 9.3, so that a tool the view learns of is one the host lets
+  it call (Section 9.4). One reading is out at a time: the program's word that its tools
+  changed while one is out makes the host read once more after it, and the view is told
+  once, after the last. A reading that fails, or that the program does not answer in
+  time, leaves the host with the tools it knew, and the view is still told.
+
+- `notifications/progress` (MCP § Progress), when its `progressToken` is the token a
+  request of the view still in flight carried in `params._meta.progressToken`: the host
+  forwards a request's parameters as they are, so the program sees the view's token. MCP
+  Apps does not name this; it is an addition of this document, and a view in a host that
+  does not pass progress on is never called with it and loses nothing else.
+
+A view that has not sent `ui/notifications/initialized` is sent no change of a list: it
+lists what it needs once it has. The host still reads the tools again.
 
 ## 10. Lifecycle
 
@@ -1240,6 +1291,10 @@ Informative:
 - The 2 second bound of Section 5.3 is the one the terminal mode of gpuix uses for its
   kitty-graphics probe and `CSI c` fence (`packages/gpui-terminal/src/kitty.rs`,
   `PROBE_TIMEOUT` and `FENCE_TIMEOUT`).
+- The Model Context Protocol, revision 2025-11-25, the revision the host speaks as an MCP
+  client (Section 9.3). Its sections named here: Lifecycle (the capabilities of `initialize`),
+  Cancellation and Progress (Sections 9.4 and 9.6):
+  <https://modelcontextprotocol.io/specification/2025-11-25>
 - MCP Apps draft, `ui/notifications/request-teardown` (Section 10.6):
   <https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/draft/apps.mdx>
 - Kernel sources of Appendix B: `bsd/kern/tty_dev.c`, `bsd/kern/tty.c`, `bsd/sys/tty.h` and

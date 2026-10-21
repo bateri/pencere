@@ -6,8 +6,8 @@ use serde_json::Value;
 use serde_json::value::RawValue;
 
 use super::{
-    Action, Found, Live, MAX_LABEL_CHARS, MAX_TOOL_PAGES, MAX_TOOLS, Opening, Phase, Session,
-    Stage, ToolEntry, ViewSource, ViewStart, ViewState,
+    Action, Announces, Found, Live, MAX_LABEL_CHARS, MAX_TOOL_PAGES, MAX_TOOLS, Opening, Phase,
+    Refresh, Session, Stage, ToolEntry, ViewSource, ViewStart, ViewState,
 };
 use crate::base64;
 use crate::bundle::Store;
@@ -66,14 +66,32 @@ struct ToolsPage {
     next_cursor: Option<String>,
 }
 
-/// The part of an `initialize` result the host reads, and only to name the
-/// program for people. A member of the wrong type is not text, and is no reason
-/// to stop the open, so the members are kept as raw JSON and read as strings
-/// where they are wanted.
+/// The part of an `initialize` result the host reads: the program's name for
+/// people, and which of its lists it announces changes of. A member of the wrong
+/// type says nothing, and is no reason to stop the open, so the members are kept
+/// as raw JSON and read where they are wanted.
 #[derive(Deserialize)]
 struct InitializeResult {
     #[serde(rename = "serverInfo", default)]
     server_info: Option<Box<RawValue>>,
+    #[serde(default)]
+    capabilities: Option<Box<RawValue>>,
+}
+
+#[derive(Deserialize)]
+struct ServerCapabilities {
+    #[serde(default)]
+    tools: Option<Box<RawValue>>,
+    #[serde(default)]
+    resources: Option<Box<RawValue>>,
+    #[serde(default)]
+    prompts: Option<Box<RawValue>>,
+}
+
+#[derive(Deserialize)]
+struct ListCapability {
+    #[serde(rename = "listChanged", default)]
+    list_changed: Option<Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -264,6 +282,48 @@ fn program_name(envelope: &Envelope) -> Option<String> {
         .find_map(|raw| as_text(raw).as_deref().and_then(label))
 }
 
+/// The lists the program announces changes of: those of its capabilities whose
+/// `listChanged` is `true` (MCP § Lifecycle → Capability Negotiation). Anything
+/// else, a member of another type among it, declares nothing.
+fn announced(envelope: &Envelope) -> Announces {
+    let declared = |raw: Option<&RawValue>| {
+        raw.and_then(|raw| crate::json::from_object::<ListCapability>(raw.get()))
+            .and_then(|capability| capability.list_changed)
+            .and_then(|value| serde_json::from_str::<bool>(value.get()).ok())
+            .unwrap_or(false)
+    };
+    let capabilities = envelope
+        .result_as::<InitializeResult>()
+        .and_then(|result| result.capabilities)
+        .and_then(|raw| crate::json::from_object::<ServerCapabilities>(raw.get()));
+    let Some(capabilities) = capabilities else {
+        return Announces::default();
+    };
+    Announces {
+        tools: declared(capabilities.tools.as_deref()),
+        resources: declared(capabilities.resources.as_deref()),
+        prompts: declared(capabilities.prompts.as_deref()),
+    }
+}
+
+/// One page of `tools/list`: each tool as the program wrote it and as the host
+/// reads it, and the cursor of the next page. `None` when the page is not one, or
+/// a tool on it is not.
+type ToolsOf = (Vec<(Box<RawValue>, ToolHead)>, Option<String>);
+
+fn tools_of(envelope: &Envelope) -> Option<ToolsOf> {
+    let page = envelope.result_as::<ToolsPage>()?;
+    let tools = page
+        .tools
+        .into_iter()
+        .map(|raw| {
+            let head: ToolHead = crate::json::from_object(raw.get())?;
+            Some((raw, head))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some((tools, page.next_cursor))
+}
+
 /// What reading a page of tools came to.
 enum Page {
     /// The program has more pages: the request for the next is out.
@@ -343,7 +403,8 @@ impl<S: Store, E: Entropy> Session<S, E> {
             Some(Kind::Result { id } | Kind::Failure { id }) => {
                 self.program_response(&id, &envelope)
             }
-            Some(Kind::Notification { .. }) | None => self.ignored(),
+            Some(Kind::Notification { method }) => self.program_notification(&method, &envelope),
+            None => self.ignored(),
         }
     }
 
@@ -380,6 +441,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
                     return;
                 }
                 open.program = program_name(envelope);
+                open.announces = announced(envelope);
                 let initialized = jsonrpc::notification("notifications/initialized", None::<()>);
                 let next = self.next_rpc();
                 let list = jsonrpc::request(&next, "tools/list", None::<()>);
@@ -460,9 +522,8 @@ impl<S: Store, E: Entropy> Session<S, E> {
         mut tools: Vec<ToolEntry>,
         mut found: Option<Found>,
     ) -> Option<Page> {
-        let page = envelope.result_as::<ToolsPage>()?;
-        for raw in page.tools {
-            let head: ToolHead = crate::json::from_object(raw.get())?;
+        let (page, next_cursor) = tools_of(envelope)?;
+        for (raw, head) in page {
             if tools.len() >= MAX_TOOLS {
                 return None;
             }
@@ -484,7 +545,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 name: head.name,
             });
         }
-        match page.next_cursor {
+        match next_cursor {
             Some(cursor) if pages < MAX_TOOL_PAGES => {
                 let next = self.next_rpc();
                 let text = jsonrpc::request(
@@ -572,8 +633,22 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 self.actions.push(Action::Consent(consent));
             }
             None => {
-                let Opening { tool, bundle, .. } = *open;
-                self.start_view(tool, bundle, source, meta, Grant::none(), tools, found);
+                let Opening {
+                    tool,
+                    bundle,
+                    announces,
+                    ..
+                } = *open;
+                self.start_view(
+                    tool,
+                    bundle,
+                    source,
+                    meta,
+                    Grant::none(),
+                    tools,
+                    found,
+                    announces,
+                );
             }
         }
     }
@@ -588,6 +663,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         grant: Grant,
         tools: Vec<ToolEntry>,
         found: Found,
+        announces: Announces,
     ) {
         let start = ViewStart {
             source,
@@ -612,8 +688,105 @@ impl<S: Store, E: Entropy> Session<S, E> {
             open_call: None,
             forwards: Vec::new(),
             links: Vec::new(),
+            announces,
+            refresh: None,
         }));
         self.actions.push(Action::StartView(Box::new(start)));
+    }
+
+    /// The program said its tools changed (specification §9.6). The host reads
+    /// them again before it tells the view, so that a tool the view learns of is
+    /// one the host lets it call; while a reading is out, the news waits for one
+    /// more reading after it, and the view is told once.
+    pub(super) fn tools_changed(&mut self, live: &mut Live) {
+        match &mut live.refresh {
+            Some(refresh) => refresh.again = true,
+            None => self.read_tools_again(live),
+        }
+    }
+
+    fn read_tools_again(&mut self, live: &mut Live) {
+        let request = self.next_rpc();
+        let text = jsonrpc::request(&request, "tools/list", None::<()>);
+        if self.send_json(&text) {
+            live.refresh = Some(Refresh {
+                request,
+                pages: 1,
+                tools: Vec::new(),
+                again: false,
+            });
+        } else {
+            self.tools_read(live, None, false);
+        }
+    }
+
+    /// The program's answer to the host's own `tools/list` of a [`Refresh`].
+    pub(super) fn refresh_page(&mut self, live: &mut Live, envelope: &Envelope) {
+        let Some(mut refresh) = live.refresh.take() else {
+            return;
+        };
+        let read = match envelope.kind() {
+            Some(Kind::Result { .. }) => tools_of(envelope),
+            _ => None,
+        };
+        let Some((page, next_cursor)) = read else {
+            self.tools_read(live, None, refresh.again);
+            return;
+        };
+        for (_, head) in page {
+            if refresh.tools.len() >= MAX_TOOLS {
+                self.tools_read(live, None, refresh.again);
+                return;
+            }
+            refresh.tools.push(ToolEntry {
+                app: head.app_visible(),
+                name: head.name,
+            });
+        }
+        match next_cursor {
+            Some(cursor) if refresh.pages < MAX_TOOL_PAGES => {
+                let next = self.next_rpc();
+                let text = jsonrpc::request(
+                    &next,
+                    "tools/list",
+                    Some(ToolsListParams { cursor: &cursor }),
+                );
+                if self.send_json(&text) {
+                    refresh.request = next;
+                    refresh.pages += 1;
+                    live.refresh = Some(refresh);
+                } else {
+                    self.tools_read(live, None, refresh.again);
+                }
+            }
+            Some(_) => self.tools_read(live, None, refresh.again),
+            None => self.tools_read(live, Some(refresh.tools), refresh.again),
+        }
+    }
+
+    /// A reading of the program's tools ended: with the tools, or with `None` when
+    /// it failed and the host keeps the tools it knew. The view is told that the
+    /// tools changed, the program's word, either way; unless the program said so
+    /// again meanwhile (`again`), and the reading that follows tells it.
+    pub(super) fn tools_read(
+        &mut self,
+        live: &mut Live,
+        tools: Option<Vec<ToolEntry>>,
+        again: bool,
+    ) {
+        if let Some(tools) = tools {
+            live.tools = tools;
+        }
+        if again {
+            self.read_tools_again(live);
+            return;
+        }
+        // A view is sent nothing before it has initialized, and lists what it
+        // needs once it has.
+        if live.state == ViewState::Ready {
+            let text = jsonrpc::notification("notifications/tools/list_changed", None::<()>);
+            self.tell_view(text);
+        }
     }
 }
 
