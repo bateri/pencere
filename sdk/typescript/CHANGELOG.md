@@ -6,6 +6,8 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-21
+
 ### Fixed
 
 - A program run by a parent that forwards signals (`npm start`, for one) is no longer ended by
