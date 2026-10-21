@@ -6,6 +6,15 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A program run by a parent that forwards signals (`npm start`, for one) is no longer ended by
+  ⌃C before it has given the terminal back. The parent sends the interrupt the tty already sent a
+  moment later, and `serve` had put the signal's default action back before writing `bye` and
+  leaving the alternate screen: the second interrupt ended the process between the two, and the
+  shell's prompt came back on the alternate screen. The listeners now go after the terminal is
+  given back.
+
 ## [0.1.0] - 2026-10-21
 
 ### Added

@@ -910,6 +910,28 @@ describe("when the program ends while the view is up", () => {
       expect(rig.process.listenerCount(signal) + rig.process.listenerCount("exit")).toBe(0);
       expect(rig.input.listenerCount("data")).toBe(0);
     });
+
+    it(`keeps listening for ${signal} until the terminal is given back, so a forwarded second one cannot end the program between two writes`, async () => {
+      // npm, running the program as a script, forwards the ⌃C the tty sent: the
+      // program gets it twice, and the second must not meet the default action.
+      const { rig } = await up();
+      const listening: number[] = [];
+      const write = rig.output.write.bind(rig.output);
+      rig.output.write = ((...args: Parameters<typeof write>) => {
+        listening.push(rig.process.listenerCount(signal));
+        return write(...args);
+      }) as typeof rig.output.write;
+      const restore = rig.terminal.restore.bind(rig.terminal);
+      rig.terminal.restore = () => {
+        listening.push(rig.process.listenerCount(signal));
+        restore();
+      };
+      rig.process.emit(signal);
+      // `bye`, the primary screen and the tty's modes.
+      expect(listening).toEqual([1, 1, 1]);
+      expect(rig.process.kills).toEqual([[4242, signal]]);
+      expect(rig.process.listenerCount(signal)).toBe(0);
+    });
   }
 
   it("leaves the signal to the program's own listener when it has one, and says so", async () => {

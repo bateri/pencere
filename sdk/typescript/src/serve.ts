@@ -731,12 +731,16 @@ class TerminalSession implements ViewTarget {
    * opening and it is the program that ends (§10.3), the primary screen, the
    * tty's modes, the stream. Synchronous and once, so that a signal handler and
    * an `exit` handler can run it.
+   *
+   * The listeners go last. A parent that forwards signals (npm running a script)
+   * sends the ⌃C the tty already sent a moment later; while a listener is there
+   * the second one only waits for the event loop, and without one its default
+   * action ends the process between two of the writes above — the terminal is
+   * left on the alternate screen, with the shell's prompt drawn on it.
    */
   #cleanup(reason: ByeReason | undefined): void {
     if (this.#cleaned) return;
     this.#cleaned = true;
-    this.#unwatch?.();
-    this.#unwatch = undefined;
     const link = this.#link;
     if (reason !== undefined && this.#token !== undefined) {
       link.sendNow("bye", byePayload(this.#token, reason));
@@ -744,6 +748,8 @@ class TerminalSession implements ViewTarget {
     if (this.#alternate) link.writeNow(LEAVE_ALTERNATE_SCREEN);
     this.#env.terminal.restore();
     link.stop();
+    this.#unwatch?.();
+    this.#unwatch = undefined;
   }
 
   // ---- signals and exit -----------------------------------------------------
