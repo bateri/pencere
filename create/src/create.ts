@@ -68,11 +68,13 @@ function ask(question: string, fallback: string): Promise<string> {
 }
 
 /** Asks which template until the person names one. */
-async function askTemplate(ask: Ask): Promise<Template> {
+async function askTemplate(ask: Ask, env: Environment): Promise<Template> {
   const [first] = TEMPLATES;
   for (;;) {
     const answer = (await ask(`Template, ${TEMPLATES.join(" or ")}?`, first)).toLowerCase();
     if (isTemplate(answer)) return answer;
+    // Asked again with nothing said, it reads as a question that was not heard.
+    env.stderr.write(`"${answer}" is not a template: ${TEMPLATES.join(" or ")}.\n`);
   }
 }
 
@@ -115,7 +117,8 @@ async function createProject(argv: readonly string[], env: Environment): Promise
       throw new UsageError("name the directory: npm create pencere@latest my-tool");
     directory = await ask("Project directory?", "pencere-app");
   }
-  const template = command.template ?? (ask === undefined ? TEMPLATES[0] : await askTemplate(ask));
+  const template =
+    command.template ?? (ask === undefined ? TEMPLATES[0] : await askTemplate(ask, env));
 
   const target = resolve(env.cwd, directory);
   const name = packageName(basename(target));

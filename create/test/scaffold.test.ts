@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -232,6 +232,79 @@ describe("where a project may be written", () => {
     ]);
     expect(await readFile(join(target, "deep/er/y.txt"), "utf8")).toBe("y");
     expect(await readFile(join(target, "x.txt"), "utf8")).toBe("x");
+  });
+
+  // A superuser writes where it likes: there is no directory that refuses it.
+  const refused = process.getuid?.() === 0;
+
+  it.skipIf(refused)(
+    "names the path that is not the person's to write, and writes nothing",
+    async () => {
+      const root = await directory();
+      const locked = join(root, "locked");
+      await mkdir(locked, { mode: 0o555 });
+      try {
+        const target = join(locked, "project");
+        const failure = await write(target, [{ path: "x.txt", text: "x" }]).catch(
+          (error: unknown) => error,
+        );
+        expect(failure).toBeInstanceOf(ScaffoldError);
+        expect((failure as Error).message).toContain(target);
+        expect((failure as Error).message).toContain("permission denied");
+        expect(await readdir(locked)).toEqual([]);
+      } finally {
+        await chmod(locked, 0o755);
+      }
+    },
+  );
+
+  it.skipIf(refused)("names the directory that cannot be read", async () => {
+    const root = await directory();
+    const sealed = join(root, "sealed");
+    await mkdir(sealed, { mode: 0o000 });
+    try {
+      const failure = await check(sealed).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(ScaffoldError);
+      expect((failure as Error).message).toContain(sealed);
+      expect((failure as Error).message).toContain("permission denied");
+    } finally {
+      await chmod(sealed, 0o755);
+    }
+  });
+
+  it("takes back what it wrote when it cannot write the rest, so that a second run finds an empty place", async () => {
+    const root = await directory();
+    const target = join(root, "made/here");
+    // The last file is where a directory of the project is: it fails after the others are written.
+    const failure = await write(target, [
+      { path: "a.txt", text: "a" },
+      { path: "b/c.txt", text: "c" },
+      { path: "b", text: "in the way" },
+    ]).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ScaffoldError);
+    expect((failure as Error).message).toContain("was written is taken back");
+    // What it made is gone, the directories it made with it, and the directory it was given if it made that.
+    expect(await readdir(root)).toEqual([]);
+    await check(target);
+    await write(target, [{ path: "a.txt", text: "a" }]);
+    expect(await readFile(join(target, "a.txt"), "utf8")).toBe("a");
+  });
+
+  it("takes back only what it wrote, in a directory that was there", async () => {
+    const root = await directory();
+    await mkdir(join(root, ".git"));
+    await mkdir(join(root, "sub"));
+    await writeFile(join(root, "sub/mine.txt"), "mine");
+    const failure = await write(root, [
+      { path: "a.txt", text: "a" },
+      { path: "sub/new.txt", text: "new" },
+      { path: "new/deep/d.txt", text: "d" },
+      { path: "sub/mine.txt", text: "theirs" },
+    ]).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ScaffoldError);
+    expect((await readdir(root)).sort()).toEqual([".git", "sub"]);
+    expect(await readdir(join(root, "sub"))).toEqual(["mine.txt"]);
+    expect(await readFile(join(root, "sub/mine.txt"), "utf8")).toBe("mine");
   });
 
   it("never replaces a file", async () => {

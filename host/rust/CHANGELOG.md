@@ -36,3 +36,29 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   when the person is asked, since the question comes after `tools/list`. `Consent` is not
   `#[non_exhaustive]`, so a terminal that builds one itself adds the three fields;
   `UiMeta::consent` leaves them `None`, because the metadata does not know the tool.
+- `Consent::id` and `Action::WithdrawConsent`: the session numbers each question it asks the person,
+  and takes the number back with the answer, so that an answer to a question that is no longer the
+  one being asked cannot settle the question of another view. A program that dismisses or ends its
+  view, a person who closes it, or a wait that runs out while the question is on the screen ends the
+  open, and the session says so with `WithdrawConsent(id)`, ahead of the `closed` it writes: the
+  terminal takes the question off the screen. An answer that is already on its way is ignored
+  (`Diagnostics::ignored`), which is the whole of what a program opening a view again at once could
+  otherwise have used. The number is the session's own, not the `open`'s id, which is the program's
+  to choose. `UiMeta::consent` leaves it `0`: it is the session that numbers a question.
+- `ViewStart::tool_label`: the name of the tool as a terminal may draw it when the tool has no
+  `title`, cut and cleaned as `title` and `Consent::tool` are. `ViewStart::tool` is the name the view
+  calls, as the program wrote it, and is not for drawing; a terminal that fell back to it drew text
+  the program chose, control characters and bidirectional overrides among it.
+
+### Changed
+
+- `Session::consent` takes the question's id: `consent(consent.id, grant)`. An answer for a question
+  that is not the one being asked changes nothing. `Consent` and `ViewStart` are not
+  `#[non_exhaustive]`, so a terminal that builds either itself adds the new field.
+- The names the session passes on (`ViewStart::title`, `program` and `tool_label`, `Consent::tool`,
+  `title` and `program`) also lose the invisible format characters (Unicode category Cf): the
+  zero-width space, the word joiner, the byte order mark, the soft hyphen, the Arabic letter mark and
+  the tag characters, which let a name look like another one. The zero-width joiner and non-joiner,
+  which emoji sequences and several scripts are written with, and the left-to-right and right-to-left
+  marks, which right-to-left names need for the punctuation beside them, stay. The three flags that
+  are written with tag characters (England, Scotland, Wales) show as a black flag.

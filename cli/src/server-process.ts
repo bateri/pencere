@@ -17,7 +17,9 @@
  * traceback for what the person meant as "close this". The server is ended by the
  * program that started it: its stdin closes, which every stdio server takes as
  * the end, then SIGTERM and SIGKILL to its whole group, which catches what a
- * wrapper (`npx`, `uv run`, `sh -c`) started.
+ * wrapper (`npx`, `uv run`, `sh -c`) started. A server that leaves on its own when its
+ * stdin closes, or falls, leaves what it started behind in the group, and that gets the
+ * same two endings: the group is the program's to end, not only the process that leads it.
  */
 
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/client";
@@ -56,6 +58,20 @@ export const CLOSE_TIMING: CloseTiming = { stdin: 1500, term: 1500, kill: 2000 }
 /** After a process ended, how long to wait for the last of its output before letting go of its pipes. */
 const PIPE_GRACE = 250;
 
+/** How often the process table is asked whether a group is gone, in milliseconds. */
+const GROUP_POLL = 20;
+
+/** What is held of a server's output while a line is not whole. */
+export interface ProcessLimits {
+  /**
+   * The longest line, in bytes, that is read. A line past it is dropped, with an error, and the
+   * lines after it are read as they come. 10 MiB, which is the MCP client library's.
+   */
+  readonly line: number;
+}
+
+const LIMITS: ProcessLimits = { line: 10 * 1024 * 1024 };
+
 /** The process could not be started. */
 export class StartError extends Error {
   readonly command: string;
@@ -91,6 +107,27 @@ async function within(promise: Promise<unknown>, ms: number): Promise<boolean> {
   }
 }
 
+/** Whether anything is left of the process group `pid` leads. */
+function groupExists(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch {
+    // Nothing there (ESRCH), or nothing that can be signalled: either way nothing to wait for.
+    return false;
+  }
+}
+
+/** Resolves `true` when the group is gone within `ms`, `false` when something is left. */
+async function groupGone(pid: number, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (groupExists(pid)) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, GROUP_POLL));
+  }
+  return true;
+}
+
 /** The process of a stdio MCP server, as a transport for an MCP client, and a tool to end it. */
 export class ServerProcess implements Transport {
   onclose?: (() => void) | undefined;
@@ -102,18 +139,28 @@ export class ServerProcess implements Transport {
   readonly #spec: ServerCommand;
   readonly #tail: Tail;
   readonly #timing: CloseTiming;
-  readonly #read = new ReadBuffer();
+  readonly #read: ReadBuffer;
   #child: ChildProcess | undefined;
   #closing = false;
   #shutdown: Promise<void> | undefined;
+  /** The process has exited: what it did is known, and what is left is its pipes. */
+  #exited = false;
   #ended = false;
+  /** The ending of what is left in the process's group, begun when the process ended. */
+  #sweeping: Promise<void> = Promise.resolve();
   readonly #done: Promise<Exit>;
   #finished!: (exit: Exit) => void;
 
-  constructor(spec: ServerCommand, tail: Tail, timing: CloseTiming = CLOSE_TIMING) {
+  constructor(
+    spec: ServerCommand,
+    tail: Tail,
+    timing: CloseTiming = CLOSE_TIMING,
+    limits: ProcessLimits = LIMITS,
+  ) {
     this.#spec = spec;
     this.#tail = tail;
     this.#timing = timing;
+    this.#read = new ReadBuffer({ maxBufferSize: limits.line });
     this.#done = new Promise<Exit>((resolve) => {
       this.#finished = resolve;
     });
@@ -141,7 +188,9 @@ export class ServerProcess implements Transport {
       });
       this.#child = child;
       let spawned = false;
-      child.once("error", (error) => {
+      // Not `once`: after the process runs, an error is a signal that was not sent or a write that
+      // did not go through, and there can be more than one; an `error` nobody listens for ends the program.
+      child.on("error", (error) => {
         // Before `spawn` this is a program that could not be started; after, a signal
         // or a write that did not go through.
         if (spawned) this.onerror?.(error);
@@ -162,8 +211,16 @@ export class ServerProcess implements Transport {
       child.stderr.on("error", () => {});
       child.stderr.on("data", (chunk: Buffer) => this.#tail.push(chunk));
 
-      let status: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+      let status: Omit<Exit, "expected"> | undefined;
+      let expected = false;
       let timer: NodeJS.Timeout | undefined;
+      /** What the process did, as it is known the moment it is: asked to end or not is decided then. */
+      const exited = (code: number | null, signal: NodeJS.Signals | null): void => {
+        if (status !== undefined) return;
+        status = { code, signal };
+        expected = this.#closing;
+        this.#exited = true;
+      };
       const end = (): void => {
         if (!spawned || this.#ended) return;
         clearTimeout(timer);
@@ -171,29 +228,47 @@ export class ServerProcess implements Transport {
         // The last of its output is read or is not coming: a grandchild may hold the pipes.
         for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy();
         this.#read.clear();
-        const exit: Exit = { ...(status ?? { code: null, signal: null }), expected: this.#closing };
+        const exit: Exit = { ...(status ?? { code: null, signal: null }), expected };
         this.#finished(exit);
         this.onexit?.(exit);
         this.onclose?.();
+        // Whatever the leader's end was, what it started is not ended with it: right now, with
+        // the group's number still its, what is left in the group is the program's to end.
+        this.#sweeping = this.#sweep();
       };
       child.once("exit", (code, signal) => {
-        status = { code, signal };
+        exited(code, signal);
         timer = setTimeout(end, PIPE_GRACE);
       });
       child.once("close", (code, signal) => {
-        status ??= { code, signal };
+        exited(code, signal);
         end();
       });
     });
   }
 
-  /** What the server wrote to stdout: whole lines are messages, and the rest waits for its end. */
+  /**
+   * What the server wrote to stdout: whole lines are messages, and the rest waits for its end. The
+   * chunk is read a line at a time, so that a line past the limit costs the lines around it
+   * nothing: the buffer that gives up on it gives up on what it holds, which is that line.
+   */
   #data(chunk: Buffer): void {
+    let from = 0;
+    while (from < chunk.length) {
+      const newline = chunk.indexOf(0x0a, from);
+      const to = newline === -1 ? chunk.length : newline + 1;
+      this.#line(chunk.subarray(from, to));
+      from = to;
+    }
+  }
+
+  #line(piece: Buffer): void {
     try {
-      this.#read.append(chunk);
+      this.#read.append(piece);
     } catch (error) {
       // A line past the limit is dropped, and the next one is read as it comes.
       this.onerror?.(toError(error));
+      return;
     }
     for (;;) {
       let message: JSONRPCMessage | null;
@@ -236,7 +311,18 @@ export class ServerProcess implements Transport {
 
   async #shutDown(): Promise<void> {
     const child = this.#child;
-    if (child === undefined || this.#ended) return;
+    if (child === undefined) return;
+    if (!this.#ended) {
+      // Exited by itself already: closing it is waiting for its pipes, which is not what it
+      // was that ended it.
+      if (this.#exited) await this.#done;
+      else await this.#end(child);
+    }
+    await this.#sweeping;
+  }
+
+  /** Asks the process to end, as its stdin closing does, and then makes it. */
+  async #end(child: ChildProcess): Promise<void> {
     this.#closing = true;
     try {
       child.stdin?.end();
@@ -248,6 +334,20 @@ export class ServerProcess implements Transport {
     if (await within(this.#done, this.#timing.term)) return;
     this.#signal("SIGKILL");
     await within(this.#done, this.#timing.kill);
+  }
+
+  /**
+   * The process has ended: what is left in its group (a wrapper's child, `sh -c 'server &'`) is
+   * ended as a leader that would not leave is, SIGTERM and then SIGKILL. Called as the process
+   * ends, so that the group's number is still its and has not been given to another.
+   */
+  async #sweep(): Promise<void> {
+    const pid = this.#child?.pid;
+    if (pid === undefined || !groupExists(pid)) return;
+    this.#signal("SIGTERM");
+    if (await groupGone(pid, this.#timing.term)) return;
+    this.#signal("SIGKILL");
+    await groupGone(pid, this.#timing.kill);
   }
 
   /** To the process's whole group; to the process alone where a group cannot be signalled. */

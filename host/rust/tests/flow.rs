@@ -346,7 +346,7 @@ fn running(meta: Option<Value>) -> Rig {
         Action::Consent(c) => Some(c.clone()),
         _ => None,
     }) {
-        rig.host.consent(consent.grant_all());
+        rig.host.consent(consent.id, consent.grant_all());
         rig.collect();
     } else {
         rig.acted.extend(actions);
@@ -913,7 +913,7 @@ fn a_view_declaring_domains_is_not_started_before_the_person_has_answered() {
         pencere::sandbox::Domain::parse("https://evil.example").unwrap(),
     );
     grant.allow_permission(pencere::sandbox::Permission::Microphone);
-    rig.host.consent(grant);
+    rig.host.consent(consent.id, grant);
     let (_, acted) = rig.take();
     let start = view_started(&acted);
     assert!(
@@ -953,7 +953,7 @@ fn a_view_without_a_bundle_is_read_from_the_program() {
     let [Action::Consent(consent)] = acted.as_slice() else {
         panic!("{acted:?}")
     };
-    rig.host.consent(consent.grant_all());
+    rig.host.consent(consent.id, consent.grant_all());
     let (_, acted) = rig.take();
     let start = view_started(&acted);
     assert_eq!(start.source, ViewSource::Document(html.to_owned()));
@@ -1940,7 +1940,7 @@ fn a_session_survives_any_order_of_messages_and_only_ever_writes_frames_a_tty_ma
                     let (_, acted) = rig.take();
                     for action in &acted {
                         match action {
-                            Action::Consent(c) => rig.host.consent(c.grant_all()),
+                            Action::Consent(c) => rig.host.consent(c.id, c.grant_all()),
                             Action::ToView(text) => {
                                 let value: Value = serde_json::from_str(text).unwrap();
                                 if value["method"] == "ui/resource-teardown" {
@@ -2118,7 +2118,7 @@ fn the_names_reach_the_terminal_whichever_way_the_view_is_started() {
     let [Action::Consent(consent)] = actions.as_slice() else {
         panic!("{actions:?}")
     };
-    rig.host.consent(consent.grant_all());
+    rig.host.consent(consent.id, consent.grant_all());
     let (_, acted) = rig.take();
     let start = view_started(&acted);
     assert_eq!(start.title.as_deref(), Some("Containers"));
@@ -2204,7 +2204,7 @@ fn the_question_says_the_same_words_as_the_view_that_follows_it() {
         (json!({}), json!({})),
     ] {
         let (mut rig, consent) = asked_about("list_containers", info, extra);
-        rig.host.consent(consent.grant_all());
+        rig.host.consent(consent.id, consent.grant_all());
         let (_, acted) = rig.take();
         let start = view_started(&acted);
         assert_eq!(consent.title, start.title);
@@ -2226,16 +2226,54 @@ fn a_tool_name_is_cut_and_cleaned_in_the_question_but_the_view_still_calls_the_t
     let hostile = "list\u{1b}[2J_containers";
     let (mut rig, consent) = asked_about(hostile, json!({}), json!({}));
     assert_eq!(consent.tool.as_deref(), Some("list[2J_containers"));
-    rig.host.consent(consent.grant_all());
+    rig.host.consent(consent.id, consent.grant_all());
     let (_, acted) = rig.take();
     // The tool that is called is the one the program has, not the name that is shown.
     assert_eq!(view_started(&acted).tool, hostile);
+    // The name the terminal draws when the tool has no title is the cleaned one, the question's.
+    assert_eq!(
+        view_started(&acted).tool_label.as_deref(),
+        consent.tool.as_deref()
+    );
 
     let long = "x".repeat(500);
     let (_, consent) = asked_about(&long, json!({}), json!({}));
     let tool = consent.tool.unwrap();
     assert_eq!(tool.chars().count(), pencere::session::MAX_LABEL_CHARS);
     assert!(long.starts_with(&tool));
+}
+
+#[test]
+fn the_name_the_terminal_falls_back_to_is_cleaned_and_cut_as_the_questions_is() {
+    for (name, expected) in [
+        ("list_containers", Some("list_containers".to_owned())),
+        ("a\u{200b}\u{feff}b\u{202e}c", Some("abc".to_owned())),
+        (
+            &"x".repeat(500),
+            Some("x".repeat(pencere::session::MAX_LABEL_CHARS)),
+        ),
+        ("\u{1b}\u{7} \n", None),
+    ] {
+        // No title, no annotation: the terminal has the name and nothing else to draw.
+        let mut rig = Rig::new();
+        let token = rig.hello();
+        let open =
+            pencere::json::to_wire(&json!({"token": token, "tool": {"name": name}})).unwrap();
+        rig.send("open", None, None, &open);
+        let entry = json!({"name": name, "_meta": {"ui": {"resourceUri": "ui://containers/view"}}});
+        start_up_as(&mut rig, json!({}), json!([entry]));
+        let read = rig.msgs();
+        rig.json(
+            &json!({"jsonrpc": "2.0", "id": read[0]["id"], "result": {"contents": [{
+            "uri": "ui://containers/view", "mimeType": "text/html;profile=mcp-app",
+            "text": "<!doctype html><p>hi</p>"}]}}),
+        );
+        let (_, acted) = rig.take();
+        let start = view_started(&acted);
+        assert_eq!(start.tool, name);
+        assert_eq!(start.title, None);
+        assert_eq!(start.tool_label, expected, "{name:?}");
+    }
 }
 
 #[test]
@@ -2273,4 +2311,120 @@ fn a_view_read_from_the_program_asks_about_the_same_tool() {
     assert_eq!(consent.tool.as_deref(), Some("list_containers"));
     assert_eq!(consent.title.as_deref(), Some("Containers"));
     assert_eq!(consent.program.as_deref(), Some("Container Manager"));
+}
+
+// ---- an answer belongs to the question it was given for ---------------------------
+
+/// A host whose person is being asked about the view of `list_containers`, and has not
+/// answered. `asked_about` has read what the first question holds.
+fn asking() -> (Rig, pencere::sandbox::Consent) {
+    asked_about("list_containers", json!({}), json!({}))
+}
+
+/// The program opens its view again, as it does after closing one, up to the question.
+fn asked_again(rig: &mut Rig) -> pencere::sandbox::Consent {
+    let token = rig.hello();
+    let meta = json!({"csp": {"connectDomains": ["https://api.example.com"]}});
+    rig.send(
+        "open",
+        None,
+        None,
+        &open_payload(&token, Some(bundle(Some(meta)))),
+    );
+    // The store holds the files already: nothing is asked for, and the host goes on at once.
+    let actions = start_up(rig, tools());
+    let [Action::Consent(consent)] = actions.as_slice() else {
+        panic!("{actions:?}")
+    };
+    consent.clone()
+}
+
+fn withdrawn_in(actions: &[Action]) -> Vec<u32> {
+    actions
+        .iter()
+        .filter_map(|action| match action {
+            Action::WithdrawConsent(id) => Some(*id),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn an_answer_to_a_question_that_was_closed_does_not_answer_the_next_one() {
+    let (mut rig, first) = asking();
+    // The program gives the view up while the person is still looking at the question.
+    let token = rig.token.clone().unwrap();
+    rig.send("dismiss", None, None, &dismiss(Some(&token)));
+    let (_, acted) = rig.take();
+    assert_eq!(withdrawn_in(&acted), [first.id]);
+    assert_eq!(rig.host.state(), State::Idle);
+
+    // It opens a view again, and the person is asked about that one.
+    let second = asked_again(&mut rig);
+    assert_ne!(second.id, first.id);
+
+    // The answer to the question that is gone arrives: it is not about this one.
+    rig.host.consent(first.id, first.grant_all());
+    let (_, acted) = rig.take();
+    assert!(acted.is_empty(), "{acted:?}");
+    assert_eq!(rig.host.state(), State::Opening);
+
+    // The answer to the question that is asked starts the view.
+    rig.host.consent(second.id, second.grant_all());
+    let (_, acted) = rig.take();
+    view_started(&acted);
+}
+
+/// What ends an open, and how the test makes it end.
+type Ending = (&'static str, fn(&mut Rig));
+
+#[test]
+fn a_question_is_taken_back_whatever_ends_the_open_it_was_for() {
+    let ends: [Ending; 4] = [
+        ("the program dismisses the view", |rig| {
+            let token = rig.token.clone().unwrap();
+            rig.send("dismiss", None, None, &dismiss(Some(&token)));
+        }),
+        ("the program ends", |rig| {
+            let token = rig.token.clone().unwrap();
+            rig.send("bye", None, None, &bye(Some(&token)));
+        }),
+        ("the person closes the view", |rig| rig.host.close_view()),
+        ("the wait for the person runs out", |rig| {
+            rig.host.timed_out();
+        }),
+    ];
+    for (what, end) in ends {
+        let (mut rig, consent) = asking();
+        end(&mut rig);
+        let (_, acted) = rig.take();
+        assert_eq!(withdrawn_in(&acted), [consent.id], "{what}");
+        assert_ne!(rig.host.state(), State::Opening, "{what}");
+        // And what answers it afterwards starts nothing.
+        rig.host.consent(consent.id, consent.grant_all());
+        let (_, acted) = rig.take();
+        assert!(acted.is_empty(), "{what}: {acted:?}");
+    }
+}
+
+#[test]
+fn a_question_that_was_answered_is_not_taken_back_when_the_view_ends() {
+    let (mut rig, consent) = asking();
+    rig.host.consent(consent.id, consent.grant_all());
+    let (_, acted) = rig.take();
+    view_started(&acted);
+    rig.host.close_view();
+    let (_, acted) = rig.take();
+    assert!(withdrawn_in(&acted).is_empty(), "{acted:?}");
+    // A second answer to the same question is no answer.
+    rig.host.consent(consent.id, consent.grant_all());
+    let (_, acted) = rig.take();
+    assert!(view_started_in(&acted).is_none(), "{acted:?}");
+}
+
+fn view_started_in(actions: &[Action]) -> Option<&pencere::session::ViewStart> {
+    actions.iter().find_map(|a| match a {
+        Action::StartView(start) => Some(start.as_ref()),
+        _ => None,
+    })
 }

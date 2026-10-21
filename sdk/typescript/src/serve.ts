@@ -91,6 +91,16 @@ export interface ServeOptions {
   /** How long to wait for the host's answer, in milliseconds (§5.3). 2000 by default. */
   answerTimeout?: number;
   /**
+   * How long a reopening ({@link ViewControl.reopen}) waits on the host, in
+   * milliseconds: for the `closed` that answers its `dismiss`, and then for the
+   * `welcome` that answers the `hello` after it, each. 10000 by default, longer than
+   * {@link answerTimeout}, because the first question is asked of a stream that may
+   * have no host at all, and these are asked of a host that has just answered,
+   * while it takes a view down and, after the view has been shown, a new one up.
+   * When the time is up `serve` ends as `no-view` with the reason `timeout`.
+   */
+  reopenTimeout?: number;
+  /**
    * After an answer that did not come in time: how long to go on reading, so that
    * a reply to `CSI c` that is only late does not reach the shell as typed text
    * (§5.3), in milliseconds. 1000 by default.
@@ -104,6 +114,12 @@ export type NoViewReason =
   | "no-host"
   /** A host answered and shares no version with this library. */
   | "no-common-version"
+  /**
+   * A host that had answered did not answer in time while the program replaced its
+   * view ({@link ViewControl.reopen}): the `closed` of the `dismiss`, or the `welcome`
+   * of the `hello` after it. Not `no-host`: there is one.
+   */
+  | "timeout"
   /** The host refused the `open`. `code` says why when it does. */
   | "refused"
   /** The host ended the open before the view ran (a bundle that did not verify, the MCP start-up). */
@@ -253,6 +269,8 @@ interface Change {
   readonly id: number;
   /** `dismissing`: waiting for the `closed`; `greeting`: waiting for a new token; `opening`: the new view's open is out. */
   stage: "dismissing" | "greeting" | "opening";
+  /** The end of the wait for the `closed`, while `dismissing`. */
+  timer: ReturnType<typeof setTimeout> | undefined;
 }
 
 class TerminalSession implements ViewTarget {
@@ -325,8 +343,7 @@ class TerminalSession implements ViewTarget {
 
   // ---- asking ---------------------------------------------------------------
 
-  #ask(helloId: number): Promise<Answer> {
-    const timeout = this.#options.answerTimeout ?? 2000;
+  #ask(helloId: number, timeout = this.#options.answerTimeout ?? 2000): Promise<Answer> {
     return new Promise<Answer>((resolve) => {
       const settle = (answer: Answer): void => {
         clearTimeout(timer);
@@ -409,24 +426,36 @@ class TerminalSession implements ViewTarget {
     // A `hello` is out: the first one, or the one of a reopening (§10.8).
     const asking = this.#asking;
     if (asking !== undefined) {
-      if (re !== String(asking.helloId)) return;
-      const welcome = parseWelcome(message.payload, VERSIONS);
-      if (welcome === undefined) return;
-      asking.settle(
-        welcome.kind === "offer" ? { kind: "offer", welcome } : { kind: "unsupported" },
-      );
+      if (re === String(asking.helloId)) {
+        const welcome = parseWelcome(message.payload, VERSIONS);
+        if (welcome === undefined) return;
+        asking.settle(
+          welcome.kind === "offer" ? { kind: "offer", welcome } : { kind: "unsupported" },
+        );
+      } else if (re === undefined && this.#change !== undefined) {
+        // A host that came up after a break while the program waits to be offered a view
+        // (§10.7): what it offers is what the `hello` was for, and the `hello` may be lost.
+        const welcome = parseWelcome(message.payload, VERSIONS);
+        if (welcome?.kind === "offer" && welcome.restart) asking.settle({ kind: "offer", welcome });
+      }
       return;
     }
-    if (this.#phase !== "opening" || re !== undefined || this.#change !== undefined) return;
+    if (this.#phase !== "opening" || re !== undefined) return;
     // Unsolicited: a host that came up after a break asks for the view again (§10.7).
     const welcome = parseWelcome(message.payload, VERSIONS);
     if (welcome?.kind !== "offer" || !welcome.restart) return;
+    // A reopening under way is about a view the host no longer knows, or about an open it
+    // has forgotten: it ends here, unavailable, and the restart is the view that comes.
+    this.#endChange()?.plan.resolve({ kind: "unavailable" });
     void this.#restart(welcome);
   }
 
   async #restart(welcome: Offer): Promise<void> {
     // The new open is a new view: whether the host runs it is not yet known.
     this.#viewRan = false;
+    // The token is the old view's, which the host has forgotten: until the new open is out
+    // there is no view, and a `dismiss` or a `bye` with the dead token would be nobody's.
+    this.#token = undefined;
     try {
       // A fresh MCP session; the bundle is served from the host's store, and its
       // files are sent again for whatever the store lacks (§10.7).
@@ -468,7 +497,7 @@ class TerminalSession implements ViewTarget {
       // comes while the old view is still being closed is not (§10.8).
       const change = this.#change;
       if (change?.plan.kind === "reopen" && change.stage === "opening") {
-        this.#change = undefined;
+        this.#endChange();
         change.plan.resolve({ kind: "reopened" });
       }
     }
@@ -485,6 +514,7 @@ class TerminalSession implements ViewTarget {
     if (change?.stage === "dismissing" && re === String(change.id)) {
       // The answer to the program's own `dismiss`: the view is gone and the program goes on.
       change.stage = "greeting";
+      clearTimeout(change.timer);
       void this.#dismissed(change.plan).catch((error: unknown) => this.#fail(error));
       return;
     }
@@ -523,8 +553,7 @@ class TerminalSession implements ViewTarget {
     this.#end?.resolve(result);
     this.#end = undefined;
     // What `serve` ends with is also what a reopening that was under way comes to.
-    const change = this.#change;
-    this.#change = undefined;
+    const change = this.#endChange();
     if (change === undefined) return;
     if (change.plan.kind === "reopen" && result.kind === "no-view") change.plan.resolve(result);
     else change.plan.resolve({ kind: "unavailable" });
@@ -533,8 +562,7 @@ class TerminalSession implements ViewTarget {
   #fail(error: unknown): void {
     const end = this.#end;
     this.#end = undefined;
-    const change = this.#change;
-    this.#change = undefined;
+    const change = this.#endChange();
     this.#phase = "over";
     this.#cleanup("error");
     end?.reject(error);
@@ -566,7 +594,41 @@ class TerminalSession implements ViewTarget {
     const token = this.#token;
     if (token === undefined) return plan.resolve({ kind: "unavailable" });
     const { id } = this.#link.send("dismiss", dismissPayload(token));
-    this.#change = { plan, id, stage: "dismissing" };
+    const change: Change = { plan, id, stage: "dismissing", timer: undefined };
+    // A host that never answers is not waited for for ever: what the person is left with is
+    // a view the program has asked to close and a program that waits on it.
+    change.timer = setTimeout(
+      () => this.#dismissTimedOut(change),
+      this.#options.reopenTimeout ?? 10_000,
+    );
+    change.timer.unref();
+    this.#change = change;
+  }
+
+  /** The reopening or closing that is under way ends: its timer is over, and nothing is under way. */
+  #endChange(): Change | undefined {
+    const change = this.#change;
+    this.#change = undefined;
+    clearTimeout(change?.timer);
+    return change;
+  }
+
+  /** The host has not answered the `dismiss` in time. */
+  #dismissTimedOut(change: Change): void {
+    if (this.#change !== change || change.stage !== "dismissing") return;
+    this.#giveUp("error", { kind: "no-view", reason: "timeout" });
+  }
+
+  /**
+   * The host stopped answering while the program replaced its view: the program ends its wait,
+   * as it does for a signal, with `bye` for the view the host may still show, the terminal
+   * given back, and `result` for `serve`.
+   */
+  #giveUp(reason: ByeReason, result: ServeResult): void {
+    this.#phase = "over";
+    this.#cleanup(reason);
+    void this.#closeSession();
+    this.#settle(result);
   }
 
   /** The `closed` that answers the `dismiss` has come. */
@@ -578,7 +640,7 @@ class TerminalSession implements ViewTarget {
       await this.#closeSession();
       await this.#link.flush();
       this.#cleanup(undefined);
-      this.#change = undefined;
+      this.#endChange();
       plan.resolve({ kind: "closed" });
       this.#settle({ kind: "closed", by: "program" });
       return;
@@ -591,11 +653,13 @@ class TerminalSession implements ViewTarget {
     // The pane is idle: a new token takes a `hello`. The host is known and the fence
     // is for telling "no host" from "no answer yet", so there is none.
     const hello = this.#link.send("hello", helloPayload());
-    const answer = await this.#ask(hello.id);
+    const answer = await this.#ask(hello.id, this.#options.reopenTimeout ?? 10_000);
     if (this.#phase !== "opening" || this.#change === undefined) return;
     if (answer.kind !== "offer") {
       this.#phase = "over";
-      this.#settle({ kind: "no-view", reason: noViewReason(answer.kind) });
+      // The host answered before: one that is silent now is late, not absent.
+      const reason = answer.kind === "timeout" ? "timeout" : noViewReason(answer.kind);
+      this.#settle({ kind: "no-view", reason });
       return;
     }
     this.#change.stage = "opening";

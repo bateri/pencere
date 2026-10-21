@@ -14,7 +14,15 @@
  */
 
 import { BundleError, ViewControl, bundleFromDirectory, serve } from "@pencere/sdk";
-import type { Bundle, Connectable, ServeOptions, ServeResult, ToolCall } from "@pencere/sdk";
+import type {
+  Bundle,
+  Connectable,
+  ReopenOptions,
+  ReopenResult,
+  ServeOptions,
+  ServeResult,
+  ToolCall,
+} from "@pencere/sdk";
 import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -23,11 +31,11 @@ import { USAGE, UsageError, parse } from "./args.js";
 import type { Command } from "./args.js";
 import { ProcessConnector } from "./connector.js";
 import { Reloader } from "./dev.js";
-import type { ReloadTiming } from "./dev.js";
+import type { ReloadTiming, Reopener } from "./dev.js";
 import { DiscoveryError, Interrupted, discoverTool } from "./discover.js";
 import { StartError } from "./server-process.js";
 import type { CloseTiming, Exit, ServerCommand } from "./server-process.js";
-import { Tail } from "./tail.js";
+import { Tail, plain } from "./tail.js";
 import { WatchError, fingerprintOf, watchRoots } from "./watch.js";
 import type { Root, Watch, Watching } from "./watch.js";
 
@@ -43,7 +51,7 @@ export const EXIT = {
   noView: 3,
 } as const;
 
-type Signal = "SIGINT" | "SIGTERM";
+type Signal = "SIGINT" | "SIGTERM" | "SIGHUP";
 
 /** How `pencere` ended: with a status, or with the signal the person sent, which the process then raises itself. */
 export type Finish = { readonly code: number } | { readonly signal: Signal };
@@ -146,21 +154,25 @@ async function runServer(command: RunCommand, env: Environment): Promise<Finish>
     }
   }
 
-  // ⌃C and SIGTERM end this process in the end, and the server first: the SDK
-  // takes the signal while a view is up, and this is for the rest of the time.
+  // ⌃C, SIGTERM and a hangup end this process in the end, and the server first: the SDK takes
+  // ⌃C and SIGTERM while a view is up, and this is for the rest of the time, and for the hangup,
+  // which it does not take.
   let interrupted: Signal | undefined;
   const interrupt = new AbortController();
-  const handlers = (["SIGINT", "SIGTERM"] as const).map((signal) => {
+  /** Ends what `serve` is doing, when something other than the SDK's own signals must. */
+  let abort = new AbortController();
+  const handlers = (["SIGINT", "SIGTERM", "SIGHUP"] as const).map((signal) => {
     const handler = (): void => {
       interrupted ??= signal;
       interrupt.abort();
+      // A terminal that is gone is not one a view is shown in: `serve` is told to let it go.
+      if (signal === "SIGHUP") abort.abort();
     };
     env.process.on(signal, handler);
     return { signal, handler };
   });
   const tail = new Tail();
-  const failure: { exit?: Exit } = {};
-  const abort = new AbortController();
+  const failure: { exit?: Exit | undefined } = {};
   const connector = new ProcessConnector(spec, {
     tail,
     ...(env.timing === undefined ? {} : { timing: env.timing }),
@@ -199,32 +211,59 @@ async function runServer(command: RunCommand, env: Environment): Promise<Finish>
     const early = interruptedBy();
     if (early !== undefined) return early;
 
-    // The files are watched before the view is asked for, so that a change that comes while it opens is not missed.
+    // `pencere dev` and the server that falls: while there is no server there is no view, and
+    // what is waited for is the change that is worth another try (see `Standby`).
     const control = command.kind === "dev" ? new ViewControl() : undefined;
-    if (command.kind === "dev" && control !== undefined) {
+    const standby = new Standby(control, interrupt.signal);
+    // The files are watched before the view is asked for, so that a change that comes while it opens is not missed.
+    if (command.kind === "dev") {
       try {
-        reloading = await startReloading(command, bundle, control, env);
+        reloading = await startReloading(command, bundle, standby, env);
       } catch (error) {
         if (!(error instanceof WatchError)) throw error;
         say(`pencere: ${error.message}`);
         return interruptedBy() ?? { code: error.missing ? EXIT.usage : EXIT.failed };
       }
+      // What the files hold now, once they are watched, is what the first view shows.
+      bundle = reloading.bundle ?? bundle;
     }
 
     let result: ServeResult | undefined;
     let thrown: unknown;
-    try {
-      result = await env.serve(connector, {
-        tool: chosen.tool,
-        ...(bundle === undefined ? {} : { bundle }),
-        ...(control === undefined ? {} : { control }),
-        signal: abort.signal,
-      });
-    } catch (error) {
-      thrown = error;
+    for (;;) {
+      failure.exit = undefined;
+      abort = new AbortController();
+      result = undefined;
+      thrown = undefined;
+      try {
+        result = await env.serve(connector, {
+          tool: chosen.tool,
+          ...(bundle === undefined ? {} : { bundle }),
+          ...(control === undefined ? {} : { control }),
+          signal: abort.signal,
+        });
+      } catch (error) {
+        thrown = error;
+      }
+      // `serve` lets go of a server without waiting for it; leaving is not for a server that lingers.
+      await connector.drain();
+      const fell = failure.exit;
+      if (command.kind !== "dev" || fell === undefined || thrown !== undefined) break;
+      if (interruptedBy() !== undefined) break;
+      // The server fell and the view with it, and the terminal is the person's again: say what
+      // happened where it can be read, and try again at the next change, as a save that fixes it.
+      say(
+        `pencere: the server ${shown(spec)} ended (${describeExit(fell)}) while its view was ${
+          result?.kind === "closed" ? "open" : "opening"
+        }.`,
+      );
+      said();
+      tail.clear();
+      say("Waiting for a change to try again; ⌃C ends pencere dev.");
+      const next = await standby.wait();
+      if (next === undefined) break;
+      bundle = next.bundle ?? bundle;
     }
-    // `serve` lets go of a server without waiting for it; leaving is not for a server that lingers.
-    await connector.drain();
     // The view is over: what the files do from here is nothing, and what was learned of them is told now,
     // on the screen the person has back.
     reloading?.close();
@@ -246,7 +285,7 @@ async function runServer(command: RunCommand, env: Environment): Promise<Finish>
         say(`pencere: ${thrown.message}`);
         return { code: EXIT.failed };
       }
-      say(`pencere: ${thrown instanceof Error ? thrown.message : String(thrown)}`);
+      say(`pencere: ${plain(thrown instanceof Error ? thrown.message : String(thrown))}`);
       said();
       return { code: EXIT.failed };
     }
@@ -258,9 +297,52 @@ async function runServer(command: RunCommand, env: Environment): Promise<Finish>
   }
 }
 
+/**
+ * What `pencere dev` does with a change while its view is up, and while it is not because the
+ * server fell. The reloader is given this in place of the SDK's control: with a view up the
+ * change is a reopening, and with none it is the end of the wait for one.
+ */
+class Standby implements Reopener {
+  readonly #control: ViewControl | undefined;
+  readonly #interrupt: AbortSignal;
+  #waiting: ((next: ReopenOptions) => void) | undefined;
+
+  constructor(control: ViewControl | undefined, interrupt: AbortSignal) {
+    this.#control = control;
+    this.#interrupt = interrupt;
+  }
+
+  async reopen(next: ReopenOptions): Promise<ReopenResult> {
+    const waiting = this.#waiting;
+    if (waiting === undefined) return this.#control?.reopen(next) ?? { kind: "unavailable" };
+    // The server is down and there is no view to close: the change is what the next try is made of.
+    this.#waiting = undefined;
+    waiting(next);
+    return { kind: "reopened" };
+  }
+
+  /** Resolves with the change that is worth another try, or with `undefined` when the person ended it. */
+  wait(): Promise<ReopenOptions | undefined> {
+    if (this.#interrupt.aborted) return Promise.resolve(undefined);
+    return new Promise((resolve) => {
+      this.#waiting = resolve;
+      this.#interrupt.addEventListener(
+        "abort",
+        () => {
+          this.#waiting = undefined;
+          resolve(undefined);
+        },
+        { once: true },
+      );
+    });
+  }
+}
+
 /** What `pencere dev` watches the files with, and what it does about a change. */
 interface Reloading {
   readonly reloader: Reloader;
+  /** What the view's directory holds now that it is watched, for the first view. */
+  readonly bundle: Bundle | undefined;
   /** Ends the watching and the acting on changes. */
   close(): void;
 }
@@ -269,20 +351,18 @@ interface Reloading {
 async function startReloading(
   command: Extract<Command, { kind: "dev" }>,
   bundle: Bundle | undefined,
-  control: ViewControl,
+  reopener: Reopener,
   env: Environment,
 ): Promise<Reloading> {
   const view = command.view === undefined ? undefined : resolve(command.view);
   const server = command.watch.map((path) => resolve(path));
   const reloader = new Reloader({
-    control,
+    control: reopener,
     ...(view === undefined ? {} : { view }),
     ...(bundle === undefined ? {} : { bundle }),
     ...(server.length === 0 ? {} : { fingerprint: () => fingerprintOf(server) }),
     timing: env.reload,
   });
-  // What the server's files hold now is what the view that opens next is made with.
-  await reloader.start();
   const roots: Root[] = [
     ...(view === undefined ? [] : [{ path: view, role: "view" as const }]),
     ...server.map((path) => ({ path, role: "server" as const })),
@@ -292,13 +372,18 @@ async function startReloading(
     (role) => (role === "view" ? reloader.viewChanged() : reloader.serverChanged()),
     (message) => reloader.warn(message),
   );
-  return {
-    reloader,
-    close: () => {
-      watching.close();
-      reloader.stop();
-    },
+  const close = (): void => {
+    watching.close();
+    reloader.stop();
   };
+  try {
+    // What the files hold now is what the view that opens next is made with, and it is read after
+    // the watching has begun: a save before is in it, and a save after tells of itself.
+    return { reloader, bundle: await reloader.start(), close };
+  } catch (error) {
+    close();
+    throw error;
+  }
 }
 
 /** The tool to show, or what to say about why there is none. */
@@ -337,7 +422,7 @@ async function choose(
       return { message: `pencere: ${error.message}`, code: EXIT.failed };
     }
     if (error instanceof DiscoveryError) {
-      return { message: `pencere: ${error.message}`, code: EXIT.failed, said: asked };
+      return { message: `pencere: ${plain(error.message)}`, code: EXIT.failed, said: asked };
     }
     throw error;
   }
@@ -350,13 +435,13 @@ async function choose(
           `pencere: no tool of ${shown(spec)} names a view (a tool whose _meta.ui.resourceUri is a ui:// resource)` +
           (found.tools.length === 0
             ? ": the server has no tools."
-            : `: its tools are ${found.tools.join(", ")}.`),
+            : `: its tools are ${found.tools.map(plain).join(", ")}.`),
         code: EXIT.failed,
       };
     case "many":
       return {
         message:
-          `pencere: ${shown(spec)} has several tools that name a view: ${found.tools.join(", ")}.\n` +
+          `pencere: ${shown(spec)} has several tools that name a view: ${found.tools.map(plain).join(", ")}.\n` +
           "Choose one with --tool <name>.",
         code: EXIT.usage,
       };
@@ -434,6 +519,12 @@ function finishedWith(
             "pencere: this terminal and this pencere share no version of the pencere protocol: update the older one.",
           );
           return { code: EXIT.noView };
+        case "timeout":
+          // A terminal that answered before: the view was being replaced and it went quiet.
+          say(
+            "pencere: the terminal did not answer in time while the view was being shown again, and the view is gone.",
+          );
+          return { code: EXIT.failed };
         case "refused":
         case "failed":
           say(`pencere: ${terminalSaid(reason, code)}.`);

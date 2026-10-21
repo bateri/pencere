@@ -6,14 +6,23 @@
  * whose `_meta.ui.resourceUri` does (MCP Apps, Resource Discovery; the flat
  * `_meta["ui/resourceUri"]` of the first drafts, which the extension's own
  * libraries still read, counts too). One such tool is the answer. None, or several,
- * is for the person to settle, and the answer says which tools there were.
+ * is for the person to settle, and the answer says which tools there were. The list is read page
+ * by page, as far as the terminal reads it ({@link MAX_TOOL_PAGES}).
  */
 
 import { Client } from "@modelcontextprotocol/client";
 
 import { ServerProcess, StartError } from "./server-process.js";
 import type { CloseTiming, ServerCommand } from "./server-process.js";
+import { plain } from "./tail.js";
 import type { Tail } from "./tail.js";
+
+/**
+ * The most pages of tools that are read: what the terminal reads of the same server, so that a
+ * tool the terminal would not find is not the tool this finds, and a server that never stops
+ * listing does not keep this asking.
+ */
+export const MAX_TOOL_PAGES = 16;
 
 /** What the server has with it. */
 export type Discovery =
@@ -49,7 +58,11 @@ export class Interrupted extends Error {
   }
 }
 
-/** The `ui://` resource a tool names, in either of the two places MCP Apps has had it. */
+/**
+ * The `ui://` resource a tool names, in either of the two places MCP Apps has had it. An address
+ * of another scheme is no view: the terminal reads `ui://` resources only, and a tool it would
+ * refuse is not a tool to show.
+ */
 export function viewOf(tool: { readonly _meta?: unknown }): string | undefined {
   const meta = tool._meta;
   if (typeof meta !== "object" || meta === null) return undefined;
@@ -57,10 +70,10 @@ export function viewOf(tool: { readonly _meta?: unknown }): string | undefined {
   const ui = record.ui;
   if (typeof ui === "object" && ui !== null) {
     const uri = (ui as Record<string, unknown>).resourceUri;
-    if (typeof uri === "string" && uri !== "") return uri;
+    if (typeof uri === "string" && uri.startsWith("ui://")) return uri;
   }
   const flat = record["ui/resourceUri"];
-  return typeof flat === "string" && flat !== "" ? flat : undefined;
+  return typeof flat === "string" && flat.startsWith("ui://") ? flat : undefined;
 }
 
 /**
@@ -82,7 +95,23 @@ export async function discoverTool(
   signal?.addEventListener("abort", abort, { once: true });
   try {
     await client.connect(server, { timeout });
-    const { tools } = await client.listTools(undefined, { timeout });
+    const tools: { readonly name: string; readonly _meta?: unknown }[] = [];
+    let cursor: string | undefined;
+    // A server that says it has no tools is asked for none, as `listTools` would not ask it.
+    const asking = client.getServerCapabilities()?.tools !== undefined;
+    for (let pages = 1; asking; pages += 1) {
+      // A page at a time, as the terminal reads them: `listTools` without a cursor reads
+      // them all, to a limit of its own, which is not the terminal's.
+      const page = await client.request(
+        { method: "tools/list", params: cursor === undefined ? {} : { cursor } },
+        { timeout },
+      );
+      tools.push(...page.tools);
+      cursor = page.nextCursor;
+      if (cursor === undefined) break;
+      if (pages >= MAX_TOOL_PAGES)
+        throw new DiscoveryError(`the server has more than ${MAX_TOOL_PAGES} pages of tools`);
+    }
     const withView = tools.filter((tool) => viewOf(tool) !== undefined).map((tool) => tool.name);
     const [first, ...others] = withView;
     if (first === undefined) return { kind: "none", tools: tools.map((tool) => tool.name) };
@@ -92,10 +121,12 @@ export async function discoverTool(
     // A process that could not be started says so itself, wherever the client put it.
     if (error instanceof StartError) throw error;
     if (error instanceof Error && error.cause instanceof StartError) throw error.cause;
+    if (error instanceof DiscoveryError) throw error;
+    // What the server said is shown as text: an error message is its to write.
     throw new DiscoveryError(
-      `"${spec.command}" did not answer as an MCP server that speaks stdio does: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `"${spec.command}" did not answer as an MCP server that speaks stdio does: ${plain(
+        error instanceof Error ? error.message : String(error),
+      )}`,
       { cause: error },
     );
   } finally {

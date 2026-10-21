@@ -87,6 +87,8 @@ describe("create-pencere", () => {
       "Template, react or vue? [react]",
     ]);
     expect(await exists(join(cwd, "asked-for/src/view/App.vue"))).toBe(true);
+    // Asked again with nothing said would read as a question that was not heard.
+    expect(run.err()).toBe('"angular" is not a template: react or vue.\n');
   });
 
   it("takes the default of a question the person answers with nothing", async () => {

@@ -26,7 +26,9 @@
  *   first view is up is asked again a few times, a moment apart.
  *
  * What the person gets to know is said after the view has closed (`notes`): the
- * screen is the view's while it is up.
+ * screen is the view's while it is up. A `serve` that ended because the program ended it
+ * (its server fell) is not the end of the reloading: the program starts `serve` again, and
+ * the next change is what it waits for.
  */
 
 import { BundleError, bundleFromDirectory } from "@pencere/sdk";
@@ -110,9 +112,25 @@ export class Reloader {
     this.#shown = options.bundle;
   }
 
-  /** Notes what the server's files hold now, as the view that is about to open sees them. Call before watching. */
-  async start(): Promise<void> {
+  /**
+   * Notes what the view's files and the server's own hold now, as the view that is about to open
+   * sees them, and says which view's files those are. Call once the files are being watched: what
+   * was saved before is in what is read, and what is saved after tells of itself, but a save in
+   * between, with the files read first and the watching begun after, would be neither. A view
+   * directory that cannot be read just then (a build that is half done) leaves what the reloader
+   * was given, and the change that made it unreadable is looked at in its turn.
+   */
+  async start(): Promise<Bundle | undefined> {
     this.#serverPrint = await this.#options.fingerprint?.();
+    const { view } = this.#options;
+    if (view !== undefined) {
+      try {
+        this.#shown = await (this.#options.load ?? bundleFromDirectory)(view);
+      } catch {
+        // What it was given stays, and the next change looks again.
+      }
+    }
+    return this.#shown;
   }
 
   /** How many times the view has been reopened. */
@@ -258,6 +276,14 @@ export class Reloader {
         this.stop();
         return;
       case "no-view":
+        if (result.reason === "aborted") {
+          // `serve` was ended by the program's own hand, which is not the terminal refusing:
+          // the server fell, and what comes next is the program's to decide. The files that
+          // were asked for are what came of it, and the same files are not tried again.
+          if (viewMoved) this.#shown = bundle;
+          if (serverMoved) this.#serverPrint = serverPrint;
+          return;
+        }
         // The new view was refused or could not start: `serve` says why as it ends.
         this.stop();
         return;

@@ -26,4 +26,17 @@ All notable changes to `@pencere/cli` are recorded here. The format follows
   the view, shows nothing; a terminal that cannot reopen a view is told of once, after the view has
   closed, and the view runs as it does under `pencere run`.
 - Exit status: 0 the view ran and closed, 1 it could not run, 2 a mistake in the command line,
-  3 the terminal does not show pencere views; ⌃C and SIGTERM end the process by the same signal.
+  3 the terminal does not show pencere views; ⌃C, SIGTERM and a hangup (SIGHUP, ssh going away) end
+  the view and the server, and then the process by the same signal (130, 143, 129). A terminal that
+  stopped answering while the view was shown again is a 1 with a message of its own, not a 3.
+- A server that ends while `pencere dev` runs (a mistake saved in it) is not the end of `pencere
+dev`: the terminal is given back, the end of what the server wrote to stderr is shown with what
+  happened, and the next change starts the server and the view again; ⌃C ends it. `pencere run`
+  still ends with the server.
+- Which tool to show is found as the terminal would find it: a tool names a view by a `ui://`
+  resource only, and the tool list is read a page at a time up to the terminal's limit of 16 pages.
+  What a server wrote (tool names, an error message) is shown as text.
+- A server that leaves on its own, at the end of its stdin or by falling, leaves what it started
+  behind in its group, and that is ended too (SIGTERM, then SIGKILL).
+- A terminal that goes away (ssh dropped) fails what is written to and read from it: that is not an
+  error that ends `pencere`, which is busy letting go of the server.

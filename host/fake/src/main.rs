@@ -104,6 +104,9 @@ fn run(args: &Args) -> io::Result<u8> {
         if host.take_kill() {
             pty.kill();
         }
+        if host.take_hang_up() {
+            pty.hang_up();
+        }
         let now = Instant::now();
         if now >= deadline && !gave_up {
             gave_up = true;

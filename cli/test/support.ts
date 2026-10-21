@@ -16,6 +16,12 @@ export function tools(mode: "one" | "many" | "legacy" | "none" | "empty"): Serve
   return { command: process.execPath, args: [script, mode] };
 }
 
+/** An MCP server on stdio written by hand, with what `McpServer` will not do (see `servers/raw.mjs`). */
+export function raw(mode: "paged" | "endless" | "foreign" | "hostile" | "failing"): ServerCommand {
+  const script = fileURLToPath(new URL("servers/raw.mjs", import.meta.url));
+  return { command: process.execPath, args: [script, mode] };
+}
+
 /** A server that answers each request with the pid it runs as, and says what it was asked. */
 export const ECHO = node(`
   const readline = require("node:readline");

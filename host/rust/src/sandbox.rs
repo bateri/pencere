@@ -430,8 +430,9 @@ impl UiMeta {
 
     /// What the person has to be asked, or `None` when the view declares nothing
     /// that needs asking. The metadata does not know which tool the view is for:
-    /// the question it returns names none, and the session names it
-    /// ([`Consent::tool`]) before it asks.
+    /// the question it returns names none and has no [`Consent::id`] yet: the
+    /// session names the tool ([`Consent::tool`]) and numbers the question before
+    /// it asks.
     pub fn consent(&self) -> Option<Consent> {
         let mut domains = Vec::new();
         if let Some(csp) = &self.csp {
@@ -446,6 +447,7 @@ impl UiMeta {
         }
         let permissions = self.permissions.list();
         (!domains.is_empty() || !permissions.is_empty()).then_some(Consent {
+            id: 0,
             tool: None,
             title: None,
             program: None,
@@ -475,9 +477,16 @@ pub struct Declared {
 /// program calls itself, and tells two programs apart no better than its say-so.
 ///
 /// This is not `#[non_exhaustive]`: a terminal that builds one itself, in a test
-/// or a stand-in host, names the tool and the two words as well.
+/// or a stand-in host, names the question and the tool and the two words as well.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Consent {
+    /// Which question this is: the session numbers each one it asks, and
+    /// [`Session::consent`](crate::session::Session::consent) takes the number back
+    /// with the answer, so that the answer to a question that is no longer asked
+    /// (the open it was about ended, [`Action::WithdrawConsent`](crate::session::Action::WithdrawConsent))
+    /// cannot settle another. `0` on what [`UiMeta::consent`] returns, which no
+    /// session has numbered.
+    pub id: u32,
     /// The tool the view is for, by the name the `open` gave it: what a host keys
     /// an answer by, and what it shows when the tool has no
     /// [`title`](Self::title). `None` when nothing is left of the name once it is
@@ -486,11 +495,14 @@ pub struct Consent {
     ///
     /// The program wrote it and a terminal draws the question in its own chrome,
     /// so the session cuts it to [`MAX_LABEL_CHARS`](crate::session::MAX_LABEL_CHARS)
-    /// characters and leaves out control characters and the bidirectional
-    /// overrides, as for [`ViewStart::title`](crate::session::ViewStart::title).
-    /// Names that this makes one are one tool to the person, who was shown one
-    /// name; the tool the view calls is
-    /// [`ViewStart::tool`](crate::session::ViewStart::tool), as the program has it.
+    /// characters and leaves out control characters, the bidirectional overrides
+    /// and the invisible format characters, as for
+    /// [`ViewStart::title`](crate::session::ViewStart::title). Names that this
+    /// makes one are one tool to the person, who was shown one name; the tool the
+    /// view calls is [`ViewStart::tool`](crate::session::ViewStart::tool), as the
+    /// program has it, and the name the terminal draws for it is
+    /// [`ViewStart::tool_label`](crate::session::ViewStart::tool_label), which is
+    /// this.
     pub tool: Option<String>,
     /// What the program calls the tool for people: the same text, from the same
     /// place and cleaned the same way, as

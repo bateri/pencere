@@ -43,6 +43,12 @@ export class Tail {
   get empty(): boolean {
     return this.#text === "";
   }
+
+  /** Forgets what is kept: it has been shown, and what comes next is about the next run of the server. */
+  clear(): void {
+    this.#text = "";
+    this.#dropped = false;
+  }
 }
 
 /**

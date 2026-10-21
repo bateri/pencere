@@ -19,7 +19,9 @@ options:
                        object) once it has the first result; repeatable, in order
   --then ACTION        what happens when the calls are done: wait (the default;
                        the person ends it), interrupt (^C is typed into the
-                       pane), kill (the program is killed with SIGKILL), close
+                       pane), kill (the program is killed with SIGKILL), hangup
+                       (the terminal goes away, as when an ssh connection
+                       drops: the program is hung up and its tty fails), close
                        (the person closes the view), restart (the view is
                        started again once, as after a reconnection, and when
                        its calls are done again ^C is typed into the pane)
@@ -45,6 +47,7 @@ pub enum Then {
     Wait,
     Interrupt,
     Kill,
+    Hangup,
     Close,
     Restart,
 }
@@ -160,11 +163,12 @@ fn option(parsed: &mut Args, name: &str, value: &str) -> Result<(), String> {
                 "wait" => Then::Wait,
                 "interrupt" => Then::Interrupt,
                 "kill" => Then::Kill,
+                "hangup" => Then::Hangup,
                 "close" => Then::Close,
                 "restart" => Then::Restart,
                 other => {
                     return Err(format!(
-                        "--then {other}: not one of wait, interrupt, kill, close, restart"
+                        "--then {other}: not one of wait, interrupt, kill, hangup, close, restart"
                     ));
                 }
             };
@@ -224,6 +228,14 @@ mod tests {
         assert_eq!(args.calls[0].name, "stop_container");
         assert_eq!(args.calls[0].arguments["id"], "web");
         assert_eq!(args.calls[1].arguments, serde_json::json!({}));
+    }
+
+    #[test]
+    fn hangup_is_one_of_the_actions() {
+        let Outcome::Run(args) = parsed(&["--then", "hangup", "--", "p"]) else {
+            panic!("did not parse");
+        };
+        assert_eq!(args.then, Then::Hangup);
     }
 
     #[test]

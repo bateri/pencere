@@ -657,6 +657,36 @@ fn pencere_run_opens_the_view_of_a_server_and_ends_it_on_ctrl_c() {
 }
 
 #[test]
+fn pencere_run_lets_go_of_its_server_when_the_terminal_hangs_up() {
+    // ssh going away: the pane's pty is closed, the program's session is hung up and every write
+    // it makes to its tty fails. A server that does not leave at the end of its stdin would be left
+    // running if `pencere run` were ended by the hangup and not by itself.
+    let dir = fresh("cli-hangup");
+    let log = dir.join("starts");
+    let linger = root().join("host/fake/tests/programs/linger.cjs");
+    let linger = linger.to_string_lossy();
+    let server = logged_tool(&log, &["--require", &linger]);
+    let run = run_cli(
+        &["--then", "hangup"],
+        &["--tool", "list_containers", "--args", "{}"],
+        &words(&server),
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: open id=2 tool=list_containers without a bundle",
+        "view: started from resources/read",
+        "host: hangs up the terminal",
+        // Ended by the signal it was sent, as any program is, once it had let go of the server.
+        "program: was killed by signal 1",
+    ]);
+    let pids = started(&log);
+    assert_eq!(pids.len(), 1, "{pids:?}");
+    for pid in pids {
+        assert!(gone(pid), "the server {pid} outlived the hangup");
+    }
+}
+
+#[test]
 fn pencere_run_does_not_start_a_server_to_ask_when_the_tool_is_named() {
     let dir = fresh("cli-named");
     let log = dir.join("starts");
@@ -1039,9 +1069,10 @@ fn pencere_dev_names_a_path_to_watch_that_is_not_there_and_asks_the_terminal_for
 }
 
 #[test]
-fn pencere_dev_ends_and_says_what_the_server_wrote_when_it_will_not_start_again() {
-    // What saving a syntax error does: the first server runs, the one that is
-    // started for the reopened view dies at once.
+fn pencere_dev_says_what_the_server_wrote_and_waits_for_the_next_change_when_it_will_not_start_again()
+ {
+    // What saving a syntax error does: the first server runs, the one that is started for the
+    // reopened view dies at once, and what the person saves next starts a server that runs.
     let dir = fresh("cli-dev-broken");
     let watched = dir.join("settings");
     fs::write(&watched, "before").expect("a file the server reads");
@@ -1051,7 +1082,10 @@ fn pencere_dev_ends_and_says_what_the_server_wrote_when_it_will_not_start_again(
         "-c".to_owned(),
         concat!(
             r#"echo $$ >> "$0"; "#,
-            r#"if [ "$(wc -l < "$0")" -ge 2 ]; then echo "SyntaxError: nope" >&2; exit 3; fi; "#,
+            // The second start is the broken one: it says so, and the file is saved again (as
+            // the person fixes it) a moment later, with what is then not the size it was.
+            r#"if [ "$(wc -l < "$0")" -eq 2 ]; then echo "SyntaxError: nope" >&2; "#,
+            r#"sleep 0.3; echo fixed > "$2"; exit 3; fi; "#,
             r#"exec node "$@""#
         )
         .to_owned(),
@@ -1071,8 +1105,17 @@ fn pencere_dev_ends_and_says_what_the_server_wrote_when_it_will_not_start_again(
         "program: dismiss id=",
         "host: closed id=* re=* reason=program",
         "program: hello id=",
+        "program: open id=* tool=show without a bundle",
+        // The server fell before the view ran: the program leaves, and the screen is the person's.
+        "program: bye id=* reason=exit",
         "screen: alternate screen off",
-        "program: exited with status 1",
+        // And then it is asked for the view again, which is the change that fixes the server.
+        "program: hello id=",
+        "program: open id=* tool=show without a bundle",
+        "view: started from resources/read",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "program: was killed by signal 2",
     ]);
     let off = run
         .output_has("\x1b[?1049l")
@@ -1083,8 +1126,24 @@ fn pencere_dev_ends_and_says_what_the_server_wrote_when_it_will_not_start_again(
     let wrote = run
         .output_has("  SyntaxError: nope")
         .expect("it showed what the server wrote");
-    assert!(off < said && said < wrote, "{off} {said} {wrote}");
-    for pid in started(&log) {
+    let waits = run
+        .output_has("Waiting for a change")
+        .expect("it said that it waits");
+    assert!(
+        off < said && said < wrote && wrote < waits,
+        "{off} {said} {wrote} {waits}"
+    );
+    // The broken server's words are not said again for the view that came after.
+    assert_eq!(
+        String::from_utf8_lossy(&run.output)
+            .matches("SyntaxError: nope")
+            .count(),
+        2,
+        "once in the command that was run, once as what the server wrote"
+    );
+    let pids = started(&log);
+    assert_eq!(pids.len(), 3, "{pids:?}");
+    for pid in pids {
         assert!(gone(pid), "the server {pid} outlived pencere dev");
     }
 }

@@ -6,6 +6,8 @@ import type {
   ServeOptions,
   ServeResult,
 } from "@pencere/sdk";
+import { createHash } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -17,7 +19,7 @@ import type { Environment, Finish } from "../src/run.js";
 import type { CloseTiming } from "../src/server-process.js";
 import { WatchError } from "../src/watch.js";
 import type { Role, Root } from "../src/watch.js";
-import { ECHO, FakeTransport, alive, node, tools, until } from "./support.js";
+import { ECHO, FakeTransport, alive, node, raw, tools, until } from "./support.js";
 
 const QUICK: CloseTiming = { stdin: 100, term: 100, kill: 2000 };
 const VIEW = fileURLToPath(new URL("view/", import.meta.url));
@@ -179,6 +181,23 @@ describe("pencere run", () => {
     expect(broken.served).toEqual([]);
   });
 
+  it("shows the tool names and the failures a server wrote as text, not as commands to the terminal", async () => {
+    const hostile = terminal();
+    expect(await run(command(raw("hostile")), hostile.env)).toEqual({ code: EXIT.usage });
+    expect(hostile.err()).toContain("first\\u001b[2J, second\\u001b]0;pwned\\u0007");
+    expect(hostile.err()).not.toMatch(/[\u001b\u0007]/);
+
+    const failing = terminal();
+    expect(await run(command(raw("failing")), failing.env)).toEqual({ code: EXIT.failed });
+    expect(failing.err()).toContain("no tools \\u001b[2Jfor you");
+    expect(failing.err()).not.toContain("\u001b");
+
+    // The tools of a server with none that names a view are listed too.
+    const none = terminal();
+    expect(await run(command(raw("foreign")), none.env)).toEqual({ code: EXIT.failed });
+    expect(none.err()).toContain("its tools are show.");
+  });
+
   it("shows the view from a directory as a bundle", async () => {
     const t = terminal();
     expect(await run(command(tools("one"), "--view", VIEW), t.env)).toEqual({ code: EXIT.ok });
@@ -245,6 +264,14 @@ describe("pencere run", () => {
       const result = await outcome({ kind: "no-view", reason: "no-common-version" });
       expect(result.code).toBe(EXIT.noView);
       expect(result.err).toContain("no version of the pencere protocol");
+    });
+
+    it("says that a terminal that stopped answering while the view was shown again is not one that shows no views", async () => {
+      const result = await outcome({ kind: "no-view", reason: "timeout" });
+      // 1, not 3: there is a terminal that shows views, and it went quiet.
+      expect(result.code).toBe(EXIT.failed);
+      expect(result.err).toContain("did not answer in time");
+      expect(result.err).not.toContain("does not show pencere views");
     });
 
     it("says why a view was refused or could not start, in words", async () => {
@@ -366,6 +393,44 @@ describe("pencere run", () => {
     expect(t.served).toEqual([]);
     expect(t.err()).toBe("");
     expect(t.listening("SIGINT") + t.listening("SIGTERM")).toBe(0);
+  });
+});
+
+describe("a hangup", () => {
+  // ssh going away ends the terminal's session with SIGHUP: a server that ignores the end of its
+  // stdin would live on if the view, and so the server, were not ended for it.
+  it("ends the view and the server, and then the process, by the signal", async () => {
+    let pid: number | undefined;
+    const t = terminal(async (server, options) => {
+      const transport = new FakeTransport();
+      await server.connect(transport);
+      transport.onmessage?.({ jsonrpc: "2.0", id: 1, method: "initialize" });
+      await until(() => transport.sent.length === 1, "an answer");
+      pid = (transport.sent[0] as unknown as { result: { pid: number } }).result.pid;
+      // `serve` does not listen for SIGHUP: it is ended by the signal the caller aborts it with.
+      await new Promise<void>((resolve) =>
+        options.signal?.addEventListener("abort", () => resolve(), { once: true }),
+      );
+      await server.close();
+      return { kind: "closed", by: "aborted" };
+    });
+    const running = run(["run", "--tool", "t", "--", ...argv(ECHO)], t.env);
+    await until(() => pid !== undefined, "the server to answer");
+    t.emit("SIGHUP");
+    expect(await running).toEqual({ signal: "SIGHUP" });
+    expect(alive(pid ?? 0)).toBe(false);
+    expect(t.listening("SIGHUP") + t.listening("SIGINT") + t.listening("SIGTERM")).toBe(0);
+    expect(t.err()).toBe("");
+  });
+
+  it("ends the question to the server too", async () => {
+    const t = terminal();
+    const silent = node(`console.error(process.pid); setInterval(() => {}, 1000);`);
+    const running = run(command(silent), t.env);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    t.emit("SIGHUP");
+    expect(await running).toEqual({ signal: "SIGHUP" });
+    expect(t.served).toEqual([]);
   });
 });
 
@@ -518,5 +583,129 @@ describe("pencere dev", () => {
     const t = terminal(async () => ({ kind: "no-view", reason: "no-host" }));
     expect(await run(devArgv("--view", dir), t.env)).toEqual({ code: EXIT.noView });
     expect(t.watches[0]?.closed).toBe(true);
+  });
+
+  it("shows the view's files as they are once the watching has begun, not as they were before", async () => {
+    const dir = await view("one");
+    const t = terminal();
+    const env: Environment = {
+      ...t.env,
+      watch: (roots, onChange, onError) => {
+        // A save in the moment between the files being read and the watching beginning.
+        writeFileSync(join(dir, "index.html"), "<!doctype html><p>two");
+        return t.env.watch(roots, onChange, onError);
+      },
+    };
+    expect(await run(devArgv("--view", dir), env)).toEqual({ code: EXIT.ok });
+    const digest = createHash("sha256").update("<!doctype html><p>two").digest("hex");
+    expect(t.served[0]?.options.bundle?.manifest.files[0]?.sha256).toBe(digest);
+  });
+
+  describe("a server that ends", () => {
+    /** A server that falls, with a message, the first time it is started and runs after that. */
+    const flaky = (marker: string) =>
+      node(
+        `const fs = require("node:fs");
+         if (!fs.existsSync(process.argv[1])) {
+           fs.writeFileSync(process.argv[1], "started");
+           console.error("SyntaxError: unexpected token\\n\\u001b[2Jat server.py:3");
+           setTimeout(() => process.exit(7), 30);
+         } else {
+           process.stdin.resume();
+           process.stdin.on("end", () => process.exit(0));
+         }`,
+        marker,
+      );
+
+    /** A `serve` that holds the view until the server falls (the first time) and ends it as the SDK would. */
+    const attempts =
+      (served: { count: number }): Serve =>
+      async (server, options) => {
+        served.count += 1;
+        await server.connect(new FakeTransport());
+        if (served.count > 1) return { kind: "closed", by: "user" };
+        await new Promise<void>((resolve) =>
+          options.signal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+        await server.close();
+        return { kind: "closed", by: "aborted" };
+      };
+
+    async function setup() {
+      const dir = await view();
+      const file = join(dir, "server.py");
+      await writeFile(file, "print(1)");
+      return { dir, file, marker: join(dir, "marker") };
+    }
+
+    it("is not the end of pencere dev: it says what the server wrote, waits for a change, and shows the view again", async () => {
+      const { file, marker } = await setup();
+      const served = { count: 0 };
+      const t = terminal(attempts(served));
+      const running = run(
+        ["dev", "--tool", "t", "--watch", file, "--", ...argv(flaky(marker))],
+        t.env,
+      );
+      await until(() => t.err().includes("Waiting for a change"), "the wait for a change");
+      expect(served.count).toBe(1);
+      expect(t.err()).toContain("ended (exit status 7) while its view was");
+      expect(t.err()).toContain("  SyntaxError: unexpected token");
+      expect(t.err()).toContain("  \\u001b[2Jat server.py:3");
+      expect(t.err()).not.toContain("\u001b");
+
+      // The server's file is saved again: the view is shown again, with a server that runs.
+      await writeFile(file, "print(2)  # fixed");
+      t.watches[0]?.onChange("server");
+      expect(await running).toEqual({ code: EXIT.ok });
+      expect(served.count).toBe(2);
+      // Said once, on the screen the person had back; not again for the view that came.
+      expect(t.err().match(/^ {2}SyntaxError: unexpected token$/gm)).toHaveLength(1);
+      expect(t.err().match(/Waiting for a change/g)).toHaveLength(1);
+      expect(t.watches[0]?.closed).toBe(true);
+    });
+
+    it("is waited out with the same files: a save that leaves them as they were is not another try", async () => {
+      const { file, marker } = await setup();
+      const served = { count: 0 };
+      const t = terminal(attempts(served));
+      const running = run(
+        ["dev", "--tool", "t", "--watch", file, "--", ...argv(flaky(marker))],
+        t.env,
+      );
+      await until(() => t.err().includes("Waiting for a change"), "the wait for a change");
+      // The events of the write that broke it, late: what the file holds is what it held.
+      t.watches[0]?.onChange("server");
+      t.watches[0]?.onChange("server");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(served.count).toBe(1);
+      await writeFile(file, "print(2)  # fixed");
+      t.watches[0]?.onChange("server");
+      expect(await running).toEqual({ code: EXIT.ok });
+      expect(served.count).toBe(2);
+    });
+
+    it("ends for good when the person interrupts while it waits", async () => {
+      const { file, marker } = await setup();
+      const served = { count: 0 };
+      const t = terminal(attempts(served));
+      const running = run(
+        ["dev", "--tool", "t", "--watch", file, "--", ...argv(flaky(marker))],
+        t.env,
+      );
+      await until(() => t.err().includes("Waiting for a change"), "the wait for a change");
+      t.emit("SIGINT");
+      expect(await running).toEqual({ signal: "SIGINT" });
+      expect(served.count).toBe(1);
+      expect(t.watches[0]?.closed).toBe(true);
+      expect(t.listening("SIGINT") + t.listening("SIGTERM") + t.listening("SIGHUP")).toBe(0);
+    });
+
+    it("is the end of pencere run, which watches nothing to try again for", async () => {
+      const { marker } = await setup();
+      const t = terminal(attempts({ count: 0 }));
+      const finish = await run(["run", "--tool", "t", "--", ...argv(flaky(marker))], t.env);
+      expect(finish).toEqual({ code: EXIT.failed });
+      expect(t.err()).not.toContain("Waiting for a change");
+    });
   });
 });

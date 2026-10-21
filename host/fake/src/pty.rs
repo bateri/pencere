@@ -186,6 +186,22 @@ impl Pty {
         })
     }
 
+    /// The terminal goes away, as when the connection it was on drops: the master end of
+    /// the pty is closed, so the program's session is hung up (SIGHUP) and every write it
+    /// makes to its tty fails.
+    pub fn hang_up(&mut self) {
+        // SAFETY: /dev/null is opened and put over the master's descriptor, which closes the
+        // pty's master end for good. The descriptor stays ours and valid, and now reads
+        // nothing and takes what is written.
+        unsafe {
+            let null = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR | libc::O_CLOEXEC);
+            if null >= 0 {
+                libc::dup2(null, self.master.as_raw_fd());
+                libc::close(null);
+            }
+        }
+    }
+
     /// SIGKILL: the program gets no chance to say goodbye.
     pub fn kill(&mut self) {
         let _ = self.child.kill();

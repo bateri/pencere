@@ -310,6 +310,44 @@ describe("the server's files", () => {
   });
 });
 
+describe("the files at the start", () => {
+  it("are the view's files as they are when the watching has begun, and are what the reloader compares with", async () => {
+    const dir = await directory();
+    const hand = control();
+    const reloader = new Reloader({
+      control: hand,
+      view: dir,
+      bundle: await open(dir, "one"),
+      timing: TIMING,
+    });
+    // A save between reading the files first and watching them: nothing tells of it.
+    await writeFile(join(dir, "index.html"), "two");
+    const shown = await reloader.start();
+    expect(shown?.manifest.files[0]?.sha256).toBe(
+      (await bundleFromDirectory(dir)).manifest.files[0]?.sha256,
+    );
+    // A change that comes now finds the files as they are shown: nothing to show again.
+    reloader.viewChanged();
+    await reloader.settled();
+    expect(hand.asked).toEqual([]);
+  });
+
+  it("stay as they were given when the directory cannot be read just then", async () => {
+    const dir = await directory();
+    const first = await open(dir, "one");
+    const reloader = new Reloader({
+      control: control(),
+      view: dir,
+      bundle: first,
+      timing: TIMING,
+      load: async () => {
+        throw new BundleError("a build is half done");
+      },
+    });
+    expect(await reloader.start()).toBe(first);
+  });
+});
+
 describe("a terminal", () => {
   it("that cannot reopen a view is told of once, and the files are let be", async () => {
     const hand = control({ kind: "unsupported" });
@@ -333,6 +371,31 @@ describe("a terminal", () => {
     await reloader.settled();
     expect(hand.asked).toHaveLength(1);
     expect(reloader.notes).toEqual([]);
+  });
+
+  it("that ended a reopening because the program did (its server fell) leaves the reloader going", async () => {
+    const hand = control({ kind: "no-view", reason: "aborted" });
+    let print = "a";
+    const reloader = new Reloader({
+      control: hand,
+      fingerprint: async () => print,
+      timing: TIMING,
+    });
+    await reloader.start();
+    print = "b";
+    reloader.serverChanged();
+    await reloader.settled();
+    expect(hand.asked).toHaveLength(1);
+    // What the files held then is what came of the server, and the same files are not tried again.
+    reloader.serverChanged();
+    await reloader.settled();
+    expect(hand.asked).toHaveLength(1);
+    // The next change is: the reloader is not stopped.
+    print = "c";
+    reloader.serverChanged();
+    await reloader.settled();
+    expect(hand.asked).toHaveLength(2);
+    expect(reloader.reopened).toBe(1);
   });
 
   it("that has no view yet is asked again, a few times, and then left until the next change", async () => {

@@ -28,6 +28,9 @@ started again and the view opens again, with only the files that changed sent.
   pencere dev --view dist/view -- node dist/server.js
   pencere dev --watch server.py -- python server.py
 
+A server that ends while dev runs (a mistake saved in it) is told of, with the end
+of what it wrote to stderr, and tried again at the next change; ^C ends dev.
+
 options:
   --tool <name>   the tool whose view to show; without it, the one tool of the
                   server that names a view (_meta.ui.resourceUri)
@@ -42,9 +45,9 @@ options:
   -v, --version   the version of pencere
 
 exit status: 0 the view ran and closed; 1 it could not run (the server failed to
-start or ended, the terminal refused or ended the view); 2 a mistake in the
-command line; 3 this terminal does not show pencere views; 130 and 143 after ^C
-and SIGTERM.
+start or ended, the terminal refused or ended the view, or stopped answering
+while the view was shown again); 2 a mistake in the command line; 3 this terminal
+does not show pencere views; 130, 143 and 129 after ^C, SIGTERM and a hangup.
 `;
 
 /** The server to run and the view to show, which `run` and `dev` are both given. */

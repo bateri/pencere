@@ -96,6 +96,7 @@ pub struct Host {
     /// (specification §4.8).
     typed: Vec<u8>,
     kill: bool,
+    hang_up: bool,
     /// The view has been started again once, as `--then restart` says.
     restarted: bool,
     waiting_since: Option<(State, Instant)>,
@@ -142,6 +143,7 @@ impl Host {
             said: StreamDecoder::new(Direction::ToProgram),
             typed: Vec::new(),
             kill: false,
+            hang_up: false,
             restarted: false,
             waiting_since: None,
         })
@@ -168,6 +170,11 @@ impl Host {
     /// Whether the host wants the program killed, once.
     pub fn take_kill(&mut self) -> bool {
         std::mem::take(&mut self.kill)
+    }
+
+    /// Whether the host wants the terminal gone, once.
+    pub fn take_hang_up(&mut self) -> bool {
+        std::mem::take(&mut self.hang_up)
     }
 
     // ---- the program's output --------------------------------------------
@@ -315,7 +322,12 @@ impl Host {
                         },
                     ),
                 );
-                self.session.consent(grant);
+                self.session.consent(consent.id, grant);
+            }
+            // The stand-in answers a question the moment it is asked, so there is none on
+            // the screen to take back; a terminal that asks the person takes it away here.
+            Action::WithdrawConsent(id) => {
+                log::line("host", format!("took back question {id}"));
             }
             Action::StartView(start) => self.start_view(&start),
             Action::ToView(text) => {
@@ -415,6 +427,10 @@ impl Host {
             Then::Kill => {
                 log::line("host", "kills the program with SIGKILL");
                 self.kill = true;
+            }
+            Then::Hangup => {
+                log::line("host", "hangs up the terminal");
+                self.hang_up = true;
             }
             Then::Close => {
                 log::line("host", "the person closes the view");

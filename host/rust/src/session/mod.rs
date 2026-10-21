@@ -197,15 +197,23 @@ pub struct ViewStart {
     pub allow: String,
     /// The name of the tool the view shows the result of.
     pub tool: String,
+    /// The name of the tool as a terminal may draw it: [`tool`](Self::tool) cut to
+    /// [`MAX_LABEL_CHARS`] characters and cleaned the way [`title`](Self::title) is,
+    /// which is also how [`Consent::tool`] has it. `None` when nothing is left of
+    /// the name. What the terminal draws when the tool has no `title`; `tool` itself
+    /// is what the view calls, as the program wrote it, and is not for drawing.
+    pub tool_label: Option<String>,
     /// What the program calls that tool for people: its `title` in `tools/list`,
     /// else its `annotations.title`. `None` when it has neither, and the terminal
-    /// falls back to `tool`.
+    /// falls back to [`tool_label`](Self::tool_label).
     ///
     /// The program wrote it, and a terminal draws it in its own chrome, where a
     /// program must not be able to type or to forge a neighbour. The session has
     /// therefore cut it to [`MAX_LABEL_CHARS`] characters and left out control
-    /// characters and the bidirectional overrides; what is here is safe to draw
-    /// as it stands.
+    /// characters, the bidirectional overrides and the invisible format characters
+    /// (the zero-width joiner and non-joiner and the left-to-right and right-to-left
+    /// marks, which text needs, excepted); what is here is safe to draw as it
+    /// stands.
     pub title: Option<String>,
     /// What the program calls itself: `serverInfo.title` of its MCP `initialize`
     /// result, else `serverInfo.name`. `None` when it says neither. Cut and
@@ -224,9 +232,20 @@ pub enum Action {
     /// frame (specification §4.8).
     Write(Vec<u8>),
     /// Ask the person which of the declared domains and permissions the view may
-    /// use, then answer with [`Session::consent`]. The view does not start before
-    /// that. The question says which tool the view is for ([`Consent::tool`]).
+    /// use, then answer with [`Session::consent`] and the question's
+    /// [`id`](Consent::id). The view does not start before that. The question says
+    /// which tool the view is for ([`Consent::tool`]).
+    ///
+    /// The question is asked until it is answered or until [`Action::WithdrawConsent`]
+    /// takes it back.
     Consent(Consent),
+    /// The question with this [`Consent::id`] is not to be asked any more: the open it
+    /// was about ended before the person answered (the program closed or ended the
+    /// view, the person closed it, the wait ran out). The terminal takes the question
+    /// off the screen. An answer to it that is already on its way is ignored by
+    /// [`Session::consent`], so the person's click can never settle the question of
+    /// another view.
+    WithdrawConsent(u32),
     /// Start the view: create the web view, enforce `policy`, and pass what the
     /// view sends to [`Session::view_message`].
     StartView(Box<ViewStart>),
@@ -263,7 +282,7 @@ pub struct Diagnostics {
     /// Messages over the message limit.
     pub message_too_long: u64,
     /// Messages ignored: unknown kind, wrong direction, invalid payload, wrong
-    /// moment.
+    /// moment; and answers to a question that is no longer the one asked.
     pub ignored: u64,
     /// Messages the session could not write (too large for the program's side).
     pub unwritable: u64,
@@ -319,8 +338,9 @@ enum Stage {
         tools: Vec<ToolEntry>,
         found: Found,
     },
-    /// The person is being asked.
+    /// The person is being asked the question with this id.
     Consent {
+        id: u32,
         source: ViewSource,
         meta: UiMeta,
         tools: Vec<ToolEntry>,
@@ -412,6 +432,8 @@ pub struct Session<S: Store, E: Entropy> {
     /// The next JSON-RPC id toward the view.
     view_rpc: i64,
     links: u32,
+    /// The id of the last question put to the person ([`Consent::id`]).
+    questions: u32,
     token: Option<Token>,
     /// The token the view that is opening, open or closing was opened with. The
     /// `open` spends it, and it stays the view's identity until the view has
@@ -444,6 +466,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             rpc: 1,
             view_rpc: 1,
             links: 0,
+            questions: 0,
             token: None,
             view_token: None,
             restart_offer: false,
@@ -591,9 +614,24 @@ impl<S: Store, E: Entropy> Session<S, E> {
 
     // ---- input: the person ------------------------------------------------
 
-    /// The person's answer to [`Action::Consent`]. It is cut down to what the
-    /// view declared, whatever it says.
-    pub fn consent(&mut self, grant: Grant) {
+    /// The person's answer to the question [`Action::Consent`] asked, whose
+    /// [`id`](Consent::id) is `id`. It is cut down to what the view declared,
+    /// whatever it says.
+    ///
+    /// An answer to a question that is no longer the one being asked, because the
+    /// open it was about has ended ([`Action::WithdrawConsent`]) or the person has
+    /// answered it already, changes nothing: the program can open another view at
+    /// once, and an answer must not settle the question of a view the person has not
+    /// been shown.
+    pub fn consent(&mut self, id: u32, grant: Grant) {
+        let asked = matches!(
+            &self.phase,
+            Phase::Opening(open) if matches!(&open.stage, Stage::Consent { id: asked, .. } if *asked == id)
+        );
+        if !asked {
+            self.ignored();
+            return;
+        }
         let Some(open) = self.take_opening() else {
             return;
         };
@@ -609,6 +647,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             meta,
             tools,
             found,
+            ..
         } = stage
         else {
             self.phase = Phase::Opening(Box::new(Opening {
@@ -1061,6 +1100,11 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 self.phase = Phase::Idle;
             }
             Phase::Opening(open) => {
+                // The person may be looking at the question of this open: it goes
+                // away with it, and an answer on its way is for nobody.
+                if let Stage::Consent { id, .. } = &open.stage {
+                    self.actions.push(Action::WithdrawConsent(*id));
+                }
                 // No view has run: nothing to tell, nothing to tear down.
                 let re = re.or(Some(open.open));
                 self.finish(cause, re, false);

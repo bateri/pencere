@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 /** A project of the React template with a stand-in for each tool the script runs. */
-async function project(): Promise<string> {
+async function project(options: { pencere?: boolean } = {}): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "create-pencere-dev-"));
   dirs.push(dir);
   await write(
@@ -46,6 +46,10 @@ ${body}
     "vite",
     `console.log("vite built the view");
      if (process.env.FAIL_VITE) process.exit(1);
+     // A rebuild, after a change: it can fail, or be ended by a signal (^C reaches it with the rest).
+     const builds = readFileSync(calls, "utf8").split("\\n").filter((l) => l.startsWith("vite ")).length;
+     if (builds >= 2 && process.env.VITE_REBUILD === "fail") process.exit(1);
+     if (builds >= 2 && process.env.VITE_REBUILD === "signal") process.kill(process.pid, "SIGINT");
      mkdirSync(${JSON.stringify(join(dir, "dist/view"))}, { recursive: true });
      writeFileSync(${JSON.stringify(join(dir, "dist/view/index.html"))}, "<html>");`,
   );
@@ -54,17 +58,19 @@ ${body}
     `mkdirSync(${JSON.stringify(join(dir, "dist/server"))}, { recursive: true });
      writeFileSync(${JSON.stringify(join(dir, "dist/server/main.js"))}, "");`,
   );
-  // pencere dev stays up until the view has been built a second time, which is the rebuild.
-  await standIn(
-    "pencere",
-    `const deadline = Date.now() + 15000;
-     (function wait() {
-       const built = readFileSync(calls, "utf8").split("\\n").filter((l) => l.startsWith("vite ")).length;
-       if (built >= 2) process.exit(7);
-       if (Date.now() > deadline) process.exit(99);
-       setTimeout(wait, 20);
-     })();`,
-  );
+  // pencere dev stays up until the view has been built a second time, which is the rebuild, and
+  // then, for as long as the test says, a while longer: it takes the view down before it ends.
+  if (options.pencere !== false)
+    await standIn(
+      "pencere",
+      `const deadline = Date.now() + 15000;
+       (function wait() {
+         const built = readFileSync(calls, "utf8").split("\\n").filter((l) => l.startsWith("vite ")).length;
+         if (built >= 2) return setTimeout(() => process.exit(7), Number(process.env.PENCERE_LINGER ?? 0));
+         if (Date.now() > deadline) process.exit(99);
+         setTimeout(wait, 20);
+       })();`,
+    );
   return dir;
 }
 
@@ -118,6 +124,42 @@ describe("the generated project's dev script", () => {
     expect(dev.out().match(/vite built the view/g)).toHaveLength(1);
     expect(await readFile(join(dir, "dev.log"), "utf8")).toContain("vite built the view");
     expect(dev.err()).toBe("");
+  });
+
+  it("says that pencere could not be run, once, and ends", async () => {
+    const dir = await project({ pencere: false });
+    const dev = runDev(dir);
+    expect(await dev.ended).toBe(1);
+    expect(dev.err()).toContain("dev: could not run pencere");
+    // The script ends by what it says, not by an error of its own: the log it had open is
+    // let go of once.
+    expect(dev.err()).not.toMatch(/EBADF|at |Error:/);
+  });
+
+  describe("a build that comes with the view up", () => {
+    /** Changes a source once pencere is up, and returns the script's end. */
+    async function rebuilt(env: Record<string, string>) {
+      const dir = await project();
+      const dev = runDev(dir, env);
+      await until(
+        async () => (await calls(dir)).some((line) => line.startsWith("pencere ")),
+        "pencere",
+      );
+      await writeFile(join(dir, "src/view/App.tsx"), "// changed\n");
+      expect(await dev.ended).toBe(7);
+      return dev;
+    }
+
+    it("is reported when it failed", async () => {
+      const dev = await rebuilt({ VITE_REBUILD: "fail" });
+      expect(dev.err()).toContain("dev: the last build of the view failed; dev.log says why");
+    });
+
+    it("is not reported when a signal ended it: that is the person's ^C, not a build that failed", async () => {
+      // The build is ended by the signal while pencere takes the view down, which takes longer.
+      const dev = await rebuilt({ VITE_REBUILD: "signal", PENCERE_LINGER: "400" });
+      expect(dev.err()).toBe("");
+    });
   });
 
   it("does not show a view whose first build failed", async () => {

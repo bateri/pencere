@@ -51,7 +51,11 @@ for (const build of BUILDS) {
 // From here on the screen is the view's, so what a build says goes to a file.
 const log = openSync(join(root, "dev.log"), "w");
 const failed = new Set();
-const note = (text) => writeSync(log, `dev: ${text}\n`);
+let finished = false;
+const note = (text) => {
+  // The log is let go of when everything ends; what comes after has nowhere to be written.
+  if (!finished) writeSync(log, `dev: ${text}\n`);
+};
 
 /** Builds `build` after a change, once for a burst of saves and never two at a time. */
 function rebuilder(build) {
@@ -67,10 +71,14 @@ function rebuilder(build) {
       failed.add(build.name);
       note(`could not run the ${build.name} build: ${error.message}`);
     });
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       child = undefined;
-      if (code === 0) failed.delete(build.name);
-      else failed.add(build.name);
+      // A build that a signal ended did not fail: ^C reaches the build with the rest of this
+      // terminal's foreground group, or `stop` ended it, and neither is a mistake in the source.
+      if (signal === null) {
+        if (code === 0) failed.delete(build.name);
+        else failed.add(build.name);
+      }
       if (again) start();
     });
   }
@@ -102,7 +110,10 @@ const watchers = BUILDS.flatMap((build, index) =>
   ),
 );
 
+/** Lets go of what is running and open, once: `pencere` can fail to start and then also close. */
 function finish() {
+  if (finished) return;
+  finished = true;
   for (const rebuild of rebuilders) rebuild.stop();
   for (const watcher of watchers) watcher.close();
   closeSync(log);
@@ -130,7 +141,11 @@ const dev = spawn(
 process.on("SIGINT", () => {});
 process.on("SIGTERM", () => dev.kill("SIGTERM"));
 
+// A `pencere` that cannot be started also closes, with a status that is the system's error number.
+let unstarted = false;
+
 dev.on("error", (error) => {
+  unstarted = true;
   finish();
   console.error(`dev: could not run pencere: ${error.message}`);
   process.exitCode = 1;
@@ -138,6 +153,7 @@ dev.on("error", (error) => {
 
 dev.on("close", (code, signal) => {
   finish();
+  if (unstarted) return;
   if (failed.size > 0) {
     console.error(
       `dev: the last build of the ${[...failed].join(" and ")} failed; dev.log says why`,

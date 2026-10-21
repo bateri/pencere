@@ -2,11 +2,17 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { DiscoveryError, Interrupted, discoverTool, viewOf } from "../src/discover.js";
+import {
+  DiscoveryError,
+  Interrupted,
+  MAX_TOOL_PAGES,
+  discoverTool,
+  viewOf,
+} from "../src/discover.js";
 import type { DiscoverOptions } from "../src/discover.js";
 import { StartError } from "../src/server-process.js";
 import { Tail } from "../src/tail.js";
-import { alive, node, tools, until } from "./support.js";
+import { alive, node, raw, tools, until } from "./support.js";
 
 const options: DiscoverOptions = {
   version: "0.0.0",
@@ -56,7 +62,43 @@ describe("which tool's view to show", () => {
     ).toEqual({ kind: "found", tool: "list_containers" });
   });
 
+  it("finds the tool with a view on a later page of the list, as the terminal would", async () => {
+    expect(await discoverTool(raw("paged"), new Tail(), options)).toEqual({
+      kind: "found",
+      tool: "show",
+    });
+  });
+
+  it("stops at the number of pages the terminal reads, and says so", async () => {
+    const failure = await discoverTool(raw("endless"), new Tail(), options).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(DiscoveryError);
+    expect((failure as Error).message).toContain(`more than ${MAX_TOOL_PAGES} pages of tools`);
+  });
+
+  it("does not take an address that is not a ui:// resource for a view, as the terminal does not", async () => {
+    expect(await discoverTool(raw("foreign"), new Tail(), options)).toEqual({
+      kind: "none",
+      tools: ["show"],
+    });
+  });
+
+  it("writes what the server said in a failure as text", async () => {
+    const failure = await discoverTool(raw("failing"), new Tail(), options).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(DiscoveryError);
+    const message = (failure as Error).message;
+    expect(message).toContain("no tools \\u001b[2Jfor you");
+    expect(message).not.toContain("\u001b");
+  });
+
   it("reads a tool's view from either place and from nothing else", () => {
+    // The terminal takes a `ui://` resource only.
+    expect(viewOf({ _meta: { ui: { resourceUri: "https://example.com/v" } } })).toBeUndefined();
+    expect(viewOf({ _meta: { "ui/resourceUri": "file:///etc/passwd" } })).toBeUndefined();
+    expect(viewOf({ _meta: { ui: { resourceUri: "ui:" } } })).toBeUndefined();
     expect(viewOf({ _meta: { ui: { resourceUri: "ui://a/b" } } })).toBe("ui://a/b");
     expect(viewOf({ _meta: { "ui/resourceUri": "ui://a/b" } })).toBe("ui://a/b");
     expect(viewOf({ _meta: { ui: { resourceUri: "" } } })).toBeUndefined();

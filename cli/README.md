@@ -36,7 +36,9 @@ Everything after `--` is the server's command, taken as it is.
 The same options and exit status are `pencere dev`'s, which adds `--watch` (see below).
 
 If the server has no tool with a view, or several, `pencere run` says which tools there are
-and, for several, asks you to choose one with `--tool`.
+and, for several, asks you to choose one with `--tool`. A tool names a view by a `ui://`
+resource, as the terminal reads it, and the tool list is read a page at a time as far as the
+terminal reads it (16 pages). What the server wrote is shown as text.
 
 A terminal that does not host pencere is told so: `pencere run` says that the command is an MCP
 server, which an MCP client can take as it is, and ends. A server is not a text interface, so it
@@ -45,13 +47,13 @@ is not attached to the terminal, and with `--tool` it is not started for it at a
 
 ### Exit status
 
-| Status        | Meaning                                                                                                                                              |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`           | The view ran and closed (you closed it, the view did, or the program did).                                                                           |
-| `1`           | It could not run: the server did not start, did not answer as an MCP server, or ended while its view was up; the terminal refused or ended the view. |
-| `2`           | A mistake in the command line, or a `--view` directory that is not a view, or several tools with a view and no `--tool`.                             |
-| `3`           | This terminal does not show pencere views, or the input or output of `pencere run` is not a terminal.                                                |
-| ⌃C, `SIGTERM` | The view and the server are ended first, then `pencere run` ends by the same signal, so the shell reads 130 or 143.                                  |
+| Status                  | Meaning                                                                                                                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`                     | The view ran and closed (you closed it, the view did, or the program did).                                                                                                                                |
+| `1`                     | It could not run: the server did not start, did not answer as an MCP server, or ended while its view was up; the terminal refused or ended the view, or stopped answering while the view was shown again. |
+| `2`                     | A mistake in the command line, or a `--view` directory that is not a view, or several tools with a view and no `--tool`.                                                                                  |
+| `3`                     | This terminal does not show pencere views, or the input or output of `pencere run` is not a terminal.                                                                                                     |
+| ⌃C, `SIGTERM`, a hangup | The view and the server are ended first, then `pencere run` ends by the same signal, so the shell reads 130, 143 or 129 (the terminal went away, as when ssh does).                                       |
 
 When the server fails, what it wrote to stderr is shown on the screen you get back. While a
 view is up the screen is the view's, so the end of it is kept (the last 16 KiB) and printed
@@ -95,9 +97,12 @@ every run with a change.
 - **What it tells you is told after.** While the view is up the screen is the view's, so notes
   (a view that could not be read at the last change, a watch that failed) are printed on the
   screen you get back, as the server's stderr is.
-- **A server that ends is not restarted for you.** If the server exits while its view is up, as
-  after a syntax error is saved, `pencere dev` ends as `pencere run` does and shows what the
-  server wrote to stderr: fix it and run the command again.
+- **A server that ends is waited out.** If the server exits while its view is up or opening, as
+  after a syntax error is saved, the view goes with it and the terminal is yours again: `pencere dev`
+  says that the server ended, shows the end of what it wrote to stderr, and waits. The next change
+  to the files it watches starts the server and the view again, and nothing has to be run twice.
+  A change that leaves the files as they were is not another try. ⌃C ends `pencere dev` as ever.
+  `pencere run`, which watches nothing, ends with the server.
 
 ## How the server is run
 
@@ -110,7 +115,8 @@ every run with a change.
   is `pencere run`'s. The server must not take it: `pencere run` ends it, after telling the
   terminal the program is done. It closes the server's stdin first, which every stdio server
   takes as the end, then sends SIGTERM and SIGKILL to the whole group, which catches what a
-  wrapper (`npx`, `uv run`, `sh -c`) started.
+  wrapper (`npx`, `uv run`, `sh -c`) started. A server that leaves at the end of its stdin, or
+  falls, leaves what it started behind in the group, and that gets the same two signals.
 - **Nothing else is added.** What the terminal asks (the question, the token, the bundle's
   files, ⌃C and `bye`, starting the view again) is done by `@pencere/sdk`'s `serve`, which this
   package runs; `pencere run` does not parse the server's messages.

@@ -18,6 +18,15 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
   while `serve` runs. `reopen` sends `dismiss`, waits for the host's `closed`, asks for a new
   token and opens the view again with the same files or new ones (the host's store keeps what did
   not change) on a fresh MCP session; `close` ends `serve` with `closed` by `program`. Both
-  answer `unsupported`, and leave the view alone, when the host does not list `dismiss`.
+  answer `unsupported`, and leave the view alone, when the host does not list `dismiss`. A host that
+  starts the view again (§10.7) while a reopening is under way ends it as `unavailable` and gets the
+  view it asked for, with a token that is alive: the `dismiss` of a reopening is not sent with the
+  token of a view the host has forgotten, and a host that offers the view while the program waits for
+  an offer is taken at its word.
+- `ServeOptions.reopenTimeout` (10 seconds by default): how long a reopening waits for the host's
+  `closed` after its `dismiss`, and then for the `welcome` after its `hello`. A host that does not
+  answer in time ends `serve` as `no-view` with the new reason `timeout`, which says that a host
+  that had answered went quiet: it is not `no-host`, which says that there is none. The wait for the
+  first `hello` is `answerTimeout` as before.
 - Speaks version 1 of the wire (draft), including `dismiss` (specification §10.8) and `closed`
   `reason` `program`.

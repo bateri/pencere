@@ -11,7 +11,7 @@
  * and only the generated project has them filled in.
  */
 
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -44,6 +44,30 @@ export class ScaffoldError extends Error {
     super(message);
     this.name = "ScaffoldError";
   }
+}
+
+/** What a system error says to the person who has to do something about it, in a few words. */
+function systemReason(error: NodeJS.ErrnoException): string {
+  switch (error.code) {
+    case "EACCES":
+    case "EPERM":
+      return "permission denied";
+    case "EROFS":
+      return "the file system is read-only";
+    case "ENOSPC":
+      return "no space is left on the device";
+    case "ENAMETOOLONG":
+      return "the name is too long";
+    case "ENOTDIR":
+      return "a part of the path is a file, not a directory";
+    default:
+      return error.message;
+  }
+}
+
+/** Whether `error` is the system saying it could not do what was asked of a path. */
+function isSystemError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && typeof (error as NodeJS.ErrnoException).code === "string";
 }
 
 /**
@@ -139,6 +163,8 @@ export async function check(directory: string): Promise<void> {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return;
     if (code === "ENOTDIR") throw new ScaffoldError(`${directory} is a file, not a directory`);
+    if (isSystemError(error))
+      throw new ScaffoldError(`cannot read ${directory}: ${systemReason(error)}`);
     throw error;
   }
   const held = entries.filter((entry) => entry !== ".git").sort();
@@ -154,18 +180,66 @@ export async function check(directory: string): Promise<void> {
  * exists already is never replaced: `check` is made before, and this is the
  * second refusal, for a file that came in between.
  *
- * @throws {ScaffoldError} when a file is already there.
+ * What cannot be written ends the writing, and what this wrote before it is taken
+ * back: the files, and the directories it made, the given one if it made that. A
+ * half project would be a directory that a second run refuses for being in use.
+ *
+ * @throws {ScaffoldError} when a file is already there, or when a path cannot be written.
  */
 export async function write(directory: string, files: readonly PlannedFile[]): Promise<void> {
-  for (const file of files) {
-    const path = join(directory, file.path);
-    await mkdir(dirname(path), { recursive: true });
-    try {
+  const written: string[] = [];
+  /** The outermost directory each `mkdir` made: what is under them was made by this. */
+  const made: string[] = [];
+  try {
+    for (const file of files) {
+      const path = join(directory, file.path);
+      const first = await mkdir(dirname(path), { recursive: true });
+      if (first !== undefined) made.push(first);
       await writeFile(path, file.text, { flag: "wx" });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST")
-        throw new ScaffoldError(`${path} already exists; it was not replaced`);
-      throw error;
+      written.push(path);
+    }
+  } catch (error) {
+    const reason = failure(error);
+    const cleaned = await takeBack(written, made);
+    if (reason === undefined) throw error;
+    throw new ScaffoldError(
+      `${reason}; ${
+        cleaned
+          ? "what was written is taken back"
+          : `what was written could not all be taken back: look in ${directory}`
+      }`,
+    );
+  }
+}
+
+/** What a failed write says, or `undefined` for an error that is not the system's. */
+function failure(error: unknown): string | undefined {
+  if (!isSystemError(error)) return undefined;
+  const path = error.path ?? "the project";
+  if (error.code === "EEXIST") return `${path} already exists; it was not replaced`;
+  return `cannot write ${path}: ${systemReason(error)}`;
+}
+
+/** Removes the files and the directories a write made; says whether it could. */
+async function takeBack(
+  files: readonly string[],
+  directories: readonly string[],
+): Promise<boolean> {
+  let all = true;
+  for (const file of files) {
+    try {
+      await unlink(file);
+    } catch {
+      all = false;
     }
   }
+  // Only directories this made, and by now only what this wrote was in them.
+  for (const directory of [...directories].reverse()) {
+    try {
+      await rm(directory, { recursive: true, force: true });
+    } catch {
+      all = false;
+    }
+  }
+  return all;
 }
