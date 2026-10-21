@@ -367,6 +367,21 @@ impl Host {
                 ),
             ),
         }
+        // What a terminal would put in the strip above the view: the program's
+        // own words for the tool and for itself, already cut and cleaned by the
+        // session.
+        let said = |text: &Option<String>| {
+            text.as_ref()
+                .map_or("none".to_owned(), |t| format!("{t:?}"))
+        };
+        log::line(
+            "view",
+            format!(
+                "title={} program={}",
+                said(&start.title),
+                said(&start.program)
+            ),
+        );
         log::line("view", format!("policy {}", start.policy));
         let mut view = ScriptedView::new(self.calls.clone());
         let reaction = view.start();

@@ -38,6 +38,7 @@ describe("the tool over stdio", () => {
     ]);
     const list = tools.find((tool) => tool.name === "list_containers");
     expect(list?._meta).toMatchObject({ ui: { resourceUri: VIEW_URI } });
+    expect(list?.title).toBe("Containers");
   });
 
   it("serves the view as one self-contained document", async () => {

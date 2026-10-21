@@ -6,8 +6,8 @@ use serde_json::Value;
 use serde_json::value::RawValue;
 
 use super::{
-    Action, Found, Live, MAX_TOOL_PAGES, MAX_TOOLS, Opening, Phase, Session, Stage, ToolEntry,
-    ViewSource, ViewStart, ViewState,
+    Action, Found, Live, MAX_LABEL_CHARS, MAX_TOOL_PAGES, MAX_TOOLS, Opening, Phase, Session,
+    Stage, ToolEntry, ViewSource, ViewStart, ViewState,
 };
 use crate::base64;
 use crate::bundle::Store;
@@ -66,11 +66,39 @@ struct ToolsPage {
     next_cursor: Option<String>,
 }
 
+/// The part of an `initialize` result the host reads, and only to name the
+/// program for people. A member of the wrong type is not text, and is no reason
+/// to stop the open, so the members are kept as raw JSON and read as strings
+/// where they are wanted.
+#[derive(Deserialize)]
+struct InitializeResult {
+    #[serde(rename = "serverInfo", default)]
+    server_info: Option<Box<RawValue>>,
+}
+
+#[derive(Deserialize)]
+struct ServerInfo {
+    #[serde(default)]
+    title: Option<Box<RawValue>>,
+    #[serde(default)]
+    name: Option<Box<RawValue>>,
+}
+
 #[derive(Deserialize)]
 struct ToolHead {
     name: String,
+    #[serde(default)]
+    title: Option<Box<RawValue>>,
+    #[serde(default)]
+    annotations: Option<Box<RawValue>>,
     #[serde(rename = "_meta", default)]
     meta: Option<ToolMeta>,
+}
+
+#[derive(Deserialize)]
+struct ToolAnnotations {
+    #[serde(default)]
+    title: Option<Box<RawValue>>,
 }
 
 #[derive(Deserialize)]
@@ -119,6 +147,22 @@ impl ToolHead {
             .or(meta.legacy_uri.as_deref())
     }
 
+    /// What the program calls the tool for people: `title`, else
+    /// `annotations.title` (MCP § Tool). A title that is no text, or nothing
+    /// once cleaned, leaves the next one its turn.
+    fn title(&self) -> Option<String> {
+        let annotated: Option<ToolAnnotations> = self
+            .annotations
+            .as_deref()
+            .and_then(|raw| crate::json::from_object(raw.get()));
+        [
+            self.title.as_deref(),
+            annotated.as_ref().and_then(|a| a.title.as_deref()),
+        ]
+        .into_iter()
+        .find_map(|raw| as_text(raw).as_deref().and_then(label))
+    }
+
     /// Whether the view may call the tool: `app` is in its visibility, which
     /// defaults to `["model", "app"]` (MCP Apps § Resource Discovery).
     fn app_visible(&self) -> bool {
@@ -129,6 +173,43 @@ impl ToolHead {
             .and_then(|ui| ui.visibility.as_ref());
         visibility.is_none_or(|list| list.iter().any(|v| v == "app"))
     }
+}
+
+/// A member read as a string: whatever else it is, it is no text.
+fn as_text(raw: Option<&RawValue>) -> Option<String> {
+    serde_json::from_str(raw?.get()).ok()
+}
+
+/// Whether `c` stays out of a name the terminal draws: control characters,
+/// which let a program type into the terminal or end a line, the line and
+/// paragraph separators, and the bidirectional embeddings, overrides and isolates,
+/// which let it show text other than what it wrote.
+fn is_hostile(c: char) -> bool {
+    c.is_control()
+        || matches!(c, '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+}
+
+/// A name the program supplied, as the host passes it to the terminal: without
+/// the characters of [`is_hostile`], at most [`MAX_LABEL_CHARS`] characters (cut
+/// at a character, not at a grapheme) and without the blanks at its ends. `None`
+/// when nothing is left.
+fn label(text: &str) -> Option<String> {
+    let kept: String = text
+        .chars()
+        .filter(|c| !is_hostile(*c))
+        .take(MAX_LABEL_CHARS)
+        .collect();
+    let kept = kept.trim();
+    (!kept.is_empty()).then(|| kept.to_owned())
+}
+
+/// What the program calls itself: `serverInfo.title`, else `serverInfo.name`.
+fn program_name(envelope: &Envelope) -> Option<String> {
+    let result: InitializeResult = envelope.result_as()?;
+    let info: ServerInfo = crate::json::from_object(result.server_info?.get())?;
+    [info.title.as_deref(), info.name.as_deref()]
+        .into_iter()
+        .find_map(|raw| as_text(raw).as_deref().and_then(label))
 }
 
 /// What reading a page of tools came to.
@@ -246,6 +327,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
                     self.fail("mcp");
                     return;
                 }
+                open.program = program_name(envelope);
                 let initialized = jsonrpc::notification("notifications/initialized", None::<()>);
                 let next = self.next_rpc();
                 let list = jsonrpc::request(&next, "tools/list", None::<()>);
@@ -338,7 +420,12 @@ impl<S: Store, E: Entropy> Session<S, E> {
                     .uri()
                     .filter(|uri| uri.starts_with("ui://"))?
                     .to_owned();
-                found = Some(Found { tool: raw, uri });
+                found = Some(Found {
+                    tool: raw,
+                    uri,
+                    title: head.title(),
+                    program: open.program.clone(),
+                });
             }
             tools.push(ToolEntry {
                 app: head.app_visible(),
@@ -444,6 +531,8 @@ impl<S: Store, E: Entropy> Session<S, E> {
             policy: sandbox::content_security_policy(&meta, &grant),
             allow: grant.allow_attribute(),
             tool: tool.name.clone(),
+            title: found.title.clone(),
+            program: found.program.clone(),
             meta: meta.clone(),
             grant: grant.clone(),
         };
@@ -461,5 +550,56 @@ impl<S: Store, E: Entropy> Session<S, E> {
             links: Vec::new(),
         }));
         self.actions.push(Action::StartView(Box::new(start)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_label_keeps_what_people_write() {
+        assert_eq!(label("Containers").as_deref(), Some("Containers"));
+        assert_eq!(
+            label("  Café \u{2014} cache  ").as_deref(),
+            Some("Café \u{2014} cache")
+        );
+        // A joiner is part of an emoji and of several scripts; the marks of
+        // right-to-left text stay too.
+        assert_eq!(
+            label("a\u{200d}b\u{200f}").as_deref(),
+            Some("a\u{200d}b\u{200f}")
+        );
+    }
+
+    #[test]
+    fn a_label_loses_what_would_act_in_the_terminal_or_hide_what_it_says() {
+        for hostile in [
+            "\u{1b}", "\u{7}", "\n", "\r", "\t", "\u{0}", "\u{7f}", "\u{9b}", "\u{2028}",
+            "\u{2029}", "\u{202a}", "\u{202d}", "\u{202e}", "\u{2066}", "\u{2069}",
+        ] {
+            let text = format!("a{hostile}b");
+            assert_eq!(label(&text).as_deref(), Some("ab"), "{hostile:?}");
+        }
+        assert_eq!(label("\u{1b}[2J").as_deref(), Some("[2J"));
+    }
+
+    #[test]
+    fn a_label_is_cut_at_a_character_and_what_it_loses_does_not_count() {
+        let long = "\u{e9}".repeat(MAX_LABEL_CHARS + 50);
+        let cut = label(&long).unwrap();
+        assert_eq!(cut.chars().count(), MAX_LABEL_CHARS);
+        let buried = format!("{}ok", "\u{1}".repeat(10_000));
+        assert_eq!(label(&buried).as_deref(), Some("ok"));
+        // The blanks the cut leaves at its end go too.
+        let spaced = format!("{}{}", "a".repeat(MAX_LABEL_CHARS - 1), " b");
+        assert_eq!(label(&spaced), Some("a".repeat(MAX_LABEL_CHARS - 1)));
+    }
+
+    #[test]
+    fn nothing_left_is_no_label() {
+        for blank in ["", " ", "\u{1b}\u{7}", " \n\t "] {
+            assert_eq!(label(blank), None, "{blank:?}");
+        }
     }
 }

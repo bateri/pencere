@@ -62,6 +62,10 @@ const MAX_TOOL_PAGES: u32 = 16;
 /// The most tools the host remembers.
 const MAX_TOOLS: usize = 4096;
 
+/// The most characters of a name the program supplied (the title of a tool, its
+/// own name) that the session passes on to the terminal.
+pub const MAX_LABEL_CHARS: usize = 100;
+
 /// The size of the view's container, in CSS pixels: the content area of the pane
 /// (specification §7.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -193,6 +197,20 @@ pub struct ViewStart {
     pub allow: String,
     /// The name of the tool the view shows the result of.
     pub tool: String,
+    /// What the program calls that tool for people: its `title` in `tools/list`,
+    /// else its `annotations.title`. `None` when it has neither, and the terminal
+    /// falls back to `tool`.
+    ///
+    /// The program wrote it, and a terminal draws it in its own chrome, where a
+    /// program must not be able to type or to forge a neighbour. The session has
+    /// therefore cut it to [`MAX_LABEL_CHARS`] characters and left out control
+    /// characters and the bidirectional overrides; what is here is safe to draw
+    /// as it stands.
+    pub title: Option<String>,
+    /// What the program calls itself: `serverInfo.title` of its MCP `initialize`
+    /// result, else `serverInfo.name`. `None` when it says neither. Cut and
+    /// cleaned as [`title`](Self::title) is.
+    pub program: Option<String>,
 }
 
 /// What the session asks the terminal to do. Actions come in the order they must
@@ -272,10 +290,13 @@ struct ToolEntry {
     app: bool,
 }
 
-/// The tool a view is for.
+/// The tool a view is for, and what the terminal will be told about it and about
+/// the program, both already cut and cleaned.
 struct Found {
     tool: Box<RawValue>,
     uri: String,
+    title: Option<String>,
+    program: Option<String>,
 }
 
 enum Stage {
@@ -313,6 +334,8 @@ struct Opening {
     tool: ToolCall,
     bundle: Option<Manifest>,
     stage: Stage,
+    /// What the program calls itself, once its `initialize` has answered.
+    program: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -579,6 +602,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             tool,
             bundle,
             stage,
+            program,
         } = *open;
         let Stage::Consent {
             source,
@@ -592,6 +616,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 tool,
                 bundle,
                 stage,
+                program,
             }));
             return;
         };
@@ -875,6 +900,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             tool: body.tool,
             bundle,
             stage,
+            program: None,
         }));
         if !waiting {
             self.begin_mcp();

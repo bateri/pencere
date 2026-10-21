@@ -89,6 +89,8 @@ export function createServer(containers: Container[] = sampleContainers()): McpS
     server,
     "list_containers",
     {
+      // What a terminal writes above the view, in place of `list_containers`.
+      title: "Containers",
       description: "List the containers and whether each is running",
       _meta: { ui: { resourceUri: VIEW_URI } },
     },

@@ -274,12 +274,21 @@ fn tools() -> Value {
 /// Answers the host's requests the way a program does, up to the moment the view
 /// starts (or the person is asked).
 fn start_up(rig: &mut Rig, tools: Value) -> Vec<Action> {
+    start_up_as(
+        rig,
+        json!({"name": "containers", "version": "0.0.0"}),
+        tools,
+    )
+}
+
+/// [`start_up`] for a program that calls itself `server_info`.
+fn start_up_as(rig: &mut Rig, server_info: Value, tools: Value) -> Vec<Action> {
     let initialize = rig.msgs();
     assert_eq!(initialize.len(), 1, "{initialize:?}");
     assert_eq!(initialize[0]["method"], "initialize");
     let id = initialize[0]["id"].clone();
     rig.json(&json!({"jsonrpc": "2.0", "id": id, "result": {
-        "protocolVersion": "2025-11-25", "capabilities": {"tools": {}}, "serverInfo": {"name": "containers", "version": "0.0.0"}}}));
+        "protocolVersion": "2025-11-25", "capabilities": {"tools": {}}, "serverInfo": server_info}}));
     let next = rig.msgs();
     assert_eq!(next.len(), 2, "{next:?}");
     assert_eq!(next[0]["method"], "notifications/initialized");
@@ -1981,4 +1990,153 @@ fn a_session_survives_any_order_of_messages_and_only_ever_writes_frames_a_tty_ma
     for state in ["Idle", "Offered", "Opening", "Open", "Closing", "Ended"] {
         assert!(visited.contains(state), "never in {state}: {visited:?}");
     }
+}
+
+// ---- what the terminal is told to call the view and the program ------------------
+
+/// The view `list_containers` opens when `extra` is added to its entry in the
+/// program's tool list, and the program calls itself `server_info`.
+fn started_with(server_info: Value, extra: Value) -> pencere::session::ViewStart {
+    let mut entry = json!({"name": "list_containers", "inputSchema": {"type": "object"},
+        "_meta": {"ui": {"resourceUri": "ui://containers/view"}}});
+    for (key, value) in extra.as_object().unwrap() {
+        entry[key] = value.clone();
+    }
+    let mut rig = Rig::new();
+    let token = rig.hello();
+    rig.send(
+        "open",
+        None,
+        None,
+        &open_payload(&token, Some(bundle(None))),
+    );
+    rig.take();
+    for body in [INDEX, APP, STYLE] {
+        send_file(&mut rig, body);
+    }
+    // A tool of another view comes first: its words are not the view's.
+    let others = json!({"name": "stop_container", "title": "Stop it",
+        "annotations": {"title": "Stop"}, "_meta": {"ui": {"resourceUri": "ui://containers/view"}}});
+    let actions = start_up_as(&mut rig, server_info, json!([others, entry]));
+    view_started(&actions).clone()
+}
+
+#[test]
+fn a_view_starts_with_the_title_of_its_tool_and_the_name_of_the_program() {
+    let start = started_with(
+        json!({"name": "containers", "title": "Container Manager", "version": "1.0.0"}),
+        json!({"title": "Containers", "annotations": {"title": "List"}}),
+    );
+    assert_eq!(start.tool, "list_containers");
+    assert_eq!(start.title.as_deref(), Some("Containers"));
+    assert_eq!(start.program.as_deref(), Some("Container Manager"));
+}
+
+#[test]
+fn the_title_falls_back_to_the_annotation_and_the_name_to_the_name_of_the_server() {
+    let start = started_with(
+        json!({"name": "containers", "version": "1.0.0"}),
+        json!({"annotations": {"title": "List the containers"}}),
+    );
+    assert_eq!(start.title.as_deref(), Some("List the containers"));
+    assert_eq!(start.program.as_deref(), Some("containers"));
+}
+
+#[test]
+fn a_tool_or_a_program_that_names_nothing_leaves_the_terminal_to_the_names_it_has() {
+    for (info, extra) in [
+        (json!({"version": "1.0.0"}), json!({})),
+        (json!({}), json!({"annotations": {"readOnlyHint": true}})),
+        (json!(null), json!({"title": null, "annotations": null})),
+    ] {
+        let start = started_with(info, extra);
+        assert_eq!(start.title, None);
+        assert_eq!(start.program, None);
+    }
+}
+
+#[test]
+fn a_name_the_program_got_wrong_is_no_name_and_does_not_stop_the_open() {
+    let start = started_with(
+        json!({"title": 7, "name": "containers"}),
+        json!({"title": {"text": "Containers"}, "annotations": {"title": "List"}}),
+    );
+    assert_eq!(start.title.as_deref(), Some("List"));
+    assert_eq!(start.program.as_deref(), Some("containers"));
+    let start = started_with(
+        json!("containers"),
+        json!({"title": 3, "annotations": "List"}),
+    );
+    assert_eq!((start.title, start.program), (None, None));
+}
+
+#[test]
+fn a_blank_title_leaves_the_next_one_its_turn() {
+    let start = started_with(
+        json!({"title": " \t", "name": "containers"}),
+        json!({"title": "\u{1b}\u{7}\n", "annotations": {"title": "List"}}),
+    );
+    assert_eq!(start.title.as_deref(), Some("List"));
+    assert_eq!(start.program.as_deref(), Some("containers"));
+}
+
+#[test]
+fn what_the_program_wrote_is_cut_and_cleaned_before_the_terminal_has_it() {
+    // A terminal would draw these in its own chrome.
+    let hostile = format!("\u{1b}[2J{}\u{1b}]52;c;AAAA\u{7}", "x".repeat(500));
+    let start = started_with(json!({"title": hostile.clone()}), json!({"title": hostile}));
+    for text in [start.title.unwrap(), start.program.unwrap()] {
+        assert_eq!(text.chars().count(), pencere::session::MAX_LABEL_CHARS);
+        assert!(text.starts_with("[2J"), "{text:?}");
+        assert!(!text.contains(char::is_control), "{text:?}");
+    }
+}
+
+#[test]
+fn the_names_reach_the_terminal_whichever_way_the_view_is_started() {
+    // After the person has been asked.
+    let meta = json!({"csp": {"connectDomains": ["https://api.example.com"]}});
+    let mut rig = Rig::new();
+    let token = rig.hello();
+    rig.send(
+        "open",
+        None,
+        None,
+        &open_payload(&token, Some(bundle(Some(meta)))),
+    );
+    rig.take();
+    for body in [INDEX, APP, STYLE] {
+        send_file(&mut rig, body);
+    }
+    let tools = json!([{"name": "list_containers", "title": "Containers",
+        "_meta": {"ui": {"resourceUri": "ui://containers/view"}}}]);
+    let actions = start_up_as(
+        &mut rig,
+        json!({"title": "Container Manager"}),
+        tools.clone(),
+    );
+    let [Action::Consent(consent)] = actions.as_slice() else {
+        panic!("{actions:?}")
+    };
+    rig.host.consent(consent.grant_all());
+    let (_, acted) = rig.take();
+    let start = view_started(&acted);
+    assert_eq!(start.title.as_deref(), Some("Containers"));
+    assert_eq!(start.program.as_deref(), Some("Container Manager"));
+
+    // After the program has been asked for the document.
+    let mut rig = Rig::new();
+    let token = rig.hello();
+    rig.send("open", None, None, &open_payload(&token, None));
+    start_up_as(&mut rig, json!({"name": "containers"}), tools);
+    let read = rig.msgs();
+    rig.json(
+        &json!({"jsonrpc": "2.0", "id": read[0]["id"], "result": {"contents": [{
+        "uri": "ui://containers/view", "mimeType": "text/html;profile=mcp-app",
+        "text": "<!doctype html><p>hi</p>"}]}}),
+    );
+    let (_, acted) = rig.take();
+    let start = view_started(&acted);
+    assert_eq!(start.title.as_deref(), Some("Containers"));
+    assert_eq!(start.program.as_deref(), Some("containers"));
 }

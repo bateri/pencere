@@ -29,8 +29,9 @@ screen: alternate screen off
 ```
 
 `program:` is what the program wrote and how it ended, `host:` what the host decided
-and wrote into the program's input, `view:` what the scripted view received and sent,
-`screen:` the alternate screen. Tokens never appear.
+and wrote into the program's input, `view:` what the scripted view received and sent
+(and the tool's title and the program's name the view starts with, which a terminal
+shows above it), `screen:` the alternate screen. Tokens never appear.
 
 Run it from a terminal and the program's keys are yours: ⌃C reaches the program as it
 does in any terminal. Otherwise the script decides how the run ends (`--then`): the view

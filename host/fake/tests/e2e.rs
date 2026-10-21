@@ -161,6 +161,9 @@ fn a_tool_goes_from_the_question_to_the_interrupt() {
         "host: msg id=* notification notifications/initialized",
         "request tools/list",
         "view: started from the bundle: entry index.html, 3 files",
+        // What the strip above the view says: the tool's title and the server's
+        // name, where a terminal would otherwise show `list_containers` and `node`.
+        r#"view: title="Containers" program="containers""#,
         "view: <- ui/initialize result: theme=dark displayMode=inline container=640x384 pane=true",
         "view: -> ui/notifications/initialized",
         "view: <- ui/notifications/tool-input",
@@ -319,6 +322,8 @@ fn a_tool_closes_its_view_shows_another_and_closes_that_one_and_goes_on() {
         "host: need id=2 re=2 missing=1",
         "program: file",
         "view: started from the bundle: entry index.html, 1 files",
+        // The tool has no title: the terminal names the view by the tool.
+        r#"view: title=none program="reopen""#,
         "host: msg id=* request tools/call show",
         // The program closes the view that runs; the host tells the view first and
         // the program after the view is gone.
@@ -630,6 +635,7 @@ fn pencere_run_opens_the_view_of_a_server_and_ends_it_on_ctrl_c() {
         "host: msg id=* request tools/list",
         "host: msg id=* request resources/read",
         "view: started from resources/read",
+        r#"view: title="Containers" program="containers""#,
         r#"view: -> tools/call stop_container {"id":"cache"}"#,
         "host: msg id=* request tools/call stop_container",
         "program: msg id=* response",
