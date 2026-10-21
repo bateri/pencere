@@ -36,7 +36,8 @@ Early: nothing here is stable yet. The repository holds
   ([`host/fake`](host/fake));
 - an example tool to try it all with ([`examples/containers`](examples/containers)).
 
-[bateri](https://github.com/bateri/bateri) will be the first host.
+[bateri](https://github.com/bateri/bateri) will be the first host. Nothing is on npm or
+crates.io yet; how a package is released is in [RELEASING.md](RELEASING.md).
 
 ## License
 

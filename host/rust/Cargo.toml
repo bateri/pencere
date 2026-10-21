@@ -1,11 +1,19 @@
 [package]
 name = "pencere"
 description = "Host side of pencere, the terminal side of MCP Apps: frames, messages, session rules and bundles, without I/O"
-version.workspace = true
+# The crate's own version line, apart from the workspace's: it is released on its own
+# (RELEASING.md), and the stand-in host that shares the workspace is never published.
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
+keywords = ["mcp", "mcp-apps", "terminal", "pencere"]
+categories = ["parser-implementations"]
+# The tests read the specification's fixtures from the repository, outside the crate,
+# so the package carries the library and what a reader of it needs, not the tests.
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

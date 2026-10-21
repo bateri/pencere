@@ -3,11 +3,19 @@
   "version": "0.0.0",
   "description": "Show an MCP App view in the terminal pane your MCP server runs in",
   "license": "GPL-3.0-or-later",
+  "homepage": "https://github.com/bateri/pencere/tree/main/sdk/typescript#readme",
+  "bugs": "https://github.com/bateri/pencere/issues",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bateri/pencere.git",
     "directory": "sdk/typescript"
   },
+  "keywords": [
+    "mcp",
+    "mcp-apps",
+    "terminal",
+    "pencere"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -16,8 +24,16 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "src",
+    "CHANGELOG.md"
   ],
+  "scripts": {
+    "prepack": "rm -rf dist tsconfig.tsbuildinfo && tsc -b"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22"
   },

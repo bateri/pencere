@@ -1,0 +1,84 @@
+# A release tag (`<line>-v<version>`, made by `make release`) on main becomes a
+# release (RELEASING.md). For @pencere/sdk the package is staged on npm with
+# provenance, through trusted publishing; it becomes public only when a
+# maintainer approves it there with 2FA. The crate is published from the
+# maintainer's machine, so its tag only gets its GitHub release here.
+name: release
+
+on:
+  push:
+    tags:
+      - "sdk-typescript-v*"
+      - "host-rust-v*"
+
+permissions: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      line: ${{ steps.tag.outputs.line }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.88.0
+          components: clippy, rustfmt
+      # The tag names the version the manifest and the changelog carry, on main.
+      - id: tag
+        run: node tools/release.mjs verify-tag "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+      - run: npm ci
+      - run: make check
+
+  npm:
+    needs: verify
+    if: needs.verify.outputs.line == 'sdk-typescript'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      # Staged publishing needs npm 11.15 or later; Node 22 ships npm 10.
+      - run: npm install --global npm@11.21.1
+      - run: npm ci
+      - id: registry
+        run: node tools/release.mjs registry sdk-typescript "${{ needs.verify.outputs.version }}" >> "$GITHUB_OUTPUT"
+      # Staging a package the registry does not know would publish a public
+      # placeholder, and its trusted publisher can only be set up once it exists.
+      - if: steps.registry.outputs.exists != 'true'
+        run: |
+          echo "::error::@pencere/sdk is not on npm yet: its first release is published by hand (RELEASING.md, First release)."
+          exit 1
+      - if: steps.registry.outputs.published == 'true'
+        run: echo "::notice::@pencere/sdk ${{ needs.verify.outputs.version }} is already on npm (published by hand); nothing to stage."
+      - if: steps.registry.outputs.exists == 'true' && steps.registry.outputs.published != 'true'
+        working-directory: sdk/typescript
+        run: npm stage publish
+
+  github-release:
+    needs: [verify, npm]
+    if: ${{ always() && needs.verify.result == 'success' && (needs.npm.result == 'success' || needs.npm.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: node tools/release.mjs notes "${{ needs.verify.outputs.line }}" "${{ needs.verify.outputs.version }}" > notes.md
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
