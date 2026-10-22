@@ -68,7 +68,11 @@ The terminal names the view as any MCP client would, from the server's own metad
 tool's `title` and the server's `title` (else its `name`), and their `icons`. A terminal
 draws an icon only from the bytes it is given and never fetches one, so give it as a PNG,
 JPEG or WebP in a `data:` URI, small and not animated; an `https:` icon is shown by other
-clients and left out in the pane.
+clients and left out in the pane. Make it square: a terminal draws it in its own frame, at its
+own size. On a clear background the icon stands on the terminal's own face, as its marks do;
+filled to its edges, the icon's ground becomes the face. A version for a light background
+and one for a dark one, each with its `theme`, let the terminal take the one that suits its
+theme.
 
 ```ts
 const server = new McpServer({
