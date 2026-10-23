@@ -519,6 +519,11 @@ function finishedWith(
             "pencere: this terminal and this pencere share no version of the pencere protocol: update the older one.",
           );
           return { code: EXIT.noView };
+        case "no-common-view":
+          say(
+            "pencere: this terminal shows none of the kinds of view this pencere can show: update the older one.",
+          );
+          return { code: EXIT.noView };
         case "timeout":
           // A terminal that answered before: the view was being replaced and it went quiet.
           say(

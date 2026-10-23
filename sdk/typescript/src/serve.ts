@@ -130,6 +130,8 @@ export type NoViewReason =
   | "no-host"
   /** A host answered and shares no version with this library. */
   | "no-common-version"
+  /** A host answered and will open none of the kinds of view this library can show (§5.2). */
+  | "no-common-view"
   /**
    * A host that had answered did not answer in time while the program replaced its
    * view ({@link ViewControl.reopen}): the `closed` of the `dismiss`, or the `welcome`
@@ -304,6 +306,7 @@ type Offer = Extract<Welcome, { kind: "offer" }>;
 type Answer =
   | { readonly kind: "offer"; readonly welcome: Offer }
   | { readonly kind: "unsupported" }
+  | { readonly kind: "no-views" }
   | { readonly kind: "reply" }
   | { readonly kind: "timeout" }
   | { readonly kind: "aborted" };
@@ -454,9 +457,12 @@ class TerminalSession implements ViewTarget {
       this.#bundle !== undefined && welcome.features.includes(FEATURE_BUNDLE)
         ? this.#bundle.manifest
         : undefined;
+    // The first kind the host offered is the program's first choice among them; this library shows
+    // one kind, and `parseWelcome` has left no other in the list.
+    const view = welcome.views[0] ?? "web";
     this.#openId = this.#link.send(
       "open",
-      openPayload({ token: welcome.token, tool: this.#tool, bundle }),
+      openPayload({ token: welcome.token, view, tool: this.#tool, bundle }),
     ).id;
   }
 
@@ -488,7 +494,9 @@ class TerminalSession implements ViewTarget {
         const welcome = parseWelcome(message.payload, VERSIONS);
         if (welcome === undefined) return;
         asking.settle(
-          welcome.kind === "offer" ? { kind: "offer", welcome } : { kind: "unsupported" },
+          welcome.kind === "offer"
+            ? { kind: "offer", welcome }
+            : { kind: welcome.kind === "no-views" ? "no-views" : "unsupported" },
         );
       } else if (re === undefined && this.#change !== undefined) {
         // A host that came up after a break while the program waits to be offered a view
@@ -814,10 +822,14 @@ function toolCall(tool: string | ToolCall): ToolCall {
   return typeof tool === "string" ? { name: tool } : tool;
 }
 
-function noViewReason(answer: "unsupported" | "reply" | "timeout" | "aborted"): NoViewReason {
+function noViewReason(
+  answer: "unsupported" | "no-views" | "reply" | "timeout" | "aborted",
+): NoViewReason {
   switch (answer) {
     case "unsupported":
       return "no-common-version";
+    case "no-views":
+      return "no-common-view";
     case "aborted":
       return "aborted";
     case "reply":

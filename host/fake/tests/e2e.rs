@@ -319,7 +319,7 @@ fn a_tool_closes_its_view_shows_another_and_closes_that_one_and_goes_on() {
     let run = run(&[], &["node", &program.to_string_lossy()]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss",
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web",
         "program: open id=2 tool=show bundle of 1 files",
         "host: need id=2 re=2 missing=1",
         "program: file",
@@ -409,11 +409,11 @@ fn forger(name: &str, with_raw_tty: bool) -> Run {
     fs::write(
         &script,
         format!(
-            r#"{stty}printf '\033_pencere;hello;id=1;{{"versions":[1]}}\033\\'
+            r#"{stty}printf '\033_pencere;hello;id=1;{{"versions":[1],"views":["web"]}}\033\\'
 printf '\033[c'
 sleep 0.3
 printf '\033[?1049h'
-printf '\033_pencere;open;id=2;{{"token":"AAAAAAAAAAAAAAAAAAAAAA","tool":{{"name":"x\\u001b[2J","arguments":{{}}}}}}\033\\'
+printf '\033_pencere;open;id=2;{{"token":"AAAAAAAAAAAAAAAAAAAAAA","view":"web","tool":{{"name":"x\\u001b[2J","arguments":{{}}}}}}\033\\'
 sleep 0.3
 "#
         ),
@@ -467,7 +467,7 @@ fn the_answer_to_hello_comes_before_the_reply_to_csi_c() {
     fs::write(
         &script,
         r#"stty -icanon -echo min 0 time 5
-printf '\033_pencere;hello;id=1;{"versions":[1]}\033\\'
+printf '\033_pencere;hello;id=1;{"versions":[1],"views":["web"]}\033\\'
 printf '\033[c'
 dd bs=512 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n'
 "#,
@@ -627,7 +627,7 @@ fn pencere_run_opens_the_view_of_a_server_and_ends_it_on_ctrl_c() {
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "program: hello id=1",
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss",
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web",
         "screen: alternate screen on",
         // Asked which tool has a view, so the open names it; the server gave no
         // files, so the host reads the view from the server's own resource.
@@ -950,7 +950,7 @@ fn pencere_dev_shows_the_view_again_when_a_file_of_it_changes() {
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "program: hello id=1",
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss",
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web",
         "screen: alternate screen on",
         "program: open id=2 tool=show bundle of 2 files",
         "host: need id=2 re=2 missing=2",

@@ -259,6 +259,7 @@ export function welcomePayload(token: string, features: string[] = ["bundle"], e
     token,
     host: { name: "pencere-test", version: "0.0.0" },
     features,
+    views: ["web"],
     ...extra,
   });
 }

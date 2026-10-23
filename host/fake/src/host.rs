@@ -615,9 +615,15 @@ fn describe_host(message: &Message) -> String {
                     .and_then(Value::as_array)
                     .map(|list| list.iter().filter_map(Value::as_str).collect())
                     .unwrap_or_default();
+                let views: Vec<&str> = payload
+                    .get("views")
+                    .and_then(Value::as_array)
+                    .map(|list| list.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
                 format!(
-                    "welcome id={id}{re} version={version} with a token{restart} features={}",
-                    features.join(",")
+                    "welcome id={id}{re} version={version} with a token{restart} features={} views={}",
+                    features.join(","),
+                    views.join(",")
                 )
             } else {
                 format!("welcome id={id}{re} (no common version)")

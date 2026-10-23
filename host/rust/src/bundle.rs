@@ -318,13 +318,6 @@ impl Manifest {
         self.file(&self.entry)
     }
 
-    /// Whether the entry is a WebAssembly component ([`WASM_MEDIA_TYPE`]): the manifest of a
-    /// view the terminal draws itself, not of a web view.
-    pub fn is_wasm(&self) -> bool {
-        self.entry_file()
-            .is_some_and(|file| file.media_type == WASM_MEDIA_TYPE)
-    }
-
     /// The files, in the order the manifest lists them.
     pub fn files(&self) -> &[File] {
         &self.files

@@ -33,16 +33,14 @@ pub const FEATURE_BUNDLE: &str = "bundle";
 /// sends `dismiss` (specification §10.8).
 pub const FEATURE_DISMISS: &str = "dismiss";
 
-/// A feature a host may list in its `welcome`: it shows a view that is a WebAssembly component
-/// ([`crate::bundle::WASM_MEDIA_TYPE`]), drawn by the terminal itself, and routes the `msg`
-/// messages between the program and that component (specification §8.8).
-pub const FEATURE_WASM: &str = "wasm";
-
 /// The program's `hello`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Hello {
     /// The versions the program speaks.
     pub versions: Vec<u32>,
+    /// The kinds of view the program can show, in the order it prefers them (specification
+    /// §5.2). Names the host does not know are kept: the host leaves them out of its answer.
+    pub views: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -52,6 +50,7 @@ struct Offer<'a> {
     host: &'a HostInfo,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     features: &'a [&'static str],
+    views: &'a [&'static str],
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     restart: bool,
 }
@@ -62,12 +61,14 @@ struct Unsupported<'a> {
     host: &'a HostInfo,
 }
 
-/// The host's `welcome` carrying a version and a token.
+/// The host's `welcome` carrying a version and a token. `views` are the kinds of view it will
+/// open, by name and in the order it was given (specification §5.2); it can be empty.
 pub fn welcome_offer(
     version: u32,
     token: &str,
     host: &HostInfo,
     features: &[&'static str],
+    views: &[&'static str],
     restart: bool,
 ) -> String {
     wire(&Offer {
@@ -75,6 +76,7 @@ pub fn welcome_offer(
         token,
         host,
         features,
+        views,
         restart,
     })
 }
@@ -255,6 +257,10 @@ pub(crate) fn probe_token(payload: &str) -> TokenProbe {
 /// The rest of an `open`, read once its token has been accepted.
 #[derive(Debug, Deserialize)]
 pub(crate) struct OpenBody {
+    /// The kind of view the program opens, by name (specification §6.3). Absent, or not a
+    /// string, it is a malformed payload.
+    #[serde(default, deserialize_with = "string_or_none")]
+    pub view: Option<String>,
     /// The tool the view shows the result of, as a [`ToolCall`] once the session knows it is
     /// to read one. A view that is a WebAssembly component has no tool and no MCP session;
     /// whatever `tool` it carries is not read.
@@ -271,7 +277,7 @@ pub(crate) struct OpenBody {
 }
 
 /// The tool an `open` asks to call.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct ToolCall {
     /// The tool's name.
     pub name: String,
@@ -318,9 +324,10 @@ mod tests {
                 "q7Vh2sB0xJm9kLw4TzN1cA",
                 &host(),
                 &["bundle", "dismiss"],
+                &["web"],
                 false
             ),
-            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"]}"#
+            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":["web"]}"#
         );
         assert_eq!(
             welcome_offer(
@@ -328,13 +335,14 @@ mod tests {
                 "Zk3mP8rD5uYb1Xe6HqS0vg",
                 &host(),
                 &["bundle", "dismiss"],
+                &["wasm", "web"],
                 true
             ),
-            r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"restart":true}"#
+            r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":["wasm","web"],"restart":true}"#
         );
         assert_eq!(
-            welcome_offer(1, "t", &host(), &[], false),
-            r#"{"version":1,"token":"t","host":{"name":"pencere-test","version":"0.0.0"}}"#
+            welcome_offer(1, "t", &host(), &[], &[], false),
+            r#"{"version":1,"token":"t","host":{"name":"pencere-test","version":"0.0.0"},"views":[]}"#
         );
         assert_eq!(
             welcome_unsupported(&host()),

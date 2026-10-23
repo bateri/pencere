@@ -8,22 +8,31 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
-- WebAssembly views (specification §8.8): a bundle whose entry has the media type `application/wasm`
-  is a view the terminal runs in a sandbox of its own and draws itself. `Config::wasm` (off by
-  default) makes the host list `wasm` in the `features` of its `welcome` and take such an `open`,
-  without a `tool`, with an optional `program` and `title`, and without an MCP session: the view
-  starts as soon as the files are held, `ViewStart::kind` is `ViewKind::Wasm`, and `policy`, `allow`
-  and `tool` are empty. A host with `wasm` off refuses the `open` with `unsupported`;
+- Kinds of view (specification §5.5), named in the handshake: `hello` has to list `views`, the
+  kinds the program can show in its order of preference, and the `welcome` answers with `views`,
+  that list without the kinds the host will not open (the host only eliminates; with none in common
+  it still answers, with `views: []`, so that the program does not wait). `open` has to say `view`,
+  one of the kinds its token's `welcome` offered; the host does not infer the kind from the bundle.
+  `Config::views` (`Vec<ViewKind>`, only `ViewKind::Web` by default) says what the host opens;
+  `ViewKind::name` and `ViewKind::from_name` are the table of names. A `hello` without `views`
+  is not answered, an `open` without `view` or whose entry is not of the kind's type
+  (`text/html` for `web`, `application/wasm` for `wasm`) is refused with `manifest`, and an
+  `open` of a kind the `welcome` did not offer with `unsupported`. The `welcome` of a restart offers
+  every kind the host opens, in the host's order.
+- WebAssembly views (specification §8.8), the kind `wasm`: the entry of the bundle is a component
+  the terminal runs in a sandbox of its own and draws itself. `ViewKind::Wasm` in `Config::views`
+  makes the host offer and take such an `open`, without a `tool`, with an optional `program` and
+  `title`, and without an MCP session: the view starts as soon as the files are held,
+  `ViewStart::kind` is `ViewKind::Wasm`, and `policy`, `allow` and `tool` are empty.
   `Config::wasm_entry_limit` refuses a component over a size of the host's choosing with `limit`.
   The program's `msg` reaches the terminal as `Action::ToView`, unread (a JSON object, and only
   while the view is open); `Session::module_message` writes the component's message to the program,
   and writes nothing once the view is over, however it ended, so a late message cannot reach the
   tty as typed input. `Session::view_failed` closes a view that failed and tells the program
   `closed` with `reason` `error` and `code` `view`.
-- `ViewStart::kind` (`ViewKind`, `#[non_exhaustive]`), `Config::wasm`, `Config::wasm_entry_limit`,
-  `Manifest::entry_file`, `Manifest::is_wasm`, `bundle::WASM_MEDIA_TYPE`, `message::FEATURE_WASM`.
-  `ViewStart` and `Config` are not `#[non_exhaustive]`, so a terminal that builds one itself adds
-  the fields.
+- `ViewStart::kind` (`ViewKind`, `#[non_exhaustive]`), `Config::wasm_entry_limit`,
+  `Manifest::entry_file`, `bundle::WASM_MEDIA_TYPE`. `ViewStart` and `Config` are not
+  `#[non_exhaustive]`, so a terminal that builds one itself adds the fields.
 
 ## [0.1.0] - 2026-10-21
 

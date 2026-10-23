@@ -6,6 +6,11 @@ All notable changes to `@pencere/cli` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Says so, and exits as for a terminal with no view, when the terminal shows none of the kinds of
+  view this pencere can show (`no-common-view` of the SDK).
+
 ## [0.1.0] - 2026-10-21
 
 ### Added

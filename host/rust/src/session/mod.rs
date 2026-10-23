@@ -45,8 +45,8 @@ use crate::frame::{
 use crate::icon::Icon;
 use crate::jsonrpc::Id;
 use crate::message::{
-    self, Bye, Dismiss, FEATURE_BUNDLE, FEATURE_DISMISS, FEATURE_WASM, Hello, HostInfo, OpenBody,
-    Reason, SUPPORTED_VERSIONS, TokenProbe, ToolCall,
+    self, Bye, Dismiss, FEATURE_BUNDLE, FEATURE_DISMISS, Hello, HostInfo, OpenBody, Reason,
+    SUPPORTED_VERSIONS, TokenProbe, ToolCall,
 };
 use crate::sandbox::{Consent, Grant, UiMeta};
 use crate::theme::Theme;
@@ -111,10 +111,11 @@ pub struct Config {
     pub open_links: bool,
     /// Whether the host takes the view's log messages (`logging`).
     pub logging: bool,
-    /// Whether the host shows a view that is a WebAssembly component (lists `wasm` in its
-    /// `features`; specification §8.8). It needs `bundle`. Off by default: a terminal that draws
-    /// such a view itself turns it on.
-    pub wasm: bool,
+    /// The kinds of view the host will open (specification §5.2): what its `welcome` offers of the
+    /// kinds the program's `hello` listed. Only [`ViewKind::Web`] by default; a terminal that
+    /// draws a WebAssembly view itself adds [`ViewKind::Wasm`], which also needs `bundle`. Their
+    /// order is the order of the `welcome` of a restart (§10.7), which answers no `hello`.
+    pub views: Vec<ViewKind>,
     /// The most bytes a WebAssembly view's entry may have; an `open` over it is refused with
     /// `limit`. Cannot exceed what the bundle limits allow a file.
     pub wasm_entry_limit: u64,
@@ -139,7 +140,7 @@ impl Config {
             },
             open_links: true,
             logging: true,
-            wasm: false,
+            views: vec![ViewKind::Web],
             wasm_entry_limit: crate::bundle::MAX_FILE_SIZE,
         }
     }
@@ -204,6 +205,34 @@ pub enum ViewKind {
     /// A WebAssembly component the terminal runs in its own sandbox and draws itself, talking
     /// `msg` messages the host only routes (specification §8.8).
     Wasm,
+}
+
+impl ViewKind {
+    /// The name the wire gives the kind (`hello.views`, `welcome.views`, `open.view`;
+    /// specification §5.2).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Web => "web",
+            Self::Wasm => "wasm",
+        }
+    }
+
+    /// The kind a wire name stands for. A name that is not in the table of kinds is nobody's:
+    /// a program may list a kind this host has never heard of.
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Self::Web, Self::Wasm]
+            .into_iter()
+            .find(|kind| kind.name() == name)
+    }
+
+    /// The media type a bundle's entry has when the view is of this kind, if it must have one
+    /// (specification §6.4: an entry that disagrees with `view` is a malformed `open`).
+    fn entry_type(self) -> &'static str {
+        match self {
+            Self::Web => "text/html",
+            Self::Wasm => crate::bundle::WASM_MEDIA_TYPE,
+        }
+    }
 }
 
 /// A view to start.
@@ -519,6 +548,9 @@ pub struct Session<S: Store, E: Entropy> {
     /// The id of the last question put to the person ([`Consent::id`]).
     questions: u32,
     token: Option<Token>,
+    /// The kinds of view the `welcome` that issued the outstanding token offered: what an
+    /// `open` with the token may ask for (specification §6.4).
+    offered: Vec<ViewKind>,
     /// The token the view that is opening, open or closing was opened with. The
     /// `open` spends it, and it stays the view's identity until the view has
     /// closed: the program's `bye` is believed only with it (§10.3).
@@ -552,6 +584,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             links: 0,
             questions: 0,
             token: None,
+            offered: Vec::new(),
             view_token: None,
             restart_offer: false,
             restart_after: false,
@@ -866,22 +899,40 @@ impl<S: Store, E: Entropy> Session<S, E> {
             && seen.tty_canonical_or_echo != Some(true)
     }
 
-    fn issue_token(&mut self, restart: bool) -> Token {
+    fn issue_token(&mut self, restart: bool, offered: Vec<ViewKind>) -> Token {
         let token = Token::from_bytes(&self.entropy.token_bytes());
         self.token = Some(token.clone());
+        self.offered = offered;
         self.restart_offer = restart;
         token
     }
 
     /// What the `welcome` says the host supports: closing a view at the program's
-    /// request is part of every session, bundles are the configuration's, and so are
-    /// WebAssembly views, which are bundles.
+    /// request is part of every session, bundles are the configuration's.
     fn features(&self) -> &'static [&'static str] {
-        match (self.config.bundle, self.config.wasm) {
-            (true, true) => &[FEATURE_BUNDLE, FEATURE_DISMISS, FEATURE_WASM],
-            (true, false) => &[FEATURE_BUNDLE, FEATURE_DISMISS],
-            (false, _) => &[FEATURE_DISMISS],
+        if self.config.bundle {
+            &[FEATURE_BUNDLE, FEATURE_DISMISS]
+        } else {
+            &[FEATURE_DISMISS]
         }
+    }
+
+    /// Whether the host will open a view of `kind`: the configuration lists it, and a view that
+    /// arrives as a bundle needs the host to take bundles.
+    fn opens(&self, kind: ViewKind) -> bool {
+        self.config.views.contains(&kind) && (kind == ViewKind::Web || self.config.bundle)
+    }
+
+    /// The kinds a `hello` offered that the host will open, in the program's order and each
+    /// once (specification §5.2): the host eliminates and never reorders.
+    fn offer_for(&self, listed: &[String]) -> Vec<ViewKind> {
+        let mut offered = Vec::new();
+        for kind in listed.iter().filter_map(|name| ViewKind::from_name(name)) {
+            if self.opens(kind) && !offered.contains(&kind) {
+                offered.push(kind);
+            }
+        }
+        offered
     }
 
     fn on_hello(&mut self, message: &Message) {
@@ -893,6 +944,11 @@ impl<S: Store, E: Entropy> Session<S, E> {
             self.ignored();
             return;
         };
+        // A program that lists no kind of view cannot be offered one: it is not a hello.
+        if hello.views.is_empty() {
+            self.ignored();
+            return;
+        }
         // A hello means a program is reading the tty.
         self.ended = false;
         let version = SUPPORTED_VERSIONS
@@ -902,12 +958,15 @@ impl<S: Store, E: Entropy> Session<S, E> {
             .find(|v| hello.versions.contains(v));
         let payload = match version {
             Some(version) => {
-                let token = self.issue_token(false);
+                let offered = self.offer_for(&hello.views);
+                let names: Vec<&'static str> = offered.iter().map(|kind| kind.name()).collect();
+                let token = self.issue_token(false, offered);
                 message::welcome_offer(
                     version,
                     token.as_str(),
                     &self.config.host,
                     self.features(),
+                    &names,
                     false,
                 )
             }
@@ -921,13 +980,23 @@ impl<S: Store, E: Entropy> Session<S, E> {
             return;
         }
         self.ended = false;
-        let token = self.issue_token(true);
+        // No `hello` asked: every kind the host opens, in the host's order. The program that
+        // restarts a view chooses among them as it did from the first `welcome`.
+        let mut offered: Vec<ViewKind> = Vec::new();
+        for &kind in &self.config.views {
+            if self.opens(kind) && !offered.contains(&kind) {
+                offered.push(kind);
+            }
+        }
+        let names: Vec<&'static str> = offered.iter().map(|kind| kind.name()).collect();
+        let token = self.issue_token(true, offered);
         let version = SUPPORTED_VERSIONS.last().copied().unwrap_or(1);
         let payload = message::welcome_offer(
             version,
             token.as_str(),
             &self.config.host,
             self.features(),
+            &names,
             true,
         );
         self.send("welcome", None, &payload);
@@ -974,6 +1043,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         }
         // Spent by the first open that carries it, whatever comes of it.
         let spent = self.token.take();
+        let offered = mem::take(&mut self.offered);
         self.restart_offer = false;
         if !matches!(self.phase, Phase::Idle) {
             self.refuse(message.id, "busy");
@@ -984,6 +1054,12 @@ impl<S: Store, E: Entropy> Session<S, E> {
             return;
         }
         let Some(body) = crate::json::from_object::<OpenBody>(&message.payload) else {
+            self.refuse(message.id, "manifest");
+            return;
+        };
+        // The kind of view is the program's to say and no longer anything the host infers
+        // from the files (§6.3); a payload that does not say is malformed.
+        let Some(view) = body.view.as_deref() else {
             self.refuse(message.id, "manifest");
             return;
         };
@@ -1002,19 +1078,26 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 return;
             }
         };
-        // A bundle whose entry is a WebAssembly component is a view the terminal draws
-        // itself: it has no tool and no MCP session (§8.8).
-        let kind = if bundle.as_ref().is_some_and(Manifest::is_wasm) {
-            ViewKind::Wasm
-        } else {
-            ViewKind::Web
-        };
+        // A name that is not in the table of kinds is not one the `welcome` offered: it is
+        // refused below, after the checks that do not need to know what it stands for.
+        let kind = ViewKind::from_name(view);
+        if let Some(kind) = kind {
+            // The bundle has to be of the kind the program says. A WebAssembly view arrives
+            // as its component and nothing else; a web view with a bundle has an HTML
+            // document for its entry.
+            let entry = bundle.as_ref().and_then(Manifest::entry_file);
+            let fits = match (kind, entry) {
+                (ViewKind::Wasm, None) => false,
+                (_, Some(entry)) => entry.media_type == kind.entry_type(),
+                (ViewKind::Web, None) => true,
+            };
+            if !fits {
+                self.refuse(message.id, "manifest");
+                return;
+            }
+        }
         let tool = match kind {
-            ViewKind::Wasm => ToolCall {
-                name: String::new(),
-                arguments: None,
-            },
-            _ => match body
+            Some(ViewKind::Web) => match body
                 .tool
                 .and_then(|tool| serde_json::from_value::<ToolCall>(tool).ok())
             {
@@ -1024,16 +1107,10 @@ impl<S: Store, E: Entropy> Session<S, E> {
                     return;
                 }
             },
+            // A WebAssembly view has no tool, and a name nobody knows has nothing to read.
+            _ => ToolCall::default(),
         };
-        if bundle.is_some() && !self.config.bundle {
-            self.refuse(message.id, "unsupported");
-            return;
-        }
-        if kind == ViewKind::Wasm {
-            if !self.config.wasm {
-                self.refuse(message.id, "unsupported");
-                return;
-            }
+        if kind == Some(ViewKind::Wasm) {
             let over = bundle
                 .as_ref()
                 .and_then(Manifest::entry_file)
@@ -1042,6 +1119,17 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 self.refuse(message.id, "limit");
                 return;
             }
+        }
+        let kind = match kind {
+            Some(kind) if offered.contains(&kind) => kind,
+            _ => {
+                self.refuse(message.id, "unsupported");
+                return;
+            }
+        };
+        if bundle.is_some() && !self.config.bundle {
+            self.refuse(message.id, "unsupported");
+            return;
         }
         if !self.allow_opens {
             self.refuse(message.id, "policy");

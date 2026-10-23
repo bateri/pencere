@@ -75,7 +75,8 @@ limits are covered by files at the limit and one byte over.
 | `to-program/welcome.frame`              | body, canonical | the answer to a hello. delivers welcome#1(re=1); no errors.                                                                     |
 | `to-program/welcome-restart.frame`      | body, canonical | an unsolicited welcome that asks a program with an open view to open it again. delivers welcome#2; no errors.                   |
 | `to-program/welcome-unsupported.frame`  | body, canonical | the answer to a hello that shares no version with the host. delivers welcome#1(re=1); no errors.                                |
-| `to-program/welcome-wasm.frame`         | body, canonical | the answer of a host that shows WebAssembly views: wasm among the features. delivers welcome#1(re=1); no errors.                |
+| `to-program/welcome-wasm.frame`         | body, canonical | the answer of a host that shows WebAssembly views: wasm among the views. delivers welcome#1(re=1); no errors.                   |
+| `to-program/welcome-no-views.frame`     | body, canonical | the answer of a host that opens none of the kinds the program listed. delivers welcome#1(re=1); no errors.                      |
 | `to-program/need.frame`                 | body, canonical | the digests the host lacks. delivers need#2(re=2); no errors.                                                                   |
 | `to-program/need-empty.frame`           | body, canonical | the host has every file. delivers need#2(re=2); no errors.                                                                      |
 | `to-program/need-chunked.frame`         | body, canonical | twelve missing digests need three frames at the 511 byte limit. delivers need#2(re=2); no errors.                               |

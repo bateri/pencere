@@ -10,7 +10,7 @@ use std::sync::Arc;
 use pencere::base64;
 use pencere::bundle::{Digest, Store, Verified};
 use pencere::message::HostInfo;
-use pencere::session::{Action, Config, Session, Size};
+use pencere::session::{Action, Config, Session, Size, ViewKind};
 use pencere::theme::{Rgb, Theme};
 use serde_json::Value;
 
@@ -110,8 +110,14 @@ pub fn session_of(
         .map(|t| token_bytes(t.as_str().unwrap()))
         .collect();
     let mut host = self::config(&config["host"]);
-    // A host that shows WebAssembly views says so in its entry.
-    host.wasm = config["wasm"].as_bool().unwrap_or(false);
+    // The kinds of view a host opens are named in its entry; a host that names none opens web
+    // views.
+    if let Some(views) = config["views"].as_array() {
+        host.views = views
+            .iter()
+            .map(|name| ViewKind::from_name(name.as_str().unwrap()).unwrap())
+            .collect();
+    }
     Session::new(host, Held(held), issuing(issued))
 }
 

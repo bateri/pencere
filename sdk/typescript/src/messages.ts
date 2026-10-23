@@ -11,6 +11,9 @@ import { parseObject, toWire } from "./json.js";
 /** The protocol versions this library speaks: this version, and the one before it when there is one (§5.4). */
 export const VERSIONS: readonly number[] = [1];
 
+/** The kinds of view this library shows, in its order of preference: it is the MCP bridge (§5.5, §9). */
+export const VIEWS: readonly string[] = ["web"];
+
 /** A feature a host lists in its `welcome`: it takes bundles (§8.1). */
 export const FEATURE_BUNDLE = "bundle";
 
@@ -26,19 +29,24 @@ export interface ToolCall {
 /** Why a program ends (`Bye.reason`). */
 export type ByeReason = "exit" | "signal" | "error";
 
-/** The payload of `hello`. */
-export function helloPayload(versions: readonly number[] = VERSIONS): string {
-  return toWire({ versions });
+/** The payload of `hello`: the versions the program speaks and the kinds of view it can show, in its order (§5.1). */
+export function helloPayload(
+  versions: readonly number[] = VERSIONS,
+  views: readonly string[] = VIEWS,
+): string {
+  return toWire({ versions, views });
 }
 
-/** The payload of `open`: the token, the tool and, for a host that takes bundles, the manifest. */
+/** The payload of `open`: the token, the kind of view, the tool and, for a host that takes bundles, the manifest. */
 export function openPayload(open: {
   token: string;
+  view: string;
   tool: ToolCall;
   bundle?: BundleManifest | undefined;
 }): string {
   const body: Record<string, unknown> = {
     token: open.token,
+    view: open.view,
     tool: { name: open.tool.name, arguments: open.tool.arguments ?? {} },
   };
   if (open.bundle !== undefined) body.bundle = open.bundle;
@@ -62,9 +70,13 @@ export type Welcome =
       readonly version: number;
       readonly token: string;
       readonly features: readonly string[];
+      /** The kinds of view the host will open, among those the `hello` listed, in the program's order. */
+      readonly views: readonly string[];
       readonly restart: boolean;
     }
-  | { readonly kind: "unsupported"; readonly supported: readonly number[] };
+  | { readonly kind: "unsupported"; readonly supported: readonly number[] }
+  /** A host with a version and a token, and not one kind of view in common with this program (§5.2). */
+  | { readonly kind: "no-views" };
 
 /** A token: 16 bytes in base64url without padding (§6.1). */
 const TOKEN = /^[A-Za-z0-9_-]{22}$/;
@@ -80,9 +92,15 @@ function strings(value: unknown): string[] {
 /**
  * Reads a `welcome`. `offered` is what the program's `hello` listed: a version it
  * did not offer is not one the host can have chosen, so such a host is one that
- * shares no version.
+ * shares no version. `shown` are the kinds of view it listed: a host whose `views`
+ * holds none of them offers nothing this program can open, and its `views` are
+ * those of the list it can open, in the program's order.
  */
-export function parseWelcome(payload: string, offered: readonly number[]): Welcome | undefined {
+export function parseWelcome(
+  payload: string,
+  offered: readonly number[],
+  shown: readonly string[] = VIEWS,
+): Welcome | undefined {
   const body = parseObject(payload);
   if (body === undefined) return undefined;
   const { version, token } = body;
@@ -90,11 +108,14 @@ export function parseWelcome(payload: string, offered: readonly number[]): Welco
     if (typeof version !== "number" || !Number.isInteger(version) || version < 1) return undefined;
     if (typeof token !== "string" || !TOKEN.test(token)) return undefined;
     if (!offered.includes(version)) return { kind: "unsupported", supported: [] };
+    const views = strings(body.views).filter((view) => shown.includes(view));
+    if (views.length === 0) return { kind: "no-views" };
     return {
       kind: "offer",
       version,
       token,
       features: strings(body.features),
+      views,
       restart: body.restart === true,
     };
   }

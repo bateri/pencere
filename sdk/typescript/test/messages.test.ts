@@ -28,8 +28,8 @@ describe("what the program writes", () => {
 
   it("is the open of the fixtures, with and without a bundle", () => {
     const tool = { name: "list_containers" };
-    expect(openPayload({ token: TOKEN, tool })).toBe(payloadOf("to-host/open.frame"));
-    expect(openPayload({ token: TOKEN, tool, bundle: exampleBundle().manifest })).toBe(
+    expect(openPayload({ token: TOKEN, view: "web", tool })).toBe(payloadOf("to-host/open.frame"));
+    expect(openPayload({ token: TOKEN, view: "web", tool, bundle: exampleBundle().manifest })).toBe(
       payloadOf("to-host/open-bundle.frame"),
     );
   });
@@ -43,9 +43,13 @@ describe("what the program writes", () => {
   });
 
   it("writes the arguments of the tool as given", () => {
-    expect(openPayload({ token: TOKEN, tool: { name: "t", arguments: { all: true, n: 2 } } })).toBe(
-      `{"token":"${TOKEN}","tool":{"name":"t","arguments":{"all":true,"n":2}}}`,
-    );
+    expect(
+      openPayload({
+        token: TOKEN,
+        view: "web",
+        tool: { name: "t", arguments: { all: true, n: 2 } },
+      }),
+    ).toBe(`{"token":"${TOKEN}","view":"web","tool":{"name":"t","arguments":{"all":true,"n":2}}}`);
   });
 });
 
@@ -56,8 +60,29 @@ describe("a welcome", () => {
       version: 1,
       token: TOKEN,
       features: ["bundle", "dismiss"],
+      views: ["web"],
       restart: false,
     });
+  });
+
+  it("lists the kinds of view the program can open, in the order it listed them", () => {
+    const welcome = payloadOf("to-program/welcome-wasm.frame");
+    expect(parseWelcome(welcome, VERSIONS)).toMatchObject({ views: ["web"] });
+    expect(parseWelcome(welcome, VERSIONS, ["web", "wasm"])).toMatchObject({
+      views: ["wasm", "web"],
+    });
+  });
+
+  it("with no kind of view this program can show is not an offer", () => {
+    expect(parseWelcome(payloadOf("to-program/welcome-no-views.frame"), VERSIONS)).toEqual({
+      kind: "no-views",
+    });
+    expect(parseWelcome(payloadOf("to-program/welcome-wasm.frame"), VERSIONS, ["lua"])).toEqual({
+      kind: "no-views",
+    });
+    expect(
+      parseWelcome(`{"version":1,"token":"${TOKEN}","features":["bundle"]}`, VERSIONS),
+    ).toEqual({ kind: "no-views" });
   });
 
   it("that asks to start again says so", () => {
@@ -98,10 +123,16 @@ describe("a welcome", () => {
 
   it("takes no feature that is not a string", () => {
     expect(
-      parseWelcome(`{"version":1,"token":"${TOKEN}","features":["bundle",1,null]}`, VERSIONS),
-    ).toMatchObject({ features: ["bundle"] });
+      parseWelcome(
+        `{"version":1,"token":"${TOKEN}","features":["bundle",1,null],"views":["web",2]}`,
+        VERSIONS,
+      ),
+    ).toMatchObject({ features: ["bundle"], views: ["web"] });
     expect(
-      parseWelcome(`{"version":1,"token":"${TOKEN}","features":"bundle"}`, VERSIONS),
+      parseWelcome(
+        `{"version":1,"token":"${TOKEN}","features":"bundle","views":["web"]}`,
+        VERSIONS,
+      ),
     ).toMatchObject({ features: [] });
   });
 });

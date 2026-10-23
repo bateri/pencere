@@ -266,6 +266,12 @@ describe("pencere run", () => {
       expect(result.err).toContain("no version of the pencere protocol");
     });
 
+    it("tells a terminal that shows none of the kinds of view it can show", async () => {
+      const result = await outcome({ kind: "no-view", reason: "no-common-view" });
+      expect(result.code).toBe(EXIT.noView);
+      expect(result.err).toContain("none of the kinds of view");
+    });
+
     it("says that a terminal that stopped answering while the view was shown again is not one that shows no views", async () => {
       const result = await outcome({ kind: "no-view", reason: "timeout" });
       // 1, not 3: there is a terminal that shows views, and it went quiet.

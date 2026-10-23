@@ -15,7 +15,7 @@
           "kind": "hello",
           "id": 1,
           "control": {},
-          "payload": "{\"versions\":[1]}"
+          "payload": "{\"versions\":[1],\"views\":[\"web\"]}"
         }
       ],
       "errors": []
@@ -31,7 +31,7 @@
           "kind": "hello",
           "id": 1,
           "control": {},
-          "payload": "{\"versions\":[1]}"
+          "payload": "{\"versions\":[1],\"views\":[\"web\"]}"
         }
       ],
       "errors": []
@@ -47,7 +47,7 @@
           "kind": "open",
           "id": 2,
           "control": {},
-          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"tool\":{\"name\":\"list_containers\",\"arguments\":{}}}"
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"web\",\"tool\":{\"name\":\"list_containers\",\"arguments\":{}}}"
         }
       ],
       "errors": []
@@ -63,7 +63,7 @@
           "kind": "open",
           "id": 2,
           "control": {},
-          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"tool\":{\"name\":\"list_containers\",\"arguments\":{}},\"bundle\":{\"entry\":\"index.html\",\"files\":[{\"path\":\"index.html\",\"sha256\":\"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54\",\"size\":132,\"type\":\"text/html\"},{\"path\":\"app.js\",\"sha256\":\"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c\",\"size\":67,\"type\":\"text/javascript\"},{\"path\":\"style.css\",\"sha256\":\"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e\",\"size\":61,\"type\":\"text/css\"}],\"meta\":{\"csp\":{\"connectDomains\":[\"https://api.example.com\"]},\"prefersBorder\":false}}}"
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"web\",\"tool\":{\"name\":\"list_containers\",\"arguments\":{}},\"bundle\":{\"entry\":\"index.html\",\"files\":[{\"path\":\"index.html\",\"sha256\":\"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54\",\"size\":132,\"type\":\"text/html\"},{\"path\":\"app.js\",\"sha256\":\"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c\",\"size\":67,\"type\":\"text/javascript\"},{\"path\":\"style.css\",\"sha256\":\"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e\",\"size\":61,\"type\":\"text/css\"}],\"meta\":{\"csp\":{\"connectDomains\":[\"https://api.example.com\"]},\"prefersBorder\":false}}}"
         }
       ],
       "errors": []
@@ -179,7 +179,7 @@
           "kind": "hello",
           "id": 1,
           "control": {},
-          "payload": "{\"versions\":[1]}"
+          "payload": "{\"versions\":[1],\"views\":[\"web\"]}"
         },
         {
           "kind": "zzz",
@@ -219,7 +219,7 @@
           "control": {
             "x": "1"
           },
-          "payload": "{\"versions\":[1]}"
+          "payload": "{\"versions\":[1],\"views\":[\"web\"]}"
         }
       ],
       "errors": []
@@ -404,7 +404,7 @@
           "kind": "hello",
           "id": 5,
           "control": {},
-          "payload": "{\"versions\":[1]}"
+          "payload": "{\"versions\":[1],\"views\":[\"web\"]}"
         }
       ],
       "errors": ["abandoned"]
@@ -422,7 +422,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[\"web\"]}"
         }
       ],
       "errors": []
@@ -438,7 +438,7 @@
           "kind": "welcome",
           "id": 2,
           "control": {},
-          "payload": "{\"version\":1,\"token\":\"Zk3mP8rD5uYb1Xe6HqS0vg\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"restart\":true}"
+          "payload": "{\"version\":1,\"token\":\"Zk3mP8rD5uYb1Xe6HqS0vg\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[\"web\"],\"restart\":true}"
         }
       ],
       "errors": []
@@ -630,7 +630,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[\"web\"]}"
         }
       ],
       "errors": []
@@ -648,7 +648,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[\"web\"]}"
         }
       ],
       "errors": []
@@ -768,7 +768,7 @@
           "kind": "open",
           "id": 2,
           "control": {},
-          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"program\":\"demopen\",\"title\":\"Containers\",\"bundle\":{\"entry\":\"view.wasm\",\"files\":[{\"path\":\"view.wasm\",\"sha256\":\"93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476\",\"size\":8,\"type\":\"application/wasm\"}]}}"
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"wasm\",\"program\":\"demopen\",\"title\":\"Containers\",\"bundle\":{\"entry\":\"view.wasm\",\"files\":[{\"path\":\"view.wasm\",\"sha256\":\"93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476\",\"size\":8,\"type\":\"application/wasm\"}]}}"
         }
       ],
       "errors": []
@@ -786,7 +786,25 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\",\"wasm\"]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[\"wasm\",\"web\"]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/welcome-no-views.frame",
+      "direction": "to-program",
+      "note": "the answer of a host that opens none of the kinds of view the program listed: a version and a token, and no kind",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "welcome",
+          "id": 1,
+          "control": {
+            "re": "1"
+          },
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[]}"
         }
       ],
       "errors": []
@@ -1230,7 +1248,7 @@
     },
     {
       "name": "wasm-view",
-      "note": "a host that shows WebAssembly views lists wasm, asks for the component's file, hands the program's msg to the view without reading it, and a dismiss closes the view like any other",
+      "note": "a host that shows WebAssembly views offers wasm, as the program listed it, asks for the component's file, hands the program's msg to the view without reading it, and a dismiss closes the view like any other",
       "config": {
         "host": {
           "name": "pencere-test",
@@ -1238,7 +1256,7 @@
         },
         "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
         "store": [],
-        "wasm": true
+        "views": ["wasm", "web"]
       },
       "steps": [
         {
@@ -1275,7 +1293,7 @@
     },
     {
       "name": "wasm-unsupported",
-      "note": "a host that does not show WebAssembly views does not list wasm and refuses such an open as unsupported",
+      "note": "a host that does not show WebAssembly views leaves wasm out of its welcome and refuses such an open as unsupported",
       "config": {
         "host": {
           "name": "pencere-test",

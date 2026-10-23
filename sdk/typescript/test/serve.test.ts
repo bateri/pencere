@@ -223,6 +223,37 @@ describe("with no host", () => {
     expect(rig.messages().map((m) => m.kind)).toEqual(["hello"]);
   });
 
+  it("concludes it from a host that opens none of the kinds of view it can show, at once", async () => {
+    const rig = new Rig();
+    const ran: string[] = [];
+    const result = serveWith(
+      makeServer(),
+      // A long wait, because the program must not wait it out.
+      {
+        tool: "list_containers",
+        ...FAST,
+        answerTimeout: 60_000,
+        fallback: () => void ran.push("fallback"),
+      },
+      rig.environment(),
+    );
+    const hello = await rig.next("hello");
+    rig.say("welcome", payloadOf("to-program/welcome-no-views.frame"), hello.id);
+    rig.sayBytes(DA_REPLY);
+    expect(await result).toEqual({ kind: "no-view", reason: "no-common-view" });
+    expect(ran).toEqual(["fallback"]);
+    expect(rig.messages().map((m) => m.kind)).toEqual(["hello"]);
+  });
+
+  it("says in its hello which kinds of view it can show, and names the kind in its open", async () => {
+    const rig = new Rig();
+    void (await start(rig));
+    const hello = rig.messages()[0];
+    expect(JSON.parse(hello?.payload ?? "{}")).toEqual({ versions: [1], views: ["web"] });
+    const open = await rig.next("open");
+    expect(JSON.parse(open.payload)).toMatchObject({ token: TOKEN, view: "web" });
+  });
+
   it("is where the modes cannot be set: nothing is written and the fallback runs", async () => {
     const rig = new Rig();
     rig.terminal.failEnter = true;
@@ -293,7 +324,7 @@ describe("with a host", () => {
     expect(rig.terminal.calls).toEqual(["enter"]);
     const open = await rig.next("open");
     expect(open.payload).toBe(
-      `{"token":"${TOKEN}","tool":{"name":"list_containers","arguments":{"all":true}}}`,
+      `{"token":"${TOKEN}","view":"web","tool":{"name":"list_containers","arguments":{"all":true}}}`,
     );
     // In the order of §5.1 and §6.5: the hello and its fence, the alternate screen, the open.
     expect(

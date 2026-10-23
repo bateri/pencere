@@ -185,7 +185,7 @@ impl Rig {
     }
 
     fn hello(&mut self) -> String {
-        self.send("hello", None, None, r#"{"versions":[1]}"#);
+        self.send("hello", None, None, r#"{"versions":[1],"views":["web"]}"#);
         let (wrote, _) = self.take();
         let welcome = wrote
             .iter()
@@ -215,8 +215,7 @@ fn bundle(meta: Option<Value>) -> Value {
 }
 
 fn open_payload(token: &str, bundle: Option<Value>) -> String {
-    let mut value =
-        json!({"token": token, "tool": {"name": "list_containers", "arguments": {"all": true}}});
+    let mut value = json!({"token": token, "view": "web", "tool": {"name": "list_containers", "arguments": {"all": true}}});
     if let Some(bundle) = bundle {
         value["bundle"] = bundle;
     }
@@ -1425,7 +1424,7 @@ fn what_cannot_be_answered_is_refused_with_a_code_and_the_token_is_spent_by_the_
     let mut config = config();
     config.bundle = false;
     let mut rig = Rig::with(config);
-    rig.send("hello", None, None, r#"{"versions":[1]}"#);
+    rig.send("hello", None, None, r#"{"versions":[1],"views":["web"]}"#);
     let (wrote, _) = rig.take();
     // Closing a view for the program is not a configuration: the answer lists it even
     // when bundles are off.
@@ -1528,7 +1527,7 @@ fn a_hello_gets_a_new_token_and_is_answered_only_when_the_pane_looks_as_a_waitin
     ] {
         let mut rig = Rig::new();
         rig.host.observe(observed);
-        rig.send("hello", None, None, r#"{"versions":[1]}"#);
+        rig.send("hello", None, None, r#"{"versions":[1],"views":["web"]}"#);
         assert!(rig.take().0.is_empty(), "{observed:?}");
         assert_eq!(rig.host.state(), State::Idle);
         // Observed to be fine again, the same program is answered.
@@ -1538,7 +1537,7 @@ fn a_hello_gets_a_new_token_and_is_answered_only_when_the_pane_looks_as_a_waitin
             tty_canonical_or_echo: Some(false),
             ..Observed::default()
         });
-        rig.send("hello", None, None, r#"{"versions":[1]}"#);
+        rig.send("hello", None, None, r#"{"versions":[1],"views":["web"]}"#);
         assert_eq!(rig.take().0.len(), 1);
     }
     // While a prompt is edited every frame is ignored, an open too.
@@ -1591,7 +1590,7 @@ fn a_hello_gets_a_new_token_and_is_answered_only_when_the_pane_looks_as_a_waitin
     }
     // A hello that shares no version is answered without a token.
     let mut rig = Rig::new();
-    rig.send("hello", None, None, r#"{"versions":[2,3]}"#);
+    rig.send("hello", None, None, r#"{"versions":[2,3],"views":["web"]}"#);
     let (wrote, _) = rig.take();
     assert_eq!(
         wrote[0].payload,
@@ -1860,7 +1859,12 @@ fn a_store_that_forgets_between_the_need_and_the_end_fails_the_open_rather_than_
             encode(Direction::ToHost, &message, Split::Fill, &mut bytes).unwrap();
             host.feed(&bytes);
         };
-    send(&mut host, "hello", None, r#"{"versions":[1]}"#);
+    send(
+        &mut host,
+        "hello",
+        None,
+        r#"{"versions":[1],"views":["web"]}"#,
+    );
     send(
         &mut host,
         "open",
@@ -1884,7 +1888,7 @@ fn a_store_that_forgets_between_the_need_and_the_end_fails_the_open_rather_than_
 #[test]
 fn the_ids_of_what_the_host_writes_count_up_by_one_across_every_kind() {
     let mut rig = Rig::new();
-    rig.send("hello", None, None, r#"{"versions":[1]}"#);
+    rig.send("hello", None, None, r#"{"versions":[1],"views":["web"]}"#);
     rig.send(
         "open",
         None,
@@ -2179,7 +2183,7 @@ fn a_session_survives_any_order_of_messages_and_only_ever_writes_frames_a_tty_ma
             let token = TOKENS[dice.below(TOKENS.len())];
             match dice.below(29) {
                 0 | 1 => {
-                    rig.send("hello", None, None, r#"{"versions":[1]}"#);
+                    rig.send("hello", None, None, r#"{"versions":[1],"views":["web"]}"#);
                 }
                 2 | 3 => {
                     let with_bundle = dice.below(2) == 0;
@@ -2564,7 +2568,7 @@ fn asked_about(name: &str, server_info: Value, extra: Value) -> (Rig, pencere::s
     let mut rig = Rig::new();
     let token = rig.hello();
     let open = pencere::json::to_wire(
-        &json!({"token": token, "tool": {"name": name}, "bundle": bundle(Some(meta))}),
+        &json!({"token": token, "view": "web", "tool": {"name": name}, "bundle": bundle(Some(meta))}),
     )
     .unwrap();
     rig.send("open", None, None, &open);
@@ -2666,7 +2670,8 @@ fn the_name_the_terminal_falls_back_to_is_cleaned_and_cut_as_the_questions_is() 
         let mut rig = Rig::new();
         let token = rig.hello();
         let open =
-            pencere::json::to_wire(&json!({"token": token, "tool": {"name": name}})).unwrap();
+            pencere::json::to_wire(&json!({"token": token, "view": "web", "tool": {"name": name}}))
+                .unwrap();
         rig.send("open", None, None, &open);
         let entry = json!({"name": name, "_meta": {"ui": {"resourceUri": "ui://containers/view"}}});
         start_up_as(&mut rig, json!({}), json!([entry]));

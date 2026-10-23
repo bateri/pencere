@@ -23,7 +23,7 @@ no word for the terminal. This document defines only that part:
 - how MCP messages travel between a program and the terminal that hosts it,
   inside the terminal's own byte stream (Section 4);
 - how a program finds out the terminal can host a view, and which version they
-  speak (Section 5);
+  speak and which kinds of view (Section 5);
 - who may open a view (Section 6) and where it appears (Section 7);
 - how a view with many files is loaded once and kept by content (Section 8);
 - how the pieces bridge to an MCP session (Section 9) and when a view starts
@@ -137,7 +137,7 @@ a terminator in this protocol and does not occur in a frame (Section 4.2).
 prefix; a payload may contain `;`.
 
 ```frame fixtures/to-host/hello.frame
-<ESC>_pencere;hello;id=1;{"versions":[1]}<ESC>\
+<ESC>_pencere;hello;id=1;{"versions":[1],"views":["web"]}<ESC>\
 ```
 
 ### 4.2 Character set
@@ -245,7 +245,7 @@ encoder that only escapes non-ASCII text still writes DEL raw: escape it
 yourself. Receivers parse any valid JSON.
 
 ```frame fixtures/to-program/welcome.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":["web"]}<ESC>\
 ```
 
 ### 4.6 Limits
@@ -356,8 +356,13 @@ A program that wants to know whether its terminal can host a view writes a
 `hello` frame, then `CSI c` (primary device attributes, `ESC [ c`), then reads
 its input. The fence is what tells "no host" from "no answer yet".
 
+A `hello` has two members, and both are required: `versions`, the protocol versions the
+program speaks (Section 5.4), and `views`, the kinds of view it can show (Section 5.5), in
+the order it prefers them. A host ignores a `hello` that lacks either, whose `views` is empty,
+or that is not a list of strings, as it ignores a message it cannot read.
+
 ```frame fixtures/to-host/hello-fence.frame
-<ESC>_pencere;hello;id=1;{"versions":[1]}<ESC>\
+<ESC>_pencere;hello;id=1;{"versions":[1],"views":["web"]}<ESC>\
 <ESC>[c
 ```
 
@@ -370,30 +375,42 @@ writes the reply to that `CSI c`. A host MAY decline to answer (Section 6.2); th
 program then sees only the reply to `CSI c`.
 
 The host chooses the greatest version both support. If there is one, it issues a
-token (Section 6.1) and answers with `version`, `token`, `host` and `features`,
+token (Section 6.1) and answers with `version`, `token`, `host`, `features` and `views`,
 and `re` set to the hello's id. If there is none, it answers with `supported`
 and `host` only.
 
 `features` lists the optional parts of this document the host supports: `bundle`
-(Section 8.1), `dismiss` (Section 10.8) and `wasm` (Section 8.8). A program uses only
-what is listed and ignores a name it does not know.
+(Section 8.1) and `dismiss` (Section 10.8). A program uses only what is listed and ignores a
+name it does not know.
+
+`views` lists the kinds of view the host will open (Section 5.5): the list of the `hello`,
+with every kind the host will not open taken out, and in the program's order. The host only
+eliminates; it never reorders and never adds a kind the program did not list, and it writes each
+kind once. A name that is not in the table of Section 5.5 is one the host will not open. `views`
+is always present, and it is empty when the program and the host share no kind: the host
+answers all the same, with a version and a token, so that the program knows at once that there
+is a host and nothing it can show, and does not wait.
 
 ```frame fixtures/session/handshake/02-out.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":["web"]}<ESC>\
 ```
 
 ```frame fixtures/to-program/welcome-unsupported.frame
 <ESC>_pencere;welcome;id=1,re=1;{"supported":[1],"host":{"name":"pencere-test","version":"0.0.0"}}<ESC>\
 ```
 
+```frame fixtures/to-program/welcome-no-views.frame
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[]}<ESC>\
+```
+
 ### 5.3 What the program concludes
 
-| What the program reads first                                              | Conclusion                                                                                     |
-| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| A `welcome` with `version` and `token`, `re` equal to its last hello's id | There is a host. Go on with Section 6.                                                         |
-| The terminal's answer to `CSI c` (`ESC [ ? … c`)                          | There is no host. A `welcome` that arrives later MUST be ignored.                              |
-| A `welcome` with `supported` and no `version`                             | There is a host that shares no version with this program. Treat as no host.                    |
-| Nothing                                                                   | After a time, no host. The time SHOULD be 2 seconds; a program MAY wait longer on a slow link. |
+| What the program reads first                                              | Conclusion                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A `welcome` with `version` and `token`, `re` equal to its last hello's id | There is a host. If `views` has a kind, go on with Section 6 and open the first it can show. If `views` is empty, there is a host and nothing to open: fall back at once, as with no host (Section 13); do not wait and do not send `open`. |
+| The terminal's answer to `CSI c` (`ESC [ ? … c`)                          | There is no host. A `welcome` that arrives later MUST be ignored.                                                                                                                                                                           |
+| A `welcome` with `supported` and no `version`                             | There is a host that shares no version with this program. Treat as no host.                                                                                                                                                                 |
+| Nothing                                                                   | After a time, no host. The time SHOULD be 2 seconds; a program MAY wait longer on a slow link.                                                                                                                                              |
 
 2 seconds is a precedent, not a measurement (Appendix D). A program that
 concludes "no host" MUST NOT send further frames of this protocol (Section 13).
@@ -405,7 +422,7 @@ A `welcome` is only believed when the program has sent a `hello` and
 the `welcome` answers it; an unsolicited `welcome` is handled by Section 10.7 or ignored.
 
 ```frame fixtures/to-program/noise.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":["web"]}<ESC>\
 <ESC>[?62;4cls<CR>
 ```
 
@@ -423,6 +440,26 @@ change of the wire is a new version with new fixtures.
 
 A program MAY send `hello` again at any time; each answered `hello` gets a new
 token (Section 6.1).
+
+### 5.5 Kinds of view
+
+What a view is made of is the program's to say and the host's to accept: it is not inferred
+from the files of a bundle. A **kind** of view is named by a string in a closed table that this
+document defines:
+
+| Name   | The view                                                                                                                              |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `wasm` | A WebAssembly component that the host runs in a sandbox and draws itself, and that exchanges messages with the program (Section 8.8). |
+| `web`  | A web page, shown in a web view of the host's, that is an MCP Apps view and bridges to an MCP session of the program (Section 9).     |
+
+The table grows with this document; a name in `hello.views` that a host does not know is a
+kind it does not open, and it leaves it out of its `welcome` (Section 5.2). The program names
+the kind again in its `open` (Section 6.3), and an `open` of a kind that the `welcome` of its
+token did not list is refused as `unsupported` (Section 6.4).
+
+For now `web` is the MCP bridge of Section 9 and nothing else: the messages of Section 8.8
+(a view's and its program's own `msg` objects) do not apply to it, and the `msg` of a web view
+is the JSON-RPC message of Section 9.2.
 
 ## 6. Opening a view
 
@@ -448,7 +485,7 @@ program in the background — can send `hello` but cannot read the answer, so it
 cannot open a view (Section 14).
 
 ```frame fixtures/session/token-single-use/05-in.frame
-<ESC>_pencere;open;id=3;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","tool":{"name":"list_containers","arguments":{}},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}],"meta":{"csp":{"connectDomains":["https://api.example.com"]},"prefersBorder":false}}}<ESC>\
+<ESC>_pencere;open;id=3;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","tool":{"name":"list_containers","arguments":{}},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}],"meta":{"csp":{"connectDomains":["https://api.example.com"]},"prefersBorder":false}}}<ESC>\
 ```
 
 The session in the fixtures `session/token-single-use` shows this `open` refused:
@@ -484,13 +521,17 @@ A program that received a `welcome` with a token writes an `open` message,
 having switched to the alternate screen (Section 6.5):
 
 - `token`: the token from the `welcome`;
+- `view`: the kind of view (Section 5.5), one of the `views` of the `welcome` that issued the
+  token. REQUIRED. The host does not work it out from the bundle;
 - `tool`: the name of the tool whose `_meta.ui.resourceUri` names the view (MCP
-  Apps § Resource Discovery), and the `arguments` to call it with; a view that is a
-  WebAssembly component has no tool (Section 8.8);
-- `bundle`: OPTIONAL, the bundle of Section 8; REQUIRED for a WebAssembly view.
+  Apps § Resource Discovery), and the `arguments` to call it with; REQUIRED for a `web` view.
+  A `wasm` view has no tool (Section 8.8);
+- `bundle`: OPTIONAL for a `web` view, the bundle of Section 8; REQUIRED for a `wasm` view.
+  The `type` of its entry has to be that of the kind: `text/html` for `web`, `application/wasm`
+  for `wasm`.
 
 ```frame fixtures/to-host/open.frame
-<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","tool":{"name":"list_containers","arguments":{}}}<ESC>\
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","tool":{"name":"list_containers","arguments":{}}}<ESC>\
 ```
 
 ### 6.4 Host checks and refusal
@@ -499,15 +540,15 @@ The host checks an `open` in this order and stops at the first that fails; it
 answers a failure with a `closed` message whose `re` is the open's id,
 `reason` is `refused` and `code` is:
 
-| `code`        | When                                                                                                                |
-| ------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `token`       | The payload has no string `token`, or it is not the outstanding token. Checked before anything else in the payload. |
-| `busy`        | A view is already opening or open in this pane.                                                                     |
-| `screen`      | The pane is not on the alternate screen (Section 6.5). A host SHOULD refuse so.                                     |
-| `manifest`    | The payload or the bundle manifest is malformed (Section 8.2).                                                      |
-| `limit`       | A limit of Section 8.2 is exceeded.                                                                                 |
-| `unsupported` | The host does not support what was asked (a bundle without the `bundle` feature).                                   |
-| `policy`      | The host's own policy, or the person's, refuses.                                                                    |
+| `code`        | When                                                                                                                                                                                               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `token`       | The payload has no string `token`, or it is not the outstanding token. Checked before anything else in the payload.                                                                                |
+| `busy`        | A view is already opening or open in this pane.                                                                                                                                                    |
+| `screen`      | The pane is not on the alternate screen (Section 6.5). A host SHOULD refuse so.                                                                                                                    |
+| `manifest`    | The payload or the bundle manifest is malformed (Section 8.2): no `view`, a `web` view with no tool, a `wasm` view with no bundle, or an entry whose type is not that of the `view` (Section 6.3). |
+| `limit`       | A limit of Section 8.2 is exceeded.                                                                                                                                                                |
+| `unsupported` | The host does not support what was asked: a `view` that the `welcome` of the token did not list (or that is not in the table of Section 5.5), or a bundle without the `bundle` feature.            |
+| `policy`      | The host's own policy, or the person's, refuses.                                                                                                                                                   |
 
 A refusal MUST NOT disturb a view that is already opening or open. A receiver
 treats a code it does not know as a refusal without a reason.
@@ -649,7 +690,7 @@ for the sum of the sizes. These are constants of the protocol, like the message
 limits; a host MAY enforce lower ones and then refuses with `limit`.
 
 ```frame fixtures/to-host/open-bundle.frame
-<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","tool":{"name":"list_containers","arguments":{}},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}],"meta":{"csp":{"connectDomains":["https://api.example.com"]},"prefersBorder":false}}}<ESC>\
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","tool":{"name":"list_containers","arguments":{}},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}],"meta":{"csp":{"connectDomains":["https://api.example.com"]},"prefersBorder":false}}}<ESC>\
 ```
 
 ### 8.3 What is missing
@@ -721,19 +762,23 @@ same tool started over stdio by a chat client — can show the view (Section 13)
 
 ### 8.8 WebAssembly views
 
-A view need not be a web page. A bundle whose entry has the media type `application/wasm` is a
-**WebAssembly view**: the entry is a WebAssembly component (the component model's binary format)
-that the host runs in a sandbox of its own and draws itself, in the terminal's font and theme,
-without a web view. What the component is given and may ask of the host is an interface the host
-and the component share, and it is not part of this document. This document defines how such a view
-is opened, how it and its program exchange messages, and when it ends.
+A view need not be a web page. A view of the kind `wasm` (Section 5.5) is a **WebAssembly
+view**: the entry of its bundle, whose media type is `application/wasm`, is a WebAssembly
+component (the component model's binary format) that the host runs in a sandbox of its own and
+draws itself, in the terminal's font and theme, without a web view. What the component is given and
+may ask of the host is an interface the host and the component share, and it is not part of this
+document. This document defines how such a view is opened, how it and its program exchange
+messages, and when it ends.
 
-A host that shows WebAssembly views lists `wasm` in the `features` of its `welcome` (Section 5.2),
-and `bundle` with it, because the component arrives as a bundle. A program sends such an `open`
-only to a host that listed both; a host that did not refuses one with `unsupported` (Section 6.4).
+A host that shows WebAssembly views offers `wasm` in the `views` of its `welcome` (Section 5.2),
+when the program listed it and the host takes bundles, because the component arrives as a
+bundle. A program sends such an `open` only to a host that offered the kind; a host that did not
+refuses one with `unsupported` (Section 6.4). A bundle that is not a component, sent with the
+kind `wasm`, and a component sent with the kind `web`, are refused with `manifest`: the host does not
+decide the kind from the entry, and it does not guess.
 
 ```frame fixtures/to-program/welcome-wasm.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss","wasm"]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":["wasm","web"]}<ESC>\
 ```
 
 The `open` of a WebAssembly view differs from that of a web view in three ways:
@@ -750,7 +795,7 @@ The `open` of a WebAssembly view differs from that of a web view in three ways:
   an extension of this document.
 
 ```frame fixtures/to-host/open-wasm.frame
-<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","program":"demopen","title":"Containers","bundle":{"entry":"view.wasm","files":[{"path":"view.wasm","sha256":"93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476","size":8,"type":"application/wasm"}]}}<ESC>\
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"wasm","program":"demopen","title":"Containers","bundle":{"entry":"view.wasm","files":[{"path":"view.wasm","sha256":"93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476","size":8,"type":"application/wasm"}]}}<ESC>\
 ```
 
 The host asks for the files as for any bundle (Sections 8.3 and 8.4) and starts the view when it
@@ -775,6 +820,10 @@ is that of Section 10: the program's `bye` and `dismiss`, the person closing the
 (Section 10.7) end the view in the same way, and ⌃C goes to the program (Section 11.3).
 
 ## 9. MCP bridge
+
+This section is what a view of the kind `web` (Section 5.5) is. It is the bridge to MCP and,
+for now, the only thing `web` means: the `msg` objects of a WebAssembly view (Section 8.8) are not
+messages of a web view, and a web view does not exchange them with its program.
 
 ### 9.1 Roles
 
@@ -979,7 +1028,8 @@ process to another — brings them back, and a host that comes up after such a
 break knows of a running view only from its own record.
 
 A host in that position MAY restart the view: it writes an unsolicited `welcome`
-(no `re`, `restart` `true`, a new token) into the pane's input. A program that has
+(no `re`, `restart` `true`, a new token, and in `views` every kind the host will open, in the
+host's own order, since no `hello` asks) into the pane's input. A program that has
 a view open, or believes it has, treats it as a request to start again: it drops
 its MCP session, and sends `open` with the new token, which runs Sections 6 to 9
 again with a fresh MCP session, the bundle served from the store, and its state
@@ -989,7 +1039,7 @@ open, SHOULD apply the checks of Section 6.2, and gives up if no `open` arrives
 in a time of its choosing.
 
 ```frame fixtures/to-program/welcome-restart.frame
-<ESC>_pencere;welcome;id=2;{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"restart":true}<ESC>\
+<ESC>_pencere;welcome;id=2;{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":["web"],"restart":true}<ESC>\
 ```
 
 ### 10.8 The program closes its view
@@ -1122,6 +1172,8 @@ terminal.
 - **A tty, and no host.** Section 5.3. The program sends no further frame and
   continues as a program with no view: it offers its own text interface, or says
   what it needs and exits. It leaves the terminal as it found it.
+- **A host, and no kind of view in common.** A `welcome` whose `views` is empty
+  (Section 5.2). The program falls back at once, with no wait, and sends no `open`.
 - **The host refused or ended the open.** `closed` before the view ran gets the same
   treatment.
 
@@ -1217,7 +1269,7 @@ adds bundles (Section 8), restart (Section 10.7), the program closing its view (
 the theme of Section 11.2. A host below Full does not list `bundle` or `dismiss` in its `features`
 for the part it lacks; a program below Full does not send a manifest or a `dismiss` and
 ignores an unsolicited `welcome`. WebAssembly views (Section 8.8) are on top of Full and optional:
-a host that shows them lists `wasm`, and a program sends one only to a host that did.
+a host that shows them offers `wasm` in its `views`, and a program sends one only to a host that did.
 
 The fixtures of this repository are the conformance suite:
 
@@ -1245,23 +1297,26 @@ so). Unknown members are ignored.
 ```ts
 interface Hello {
   versions: number[]; // positive integers
+  views: string[]; // the kinds of view the program can show, in its order of preference; not empty (Section 5.5)
 }
 
 interface Welcome {
   version?: number; // present with token, absent with supported
   token?: string;
   host: { name: string; version: string };
-  features?: string[]; // "bundle" (Section 8.1), "dismiss" (Section 10.8), "wasm" (Section 8.8)
+  features?: string[]; // "bundle" (Section 8.1), "dismiss" (Section 10.8)
+  views?: string[]; // with token: the program's list without the kinds the host will not open, in the program's order; may be empty (Section 5.2)
   restart?: boolean; // true on an unsolicited welcome
   supported?: number[]; // present when no version is shared
 }
 
 interface Open {
   token: string;
-  tool?: { name: string; arguments?: Record<string, unknown> }; // absent for a WebAssembly view
-  program?: string; // WebAssembly view only: what the program calls itself (Section 8.8)
-  title?: string; // WebAssembly view only: what the program calls the view
-  bundle?: Bundle; // required for a WebAssembly view, whose entry has the type application/wasm
+  view: string; // one of the welcome's views (Section 6.3)
+  tool?: { name: string; arguments?: Record<string, unknown> }; // required for "web", not read for "wasm"
+  program?: string; // "wasm" only: what the program calls itself (Section 8.8)
+  title?: string; // "wasm" only: what the program calls the view
+  bundle?: Bundle; // required for "wasm", whose entry has the type application/wasm; for "web" the entry is text/html
 }
 
 interface Bundle {
@@ -1355,20 +1410,20 @@ number each side's messages.
 1. The program puts the tty in non-canonical mode, writes `hello` and the fence:
 
 ```frame fixtures/to-host/hello-fence.frame
-<ESC>_pencere;hello;id=1;{"versions":[1]}<ESC>\
+<ESC>_pencere;hello;id=1;{"versions":[1],"views":["web"]}<ESC>\
 <ESC>[c
 ```
 
 2. The host answers before it answers `CSI c`:
 
 ```frame fixtures/to-program/welcome.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":["web"]}<ESC>\
 ```
 
 3. The program switches to the alternate screen and opens its view with the token and the manifest:
 
 ```frame fixtures/to-host/open-bundle.frame
-<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","tool":{"name":"list_containers","arguments":{}},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}],"meta":{"csp":{"connectDomains":["https://api.example.com"]},"prefersBorder":false}}}<ESC>\
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","tool":{"name":"list_containers","arguments":{}},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}],"meta":{"csp":{"connectDomains":["https://api.example.com"]},"prefersBorder":false}}}<ESC>\
 ```
 
 4. The host names what it lacks:
