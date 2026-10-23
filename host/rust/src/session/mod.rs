@@ -69,6 +69,10 @@ const MAX_TOOLS: usize = 4096;
 /// own name) that the session passes on to the terminal.
 pub const MAX_LABEL_CHARS: usize = 100;
 
+/// The most characters of the words a view the terminal draws itself failed with that go in
+/// the `closed` (specification §8.8): room for an error and the line it is on.
+pub const MAX_FAILURE_CHARS: usize = 500;
+
 /// The size of the view's container, in CSS pixels: the content area of the pane
 /// (specification §7.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,12 +117,14 @@ pub struct Config {
     pub logging: bool,
     /// The kinds of view the host will open (specification §5.2): what its `welcome` offers of the
     /// kinds the program's `hello` listed. Only [`ViewKind::Web`] by default; a terminal that
-    /// draws a WebAssembly view itself adds [`ViewKind::Wasm`], which also needs `bundle`. Their
-    /// order is the order of the `welcome` of a restart (§10.7), which answers no `hello`.
+    /// draws a view itself adds [`ViewKind::Wasm`] and [`ViewKind::Lua`], which also need
+    /// `bundle`. Their order is the order of the `welcome` of a restart (§10.7), which answers
+    /// no `hello`.
     pub views: Vec<ViewKind>,
-    /// The most bytes a WebAssembly view's entry may have; an `open` over it is refused with
-    /// `limit`. Cannot exceed what the bundle limits allow a file.
-    pub wasm_entry_limit: u64,
+    /// The most bytes the entry of a view the terminal draws itself (a component or a script)
+    /// may have; an `open` over it is refused with `limit`. Cannot exceed what the bundle
+    /// limits allow a file.
+    pub native_entry_limit: u64,
 }
 
 impl Config {
@@ -141,7 +147,7 @@ impl Config {
             open_links: true,
             logging: true,
             views: vec![ViewKind::Web],
-            wasm_entry_limit: crate::bundle::MAX_FILE_SIZE,
+            native_entry_limit: crate::bundle::MAX_FILE_SIZE,
         }
     }
 }
@@ -205,6 +211,9 @@ pub enum ViewKind {
     /// A WebAssembly component the terminal runs in its own sandbox and draws itself, talking
     /// `msg` messages the host only routes (specification §8.8).
     Wasm,
+    /// A script in the Lua language, which the terminal runs in the same sandbox (its interpreter
+    /// is a component) and draws itself, talking the same messages (specification §8.8).
+    Lua,
 }
 
 impl ViewKind {
@@ -214,13 +223,20 @@ impl ViewKind {
         match self {
             Self::Web => "web",
             Self::Wasm => "wasm",
+            Self::Lua => "lua",
         }
+    }
+
+    /// Whether the terminal draws a view of this kind itself, with no document and no MCP
+    /// session: the kinds of specification §8.8.
+    pub fn is_native(self) -> bool {
+        matches!(self, Self::Wasm | Self::Lua)
     }
 
     /// The kind a wire name stands for. A name that is not in the table of kinds is nobody's:
     /// a program may list a kind this host has never heard of.
     pub fn from_name(name: &str) -> Option<Self> {
-        [Self::Web, Self::Wasm]
+        [Self::Web, Self::Wasm, Self::Lua]
             .into_iter()
             .find(|kind| kind.name() == name)
     }
@@ -231,6 +247,7 @@ impl ViewKind {
         match self {
             Self::Web => "text/html",
             Self::Wasm => crate::bundle::WASM_MEDIA_TYPE,
+            Self::Lua => crate::bundle::LUA_MEDIA_TYPE,
         }
     }
 }
@@ -247,12 +264,12 @@ pub struct ViewStart {
     /// What the person allowed.
     pub grant: Grant,
     /// The content security policy to enforce, built from `grant` only. Empty for a
-    /// [`ViewKind::Wasm`] view, which has no document to apply it to.
+    /// view the terminal draws itself ([`ViewKind::is_native`]), which has no document to apply it to.
     pub policy: String,
     /// The value of the `allow` attribute of the view's frame. Empty for a
-    /// [`ViewKind::Wasm`] view.
+    /// view the terminal draws itself.
     pub allow: String,
-    /// The name of the tool the view shows the result of. Empty for a [`ViewKind::Wasm`] view.
+    /// The name of the tool the view shows the result of. Empty for a view the terminal draws itself.
     pub tool: String,
     /// The name of the tool as a terminal may draw it: [`tool`](Self::tool) cut to
     /// [`MAX_LABEL_CHARS`] characters and cleaned the way [`title`](Self::title) is,
@@ -559,6 +576,9 @@ pub struct Session<S: Store, E: Entropy> {
     restart_offer: bool,
     /// A restart is to follow the close that is running.
     restart_after: bool,
+    /// The words a view the terminal draws itself failed with, for the `closed` of the close
+    /// that is running (specification §8.8).
+    failure: Option<String>,
     ended: bool,
     observed: Observed,
     allow_opens: bool,
@@ -588,6 +608,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             view_token: None,
             restart_offer: false,
             restart_after: false,
+            failure: None,
             ended: false,
             observed: Observed::default(),
             allow_opens: true,
@@ -1006,7 +1027,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         self.send(
             "closed",
             Some(open),
-            &message::closed(Reason::Refused, Some(code)),
+            &message::closed(Reason::Refused, Some(code), None),
         );
     }
 
@@ -1082,14 +1103,13 @@ impl<S: Store, E: Entropy> Session<S, E> {
         // refused below, after the checks that do not need to know what it stands for.
         let kind = ViewKind::from_name(view);
         if let Some(kind) = kind {
-            // The bundle has to be of the kind the program says. A WebAssembly view arrives
-            // as its component and nothing else; a web view with a bundle has an HTML
-            // document for its entry.
+            // The bundle has to be of the kind the program says. A view the terminal draws
+            // itself arrives as its component or its script and nothing else; a web view with
+            // a bundle has an HTML document for its entry.
             let entry = bundle.as_ref().and_then(Manifest::entry_file);
             let fits = match (kind, entry) {
-                (ViewKind::Wasm, None) => false,
                 (_, Some(entry)) => entry.media_type == kind.entry_type(),
-                (ViewKind::Web, None) => true,
+                (kind, None) => !kind.is_native(),
             };
             if !fits {
                 self.refuse(message.id, "manifest");
@@ -1107,14 +1127,15 @@ impl<S: Store, E: Entropy> Session<S, E> {
                     return;
                 }
             },
-            // A WebAssembly view has no tool, and a name nobody knows has nothing to read.
+            // A view the terminal draws itself has no tool, and a name nobody knows has nothing
+            // to read.
             _ => ToolCall::default(),
         };
-        if kind == Some(ViewKind::Wasm) {
+        if kind.is_some_and(ViewKind::is_native) {
             let over = bundle
                 .as_ref()
                 .and_then(Manifest::entry_file)
-                .is_some_and(|entry| entry.size > self.config.wasm_entry_limit);
+                .is_some_and(|entry| entry.size > self.config.native_entry_limit);
             if over {
                 self.refuse(message.id, "limit");
                 return;
@@ -1197,7 +1218,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// program, a WebAssembly view starts at once.
     fn begin(&mut self) {
         match &self.phase {
-            Phase::Opening(open) if open.kind == ViewKind::Wasm => self.begin_native(),
+            Phase::Opening(open) if open.kind.is_native() => self.begin_native(),
             Phase::Opening(_) => self.begin_mcp(),
             _ => {}
         }
@@ -1249,7 +1270,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             id,
             re: Some(bye),
             digest: None,
-            payload: &message::closed(Reason::Program, None),
+            payload: &message::closed(Reason::Program, None, None),
         };
         let mut bytes = Vec::new();
         if encode(Direction::ToProgram, &message, Split::Fill, &mut bytes).is_ok() {
@@ -1452,17 +1473,22 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 self.send(
                     "closed",
                     Some(dismiss),
-                    &message::closed(Reason::Program, None),
+                    &message::closed(Reason::Program, None, None),
                 );
             }
             Cause::User => {
-                self.send("closed", re, &message::closed(Reason::User, None));
+                self.send("closed", re, &message::closed(Reason::User, None, None));
             }
             Cause::View => {
-                self.send("closed", re, &message::closed(Reason::View, None));
+                self.send("closed", re, &message::closed(Reason::View, None, None));
             }
             Cause::Failed(code) => {
-                self.send("closed", re, &message::closed(Reason::Error, Some(code)));
+                let words = self.failure.take();
+                self.send(
+                    "closed",
+                    re,
+                    &message::closed(Reason::Error, Some(code), words.as_deref()),
+                );
             }
         }
         self.view_token = None;

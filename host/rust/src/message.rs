@@ -114,15 +114,22 @@ pub enum Reason {
     Program,
 }
 
-/// The host's `closed`.
-pub fn closed(reason: Reason, code: Option<&str>) -> String {
+/// The host's `closed`. `message` is the words of a view that failed on its own (specification
+/// §8.8); the session has cleaned them.
+pub fn closed(reason: Reason, code: Option<&str>, message: Option<&str>) -> String {
     #[derive(Serialize)]
     struct Closed<'a> {
         reason: Reason,
         #[serde(skip_serializing_if = "Option::is_none")]
         code: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<&'a str>,
     }
-    wire(&Closed { reason, code })
+    wire(&Closed {
+        reason,
+        code,
+        message,
+    })
 }
 
 fn wire<T: Serialize>(value: &T) -> String {
@@ -350,11 +357,18 @@ mod tests {
         );
         assert_eq!(need(&[]), r#"{"missing":[]}"#);
         assert_eq!(
-            closed(Reason::Refused, Some("token")),
+            closed(Reason::Refused, Some("token"), None),
             r#"{"reason":"refused","code":"token"}"#
         );
-        assert_eq!(closed(Reason::User, None), r#"{"reason":"user"}"#);
-        assert_eq!(closed(Reason::Program, None), r#"{"reason":"program"}"#);
+        assert_eq!(closed(Reason::User, None, None), r#"{"reason":"user"}"#);
+        assert_eq!(
+            closed(Reason::Error, Some("view"), Some("script:2: boom")),
+            r#"{"reason":"error","code":"view","message":"script:2: boom"}"#
+        );
+        assert_eq!(
+            closed(Reason::Program, None, None),
+            r#"{"reason":"program"}"#
+        );
     }
 
     #[test]

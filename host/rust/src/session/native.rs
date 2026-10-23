@@ -1,16 +1,16 @@
-//! A view that is a WebAssembly component (specification §8.8): the terminal runs it in its
-//! own sandbox and draws it itself, and the host between the component and the program does
-//! nothing but route.
+//! A view that is a WebAssembly component or a Lua script (specification §8.8): the terminal
+//! runs it in its own sandbox and draws it itself, and the host between the view and the
+//! program does nothing but route.
 //!
 //! There is no MCP session, no document, no content security policy and no question to the
-//! person: the component reaches nothing the terminal does not hand it. Its `msg` messages are
+//! person: the view reaches nothing the terminal does not hand it. Its `msg` messages are
 //! the program's and the component's own business, JSON objects the host does not read — it
 //! carries them from the program to the terminal ([`Action::ToView`]) and from the terminal to
 //! the program ([`Session::module_message`]), and only while the view is open.
 
 use super::{
-    Action, Cause, Found, Live, MAX_VIEW_MESSAGE, Phase, Session, ViewKind, ViewSource, ViewStart,
-    ViewState,
+    Action, Cause, Found, Live, MAX_FAILURE_CHARS, MAX_VIEW_MESSAGE, Phase, Session, ViewSource,
+    ViewStart, ViewState, mcp,
 };
 use crate::bundle::Store;
 use crate::frame::Message;
@@ -18,12 +18,14 @@ use crate::sandbox::{Grant, UiMeta};
 use crate::token::Entropy;
 
 impl<S: Store, E: Entropy> Session<S, E> {
-    /// The files of a WebAssembly view are here (or none were missing): the view starts.
+    /// The files of a view the terminal draws itself are here (or none were missing): the view
+    /// starts.
     pub(super) fn begin_native(&mut self) {
         let Some(open) = self.take_opening() else {
             return;
         };
         let super::Opening {
+            kind,
             tool,
             bundle,
             program,
@@ -32,7 +34,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             ..
         } = *open;
         let start = ViewStart {
-            kind: ViewKind::Wasm,
+            kind,
             source: ViewSource::Bundle,
             meta: UiMeta::default(),
             grant: Grant::none(),
@@ -46,7 +48,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             program_icons: Vec::new(),
         };
         self.phase = Phase::Live(Box::new(Live {
-            kind: ViewKind::Wasm,
+            kind,
             tool,
             found: Found {
                 tool: serde_json::value::RawValue::NULL.to_owned(),
@@ -72,13 +74,13 @@ impl<S: Store, E: Entropy> Session<S, E> {
         self.actions.push(Action::StartView(Box::new(start)));
     }
 
-    /// A `msg` of the program while a WebAssembly view is up, or being opened: it is for the
-    /// component and goes to it as it is. Returns whether the message was this kind's to
+    /// A `msg` of the program while a view the terminal draws itself is up, or being opened: it
+    /// is for the view and goes to it as it is. Returns whether the message was this kind's to
     /// handle.
     pub(super) fn native_msg(&mut self, message: &Message) -> bool {
         let up = match &self.phase {
-            Phase::Live(live) if live.kind == ViewKind::Wasm => true,
-            Phase::Opening(open) if open.kind == ViewKind::Wasm => false,
+            Phase::Live(live) if live.kind.is_native() => true,
+            Phase::Opening(open) if open.kind.is_native() => false,
             _ => return false,
         };
         // Whoever can write the stream can send this, so it is held to being an object (the
@@ -94,7 +96,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         true
     }
 
-    /// A message of the component of a WebAssembly view, as JSON text: it is written to the
+    /// A message of a view the terminal draws itself, as JSON text: it is written to the
     /// program as a `msg`, **only while the view is open**. After the view has closed, the
     /// program has ended, or when the message is not an object or is over the size one message
     /// may have, nothing is written (and the diagnostics count it): a message that came late
@@ -102,7 +104,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
     ///
     /// Returns whether it was written.
     pub fn module_message(&mut self, text: &str) -> bool {
-        let open = matches!(&self.phase, Phase::Live(live) if live.kind == ViewKind::Wasm);
+        let open = matches!(&self.phase, Phase::Live(live) if live.kind.is_native());
         if !open || text.len() > MAX_VIEW_MESSAGE || !crate::json::is_object(text) {
             self.ignored();
             return false;
@@ -110,11 +112,15 @@ impl<S: Store, E: Entropy> Session<S, E> {
         self.send_json(text)
     }
 
-    /// A WebAssembly view ended on its own failure: the component trapped, went over a limit
-    /// the terminal holds it to, or handed out something that is not a page. The view is
-    /// closed as for any other end, and the program is told `closed` with `reason` `error` and
-    /// `code` `view` (§8.8).
-    pub fn view_failed(&mut self) {
+    /// A view the terminal draws itself ended on its own failure: the component trapped, went
+    /// over a limit the terminal holds it to, handed out something that is not a page, or a
+    /// script made an error. The view is closed as for any other end, and the program is told
+    /// `closed` with `reason` `error`, `code` `view` and, in `message`, `why` (§8.8): the
+    /// words the view failed with, which a script's error has the line in. They are the view's
+    /// own, so they are cut and cleaned of what a terminal would act on before they are passed
+    /// on.
+    pub fn view_failed(&mut self, why: &str) {
+        self.failure = mcp::words(why, MAX_FAILURE_CHARS);
         self.close(Cause::Failed("view"), None);
     }
 }

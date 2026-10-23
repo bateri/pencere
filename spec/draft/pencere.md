@@ -453,10 +453,11 @@ What a view is made of is the program's to say and the host's to accept: it is n
 from the files of a bundle. A **kind** of view is named by a string in a closed table that this
 document defines:
 
-| Name   | The view                                                                                                                              |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `wasm` | A WebAssembly component that the host runs in a sandbox and draws itself, and that exchanges messages with the program (Section 8.8). |
-| `web`  | A web page, shown in a web view of the host's, that is an MCP Apps view and bridges to an MCP session of the program (Section 9).     |
+| Name   | The view                                                                                                                                                                                                   |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lua`  | A script in the Lua language that the host runs, with an interpreter of its own, in the same kind of sandbox and draws itself; it exchanges messages with the program as a `wasm` view does (Section 8.8). |
+| `wasm` | A WebAssembly component that the host runs in a sandbox and draws itself, and that exchanges messages with the program (Section 8.8).                                                                      |
+| `web`  | A web page, shown in a web view of the host's, that is an MCP Apps view and bridges to an MCP session of the program (Section 9).                                                                          |
 
 The table grows with this document; a name in `hello.views` that a host does not know is a
 kind it does not open, and it leaves it out of its `welcome` (Section 5.2). The program names
@@ -465,7 +466,8 @@ token did not list is refused as `unsupported` (Section 6.4).
 
 For now `web` is the MCP bridge of Section 9 and nothing else: the messages of Section 8.8
 (a view's and its program's own `msg` objects) do not apply to it, and the `msg` of a web view
-is the JSON-RPC message of Section 9.2.
+is the JSON-RPC message of Section 9.2. The kinds `wasm` and `lua` are the **views the host
+draws itself** (Section 8.8): they have a bundle for an entry and no MCP session.
 
 ## 6. Opening a view
 
@@ -531,10 +533,10 @@ having switched to the alternate screen (Section 6.5):
   token. REQUIRED. The host does not work it out from the bundle;
 - `tool`: the name of the tool whose `_meta.ui.resourceUri` names the view (MCP
   Apps § Resource Discovery), and the `arguments` to call it with; REQUIRED for a `web` view.
-  A `wasm` view has no tool (Section 8.8);
-- `bundle`: OPTIONAL for a `web` view, the bundle of Section 8; REQUIRED for a `wasm` view.
-  The `type` of its entry has to be that of the kind: `text/html` for `web`, `application/wasm`
-  for `wasm`.
+  A `wasm` or `lua` view has no tool (Section 8.8);
+- `bundle`: OPTIONAL for a `web` view, the bundle of Section 8; REQUIRED for a `wasm` or `lua`
+  view. The `type` of its entry has to be that of the kind: `text/html` for `web`,
+  `application/wasm` for `wasm`, `text/x-lua` for `lua`.
 
 ```frame fixtures/to-host/open.frame
 <ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","tool":{"name":"list_containers","arguments":{}}}<ESC>\
@@ -546,15 +548,15 @@ The host checks an `open` in this order and stops at the first that fails; it
 answers a failure with a `closed` message whose `re` is the open's id,
 `reason` is `refused` and `code` is:
 
-| `code`        | When                                                                                                                                                                                               |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `token`       | The payload has no string `token`, or it is not the outstanding token. Checked before anything else in the payload.                                                                                |
-| `busy`        | A view is already opening or open in this pane.                                                                                                                                                    |
-| `screen`      | The pane is not on the alternate screen (Section 6.5). A host SHOULD refuse so.                                                                                                                    |
-| `manifest`    | The payload or the bundle manifest is malformed (Section 8.2): no `view`, a `web` view with no tool, a `wasm` view with no bundle, or an entry whose type is not that of the `view` (Section 6.3). |
-| `limit`       | A limit of Section 8.2 is exceeded.                                                                                                                                                                |
-| `unsupported` | The host does not support what was asked: a `view` that the `welcome` of the token did not list (or that is not in the table of Section 5.5), or a bundle without the `bundle` feature.            |
-| `policy`      | The host's own policy, or the person's, refuses.                                                                                                                                                   |
+| `code`        | When                                                                                                                                                                                                        |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `token`       | The payload has no string `token`, or it is not the outstanding token. Checked before anything else in the payload.                                                                                         |
+| `busy`        | A view is already opening or open in this pane.                                                                                                                                                             |
+| `screen`      | The pane is not on the alternate screen (Section 6.5). A host SHOULD refuse so.                                                                                                                             |
+| `manifest`    | The payload or the bundle manifest is malformed (Section 8.2): no `view`, a `web` view with no tool, a `wasm` or `lua` view with no bundle, or an entry whose type is not that of the `view` (Section 6.3). |
+| `limit`       | A limit of Section 8.2 is exceeded.                                                                                                                                                                         |
+| `unsupported` | The host does not support what was asked: a `view` that the `welcome` of the token did not list (or that is not in the table of Section 5.5), or a bundle without the `bundle` feature.                     |
+| `policy`      | The host's own policy, or the person's, refuses.                                                                                                                                                            |
 
 A refusal MUST NOT disturb a view that is already opening or open. A receiver
 treats a code it does not know as a refusal without a reason.
@@ -766,28 +768,36 @@ that offers a bundle SHOULD also serve a single self-contained document at the
 same `ui://` resource, so that MCP Apps hosts that know nothing of bundles — the
 same tool started over stdio by a chat client — can show the view (Section 13).
 
-### 8.8 WebAssembly views
+### 8.8 Views the host draws itself
 
-A view need not be a web page. A view of the kind `wasm` (Section 5.5) is a **WebAssembly
-view**: the entry of its bundle, whose media type is `application/wasm`, is a WebAssembly
-component (the component model's binary format) that the host runs in a sandbox of its own and
-draws itself, in the terminal's font and theme, without a web view. What the component is given and
-may ask of the host is an interface the host and the component share, and it is not part of this
-document. This document defines how such a view is opened, how it and its program exchange
-messages, and when it ends.
+A view need not be a web page. A view of the kind `wasm` or `lua` (Section 5.5) is one the host
+draws itself, in the terminal's font and theme, without a web view and with no MCP session:
 
-A host that shows WebAssembly views offers `wasm` in the `views` of its `welcome` (Section 5.2),
-when the program listed it and the host takes bundles, because the component arrives as a
-bundle. A program sends such an `open` only to a host that offered the kind; a host that did not
-refuses one with `unsupported` (Section 6.4). A bundle that is not a component, sent with the
-kind `wasm`, and a component sent with the kind `web`, are refused with `manifest`: the host does not
-decide the kind from the entry, and it does not guess.
+- a **WebAssembly view** (`wasm`): the entry of its bundle, whose media type is `application/wasm`,
+  is a WebAssembly component (the component model's binary format) that the host runs in a sandbox
+  of its own. What the component is given and may ask of the host is an interface the host and the
+  component share, and it is not part of this document;
+- a **Lua view** (`lua`): the entry of its bundle, whose media type is `text/x-lua`, is the text of
+  a script in the Lua language (Luau). The host runs it in the same kind of sandbox, with an
+  interpreter that is itself such a component; what the script is given and may ask of the host is
+  that same interface, in the interpreter's terms, and it is not part of this document either. The
+  script is source text: a host does not load compiled code from a program.
+
+This document defines how such a view is opened, how it and its program exchange messages, and
+when it ends. Everything below holds for both kinds; "the view" is the component or the script.
+
+A host that shows such views offers `wasm`, `lua` or both in the `views` of its `welcome`
+(Section 5.2), when the program listed them and the host takes bundles, because the view arrives
+as a bundle. A program sends such an `open` only to a host that offered the kind; a host that did
+not refuses one with `unsupported` (Section 6.4). A bundle whose entry is not of the kind's type,
+sent with that kind, is refused with `manifest`: the host does not decide the kind from the
+entry, and it does not guess.
 
 ```frame fixtures/to-program/welcome-wasm.frame
 <ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":["wasm","web"]}<ESC>\
 ```
 
-The `open` of a WebAssembly view differs from that of a web view in three ways:
+The `open` of such a view differs from that of a web view in three ways:
 
 - there is no `tool`, and one that is present is not read. There is no MCP session: Sections 9.3
   to 9.6 do not apply;
@@ -796,7 +806,7 @@ The `open` of a WebAssembly view differs from that of a web view in three ways:
   tool's `title`) and, like those, are text the program wrote, so the host cuts them and leaves out
   control characters and bidirectional overrides before it draws them in its own interface
   (Section 12.4);
-- `bundle.meta` is not read. The component reaches nothing that the host does not hand it, so there
+- `bundle.meta` is not read. The view reaches nothing that the host does not hand it, so there
   are no domains to ask the person about (Section 12.2). A network capability, if one is added, is
   an extension of this document.
 
@@ -804,36 +814,54 @@ The `open` of a WebAssembly view differs from that of a web view in three ways:
 <ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"wasm","program":"demopen","title":"Containers","bundle":{"entry":"view.wasm","files":[{"path":"view.wasm","sha256":"93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476","size":8,"type":"application/wasm"}]}}<ESC>\
 ```
 
+The `open` of a Lua view is the same with the kind `lua` and a script for its entry:
+
+```frame fixtures/to-host/open-lua.frame
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"lua","program":"demopen","title":"Containers","bundle":{"entry":"view.lua","files":[{"path":"view.lua","sha256":"7d06ba2f8d1d231826e549de62e88f14c83997c82437df8b44597470da66d081","size":34,"type":"text/x-lua"}]}}<ESC>\
+```
+
 The host asks for the files as for any bundle (Sections 8.3 and 8.4) and starts the view when it
 holds them. It MAY refuse an entry over a size of its own choosing with `limit` (Section 8.2), so
 a program must be ready for that.
 
-**Messages.** A `msg` of a WebAssembly view is one JSON object, written as Section 4.5 says, and the
-host does not read it: it hands the program's messages to the component and the component's to the
-program, whole and in order. What the objects mean is between the program and the component. The
+**Messages.** A `msg` of such a view is one JSON object, written as Section 4.5 says, and the
+host does not read it: it hands the program's messages to the view and the view's to the
+program, whole and in order. What the objects mean is between the program and the view. The
 host does this only while the view is open: a program's `msg` before the view runs, and any `msg`
 that is not an object, is dropped (Section 4.7), and **once the view has closed the host writes
-nothing the component says**, whatever ended it (the program's `bye` or `dismiss`, the person, the
+nothing the view says**, whatever ended it (the program's `bye` or `dismiss`, the person, the
 view's own failure, the end of the program), because whatever reads the tty next would take it for
 typed input (Section 4.8). The same holds from the moment the host writes a signal character for the
-program: what the component had said and the host had not yet written is dropped, not written after
-it. A program therefore does not expect a message of the component after the `closed` that ends its
+program: what the view had said and the host had not yet written is dropped, not written after
+it. A program therefore does not expect a message of the view after the `closed` that ends its
 view, or after its own `bye` or `dismiss`, and it must expect to lose the messages that were waiting
 when the person pressed ⌃C. A frame is never cut for any other end: the one under way is written
 whole, and what waits behind it is dropped.
 
-**Ending.** Section 10.2 runs without its first step: the component is not told and not waited for,
-it is stopped. A component that fails (it traps, goes over a limit the host holds it to, or hands
-the host something it cannot use) is closed as if the person had closed it, except that the
-program is told `closed` with `reason` `error` and `code` `view`. In every other way the lifecycle
-is that of Section 10: the program's `bye` and `dismiss`, the person closing the view and a restart
-(Section 10.7) end the view in the same way, and ⌃C goes to the program (Section 11.3).
+**Ending.** Section 10.2 runs without its first step: the view is not told and not waited for,
+it is stopped. A view that fails (a component traps, goes over a limit the host holds it to, or
+hands the host something it cannot use; a script makes an error) is closed as if the person had
+closed it, except that the program is told `closed` with `reason` `error` and `code` `view`, and
+with `message`: the words the view failed with, which for a script is its error and the line it is
+on. They are text the view wrote, so the host cuts them and leaves out control characters and
+bidirectional overrides, as it does for `program` and `title`, but it allows them more room for
+being an explanation. A program that wants its person to see them prints them once the terminal is
+its own again; the host does not write to the screen the program shares with the shell. A host
+that has nothing to say leaves `message` out.
+
+```frame fixtures/to-program/closed-error-view.frame
+<ESC>_pencere;closed;id=5,re=2;{"reason":"error","code":"view","message":"script:12: attempt to index nil with 'x'"}<ESC>\
+```
+
+In every other way the lifecycle is that of Section 10: the program's `bye` and `dismiss`, the
+person closing the view and a restart (Section 10.7) end the view in the same way, and ⌃C goes to
+the program (Section 11.3).
 
 ## 9. MCP bridge
 
 This section is what a view of the kind `web` (Section 5.5) is. It is the bridge to MCP and,
-for now, the only thing `web` means: the `msg` objects of a WebAssembly view (Section 8.8) are not
-messages of a web view, and a web view does not exchange them with its program.
+for now, the only thing `web` means: the `msg` objects of a view the host draws itself
+(Section 8.8) are not messages of a web view, and a web view does not exchange them with its program.
 
 ### 9.1 Roles
 
@@ -1284,13 +1312,15 @@ decoder. A host fetches none, so an icon cannot reveal who opened a program; it 
 images whose bytes it has checked and bounded; and it draws none in a question it asks in its
 own name (Section 7.3).
 
-**A WebAssembly view.** The component is untrusted code from a program the person may not
-control, and what it is given is the host's to decide (Section 8.8): the host runs it in a sandbox
-that gives it nothing it was not handed, and bounds its memory and time (Section 12.4). The
-messages between it and its program are a stream anyone can write to while the view is open — the
-rule of the first paragraph applies, since a process that can write the pane's output can send a
-`msg` — so a component treats what its program says as untrusted, and a program what its component
-says. What the component says is never written to the program once the view is over.
+**A view the host draws itself.** The component or the script is untrusted code from a program the
+person may not control, and what it is given is the host's to decide (Section 8.8): the host runs
+it in a sandbox that gives it nothing it was not handed, and bounds its memory and time
+(Section 12.4). The messages between it and its program are a stream anyone can write to while the
+view is open — the rule of the first paragraph applies, since a process that can write the pane's
+output can send a `msg` — so a view treats what its program says as untrusted, and a program what
+its view says. What the view says is never written to the program once the view is over. The words
+a failed view's `closed` carries (`message`) are the view's own and are printed by the program, not
+by the host: a program that prints them treats them as it treats any text from another party.
 
 **Resource use.** Frame, message and bundle limits (Sections 4.6, 8.2) bound what a
 receiver buffers; hosts SHOULD also limit how often one pane may ask (answers to `hello`,
@@ -1306,8 +1336,9 @@ There are two levels. **Core** is Sections 4 to 7, 9, 10 without 10.7 and 10.8, 
 adds bundles (Section 8), restart (Section 10.7), the program closing its view (Section 10.8) and
 the theme of Section 11.2. A host below Full does not list `bundle` or `dismiss` in its `features`
 for the part it lacks; a program below Full does not send a manifest or a `dismiss` and
-ignores an unsolicited `welcome`. WebAssembly views (Section 8.8) are on top of Full and optional:
-a host that shows them offers `wasm` in its `views`, and a program sends one only to a host that did.
+ignores an unsolicited `welcome`. Views the host draws itself (Section 8.8) are on top of Full and
+optional: a host that shows them offers `wasm`, `lua` or both in its `views`, and a program sends one
+only to a host that did.
 
 The fixtures of this repository are the conformance suite:
 
@@ -1351,10 +1382,10 @@ interface Welcome {
 interface Open {
   token: string;
   view: string; // one of the welcome's views (Section 6.3)
-  tool?: { name: string; arguments?: Record<string, unknown> }; // required for "web", not read for "wasm"
-  program?: string; // "wasm" only: what the program calls itself (Section 8.8)
-  title?: string; // "wasm" only: what the program calls the view
-  bundle?: Bundle; // required for "wasm", whose entry has the type application/wasm; for "web" the entry is text/html
+  tool?: { name: string; arguments?: Record<string, unknown> }; // required for "web", not read for "wasm" or "lua"
+  program?: string; // "wasm" or "lua" only: what the program calls itself (Section 8.8)
+  title?: string; // "wasm" or "lua" only: what the program calls the view
+  bundle?: Bundle; // required for "wasm" and "lua", whose entry has the type application/wasm or text/x-lua; for "web" the entry is text/html
 }
 
 interface Bundle {
@@ -1370,7 +1401,7 @@ interface Need {
 interface Closed {
   reason: "refused" | "error" | "user" | "view" | "program";
   code?: string;
-  message?: string; // for people; never parsed
+  message?: string; // for people; never parsed. A failed "wasm" or "lua" view says why (Section 8.8)
 }
 
 interface Bye {

@@ -8,6 +8,9 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ### Changed
 
+- `parseClosed` reads `message`, the words a view the host draws itself failed with (specification
+  §8.8). `.lua` files are served as `text/x-lua`.
+
 - The wire names the kind of view (specification §5.5). `hello` now lists `views` (`VIEWS`, `["web"]`:
   this library shows the MCP bridge), `open` says `view` (`openPayload` takes it), and a `welcome` is
   read for its `views`: the ones of the program's list the host opens. A host that opens none of them

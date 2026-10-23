@@ -60,6 +60,7 @@ limits are covered by files at the limit and one byte over.
 | `to-host/msg.frame`          | body, canonical | msg carrying an MCP initialize result. delivers msg#4; no errors.                                                                                            |
 | `to-host/msg-chunked.frame`  | body            | msg in three chunks of 100 payload bytes, the sender's choice. delivers msg#5; no errors.                                                                    |
 | `to-host/open-wasm.frame`    | body, canonical | open for a view that is a WebAssembly component: no tool, the program's and the view's names, an entry of type application/wasm. delivers open#2; no errors. |
+| `to-host/open-lua.frame`     | body, canonical | open for a view that is a Lua script: no tool, the program's and the view's names, an entry of type text/x-lua. delivers open#2; no errors.                  |
 | `to-host/bye.frame`          | body, canonical | bye after SIGINT, with the token the view was opened with. delivers bye#6; no errors.                                                                        |
 | `to-host/dismiss.frame`      | body, canonical | dismiss: the program closes its view and keeps running, with the token the view was opened with. delivers dismiss#6; no errors.                              |
 | `to-host/noise.frame`        | stream          | one hello among terminal output, a foreign APC and a frame of an unknown kind (delivered, then ignored by the receiver). delivers hello#1, zzz#2; no errors. |
@@ -70,26 +71,27 @@ limits are covered by files at the limit and one byte over.
 
 ### Host to program (`to-program`)
 
-| File                                    | Scope           | What it is and the expected result                                                                                              |
-| --------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `to-program/welcome.frame`              | body, canonical | the answer to a hello. delivers welcome#1(re=1); no errors.                                                                     |
-| `to-program/welcome-restart.frame`      | body, canonical | an unsolicited welcome that asks a program with an open view to open it again. delivers welcome#2; no errors.                   |
-| `to-program/welcome-unsupported.frame`  | body, canonical | the answer to a hello that shares no version with the host. delivers welcome#1(re=1); no errors.                                |
-| `to-program/welcome-wasm.frame`         | body, canonical | the answer of a host that shows WebAssembly views: wasm among the views. delivers welcome#1(re=1); no errors.                   |
-| `to-program/welcome-no-views.frame`     | body, canonical | the answer of a host that opens none of the kinds the program listed. delivers welcome#1(re=1); no errors.                      |
-| `to-program/need.frame`                 | body, canonical | the digests the host lacks. delivers need#2(re=2); no errors.                                                                   |
-| `to-program/need-empty.frame`           | body, canonical | the host has every file. delivers need#2(re=2); no errors.                                                                      |
-| `to-program/need-chunked.frame`         | body, canonical | twelve missing digests need three frames at the 511 byte limit. delivers need#2(re=2); no errors.                               |
-| `to-program/closed-refused.frame`       | body, canonical | an open that was refused. delivers closed#2(re=2); no errors.                                                                   |
-| `to-program/closed-user.frame`          | body, canonical | the person closed the view. delivers closed#5; no errors.                                                                       |
-| `to-program/closed-program.frame`       | body, canonical | the answer to a dismiss: the view is gone. delivers closed#5(re=6); no errors.                                                  |
-| `to-program/closed-error.frame`         | body, canonical | the bundle failed verification. delivers closed#5(re=2); no errors.                                                             |
-| `to-program/msg-initialize.frame`       | body, canonical | msg carrying an MCP initialize request. delivers msg#3; no errors.                                                              |
-| `to-program/msg-chunked.frame`          | body, canonical | a view's tools/call, longer than one frame, with non-ASCII text written as escapes. delivers msg#4; no errors.                  |
-| `to-program/noise.frame`                | stream          | a welcome followed by the terminal's answer to CSI c and stray typed bytes. delivers welcome#1(re=1); no errors.                |
-| `to-program/noise-around.frame`         | stream          | a welcome among typed bytes, another protocol's string and the terminal's answer to CSI c. delivers welcome#1(re=1); no errors. |
-| `to-program/noise-between-chunks.frame` | stream          | the three chunks of one message with typed text and a terminal answer between them. delivers msg#4; no errors.                  |
-| `to-program/limit-frame.frame`          | body, canonical | a frame of exactly 511 bytes is accepted. delivers msg#7; no errors.                                                            |
+| File                                    | Scope           | What it is and the expected result                                                                                                              |
+| --------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `to-program/welcome.frame`              | body, canonical | the answer to a hello. delivers welcome#1(re=1); no errors.                                                                                     |
+| `to-program/welcome-restart.frame`      | body, canonical | an unsolicited welcome that asks a program with an open view to open it again. delivers welcome#2; no errors.                                   |
+| `to-program/welcome-unsupported.frame`  | body, canonical | the answer to a hello that shares no version with the host. delivers welcome#1(re=1); no errors.                                                |
+| `to-program/welcome-wasm.frame`         | body, canonical | the answer of a host that shows WebAssembly views: wasm among the views. delivers welcome#1(re=1); no errors.                                   |
+| `to-program/welcome-no-views.frame`     | body, canonical | the answer of a host that opens none of the kinds the program listed. delivers welcome#1(re=1); no errors.                                      |
+| `to-program/need.frame`                 | body, canonical | the digests the host lacks. delivers need#2(re=2); no errors.                                                                                   |
+| `to-program/need-empty.frame`           | body, canonical | the host has every file. delivers need#2(re=2); no errors.                                                                                      |
+| `to-program/need-chunked.frame`         | body, canonical | twelve missing digests need three frames at the 511 byte limit. delivers need#2(re=2); no errors.                                               |
+| `to-program/closed-refused.frame`       | body, canonical | an open that was refused. delivers closed#2(re=2); no errors.                                                                                   |
+| `to-program/closed-user.frame`          | body, canonical | the person closed the view. delivers closed#5; no errors.                                                                                       |
+| `to-program/closed-program.frame`       | body, canonical | the answer to a dismiss: the view is gone. delivers closed#5(re=6); no errors.                                                                  |
+| `to-program/closed-error.frame`         | body, canonical | the bundle failed verification. delivers closed#5(re=2); no errors.                                                                             |
+| `to-program/closed-error-view.frame`    | body, canonical | closed for a view the host draws itself that failed: reason error, code view, and the words it failed with. delivers closed#5(re=2); no errors. |
+| `to-program/msg-initialize.frame`       | body, canonical | msg carrying an MCP initialize request. delivers msg#3; no errors.                                                                              |
+| `to-program/msg-chunked.frame`          | body, canonical | a view's tools/call, longer than one frame, with non-ASCII text written as escapes. delivers msg#4; no errors.                                  |
+| `to-program/noise.frame`                | stream          | a welcome followed by the terminal's answer to CSI c and stray typed bytes. delivers welcome#1(re=1); no errors.                                |
+| `to-program/noise-around.frame`         | stream          | a welcome among typed bytes, another protocol's string and the terminal's answer to CSI c. delivers welcome#1(re=1); no errors.                 |
+| `to-program/noise-between-chunks.frame` | stream          | the three chunks of one message with typed text and a terminal answer between them. delivers msg#4; no errors.                                  |
+| `to-program/limit-frame.frame`          | body, canonical | a frame of exactly 511 bytes is accepted. delivers msg#7; no errors.                                                                            |
 
 ### Refused, program to host
 

@@ -165,6 +165,11 @@ describe("a closed", () => {
       reason: "error",
       code: "bundle",
     });
+    expect(parseClosed(payloadOf("to-program/closed-error-view.frame"))).toEqual({
+      reason: "error",
+      code: "view",
+      message: "script:12: attempt to index nil with 'x'",
+    });
     expect(parseClosed(payloadOf("to-program/closed-user.frame"))).toEqual({ reason: "user" });
     expect(parseClosed(payloadOf("to-program/closed-program.frame"))).toEqual({
       reason: "program",

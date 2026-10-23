@@ -143,6 +143,8 @@ export interface Closed {
   readonly reason: ClosedReason;
   /** `token`, `busy`, `bundle`, `mcp`, ...; a code this library does not know is no more than the reason. */
   readonly code?: string;
+  /** For people, never parsed: why a view the host draws itself failed, for a script the error and its line (§8.8). */
+  readonly message?: string;
 }
 
 const REASONS: readonly string[] = ["refused", "error", "user", "view", "program"];
@@ -156,5 +158,9 @@ export function parseClosed(payload: string): Closed | undefined {
   const body = parseObject(payload);
   if (body === undefined || typeof body.reason !== "string") return undefined;
   const reason = REASONS.includes(body.reason) ? (body.reason as ClosedReason) : "error";
-  return typeof body.code === "string" ? { reason, code: body.code } : { reason };
+  return {
+    reason,
+    ...(typeof body.code === "string" ? { code: body.code } : {}),
+    ...(typeof body.message === "string" ? { message: body.message } : {}),
+  };
 }

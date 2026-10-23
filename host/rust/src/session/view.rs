@@ -170,9 +170,9 @@ impl<S: Store, E: Entropy> Session<S, E> {
             return;
         };
         let kind = envelope.kind();
-        // A WebAssembly view does not speak MCP Apps: what reaches here for one is not
-        // its message (§8.8).
-        if matches!(&self.phase, Phase::Live(live) if live.kind == super::ViewKind::Wasm) {
+        // A view the terminal draws itself does not speak MCP Apps: what reaches here for one is
+        // not its message (§8.8).
+        if matches!(&self.phase, Phase::Live(live) if live.kind.is_native()) {
             self.ignored();
             return;
         }

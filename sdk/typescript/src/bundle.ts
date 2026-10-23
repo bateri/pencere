@@ -128,6 +128,7 @@ const MEDIA_TYPES: Readonly<Record<string, string>> = {
   ".ttf": "font/ttf",
   ".otf": "font/otf",
   ".wasm": "application/wasm",
+  ".lua": "text/x-lua",
   ".mp3": "audio/mpeg",
   ".ogg": "audio/ogg",
   ".wav": "audio/wav",

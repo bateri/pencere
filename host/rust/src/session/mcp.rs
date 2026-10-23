@@ -269,10 +269,16 @@ fn is_hostile(c: char) -> bool {
 /// at a character, not at a grapheme) and without the blanks at its ends. `None`
 /// when nothing is left.
 pub(super) fn label(text: &str) -> Option<String> {
+    words(text, MAX_LABEL_CHARS)
+}
+
+/// `text` without the characters of [`is_hostile`], at most `most` characters and without the
+/// blanks at its ends: what a label is, for any length. `None` when nothing is left.
+pub(super) fn words(text: &str, most: usize) -> Option<String> {
     let kept: String = text
         .chars()
         .filter(|c| !is_hostile(*c))
-        .take(MAX_LABEL_CHARS)
+        .take(most)
         .collect();
     let kept = kept.trim();
     (!kept.is_empty()).then(|| kept.to_owned())

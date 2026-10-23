@@ -204,6 +204,9 @@ pub enum Refusal {
 /// a bundle's entry that makes the view one the terminal draws itself.
 pub const WASM_MEDIA_TYPE: &str = "application/wasm";
 
+/// The media type of the entry of a Lua view: the text of a script.
+pub const LUA_MEDIA_TYPE: &str = "text/x-lua";
+
 /// One file of a manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct File {

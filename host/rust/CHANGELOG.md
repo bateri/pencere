@@ -8,6 +8,12 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Changed
 
+- The `closed` of a view the terminal draws itself that failed (specification §8.8) carries `message`,
+  the words the view failed with (for a script its error and the line it is on). `Session::view_failed`
+  takes them; the session cuts them to `MAX_FAILURE_CHARS` and leaves out control characters and
+  bidirectional overrides, as it does for the names a program gives. `message::closed` takes the
+  message. `Config::wasm_entry_limit` is `native_entry_limit`: it holds the entry of a `lua` view too.
+
 - A believed `bye` is answered (specification §10.3): the host writes a `closed` with `re` set to
   the `bye`'s id and `reason` `program`, the last frame it writes for the view and the only one it
   writes for a program that has said it ended. A program that reads up to it has read everything
@@ -16,6 +22,10 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- Lua views (specification §8.8), the kind `lua`: the entry of the bundle is the text of a script
+  (`text/x-lua`), which the terminal runs in the sandbox it runs components in. Everything of a
+  `wasm` view holds for it (no MCP session, `msg` routed unread, nothing written once the view is
+  over). `ViewKind::Lua`, `ViewKind::is_native` (the kinds the terminal draws itself).
 - Kinds of view (specification §5.5), named in the handshake: `hello` has to list `views`, the
   kinds the program can show in its order of preference, and the `welcome` answers with `views`,
   that list without the kinds the host will not open (the host only eliminates; with none in common
