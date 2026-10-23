@@ -28,6 +28,7 @@
 //! window.
 
 mod mcp;
+mod native;
 mod view;
 
 use std::mem;
@@ -44,8 +45,8 @@ use crate::frame::{
 use crate::icon::Icon;
 use crate::jsonrpc::Id;
 use crate::message::{
-    self, Bye, Dismiss, FEATURE_BUNDLE, FEATURE_DISMISS, Hello, HostInfo, OpenBody, Reason,
-    SUPPORTED_VERSIONS, TokenProbe, ToolCall,
+    self, Bye, Dismiss, FEATURE_BUNDLE, FEATURE_DISMISS, FEATURE_WASM, Hello, HostInfo, OpenBody,
+    Reason, SUPPORTED_VERSIONS, TokenProbe, ToolCall,
 };
 use crate::sandbox::{Consent, Grant, UiMeta};
 use crate::theme::Theme;
@@ -110,6 +111,13 @@ pub struct Config {
     pub open_links: bool,
     /// Whether the host takes the view's log messages (`logging`).
     pub logging: bool,
+    /// Whether the host shows a view that is a WebAssembly component (lists `wasm` in its
+    /// `features`; specification §8.9). It needs `bundle`. Off by default: a terminal that draws
+    /// such a view itself turns it on.
+    pub wasm: bool,
+    /// The most bytes a WebAssembly view's entry may have; an `open` over it is refused with
+    /// `limit`. Cannot exceed what the bundle limits allow a file.
+    pub wasm_entry_limit: u64,
 }
 
 impl Config {
@@ -131,6 +139,8 @@ impl Config {
             },
             open_links: true,
             logging: true,
+            wasm: false,
+            wasm_entry_limit: crate::bundle::MAX_FILE_SIZE,
         }
     }
 }
@@ -184,20 +194,36 @@ pub enum ViewSource {
     Document(String),
 }
 
+/// What a view is made of, and so who draws it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ViewKind {
+    /// A web view: HTML, scripts and styles in a web view of the terminal's, talking MCP Apps
+    /// to the host (specification §9).
+    Web,
+    /// A WebAssembly component the terminal runs in its own sandbox and draws itself, talking
+    /// `msg` messages the host only routes (specification §8.9).
+    Wasm,
+}
+
 /// A view to start.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewStart {
+    /// What the view is made of.
+    pub kind: ViewKind,
     /// Where the document is.
     pub source: ViewSource,
     /// The view's metadata.
     pub meta: UiMeta,
     /// What the person allowed.
     pub grant: Grant,
-    /// The content security policy to enforce, built from `grant` only.
+    /// The content security policy to enforce, built from `grant` only. Empty for a
+    /// [`ViewKind::Wasm`] view, which has no document to apply it to.
     pub policy: String,
-    /// The value of the `allow` attribute of the view's frame.
+    /// The value of the `allow` attribute of the view's frame. Empty for a
+    /// [`ViewKind::Wasm`] view.
     pub allow: String,
-    /// The name of the tool the view shows the result of.
+    /// The name of the tool the view shows the result of. Empty for a [`ViewKind::Wasm`] view.
     pub tool: String,
     /// The name of the tool as a terminal may draw it: [`tool`](Self::tool) cut to
     /// [`MAX_LABEL_CHARS`] characters and cleaned the way [`title`](Self::title) is,
@@ -369,11 +395,15 @@ enum Stage {
 struct Opening {
     /// The id of the `open`, for the `re` of what answers it.
     open: u32,
+    kind: ViewKind,
     tool: ToolCall,
     bundle: Option<Manifest>,
     stage: Stage,
-    /// What the program calls itself, once its `initialize` has answered.
+    /// What the program calls itself: once its `initialize` has answered, or, for a
+    /// WebAssembly view, what its `open` said.
     program: Option<String>,
+    /// What a WebAssembly view's `open` called the view.
+    title: Option<String>,
     /// The icons the program gives for itself, once its `initialize` has answered.
     program_icons: Vec<Icon>,
     /// The lists the program said it announces changes of, once its `initialize`
@@ -420,6 +450,7 @@ struct Forward {
 }
 
 struct Live {
+    kind: ViewKind,
     tool: ToolCall,
     found: Found,
     tools: Vec<ToolEntry>,
@@ -690,10 +721,12 @@ impl<S: Store, E: Entropy> Session<S, E> {
         };
         let Opening {
             open,
+            kind,
             tool,
             bundle,
             stage,
             program,
+            title,
             program_icons,
             announces,
         } = *open;
@@ -707,10 +740,12 @@ impl<S: Store, E: Entropy> Session<S, E> {
         else {
             self.phase = Phase::Opening(Box::new(Opening {
                 open,
+                kind,
                 tool,
                 bundle,
                 stage,
                 program,
+                title,
                 program_icons,
                 announces,
             }));
@@ -839,12 +874,13 @@ impl<S: Store, E: Entropy> Session<S, E> {
     }
 
     /// What the `welcome` says the host supports: closing a view at the program's
-    /// request is part of every session, bundles are the configuration's.
+    /// request is part of every session, bundles are the configuration's, and so are
+    /// WebAssembly views, which are bundles.
     fn features(&self) -> &'static [&'static str] {
-        if self.config.bundle {
-            &[FEATURE_BUNDLE, FEATURE_DISMISS]
-        } else {
-            &[FEATURE_DISMISS]
+        match (self.config.bundle, self.config.wasm) {
+            (true, true) => &[FEATURE_BUNDLE, FEATURE_DISMISS, FEATURE_WASM],
+            (true, false) => &[FEATURE_BUNDLE, FEATURE_DISMISS],
+            (false, _) => &[FEATURE_DISMISS],
         }
     }
 
@@ -951,10 +987,6 @@ impl<S: Store, E: Entropy> Session<S, E> {
             self.refuse(message.id, "manifest");
             return;
         };
-        if body.tool.name.is_empty() {
-            self.refuse(message.id, "manifest");
-            return;
-        }
         let bundle = match body
             .bundle
             .map(|raw| Manifest::check(raw, self.config.limits))
@@ -970,9 +1002,46 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 return;
             }
         };
+        // A bundle whose entry is a WebAssembly component is a view the terminal draws
+        // itself: it has no tool and no MCP session (§8.9).
+        let kind = if bundle.as_ref().is_some_and(Manifest::is_wasm) {
+            ViewKind::Wasm
+        } else {
+            ViewKind::Web
+        };
+        let tool = match kind {
+            ViewKind::Wasm => ToolCall {
+                name: String::new(),
+                arguments: None,
+            },
+            _ => match body
+                .tool
+                .and_then(|tool| serde_json::from_value::<ToolCall>(tool).ok())
+            {
+                Some(tool) if !tool.name.is_empty() => tool,
+                _ => {
+                    self.refuse(message.id, "manifest");
+                    return;
+                }
+            },
+        };
         if bundle.is_some() && !self.config.bundle {
             self.refuse(message.id, "unsupported");
             return;
+        }
+        if kind == ViewKind::Wasm {
+            if !self.config.wasm {
+                self.refuse(message.id, "unsupported");
+                return;
+            }
+            let over = bundle
+                .as_ref()
+                .and_then(Manifest::entry_file)
+                .is_some_and(|entry| entry.size > self.config.wasm_entry_limit);
+            if over {
+                self.refuse(message.id, "limit");
+                return;
+            }
         }
         if !self.allow_opens {
             self.refuse(message.id, "policy");
@@ -993,15 +1062,17 @@ impl<S: Store, E: Entropy> Session<S, E> {
         self.view_token = spent;
         self.phase = Phase::Opening(Box::new(Opening {
             open: message.id,
-            tool: body.tool,
+            kind,
+            tool,
             bundle,
             stage,
-            program: None,
+            program: body.program.as_deref().and_then(mcp::label),
+            title: body.title.as_deref().and_then(mcp::label),
             program_icons: Vec::new(),
             announces: Announces::default(),
         }));
         if !waiting {
-            self.begin_mcp();
+            self.begin();
         }
     }
 
@@ -1034,6 +1105,16 @@ impl<S: Store, E: Entropy> Session<S, E> {
         }
     }
 
+    /// The files are here (or none were missing): a web view starts its MCP session with the
+    /// program, a WebAssembly view starts at once.
+    fn begin(&mut self) {
+        match &self.phase {
+            Phase::Opening(open) if open.kind == ViewKind::Wasm => self.begin_native(),
+            Phase::Opening(_) => self.begin_mcp(),
+            _ => {}
+        }
+    }
+
     fn files_complete(&mut self) {
         let held = match &self.phase {
             Phase::Opening(open) => open.bundle.as_ref().is_none_or(|m| m.is_held(&self.store)),
@@ -1041,7 +1122,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         };
         // A store may drop an entry at any time (§8.5), including one just kept.
         if held {
-            self.begin_mcp();
+            self.begin();
         } else {
             self.fail("bundle");
         }

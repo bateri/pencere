@@ -7,7 +7,7 @@ use serde_json::value::RawValue;
 
 use super::{
     Action, Announces, Found, Live, MAX_LABEL_CHARS, MAX_TOOL_PAGES, MAX_TOOLS, Opening, Phase,
-    Refresh, Session, Stage, ToolEntry, ViewSource, ViewStart, ViewState,
+    Refresh, Session, Stage, ToolEntry, ViewKind, ViewSource, ViewStart, ViewState,
 };
 use crate::base64;
 use crate::bundle::Store;
@@ -268,7 +268,7 @@ fn is_hostile(c: char) -> bool {
 /// the characters of [`is_hostile`], at most [`MAX_LABEL_CHARS`] characters (cut
 /// at a character, not at a grapheme) and without the blanks at its ends. `None`
 /// when nothing is left.
-fn label(text: &str) -> Option<String> {
+pub(super) fn label(text: &str) -> Option<String> {
     let kept: String = text
         .chars()
         .filter(|c| !is_hostile(*c))
@@ -407,6 +407,9 @@ impl<S: Store, E: Entropy> Session<S, E> {
     pub(super) fn on_msg(&mut self, message: &Message) {
         if matches!(self.phase, Phase::Idle) {
             self.ignored();
+            return;
+        }
+        if self.native_msg(message) {
             return;
         }
         let Some(envelope) = Envelope::parse(&message.payload) else {
@@ -685,6 +688,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         announces: Announces,
     ) {
         let start = ViewStart {
+            kind: ViewKind::Web,
             source,
             policy: sandbox::content_security_policy(&meta, &grant),
             allow: grant.allow_attribute(),
@@ -698,6 +702,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             grant: grant.clone(),
         };
         self.phase = Phase::Live(Box::new(Live {
+            kind: ViewKind::Web,
             tool,
             found,
             tools,

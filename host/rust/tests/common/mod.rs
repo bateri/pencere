@@ -109,7 +109,10 @@ pub fn session_of(
         .iter()
         .map(|t| token_bytes(t.as_str().unwrap()))
         .collect();
-    Session::new(self::config(&config["host"]), Held(held), issuing(issued))
+    let mut host = self::config(&config["host"]);
+    // A host that shows WebAssembly views says so in its entry.
+    host.wasm = config["wasm"].as_bool().unwrap_or(false);
+    Session::new(host, Held(held), issuing(issued))
 }
 
 /// The bodies of the frames of a stream, as a terminal's parser would hand them

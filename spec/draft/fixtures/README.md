@@ -59,6 +59,7 @@ limits are covered by files at the limit and one byte over.
 | `to-host/file-chunked.frame` | body            | file in two chunks of 60 base64 characters, the sender's choice. delivers file#3(d=bcc81d22…); no errors.                                                    |
 | `to-host/msg.frame`          | body, canonical | msg carrying an MCP initialize result. delivers msg#4; no errors.                                                                                            |
 | `to-host/msg-chunked.frame`  | body            | msg in three chunks of 100 payload bytes, the sender's choice. delivers msg#5; no errors.                                                                    |
+| `to-host/open-wasm.frame`    | body, canonical | open for a view that is a WebAssembly component: no tool, the program's and the view's names, an entry of type application/wasm. delivers open#2; no errors. |
 | `to-host/bye.frame`          | body, canonical | bye after SIGINT, with the token the view was opened with. delivers bye#6; no errors.                                                                        |
 | `to-host/dismiss.frame`      | body, canonical | dismiss: the program closes its view and keeps running, with the token the view was opened with. delivers dismiss#6; no errors.                              |
 | `to-host/noise.frame`        | stream          | one hello among terminal output, a foreign APC and a frame of an unknown kind (delivered, then ignored by the receiver). delivers hello#1, zzz#2; no errors. |
@@ -74,6 +75,7 @@ limits are covered by files at the limit and one byte over.
 | `to-program/welcome.frame`              | body, canonical | the answer to a hello. delivers welcome#1(re=1); no errors.                                                                     |
 | `to-program/welcome-restart.frame`      | body, canonical | an unsolicited welcome that asks a program with an open view to open it again. delivers welcome#2; no errors.                   |
 | `to-program/welcome-unsupported.frame`  | body, canonical | the answer to a hello that shares no version with the host. delivers welcome#1(re=1); no errors.                                |
+| `to-program/welcome-wasm.frame`         | body, canonical | the answer of a host that shows WebAssembly views: wasm among the features. delivers welcome#1(re=1); no errors.                |
 | `to-program/need.frame`                 | body, canonical | the digests the host lacks. delivers need#2(re=2); no errors.                                                                   |
 | `to-program/need-empty.frame`           | body, canonical | the host has every file. delivers need#2(re=2); no errors.                                                                      |
 | `to-program/need-chunked.frame`         | body, canonical | twelve missing digests need three frames at the 511 byte limit. delivers need#2(re=2); no errors.                               |
@@ -125,20 +127,22 @@ limits are covered by files at the limit and one byte over.
 
 ## Session fixtures
 
-| Session                   | What it shows                                                                                                       | Files                              |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `handshake`               | a hello is answered with a version and a token                                                                      | `session/handshake/`               |
-| `version-mismatch`        | a hello that shares no version gets no token                                                                        | `session/version-mismatch/`        |
-| `open-without-token`      | an open that carries no token is refused                                                                            | `session/open-without-token/`      |
-| `open-wrong-token`        | an open with a token the host never issued is refused                                                               | `session/open-wrong-token/`        |
-| `token-single-use`        | a token opens once; the second open with it is refused and the first goes on                                        | `session/token-single-use/`        |
-| `hello-replaces-token`    | a new hello invalidates the token of the previous one                                                               | `session/hello-replaces-token/`    |
-| `open-busy`               | a second view cannot open while one is opening                                                                      | `session/open-busy/`               |
-| `bundle-partial`          | the host names only the digests it lacks, in manifest order                                                         | `session/bundle-partial/`          |
-| `bundle-path-escape`      | a manifest path that leaves the bundle is refused                                                                   | `session/bundle-path-escape/`      |
-| `bye-needs-the-token`     | a bye without the token, or with another, ends nothing; the one with it does                                        | `session/bye-needs-the-token/`     |
-| `dismiss-and-reopen`      | a program closes its view without ending and opens one again; the second open finds its file in the store           | `session/dismiss-and-reopen/`      |
-| `dismiss-needs-the-token` | a dismiss closes the view only with the token that opened it; a token issued while the view was opening outlasts it | `session/dismiss-needs-the-token/` |
+| Session                   | What it shows                                                                                                                    | Files                              |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `handshake`               | a hello is answered with a version and a token                                                                                   | `session/handshake/`               |
+| `version-mismatch`        | a hello that shares no version gets no token                                                                                     | `session/version-mismatch/`        |
+| `open-without-token`      | an open that carries no token is refused                                                                                         | `session/open-without-token/`      |
+| `open-wrong-token`        | an open with a token the host never issued is refused                                                                            | `session/open-wrong-token/`        |
+| `token-single-use`        | a token opens once; the second open with it is refused and the first goes on                                                     | `session/token-single-use/`        |
+| `hello-replaces-token`    | a new hello invalidates the token of the previous one                                                                            | `session/hello-replaces-token/`    |
+| `open-busy`               | a second view cannot open while one is opening                                                                                   | `session/open-busy/`               |
+| `bundle-partial`          | the host names only the digests it lacks, in manifest order                                                                      | `session/bundle-partial/`          |
+| `bundle-path-escape`      | a manifest path that leaves the bundle is refused                                                                                | `session/bundle-path-escape/`      |
+| `bye-needs-the-token`     | a bye without the token, or with another, ends nothing; the one with it does                                                     | `session/bye-needs-the-token/`     |
+| `dismiss-and-reopen`      | a program closes its view without ending and opens one again; the second open finds its file in the store                        | `session/dismiss-and-reopen/`      |
+| `wasm-view`               | a host that shows WebAssembly views says so, asks for the component, hands the program's msg to the view and a dismiss closes it | `session/wasm-view/`               |
+| `wasm-unsupported`        | a host that does not show them does not say so and refuses such an open as unsupported                                           | `session/wasm-unsupported/`        |
+| `dismiss-needs-the-token` | a dismiss closes the view only with the token that opened it; a token issued while the view was opening outlasts it              | `session/dismiss-needs-the-token/` |
 
 Within a session directory the files are numbered by step, in the order of the conversation,
 `NN-in.frame` for what the program wrote and `NN-out.frame` for what the host writes back; a step

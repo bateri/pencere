@@ -756,6 +756,40 @@
       "canonical": false,
       "messages": [],
       "errors": ["chunk-order"]
+    },
+    {
+      "file": "to-host/open-wasm.frame",
+      "direction": "to-host",
+      "note": "open for a view that is a WebAssembly component: no tool, the program's and the view's names, a bundle whose entry has the type application/wasm",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "open",
+          "id": 2,
+          "control": {},
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"program\":\"demopen\",\"title\":\"Containers\",\"bundle\":{\"entry\":\"view.wasm\",\"files\":[{\"path\":\"view.wasm\",\"sha256\":\"93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476\",\"size\":8,\"type\":\"application/wasm\"}]}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/welcome-wasm.frame",
+      "direction": "to-program",
+      "note": "the answer of a host that shows WebAssembly views",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "welcome",
+          "id": 1,
+          "control": {
+            "re": "1"
+          },
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\",\"wasm\"]}"
+        }
+      ],
+      "errors": []
     }
   ],
   "session": [
@@ -1191,6 +1225,77 @@
         },
         {
           "out": "session/dismiss-needs-the-token/14-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "wasm-view",
+      "note": "a host that shows WebAssembly views lists wasm, asks for the component's file, hands the program's msg to the view without reading it, and a dismiss closes the view like any other",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": [],
+        "wasm": true
+      },
+      "steps": [
+        {
+          "in": "session/wasm-view/01-in.frame"
+        },
+        {
+          "out": "session/wasm-view/02-out.frame"
+        },
+        {
+          "in": "session/wasm-view/03-in.frame"
+        },
+        {
+          "out": "session/wasm-view/04-out.frame"
+        },
+        {
+          "in": "session/wasm-view/05-in.frame"
+        },
+        {
+          "out": null
+        },
+        {
+          "in": "session/wasm-view/07-in.frame"
+        },
+        {
+          "out": null
+        },
+        {
+          "in": "session/wasm-view/09-in.frame"
+        },
+        {
+          "out": "session/wasm-view/10-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "wasm-unsupported",
+      "note": "a host that does not show WebAssembly views does not list wasm and refuses such an open as unsupported",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/wasm-unsupported/01-in.frame"
+        },
+        {
+          "out": "session/wasm-unsupported/02-out.frame"
+        },
+        {
+          "in": "session/wasm-unsupported/03-in.frame"
+        },
+        {
+          "out": "session/wasm-unsupported/04-out.frame"
         }
       ]
     }

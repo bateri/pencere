@@ -200,6 +200,10 @@ pub enum Refusal {
     Limit,
 }
 
+/// The media type of a view that is a WebAssembly component (specification §8.9): the `type` of
+/// a bundle's entry that makes the view one the terminal draws itself.
+pub const WASM_MEDIA_TYPE: &str = "application/wasm";
+
 /// One file of a manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct File {
@@ -306,6 +310,19 @@ impl Manifest {
     /// The path of the document.
     pub fn entry(&self) -> &str {
         &self.entry
+    }
+
+    /// The entry's file. A manifest always has one: `entry` is checked to be a path of the
+    /// list.
+    pub fn entry_file(&self) -> Option<&File> {
+        self.file(&self.entry)
+    }
+
+    /// Whether the entry is a WebAssembly component ([`WASM_MEDIA_TYPE`]): the manifest of a
+    /// view the terminal draws itself, not of a web view.
+    pub fn is_wasm(&self) -> bool {
+        self.entry_file()
+            .is_some_and(|file| file.media_type == WASM_MEDIA_TYPE)
     }
 
     /// The files, in the order the manifest lists them.

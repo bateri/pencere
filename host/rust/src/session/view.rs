@@ -170,6 +170,12 @@ impl<S: Store, E: Entropy> Session<S, E> {
             return;
         };
         let kind = envelope.kind();
+        // A WebAssembly view does not speak MCP Apps: what reaches here for one is not
+        // its message (§8.9).
+        if matches!(&self.phase, Phase::Live(live) if live.kind == super::ViewKind::Wasm) {
+            self.ignored();
+            return;
+        }
         match self.take() {
             Phase::Live(mut live) => {
                 let end = self.live_message(&mut live, kind, &envelope);

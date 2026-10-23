@@ -216,17 +216,17 @@ the frame as written: `ESC _ pencere;`, kind, `;`, control, `;`, payload,
 
 ### 4.5 Message kinds
 
-| Kind      | Direction    | Payload                                         | First-chunk parameters                           | Section |
-| --------- | ------------ | ----------------------------------------------- | ------------------------------------------------ | ------- |
-| `hello`   | `to-host`    | JSON `Hello`                                    | none                                             | 5       |
-| `welcome` | `to-program` | JSON `Welcome`                                  | `re`: the hello answered; none when unsolicited  | 5, 10.7 |
-| `open`    | `to-host`    | JSON `Open`                                     | none                                             | 6       |
-| `need`    | `to-program` | JSON `Need`                                     | `re`: the open answered                          | 8.3     |
-| `file`    | `to-host`    | base64 (RFC 4648 § 4, with padding) of one file | `d`: its digest                                  | 8.4     |
-| `msg`     | both         | one JSON-RPC 2.0 message                        | none                                             | 9       |
-| `closed`  | `to-program` | JSON `Closed`                                   | `re`: the open or the dismiss it answers, if any | 6.4, 10 |
-| `bye`     | `to-host`    | JSON `Bye`                                      | none                                             | 10.3    |
-| `dismiss` | `to-host`    | JSON `Dismiss`                                  | none                                             | 10.8    |
+| Kind      | Direction    | Payload                                          | First-chunk parameters                           | Section |
+| --------- | ------------ | ------------------------------------------------ | ------------------------------------------------ | ------- |
+| `hello`   | `to-host`    | JSON `Hello`                                     | none                                             | 5       |
+| `welcome` | `to-program` | JSON `Welcome`                                   | `re`: the hello answered; none when unsolicited  | 5, 10.7 |
+| `open`    | `to-host`    | JSON `Open`                                      | none                                             | 6       |
+| `need`    | `to-program` | JSON `Need`                                      | `re`: the open answered                          | 8.3     |
+| `file`    | `to-host`    | base64 (RFC 4648 § 4, with padding) of one file  | `d`: its digest                                  | 8.4     |
+| `msg`     | both         | one JSON-RPC 2.0 message, or a JSON object (8.8) | none                                             | 9, 8.8  |
+| `closed`  | `to-program` | JSON `Closed`                                    | `re`: the open or the dismiss it answers, if any | 6.4, 10 |
+| `bye`     | `to-host`    | JSON `Bye`                                       | none                                             | 10.3    |
+| `dismiss` | `to-host`    | JSON `Dismiss`                                   | none                                             | 10.8    |
 
 The JSON types are in Appendix A. A sender MUST NOT send a kind in a direction
 the table does not list. A receiver MUST ignore a message of a kind it does not
@@ -375,8 +375,8 @@ and `re` set to the hello's id. If there is none, it answers with `supported`
 and `host` only.
 
 `features` lists the optional parts of this document the host supports: `bundle`
-(Section 8.1) and `dismiss` (Section 10.8). A program uses only what is listed and
-ignores a name it does not know.
+(Section 8.1), `dismiss` (Section 10.8) and `wasm` (Section 8.8). A program uses only
+what is listed and ignores a name it does not know.
 
 ```frame fixtures/session/handshake/02-out.frame
 <ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"]}<ESC>\
@@ -485,8 +485,9 @@ having switched to the alternate screen (Section 6.5):
 
 - `token`: the token from the `welcome`;
 - `tool`: the name of the tool whose `_meta.ui.resourceUri` names the view (MCP
-  Apps § Resource Discovery), and the `arguments` to call it with;
-- `bundle`: OPTIONAL, the bundle of Section 8.
+  Apps § Resource Discovery), and the `arguments` to call it with; a view that is a
+  WebAssembly component has no tool (Section 8.8);
+- `bundle`: OPTIONAL, the bundle of Section 8; REQUIRED for a WebAssembly view.
 
 ```frame fixtures/to-host/open.frame
 <ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","tool":{"name":"list_containers","arguments":{}}}<ESC>\
@@ -717,6 +718,61 @@ If it uses a bundle, the host MUST NOT fetch the view's document with
 that offers a bundle SHOULD also serve a single self-contained document at the
 same `ui://` resource, so that MCP Apps hosts that know nothing of bundles — the
 same tool started over stdio by a chat client — can show the view (Section 13).
+
+### 8.8 WebAssembly views
+
+A view need not be a web page. A bundle whose entry has the media type `application/wasm` is a
+**WebAssembly view**: the entry is a WebAssembly component (the component model's binary format)
+that the host runs in a sandbox of its own and draws itself, in the terminal's font and theme,
+without a web view. What the component is given and may ask of the host is an interface the host
+and the component share, and it is not part of this document. This document defines how such a view
+is opened, how it and its program exchange messages, and when it ends.
+
+A host that shows WebAssembly views lists `wasm` in the `features` of its `welcome` (Section 5.2),
+and `bundle` with it, because the component arrives as a bundle. A program sends such an `open`
+only to a host that listed both; a host that did not refuses one with `unsupported` (Section 6.4).
+
+```frame fixtures/to-program/welcome-wasm.frame
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss","wasm"]}<ESC>\
+```
+
+The `open` of a WebAssembly view differs from that of a web view in three ways:
+
+- there is no `tool`, and one that is present is not read. There is no MCP session: Sections 9.3
+  to 9.6 do not apply;
+- `program` and `title` are OPTIONAL strings: what the program calls itself and what it calls the
+  view. They take the place of what the host of a web view reads from MCP (`serverInfo` and the
+  tool's `title`) and, like those, are text the program wrote, so the host cuts them and leaves out
+  control characters and bidirectional overrides before it draws them in its own interface
+  (Section 12.4);
+- `bundle.meta` is not read. The component reaches nothing that the host does not hand it, so there
+  are no domains to ask the person about (Section 12.2). A network capability, if one is added, is
+  an extension of this document.
+
+```frame fixtures/to-host/open-wasm.frame
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","program":"demopen","title":"Containers","bundle":{"entry":"view.wasm","files":[{"path":"view.wasm","sha256":"93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476","size":8,"type":"application/wasm"}]}}<ESC>\
+```
+
+The host asks for the files as for any bundle (Sections 8.3 and 8.4) and starts the view when it
+holds them. It MAY refuse an entry over a size of its own choosing with `limit` (Section 8.2), so
+a program must be ready for that.
+
+**Messages.** A `msg` of a WebAssembly view is one JSON object, written as Section 4.5 says, and the
+host does not read it: it hands the program's messages to the component and the component's to the
+program, whole and in order. What the objects mean is between the program and the component. The
+host does this only while the view is open: a program's `msg` before the view runs, and any `msg`
+that is not an object, is dropped (Section 4.7), and **once the view has closed the host writes
+nothing the component says**, whatever ended it (the program's `bye` or `dismiss`, the person, the
+view's own failure, the end of the program), because whatever reads the tty next would take it for
+typed input (Section 4.8). A program therefore does not expect a message of the component after the
+`closed` that ends its view, or after its own `bye` or `dismiss`.
+
+**Ending.** Section 10.2 runs without its first step: the component is not told and not waited for,
+it is stopped. A component that fails (it traps, goes over a limit the host holds it to, or hands
+the host something it cannot use) is closed as if the person had closed it, except that the
+program is told `closed` with `reason` `error` and `code` `view`. In every other way the lifecycle
+is that of Section 10: the program's `bye` and `dismiss`, the person closing the view and a restart
+(Section 10.7) end the view in the same way, and ⌃C goes to the program (Section 11.3).
 
 ## 9. MCP bridge
 
@@ -1138,6 +1194,14 @@ decoder. A host fetches none, so an icon cannot reveal who opened a program; it 
 images whose bytes it has checked and bounded; and it draws none in a question it asks in its
 own name (Section 7.3).
 
+**A WebAssembly view.** The component is untrusted code from a program the person may not
+control, and what it is given is the host's to decide (Section 8.8): the host runs it in a sandbox
+that gives it nothing it was not handed, and bounds its memory and time (Section 12.4). The
+messages between it and its program are a stream anyone can write to while the view is open — the
+rule of the first paragraph applies, since a process that can write the pane's output can send a
+`msg` — so a component treats what its program says as untrusted, and a program what its component
+says. What the component says is never written to the program once the view is over.
+
 **Resource use.** Frame, message and bundle limits (Sections 4.6, 8.2) bound what a
 receiver buffers; hosts SHOULD also limit how often one pane may ask (answers to `hello`,
 `open`).
@@ -1152,7 +1216,8 @@ There are two levels. **Core** is Sections 4 to 7, 9, 10 without 10.7 and 10.8, 
 adds bundles (Section 8), restart (Section 10.7), the program closing its view (Section 10.8) and
 the theme of Section 11.2. A host below Full does not list `bundle` or `dismiss` in its `features`
 for the part it lacks; a program below Full does not send a manifest or a `dismiss` and
-ignores an unsolicited `welcome`.
+ignores an unsolicited `welcome`. WebAssembly views (Section 8.8) are on top of Full and optional:
+a host that shows them lists `wasm`, and a program sends one only to a host that did.
 
 The fixtures of this repository are the conformance suite:
 
@@ -1186,15 +1251,17 @@ interface Welcome {
   version?: number; // present with token, absent with supported
   token?: string;
   host: { name: string; version: string };
-  features?: string[]; // "bundle" (Section 8.1), "dismiss" (Section 10.8)
+  features?: string[]; // "bundle" (Section 8.1), "dismiss" (Section 10.8), "wasm" (Section 8.8)
   restart?: boolean; // true on an unsolicited welcome
   supported?: number[]; // present when no version is shared
 }
 
 interface Open {
   token: string;
-  tool: { name: string; arguments?: Record<string, unknown> };
-  bundle?: Bundle;
+  tool?: { name: string; arguments?: Record<string, unknown> }; // absent for a WebAssembly view
+  program?: string; // WebAssembly view only: what the program calls itself (Section 8.8)
+  title?: string; // WebAssembly view only: what the program calls the view
+  bundle?: Bundle; // required for a WebAssembly view, whose entry has the type application/wasm
 }
 
 interface Bundle {
@@ -1224,7 +1291,7 @@ interface Dismiss {
 ```
 
 Codes of `Closed`: for `refused`, those of Section 6.4; for `error`, `bundle` (Section 8.4),
-`mcp` (Section 9.3), `timeout` and `internal`. A receiver treats a code it does not know as
+`mcp` (Section 9.3), `view` (Section 8.8), `timeout` and `internal`. A receiver treats a code it does not know as
 the plain reason.
 
 ## Appendix B. The tty's input queue

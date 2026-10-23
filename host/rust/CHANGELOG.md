@@ -6,6 +6,25 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- WebAssembly views (specification §8.8): a bundle whose entry has the media type `application/wasm`
+  is a view the terminal runs in a sandbox of its own and draws itself. `Config::wasm` (off by
+  default) makes the host list `wasm` in the `features` of its `welcome` and take such an `open`,
+  without a `tool`, with an optional `program` and `title`, and without an MCP session: the view
+  starts as soon as the files are held, `ViewStart::kind` is `ViewKind::Wasm`, and `policy`, `allow`
+  and `tool` are empty. A host with `wasm` off refuses the `open` with `unsupported`;
+  `Config::wasm_entry_limit` refuses a component over a size of the host's choosing with `limit`.
+  The program's `msg` reaches the terminal as `Action::ToView`, unread (a JSON object, and only
+  while the view is open); `Session::module_message` writes the component's message to the program,
+  and writes nothing once the view is over, however it ended, so a late message cannot reach the
+  tty as typed input. `Session::view_failed` closes a view that failed and tells the program
+  `closed` with `reason` `error` and `code` `view`.
+- `ViewStart::kind` (`ViewKind`, `#[non_exhaustive]`), `Config::wasm`, `Config::wasm_entry_limit`,
+  `Manifest::entry_file`, `Manifest::is_wasm`, `bundle::WASM_MEDIA_TYPE`, `message::FEATURE_WASM`.
+  `ViewStart` and `Config` are not `#[non_exhaustive]`, so a terminal that builds one itself adds
+  the fields.
+
 ## [0.1.0] - 2026-10-21
 
 ### Added

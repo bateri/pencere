@@ -33,6 +33,11 @@ pub const FEATURE_BUNDLE: &str = "bundle";
 /// sends `dismiss` (specification §10.8).
 pub const FEATURE_DISMISS: &str = "dismiss";
 
+/// A feature a host may list in its `welcome`: it shows a view that is a WebAssembly component
+/// ([`crate::bundle::WASM_MEDIA_TYPE`]), drawn by the terminal itself, and routes the `msg`
+/// messages between the program and that component (specification §8.9).
+pub const FEATURE_WASM: &str = "wasm";
+
 /// The program's `hello`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Hello {
@@ -250,9 +255,19 @@ pub(crate) fn probe_token(payload: &str) -> TokenProbe {
 /// The rest of an `open`, read once its token has been accepted.
 #[derive(Debug, Deserialize)]
 pub(crate) struct OpenBody {
-    pub tool: ToolCall,
+    /// The tool the view shows the result of, as a [`ToolCall`] once the session knows it is
+    /// to read one. A view that is a WebAssembly component has no tool and no MCP session;
+    /// whatever `tool` it carries is not read.
+    #[serde(default)]
+    pub tool: Option<Value>,
     #[serde(default)]
     pub bundle: Option<RawBundle>,
+    /// What a WebAssembly view's program calls itself and the view (specification §8.9);
+    /// a web view takes both from MCP.
+    #[serde(default, deserialize_with = "string_or_none")]
+    pub program: Option<String>,
+    #[serde(default, deserialize_with = "string_or_none")]
+    pub title: Option<String>,
 }
 
 /// The tool an `open` asks to call.
