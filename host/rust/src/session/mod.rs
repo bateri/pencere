@@ -112,7 +112,7 @@ pub struct Config {
     /// Whether the host takes the view's log messages (`logging`).
     pub logging: bool,
     /// Whether the host shows a view that is a WebAssembly component (lists `wasm` in its
-    /// `features`; specification §8.9). It needs `bundle`. Off by default: a terminal that draws
+    /// `features`; specification §8.8). It needs `bundle`. Off by default: a terminal that draws
     /// such a view itself turns it on.
     pub wasm: bool,
     /// The most bytes a WebAssembly view's entry may have; an `open` over it is refused with
@@ -202,7 +202,7 @@ pub enum ViewKind {
     /// to the host (specification §9).
     Web,
     /// A WebAssembly component the terminal runs in its own sandbox and draws itself, talking
-    /// `msg` messages the host only routes (specification §8.9).
+    /// `msg` messages the host only routes (specification §8.8).
     Wasm,
 }
 
@@ -1003,7 +1003,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             }
         };
         // A bundle whose entry is a WebAssembly component is a view the terminal draws
-        // itself: it has no tool and no MCP session (§8.9).
+        // itself: it has no tool and no MCP session (§8.8).
         let kind = if bundle.as_ref().is_some_and(Manifest::is_wasm) {
             ViewKind::Wasm
         } else {

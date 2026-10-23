@@ -200,7 +200,7 @@ pub enum Refusal {
     Limit,
 }
 
-/// The media type of a view that is a WebAssembly component (specification §8.9): the `type` of
+/// The media type of a view that is a WebAssembly component (specification §8.8): the `type` of
 /// a bundle's entry that makes the view one the terminal draws itself.
 pub const WASM_MEDIA_TYPE: &str = "application/wasm";
 

@@ -1,4 +1,4 @@
-//! A view that is a WebAssembly component (specification §8.9) against a host session: what
+//! A view that is a WebAssembly component (specification §8.8) against a host session: what
 //! starts it, what is routed to and from it, and that nothing it says is written to the
 //! program once its view is over.
 

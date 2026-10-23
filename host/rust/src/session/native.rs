@@ -1,4 +1,4 @@
-//! A view that is a WebAssembly component (specification §8.9): the terminal runs it in its
+//! A view that is a WebAssembly component (specification §8.8): the terminal runs it in its
 //! own sandbox and draws it itself, and the host between the component and the program does
 //! nothing but route.
 //!
@@ -113,7 +113,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// A WebAssembly view ended on its own failure: the component trapped, went over a limit
     /// the terminal holds it to, or handed out something that is not a page. The view is
     /// closed as for any other end, and the program is told `closed` with `reason` `error` and
-    /// `code` `view` (§8.9).
+    /// `code` `view` (§8.8).
     pub fn view_failed(&mut self) {
         self.close(Cause::Failed("view"), None);
     }

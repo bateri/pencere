@@ -35,7 +35,7 @@ pub const FEATURE_DISMISS: &str = "dismiss";
 
 /// A feature a host may list in its `welcome`: it shows a view that is a WebAssembly component
 /// ([`crate::bundle::WASM_MEDIA_TYPE`]), drawn by the terminal itself, and routes the `msg`
-/// messages between the program and that component (specification §8.9).
+/// messages between the program and that component (specification §8.8).
 pub const FEATURE_WASM: &str = "wasm";
 
 /// The program's `hello`.
@@ -262,7 +262,7 @@ pub(crate) struct OpenBody {
     pub tool: Option<Value>,
     #[serde(default)]
     pub bundle: Option<RawBundle>,
-    /// What a WebAssembly view's program calls itself and the view (specification §8.9);
+    /// What a WebAssembly view's program calls itself and the view (specification §8.8);
     /// a web view takes both from MCP.
     #[serde(default, deserialize_with = "string_or_none")]
     pub program: Option<String>,
