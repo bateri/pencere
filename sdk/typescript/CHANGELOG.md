@@ -14,6 +14,9 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
   ends `serve` at once, with the `no-view` reason `no-common-view`, instead of after the wait for an
   answer. A host that does not name the kinds it opens (the draft before this change) is read as one
   that opens none.
+- The host answers a `bye` with a `closed` (specification §10.3). `serve` still gives the terminal
+  back in one synchronous step, as an `exit` handler needs, so it does not yet read up to that
+  answer before it leaves: what the host wrote and the program had not read can be left in the tty.
 
 ## [0.1.1] - 2026-10-21
 

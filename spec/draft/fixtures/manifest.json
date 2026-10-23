@@ -1112,7 +1112,7 @@
           "in": "session/bye-needs-the-token/11-in.frame"
         },
         {
-          "out": null
+          "out": "session/bye-needs-the-token/12-out.frame"
         },
         {
           "in": "session/bye-needs-the-token/13-in.frame"

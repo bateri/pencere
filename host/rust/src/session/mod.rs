@@ -1231,8 +1231,31 @@ impl<S: Store, E: Entropy> Session<S, E> {
         };
         if believed {
             self.program_ended();
+            self.answer_bye(message.id);
         } else {
             self.ignored();
+        }
+    }
+
+    /// The `closed` that answers a `bye` (§10.3): the one frame written for a program that has
+    /// said it ended, because it is still reading. It is the last thing the host writes, so
+    /// everything the host wrote before it comes ahead of it in the tty's queue, and the
+    /// program that reads up to it has read the lot. Without it, a frame written before the
+    /// host learned of the `bye` is read as typed input by whatever reads the tty next.
+    fn answer_bye(&mut self, bye: u32) {
+        let id = self.ids.next_id();
+        let message = Outgoing {
+            kind: "closed",
+            id,
+            re: Some(bye),
+            digest: None,
+            payload: &message::closed(Reason::Program, None),
+        };
+        let mut bytes = Vec::new();
+        if encode(Direction::ToProgram, &message, Split::Fill, &mut bytes).is_ok() {
+            self.actions.push(Action::Write(bytes));
+        } else {
+            self.diagnostics.unwritable = self.diagnostics.unwritable.saturating_add(1);
         }
     }
 

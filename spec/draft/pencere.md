@@ -216,17 +216,17 @@ the frame as written: `ESC _ pencere;`, kind, `;`, control, `;`, payload,
 
 ### 4.5 Message kinds
 
-| Kind      | Direction    | Payload                                          | First-chunk parameters                           | Section |
-| --------- | ------------ | ------------------------------------------------ | ------------------------------------------------ | ------- |
-| `hello`   | `to-host`    | JSON `Hello`                                     | none                                             | 5       |
-| `welcome` | `to-program` | JSON `Welcome`                                   | `re`: the hello answered; none when unsolicited  | 5, 10.7 |
-| `open`    | `to-host`    | JSON `Open`                                      | none                                             | 6       |
-| `need`    | `to-program` | JSON `Need`                                      | `re`: the open answered                          | 8.3     |
-| `file`    | `to-host`    | base64 (RFC 4648 § 4, with padding) of one file  | `d`: its digest                                  | 8.4     |
-| `msg`     | both         | one JSON-RPC 2.0 message, or a JSON object (8.8) | none                                             | 9, 8.8  |
-| `closed`  | `to-program` | JSON `Closed`                                    | `re`: the open or the dismiss it answers, if any | 6.4, 10 |
-| `bye`     | `to-host`    | JSON `Bye`                                       | none                                             | 10.3    |
-| `dismiss` | `to-host`    | JSON `Dismiss`                                   | none                                             | 10.8    |
+| Kind      | Direction    | Payload                                          | First-chunk parameters                            | Section |
+| --------- | ------------ | ------------------------------------------------ | ------------------------------------------------- | ------- |
+| `hello`   | `to-host`    | JSON `Hello`                                     | none                                              | 5       |
+| `welcome` | `to-program` | JSON `Welcome`                                   | `re`: the hello answered; none when unsolicited   | 5, 10.7 |
+| `open`    | `to-host`    | JSON `Open`                                      | none                                              | 6       |
+| `need`    | `to-program` | JSON `Need`                                      | `re`: the open answered                           | 8.3     |
+| `file`    | `to-host`    | base64 (RFC 4648 § 4, with padding) of one file  | `d`: its digest                                   | 8.4     |
+| `msg`     | both         | one JSON-RPC 2.0 message, or a JSON object (8.8) | none                                              | 9, 8.8  |
+| `closed`  | `to-program` | JSON `Closed`                                    | `re`: the open, dismiss or bye it answers, if any | 6.4, 10 |
+| `bye`     | `to-host`    | JSON `Bye`                                       | none (answered by a `closed`, 10.3)               | 10.3    |
+| `dismiss` | `to-host`    | JSON `Dismiss`                                   | none                                              | 10.8    |
 
 The JSON types are in Appendix A. A sender MUST NOT send a kind in a direction
 the table does not list. A receiver MUST ignore a message of a kind it does not
@@ -329,7 +329,13 @@ number of bytes while the program does not read (Appendix B).
   to take fewer bytes than it was given, and MUST keep the rest and write it as
   the tty accepts it. Nothing — a keystroke, another frame — may be written
   between the first and the last byte of a frame; a keystroke that arrives
-  meanwhile waits.
+  meanwhile waits. The one exception is a signal character (below).
+- A signal character flushes the tty's input (Appendix B, fact 4), so what is written after it
+  is read by whatever reads the tty next, and what is written before it and not yet read is gone.
+  A host that writes one (⌃C, ⌃\) for the program of a view MUST therefore put it **first**: it
+  drops everything of the view's component it has not written yet, including the rest of a frame
+  it has begun, and writes nothing of the component's after it. It does not wait for the frame
+  that was under way, and it does not write the character behind frames that are waiting.
 - Once the host knows the program has ended (Section 10.3) it MUST NOT write any frame, because
   whatever reads the tty next would receive it as typed input, until a `hello` shows that a program
   is reading again. A view that has closed is not the end of the program: the host still writes the
@@ -809,8 +815,12 @@ host does this only while the view is open: a program's `msg` before the view ru
 that is not an object, is dropped (Section 4.7), and **once the view has closed the host writes
 nothing the component says**, whatever ended it (the program's `bye` or `dismiss`, the person, the
 view's own failure, the end of the program), because whatever reads the tty next would take it for
-typed input (Section 4.8). A program therefore does not expect a message of the component after the
-`closed` that ends its view, or after its own `bye` or `dismiss`.
+typed input (Section 4.8). The same holds from the moment the host writes a signal character for the
+program: what the component had said and the host had not yet written is dropped, not written after
+it. A program therefore does not expect a message of the component after the `closed` that ends its
+view, or after its own `bye` or `dismiss`, and it must expect to lose the messages that were waiting
+when the person pressed ⌃C. A frame is never cut for any other end: the one under way is written
+whole, and what waits behind it is dropped.
 
 **Ending.** Section 10.2 runs without its first step: the component is not told and not waited for,
 it is stopped. A component that fails (it traps, goes over a limit the host holds it to, or hands
@@ -993,12 +1003,35 @@ write frames (Section 4.8).
 <ESC>_pencere;bye;id=6;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","reason":"signal"}<ESC>\
 ```
 
+**The answer to a `bye`.** A program that says `bye` is still reading, and the host cannot know
+when the program has read the last frame the host wrote. A frame the host wrote before it learned
+of the `bye` and the program did not read stays in the tty's queue (up to 1022 bytes on macOS,
+Appendix B), and the program's exit leaves it to whatever reads the tty next: a shell, which
+takes it for typed input. So the host answers a `bye` it believes with a `closed` whose `re` is
+the `bye`'s id and whose `reason` is `program` (the shape of the answer to a `dismiss`, Section
+10.8). It is the last thing the host writes for the view and the only frame it writes for a
+program that has said it ended; every frame it wrote before comes ahead of it in the queue.
+
+A program library that sent `bye` SHOULD therefore **read, and throw away, its input until that
+`closed` comes**, for a time it chooses (500 ms is RECOMMENDED), then discard what is left of its
+unread input (`tcflush` with `TCIFLUSH`), restore the terminal and exit. Reading up to the
+`closed` empties the queue; the flush covers a host that never answers. A host's answer that comes
+after the program stopped reading is the one frame this document cannot keep from a shell, which
+is why the wait is long enough to make that rare and short enough for a person not to see it.
+
+```frame fixtures/to-program/closed-program.frame
+<ESC>_pencere;closed;id=5,re=6;{"reason":"program"}<ESC>\
+```
+
 ### 10.4 Interrupt
 
 ⌃C goes to the program. With `ISIG` on, the tty turns the character into SIGINT
 for the foreground process group. A program library that opened a view SHOULD
-handle SIGINT by sending `bye` with reason `signal`, restoring the terminal
-(Section 4.9), leaving the alternate screen (Section 6.5) and exiting.
+handle SIGINT by sending `bye` with reason `signal`, waiting for its answer and throwing away what
+it has not read (Section 10.3), restoring the terminal (Section 4.9), leaving the alternate screen
+(Section 6.5) and exiting. The host writes the character ahead of anything of the view's component
+that is waiting, and writes none of it afterwards (Section 4.8): the interrupt does not queue behind
+the messages of a component that is saying a lot.
 
 ### 10.5 The person closes the view
 

@@ -223,6 +223,15 @@ fn open_payload(token: &str, bundle: Option<Value>) -> String {
 }
 
 /// The payload of a `bye` with the given token, as a program writes it.
+/// The one frame the host writes for a program that said `bye`: the `closed` that answers it
+/// (§10.3), and nothing else.
+fn assert_bye_answered(wrote: &[Message], bye: u32) {
+    assert_eq!(wrote.len(), 1, "{wrote:?}");
+    assert_eq!(wrote[0].kind, "closed");
+    assert_eq!(wrote[0].re(), Some(bye), "{wrote:?}");
+    assert_eq!(wrote[0].payload, r#"{"reason":"program"}"#);
+}
+
 fn bye(token: Option<&str>) -> String {
     match token {
         Some(token) => json!({"token": token, "reason": "signal"}).to_string(),
@@ -964,9 +973,10 @@ fn the_program_ending_tears_the_view_down_and_nothing_is_written_to_it() {
     let mut rig = running(None);
     view_handshake(&mut rig, true);
     rig.take();
-    rig.send("bye", None, None, &bye(Some(TOKENS[0])));
+    let said = rig.send("bye", None, None, &bye(Some(TOKENS[0])));
     let (wrote, acted) = rig.take();
-    assert!(wrote.is_empty(), "{wrote:?}");
+    // The program is still reading, waiting for the answer to its `bye`: the only frame.
+    assert_bye_answered(&wrote, said);
     // The view is told, and given the time to answer. The call of the tool is still out.
     let told: Vec<Value> = acted
         .iter()
@@ -1028,9 +1038,9 @@ fn a_bye_ends_the_view_only_with_the_token_that_opened_it() {
     assert!(wrote[0].payload.contains("busy"), "{wrote:?}");
     assert_eq!(rig.host.state(), State::Open);
     // The token that opened it ends it.
-    rig.send("bye", None, None, &bye(Some(TOKENS[0])));
+    let said = rig.send("bye", None, None, &bye(Some(TOKENS[0])));
     let (wrote, acted) = rig.take();
-    assert!(wrote.is_empty());
+    assert_bye_answered(&wrote, said);
     assert_eq!(rig.host.state(), State::Closing);
     let teardown = acted
         .iter()
@@ -1078,9 +1088,10 @@ fn a_bye_ends_an_open_that_is_still_waiting_for_files_and_one_that_is_closing() 
     assert_eq!(rig.host.state(), State::Opening);
     rig.send("bye", None, None, &bye(None));
     assert_eq!(rig.host.state(), State::Opening);
-    rig.send("bye", None, None, &bye(Some(&token)));
+    let said = rig.send("bye", None, None, &bye(Some(&token)));
     let (wrote, acted) = rig.take();
-    assert!(wrote.is_empty() && acted.is_empty(), "{wrote:?} {acted:?}");
+    assert_bye_answered(&wrote, said);
+    assert!(acted.is_empty(), "{acted:?}");
     assert_eq!(rig.host.state(), State::Ended);
 
     // A view being closed by the person: the program's `bye` with its token
@@ -1102,10 +1113,10 @@ fn a_bye_ends_an_open_that_is_still_waiting_for_files_and_one_that_is_closing() 
         })
         .expect("a teardown");
     rig.send("bye", None, None, &bye(Some(TOKENS[1])));
-    rig.send("bye", None, None, &bye(Some(TOKENS[0])));
+    let said = rig.send("bye", None, None, &bye(Some(TOKENS[0])));
     rig.view(&json!({"jsonrpc": "2.0", "id": teardown["id"], "result": {}}));
     let (wrote, _) = rig.take();
-    assert!(wrote.is_empty(), "{wrote:?}");
+    assert_bye_answered(&wrote, said);
     assert_eq!(rig.host.state(), State::Ended);
 }
 

@@ -6,6 +6,14 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- A believed `bye` is answered (specification §10.3): the host writes a `closed` with `re` set to
+  the `bye`'s id and `reason` `program`, the last frame it writes for the view and the only one it
+  writes for a program that has said it ended. A program that reads up to it has read everything
+  the host wrote before, so nothing the host had in flight when it learned of the `bye` is left in
+  the tty's queue for whatever reads the tty next.
+
 ### Added
 
 - Kinds of view (specification §5.5), named in the handshake: `hello` has to list `views`, the
