@@ -120,7 +120,11 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// own, so they are cut and cleaned of what a terminal would act on before they are passed
     /// on.
     pub fn view_failed(&mut self, why: &str) {
-        self.failure = mcp::words(why, MAX_FAILURE_CHARS);
+        // Only a view that is there has words to carry: a failure told late (the view is gone)
+        // must not leave them for the next, unrelated close.
+        if matches!(self.phase, Phase::Opening(_) | Phase::Live(_)) {
+            self.failure = mcp::words(why, MAX_FAILURE_CHARS);
+        }
         self.close(Cause::Failed("view"), None);
     }
 }

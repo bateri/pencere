@@ -687,3 +687,25 @@ fn the_words_a_view_failed_with_are_cut_and_cleaned_before_the_program_is_told_t
     let body: Value = serde_json::from_str(&rig.take()[0].payload).unwrap();
     assert_eq!(body, json!({ "reason": "error", "code": "view" }));
 }
+
+#[test]
+fn the_words_of_a_failure_told_when_no_view_is_up_are_not_left_for_another_close() {
+    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
+    rig.hello();
+    // No view yet: nothing to fail, nothing to remember.
+    rig.host.view_failed("script:1: late");
+    rig.collect();
+    rig.take();
+    // A bundle that fails verification is a close of its own, with its own code and no words.
+    rig.open(COMPONENT.len() as u64, json!({}));
+    rig.take();
+    let digest = Digest::of(COMPONENT).to_string();
+    rig.send(
+        "file",
+        Some(&digest),
+        &pencere::base64::encode(b"not the bytes"),
+    );
+    let wrote = rig.take();
+    let body: Value = serde_json::from_str(&wrote.last().unwrap().payload).unwrap();
+    assert_eq!(body, json!({ "reason": "error", "code": "bundle" }));
+}

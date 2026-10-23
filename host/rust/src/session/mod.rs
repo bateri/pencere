@@ -1463,6 +1463,8 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// of the program: `program_ended` has already forgotten what it ended, and a
     /// `hello` after it has already said there is a program again.
     fn finish(&mut self, cause: Cause, re: Option<u32>, destroy: bool) {
+        // The words of a view's failure are for the close of that failure and no other.
+        let words = self.failure.take();
         self.phase = Phase::Idle;
         if destroy {
             self.actions.push(Action::DestroyView);
@@ -1483,7 +1485,6 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 self.send("closed", re, &message::closed(Reason::View, None, None));
             }
             Cause::Failed(code) => {
-                let words = self.failure.take();
                 self.send(
                     "closed",
                     re,
