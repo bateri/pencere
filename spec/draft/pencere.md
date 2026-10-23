@@ -1033,6 +1033,11 @@ it has not read (Section 10.3), restoring the terminal (Section 4.9), leaving th
 that is waiting, and writes none of it afterwards (Section 4.8): the interrupt does not queue behind
 the messages of a component that is saying a lot.
 
+A program that goes on after the signal keeps its view on the screen but hears nothing more from
+it: the host cannot tell what the program wrote before it took the signal from what it writes
+after, so it does not start writing the component's words again. A program that wants its view
+to talk to it again ends it (`dismiss`, Section 10.8) and opens a new one.
+
 ### 10.5 The person closes the view
 
 A host MAY offer the person a way to close a view that the program has not ended
