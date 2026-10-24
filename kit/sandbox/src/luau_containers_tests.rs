@@ -14,12 +14,12 @@ use std::time::{Duration, Instant};
 
 use containers_page::{Containers, Reading};
 use pencere_view::{
-    Button, Element, Event, Id, Input, Key, Keyboard, Laid, Mods, Point, Reply, Size, Tone, div,
+    Button, Element, Event, Id, Input, Key, Keyboard, Laid, Mods, Point, Reply, Role, Size, div,
     layout, text,
 };
 
 use crate::guests_tests::{Open, Rough, SIZE};
-use crate::{Limits, Module, Program, Unbounded, Update};
+use crate::{Module, ModuleLimits, Program, Unbounded, Update};
 
 const SCRIPT: &str = include_str!("../../luau/examples/containers.lua");
 
@@ -33,11 +33,11 @@ const PATIENCE: Duration = Duration::from_secs(60);
 /// What these tests are about is the page and what it does, not how fast: a call may take as long
 /// as a machine running many tests at once makes it (the quarter of a second a module is held to
 /// is the sandbox tests' business).
-fn roomy() -> Limits {
-    Limits {
+fn roomy() -> ModuleLimits {
+    ModuleLimits {
         call: Duration::from_secs(20),
         start: Duration::from_secs(30),
-        ..Limits::default()
+        ..ModuleLimits::default()
     }
 }
 
@@ -420,7 +420,7 @@ impl Pair {
         let lua = self.answer();
         let native = match event {
             Event::Input(Input::Key {
-                key: Key::Char('U'),
+                key: Key::Character('U'),
                 mods,
             }) if !mods.any_command() => {
                 // The script's own key (the page nobody opened sends nothing).
@@ -586,15 +586,15 @@ fn the_keys_of_the_list_move_fold_mark_and_filter_it_as_the_engines_page_does() 
     let keys = [
         // Moving about.
         Key::Down,
-        Key::Char('j'),
+        Key::Character('j'),
         Key::Up,
-        Key::Char('k'),
+        Key::Character('k'),
         Key::PageDown,
         Key::PageUp,
         Key::End,
         Key::Home,
-        Key::Char('G'),
-        Key::Char('g'),
+        Key::Character('G'),
+        Key::Character('g'),
         // Folding the project the cursor is on, with ⏎, with ← and with →.
         Key::Enter,
         Key::Enter,
@@ -606,34 +606,34 @@ fn the_keys_of_the_list_move_fold_mark_and_filter_it_as_the_engines_page_does() 
         Key::Down,
         Key::Down,
         // Marking: one, a run, all, none.
-        Key::Char(' '),
-        Key::Char(' '),
-        Key::Char('a'),
-        Key::Char('A'),
-        Key::Char('A'),
+        Key::Character(' '),
+        Key::Character(' '),
+        Key::Character('a'),
+        Key::Character('A'),
+        Key::Character('A'),
         Key::Up,
         Key::Up,
-        Key::Char(' '),
-        Key::Char(' '),
-        Key::Char(' '),
+        Key::Character(' '),
+        Key::Character(' '),
+        Key::Character(' '),
         // The status filter cycles, the grouping flips.
-        Key::Char('f'),
-        Key::Char('f'),
-        Key::Char('f'),
-        Key::Char('f'),
-        Key::Char('P'),
+        Key::Character('f'),
+        Key::Character('f'),
+        Key::Character('f'),
+        Key::Character('f'),
+        Key::Character('P'),
         Key::Down,
         Key::Left,
-        Key::Char('P'),
+        Key::Character('P'),
         // A project's row marked (all its containers) and cleared.
         Key::Home,
-        Key::Char(' '),
-        Key::Char(' '),
+        Key::Character(' '),
+        Key::Character(' '),
         // Where the keyboard goes, the end of the page, and what is no key of the list's.
         Key::Tab,
-        Key::Char('/'),
-        Key::Char('u'),
-        Key::Char('1'),
+        Key::Character('/'),
+        Key::Character('u'),
+        Key::Character('1'),
         Key::Escape,
     ];
     for key in keys {
@@ -649,7 +649,7 @@ fn the_commands_of_the_list_act_on_the_cursor_row_and_on_the_marked_ones() {
     let mut pair = Pair::open(SIZE);
     // On `api`: stop it (a stopped one, `s` starts it), restart, pause and resume, its id.
     for letter in ['s', 's', 'r', 'p', 'p', 'y', 'K', 'r'] {
-        let reply = pair.key(Key::Char(letter));
+        let reply = pair.key(Key::Character(letter));
         if letter == 'y' {
             assert!(reply.copy.is_some(), "no id was copied");
         }
@@ -660,25 +660,25 @@ fn the_commands_of_the_list_act_on_the_cursor_row_and_on_the_marked_ones() {
         Key::Down,
         Key::Down,
         Key::Down,
-        Key::Char(' '),
-        Key::Char(' '),
-        Key::Char(' '),
-        Key::Char('s'),
-        Key::Char('p'),
-        Key::Char('K'),
-        Key::Char('s'),
+        Key::Character(' '),
+        Key::Character(' '),
+        Key::Character(' '),
+        Key::Character('s'),
+        Key::Character('p'),
+        Key::Character('K'),
+        Key::Character('s'),
         // A project's row: its containers.
-        Key::Char('A'),
+        Key::Character('A'),
         Key::Home,
-        Key::Char('y'),
-        Key::Char('r'),
+        Key::Character('y'),
+        Key::Character('r'),
         // Removing: a container, the ones marked, the whole of a project.
         Key::Down,
-        Key::Char('d'),
-        Key::Char(' '),
-        Key::Char('d'),
+        Key::Character('d'),
+        Key::Character(' '),
+        Key::Character('d'),
         Key::Home,
-        Key::Char('d'),
+        Key::Character('d'),
     ] {
         pair.key(key);
     }
@@ -691,7 +691,12 @@ fn the_commands_of_the_list_act_on_the_cursor_row_and_on_the_marked_ones() {
 fn the_keys_of_the_application_are_not_the_lists() {
     let mut pair = Pair::open(SIZE);
     // ⌘, ⌃ and ⌥ are the application's: the list reads none of them.
-    for key in [Key::Char('j'), Key::Down, Key::Char('s'), Key::Char('U')] {
+    for key in [
+        Key::Character('j'),
+        Key::Down,
+        Key::Character('s'),
+        Key::Character('U'),
+    ] {
         for mods in [
             command(),
             Mods {
@@ -699,7 +704,7 @@ fn the_keys_of_the_application_are_not_the_lists() {
                 ..Mods::default()
             },
             Mods {
-                option: true,
+                alt: true,
                 ..Mods::default()
             },
         ] {
@@ -707,8 +712,8 @@ fn the_keys_of_the_application_are_not_the_lists() {
         }
     }
     // Shift is not: a capital letter is typed with it.
-    pair.key_with(Key::Char('G'), shifted());
-    pair.key_with(Key::Char('A'), shifted());
+    pair.key_with(Key::Character('G'), shifted());
+    pair.key_with(Key::Character('A'), shifted());
 }
 
 // --- The filter ------------------------------------------------------------------------------
@@ -745,15 +750,15 @@ fn what_is_typed_in_the_filter_narrows_the_list_and_what_finds_nothing_says_so()
         pair.rest(30);
     }
     // With a status chosen, a filter that finds nothing says which state has no container.
-    pair.key(Key::Char('f'));
-    pair.key(Key::Char('f'));
+    pair.key(Key::Character('f'));
+    pair.key(Key::Character('f'));
     pair.event("nothing", Event::Text("zzz".into()));
     pair.event("nothing again", Event::Text(String::new()));
     pair.rest(30);
     // And so does a state with no container left in it: the issues, removed.
-    pair.key(Key::Char('f'));
-    pair.key(Key::Char('d'));
-    pair.key(Key::Char('f'));
+    pair.key(Key::Character('f'));
+    pair.key(Key::Character('d'));
+    pair.key(Key::Character('f'));
     pair.rest(30);
 }
 
@@ -883,7 +888,7 @@ fn under_reduce_motion_a_highlight_is_at_its_end_at_once() {
     assert!(!pair.animating, "the pointer lit a row slowly");
     pair.click("containers status stopped", Mods::default());
     pair.click("containers group", Mods::default());
-    pair.key(Key::Char('f'));
+    pair.key(Key::Character('f'));
     pair.event("api", Event::Text("api".into()));
     pair.input("the pointer left", Input::Leave);
     assert!(!pair.animating);
@@ -938,7 +943,7 @@ fn a_click_folds_a_project_and_chooses_the_status_the_grouping_and_a_row() {
             mods: Mods::default(),
         },
     );
-    assert_eq!(reply.keyboard, Some(Keyboard::Filter));
+    assert_eq!(reply.keyboard, Some(Keyboard::Field));
     pair.input(
         "the release on the filter",
         Input::Release {
@@ -1004,7 +1009,7 @@ fn a_click_with_a_modifier_marks_and_does_not_fold() {
     pair.click(
         "containers group blog",
         Mods {
-            option: true,
+            alt: true,
             ..Mods::default()
         },
     );
@@ -1063,17 +1068,17 @@ fn a_right_click_opens_the_menu_of_the_row_and_what_is_picked_is_done() {
     assert!(reply.menu.is_some());
     pair.event("start them", Event::MenuPick(0));
     pair.key(Key::Home);
-    pair.key(Key::Char('a'));
-    let reply = pair.key(Key::Char('.'));
+    pair.key(Key::Character('a'));
+    let reply = pair.key(Key::Character('.'));
     let menu = reply.menu.expect("the menu of the key");
     assert!(!menu.entries.is_empty());
     pair.event("kill them", Event::MenuPick(menu.entries.len() - 2));
     pair.rest(30);
     // The key that opens the menu, with nothing marked and the cursor on no row, and a press on
     // the filter.
-    pair.key(Key::Char('A'));
+    pair.key(Key::Character('A'));
     pair.event("a filter that finds nothing", Event::Text("zzz".into()));
-    let reply = pair.key(Key::Char('.'));
+    let reply = pair.key(Key::Character('.'));
     assert!(reply.menu.is_none());
     let at = pair.middle("containers filter");
     pair.input("a press on the filter", press(at));
@@ -1306,10 +1311,10 @@ fn with_note(list: Element, note: &str) -> Element {
             .px(12.0)
             .py(6.0)
             .rounded(6.0)
-            .bg(Tone::Raised(2))
-            .border(1.0, Tone::Line)
+            .bg(Role::Raised(2))
+            .border(1.0, Role::Border)
             .text_size(12.5)
-            .color(Tone::Foreground)
+            .color(Role::Foreground)
             .child(text(note)),
     )
 }
@@ -1366,7 +1371,7 @@ fn settled(page: &mut Scripted, now: f64) -> Element {
 
 fn upload_key() -> Event {
     Event::Input(Input::Key {
-        key: Key::Char('U'),
+        key: Key::Character('U'),
         mods: shifted(),
     })
 }

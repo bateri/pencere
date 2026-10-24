@@ -41,8 +41,8 @@ use crate::frame::{
 };
 use crate::icon::{self, Icon};
 use crate::message::{
-    self, Bye, Dismiss, FEATURE_BUNDLE, FEATURE_DISMISS, Hello, HostInfo, OpenBody, Reason,
-    SUPPORTED_VERSIONS, TokenProbe, ViewOffer,
+    self, Bye, Dismiss, FEATURE_DISMISS, Hello, HostInfo, OpenBody, Reason, SUPPORTED_VERSIONS,
+    TokenProbe, ViewOffer,
 };
 use crate::sandbox::{self, Access, AccessError, Consent, Grant};
 use crate::text;
@@ -52,6 +52,11 @@ use crate::token::{Entropy, Token};
 /// The most bytes of JSON a message between the program and its view may have: what fits one
 /// message toward the program, since the host passes it on in both directions.
 pub const MAX_VIEW_MESSAGE: usize = 1024 * 1024;
+
+/// The most bytes of a view's words that may wait for the program to read them (specification
+/// §4.8): past this a view is saying more than its program takes, and it is closed. See
+/// [`Session::backlog`].
+pub const MAX_BACKLOG: usize = 16 * 1024 * 1024;
 
 /// The most characters of a name the program supplied (its own, the view's) that the session
 /// passes on to the terminal.
@@ -120,9 +125,6 @@ impl Offer {
 pub struct Config {
     /// The host's name and version: in the `welcome`.
     pub host: HostInfo,
-    /// Whether the host takes bundles (lists `bundle` in its `features`). Every kind of view
-    /// arrives as a bundle (specification §8.1), so a host that does not take them opens none.
-    pub bundle: bool,
     /// The limits a manifest is held to; they cannot exceed the protocol's.
     pub limits: BundleLimits,
     /// What a page is told.
@@ -134,7 +136,7 @@ pub struct Config {
     /// Only [`ViewKind::Web`] at [`WEB_BRIDGE_VERSION`] by default; a terminal that draws a view
     /// itself adds [`ViewKind::Wasm`] and [`ViewKind::Lua`] with the versions of the kit it
     /// has. Their order is the order of the `welcome` of a restart (§10.7), which answers no
-    /// `hello`. A kind is opened only if it is listed here and the host takes bundles.
+    /// `hello`. A kind is opened only if it is listed here.
     pub views: Vec<Offer>,
     /// The most bytes the entry of a view the terminal draws itself (a component or a script)
     /// may have; an `open` over it is refused with `limit`. Cannot exceed what the bundle
@@ -143,12 +145,11 @@ pub struct Config {
 }
 
 impl Config {
-    /// A configuration for a host that takes bundles and opens links, with the protocol's bundle
-    /// limits, that opens web pages only.
+    /// A configuration for a host that opens links, with the protocol's bundle limits, that
+    /// opens web pages only.
     pub fn new(host: HostInfo, theme: Theme, size: Size) -> Self {
         Self {
             host,
-            bundle: true,
             limits: BundleLimits::PROTOCOL,
             view: ViewContext {
                 theme,
@@ -773,32 +774,31 @@ impl<S: Store, E: Entropy> Session<S, E> {
         token
     }
 
-    /// What the `welcome` says the host supports: closing a view at the program's
-    /// request is part of every session, bundles are the configuration's.
+    /// What the `welcome` says the host supports: closing a view at the program's request is
+    /// part of every session.
     fn features(&self) -> &'static [&'static str] {
-        if self.config.bundle {
-            &[FEATURE_BUNDLE, FEATURE_DISMISS]
-        } else {
-            &[FEATURE_DISMISS]
-        }
+        &[FEATURE_DISMISS]
     }
 
-    /// What the host offers of `kind`, if it will open it: the configuration lists it, and a view
-    /// arrives as a bundle, so the host has to take bundles.
+    /// What the host offers of `kind`, if it will open it: the configuration lists it.
     fn offer_of(&self, kind: ViewKind) -> Option<&Offer> {
-        if !self.config.bundle {
-            return None;
-        }
         self.config.views.iter().find(|offer| offer.kind == kind)
     }
 
-    /// The `views` of the `welcome` that answers a `hello` (specification §5.2): for each entry
-    /// of the `hello`, in order, the same kind with its versions cut down to those the host also
-    /// offers, in the program's order. A kind the host will not open, a name that is not in the
-    /// table of kinds, and a kind with no version in common are left out, and a kind listed
-    /// twice counts once, at its first place: the host eliminates and never reorders or adds.
-    fn offer_for(&self, listed: &[ViewOffer]) -> Vec<ViewOffer> {
+    /// The `views` and the `opens` of the `welcome` that answers a `hello` (specification §5.2).
+    ///
+    /// `views`: for each entry of the `hello`, in order, the same kind with its versions cut down
+    /// to those the host also offers, in the program's order. A kind the host will not open, a
+    /// name that is not in the table of kinds, and a kind with no version in common are left
+    /// out, and a kind listed twice counts once, at its first place: the host eliminates and
+    /// never reorders or adds.
+    ///
+    /// `opens`: the kinds that were left out only for want of a version in common, each with the
+    /// versions the host does open, in its own order, so that a program that finds nothing to
+    /// open can say which versions would have served.
+    fn offer_for(&self, listed: &[ViewOffer]) -> (Vec<ViewOffer>, Vec<ViewOffer>) {
         let mut offered: Vec<ViewOffer> = Vec::new();
+        let mut opens: Vec<ViewOffer> = Vec::new();
         // Only the three kinds of the table are ever kept, so this stays as short as the table
         // however long the program's list is.
         let mut seen: Vec<ViewKind> = Vec::new();
@@ -819,14 +819,17 @@ impl<S: Store, E: Entropy> Session<S, E> {
                     versions.push(version.clone());
                 }
             }
-            if !versions.is_empty() {
-                offered.push(ViewOffer {
-                    kind: kind.name().to_owned(),
-                    versions,
-                });
-            }
+            let (into, held) = if versions.is_empty() {
+                (&mut opens, offer.versions.clone())
+            } else {
+                (&mut offered, versions)
+            };
+            into.push(ViewOffer {
+                kind: kind.name().to_owned(),
+                versions: held,
+            });
         }
-        offered
+        (offered, opens)
     }
 
     fn on_hello(&mut self, message: &Message) {
@@ -852,7 +855,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             .find(|v| hello.versions.contains(v));
         let payload = match version {
             Some(version) => {
-                let offered = self.offer_for(&hello.views);
+                let (offered, opens) = self.offer_for(&hello.views);
                 let token = self.issue_token(false, offered.clone());
                 message::welcome_offer(
                     version,
@@ -860,6 +863,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
                     &self.config.host,
                     self.features(),
                     &offered,
+                    &opens,
                     false,
                 )
             }
@@ -886,7 +890,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 versions: offer.versions.clone(),
             })
             .collect();
-        let offered = self.offer_for(&listed);
+        let (offered, _) = self.offer_for(&listed);
         let token = self.issue_token(true, offered.clone());
         let version = SUPPORTED_VERSIONS.last().copied().unwrap_or(1);
         let payload = message::welcome_offer(
@@ -895,6 +899,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             &self.config.host,
             self.features(),
             &offered,
+            &[],
             true,
         );
         self.send("welcome", None, &payload);
@@ -1293,6 +1298,19 @@ impl<S: Store, E: Entropy> Session<S, E> {
     }
 
     // ---- closing ---------------------------------------------------------
+
+    /// The terminal tells how many bytes of what the session asked it to write are still waiting
+    /// for the tty (specification §4.8), after each [`Action::Write`] it holds back, and the
+    /// session closes a view that has more than [`MAX_BACKLOG`] bytes of its words waiting: a
+    /// view whose program does not read could otherwise cost the host memory without bound. The
+    /// view is closed as for any failure (`closed` with `reason` `error` and `code` `view`), and
+    /// the terminal drops the view's words that have not been begun, as it does for a signal
+    /// character, before it writes that `closed`. A view that is not running is not closed.
+    pub fn backlog(&mut self, waiting: usize) {
+        if waiting > MAX_BACKLOG && matches!(self.phase, Phase::Live(_)) {
+            self.view_failed("the view says more than its program reads");
+        }
+    }
 
     /// Ends the open that is opening, with `error` and `code`.
     fn fail(&mut self, code: &'static str) {

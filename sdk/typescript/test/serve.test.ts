@@ -1,6 +1,6 @@
 /** `serve`, played against a host that the test is: the sequence of §5 to §10 from the program's side. */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { BundleError, bundleFromFiles } from "../src/bundle.js";
 import { encode } from "../src/frame.js";
@@ -267,11 +267,28 @@ describe("with no host", () => {
     expect(await served).toEqual({ kind: "no-view", reason: "no-common-view" });
   });
 
-  it("concludes it from a host that does not take bundles: every kind arrives as one (§8.1)", async () => {
+  it("says in words which versions would have served, when the host names them (§5.2)", async () => {
     const rig = new Rig();
-    const { served } = await start(rig, {}, { features: [] });
-    expect(await served).toEqual({ kind: "no-view", reason: "no-common-view" });
-    expect(rig.messages().map((m) => m.kind)).toEqual(["hello"]);
+    const written: string[] = [];
+    const write = vi.spyOn(process.stderr, "write").mockImplementation((text) => {
+      written.push(String(text));
+      return true;
+    });
+    const fallbacks: unknown[] = [];
+    try {
+      const { served } = await start(
+        rig,
+        { fallback: (why) => void fallbacks.push(why) },
+        { views: [], opens: [{ kind: "web", versions: ["2.0", "2.1"] }] },
+      );
+      const words = "this program is written for web 1.0; this terminal opens web 2.0 or 2.1";
+      expect(await served).toEqual({ kind: "no-view", reason: "no-common-view", message: words });
+      expect(written).toEqual([`pencere: ${words}\n`]);
+      // The words come before the fallback, which has them as well.
+      expect(fallbacks).toEqual([{ kind: "no-view", reason: "no-common-view", message: words }]);
+    } finally {
+      write.mockRestore();
+    }
   });
 });
 

@@ -9,6 +9,9 @@ under this name) are recorded here. The format follows
 
 ### Added
 
+- **`opens` in the `welcome`** (specification §5.2): a kind the program listed that the host opens, but at none of the versions the program speaks, is named with the versions the host does open, so that the program can say which would have served. `message::welcome_offer` takes it.
+- **`Session::backlog` and `session::MAX_BACKLOG`** (§4.8): the terminal tells how many bytes of what the session asked it to write still wait for the tty, and a running view with more than 16 MiB of its words waiting is closed with `error` `view`.
+- **`cursor` in a web page's `context.colors`**, after `accent` (made up as the accent): `Theme::cursor` and `Roles::cursor` (§9.5, §11.2).
 - **`selection` and `ansi` in a web page's `context.colors`.** `theme::Theme` gains `selection`
   (made up as a third of the way from the background to the accent) and `ansi`, the sixteen colours
   of the palette (made up as xterm's: `theme::XTERM_ANSI`); `Roles` carries both. The page is told
@@ -17,6 +20,9 @@ under this name) are recorded here. The format follows
 
 ### Changed
 
+- **Breaking: `Config::bundle` is gone and the `welcome` no longer lists `bundle` in `features`.** Every view arrives as a bundle, so there was nothing to ask; `features` is `["dismiss"]`.
+- **A message nested 128 levels deep or more is dropped** in either direction (§4.5, §9.3), as is one that is not a complete JSON object.
+- **The default policy of a page has `form-action 'none'`** (§12.1): a form could otherwise submit the page to any address.
 - **Breaking: the crate is `pencere-host`** (the library is `pencere_host`). The name `pencere` is
   the program library's, the one a program's author adds to a project; nobody used the crate that
   was published under it.

@@ -13,9 +13,6 @@ import { parseObject, toWire } from "./json.js";
 /** The protocol versions this library speaks: this version, and the one before it when there is one (§5.4). */
 export const VERSIONS: readonly number[] = [1];
 
-/** A feature a host lists in its `welcome`: it takes bundles (§8.1). */
-export const FEATURE_BUNDLE = "bundle";
-
 /** A feature a host lists in its `welcome`: it closes a view when the program sends `dismiss` (§10.8). */
 export const FEATURE_DISMISS = "dismiss";
 
@@ -169,6 +166,11 @@ export interface WelcomeOffer {
    * host speaks, in the host's order (§10.7). Empty when nothing is shared (§5.2).
    */
   readonly views: readonly ViewOffer[];
+  /**
+   * The kinds of the program's list that the host opens, and at no version the program speaks,
+   * each with the versions the host does open (§5.2). Empty when there are none.
+   */
+  readonly opens: readonly ViewOffer[];
   readonly restart: boolean;
 }
 
@@ -232,6 +234,7 @@ export function parseWelcome(payload: string, offered: readonly number[]): Welco
         : {}),
       features: strings(body.features),
       views: readViews(body.views),
+      opens: readViews(body.opens),
       restart: body.restart === true,
     };
   }
@@ -268,6 +271,27 @@ export function chooseView(
     if (version !== undefined) return { kind: view.kind, version };
   }
   return undefined;
+}
+
+/**
+ * The sentence for a program whose host opens kinds of its list, but not in the versions it
+ * speaks (§5.2): the versions of those kinds that it is written for, and those the host opens.
+ * `undefined` when the host named no such kind.
+ */
+export function noVersionSentence(
+  mine: readonly ViewOffer[],
+  opens: readonly ViewOffer[],
+): string | undefined {
+  const wanted: string[] = [];
+  const held: string[] = [];
+  for (const view of mine) {
+    const host = opens.find((offer) => offer.kind === view.kind);
+    if (host === undefined) continue;
+    wanted.push(`${view.kind} ${view.versions.join(" or ")}`);
+    held.push(`${view.kind} ${host.versions.join(" or ")}`);
+  }
+  if (wanted.length === 0) return undefined;
+  return `this program is written for ${wanted.join(", ")}; this terminal opens ${held.join(", ")}`;
 }
 
 /** Reads a `need`: the digests the host lacks, in its order. */

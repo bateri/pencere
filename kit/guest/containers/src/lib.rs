@@ -19,7 +19,7 @@
 use containers_page::{Containers, Reading};
 use pencere_page::messages::Message;
 use pencere_page::{
-    Event, Frame, Input, Key, Layout, Page, Reply, Size, Tone, div, export_page, say, text,
+    Event, Frame, Input, Key, Layout, Page, Reply, Role, Size, div, export_page, say, text,
 };
 use serde_json::{Value, json};
 
@@ -213,10 +213,10 @@ impl Page for ContainerList {
                     .px(12.0)
                     .py(6.0)
                     .rounded(6.0)
-                    .bg(Tone::Raised(2))
-                    .border(1.0, Tone::Line)
+                    .bg(Role::Raised(2))
+                    .border(1.0, Role::Border)
                     .text_size(12.5)
-                    .color(Tone::Foreground)
+                    .color(Role::Foreground)
                     .child(text(note)),
             ),
             None => list,
@@ -235,9 +235,9 @@ impl Page for ContainerList {
     fn handle(&mut self, event: Event, layout: &Layout) -> Reply {
         match event {
             Event::Input(Input::Key {
-                key: Key::Char(UPLOAD_KEY),
+                key: Key::Character(UPLOAD_KEY),
                 mods,
-            }) if !mods.control && !mods.option && !mods.command => {
+            }) if !mods.control && !mods.alt && !mods.command => {
                 if self.upload.is_none() && self.heard {
                     self.upload = Some(Upload::new());
                     self.counted = None;

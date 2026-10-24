@@ -4,7 +4,7 @@
 //! into whatever its renderer draws.
 
 use crate::element::Fit;
-use crate::layout::{Content, Laid, Node, Picture as Placed, TextLine};
+use crate::layout::{Content, Laid, Node, Placed, TextLine};
 use crate::style::{Border, Shadow};
 use crate::{Align, Color, Font, Measure, Point, Rect, Size};
 
@@ -27,7 +27,7 @@ pub struct Quad {
 /// box's, then each box that holds it, outward — up to and including the first that is
 /// opaque ([`Color::is_opaque`]), or all of them where none is. Where the last of them is
 /// translucent, or there is none, the page's background is under it (the host knows it:
-/// `Tone::Background` in its theme). They are what the page said, unresolved: a host that keeps
+/// `Role::Background` in its theme). They are what the page said, unresolved: a host that keeps
 /// text readable resolves them, lays them over each other from the last to the first, and
 /// holds `color` to its lowest contrast against that. A fill the line does not stand on (the
 /// box that holds it ends before the line does) is still named; the engine does not

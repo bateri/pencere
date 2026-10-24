@@ -8,6 +8,7 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **A terminal that opens a kind of the program's in other versions is told in words.** `NoView::message` of `NoViewReason::NoCommonView` carries the sentence that names both sides (`this program is written for wasm 2.0; this terminal opens wasm 1.0`), and `serve` prints it to standard error as `pencere: …` before the fallback runs (specification §5.2, §5.3).
 - The crate itself, as the program's side of pencere: everything a Rust program does to show a view
   in the pane it runs in, with no async runtime. `serve(Options)` takes the kinds of view the program
   offers (`View`, `Bundle`), the handlers of the view's calls and subscriptions, and a fallback for a
@@ -41,6 +42,7 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Changed
 
+- A `welcome` without `bundle` in its `features` no longer means a terminal with nothing to open: the feature is gone from the protocol. A message of the view with an `id` above 2^53 - 1, or nested 128 levels deep or more, is ignored.
 - **The name `pencere` is this crate's.** The host library that was published under it is
   `pencere-host` now, and its first release under that name replaces nothing a program used. This
   crate starts at 0.2.0 so that its versions follow the last one published under the name.

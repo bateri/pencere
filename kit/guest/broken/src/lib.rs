@@ -10,7 +10,7 @@
 //! Esc closes the page the polite way.
 
 use pencere_page::{
-    Align, Button, Cursor, Event, Frame, Id, Input, Key, Layout, Page, Queries, Reply, Size, Tone,
+    Align, Button, Cursor, Event, Frame, Id, Input, Key, Layout, Page, Queries, Reply, Role, Size,
     div, text,
 };
 
@@ -29,21 +29,21 @@ fn row(id: Id, key: char, title: &str, detail: &str) -> pencere_page::Element {
         .px(14.0)
         .h(44.0)
         .rounded(8.0)
-        .bg(Tone::Raised(1))
-        .border(1.0, Tone::Line)
+        .bg(Role::Raised(1))
+        .border(1.0, Role::Border)
         .press(id)
         .child(
             div()
                 .w(26.0)
                 .h(26.0)
                 .rounded(6.0)
-                .border(1.0, Tone::Line)
+                .border(1.0, Role::Border)
                 .items_center()
                 .justify_center()
                 .child(text(key.to_string().to_uppercase()).weight(600)),
         )
         .child(text(title).weight(600))
-        .child(text(detail).color(Tone::Dim))
+        .child(text(detail).color(Role::Dim))
 }
 
 #[allow(
@@ -90,7 +90,7 @@ impl Page for Broken {
                 .child(text("A page that goes wrong on purpose").text_size(15.0).weight(600))
                 .child(
                     text("Each row is a way for a module to misbehave. The application closes the page and the terminal comes back.")
-                        .color(Tone::Dim)
+                        .color(Role::Dim)
                         .align(Align::Start),
                 )
                 .child(div().h(6.0))
@@ -98,7 +98,7 @@ impl Page for Broken {
                 .child(row(MEMORY, 'm', "Take memory", "until it is refused"))
                 .child(row(STACK, 's', "Recurse", "until the stack is gone"))
                 .child(row(TRAP, 't', "Trap", "an unreachable"))
-                .child(text("Esc closes the page.").color(Tone::Dim)),
+                .child(text("Esc closes the page.").color(Role::Dim)),
         )
     }
 
@@ -122,19 +122,19 @@ impl Page for Broken {
                 Reply::none().with_cursor(if over { Cursor::Pointer } else { Cursor::Arrow })
             }
             Event::Input(Input::Key { key, .. }) => match key {
-                Key::Char('l') => {
+                Key::Character('l') => {
                     misbehave(LOOP);
                     Reply::none()
                 }
-                Key::Char('m') => {
+                Key::Character('m') => {
                     misbehave(MEMORY);
                     Reply::none()
                 }
-                Key::Char('s') => {
+                Key::Character('s') => {
                     misbehave(STACK);
                     Reply::none()
                 }
-                Key::Char('t') => {
+                Key::Character('t') => {
                     misbehave(TRAP);
                     Reply::none()
                 }

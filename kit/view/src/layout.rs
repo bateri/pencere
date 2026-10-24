@@ -17,7 +17,7 @@ use crate::element::{Fit, Kind, Meta, Spark};
 use crate::style::{
     Border, Direction, Display, Items, Justify, Length, Overflow, Shadow, Style, TextStyle, Track,
 };
-use crate::{Align, Color, Element, Family, Font, Id, Measure, Metrics, Point, Rect, Size, Tone};
+use crate::{Align, Color, Element, Family, Font, Id, Measure, Metrics, Point, Rect, Role, Size};
 
 /// The text a page is written in until a box says otherwise: the terminal's face at 12.5
 /// points, regular, in the foreground, at the start of its box.
@@ -25,7 +25,7 @@ const DEFAULT_TEXT: TextStyle = TextStyle {
     family: Some(Family::Terminal),
     size: Some(12.5),
     weight: Some(400),
-    color: Some(Tone::Foreground.solid()),
+    color: Some(Role::Foreground.solid()),
     align: Some(Align::Start),
 };
 
@@ -42,7 +42,7 @@ pub(crate) struct TextLine {
 /// An image laid out: what the host said of its size when the page was laid out, so that what
 /// is drawn is what the room was made for.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Picture {
+pub(crate) struct Placed {
     pub src: String,
     pub fit: Fit,
     pub tint: Option<Color>,
@@ -61,7 +61,7 @@ pub(crate) enum Content {
     None,
     Text(TextLine),
     Spark(Spark),
-    Image(Picture),
+    Image(Placed),
 }
 
 /// An element after layout: its box on the page, in pixels, and how it is drawn.
@@ -102,9 +102,12 @@ enum Leaf {
         text: String,
         font: Font,
     },
-    /// An image, with its size in pixels where the host knew it.
+    /// An image, with its size in pixels where the host knew it, and what the box keeps for its
+    /// padding and border across and down: a side that is given is the box's, and the picture
+    /// has what is left of it.
     Image {
         natural: Option<Size>,
+        inset: (f32, f32),
     },
 }
 
@@ -158,8 +161,14 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                 Some(Leaf::Text { text, font }) => *cache
                     .entry((*font, text.clone()))
                     .or_insert_with(|| measure.measure(font, text)),
-                Some(Leaf::Image { natural }) => {
-                    let (width, height) = image_room(known.width, known.height, *natural);
+                Some(Leaf::Image { natural, inset }) => {
+                    // The sides given are the box's; the room measured is the picture's, inside
+                    // the padding and the border that the box adds to it.
+                    let (width, height) = image_room(
+                        known.width.map(|side| (side - inset.0).max(0.0)),
+                        known.height.map(|side| (side - inset.1).max(0.0)),
+                        *natural,
+                    );
                     return TSize { width, height };
                 }
                 None => Metrics::default(),
@@ -318,7 +327,7 @@ fn build(
         size: text.size.unwrap_or(12.5) * scale,
         weight: text.weight.unwrap_or(400),
     };
-    let color = text.color.unwrap_or(Tone::Foreground.solid());
+    let color = text.color.unwrap_or(Role::Foreground.solid());
 
     let index = pending.len();
     let px = |points: f32| points * scale;
@@ -345,7 +354,7 @@ fn build(
         }),
     });
 
-    let taffy_style = convert(&style, scale, matches!(kind, Kind::Text(_)));
+    let mut taffy_style = convert(&style, scale, matches!(kind, Kind::Text(_)));
     let id = match kind {
         Kind::Text(content) => {
             let leaf = Leaf::Text {
@@ -375,8 +384,27 @@ fn build(
             let border = style
                 .border
                 .map_or(0.0, |b| (b.width * scale).round().max(1.0));
+            // The picture is drawn inside the padding and the border, so they are part of the
+            // box and the room it leaves is what the picture is measured for: a box that takes
+            // its size from the image is the image's, and the border besides. (The border of any
+            // other element is drawn over its box and takes no room.)
+            let border_room = LengthPercentage::length(border);
+            taffy_style.border = TRect {
+                top: border_room,
+                right: border_room,
+                bottom: border_room,
+                left: border_room,
+            };
+            // And the proportions are the box's whatever limits one side: an image held to a
+            // largest width keeps its height in proportion. (A ratio is the box's, border and
+            // padding included, so it is the picture's only where there are none; with some, the
+            // sides the style gives are measured as ever and a limit on one is not followed.)
+            let bare = border == 0.0 && [top, right, bottom, left].iter().all(|edge| *edge == 0.0);
+            if let (Some(natural), true) = (natural, bare) {
+                taffy_style.aspect_ratio = Some(natural.w / natural.h);
+            }
             if let Some(entry) = pending.get_mut(index) {
-                entry.content = Content::Image(Picture {
+                entry.content = Content::Image(Placed {
                     src: image.src,
                     fit: image.fit,
                     tint: image.tint,
@@ -385,7 +413,11 @@ fn build(
                     inset: [top, right, bottom, left].map(|edge| edge * scale + border),
                 });
             }
-            tree.new_leaf_with_context(taffy_style, Leaf::Image { natural })
+            let inset = (
+                (left + right) * scale + 2.0 * border,
+                (top + bottom) * scale + 2.0 * border,
+            );
+            tree.new_leaf_with_context(taffy_style, Leaf::Image { natural, inset })
         }
         Kind::Box => {
             let ids: Vec<NodeId> = children

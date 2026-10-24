@@ -8,6 +8,9 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Added
 
+- `to_wit_frame` and `to_wit_reply` write the interface's lists: the words, values and tracks of a
+  frame (and the titles of a menu) once each, and the elements name their parts.
+
 - The crate is published. It is the SDK the page modules of the kit are written with: `Page`,
   `export_page!`, `Frame`, `Layout` and `say`, the style language of the page engine
   (`pencere-view`) and the messages of the wire (`pencere-wire`), re-exported. The package carries a

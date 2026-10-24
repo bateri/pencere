@@ -52,7 +52,13 @@ const TS: Template = &[
 ];
 
 const RUST: Template = &[
-    ("Cargo.toml", include_str!("../templates/rust/Cargo.toml")),
+    // Kept in the repository as `Cargo.toml.tmpl`: a file called `Cargo.toml` with a placeholder
+    // for a name in it is a manifest that cargo reads, and refuses, in every project that takes
+    // this repository by git.
+    (
+        "Cargo.toml",
+        include_str!("../templates/rust/Cargo.toml.tmpl"),
+    ),
     ("src/main.rs", include_str!("../templates/rust/src/main.rs")),
     // The view is the Lua project's, the one page the templates share.
     ("page.lua", include_str!("../templates/lua/page.lua")),
@@ -164,6 +170,39 @@ pub fn command(args: &[String]) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_template_is_a_manifest_that_cargo_or_npm_would_read_in_the_repository() {
+        // A project that takes this repository by git has cargo walk every `Cargo.toml` of it, and
+        // a template with `{{name}}` for a package name is an error on every build there.
+        fn walk(dir: &std::path::Path, found: &mut Vec<std::path::PathBuf>) {
+            for entry in fs::read_dir(dir).expect("a directory") {
+                let path = entry.expect("an entry").path();
+                if path.is_dir() {
+                    walk(&path, found);
+                } else {
+                    found.push(path);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates"),
+            &mut files,
+        );
+        assert!(files.len() > 10, "{files:?}");
+        for file in files {
+            let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            assert!(
+                !matches!(
+                    name,
+                    "Cargo.toml" | "Cargo.lock" | "package.json" | "package-lock.json"
+                ),
+                "{} would be read as a manifest",
+                file.display()
+            );
+        }
+    }
 
     #[test]
     fn names_are_what_a_directory_and_a_package_can_be() {

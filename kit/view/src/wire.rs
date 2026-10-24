@@ -115,13 +115,13 @@ impl Element {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Fit, Tone, div, image, spacer, spark, text};
+    use crate::{Fit, Role, div, image, spacer, spark, text};
 
     fn page() -> Element {
         div()
             .row()
             .gap(8.0)
-            .bg(Tone::Raised(1))
+            .bg(Role::Raised(1))
             .id(crate::Id::named("page"))
             .child(text("one").weight(700))
             .child(
@@ -129,12 +129,12 @@ mod tests {
                     .press(crate::Id::named("two"))
                     .focusable()
                     .child(text("two"))
-                    .child(spark(&[1.0, 2.0, 3.0], Tone::Accent)),
+                    .child(spark(&[1.0, 2.0, 3.0], Role::Accent)),
             )
             .child(spacer())
             .child(
                 image("icons/box.svg", Fit::Cover)
-                    .tint(Tone::Accent)
+                    .tint(Role::Accent)
                     .opacity(0.5)
                     .size(16.0, 16.0),
             )

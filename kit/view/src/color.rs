@@ -1,6 +1,6 @@
-//! Colours. A page says a colour in one of two ways. The way to prefer is a [`Tone`], a role of
-//! the pane's theme, and, where it wants the tone translucent, an alpha — `color-mix(accent 13%,
-//! transparent)` is `Tone::Accent.alpha(0.13)`. What the tone is, in a given theme, is the
+//! Colours. A page says a colour in one of two ways. The way to prefer is a [`Role`], a role of
+//! the pane's theme, and, where it wants the role translucent, an alpha — `color-mix(accent 13%,
+//! transparent)` is `Role::Accent.alpha(0.13)`. What the role is, in a given theme, is the
 //! host's to say (a terminal resolves it in the theme of the pane), so the page follows the theme
 //! the terminal wears and the arithmetic of colours stays in one place. The other way is a value
 //! ([`Rgba`]), for the colour a role does not name — a brand's, a syntax's — with, if it wants
@@ -13,7 +13,7 @@
 /// A role of the theme: its nine roles, the sixteen colours of its ANSI palette and its
 /// selection, and the values the theme derives from them for surfaces, lines and shadows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Tone {
+pub enum Role {
     /// The ground of the pane.
     Background,
     /// The text.
@@ -39,8 +39,8 @@ pub enum Tone {
     /// The dim text a step further toward the ground: ink that must be readable and not
     /// stand out.
     Quiet,
-    /// The hairline: seen, never read.
-    Line,
+    /// The colour of rules and borders: the hairline, seen and never read.
+    Border,
     /// The colour a shadow is cast in: the theme's dark end (black on a dark theme, the
     /// foreground on a light one).
     Shadow,
@@ -66,28 +66,28 @@ pub enum Tone {
     BrightWhite,
 }
 
-impl Tone {
+impl Role {
     /// The ANSI palette, in the order of its colours: `ANSI[n].ansi_index() == Some(n)`.
-    pub const ANSI: [Tone; 16] = [
-        Tone::Black,
-        Tone::Red,
-        Tone::Green,
-        Tone::Yellow,
-        Tone::Blue,
-        Tone::Magenta,
-        Tone::Cyan,
-        Tone::White,
-        Tone::BrightBlack,
-        Tone::BrightRed,
-        Tone::BrightGreen,
-        Tone::BrightYellow,
-        Tone::BrightBlue,
-        Tone::BrightMagenta,
-        Tone::BrightCyan,
-        Tone::BrightWhite,
+    pub const ANSI: [Role; 16] = [
+        Role::Black,
+        Role::Red,
+        Role::Green,
+        Role::Yellow,
+        Role::Blue,
+        Role::Magenta,
+        Role::Cyan,
+        Role::White,
+        Role::BrightBlack,
+        Role::BrightRed,
+        Role::BrightGreen,
+        Role::BrightYellow,
+        Role::BrightBlue,
+        Role::BrightMagenta,
+        Role::BrightCyan,
+        Role::BrightWhite,
     ];
 
-    /// This tone at `alpha` of its opacity.
+    /// This role at `alpha` of its opacity.
     pub const fn alpha(self, alpha: f32) -> Color {
         Color {
             source: Source::Role(self),
@@ -95,31 +95,31 @@ impl Tone {
         }
     }
 
-    /// This tone, solid.
+    /// This role, solid.
     pub const fn solid(self) -> Color {
         self.alpha(1.0)
     }
 
-    /// Where the tone stands in the theme's ANSI palette, `0..=15`; `None` for a tone that is
+    /// Where the role stands in the theme's ANSI palette, `0..=15`; `None` for a role that is
     /// not one of its colours.
     pub const fn ansi_index(self) -> Option<u8> {
         match self {
-            Tone::Black => Some(0),
-            Tone::Red => Some(1),
-            Tone::Green => Some(2),
-            Tone::Yellow => Some(3),
-            Tone::Blue => Some(4),
-            Tone::Magenta => Some(5),
-            Tone::Cyan => Some(6),
-            Tone::White => Some(7),
-            Tone::BrightBlack => Some(8),
-            Tone::BrightRed => Some(9),
-            Tone::BrightGreen => Some(10),
-            Tone::BrightYellow => Some(11),
-            Tone::BrightBlue => Some(12),
-            Tone::BrightMagenta => Some(13),
-            Tone::BrightCyan => Some(14),
-            Tone::BrightWhite => Some(15),
+            Role::Black => Some(0),
+            Role::Red => Some(1),
+            Role::Green => Some(2),
+            Role::Yellow => Some(3),
+            Role::Blue => Some(4),
+            Role::Magenta => Some(5),
+            Role::Cyan => Some(6),
+            Role::White => Some(7),
+            Role::BrightBlack => Some(8),
+            Role::BrightRed => Some(9),
+            Role::BrightGreen => Some(10),
+            Role::BrightYellow => Some(11),
+            Role::BrightBlue => Some(12),
+            Role::BrightMagenta => Some(13),
+            Role::BrightCyan => Some(14),
+            Role::BrightWhite => Some(15),
             _ => None,
         }
     }
@@ -186,7 +186,7 @@ impl Rgba {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Source {
     /// A role, in the host's theme.
-    Role(Tone),
+    Role(Role),
     /// A value. `dark` is what the colour is on a dark theme where that is not `light`; the
     /// host decides which theme it wears (a terminal: whether its background is dark), the page
     /// only gives both.
@@ -218,9 +218,9 @@ pub struct Color {
 
 impl Color {
     /// The role, when the colour is one.
-    pub const fn role(&self) -> Option<Tone> {
+    pub const fn role(&self) -> Option<Role> {
         match self.source {
-            Source::Role(tone) => Some(tone),
+            Source::Role(role) => Some(role),
             Source::Rgba { .. } => None,
         }
     }
@@ -237,9 +237,9 @@ impl Color {
     }
 }
 
-impl From<Tone> for Color {
-    fn from(tone: Tone) -> Self {
-        tone.solid()
+impl From<Role> for Color {
+    fn from(role: Role) -> Self {
+        role.solid()
     }
 }
 

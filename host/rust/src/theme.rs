@@ -90,7 +90,7 @@ pub const XTERM_ANSI: [Rgb; 16] = [
     Rgb(0xff, 0xff, 0xff),
 ];
 
-/// The nine roles of a theme, its palette and its selection, every one of them a colour
+/// The roles of a theme, its palette and its selection, every one of them a colour
 /// (specification §11.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Roles {
@@ -102,6 +102,8 @@ pub struct Roles {
     pub dim: Rgb,
     /// The accent colour.
     pub accent: Rgb,
+    /// The cursor's colour.
+    pub cursor: Rgb,
     /// The colour of rules and borders.
     pub border: Rgb,
     /// The success colour.
@@ -133,6 +135,8 @@ pub struct Theme {
     pub dim: Option<Rgb>,
     /// The accent colour. Default: the information colour.
     pub accent: Option<Rgb>,
+    /// The cursor's colour. Default: the accent colour.
+    pub cursor: Option<Rgb>,
     /// The colour of rules and borders. Default: the background a fifth of the
     /// way toward the foreground.
     pub border: Option<Rgb>,
@@ -170,6 +174,7 @@ impl Theme {
             foreground,
             dim: None,
             accent: None,
+            cursor: None,
             border: None,
             success: None,
             error: None,
@@ -197,9 +202,9 @@ impl Theme {
         &self.font_mono
     }
 
-    /// All nine roles, the selection and the palette: what the host gave, and for each it did
+    /// All the roles, the selection and the palette: what the host gave, and for each it did
     /// not, the colour the specification makes up (§11.2): `dim` a third of the way from the
-    /// foreground to the background, `accent` as `info`, `border` a fifth of the way from the
+    /// foreground to the background, `accent` as `info`, `cursor` as `accent`, `border` a fifth of the way from the
     /// background to the foreground, `success`, `error`, `warning` and `info` as `#3fb950`,
     /// `#f85149`, `#d29922` and `#58a6ff`, `selection` a third of the way from the background to
     /// the accent, and the palette as xterm's ([`XTERM_ANSI`]).
@@ -214,6 +219,7 @@ impl Theme {
                 .dim
                 .unwrap_or_else(|| foreground.part_toward(background, 1, 3)),
             accent,
+            cursor: self.cursor.unwrap_or(accent),
             border: self
                 .border
                 .unwrap_or_else(|| background.part_toward(foreground, 1, 5)),
@@ -313,6 +319,8 @@ mod tests {
         let made_up = Theme::new(Rgb(255, 255, 255), Rgb(0x1f, 0x23, 0x28), "").roles();
         assert_eq!(made_up.dim.css(), "#6a6c70");
         assert_eq!(made_up.border.css(), "#d2d3d4");
+        // The cursor is the accent, whatever that is, until the host gives one.
+        assert_eq!(made_up.cursor, made_up.accent);
         assert_eq!(
             [
                 made_up.accent.css(),
@@ -336,6 +344,10 @@ mod tests {
         // An accent the host does not give is the information colour, whatever that is.
         theme.accent = None;
         assert_eq!(theme.roles().accent, Rgb(7, 7, 7));
+        // And the cursor follows the accent, until it is given.
+        assert_eq!(theme.roles().cursor, Rgb(7, 7, 7));
+        theme.cursor = Some(Rgb(4, 5, 6));
+        assert_eq!(theme.roles().cursor, Rgb(4, 5, 6));
         assert_eq!(roles.background, Rgb(255, 255, 255));
         assert_eq!(roles.foreground, Rgb(0x17, 0x17, 0x17));
         assert_eq!(theme.font_mono(), "\"Menlo\", monospace");

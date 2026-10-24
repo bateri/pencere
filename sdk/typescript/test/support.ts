@@ -295,7 +295,7 @@ export function offers(...kinds: (string | [string, ...string[]])[]): ViewOffer[
 
 export function welcomePayload(
   token: string,
-  features: string[] = ["bundle", "dismiss"],
+  features: string[] = ["dismiss"],
   views: readonly ViewOffer[] = offers("web"),
   extra = {},
 ): string {
@@ -353,6 +353,8 @@ export interface Answer {
   token?: string;
   features?: string[];
   views?: ViewOffer[];
+  /** The kinds the program listed that the host opens at no version the program speaks (§5.2). */
+  opens?: ViewOffer[];
 }
 
 /** Starts `serve` and answers the capability query the way a host does. */
@@ -365,7 +367,12 @@ export async function start(
   const hello = await rig.next("hello");
   rig.say(
     "welcome",
-    welcomePayload(answer.token ?? TOKEN, answer.features, answer.views),
+    welcomePayload(
+      answer.token ?? TOKEN,
+      answer.features,
+      answer.views,
+      answer.opens === undefined ? {} : { opens: answer.opens },
+    ),
     hello.id,
   );
   // The terminal answers `CSI c` whatever the host does, and after it (§5.2).

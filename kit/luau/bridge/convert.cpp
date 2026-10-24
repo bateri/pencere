@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <unordered_map>
+#include <vector>
 
 #include "lualib.h"
 
@@ -28,6 +29,46 @@ void* xrealloc(void* old, size_t n) {
     void* p = realloc(old, n ? n : 1);
     if (!p) __builtin_trap();
     return p;
+}
+
+// --- The lists a frame names the parts of ----------------------------------------------------
+
+// What a frame says that is not of a fixed size (words, values, tracks) is in three lists, once
+// for the whole frame, and an element names the part it means (see `frame` in the interface): a
+// script's page is read into these as it is walked, and they are handed to the host as they are.
+struct Arenas {
+    std::string text;
+    std::vector<float> numbers;
+    std::vector<pencere_view_types_track_t> tracks;
+};
+
+// The part of a list that begins at `start` and has `len` items.
+pencere_view_types_slice_t part(size_t start, size_t len) {
+    pencere_view_types_slice_t out;
+    out.start = (uint32_t)start;
+    out.len = (uint32_t)len;
+    return out;
+}
+
+// The words in the list, as a part of it. Valid UTF-8 whatever the script gave (the host would
+// refuse a page that was not), and so are the ends of every part.
+pencere_view_types_slice_t add_words(Arenas& arenas, const char* bytes, size_t length) {
+    std::string clean = repaired(bytes, length);
+    size_t start = arenas.text.size();
+    arenas.text += clean;
+    return part(start, clean.size());
+}
+
+// The lists as the host takes them: malloc'ed (the generated `_free` functions release them), and
+// nothing at all for an empty one.
+view_string_t take_text(const std::string& text) {
+    view_string_t out = {nullptr, 0};
+    if (!text.empty()) {
+        out.ptr = (uint8_t*)xmalloc(text.size());
+        out.len = text.size();
+        memcpy(out.ptr, text.data(), text.size());
+    }
+    return out;
 }
 
 // --- Names ----------------------------------------------------------------------------------
@@ -114,44 +155,81 @@ const char* const kFamily[] = {"system", "terminal"};
 const char* const kAlign[] = {"start", "center", "end"};
 const char* const kFit[] = {"contain", "cover"};
 
+// A word of the tables above is the place of the constant it names, so the places are held to the
+// interface here: an enum that is reordered or grows in the middle stops the build and does not
+// quietly name another word.
+static_assert(PENCERE_VIEW_TYPES_DISPLAY_FLEX == 0 && PENCERE_VIEW_TYPES_DISPLAY_GRID == 1 &&
+                  PENCERE_VIEW_TYPES_DISPLAY_NONE == 2,
+              "kDisplay is the order of display");
+static_assert(PENCERE_VIEW_TYPES_DIRECTION_ROW == 0 && PENCERE_VIEW_TYPES_DIRECTION_COLUMN == 1,
+              "kDirection is the order of direction");
+static_assert(PENCERE_VIEW_TYPES_ITEMS_START == 0 && PENCERE_VIEW_TYPES_ITEMS_CENTER == 1 &&
+                  PENCERE_VIEW_TYPES_ITEMS_END == 2 && PENCERE_VIEW_TYPES_ITEMS_STRETCH == 3,
+              "kItems is the order of items");
+static_assert(PENCERE_VIEW_TYPES_JUSTIFY_START == 0 && PENCERE_VIEW_TYPES_JUSTIFY_CENTER == 1 &&
+                  PENCERE_VIEW_TYPES_JUSTIFY_END == 2 && PENCERE_VIEW_TYPES_JUSTIFY_BETWEEN == 3,
+              "kJustify is the order of justify");
+static_assert(PENCERE_VIEW_TYPES_OVERFLOW_VISIBLE == 0 && PENCERE_VIEW_TYPES_OVERFLOW_HIDDEN == 1 &&
+                  PENCERE_VIEW_TYPES_OVERFLOW_SCROLL == 2,
+              "kOverflow is the order of overflow");
+static_assert(PENCERE_VIEW_TYPES_FAMILY_SYSTEM == 0 && PENCERE_VIEW_TYPES_FAMILY_TERMINAL == 1,
+              "kFamily is the order of family");
+static_assert(PENCERE_VIEW_TYPES_ALIGN_START == 0 && PENCERE_VIEW_TYPES_ALIGN_CENTER == 1 &&
+                  PENCERE_VIEW_TYPES_ALIGN_END == 2,
+              "kAlign is the order of align");
+static_assert(PENCERE_VIEW_TYPES_FIT_CONTAIN == 0 && PENCERE_VIEW_TYPES_FIT_COVER == 1,
+              "kFit is the order of fit");
+
 // --- Colours, lengths, tracks ---------------------------------------------------------------
 
-pencere_view_types_tone_t tone_of(lua_State* L, const char* given) {
-    static const char* const plain[] = {"background", "foreground", "dim",     "accent", "cursor",
-                                        "success",    "error",      "info",    "warning"};
-    // The theme's ANSI palette, in the interface's order (so that the tags run on from `black`).
-    static const char* const ansi[] = {"black",        "red",          "green",        "yellow",
-                                       "blue",         "magenta",      "cyan",         "white",
-                                       "bright-black", "bright-red",   "bright-green", "bright-yellow",
-                                       "bright-blue",  "bright-magenta", "bright-cyan", "bright-white"};
-    pencere_view_types_tone_t tone = {};
-    for (int at = 0; at < 9; at++) {
-        if (strcmp(given, plain[at]) == 0) {
-            tone.tag = (uint8_t)at;
-            return tone;
+// The roles that are a name and nothing else, each with the interface's own constant: found by
+// name, not by where a constant stands among the others, so that a role added to the interface
+// in the middle of its list moves nothing here.
+struct NamedRole {
+    const char* name;
+    uint8_t tag;
+};
+
+const NamedRole kRoles[] = {
+    {"background", PENCERE_VIEW_TYPES_ROLE_BACKGROUND},
+    {"foreground", PENCERE_VIEW_TYPES_ROLE_FOREGROUND},
+    {"dim", PENCERE_VIEW_TYPES_ROLE_DIM},
+    {"accent", PENCERE_VIEW_TYPES_ROLE_ACCENT},
+    {"cursor", PENCERE_VIEW_TYPES_ROLE_CURSOR},
+    {"success", PENCERE_VIEW_TYPES_ROLE_SUCCESS},
+    {"error", PENCERE_VIEW_TYPES_ROLE_ERROR},
+    {"info", PENCERE_VIEW_TYPES_ROLE_INFO},
+    {"warning", PENCERE_VIEW_TYPES_ROLE_WARNING},
+    {"quiet", PENCERE_VIEW_TYPES_ROLE_QUIET},
+    {"border", PENCERE_VIEW_TYPES_ROLE_BORDER},
+    {"shadow", PENCERE_VIEW_TYPES_ROLE_SHADOW},
+    {"selection", PENCERE_VIEW_TYPES_ROLE_SELECTION},
+    // The theme's ANSI palette.
+    {"black", PENCERE_VIEW_TYPES_ROLE_BLACK},
+    {"red", PENCERE_VIEW_TYPES_ROLE_RED},
+    {"green", PENCERE_VIEW_TYPES_ROLE_GREEN},
+    {"yellow", PENCERE_VIEW_TYPES_ROLE_YELLOW},
+    {"blue", PENCERE_VIEW_TYPES_ROLE_BLUE},
+    {"magenta", PENCERE_VIEW_TYPES_ROLE_MAGENTA},
+    {"cyan", PENCERE_VIEW_TYPES_ROLE_CYAN},
+    {"white", PENCERE_VIEW_TYPES_ROLE_WHITE},
+    {"bright-black", PENCERE_VIEW_TYPES_ROLE_BRIGHT_BLACK},
+    {"bright-red", PENCERE_VIEW_TYPES_ROLE_BRIGHT_RED},
+    {"bright-green", PENCERE_VIEW_TYPES_ROLE_BRIGHT_GREEN},
+    {"bright-yellow", PENCERE_VIEW_TYPES_ROLE_BRIGHT_YELLOW},
+    {"bright-blue", PENCERE_VIEW_TYPES_ROLE_BRIGHT_BLUE},
+    {"bright-magenta", PENCERE_VIEW_TYPES_ROLE_BRIGHT_MAGENTA},
+    {"bright-cyan", PENCERE_VIEW_TYPES_ROLE_BRIGHT_CYAN},
+    {"bright-white", PENCERE_VIEW_TYPES_ROLE_BRIGHT_WHITE},
+};
+
+pencere_view_types_role_t role_of(lua_State* L, const char* given) {
+    pencere_view_types_role_t role = {};
+    for (const NamedRole& named : kRoles) {
+        if (strcmp(given, named.name) == 0) {
+            role.tag = named.tag;
+            return role;
         }
-    }
-    for (int at = 0; at < 16; at++) {
-        if (strcmp(given, ansi[at]) == 0) {
-            tone.tag = (uint8_t)(PENCERE_VIEW_TYPES_TONE_BLACK + at);
-            return tone;
-        }
-    }
-    if (strcmp(given, "quiet") == 0) {
-        tone.tag = PENCERE_VIEW_TYPES_TONE_QUIET;
-        return tone;
-    }
-    if (strcmp(given, "line") == 0) {
-        tone.tag = PENCERE_VIEW_TYPES_TONE_LINE;
-        return tone;
-    }
-    if (strcmp(given, "shadow") == 0) {
-        tone.tag = PENCERE_VIEW_TYPES_TONE_SHADOW;
-        return tone;
-    }
-    if (strcmp(given, "selection") == 0) {
-        tone.tag = PENCERE_VIEW_TYPES_TONE_SELECTION;
-        return tone;
     }
     if (strncmp(given, "raised", 6) == 0) {
         const char* digits = given + 6;
@@ -165,12 +243,12 @@ pencere_view_types_tone_t tone_of(lua_State* L, const char* given) {
             steps = steps * 10 + (*d - '0');
         }
         if (ok && steps <= 255) {
-            tone.tag = PENCERE_VIEW_TYPES_TONE_RAISED;
-            tone.val.raised = (uint8_t)steps;
-            return tone;
+            role.tag = PENCERE_VIEW_TYPES_ROLE_RAISED;
+            role.val.raised = (uint8_t)steps;
+            return role;
         }
     }
-    luaL_error(L, "\"%s\" is not the name of a tone", given);
+    luaL_error(L, "\"%s\" is not the name of a role", given);
 }
 
 int hex_digit(char c) {
@@ -200,7 +278,7 @@ pencere_view_types_rgba_t rgba_of(lua_State* L, const char* given) {
     return out;
 }
 
-// What a string names: a value if it starts with '#', else a tone.
+// What a string names: a value if it starts with '#', else a role.
 pencere_view_types_source_t source_of(lua_State* L, const char* given) {
     pencere_view_types_source_t source = {};
     if (given[0] == '#') {
@@ -208,7 +286,7 @@ pencere_view_types_source_t source_of(lua_State* L, const char* given) {
         source.val.rgba.light = rgba_of(L, given);
     } else {
         source.tag = PENCERE_VIEW_TYPES_SOURCE_ROLE;
-        source.val.role = tone_of(L, given);
+        source.val.role = role_of(L, given);
     }
     return source;
 }
@@ -233,10 +311,10 @@ pencere_view_types_source_t forms_at(lua_State* L, int t) {
 }
 
 const char kColourIs[] =
-    "a colour is a tone's name, a \"#rrggbb\" or \"#rrggbbaa\" value, { light = value, dark = value }, "
+    "a colour is a role's name, a \"#rrggbb\" or \"#rrggbbaa\" value, { light = value, dark = value }, "
     "or one of those with an opacity: { colour, alpha }";
 
-// A colour: a tone's name, a value, a value for each brightness, or any of those with an
+// A colour: a role's name, a value, a value for each brightness, or any of those with an
 // opacity: `{colour, alpha}`.
 pencere_view_types_color_t color_at(lua_State* L, int index) {
     pencere_view_types_color_t color = {};
@@ -299,9 +377,10 @@ pencere_view_types_length_t length_of(lua_State* L, int t, const char* name) {
     return out;
 }
 
-// The tracks at `name`: numbers are points, `{fr = n}`, `{min = n, fr = n}` and "auto".
-pencere_view_types_list_track_t tracks_of(lua_State* L, int t, const char* name) {
-    pencere_view_types_list_track_t out = {nullptr, 0};
+// The tracks at `name`, as a part of the frame's list: numbers are points, `{fr = n}`,
+// `{min = n, fr = n}` and "auto".
+pencere_view_types_slice_t tracks_of(lua_State* L, int t, const char* name, Arenas& arenas) {
+    pencere_view_types_slice_t out = part(0, 0);
     get(L, t, name);
     if (lua_isnil(L, -1)) {
         lua_pop(L, 1);
@@ -311,10 +390,7 @@ pencere_view_types_list_track_t tracks_of(lua_State* L, int t, const char* name)
     int list = lua_gettop(L);
     size_t count = (size_t)lua_objlen(L, list);
     if (count > kMaxList) luaL_error(L, "%s has more tracks than a grid may", name);
-    if (count) {
-        out.ptr = (pencere_view_types_track_t*)xmalloc(count * sizeof(pencere_view_types_track_t));
-        out.len = count;
-    }
+    size_t start = arenas.tracks.size();
     for (size_t at = 0; at < count; at++) {
         pencere_view_types_track_t track = {};
         lua_rawgeti(L, list, (int)at + 1);
@@ -341,10 +417,10 @@ pencere_view_types_list_track_t tracks_of(lua_State* L, int t, const char* name)
             luaL_error(L, "a track is points, {fr = n}, {min = n, fr = n} or \"auto\"");
         }
         lua_pop(L, 1);
-        out.ptr[at] = track;
+        arenas.tracks.push_back(track);
     }
     lua_pop(L, 1);
-    return out;
+    return part(start, count);
 }
 
 // Four numbers of the list at `name` (top, right, bottom, left, or the corners in order).
@@ -364,7 +440,7 @@ void four(lua_State* L, int t, const char* name, float out[4]) {
     lua_pop(L, 1);
 }
 
-void read_style(lua_State* L, int s, pencere_view_types_style_t& out) {
+void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& arenas) {
     out.display = (uint8_t)word(L, s, "display", kDisplay, 3, 0);
     out.direction = (uint8_t)word(L, s, "direction", kDirection, 2, PENCERE_VIEW_TYPES_DIRECTION_COLUMN);
     out.wrap = flag(L, s, "wrap");
@@ -397,8 +473,8 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out) {
     if (items >= 0) out.items = {true, (uint8_t)items};
     int justify = word(L, s, "justify", kJustify, 4, -1);
     if (justify >= 0) out.justify = {true, (uint8_t)justify};
-    out.columns = tracks_of(L, s, "columns");
-    out.rows = tracks_of(L, s, "rows");
+    out.columns = tracks_of(L, s, "columns", arenas);
+    out.rows = tracks_of(L, s, "rows", arenas);
     float span = number(L, s, "column_span", 0.0f);
     out.column_span = span < 0 ? 0 : (span > 65535 ? 65535 : (uint16_t)span);
     out.overflow = (uint8_t)word(L, s, "overflow", kOverflow, 3, 0);
@@ -453,6 +529,7 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out) {
 struct Flat {
     pencere_view_types_frame_t* frame;
     size_t cap;
+    Arenas arenas;
 };
 
 void flatten(lua_State* L, int element, Flat& flat, int depth) {
@@ -484,7 +561,7 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         size_t length = 0;
         const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
         nodes.ptr[at].content.tag = PENCERE_VIEW_TYPES_CONTENT_TEXT;
-        nodes.ptr[at].content.val.text = host_string(bytes, length);
+        nodes.ptr[at].content.val.text = add_words(flat.arenas, bytes, length);
         lua_pop(L, 1);
     } else if (is_spark) {
         pencere_view_types_spark_t spark = {};
@@ -493,15 +570,13 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
             int list = lua_gettop(L);
             size_t count = (size_t)lua_objlen(L, list);
             if (count > kMaxList * 4) luaL_error(L, "a sparkline has more values than it may");
-            if (count) {
-                spark.values.ptr = (float*)xmalloc(count * sizeof(float));
-                spark.values.len = count;
-            }
+            size_t start = flat.arenas.numbers.size();
             for (size_t i = 0; i < count; i++) {
                 lua_rawgeti(L, list, (int)i + 1);
-                spark.values.ptr[i] = (float)lua_tonumber(L, -1);
+                flat.arenas.numbers.push_back((float)lua_tonumber(L, -1));
                 lua_pop(L, 1);
             }
+            spark.values = part(start, count);
         }
         lua_pop(L, 1);
         spark.color.alpha = 1.0f;
@@ -513,15 +588,21 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         nodes.ptr[at].content.val.spark = spark;
     } else if (is_image) {
         pencere_view_types_image_t image = {};
-        get(L, element, "src");
+        // What the picture is lives in a table of its own (see `pencere.image`): its names are
+        // the chain's methods' too.
+        get(L, element, "picture");
+        if (lua_type(L, -1) != LUA_TTABLE) luaL_error(L, "an image is made by pencere.image");
+        int picture = lua_gettop(L);
+        get(L, picture, "src");
         size_t length = 0;
         const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
-        image.src = host_string(bytes, length);
+        image.src = add_words(flat.arenas, bytes, length);
         lua_pop(L, 1);
-        int fit = word(L, element, "fit", kFit, 2, 0);
+        int fit = word(L, picture, "fit", kFit, 2, 0);
         image.fit = (pencere_view_types_fit_t)fit;
-        image.tint = optional_color(L, element, "tint");
-        image.opacity = number(L, element, "opacity", 1.0f);
+        image.tint = optional_color(L, picture, "tint");
+        image.opacity = number(L, picture, "opacity", 1.0f);
+        lua_pop(L, 1);
         nodes.ptr[at].content.tag = PENCERE_VIEW_TYPES_CONTENT_IMAGE;
         nodes.ptr[at].content.val.image = image;
     }
@@ -529,7 +610,7 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
     get(L, element, "style");
     if (lua_type(L, -1) == LUA_TTABLE) {
         pencere_view_types_style_t style = nodes.ptr[at].style;
-        read_style(L, lua_gettop(L), style);
+        read_style(L, lua_gettop(L), style, flat.arenas);
         nodes.ptr[at].style = style;
     }
     lua_pop(L, 1);
@@ -663,8 +744,22 @@ void forget_ids() { names().clear(); }
 
 int frame_call(lua_State* L) {
     auto* job = (FrameJob*)lua_touserdata(L, 2);
-    Flat flat = {job->out, 0};
+    Flat flat = {job->out, 0, {}};
     flatten(L, 1, flat, 1);
+    // The tree is read: the lists the nodes name the parts of go to the host with it.
+    job->out->text = take_text(flat.arenas.text);
+    if (!flat.arenas.numbers.empty()) {
+        size_t bytes = flat.arenas.numbers.size() * sizeof(float);
+        job->out->numbers.ptr = (float*)xmalloc(bytes);
+        job->out->numbers.len = flat.arenas.numbers.size();
+        memcpy(job->out->numbers.ptr, flat.arenas.numbers.data(), bytes);
+    }
+    if (!flat.arenas.tracks.empty()) {
+        size_t bytes = flat.arenas.tracks.size() * sizeof(pencere_view_types_track_t);
+        job->out->tracks.ptr = (pencere_view_types_track_t*)xmalloc(bytes);
+        job->out->tracks.len = flat.arenas.tracks.size();
+        memcpy(job->out->tracks.ptr, flat.arenas.tracks.data(), bytes);
+    }
     job->out->animating = job->animating;
     job->out->wake_at.is_some = job->has_wake_at;
     job->out->wake_at.val = job->wake_at;
@@ -813,6 +908,8 @@ int reply_call(lua_State* L) {
             out.menu.val.at.y = number(L, lua_gettop(L), "y", 0.0f);
         }
         lua_pop(L, 1);
+        // The titles of the entries are one string, as the words of a frame are.
+        Arenas titles;
         get(L, menu, "entries");
         if (lua_type(L, -1) == LUA_TTABLE) {
             int list = lua_gettop(L);
@@ -836,7 +933,7 @@ int reply_call(lua_State* L) {
                     get(L, entry_index, "title");
                     size_t length = 0;
                     const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
-                    entry.val.item.title = host_string(bytes, length);
+                    entry.val.item.title = add_words(titles, bytes, length);
                     lua_pop(L, 1);
                     get(L, entry_index, "key");
                     if (lua_type(L, -1) == LUA_TSTRING && lua_objlen(L, -1) > 0) {
@@ -859,6 +956,7 @@ int reply_call(lua_State* L) {
             }
         }
         lua_pop(L, 1);
+        out.menu.val.titles = take_text(titles.text);
     }
     lua_pop(L, 1);
     return 0;

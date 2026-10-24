@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use pencere_view::{Event, Font, Input, Key, Measure, Metrics, Mods, Point, Size};
 use wasmtime::component::Component;
 
-use crate::{Fault, Limits, Module, Program, Unbounded, Update};
+use crate::{Fault, Module, ModuleLimits, Program, Unbounded, Update};
 
 fn component(name: &str) -> Option<Vec<u8>> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -46,12 +46,12 @@ pub(crate) struct Open {
     pub(crate) seen: Update,
 }
 
-fn open(name: &str, limits: Limits) -> Option<Open> {
+fn open(name: &str, limits: ModuleLimits) -> Option<Open> {
     open_for(name, limits, Arc::new(Unbounded))
 }
 
 /// The module `name`, for `program`.
-fn open_for(name: &str, limits: Limits, program: Arc<dyn Program>) -> Option<Open> {
+fn open_for(name: &str, limits: ModuleLimits, program: Arc<dyn Program>) -> Option<Open> {
     let bytes = component(name)?;
     let (told, woken) = channel();
     let told = std::sync::Mutex::new(told);
@@ -119,7 +119,7 @@ fn the_container_list_asks_for_nothing_the_page_interface_does_not_give() {
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn the_container_list_is_drawn_laid_out_and_used_through_the_sandbox() {
-    let Some(mut page) = open("containers", Limits::default()) else {
+    let Some(mut page) = open("containers", ModuleLimits::default()) else {
         return;
     };
     page.module.render(SIZE, 0.0, false);
@@ -223,7 +223,7 @@ fn the_container_list_is_drawn_laid_out_and_used_through_the_sandbox() {
         page.seen
             .replies
             .iter()
-            .any(|a| a.reply.keyboard == Some(pencere_view::Keyboard::Filter)),
+            .any(|a| a.reply.keyboard == Some(pencere_view::Keyboard::Field)),
         "{:?}",
         page.seen.replies
     );
@@ -240,7 +240,7 @@ fn the_container_list_is_drawn_laid_out_and_used_through_the_sandbox() {
 }
 
 /// Opens the page that goes wrong, presses `letter` and returns why it was closed.
-fn broken(letter: char, limits: Limits) -> Option<(Fault, Duration)> {
+fn broken(letter: char, limits: ModuleLimits) -> Option<(Fault, Duration)> {
     let mut page = open("broken", limits)?;
     page.module.render(SIZE, 0.0, false);
     page.until(Duration::from_secs(20), |u| {
@@ -249,7 +249,7 @@ fn broken(letter: char, limits: Limits) -> Option<(Fault, Duration)> {
     assert_eq!(page.module.poll().closed, None);
     let began = Instant::now();
     page.module.event(Event::Input(Input::Key {
-        key: Key::Char(letter),
+        key: Key::Character(letter),
         mods: Mods::default(),
     }));
     let update = page.until(Duration::from_secs(20), |u| u.closed.is_some());
@@ -259,9 +259,9 @@ fn broken(letter: char, limits: Limits) -> Option<(Fault, Duration)> {
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_page_that_never_returns_is_cut_off_and_the_application_hears_why() {
-    let limits = Limits {
+    let limits = ModuleLimits {
         call: Duration::from_millis(200),
-        ..Limits::default()
+        ..ModuleLimits::default()
     };
     let Some((fault, took)) = broken('l', limits) else {
         return;
@@ -273,9 +273,9 @@ fn a_page_that_never_returns_is_cut_off_and_the_application_hears_why() {
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_page_that_takes_memory_without_end_is_refused_it() {
-    let limits = Limits {
+    let limits = ModuleLimits {
         memory: 16 << 20,
-        ..Limits::default()
+        ..ModuleLimits::default()
     };
     let Some((fault, _)) = broken('m', limits) else {
         return;
@@ -286,14 +286,14 @@ fn a_page_that_takes_memory_without_end_is_refused_it() {
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_page_that_panics_says_why_and_one_that_runs_out_of_stack_is_closed_with_the_trap() {
-    let Some((fault, _)) = broken('t', Limits::default()) else {
+    let Some((fault, _)) = broken('t', ModuleLimits::default()) else {
         return;
     };
     assert!(
         matches!(&fault, Fault::Failed(why) if why.contains("this page trapped on purpose")),
         "{fault:?}"
     );
-    let Some((fault, _)) = broken('s', Limits::default()) else {
+    let Some((fault, _)) = broken('s', ModuleLimits::default()) else {
         return;
     };
     assert!(matches!(fault, Fault::Trap(_)), "{fault:?}");
@@ -302,7 +302,7 @@ fn a_page_that_panics_says_why_and_one_that_runs_out_of_stack_is_closed_with_the
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn the_container_list_asks_its_program_for_readings_and_shows_what_it_pushes() {
-    let Some(mut page) = open("containers", Limits::default()) else {
+    let Some(mut page) = open("containers", ModuleLimits::default()) else {
         return;
     };
     page.module.render(SIZE, 0.0, false);
@@ -358,9 +358,9 @@ fn a_component_over_the_size_the_application_runs_is_not_compiled() {
     let Some(bytes) = component("containers") else {
         return;
     };
-    let limits = Limits {
+    let limits = ModuleLimits {
         component: bytes.len() - 1,
-        ..Limits::default()
+        ..ModuleLimits::default()
     };
     let (told, woken) = channel();
     let told = std::sync::Mutex::new(told);
@@ -432,7 +432,7 @@ fn numbers(sent: &[String]) -> Vec<u64> {
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_module_told_full_keeps_what_it_meant_to_say_and_goes_on_when_it_is_called_for_room() {
     let program = Room::with(10);
-    let Some(mut page) = open_for("chatty", Limits::default(), program.clone()) else {
+    let Some(mut page) = open_for("chatty", ModuleLimits::default(), program.clone()) else {
         return;
     };
     // Called for room before it has said anything: it has nothing to go on with.
@@ -495,7 +495,7 @@ fn chunk_of(text: &str) -> (u64, usize, bool) {
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn the_container_list_sends_its_payload_as_fast_as_its_program_has_room_and_loses_none() {
     let program = Room::with(1 /* the subscription */ + 3);
-    let Some(mut page) = open_for("containers", Limits::default(), program.clone()) else {
+    let Some(mut page) = open_for("containers", ModuleLimits::default(), program.clone()) else {
         return;
     };
     page.module.render(SIZE, 0.0, false);
@@ -507,7 +507,7 @@ fn the_container_list_sends_its_payload_as_fast_as_its_program_has_room_and_lose
     page.module
         .message(r#"{"push":{"id":1,"value":{"readings":[]}}}"#.to_owned());
     page.module.event(Event::Input(Input::Key {
-        key: Key::Char('U'),
+        key: Key::Character('U'),
         mods: Mods::default(),
     }));
     page.until(Duration::from_millis(500), |_| false);
@@ -571,18 +571,18 @@ return { render = function()
         )
         :child(pencere.spark({ 1, 2, 3 }, "bright-green"))
         :child(pencere.spark({ 3, 2, 1 }, both))
-        :child(pencere.image { src = "icons/stop.svg" })
-        :child(pencere.image { src = "logo.png", fit = "cover", opacity = 0.5 }:size(48, 24):rounded(4))
-        :child(pencere.image { src = "icons/run.svg", tint = "error" }:w(16))
-        :child(pencere.image { src = "icons/run.svg", tint = both })
-        :child(pencere.image { src = "icons/run.svg", tint = pencere.alpha("accent", 0.5) })
+        :child(pencere.image("icons/stop.svg"))
+        :child(pencere.image("logo.png"):fit("cover"):opacity(0.5):size(48, 24):rounded(4))
+        :child(pencere.image("icons/run.svg"):tint("error"):w(16))
+        :child(pencere.image("icons/run.svg"):tint(both))
+        :child(pencere.image("icons/run.svg"):tint(pencere.alpha("accent", 0.5)))
 end }
 "##;
 
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_colour_said_in_rust_and_in_lua_is_the_same_colour_across_the_sandbox() {
-    let Some(mut module) = open("tints", Limits::default()) else {
+    let Some(mut module) = open("tints", ModuleLimits::default()) else {
         return;
     };
     module.module.render(SIZE, 0.0, false);
@@ -590,7 +590,7 @@ fn a_colour_said_in_rust_and_in_lua_is_the_same_colour_across_the_sandbox() {
         u.frame.is_some() || u.closed.is_some()
     });
     assert_eq!(from_module.closed, None);
-    let mut script = crate::luau_tests::open_script(TINTS_LUA, Limits::default());
+    let mut script = crate::luau_tests::open_script(TINTS_LUA, ModuleLimits::default());
     script.module.render(SIZE, 0.0, false);
     let from_script = script.until(Duration::from_secs(20), |u| {
         u.frame.is_some() || u.closed.is_some()

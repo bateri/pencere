@@ -457,7 +457,9 @@ pub struct NoView {
     pub reason: NoViewReason,
     /// The `code` of the `closed` of a refusal or a failure (§6.4).
     pub code: Option<String>,
-    /// The words of the `closed`, for people (§8.8).
+    /// The words of the `closed`, for people (§8.8). For [`NoViewReason::NoCommonView`], when the
+    /// terminal opens a kind of the program's in other versions, the sentence that names both
+    /// sides (§5.2); [`serve`] prints it before the fallback runs.
     pub message: Option<String>,
 }
 
@@ -509,9 +511,17 @@ pub fn serve(mut options: Options) -> Result<Outcome, Error> {
     let outcome = outcome?;
     if let Outcome::NoView(no_view) = &outcome
         && !matches!(no_view.reason, NoViewReason::Interrupted(_))
-        && let Some(fallback) = fallback
     {
-        fallback(no_view);
+        // A terminal that opens the program's kinds, in other versions: the person is told what
+        // would serve (the terminal is the program's own again, so this is the program's to say).
+        if no_view.reason == NoViewReason::NoCommonView
+            && let Some(words) = &no_view.message
+        {
+            eprintln!("pencere: {words}");
+        }
+        if let Some(fallback) = fallback {
+            fallback(no_view);
+        }
     }
     Ok(outcome)
 }

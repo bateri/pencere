@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    Color, DrawList, Element, Fit, Font, Measure, Metrics, Paint, Picture, Rect, Rgba, Size, Tone,
+    Color, DrawList, Element, Fit, Font, Measure, Metrics, Paint, Picture, Rect, Rgba, Role, Size,
     div, image, layout,
 };
 
@@ -166,7 +166,7 @@ fn an_image_the_host_does_not_know_leaves_its_box_empty_and_the_box_keeps_its_fi
     let root = div().child(
         image("missing.png", Fit::Contain)
             .size(30.0, 30.0)
-            .bg(Tone::Raised(1)),
+            .bg(Role::Raised(1)),
     );
     let (at, drawn) = lone(root, &mut host, 1.0);
     assert_eq!(at, Rect::new(0.0, 0.0, 30.0, 30.0));
@@ -176,7 +176,7 @@ fn an_image_the_host_does_not_know_leaves_its_box_empty_and_the_box_keeps_its_fi
         div().child(
             image("missing.png", Fit::Contain)
                 .size(30.0, 30.0)
-                .bg(Tone::Raised(1)),
+                .bg(Role::Raised(1)),
         ),
         &mut host,
         100.0,
@@ -252,10 +252,54 @@ fn an_image_fills_what_is_inside_its_padding_and_border() {
         image("a.png", Fit::Cover)
             .size(60.0, 40.0)
             .p(5.0)
-            .border(1.0, Tone::Line),
+            .border(1.0, Role::Border),
     );
     let (_, drawn) = lone(root, &mut host, 1.0);
     assert_eq!(drawn[0].rect, Rect::new(6.0, 6.0, 48.0, 28.0));
+}
+
+#[test]
+fn an_image_that_takes_its_size_from_the_image_keeps_the_border_beside_it_and_its_proportions() {
+    // The box is 60 across with 5 of padding and 1 of border on each side: what the picture has
+    // is 48, and its height is the half of that, 24, with the same padding and border around
+    // it. (The picture's room was measured against the whole side and the padding and border
+    // were then taken off it again, so the box came out too tall and the picture too small for it.)
+    let mut host = Images::with("a.png", 40.0, 20.0);
+    let root = div().items_start().child(
+        image("a.png", Fit::Contain)
+            .w(60.0)
+            .p(5.0)
+            .border(1.0, Role::Border),
+    );
+    let (at, drawn) = lone(root, &mut host, 1.0);
+    assert_eq!(at, Rect::new(0.0, 0.0, 60.0, 36.0));
+    assert_eq!(drawn[0].rect, Rect::new(6.0, 6.0, 48.0, 24.0));
+    // And with no side given, the image's own size, and the border and padding on top of it.
+    let root = div().items_start().child(
+        image("a.png", Fit::Contain)
+            .p(5.0)
+            .border(1.0, Role::Border),
+    );
+    let (at, drawn) = lone(root, &mut host, 1.0);
+    assert_eq!(at, Rect::new(0.0, 0.0, 52.0, 32.0));
+    assert_eq!(drawn[0].rect, Rect::new(6.0, 6.0, 40.0, 20.0));
+}
+
+#[test]
+fn an_image_held_to_a_largest_or_smallest_side_keeps_its_proportions() {
+    let mut host = Images::with("a.png", 40.0, 20.0);
+    // Left to be as large as it is, but not wider than 30: not 30 by 20.
+    let capped = div()
+        .items_start()
+        .child(image("a.png", Fit::Contain).max_w(30.0));
+    let (at, _) = lone(capped, &mut host, 1.0);
+    assert_eq!((at.w, at.h), (30.0, 15.0));
+    // And not narrower than 60: not 60 by 20.
+    let raised = div()
+        .items_start()
+        .child(image("a.png", Fit::Contain).min_w(60.0));
+    let (at, _) = lone(raised, &mut host, 1.0);
+    assert_eq!((at.w, at.h), (60.0, 30.0));
 }
 
 #[test]
@@ -285,14 +329,14 @@ fn the_tint_and_the_opacity_reach_the_draw_list_as_the_page_said_them() {
         .child(image("a.svg", Fit::Contain).opacity(f32::NAN));
     let (_, drawn) = lone(odd, &mut host, 1.0);
     assert_eq!(drawn[0].opacity, 1.0);
-    // And one of a tone is held, not resolved.
+    // And one of a role is held, not resolved.
     let toned = div()
         .items_start()
-        .child(image("a.svg", Fit::Contain).tint(Tone::Accent));
+        .child(image("a.svg", Fit::Contain).tint(Role::Accent));
     let (_, drawn) = lone(toned, &mut host, 1.0);
     assert_eq!(
         drawn[0].tint.map(|c| c.source),
-        Some(Color::from(Tone::Accent).source)
+        Some(Color::from(Role::Accent).source)
     );
 }
 

@@ -25,10 +25,6 @@ pub struct HostInfo {
     pub version: String,
 }
 
-/// A feature a host may list in its `welcome`: it takes bundles (specification
-/// §8.1).
-pub const FEATURE_BUNDLE: &str = "bundle";
-
 /// A feature a host may list in its `welcome`: it closes a view when the program
 /// sends `dismiss` (specification §10.8).
 pub const FEATURE_DISMISS: &str = "dismiss";
@@ -76,6 +72,8 @@ struct Offer<'a> {
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     features: &'a [&'static str],
     views: &'a [ViewOffer],
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    opens: &'a [ViewOffer],
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     restart: bool,
 }
@@ -88,13 +86,16 @@ struct Unsupported<'a> {
 
 /// The host's `welcome` carrying a version and a token. `views` are the kinds of view it will
 /// open, each with the versions of it that the program and the host both speak, in the order it
-/// was given (specification §5.2); it can be empty.
+/// was given (specification §5.2); it can be empty. `opens` are the kinds the program listed that
+/// the host opens at no version the program speaks, each with the versions the host does open
+/// (left out of the message when there are none).
 pub fn welcome_offer(
     version: u32,
     token: &str,
     host: &HostInfo,
     features: &[&'static str],
     views: &[ViewOffer],
+    opens: &[ViewOffer],
     restart: bool,
 ) -> String {
     wire(&Offer {
@@ -103,6 +104,7 @@ pub fn welcome_offer(
         host,
         features,
         views,
+        opens,
         restart,
     })
 }
@@ -366,26 +368,41 @@ mod tests {
                 1,
                 "q7Vh2sB0xJm9kLw4TzN1cA",
                 &host(),
-                &["bundle", "dismiss"],
+                &["dismiss"],
                 &[offer("web", &["1.0"])],
+                &[],
                 false
             ),
-            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}"#
+            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}"#
         );
         assert_eq!(
             welcome_offer(
                 1,
                 "Zk3mP8rD5uYb1Xe6HqS0vg",
                 &host(),
-                &["bundle", "dismiss"],
+                &["dismiss"],
                 &[offer("wasm", &["0.5", "0.4"]), offer("web", &["1.0"])],
+                &[],
                 true
             ),
-            r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}],"restart":true}"#
+            r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}],"restart":true}"#
         );
         assert_eq!(
-            welcome_offer(1, "t", &host(), &[], &[], false),
+            welcome_offer(1, "t", &host(), &[], &[], &[], false),
             r#"{"version":1,"token":"t","host":{"name":"pencere-test","version":"0.0.0"},"views":[]}"#
+        );
+        // The kinds the host opens at no version the program speaks, after `views`.
+        assert_eq!(
+            welcome_offer(
+                1,
+                "t",
+                &host(),
+                &[],
+                &[offer("web", &["1.0"])],
+                &[offer("wasm", &["0.5", "0.4"])],
+                false
+            ),
+            r#"{"version":1,"token":"t","host":{"name":"pencere-test","version":"0.0.0"},"views":[{"kind":"web","versions":["1.0"]}],"opens":[{"kind":"wasm","versions":["0.5","0.4"]}]}"#
         );
         assert_eq!(
             welcome_unsupported(&host()),

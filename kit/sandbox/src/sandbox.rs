@@ -4,7 +4,7 @@
 //! The module gets **nothing it was not given**: the linker holds the page's own interface and
 //! no other (no clock, no file, no network, no environment, no way to print), so a module that
 //! asks for anything else does not start. What it is given it is given on terms: a store that
-//! refuses to grow past [`Limits::memory`], a call that is cut off after [`Limits::call`]
+//! refuses to grow past [`ModuleLimits::memory`], a call that is cut off after [`ModuleLimits::call`]
 //! (the module's code is compiled to check for it at every loop head and function entry), and a
 //! page that is read with its size, depth and strings counted.
 
@@ -24,10 +24,15 @@ pub trait Program: Send + Sync + 'static {
     /// room for it. When not, the module is told *full* and keeps the message, and the
     /// application calls it again (`Module::room`) once the program has read enough. From the
     /// module's thread.
+    ///
+    /// `bytes` is the size of the message as the protocol counts it, with its escapes undone
+    /// (`pencere_wire::json::unescaped_len`): what the application counts of the same message
+    /// when it takes it from [`crate::Update::sent`] is to be counted so, or the two never meet.
     fn may_say(&self, bytes: usize) -> bool;
 
     /// The module has taken a message of `bytes` the program said: the program may say more.
-    /// From the module's thread, after the page was told.
+    /// From the module's thread, after the page was told. `bytes` is counted as for
+    /// [`Program::may_say`], from the text the application gave [`crate::Module::message`].
     fn taken(&self, bytes: usize);
 
     /// The application's clock now, in the seconds the module is given as `now` for a frame, if
@@ -62,15 +67,24 @@ impl Program for Unbounded {
 
 /// What a module is held to.
 #[derive(Clone, Debug)]
-pub struct Limits {
+pub struct ModuleLimits {
     /// Bytes of memory and of tables the module may hold in all.
     pub memory: usize,
     /// How long one call (a frame, a settle, an event) may take.
     pub call: Duration,
     /// How long the module may take to start (its first code to run).
     pub start: Duration,
+    /// How long compiling the module may take. A component is code from a program, and what it
+    /// takes to compile is the author's to make long; past this the module is refused (the
+    /// compiling goes on, on a thread of its own, until it is done, and its result is dropped).
+    pub compile: Duration,
     /// Elements in one frame.
     pub nodes: usize,
+    /// Bytes in all that one frame (or one menu) says apart from its elements' fixed fields: the
+    /// words of its lines of text and pictures' paths, four bytes a value of a sparkline, what a
+    /// track takes. Counted each time an element names a part, so that parts that overlap are not
+    /// free.
+    pub frame_bytes: usize,
     /// Depth of the tree of one frame (the root is 1).
     pub depth: usize,
     /// Bytes of one line of text, of a title, of text for the pasteboard.
@@ -90,13 +104,15 @@ pub struct Limits {
     pub message: usize,
 }
 
-impl Default for Limits {
+impl Default for ModuleLimits {
     fn default() -> Self {
         Self {
             memory: 64 << 20,
             call: Duration::from_millis(250),
             start: Duration::from_secs(2),
+            compile: Duration::from_secs(20),
             nodes: 20_000,
+            frame_bytes: 4 << 20,
             depth: 128,
             text: 64 << 10,
             tracks: 64,
@@ -240,7 +256,7 @@ pub(crate) struct Host {
 }
 
 impl Host {
-    pub(crate) fn new(limits: &Limits, program: Arc<dyn Program>) -> Self {
+    pub(crate) fn new(limits: &ModuleLimits, program: Arc<dyn Program>) -> Self {
         Self {
             limiter: Limiter::new(limits.memory),
             laid: None,
@@ -269,7 +285,7 @@ pub(crate) fn engine() -> Result<Engine, Fault> {
 /// A store for one module under `limits`; `script` is what a module that runs one is given.
 pub(crate) fn store(
     engine: &Engine,
-    limits: &Limits,
+    limits: &ModuleLimits,
     program: Arc<dyn Program>,
     script: Arc<[u8]>,
 ) -> Store<Host> {
@@ -341,7 +357,7 @@ mod tests {
     use wasmtime::component::{Component, Linker};
 
     /// A component with one function, `run`, that does `body`.
-    fn run(wat_body: &str, limits: &Limits) -> Result<(), Fault> {
+    fn run(wat_body: &str, limits: &ModuleLimits) -> Result<(), Fault> {
         let engine = engine()?;
         let source = format!(
             r#"(component
@@ -364,11 +380,11 @@ mod tests {
         call(&mut store, limits.call, |store| run.call(store, ()))
     }
 
-    fn quick() -> Limits {
-        Limits {
+    fn quick() -> ModuleLimits {
+        ModuleLimits {
             call: Duration::from_millis(50),
             memory: 4 << 20,
-            ..Limits::default()
+            ..ModuleLimits::default()
         }
     }
 

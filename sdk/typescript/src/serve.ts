@@ -32,13 +32,13 @@ import { Link } from "./link.js";
 import type { Input, Output } from "./link.js";
 import {
   ENTRY_TYPES,
-  FEATURE_BUNDLE,
   FEATURE_DISMISS,
   VERSIONS,
   VIEW_KINDS,
   WEB_VERSION,
   byePayload,
   chooseView,
+  noVersionSentence,
   dismissPayload,
   helloPayload,
   isVersion,
@@ -200,7 +200,11 @@ export interface NoView {
   readonly reason: NoViewReason;
   /** The `code` of the `closed` of a refusal or a failure (§6.4). */
   readonly code?: string;
-  /** The words of the `closed`, for people (§8.8). */
+  /**
+   * The words of the `closed`, for people (§8.8). For `no-common-view`, when the host opens a kind
+   * of the program's in other versions, the sentence that names both sides (§5.2); `serve` prints
+   * it to stderr before the fallback runs.
+   */
   readonly message?: string;
 }
 
@@ -432,7 +436,14 @@ async function serveChecked(
 
 /** How `serve` ends: with the `fallback` first when no view was shown, unless the wait was aborted. */
 async function ended(options: ServeOptions, result: ServeResult): Promise<ServeResult> {
-  if (result.kind === "no-view" && result.reason !== "aborted") await options.fallback?.(result);
+  if (result.kind === "no-view" && result.reason !== "aborted") {
+    // A host that opens the program's kinds in other versions says which (§5.2): the terminal is
+    // the program's own again, so the person is told what would serve before the fallback runs.
+    if (result.reason === "no-common-view" && result.message !== undefined) {
+      process.stderr.write(`pencere: ${result.message}\n`);
+    }
+    await options.fallback?.(result);
+  }
   return result;
 }
 
@@ -569,10 +580,11 @@ class TerminalSession implements ViewTarget {
       }
       const choice = this.#choose(answer.welcome);
       if (choice === undefined) {
-        // A host with a token and nothing to open: the program knows at once, and does not wait (§5.3).
+        // A host with a token and nothing to open: the program knows at once, and does not wait
+        // (§5.3). When it opens a kind of the program's in other versions, it says which (§5.2).
         this.#phase = "over";
         this.#cleanup();
-        return { kind: "no-view", reason: "no-common-view" };
+        return { kind: "no-view", reason: "no-common-view", ...this.#noVersion(answer.welcome) };
       }
       const ended = new Promise<ServeResult>((resolve, reject) => {
         this.#end = { resolve, reject };
@@ -594,10 +606,14 @@ class TerminalSession implements ViewTarget {
     return this.#views.map((view) => ({ kind: view.kind, versions: view.versions }));
   }
 
+  /** The words that name the versions of both sides, if the host named any kind to say them of. */
+  #noVersion(welcome: WelcomeOffer): { message?: string } {
+    const message = noVersionSentence(this.#offers(), welcome.opens);
+    return message === undefined ? {} : { message };
+  }
+
   /** The view to open, if the host will open one of the program's kinds (§5.3). */
   #choose(welcome: WelcomeOffer): Choice | undefined {
-    // Every kind of view arrives as a bundle: a host without the feature has nothing to open (§8.1).
-    if (!welcome.features.includes(FEATURE_BUNDLE)) return undefined;
     return chooseView(this.#offers(), welcome.views);
   }
 
@@ -985,7 +1001,11 @@ class TerminalSession implements ViewTarget {
           : answer.kind === "offer"
             ? "no-common-view"
             : noViewReason(answer.kind);
-      this.#settle({ kind: "no-view", reason });
+      this.#settle({
+        kind: "no-view",
+        reason,
+        ...(answer.kind === "offer" ? this.#noVersion(answer.welcome) : {}),
+      });
       return;
     }
     if (change !== undefined) change.stage = "opening";

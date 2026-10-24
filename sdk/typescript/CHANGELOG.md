@@ -8,6 +8,8 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ### Added
 
+- **A host that opens a kind of the program's in other versions is told in words.** The `no-view` result with the reason `no-common-view` carries a `message` that names both sides, and `serve` writes it to standard error as `pencere: …` before the `fallback` runs (specification §5.2, §5.3). `WelcomeOffer.opens` is the host's list; `noVersionSentence` makes the sentence.
+- `Colors` of a page's `context` has `cursor`, `selection` and `ansi` (§9.5).
 - **Deno and Bun**, beside Node (20 and later): the same code on all three. What is Node's — the
   tty's modes, the signals, the files, `Buffer` — sits behind a small layer that each runtime
   answers in its own way; the rule of §4.9 is the same on all three (`stty`, ISIG on). Deno needs
@@ -44,6 +46,7 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ### Changed
 
+- **Breaking: `FEATURE_BUNDLE` is gone.** The `welcome` no longer lists `bundle` (§8.1). A message nested 128 levels deep or more is ignored (§4.5), as is one with an `id` above 2^53 - 1.
 - **Breaking: one protocol, with no MCP in it.** `serve` no longer takes an MCP server and a
   program is no longer an MCP server on stdio: it lists the views it can show (`views`: kind,
   versions, bundle and, for a page, its `access`), answers the view's calls (`calls`), feeds its

@@ -6,7 +6,16 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: the role `Role::Line` is `Role::Border`**, the name a page of kind `web` has for the colour of rules and borders (specification §11.2).
+
 ### Added
+
+- **An image keeps its proportions and its border.** An image whose box takes its size from the
+  image has the border and the padding beside it (the picture's room was measured against the whole
+  side and had them taken off again), and one held only by a `min_w`/`max_w`/`min_h`/`max_h` keeps its
+  other side in proportion where it has no padding or border.
 
 - **Images.** `image(src, fit)` is an element that draws a file of the view's bundle (`Kind::Image`;
   `.tint(colour)` and `.opacity(x)` on it; `Fit::Contain` or `Fit::Cover`). The host says how large
@@ -16,10 +25,10 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   shows (`crop`, which is how `cover` cuts), the unresolved tint, the opacity and the corners.
   `Picture::full()` is the size the whole image comes to, which is what a vector image is drawn at.
 
-- **Colours.** `Tone` gains the theme's sixteen ANSI colours (`Black` … `BrightWhite`, in the order
-  of the palette: `Tone::ANSI`, `Tone::ansi_index`) and `Selection`. A `Color` is now a `Source`
+- **Colours.** `Role` gains the theme's sixteen ANSI colours (`Black` … `BrightWhite`, in the order
+  of the palette: `Role::ANSI`, `Role::ansi_index`) and `Selection`. A `Color` is now a `Source`
   (a role, or an `Rgba` value with an optional form for a dark theme) and an opacity; it is
-  `Color { source, alpha }` where it was `Color { tone, alpha }` (`Color::role()` gives the tone).
+  `Color { source, alpha }` where it was `Color { tone, alpha }` (`Color::role()` gives the role).
   `Rgba::parse` reads `#rrggbb` and `#rrggbbaa`. The engine resolves none of it: the host takes the
   role from its theme and the form of a value that goes with its brightness (`Source::value`).
 - **`Run::grounds`.** Each line of text in the draw list names the fills under it, nearest first,

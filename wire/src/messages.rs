@@ -28,9 +28,14 @@ use serde_json::Value;
 /// The most bytes one message may have: the protocol's own limit for a message toward the
 /// program (1 MiB, specification §4.6). The terminal carries them as they are, and the same
 /// bound holds in the other direction so that one rule serves both. The sandbox holds a module to
-/// the same number (`pencere_sandbox::Limits::message`), and the tests of the example program pin
+/// the same number (`pencere_sandbox::ModuleLimits::message`), and the tests of the example program pin
 /// the two to the protocol's.
 pub const MAX_BYTES: usize = 1 << 20;
+
+/// The greatest `id` a message may carry, 2^53 - 1 (specification §9.2): the greatest integer a
+/// JSON number holds in the language a page is written in, so that the one number means the
+/// same to both ends.
+pub const MAX_ID: u64 = (1 << 53) - 1;
 
 /// One message.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -138,7 +143,7 @@ pub enum Refused {
     Malformed,
     /// A `response` with both a `result` and an `error`, or neither.
     Ambiguous,
-    /// An `id` of 0: numbers start at 1.
+    /// An `id` of 0 or over [`MAX_ID`]: numbers start at 1.
     NoId,
 }
 
@@ -166,7 +171,7 @@ impl Message {
             return Err(Refused::TooLong);
         }
         let message: Message = serde_json::from_str(text).map_err(|_| Refused::Malformed)?;
-        if message.id() == 0 {
+        if !message.has_usable_id() {
             return Err(Refused::NoId);
         }
         if let Message::Response(response) = &message
@@ -181,6 +186,11 @@ impl Message {
     pub fn text(&self) -> String {
         // A message is made of strings, numbers and values already parsed: it always serialises.
         serde_json::to_string(self).unwrap_or_default()
+    }
+
+    /// Whether the number the message belongs to is one a message may have: 1 to [`MAX_ID`].
+    pub fn has_usable_id(&self) -> bool {
+        (1..=MAX_ID).contains(&self.id())
     }
 
     /// The number the message belongs to.
@@ -319,6 +329,12 @@ mod tests {
         assert_eq!(
             parse(r#"{"call":{"id":-1,"method":"x"}}"#),
             Err(Refused::Malformed)
+        );
+        // The greatest integer a JSON number holds in a page's language, and no more.
+        assert!(parse(r#"{"call":{"id":9007199254740991,"method":"x"}}"#).is_ok());
+        assert_eq!(
+            parse(r#"{"call":{"id":9007199254740992,"method":"x"}}"#),
+            Err(Refused::NoId)
         );
         assert_eq!(parse(r#"{"response":{"id":1}}"#), Err(Refused::Ambiguous));
         assert_eq!(

@@ -10,13 +10,14 @@ use pencere_view::wire::{
 };
 use pencere_view::{
     Align, Border, Button, Color, Cursor, Element, Event, Extent, Family, Id, Input, Key, Keyboard,
-    Laid, Menu, MenuEntry, Mods, Point, Rect, Reply, Rgba, Shadow, Size, Source, Tone, Track,
+    Laid, Menu, MenuEntry, Mods, Point, Rect, Reply, Rgba, Role, Shadow, Size, Source, Track,
 };
+use pencere_wire::json::unescaped_len;
 use wasmtime::Store;
 use wasmtime::component::{Component, HasSelf, Linker};
 
 use crate::module::{Frame, Runner};
-use crate::sandbox::{self, Fault, Host, Limits, Program};
+use crate::sandbox::{self, Fault, Host, ModuleLimits, Program};
 
 // The interface is read from the crate's own copy, `wit/view.wit`: a published crate cannot read
 // outside itself. `kit/wit/view.wit` is the source; `make check` fails while they differ.
@@ -35,7 +36,11 @@ impl pencere::view::program::Host for Host {
     fn send(&mut self, message: String) -> pencere::view::program::Delivery {
         use pencere::view::program::Delivery;
         let (messages, bytes) = self.allowed;
-        if self.sent.len() >= messages || message.len() > bytes {
+        // A message is as long as the protocol counts it (escapes undone), as the terminal and
+        // the program count it: a page that writes ASCII is not held to less than one that need
+        // not.
+        let size = unescaped_len(&message);
+        if self.sent.len() >= messages || size > bytes {
             // Not kept, and the application closes the module when the call is over: these
             // are limits on the work of a call, not on what the program can take.
             self.overflowed = true;
@@ -43,7 +48,7 @@ impl pencere::view::program::Host for Host {
         }
         // The program may not have read what it was told before. Not an error: the module
         // keeps the message and is called again when the program has read.
-        if !self.program.may_say(message.len()) {
+        if !self.program.may_say(size) {
             return Delivery::Full;
         }
         self.sent.push(message);
@@ -144,7 +149,7 @@ fn mods_in(mods: Mods) -> wit::Mods {
     wit::Mods {
         shift: mods.shift,
         control: mods.control,
-        alt: mods.option,
+        alt: mods.alt,
         command: mods.command,
     }
 }
@@ -162,7 +167,7 @@ fn key_in(key: Key) -> wit::Key {
         Key::Enter => wit::Key::Enter,
         Key::Escape => wit::Key::Escape,
         Key::Tab => wit::Key::Tab,
-        Key::Char(c) => wit::Key::Character(c),
+        Key::Character(c) => wit::Key::Character(c),
     }
 }
 
@@ -212,38 +217,38 @@ fn share(value: f32) -> f32 {
     pt(value).max(0.0)
 }
 
-fn tone_out(tone: &wit::Tone) -> Tone {
-    match tone {
-        wit::Tone::Background => Tone::Background,
-        wit::Tone::Foreground => Tone::Foreground,
-        wit::Tone::Dim => Tone::Dim,
-        wit::Tone::Accent => Tone::Accent,
-        wit::Tone::Cursor => Tone::Cursor,
-        wit::Tone::Success => Tone::Success,
-        wit::Tone::Error => Tone::Error,
-        wit::Tone::Info => Tone::Info,
-        wit::Tone::Warning => Tone::Warning,
-        wit::Tone::Raised(steps) => Tone::Raised(*steps),
-        wit::Tone::Quiet => Tone::Quiet,
-        wit::Tone::Line => Tone::Line,
-        wit::Tone::Shadow => Tone::Shadow,
-        wit::Tone::Selection => Tone::Selection,
-        wit::Tone::Black => Tone::Black,
-        wit::Tone::Red => Tone::Red,
-        wit::Tone::Green => Tone::Green,
-        wit::Tone::Yellow => Tone::Yellow,
-        wit::Tone::Blue => Tone::Blue,
-        wit::Tone::Magenta => Tone::Magenta,
-        wit::Tone::Cyan => Tone::Cyan,
-        wit::Tone::White => Tone::White,
-        wit::Tone::BrightBlack => Tone::BrightBlack,
-        wit::Tone::BrightRed => Tone::BrightRed,
-        wit::Tone::BrightGreen => Tone::BrightGreen,
-        wit::Tone::BrightYellow => Tone::BrightYellow,
-        wit::Tone::BrightBlue => Tone::BrightBlue,
-        wit::Tone::BrightMagenta => Tone::BrightMagenta,
-        wit::Tone::BrightCyan => Tone::BrightCyan,
-        wit::Tone::BrightWhite => Tone::BrightWhite,
+fn role_out(role: &wit::Role) -> Role {
+    match role {
+        wit::Role::Background => Role::Background,
+        wit::Role::Foreground => Role::Foreground,
+        wit::Role::Dim => Role::Dim,
+        wit::Role::Accent => Role::Accent,
+        wit::Role::Cursor => Role::Cursor,
+        wit::Role::Success => Role::Success,
+        wit::Role::Error => Role::Error,
+        wit::Role::Info => Role::Info,
+        wit::Role::Warning => Role::Warning,
+        wit::Role::Raised(steps) => Role::Raised(*steps),
+        wit::Role::Quiet => Role::Quiet,
+        wit::Role::Border => Role::Border,
+        wit::Role::Shadow => Role::Shadow,
+        wit::Role::Selection => Role::Selection,
+        wit::Role::Black => Role::Black,
+        wit::Role::Red => Role::Red,
+        wit::Role::Green => Role::Green,
+        wit::Role::Yellow => Role::Yellow,
+        wit::Role::Blue => Role::Blue,
+        wit::Role::Magenta => Role::Magenta,
+        wit::Role::Cyan => Role::Cyan,
+        wit::Role::White => Role::White,
+        wit::Role::BrightBlack => Role::BrightBlack,
+        wit::Role::BrightRed => Role::BrightRed,
+        wit::Role::BrightGreen => Role::BrightGreen,
+        wit::Role::BrightYellow => Role::BrightYellow,
+        wit::Role::BrightBlue => Role::BrightBlue,
+        wit::Role::BrightMagenta => Role::BrightMagenta,
+        wit::Role::BrightCyan => Role::BrightCyan,
+        wit::Role::BrightWhite => Role::BrightWhite,
     }
 }
 
@@ -258,7 +263,7 @@ fn color_out(color: &wit::Color) -> Color {
         1.0
     };
     let source = match &color.source {
-        wit::Source::Role(tone) => Source::Role(tone_out(tone)),
+        wit::Source::Role(role) => Source::Role(role_out(role)),
         wit::Source::Rgba(forms) => Source::Rgba {
             light: rgba_out(&forms.light),
             dark: forms.dark.as_ref().map(rgba_out),
@@ -287,15 +292,128 @@ fn track_out(track: &wit::Track) -> Track {
     }
 }
 
-fn tracks_out(tracks: &[wit::Track], limits: &Limits) -> Result<Vec<Track>, Fault> {
-    if tracks.len() > limits.tracks {
-        return Err(Fault::Malformed(format!(
-            "a grid with {} tracks (at most {})",
-            tracks.len(),
-            limits.tracks
-        )));
+/// The three lists a frame says its words, values and tracks in (and a menu its titles in), and
+/// what has been taken out of them so far.
+///
+/// An element names the part it means, and a part is read once for every element that names it:
+/// what a module can make the application copy is counted here, where the copy is made, as the
+/// sum of what the elements ask for, and not guessed from how large the lists are. The lists
+/// themselves were taken in once, and are as large as the module's memory lets them be.
+struct Lists<'a> {
+    text: &'a str,
+    numbers: &'a [f32],
+    tracks: &'a [wit::Track],
+    /// Bytes of parts read so far.
+    read: usize,
+    /// The most bytes a frame may say.
+    most: usize,
+}
+
+impl<'a> Lists<'a> {
+    /// The lists of a frame, if they are no larger together than a frame may be.
+    fn new(
+        text: &'a str,
+        numbers: &'a [f32],
+        tracks: &'a [wit::Track],
+        most: usize,
+    ) -> Result<Self, Fault> {
+        let held = text
+            .len()
+            .saturating_add(numbers.len().saturating_mul(size_of::<f32>()))
+            .saturating_add(tracks.len().saturating_mul(size_of::<Track>()));
+        if held > most {
+            return Err(Fault::Malformed(format!(
+                "a page that says {held} bytes (at most {most})"
+            )));
+        }
+        Ok(Self {
+            text,
+            numbers,
+            tracks,
+            read: 0,
+            most,
+        })
     }
-    Ok(tracks.iter().map(track_out).collect())
+
+    /// Where `part` stands in a list of `held` items, if it is within it.
+    fn within(part: &wit::Slice, held: usize, what: &str) -> Result<std::ops::Range<usize>, Fault> {
+        let start = usize::try_from(part.start).unwrap_or(usize::MAX);
+        let len = usize::try_from(part.len).unwrap_or(usize::MAX);
+        match start.checked_add(len) {
+            Some(end) if end <= held => Ok(start..end),
+            _ => Err(Fault::Malformed(format!(
+                "{what}: {len} items from the {start}th of a list of {held}"
+            ))),
+        }
+    }
+
+    /// Counts `bytes` more against what a frame may say.
+    fn charge(&mut self, bytes: usize) -> Result<(), Fault> {
+        self.read = self.read.saturating_add(bytes);
+        if self.read > self.most {
+            return Err(Fault::Malformed(format!(
+                "a page that says more than {} bytes",
+                self.most
+            )));
+        }
+        Ok(())
+    }
+
+    /// The words of `part`, no longer than `most` bytes.
+    fn words(&mut self, part: &wit::Slice, most: usize, what: &str) -> Result<&'a str, Fault> {
+        let range = Self::within(part, self.text.len(), what)?;
+        if range.len() > most {
+            return Err(Fault::Malformed(format!(
+                "{what} of {} bytes (at most {most})",
+                range.len()
+            )));
+        }
+        self.charge(range.len())?;
+        self.text.get(range).ok_or_else(|| {
+            Fault::Malformed(format!(
+                "{what} that does not begin and end between characters"
+            ))
+        })
+    }
+
+    /// The values of `part`, no more than `most`.
+    fn values(&mut self, part: &wit::Slice, most: usize) -> Result<Vec<f32>, Fault> {
+        let range = Self::within(part, self.numbers.len(), "a sparkline")?;
+        if range.len() > most {
+            return Err(Fault::Malformed(format!(
+                "a sparkline of {} values (at most {most})",
+                range.len()
+            )));
+        }
+        self.charge(range.len().saturating_mul(size_of::<f32>()))?;
+        Ok(self
+            .numbers
+            .get(range)
+            .unwrap_or_default()
+            .iter()
+            .copied()
+            .map(pt)
+            .collect())
+    }
+
+    /// The tracks of `part`, no more than `most`.
+    fn tracks(&mut self, part: &wit::Slice, most: usize) -> Result<Vec<Track>, Fault> {
+        let range = Self::within(part, self.tracks.len(), "a grid")?;
+        if range.len() > most {
+            return Err(Fault::Malformed(format!(
+                "a grid with {} tracks (at most {most})",
+                range.len()
+            )));
+        }
+        self.charge(range.len().saturating_mul(size_of::<Track>()))?;
+        Ok(self
+            .tracks
+            .get(range)
+            .unwrap_or_default()
+            .iter()
+            .map(track_out)
+            .collect())
+    }
 }
 
 fn edges_out(edges: &wit::Edges) -> [f32; 4] {
@@ -339,7 +457,11 @@ fn text_style_out(text: &wit::TextStyle) -> TextStyle {
     }
 }
 
-fn style_out(style: &wit::Style, limits: &Limits) -> Result<Style, Fault> {
+fn style_out(
+    style: &wit::Style,
+    limits: &ModuleLimits,
+    lists: &mut Lists<'_>,
+) -> Result<Style, Fault> {
     Ok(Style {
         display: match style.display {
             wit::Display::Flex => Display::Flex,
@@ -381,8 +503,8 @@ fn style_out(style: &wit::Style, limits: &Limits) -> Result<Style, Fault> {
             wit::Justify::End => Justify::End,
             wit::Justify::Between => Justify::Between,
         }),
-        columns: tracks_out(&style.columns, limits)?,
-        rows: tracks_out(&style.rows, limits)?,
+        columns: lists.tracks(&style.columns, limits.tracks)?,
+        rows: lists.tracks(&style.rows, limits.tracks)?,
         // A span past the tracks a grid may have would make the layout build an implicit grid
         // that wide, on the application's thread and outside the module's time.
         column_span: style
@@ -416,63 +538,44 @@ fn style_out(style: &wit::Style, limits: &Limits) -> Result<Style, Fault> {
     })
 }
 
-fn kind_out(content: wit::Content, limits: &Limits) -> Result<Kind, Fault> {
+fn kind_out(
+    content: &wit::Content,
+    limits: &ModuleLimits,
+    lists: &mut Lists<'_>,
+) -> Result<Kind, Fault> {
     Ok(match content {
-        wit::Content::Container => Kind::Box,
-        wit::Content::Text(text) => {
-            if text.len() > limits.text {
-                return Err(Fault::Malformed(format!(
-                    "a line of text of {} bytes (at most {})",
-                    text.len(),
-                    limits.text
-                )));
-            }
-            Kind::Text(text)
+        wit::Content::Box => Kind::Box,
+        wit::Content::Text(part) => {
+            Kind::Text(lists.words(part, limits.text, "a line of text")?.to_owned())
         }
-        wit::Content::Spark(spark) => {
-            if spark.values.len() > limits.values {
-                return Err(Fault::Malformed(format!(
-                    "a sparkline of {} values (at most {})",
-                    spark.values.len(),
-                    limits.values
-                )));
-            }
-            Kind::Spark(Spark {
-                values: spark.values.into_iter().map(pt).collect(),
-                color: color_out(&spark.color),
-                peak: spark.peak.map(pt),
-            })
-        }
-        wit::Content::Image(image) => {
-            if image.src.len() > limits.text {
-                return Err(Fault::Malformed(format!(
-                    "an image path of {} bytes (at most {})",
-                    image.src.len(),
-                    limits.text
-                )));
-            }
-            Kind::Image(Image {
-                src: image.src,
-                fit: match image.fit {
-                    wit::Fit::Contain => Fit::Contain,
-                    wit::Fit::Cover => Fit::Cover,
-                },
-                tint: image.tint.as_ref().map(color_out),
-                // Not a share of an image that is not one: all of it shows.
-                opacity: if image.opacity.is_finite() {
-                    image.opacity.clamp(0.0, 1.0)
-                } else {
-                    1.0
-                },
-            })
-        }
+        wit::Content::Spark(spark) => Kind::Spark(Spark {
+            values: lists.values(&spark.values, limits.values)?,
+            color: color_out(&spark.color),
+            peak: spark.peak.map(pt),
+        }),
+        wit::Content::Image(image) => Kind::Image(Image {
+            src: lists
+                .words(&image.src, limits.text, "an image path")?
+                .to_owned(),
+            fit: match image.fit {
+                wit::Fit::Contain => Fit::Contain,
+                wit::Fit::Cover => Fit::Cover,
+            },
+            tint: image.tint.as_ref().map(color_out),
+            // Not a share of an image that is not one: all of it shows.
+            opacity: if image.opacity.is_finite() {
+                image.opacity.clamp(0.0, 1.0)
+            } else {
+                1.0
+            },
+        }),
     })
 }
 
-fn node_out(node: wit::Node, limits: &Limits) -> Result<Node, Fault> {
+fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> Result<Node, Fault> {
     Ok(Node {
-        style: style_out(&node.style, limits)?,
-        kind: kind_out(node.content, limits)?,
+        style: style_out(&node.style, limits, lists)?,
+        kind: kind_out(&node.content, limits, lists)?,
         meta: Meta {
             id: node.id.map(Id::new),
             pressable: node.pressable,
@@ -484,7 +587,7 @@ fn node_out(node: wit::Node, limits: &Limits) -> Result<Node, Fault> {
 }
 
 /// The tree a module handed out, if it is one within the limits.
-fn frame_out(frame: wit::Frame, limits: &Limits) -> Result<Frame, Fault> {
+fn frame_out(frame: wit::Frame, limits: &ModuleLimits) -> Result<Frame, Fault> {
     if frame.nodes.len() > limits.nodes {
         return Err(Fault::Malformed(format!(
             "a page of {} elements (at most {})",
@@ -492,10 +595,16 @@ fn frame_out(frame: wit::Frame, limits: &Limits) -> Result<Frame, Fault> {
             limits.nodes
         )));
     }
+    let mut lists = Lists::new(
+        &frame.text,
+        &frame.numbers,
+        &frame.tracks,
+        limits.frame_bytes,
+    )?;
     let nodes = frame
         .nodes
-        .into_iter()
-        .map(|node| node_out(node, limits))
+        .iter()
+        .map(|node| node_out(node, limits, &mut lists))
         .collect::<Result<Vec<_>, _>>()?;
     let root = Element::unfold(nodes, limits.depth)
         .map_err(|why: wire::Malformed| Fault::Malformed(why.to_string()))?;
@@ -507,7 +616,7 @@ fn frame_out(frame: wit::Frame, limits: &Limits) -> Result<Frame, Fault> {
     })
 }
 
-fn reply_out(reply: wit::Reply, limits: &Limits) -> Result<Reply, Fault> {
+fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
     let text = |text: String| {
         if text.len() > limits.text.saturating_mul(16) {
             Err(Fault::Malformed(format!(
@@ -528,20 +637,18 @@ fn reply_out(reply: wit::Reply, limits: &Limits) -> Result<Reply, Fault> {
                     limits.menu
                 )));
             }
+            let mut titles = Lists::new(&menu.titles, &[], &[], limits.frame_bytes)?;
             let mut entries = Vec::with_capacity(menu.entries.len());
-            for entry in menu.entries {
+            for entry in &menu.entries {
                 entries.push(match entry {
                     wit::MenuEntry::Separator => MenuEntry::Separator,
-                    wit::MenuEntry::Item(item) => {
-                        if item.title.len() > limits.text {
-                            return Err(Fault::Malformed("a menu title that long".into()));
-                        }
-                        MenuEntry::Item {
-                            title: item.title,
-                            key: item.key,
-                            enabled: item.enabled,
-                        }
-                    }
+                    wit::MenuEntry::Item(item) => MenuEntry::Item {
+                        title: titles
+                            .words(&item.title, limits.text, "a menu title")?
+                            .to_owned(),
+                        key: item.key,
+                        enabled: item.enabled,
+                    },
                 });
             }
             Some(Menu {
@@ -556,7 +663,7 @@ fn reply_out(reply: wit::Reply, limits: &Limits) -> Result<Reply, Fault> {
         menu,
         keyboard: reply.keyboard.map(|keyboard| match keyboard {
             wit::Keyboard::Page => Keyboard::Page,
-            wit::Keyboard::Field => Keyboard::Filter,
+            wit::Keyboard::Field => Keyboard::Field,
         }),
         copy: reply.copy.map(text).transpose()?,
         cursor: match reply.cursor {
@@ -567,21 +674,76 @@ fn reply_out(reply: wit::Reply, limits: &Limits) -> Result<Reply, Fault> {
     })
 }
 
+// --- Compiling and the version of the interface -------------------------------------------
+
+/// The interface this crate speaks: the package of `wit/view.wit`.
+const INTERFACE: &str = "pencere:view@1.0.0";
+
+/// Compiles `bytes`, if that is done within `within`.
+///
+/// What a program sends can take as long as its author likes to compile, and the compiler cannot
+/// be interrupted. So it runs on a thread of its own and is waited for this long: a component
+/// that takes longer is refused, and the thread ends when the compiler does (its result is
+/// dropped), which a component of the size that is run bounds.
+fn compile(
+    engine: &wasmtime::Engine,
+    bytes: &[u8],
+    within: std::time::Duration,
+) -> Result<Component, Fault> {
+    let (done, result) = std::sync::mpsc::channel();
+    let (engine, bytes) = (engine.clone(), bytes.to_vec());
+    std::thread::Builder::new()
+        .name("view-compile".into())
+        .spawn(move || {
+            let _ = done.send(Component::new(&engine, &bytes).map_err(|why| format!("{why:#}")));
+        })
+        .map_err(|_| Fault::Load("could not start a thread to compile the component".into()))?;
+    match result.recv_timeout(within) {
+        Ok(Ok(component)) => Ok(component),
+        Ok(Err(why)) => Err(Fault::Load(why)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(Fault::Load(format!(
+            "compiling the component took longer than the {} seconds it is given",
+            within.as_secs_f64()
+        ))),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err(Fault::Load("the compiler gave up on the component".into()))
+        }
+    }
+}
+
+/// The sentence for a component that is written against another version of the interface than
+/// the one this terminal opens, if that is what it is: it names both (the specification asks for
+/// as much). `None` for a component that names no version of the interface, or this one.
+fn other_interface(engine: &wasmtime::Engine, component: &Component) -> Option<String> {
+    let ty = component.component_type();
+    let names = ty
+        .imports(engine)
+        .map(|(name, _)| name)
+        .chain(ty.exports(engine).map(|(name, _)| name));
+    let version = names
+        .filter_map(|name| name.strip_prefix("pencere:view/"))
+        .filter_map(|name| name.split_once('@').map(|(_, version)| version))
+        .find(|version| Some(*version) != INTERFACE.strip_prefix("pencere:view@"))?;
+    Some(format!(
+        "this view is written against `pencere:view@{version}`; this terminal opens `{INTERFACE}`"
+    ))
+}
+
 // --- The module --------------------------------------------------------------------------
 
 /// A module of the page interface that is running: its store, and the budget its calls have.
 pub(crate) struct World {
     store: Store<Host>,
     view: View,
-    limits: Limits,
+    limits: ModuleLimits,
 }
 
 impl World {
     /// Compiles `bytes` (a component, binary or text) and starts it. The compiling is slow —
-    /// the caller is on a thread of its own.
+    /// the caller is on a thread of its own — and is held to [`ModuleLimits::compile`].
     pub(crate) fn load(
         bytes: &[u8],
-        limits: Limits,
+        limits: ModuleLimits,
         program: Arc<dyn Program>,
     ) -> Result<Self, Fault> {
         if bytes.len() > limits.component {
@@ -592,16 +754,27 @@ impl World {
             )));
         }
         let engine = sandbox::engine()?;
-        let component =
-            Component::new(&engine, bytes).map_err(|why| Fault::Load(format!("{why:#}")))?;
-        Self::start(engine, &component, limits, program, Arc::from(&[][..]))
+        let component = compile(&engine, bytes, limits.compile)?;
+        Self::start(
+            engine.clone(),
+            &component,
+            limits,
+            program,
+            Arc::from(&[][..]),
+        )
+        .map_err(|fault| match fault {
+            // A component that does not start because it speaks another version of the
+            // interface is told so, in words, and not in the runtime's.
+            Fault::Load(raw) => Fault::Load(other_interface(&engine, &component).unwrap_or(raw)),
+            other => other,
+        })
     }
 
     /// Starts the interpreter on `script`: the component of [`crate::luau`] (compiled once for
     /// the process, so that the next page of a script starts at once) and the script it runs.
     pub(crate) fn load_script(
         script: Vec<u8>,
-        limits: Limits,
+        limits: ModuleLimits,
         program: Arc<dyn Program>,
     ) -> Result<Self, Fault> {
         let engine = sandbox::engine()?;
@@ -620,7 +793,7 @@ impl World {
     fn start(
         engine: wasmtime::Engine,
         component: &Component,
-        limits: Limits,
+        limits: ModuleLimits,
         program: Arc<dyn Program>,
         script: Arc<[u8]>,
     ) -> Result<Self, Fault> {
@@ -761,8 +934,8 @@ mod tests {
             shrink: None,
             items: None,
             justify: None,
-            columns: Vec::new(),
-            rows: Vec::new(),
+            columns: nothing(),
+            rows: nothing(),
             column_span: 0,
             overflow: wit::Overflow::Visible,
             scroll_x: 0.0,
@@ -799,16 +972,65 @@ mod tests {
         }
     }
 
-    fn frame(nodes: Vec<wit::Node>) -> wit::Frame {
-        wit::Frame {
-            nodes,
-            animating: false,
-            wake_at: None,
+    /// No part of any list.
+    fn nothing() -> wit::Slice {
+        wit::Slice { start: 0, len: 0 }
+    }
+
+    /// What a module writes of a frame besides its elements: the lists they name the parts of.
+    #[derive(Default)]
+    struct Lists {
+        text: String,
+        numbers: Vec<f32>,
+        tracks: Vec<wit::Track>,
+    }
+
+    impl Lists {
+        fn words(&mut self, words: &str) -> wit::Slice {
+            let start = self.text.len();
+            self.text.push_str(words);
+            wit::Slice {
+                start: start as u32,
+                len: words.len() as u32,
+            }
+        }
+
+        fn values(&mut self, values: &[f32]) -> wit::Slice {
+            let start = self.numbers.len();
+            self.numbers.extend_from_slice(values);
+            wit::Slice {
+                start: start as u32,
+                len: values.len() as u32,
+            }
+        }
+
+        fn tracks(&mut self, tracks: &[wit::Track]) -> wit::Slice {
+            let start = self.tracks.len();
+            self.tracks.extend_from_slice(tracks);
+            wit::Slice {
+                start: start as u32,
+                len: tracks.len() as u32,
+            }
+        }
+
+        fn frame(self, nodes: Vec<wit::Node>) -> wit::Frame {
+            wit::Frame {
+                nodes,
+                text: self.text,
+                numbers: self.numbers,
+                tracks: self.tracks,
+                animating: false,
+                wake_at: None,
+            }
         }
     }
 
+    fn frame(nodes: Vec<wit::Node>) -> wit::Frame {
+        Lists::default().frame(nodes)
+    }
+
     fn container(children: u32) -> wit::Node {
-        node(wit::Content::Container, children)
+        node(wit::Content::Box, children)
     }
 
     #[test]
@@ -818,23 +1040,25 @@ mod tests {
         row.pressable = true;
         row.style.width = wit::Length::Px(120.0);
         row.style.fill = Some(wit::Color {
-            source: wit::Source::Role(wit::Tone::Raised(2)),
+            source: wit::Source::Role(wit::Role::Raised(2)),
             alpha: 0.5,
         });
-        row.style.columns = vec![
+        let mut lists = Lists::default();
+        row.style.columns = lists.tracks(&[
             wit::Track::Fr(1.0),
             wit::Track::Range(wit::Range { min: 10.0, fr: 2.0 }),
-        ];
-        let mut page = frame(vec![row, node(wit::Content::Text("api".into()), 0)]);
+        ]);
+        let words = lists.words("api");
+        let mut page = lists.frame(vec![row, node(wit::Content::Text(words), 0)]);
         page.animating = true;
-        let made = frame_out(page, &Limits::default()).expect("a page");
+        let made = frame_out(page, &ModuleLimits::default()).expect("a page");
         assert!(made.animating);
         let nodes = made.root.fold();
         assert_eq!(nodes.len(), 2);
         assert_eq!(nodes[0].meta.id, Some(Id::new(7)));
         assert!(nodes[0].meta.pressable);
         assert_eq!(nodes[0].style.width, Length::Px(120.0));
-        assert_eq!(nodes[0].style.fill, Some(Tone::Raised(2).alpha(0.5)));
+        assert_eq!(nodes[0].style.fill, Some(Role::Raised(2).alpha(0.5)));
         assert_eq!(
             nodes[0].style.columns,
             vec![Track::Fr(1.0), Track::Range { min: 10.0, fr: 2.0 }]
@@ -852,7 +1076,7 @@ mod tests {
         odd.style.grow = f32::NEG_INFINITY;
         odd.style.text.size = Some(f32::NAN);
         odd.style.fill = Some(wit::Color {
-            source: wit::Source::Role(wit::Tone::Accent),
+            source: wit::Source::Role(wit::Role::Accent),
             alpha: f32::NAN,
         });
         odd.style.shadow = Some(wit::Shadow {
@@ -860,11 +1084,11 @@ mod tests {
             dy: 1.0e30,
             blur: -5.0,
             color: wit::Color {
-                source: wit::Source::Role(wit::Tone::Shadow),
+                source: wit::Source::Role(wit::Role::Shadow),
                 alpha: 7.0,
             },
         });
-        let made = frame_out(frame(vec![odd]), &Limits::default()).expect("a page");
+        let made = frame_out(frame(vec![odd]), &ModuleLimits::default()).expect("a page");
         let style = &made.root.fold()[0].style;
         assert_eq!(style.width, Length::Px(0.0));
         assert_eq!(style.height, Length::Percent(100.0));
@@ -872,15 +1096,15 @@ mod tests {
         assert_eq!(style.margin[3], -1.0e6);
         assert_eq!(style.grow, 0.0);
         assert_eq!(style.text.size, Some(1.0));
-        assert_eq!(style.fill, Some(Tone::Accent.alpha(1.0)));
+        assert_eq!(style.fill, Some(Role::Accent.alpha(1.0)));
         let shadow = style.shadow.expect("a shadow");
         assert_eq!((shadow.dx, shadow.dy, shadow.blur), (0.0, 1.0e6, 0.0));
-        assert_eq!(shadow.color, Tone::Shadow.alpha(1.0));
+        assert_eq!(shadow.color, Role::Shadow.alpha(1.0));
     }
 
     #[test]
     fn the_roles_and_values_a_page_can_say_are_read_as_the_engines_own() {
-        use wit::Tone as W;
+        use wit::Role as W;
         // The palette in the interface's order is the engine's, colour for colour.
         let palette = [
             W::Black,
@@ -900,17 +1124,17 @@ mod tests {
             W::BrightCyan,
             W::BrightWhite,
         ];
-        for (at, tone) in palette.iter().enumerate() {
-            assert_eq!(tone_out(tone), Tone::ANSI[at]);
+        for (at, role) in palette.iter().enumerate() {
+            assert_eq!(role_out(role), Role::ANSI[at]);
         }
-        assert_eq!(tone_out(&W::Selection), Tone::Selection);
+        assert_eq!(role_out(&W::Selection), Role::Selection);
         let role = |tone, alpha| wit::Color {
             source: wit::Source::Role(tone),
             alpha,
         };
         assert_eq!(
             color_out(&role(W::BrightRed, 0.25)),
-            Tone::BrightRed.alpha(0.25)
+            Role::BrightRed.alpha(0.25)
         );
         // A value comes with both its forms, untouched, and its own opacity on top.
         let forms = |light: wit::Rgba, dark| wit::Color {
@@ -950,13 +1174,13 @@ mod tests {
 
     #[test]
     fn a_page_past_any_limit_is_not_a_page() {
-        let limits = Limits {
+        let limits = ModuleLimits {
             nodes: 3,
             depth: 3,
             text: 8,
             tracks: 2,
             values: 2,
-            ..Limits::default()
+            ..ModuleLimits::default()
         };
         let refused =
             |page: wit::Frame| matches!(frame_out(page, &limits), Err(Fault::Malformed(_)));
@@ -968,7 +1192,7 @@ mod tests {
             container(0)
         ])));
         // Three deep is allowed and a fourth level is not (a chain of four, with room for them).
-        let roomy = Limits {
+        let roomy = ModuleLimits {
             nodes: 10,
             ..limits.clone()
         };
@@ -983,25 +1207,29 @@ mod tests {
             Err(Fault::Malformed(_))
         ));
         // A line of text that long; a grid with that many tracks; a sparkline with that many values.
-        assert!(refused(frame(vec![node(
-            wit::Content::Text("123456789".into()),
-            0
-        )])));
+        let mut lists = Lists::default();
+        let words = lists.words("123456789");
+        assert!(refused(
+            lists.frame(vec![node(wit::Content::Text(words), 0)])
+        ));
+        let mut lists = Lists::default();
         let mut grid = container(0);
-        grid.style.columns = vec![wit::Track::Auto; 3];
-        assert!(refused(frame(vec![grid])));
+        grid.style.columns = lists.tracks(&[wit::Track::Auto; 3]);
+        assert!(refused(lists.frame(vec![grid])));
+        let mut lists = Lists::default();
+        let values = lists.values(&[1.0; 3]);
         let line = node(
             wit::Content::Spark(wit::Spark {
-                values: vec![1.0; 3],
+                values,
                 color: wit::Color {
-                    source: wit::Source::Role(wit::Tone::Accent),
+                    source: wit::Source::Role(wit::Role::Accent),
                     alpha: 1.0,
                 },
                 peak: None,
             }),
             0,
         );
-        assert!(refused(frame(vec![line])));
+        assert!(refused(lists.frame(vec![line])));
         // Children it has not got, children beyond the root, and nothing at all.
         assert!(refused(frame(vec![container(2), container(0)])));
         assert!(refused(frame(vec![container(0), container(0)])));
@@ -1010,10 +1238,10 @@ mod tests {
 
     #[test]
     fn a_reply_past_a_limit_is_refused_and_one_within_them_is_read() {
-        let limits = Limits {
+        let limits = ModuleLimits {
             menu: 2,
             text: 4,
-            ..Limits::default()
+            ..ModuleLimits::default()
         };
         let reply = |menu: Option<wit::Menu>, copy: Option<String>| wit::Reply {
             redraw: true,
@@ -1023,42 +1251,69 @@ mod tests {
             copy,
             cursor: wit::Cursor::Pointer,
         };
-        let entry = |title: &str| {
-            wit::MenuEntry::Item(wit::MenuItem {
-                title: title.into(),
-                key: Some('x'),
-                enabled: true,
-            })
-        };
-        let menu = |entries| wit::Menu {
-            at: wit::Point {
-                x: 1.0,
-                y: f32::NAN,
-            },
-            entries,
+        // A menu as a module writes it: the titles are one string and each entry names its part.
+        // `None` is a line between entries.
+        let menu = |entries: &[Option<&str>]| {
+            let mut titles = String::new();
+            let entries = entries
+                .iter()
+                .map(|entry| match entry {
+                    None => wit::MenuEntry::Separator,
+                    Some(title) => {
+                        let start = titles.len() as u32;
+                        titles.push_str(title);
+                        wit::MenuEntry::Item(wit::MenuItem {
+                            title: wit::Slice {
+                                start,
+                                len: title.len() as u32,
+                            },
+                            key: Some('x'),
+                            enabled: true,
+                        })
+                    }
+                })
+                .collect();
+            wit::Menu {
+                at: wit::Point {
+                    x: 1.0,
+                    y: f32::NAN,
+                },
+                entries,
+                titles,
+            }
         };
         let read = reply_out(
-            reply(
-                Some(menu(vec![entry("go"), wit::MenuEntry::Separator])),
-                Some("id".into()),
-            ),
+            reply(Some(menu(&[Some("go"), None])), Some("id".into())),
             &limits,
         )
         .expect("a reply");
-        assert_eq!(read.keyboard, Some(Keyboard::Filter));
+        assert_eq!(read.keyboard, Some(Keyboard::Field));
         assert_eq!(read.cursor, Cursor::Pointer);
         assert_eq!(read.copy.as_deref(), Some("id"));
-        let at = read.menu.expect("a menu").at;
-        assert_eq!((at.x, at.y), (1.0, 0.0));
+        let menu_read = read.menu.expect("a menu");
+        assert_eq!((menu_read.at.x, menu_read.at.y), (1.0, 0.0));
+        assert!(matches!(
+            menu_read.entries.as_slice(),
+            [MenuEntry::Item { title, .. }, MenuEntry::Separator] if title == "go"
+        ));
         assert!(
             reply_out(
-                reply(Some(menu(vec![entry("a"), entry("b"), entry("c")])), None),
+                reply(Some(menu(&[Some("a"), Some("b"), Some("c")])), None),
                 &limits
             )
             .is_err()
         );
-        assert!(reply_out(reply(Some(menu(vec![entry("too long")])), None), &limits).is_err());
+        assert!(reply_out(reply(Some(menu(&[Some("too long")])), None), &limits).is_err());
         assert!(reply_out(reply(None, Some("x".repeat(65))), &limits).is_err());
+        // A title that names a part past the titles, or one that ends inside a character.
+        let mut past = menu(&[Some("go")]);
+        past.titles.truncate(1);
+        assert!(reply_out(reply(Some(past), None), &limits).is_err());
+        let mut inside = menu(&[Some("é")]);
+        if let wit::MenuEntry::Item(item) = &mut inside.entries[0] {
+            item.title.len = 1;
+        }
+        assert!(reply_out(reply(Some(inside), None), &limits).is_err());
     }
 
     #[test]
@@ -1075,7 +1330,7 @@ mod tests {
                 mods: Mods {
                     shift: true,
                     control: false,
-                    option: true,
+                    alt: true,
                     command: false
                 },
             })),
@@ -1092,7 +1347,7 @@ mod tests {
         ));
         assert!(matches!(
             event_in(Event::Input(Input::Key {
-                key: Key::Char('ç'),
+                key: Key::Character('ç'),
                 mods: Mods::default()
             })),
             wit::Event::Key(wit::KeyPress {
@@ -1113,10 +1368,10 @@ mod tests {
     #[test]
     fn what_a_module_says_to_its_program_is_kept_within_what_a_call_may_send() {
         use pencere::view::program::Host as _;
-        let limits = Limits {
+        let limits = ModuleLimits {
             messages: 2,
             message: 10,
-            ..Limits::default()
+            ..ModuleLimits::default()
         };
         let mut host = Host::new(&limits, Arc::new(Unbounded));
         host.send("{}".into());
@@ -1131,6 +1386,185 @@ mod tests {
         host.send(r#"{"too":"long"}"#.into());
         assert!(host.overflowed);
         assert!(host.sent.is_empty());
+    }
+
+    #[test]
+    fn a_message_is_as_long_as_the_protocol_counts_it_with_its_escapes_undone() {
+        use pencere::view::program::Host as _;
+        let limits = ModuleLimits {
+            message: 20,
+            ..ModuleLimits::default()
+        };
+        // Four escapes of two bytes each, and the braces and quotes: 16 bytes where the text is 32.
+        let escaped = r#"{"a":"\u00e9\u00e9\u00e9\u00e9"}"#;
+        assert!(escaped.len() > 20 && pencere_wire::json::unescaped_len(escaped) == 16);
+        let mut host = Host::new(&limits, Arc::new(Unbounded));
+        host.send(escaped.into());
+        assert!(!host.overflowed);
+        assert_eq!(host.sent.len(), 1);
+        // The program is asked for room for the same number.
+        struct Counted(std::sync::atomic::AtomicUsize);
+        impl Program for Counted {
+            fn may_say(&self, bytes: usize) -> bool {
+                self.0.store(bytes, std::sync::atomic::Ordering::SeqCst);
+                true
+            }
+            fn taken(&self, _bytes: usize) {}
+        }
+        let counted = Arc::new(Counted(std::sync::atomic::AtomicUsize::new(0)));
+        let mut host = Host::new(&limits, counted.clone());
+        host.send(escaped.into());
+        assert_eq!(counted.0.load(std::sync::atomic::Ordering::SeqCst), 16);
+        // Past the limit once the escapes are undone.
+        let mut host = Host::new(&limits, Arc::new(Unbounded));
+        host.send(r#"{"a":"\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9"}"#.into());
+        assert!(host.overflowed);
+    }
+
+    #[test]
+    fn elements_that_name_one_large_part_over_and_over_say_it_each_time() {
+        // What a hostile module does: one buffer, a hundred elements that all point at it. The
+        // buffer was taken in once; what the elements ask for is counted each time.
+        let limits = ModuleLimits {
+            text: 1 << 20,
+            values: 1 << 20,
+            frame_bytes: 1000,
+            ..ModuleLimits::default()
+        };
+        let mut lists = Lists::default();
+        let words = lists.words(&"x".repeat(400));
+        let reading = |lists: Lists, content: &dyn Fn() -> wit::Content, n: usize| {
+            let mut nodes = vec![container(u32::try_from(n).unwrap())];
+            nodes.extend((0..n).map(|_| node(content(), 0)));
+            frame_out(lists.frame(nodes), &limits)
+        };
+        // Two elements say it twice: 800 bytes is within the 1000 a frame may say.
+        assert!(reading(lists, &|| wit::Content::Text(words), 2).is_ok());
+        // Three say 1200, and a hundred say forty thousand: refused at the third.
+        for n in [3, 100] {
+            let mut lists = Lists::default();
+            let words = lists.words(&"x".repeat(400));
+            let outcome = reading(lists, &|| wit::Content::Text(words), n);
+            assert!(
+                matches!(&outcome, Err(Fault::Malformed(why)) if why.contains("1000")),
+                "{outcome:?}"
+            );
+        }
+        // A sparkline's values, and the tracks of a grid, are counted by what they take.
+        let mut lists = Lists::default();
+        let values = lists.values(&[1.0; 200]);
+        let color = wit::Color {
+            source: wit::Source::Role(wit::Role::Accent),
+            alpha: 1.0,
+        };
+        let line = || {
+            wit::Content::Spark(wit::Spark {
+                values,
+                color,
+                peak: None,
+            })
+        };
+        assert!(reading(lists, &line, 2).is_err());
+        let mut lists = Lists::default();
+        let tracks = lists.tracks(&[wit::Track::Auto; 40]);
+        let mut nodes = vec![container(30)];
+        nodes.extend((0..30).map(|_| {
+            let mut grid = container(0);
+            grid.style.columns = tracks;
+            grid
+        }));
+        assert!(frame_out(lists.frame(nodes), &limits).is_err());
+    }
+
+    #[test]
+    fn a_part_that_is_not_in_its_list_or_not_between_characters_is_not_a_page() {
+        let limits = ModuleLimits::default();
+        let text = |page: Lists, part: wit::Slice| {
+            frame_out(page.frame(vec![node(wit::Content::Text(part), 0)]), &limits)
+        };
+        let mut lists = Lists::default();
+        let ok = lists.words("abc");
+        assert!(text(lists, ok).is_ok());
+        for part in [
+            wit::Slice { start: 0, len: 4 },
+            wit::Slice { start: 3, len: 1 },
+            wit::Slice {
+                start: u32::MAX,
+                len: u32::MAX,
+            },
+        ] {
+            let mut lists = Lists::default();
+            lists.words("abc");
+            assert!(
+                matches!(text(lists, part), Err(Fault::Malformed(_))),
+                "{part:?}"
+            );
+        }
+        // "é" is two bytes: a part that begins or ends between them is not words.
+        for part in [
+            wit::Slice { start: 1, len: 1 },
+            wit::Slice { start: 0, len: 1 },
+        ] {
+            let mut lists = Lists::default();
+            lists.words("é");
+            assert!(
+                matches!(text(lists, part), Err(Fault::Malformed(why)) if why.contains("between characters")),
+                "{part:?}"
+            );
+        }
+        // Lists that are larger together than a frame may be are refused before any is read.
+        let small = ModuleLimits {
+            frame_bytes: 100,
+            ..ModuleLimits::default()
+        };
+        let mut lists = Lists::default();
+        lists.words(&"y".repeat(101));
+        assert!(frame_out(lists.frame(vec![container(0)]), &small).is_err());
+        let mut lists = Lists::default();
+        lists.values(&[0.0; 26]);
+        assert!(frame_out(lists.frame(vec![container(0)]), &small).is_err());
+    }
+
+    #[test]
+    fn compiling_is_held_to_the_time_it_is_given() {
+        let limits = ModuleLimits {
+            compile: std::time::Duration::ZERO,
+            ..ModuleLimits::default()
+        };
+        let refused = World::load(b"(component)", limits, Arc::new(Unbounded));
+        assert!(
+            matches!(&refused, Err(Fault::Load(why)) if why.contains("took longer")),
+            "{:?}",
+            refused.err()
+        );
+    }
+
+    #[test]
+    fn a_module_of_another_version_of_the_interface_is_refused_in_words_that_name_both() {
+        // A component that has an instance by the name the page interface had before.
+        let old =
+            b"(component (instance $page) (export \"pencere:view/page@0.5.0\" (instance $page)))";
+        let refused = World::load(old, ModuleLimits::default(), Arc::new(Unbounded));
+        match refused.err() {
+            Some(Fault::Load(why)) => {
+                assert!(
+                    why.contains("written against `pencere:view@0.5.0`"),
+                    "{why}"
+                );
+                assert!(why.contains("opens `pencere:view@1.0.0`"), "{why}");
+            }
+            other => panic!("{other:?}"),
+        }
+        // The interface this crate speaks is the package of its own `wit/view.wit`.
+        let wit = include_str!("../wit/view.wit");
+        assert!(
+            wit.lines()
+                .any(|line| line.trim() == format!("package {INTERFACE};")),
+            "{INTERFACE}"
+        );
+        // A component that names none is not the one this is about: the runtime's words stand.
+        let other = World::load(b"(component)", ModuleLimits::default(), Arc::new(Unbounded));
+        assert!(matches!(other.err(), Some(Fault::Load(why)) if !why.contains("written against")));
     }
 
     /// A program that has room for so many bytes in all.
@@ -1154,7 +1588,7 @@ mod tests {
     fn a_program_without_the_room_makes_the_module_full_and_not_closed() {
         use pencere::view::program::{Delivery, Host as _};
         let mut host = Host::new(
-            &Limits::default(),
+            &ModuleLimits::default(),
             Arc::new(Room(std::sync::atomic::AtomicUsize::new(10))),
         );
         assert!(matches!(host.send("{}".into()), Delivery::Accepted));

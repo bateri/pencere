@@ -387,6 +387,34 @@ fn a_host_with_nothing_to_open_is_a_fallback_at_once_and_its_reply_is_still_read
 }
 
 #[test]
+fn a_host_that_opens_the_kind_in_other_versions_says_which_in_words() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let handle = serve_on(pane.terminal(), |options| options);
+    let hello = pane.expect("hello");
+    pane.send(
+        "welcome",
+        Some(hello.id),
+        &json!({
+            "version": 1,
+            "token": TOKEN,
+            "host": { "name": "t", "version": "0" },
+            "features": ["dismiss"],
+            "views": [],
+            "opens": [{ "kind": "web", "versions": ["2.0", "2.1"] }],
+        }),
+    );
+    pane.write_raw(REPLY);
+    let no_view = no_view_of(finished(handle));
+    assert_eq!(no_view.reason, NoViewReason::NoCommonView);
+    assert_eq!(
+        no_view.message.as_deref(),
+        Some("this program is written for web 1.0; this terminal opens web 2.0 or 2.1")
+    );
+    assert!(!pane.text().contains("pencere;open"));
+}
+
+#[test]
 fn a_host_that_shares_no_version_is_no_common_version() {
     let _one = one_at_a_time();
     let mut pane = Pane::new();
@@ -549,7 +577,7 @@ fn a_terminal_that_asks_again_after_a_break_is_given_the_view_again() {
             "version": 1,
             "token": TOKEN_2,
             "host": { "name": "test", "version": "0" },
-            "features": ["bundle", "dismiss"],
+            "features": ["dismiss"],
             "views": web_views(),
             "restart": true,
         }),
@@ -1002,7 +1030,7 @@ fn a_terminal_without_dismiss_keeps_the_view_and_is_told_nothing() {
             "version": 1,
             "token": TOKEN,
             "host": { "name": "test", "version": "0" },
-            "features": ["bundle"],
+            "features": [],
             "views": web_views(),
         }),
     );
@@ -1162,7 +1190,7 @@ fn a_terminal_that_asks_for_the_view_again_while_it_is_being_closed_ends_the_clo
             "version": 1,
             "token": TOKEN_2,
             "host": { "name": "test", "version": "0" },
-            "features": ["bundle", "dismiss"],
+            "features": ["dismiss"],
             "views": web_views(),
             "restart": true,
         }),
@@ -1201,7 +1229,7 @@ fn a_terminal_that_asks_again_while_the_program_asks_for_another_view_is_given_t
             "version": 1,
             "token": TOKEN_2,
             "host": { "name": "test", "version": "0" },
-            "features": ["bundle", "dismiss"],
+            "features": ["dismiss"],
             "views": web_views(),
             "restart": true,
         }),

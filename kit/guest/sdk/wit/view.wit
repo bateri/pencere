@@ -49,6 +49,13 @@ interface types {
         h: f32,
     }
 
+    /// A part of one of the lists a frame (or a menu) carries once for all its elements: `len`
+    /// items from the `start`th. See `frame`.
+    record slice {
+        start: u32,
+        len: u32,
+    }
+
     /// How tall the content of a scrolling box is against how tall the box is, points.
     record extent {
         content: f32,
@@ -57,7 +64,7 @@ interface types {
 
     /// What a colour is called: the nine roles of the theme, its ANSI palette and its selection,
     /// and the values it derives from them.
-    variant tone {
+    variant role {
         background,
         foreground,
         dim,
@@ -71,8 +78,8 @@ interface types {
         raised(u8),
         /// Text a step quieter than the foreground.
         quiet,
-        /// The hairline between things.
-        line,
+        /// The colour of rules and borders: the hairline between things.
+        border,
         /// The colour a shadow is cast in.
         shadow,
         /// The ground of what the person selected.
@@ -113,7 +120,7 @@ interface types {
 
     /// Where a colour comes from: a role of the theme, or a value of the page's own.
     variant source {
-        role(tone),
+        role(role),
         rgba(rgba-forms),
     }
 
@@ -271,8 +278,9 @@ interface types {
         shrink: option<f32>,
         items: option<items>,
         justify: option<justify>,
-        columns: list<track>,
-        rows: list<track>,
+        /// The tracks of a grid's columns and rows: parts of the frame's `tracks`.
+        columns: slice,
+        rows: slice,
         /// How many grid columns the element takes (`0` or `1`: one).
         column-span: u16,
         overflow: overflow,
@@ -290,8 +298,8 @@ interface types {
 
     /// A small line chart.
     record spark {
-        /// Values over time, newest last.
-        values: list<f32>,
+        /// Values over time, newest last: a part of the frame's `numbers`.
+        values: slice,
         color: color,
         /// The value the top of the box stands for; the largest value when absent.
         peak: option<f32>,
@@ -312,8 +320,9 @@ interface types {
     /// point to a pixel. The formats are PNG, JPEG and SVG, and the application holds them to
     /// its limits; one it cannot read leaves the box empty.
     record image {
-        /// The path of the file in the bundle, as its manifest names it.
-        src: string,
+        /// The path of the file in the bundle, as its manifest names it: a part of the frame's
+        /// `text`.
+        src: slice,
         fit: fit,
         /// A colour for a picture that is a shape: every pixel of it is this colour, with the
         /// picture's opacity at that pixel.
@@ -325,9 +334,9 @@ interface types {
     /// What an element is.
     variant content {
         /// A box that holds the elements after it.
-        container,
-        /// One line of text.
-        text(string),
+        box,
+        /// One line of text: a part of the frame's `text`.
+        text(slice),
         spark(spark),
         image(image),
     }
@@ -349,8 +358,22 @@ interface types {
     }
 
     /// A page ready to be laid out.
+    ///
+    /// What a frame says that is not of a fixed size (the words, the paths of pictures, the values
+    /// of sparklines, the tracks of grids) is in three lists, once for the whole frame, and an
+    /// element names the part it means. So the application copies each byte of a frame once, and
+    /// what it takes in is the size of the module's own memory: it is not the size of a buffer
+    /// times the number of elements that point at it. Parts may overlap (the same words twice cost
+    /// the module nothing), but each use counts toward what the application lets a frame say, and
+    /// a part that is not within its list, or does not end where a character does, is not a page.
     record frame {
         nodes: list<node>,
+        /// The words of every line of text and the path of every picture.
+        text: string,
+        /// The values of every sparkline.
+        numbers: list<f32>,
+        /// The columns and rows of every grid.
+        tracks: list<track>,
         /// The page is still moving: the application asks for the next frame itself until this
         /// says no, so a page at rest costs no frames.
         animating: bool,
@@ -444,7 +467,8 @@ interface types {
     }
 
     record menu-item {
-        title: string,
+        /// A part of the menu's `titles`.
+        title: slice,
         /// The key that does the same on the page, shown at the end of the line.
         key: option<char>,
         enabled: bool,
@@ -455,10 +479,12 @@ interface types {
         separator,
     }
 
-    /// A menu for the application to pop up at `at`.
+    /// A menu for the application to pop up at `at`. The entries' titles are in one string, as the
+    /// words of a frame are (see `frame`).
     record menu {
         at: point,
         entries: list<menu-entry>,
+        titles: string,
     }
 
     /// What the page says back after an event.
@@ -510,7 +536,8 @@ interface program {
         full,
     }
 
-    /// A message for the program: one JSON object, written as text. A page that says more in one
+    /// A message for the program: one JSON object, written as text, which the application takes
+    /// in once (a call is one string, not one per anything). A page that says more in one
     /// call than the application allows, or a message longer than the protocol's limit for one
     /// (1 MiB), is closed; one the program has not the room for is not (`delivery.full`).
     /// Returns at once; nothing comes back but what the program says in its own time

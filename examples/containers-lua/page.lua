@@ -81,7 +81,7 @@ local function row(container, index)
 	local button_ground = ui.hover == act and "raised3" or "raised2"
 	return b.div():id(id):row():items_center():gap(12):px(12):py(8):rounded(8)
 		:bg(index == chosen and "selection" or (ui.hover == id and "raised1" or nil))
-		:child(b.image { src = "assets/box.svg", tint = running and "success" or "dim" }:size(20, 20))
+		:child(b.image("assets/box.svg"):tint(running and "success" or "dim"):size(20, 20))
 		:child(b.div():w(130):child(b.text(container.name):weight(600):truncate()))
 		:child(b.div():grow(1):child(b.text(container.image):color("dim"):truncate()))
 		:child(b.div():w(90):child(b.text(running and "running" or container.state)
@@ -90,7 +90,7 @@ local function row(container, index)
 			:color(reading and "foreground" or "dim")))
 		:child(b.div():w(80):h(20):child(reading and b.spark(reading.history, "accent"):size_full() or b.div()))
 		:child(b.div():press(act):row():items_center():gap(6):px(10):py(5):rounded(6):bg(button_ground)
-			:child(b.image { src = running and "assets/stop.svg" or "assets/play.svg", tint = running and "error" or "success" }:size(12, 12))
+			:child(b.image(running and "assets/stop.svg" or "assets/play.svg"):tint(running and "error" or "success"):size(12, 12))
 			:child(b.text(busy[container.id] and "…" or (running and "Stop" or "Start"))))
 end
 
@@ -98,7 +98,7 @@ return {
 	render = function(size, now, reduce_motion)
 		local page = b.div():size_full():p(20):gap(10)
 			:child(b.div():row():items_center():gap(10)
-				:child(b.image { src = "assets/icon.png" }:size(28, 28))
+				:child(b.image("assets/icon.png"):size(28, 28))
 				:child(b.text("Containers"):text_size(22):weight(600)))
 		for index, container in ipairs(containers) do
 			page:child(row(container, index))

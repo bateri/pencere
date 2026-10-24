@@ -6,7 +6,7 @@
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
     Align, Button, Color, Cursor, Event, Family, Fit, Input, Key, Keyboard, MenuEntry, Mods, Point,
-    Reply, Rgba, Source, Tone, Track,
+    Reply, Rgba, Role, Source, Track,
 };
 
 use crate::Frame;
@@ -14,38 +14,38 @@ use crate::bindings::pencere::view::types as wit;
 
 // --- What the page hands out ---------------------------------------------------------------
 
-fn tone(tone: Tone) -> wit::Tone {
-    match tone {
-        Tone::Background => wit::Tone::Background,
-        Tone::Foreground => wit::Tone::Foreground,
-        Tone::Dim => wit::Tone::Dim,
-        Tone::Accent => wit::Tone::Accent,
-        Tone::Cursor => wit::Tone::Cursor,
-        Tone::Success => wit::Tone::Success,
-        Tone::Error => wit::Tone::Error,
-        Tone::Info => wit::Tone::Info,
-        Tone::Warning => wit::Tone::Warning,
-        Tone::Raised(steps) => wit::Tone::Raised(steps),
-        Tone::Quiet => wit::Tone::Quiet,
-        Tone::Line => wit::Tone::Line,
-        Tone::Shadow => wit::Tone::Shadow,
-        Tone::Selection => wit::Tone::Selection,
-        Tone::Black => wit::Tone::Black,
-        Tone::Red => wit::Tone::Red,
-        Tone::Green => wit::Tone::Green,
-        Tone::Yellow => wit::Tone::Yellow,
-        Tone::Blue => wit::Tone::Blue,
-        Tone::Magenta => wit::Tone::Magenta,
-        Tone::Cyan => wit::Tone::Cyan,
-        Tone::White => wit::Tone::White,
-        Tone::BrightBlack => wit::Tone::BrightBlack,
-        Tone::BrightRed => wit::Tone::BrightRed,
-        Tone::BrightGreen => wit::Tone::BrightGreen,
-        Tone::BrightYellow => wit::Tone::BrightYellow,
-        Tone::BrightBlue => wit::Tone::BrightBlue,
-        Tone::BrightMagenta => wit::Tone::BrightMagenta,
-        Tone::BrightCyan => wit::Tone::BrightCyan,
-        Tone::BrightWhite => wit::Tone::BrightWhite,
+fn role(role: Role) -> wit::Role {
+    match role {
+        Role::Background => wit::Role::Background,
+        Role::Foreground => wit::Role::Foreground,
+        Role::Dim => wit::Role::Dim,
+        Role::Accent => wit::Role::Accent,
+        Role::Cursor => wit::Role::Cursor,
+        Role::Success => wit::Role::Success,
+        Role::Error => wit::Role::Error,
+        Role::Info => wit::Role::Info,
+        Role::Warning => wit::Role::Warning,
+        Role::Raised(steps) => wit::Role::Raised(steps),
+        Role::Quiet => wit::Role::Quiet,
+        Role::Border => wit::Role::Border,
+        Role::Shadow => wit::Role::Shadow,
+        Role::Selection => wit::Role::Selection,
+        Role::Black => wit::Role::Black,
+        Role::Red => wit::Role::Red,
+        Role::Green => wit::Role::Green,
+        Role::Yellow => wit::Role::Yellow,
+        Role::Blue => wit::Role::Blue,
+        Role::Magenta => wit::Role::Magenta,
+        Role::Cyan => wit::Role::Cyan,
+        Role::White => wit::Role::White,
+        Role::BrightBlack => wit::Role::BrightBlack,
+        Role::BrightRed => wit::Role::BrightRed,
+        Role::BrightGreen => wit::Role::BrightGreen,
+        Role::BrightYellow => wit::Role::BrightYellow,
+        Role::BrightBlue => wit::Role::BrightBlue,
+        Role::BrightMagenta => wit::Role::BrightMagenta,
+        Role::BrightCyan => wit::Role::BrightCyan,
+        Role::BrightWhite => wit::Role::BrightWhite,
     }
 }
 
@@ -60,7 +60,7 @@ fn rgba(value: Rgba) -> wit::Rgba {
 
 fn color(color: Color) -> wit::Color {
     let source = match color.source {
-        Source::Role(role) => wit::Source::Role(tone(role)),
+        Source::Role(inner) => wit::Source::Role(role(inner)),
         Source::Rgba { light, dark } => wit::Source::Rgba(wit::RgbaForms {
             light: rgba(light),
             dark: dark.map(rgba),
@@ -98,7 +98,7 @@ fn edges(edges: [f32; 4]) -> wit::Edges {
     }
 }
 
-fn style(style: Style) -> wit::Style {
+fn style(style: Style, lists: &mut Lists) -> wit::Style {
     wit::Style {
         display: match style.display {
             Display::Flex => wit::Display::Flex,
@@ -141,8 +141,8 @@ fn style(style: Style) -> wit::Style {
             Justify::End => wit::Justify::End,
             Justify::Between => wit::Justify::Between,
         }),
-        columns: style.columns.iter().map(track).collect(),
-        rows: style.rows.iter().map(track).collect(),
+        columns: lists.tracks(style.columns.iter().map(track)),
+        rows: lists.tracks(style.rows.iter().map(track)),
         column_span: style.column_span,
         overflow: match style.overflow {
             Overflow::Visible => wit::Overflow::Visible,
@@ -186,18 +186,57 @@ fn style(style: Style) -> wit::Style {
     }
 }
 
-fn node(node: Node) -> wit::Node {
+/// The lists a frame names the parts of: the words of its lines of text and the paths of its
+/// pictures, the values of its sparklines and the tracks of its grids. Each element appends what
+/// it has and keeps the part it took, so a frame says every byte of itself once.
+#[derive(Default)]
+struct Lists {
+    text: String,
+    numbers: Vec<f32>,
+    tracks: Vec<wit::Track>,
+}
+
+/// A part of a list that begins at `start` and has `len` items. A list of a module cannot pass
+/// the 4 GiB its memory addresses, so the numbers fit.
+fn part(start: usize, len: usize) -> wit::Slice {
+    wit::Slice {
+        start: u32::try_from(start).unwrap_or(u32::MAX),
+        len: u32::try_from(len).unwrap_or(u32::MAX),
+    }
+}
+
+impl Lists {
+    fn words(&mut self, words: &str) -> wit::Slice {
+        let start = self.text.len();
+        self.text.push_str(words);
+        part(start, words.len())
+    }
+
+    fn values(&mut self, values: &[f32]) -> wit::Slice {
+        let start = self.numbers.len();
+        self.numbers.extend_from_slice(values);
+        part(start, values.len())
+    }
+
+    fn tracks(&mut self, tracks: impl Iterator<Item = wit::Track>) -> wit::Slice {
+        let start = self.tracks.len();
+        self.tracks.extend(tracks);
+        part(start, self.tracks.len() - start)
+    }
+}
+
+fn node(node: Node, lists: &mut Lists) -> wit::Node {
     wit::Node {
         content: match node.kind {
-            Kind::Box => wit::Content::Container,
-            Kind::Text(text) => wit::Content::Text(text),
+            Kind::Box => wit::Content::Box,
+            Kind::Text(text) => wit::Content::Text(lists.words(&text)),
             Kind::Spark(spark) => wit::Content::Spark(wit::Spark {
-                values: spark.values,
+                values: lists.values(&spark.values),
                 color: color(spark.color),
                 peak: spark.peak,
             }),
             Kind::Image(image) => wit::Content::Image(wit::Image {
-                src: image.src,
+                src: lists.words(&image.src),
                 fit: match image.fit {
                     Fit::Contain => wit::Fit::Contain,
                     Fit::Cover => wit::Fit::Cover,
@@ -206,7 +245,7 @@ fn node(node: Node) -> wit::Node {
                 opacity: image.opacity,
             }),
         },
-        style: style(node.style),
+        style: style(node.style, lists),
         id: node.meta.id.map(|id| id.number()),
         pressable: node.meta.pressable,
         focusable: node.meta.focusable,
@@ -215,10 +254,20 @@ fn node(node: Node) -> wit::Node {
     }
 }
 
-/// The page, as the interface's list of nodes.
+/// The page, as the interface's list of nodes and the lists they name the parts of.
 pub fn to_wit_frame(frame: Frame) -> wit::Frame {
+    let mut lists = Lists::default();
+    let nodes = frame
+        .root
+        .fold()
+        .into_iter()
+        .map(|each| node(each, &mut lists))
+        .collect();
     wit::Frame {
-        nodes: frame.root.fold().into_iter().map(node).collect(),
+        nodes,
+        text: lists.text,
+        numbers: lists.numbers,
+        tracks: lists.tracks,
         animating: frame.animating,
         wake_at: frame.wake_at,
     }
@@ -229,12 +278,10 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
     wit::Reply {
         redraw: reply.redraw,
         close: reply.close,
-        menu: reply.menu.map(|menu| wit::Menu {
-            at: wit::Point {
-                x: menu.at.x,
-                y: menu.at.y,
-            },
-            entries: menu
+        menu: reply.menu.map(|menu| {
+            // The titles of the entries are one string, as the words of a frame are.
+            let mut lists = Lists::default();
+            let entries = menu
                 .entries
                 .into_iter()
                 .map(|entry| match entry {
@@ -244,16 +291,24 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
                         key,
                         enabled,
                     } => wit::MenuEntry::Item(wit::MenuItem {
-                        title,
+                        title: lists.words(&title),
                         key,
                         enabled,
                     }),
                 })
-                .collect(),
+                .collect();
+            wit::Menu {
+                at: wit::Point {
+                    x: menu.at.x,
+                    y: menu.at.y,
+                },
+                entries,
+                titles: lists.text,
+            }
         }),
         keyboard: reply.keyboard.map(|keyboard| match keyboard {
             Keyboard::Page => wit::Keyboard::Page,
-            Keyboard::Filter => wit::Keyboard::Field,
+            Keyboard::Field => wit::Keyboard::Field,
         }),
         copy: reply.copy,
         cursor: match reply.cursor {
@@ -281,7 +336,7 @@ fn mods(mods: wit::Mods) -> Mods {
     Mods {
         shift: mods.shift,
         control: mods.control,
-        option: mods.alt,
+        alt: mods.alt,
         command: mods.command,
     }
 }
@@ -299,7 +354,7 @@ fn key(key: wit::Key) -> Key {
         wit::Key::Enter => Key::Enter,
         wit::Key::Escape => Key::Escape,
         wit::Key::Tab => Key::Tab,
-        wit::Key::Character(c) => Key::Char(c),
+        wit::Key::Character(c) => Key::Character(c),
     }
 }
 
