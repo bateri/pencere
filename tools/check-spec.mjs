@@ -3,12 +3,13 @@
 // Every example frame in a specification (a fenced block whose heading is
 // `frame <path>`) must equal the fixture file it names, byte for byte, and the
 // fixture must be one the manifest lists, so each example is also a conformance
-// case. The manifest, the files on disk and the fixtures README must agree on
+// case. A block headed `message <path>` is one line of JSON that must equal the
+// text of a bridge fixture, which has no frame around it. The manifest, the files on disk and the fixtures README must agree on
 // which files exist. Run by `make check`; it uses nothing but Node.
 //
 // In an example `<ESC>` is the byte 0x1B, `<CR>` and `<LF>` are 0x0D and 0x0A,
 // and every other byte is printable ASCII. The lines of a block are joined with
-// nothing between them.
+// nothing between them. A `message` block is written as it is.
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -46,12 +47,12 @@ function bytesOf(lines) {
   return Buffer.from(out);
 }
 
-/** The `frame <path>` blocks of a markdown file: { path, lines, at }. */
+/** The `frame <path>` and `message <path>` blocks of a markdown file: { path, lines, at, message }. */
 function frameBlocks(markdown) {
   const blocks = [];
   const lines = markdown.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const open = /^```frame\s+(\S+)\s*$/.exec(lines[i] ?? "");
+    const open = /^```(frame|message)\s+(\S+)\s*$/.exec(lines[i] ?? "");
     if (open === null) continue;
     const body = [];
     let j = i + 1;
@@ -60,7 +61,7 @@ function frameBlocks(markdown) {
       j += 1;
     }
     if (j >= lines.length) fail(`line ${i + 1}`, "a frame block is never closed");
-    blocks.push({ path: open[1], lines: body, at: i + 1 });
+    blocks.push({ path: open[2], lines: body, at: i + 1, message: open[1] === "message" });
     i = j;
   }
   return blocks;
@@ -90,6 +91,7 @@ function checkSpecDir(dir) {
   // The files the manifest knows.
   const listed = new Set();
   for (const entry of manifest.decode ?? []) listed.add(entry.file);
+  for (const entry of manifest.bridge ?? []) listed.add(entry.file);
   for (const session of manifest.session ?? []) {
     for (const step of session.steps ?? []) {
       for (const file of [step.in, step.out]) if (typeof file === "string") listed.add(file);
@@ -136,7 +138,7 @@ function checkSpecDir(dir) {
       fail(where, `${block.path} is not in the manifest`);
     let expected;
     try {
-      expected = bytesOf(block.lines);
+      expected = block.message ? Buffer.from(block.lines.join("\n")) : bytesOf(block.lines);
     } catch (error) {
       fail(where, error instanceof Error ? error.message : String(error));
       continue;

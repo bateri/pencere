@@ -8,6 +8,19 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Changed
 
+- **Breaking: one protocol, no MCP.** Every kind of view now speaks the six view messages (specification
+  §9), and the host only carries them; a `web` page additionally exchanges the bridge messages `context`,
+  `close` and `link` with the host (§9.4 to §9.7). The MCP client and MCP Apps host are gone (`jsonrpc`,
+  `session::mcp`, `session::view`, `ToolCall`, `ViewSource`, `UiMeta`, `Theme::variables`,
+  `Action::ViewLog`, `Config::logging`), and so are the teardown round trip (`State::Closing`,
+  `Session::requests_timed_out`) and the `tool`, `bundle.meta`, `serverInfo` and `resources/read`
+  handling: a view is always a bundle. `hello.views` and `welcome.views` list kinds with the versions of
+  their interface (`message::ViewOffer`, `Config::views` is `Vec<Offer>`), and `open` names the `view`,
+  its `version`, the `program` and `title`, `icons` and, for a page, the `access` it asks to reach
+  (`sandbox::Access`). `ViewStart` carries the page's first `context` message; `Session::set_locale`
+  and `Session::set_reduce_motion` join `set_size` and `set_theme`. The wire of the draft changed in
+  place; there is no support for the previous draft.
+
 - The `closed` of a view the terminal draws itself that failed (specification §8.8) carries `message`,
   the words the view failed with (for a script its error and the line it is on). `Session::view_failed`
   takes them; the session cuts them to `MAX_FAILURE_CHARS` and leaves out control characters and

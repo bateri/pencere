@@ -12,191 +12,162 @@
 
 mod common;
 
-use pencere::bundle::{Digest, MemoryStore};
-use pencere::frame::{Direction, Event, Ids, Message, Outgoing, Split, StreamDecoder, encode};
-use pencere::message::HostInfo;
-use pencere::session::{Action, Config, Session, Size, State, ViewKind, ViewSource, ViewStart};
+use common::{Rig, TOKENS, kit_config};
+use pencere::bundle::Digest;
+use pencere::session::{Action, Config, State, ViewKind, ViewStart};
 use serde_json::{Value, json};
-
-type Host = Session<MemoryStore, Box<dyn FnMut() -> [u8; 16]>>;
 
 /// What ends a view, played against the rig.
 type End = fn(&mut Rig);
 
-const TOKEN: &str = "q7Vh2sB0xJm9kLw4TzN1cA";
-const OTHER: &str = "Zk3mP8rD5uYb1Xe6HqS0vg";
+const TOKEN: &str = TOKENS[0];
+const OTHER: &str = TOKENS[1];
 
 /// What a component's bytes are, for the tests: the header of an empty one.
 const COMPONENT: &[u8] = b"\0asm\x01\0\0\0";
 
-struct Rig {
-    host: Host,
-    ids: Ids,
-    decoder: StreamDecoder,
-    /// What the host wrote, as messages, since the last `take`.
-    wrote: Vec<Message>,
-    /// The other actions since the last `take`.
-    acted: Vec<Action>,
+/// What a script is, for the tests.
+const SCRIPT: &[u8] = b"return { render = function() end }";
+
+/// The version of the kit's interface the tests speak.
+const KIT: &str = "0.5";
+
+/// The versions the tests' hosts speak of a kind, and a program lists of it.
+fn versions(kind: ViewKind) -> &'static [&'static str] {
+    match kind {
+        ViewKind::Web => &["1.0"],
+        _ => &[KIT],
+    }
 }
 
-fn config(views: &[ViewKind]) -> Config {
-    let mut config = Config::new(
-        HostInfo {
-            name: "pencere-test".into(),
-            version: "0.0.0".into(),
-        },
-        common::theme(),
-        Size {
-            width: 800,
-            height: 600,
-        },
-    );
-    config.views = views.to_vec();
-    config
+/// A host that opens `kinds`, each at the version the tests speak of it.
+fn config(kinds: &[ViewKind]) -> Config {
+    let views: Vec<(ViewKind, &[&str])> = kinds.iter().map(|k| (*k, versions(*k))).collect();
+    kit_config(&views)
 }
 
-impl Rig {
-    fn new(config: Config) -> Self {
-        let mut tokens = [TOKEN, OTHER]
+fn rig(kinds: &[ViewKind]) -> Rig {
+    Rig::with(config(kinds))
+}
+
+/// A `hello` that lists `names` of kinds, each at the version the tests speak of it (a name
+/// the table has not got at `1.0`); the `welcome` it is answered with.
+fn hello_with(rig: &mut Rig, names: &[&str]) -> Value {
+    let views: Vec<Value> = names
+        .iter()
+        .map(|name| {
+            let versions = ViewKind::from_name(name).map_or(&["1.0"][..], versions);
+            json!({"kind": name, "versions": versions})
+        })
+        .collect();
+    rig.hello_with(&Value::Array(views))
+}
+
+/// The `hello` of a program that can show either kind and prefers a component.
+fn hello(rig: &mut Rig) -> Value {
+    hello_with(rig, &["wasm", "web"])
+}
+
+/// What a host that opens these kinds answers a program that listed them in this order:
+/// `views` of its `welcome`.
+fn offers(kinds: &[ViewKind]) -> Value {
+    Value::Array(
+        kinds
             .iter()
-            .map(|t| common::token_bytes(t))
-            .collect::<Vec<_>>()
-            .into_iter();
-        let entropy: Box<dyn FnMut() -> [u8; 16]> =
-            Box::new(move || tokens.next().unwrap_or([9; 16]));
-        Self {
-            host: Session::new(config, MemoryStore::new(), entropy),
-            ids: Ids::new(),
-            decoder: StreamDecoder::new(Direction::ToProgram),
-            wrote: Vec::new(),
-            acted: Vec::new(),
-        }
-    }
+            .map(|kind| json!({"kind": kind.name(), "versions": versions(*kind)}))
+            .collect(),
+    )
+}
 
-    fn collect(&mut self) {
-        for action in self.host.take_actions() {
-            if let Action::Write(bytes) = &action {
-                let mut events = Vec::new();
-                self.decoder.feed(bytes, &mut events);
-                for event in events {
-                    match event {
-                        Event::Message(m) => self.wrote.push(m),
-                        Event::Error(e) => panic!("the host wrote a bad frame: {e}"),
-                    }
-                }
-            } else {
-                self.acted.push(action);
-            }
-        }
+/// An `open` of a component of `size` bytes named in the manifest, with `extra` members.
+fn open(rig: &mut Rig, size: u64, extra: &Value) {
+    let digest = Digest::of(COMPONENT).to_string();
+    let mut body = json!({
+        "token": TOKEN,
+        "view": "wasm",
+        "version": KIT,
+        "bundle": { "entry": "view.wasm", "files": [
+            { "path": "view.wasm", "sha256": digest, "size": size, "type": "application/wasm" }
+        ] },
+    });
+    for (key, value) in extra.as_object().unwrap() {
+        body[key] = value.clone();
     }
+    rig.json("open", &body);
+}
 
-    fn send(&mut self, kind: &str, digest: Option<&str>, payload: &str) {
-        let message = Outgoing {
-            kind,
-            id: self.ids.next_id(),
-            re: None,
-            digest,
-            payload,
-        };
-        let mut bytes = Vec::new();
-        encode(Direction::ToHost, &message, Split::Fill, &mut bytes).unwrap();
-        self.host.feed(&bytes);
-        self.collect();
-    }
+/// The component's file, as the program sends it.
+fn file(rig: &mut Rig) {
+    let digest = Digest::of(COMPONENT).to_string();
+    let payload = pencere::base64::encode(COMPONENT);
+    rig.send("file", None, Some(&digest), &payload);
+}
 
-    fn json(&mut self, kind: &str, value: &Value) {
-        let text = pencere::json::to_wire(value).unwrap();
-        self.send(kind, None, &text);
-    }
+/// A view that is up: `hello`, `open`, its file.
+fn up(rig: &mut Rig, extra: &Value) -> ViewStart {
+    hello(rig);
+    open(rig, COMPONENT.len() as u64, extra);
+    let (need, acted) = rig.take();
+    assert_eq!(need.len(), 1, "{need:?}");
+    assert_eq!(need[0].kind, "need");
+    assert!(acted.is_empty(), "{acted:?}");
+    file(rig);
+    let (_, acted) = rig.take();
+    let [Action::StartView(start)] = acted.as_slice() else {
+        panic!("expected one view to start, got {acted:?}");
+    };
+    assert_eq!(rig.host.state(), State::Open);
+    (**start).clone()
+}
 
-    /// What the host wrote since the last call.
-    fn take(&mut self) -> Vec<Message> {
-        std::mem::take(&mut self.wrote)
-    }
-
-    fn taken_actions(&mut self) -> Vec<Action> {
-        std::mem::take(&mut self.acted)
-    }
-
-    /// The `hello` of a program that can show either kind and prefers a component, and the
-    /// token the host answers with.
-    fn hello(&mut self) -> Value {
-        self.hello_with(&["wasm", "web"])
-    }
-
-    /// A `hello` that lists `views`; the `welcome` it is answered with.
-    fn hello_with(&mut self, views: &[&str]) -> Value {
-        self.json("hello", &json!({ "versions": [1], "views": views }));
-        let welcome = self.take();
-        assert_eq!(welcome.len(), 1);
-        assert_eq!(welcome[0].kind, "welcome");
-        serde_json::from_str(&welcome[0].payload).unwrap()
-    }
-
-    /// An `open` of a component of `size` bytes named in the manifest, with `extra` members.
-    fn open(&mut self, size: u64, extra: Value) {
-        let digest = Digest::of(COMPONENT).to_string();
-        let mut body = json!({
-            "token": TOKEN,
-            "view": "wasm",
-            "bundle": { "entry": "view.wasm", "files": [
-                { "path": "view.wasm", "sha256": digest, "size": size, "type": "application/wasm" }
-            ] },
-        });
-        for (key, value) in extra.as_object().unwrap() {
-            body[key] = value.clone();
-        }
-        self.json("open", &body);
-    }
-
-    /// The component's file, as the program sends it.
-    fn file(&mut self) {
-        let digest = Digest::of(COMPONENT).to_string();
-        let payload = pencere::base64::encode(COMPONENT);
-        self.send("file", Some(&digest), &payload);
-    }
-
-    /// A view that is up: `hello`, `open`, its file.
-    fn up(&mut self, extra: Value) -> ViewStart {
-        self.hello();
-        self.open(COMPONENT.len() as u64, extra);
-        let need = self.take();
-        assert_eq!(need.len(), 1, "{need:?}");
-        assert_eq!(need[0].kind, "need");
-        self.file();
-        let acted = self.taken_actions();
-        let [Action::StartView(start)] = acted.as_slice() else {
-            panic!("expected one view to start, got {acted:?}");
-        };
-        assert_eq!(self.host.state(), State::Open);
-        (**start).clone()
-    }
-
-    fn module_says(&mut self, text: &str) -> bool {
-        let written = self.host.module_message(text);
-        self.collect();
-        written
-    }
+fn module_says(rig: &mut Rig, text: &str) -> bool {
+    let written = rig.host.module_message(text);
+    rig.collect();
+    written
 }
 
 fn assert_wrote_nothing(rig: &mut Rig, text: &str) {
     let before = rig.host.diagnostics().ignored;
-    assert!(!rig.module_says(text));
-    assert!(rig.take().is_empty(), "the program was written to");
+    assert!(!module_says(rig, text));
+    assert!(rig.take().0.is_empty(), "the program was written to");
     assert!(rig.host.diagnostics().ignored > before);
 }
 
+/// The code of the one `closed` the host wrote.
+fn refusal(rig: &mut Rig) -> String {
+    let (wrote, _) = rig.take();
+    assert_eq!(wrote.len(), 1, "{wrote:?}");
+    assert_eq!(wrote[0].kind, "closed");
+    let body: Value = serde_json::from_str(&wrote[0].payload).unwrap();
+    assert_eq!(body["reason"], "refused");
+    body["code"].as_str().unwrap().to_owned()
+}
+
+/// A bundle of one file of `media_type`, named `entry`.
+fn one_file_bundle(entry: &str, media_type: &str) -> Value {
+    let digest = Digest::of(COMPONENT).to_string();
+    json!({ "entry": entry, "files": [
+        { "path": entry, "sha256": digest, "size": COMPONENT.len(), "type": media_type }
+    ] })
+}
+
 #[test]
-fn a_view_that_is_a_component_starts_without_mcp_and_says_what_it_is() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    let start = rig.up(json!({ "program": "demopen", "title": "Containers" }));
+fn a_view_that_is_a_component_starts_as_a_view_of_the_kit_and_says_what_it_is() {
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    let start = up(
+        &mut rig,
+        &json!({ "program": "demopen", "title": "Containers" }),
+    );
     assert_eq!(start.kind, ViewKind::Wasm);
-    assert_eq!(start.source, ViewSource::Bundle);
+    assert_eq!(start.version, KIT);
     assert_eq!(start.program.as_deref(), Some("demopen"));
     assert_eq!(start.title.as_deref(), Some("Containers"));
     assert!(start.policy.is_empty() && start.allow.is_empty());
-    // No MCP session was started: nothing but the `need` was written.
-    assert!(rig.take().is_empty());
+    assert!(start.grant.is_empty());
+    // The kit tells the component about the terminal, not the host.
+    assert_eq!(start.context, None);
+    // Nothing but the `need` was written.
+    assert!(rig.take().0.is_empty());
     // The component is served from the store, like any bundle.
     let (media, bytes) = rig.host.serve("view.wasm").unwrap();
     assert_eq!(media, "application/wasm");
@@ -205,55 +176,74 @@ fn a_view_that_is_a_component_starts_without_mcp_and_says_what_it_is() {
 
 #[test]
 fn what_the_program_calls_itself_is_cut_and_cleaned_like_any_label() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    let start = rig.up(json!({ "program": "de\u{202e}mo\npen", "title": 7 }));
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    let start = up(
+        &mut rig,
+        &json!({ "program": "de\u{202e}mo\npen", "title": 7 }),
+    );
     assert_eq!(start.program.as_deref(), Some("demopen"));
     assert_eq!(start.title, None);
 }
 
 #[test]
-fn a_tool_in_the_open_of_a_component_is_not_read() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    let start = rig.up(json!({ "tool": 3 }));
-    assert_eq!(start.kind, ViewKind::Wasm);
-    assert!(start.tool.is_empty());
+fn an_access_in_the_open_of_a_component_is_not_read() {
+    for access in [
+        json!(3),
+        json!({"connect": ["https://a.example"]}),
+        json!({"connect": 5}),
+    ] {
+        let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+        let start = up(&mut rig, &json!({ "access": access }));
+        assert_eq!(start.kind, ViewKind::Wasm);
+        // No question to the person, no policy, nothing allowed.
+        assert!(start.policy.is_empty() && start.grant.is_empty());
+    }
 }
 
 #[test]
 fn a_msg_of_the_program_reaches_the_view_as_it_is_and_is_not_read() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    rig.up(json!({}));
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    up(&mut rig, &json!({}));
     let text = pencere::json::to_wire(&json!({ "push": { "id": 2, "value": [1.5, "caf\u{e9}"] } }))
         .unwrap();
-    rig.send("msg", None, &text);
-    assert_eq!(rig.taken_actions(), vec![Action::ToView(text)]);
-    assert!(rig.take().is_empty());
+    rig.send("msg", None, None, &text);
+    assert_eq!(rig.take().1, vec![Action::ToView(text)]);
+    // Named like the host's own messages for a page, it is still the component's.
+    for own in [
+        r#"{"context":{}}"#,
+        r#"{"close":{}}"#,
+        r#"{"link":{"url":"https://a.example"}}"#,
+    ] {
+        rig.send("msg", None, None, own);
+        assert_eq!(rig.take().1, vec![Action::ToView(own.to_owned())]);
+    }
+    assert!(rig.take().0.is_empty());
 }
 
 #[test]
 fn a_msg_that_is_not_an_object_or_comes_before_the_view_runs_goes_nowhere() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    rig.hello();
-    rig.open(COMPONENT.len() as u64, json!({}));
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    hello(&mut rig);
+    open(&mut rig, COMPONENT.len() as u64, &json!({}));
     rig.take();
     // The file is still awaited: the component is not up.
     rig.json("msg", &json!({ "push": { "id": 1 } }));
-    assert!(rig.taken_actions().is_empty());
-    rig.file();
-    rig.taken_actions();
-    rig.send("msg", None, "[1,2]");
-    rig.send("msg", None, "\"text\"");
-    assert!(rig.taken_actions().is_empty());
+    assert!(rig.take().1.is_empty());
+    file(&mut rig);
+    rig.take();
+    rig.send("msg", None, None, "[1,2]");
+    rig.send("msg", None, None, "\"text\"");
+    assert!(rig.take().1.is_empty());
     assert_eq!(rig.host.diagnostics().ignored, 3);
 }
 
 #[test]
 fn a_message_of_the_component_is_written_to_the_program_while_its_view_is_open() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    rig.up(json!({}));
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    up(&mut rig, &json!({}));
     let text = r#"{"call":{"id":1,"method":"list"}}"#;
-    assert!(rig.module_says(text));
-    let wrote = rig.take();
+    assert!(module_says(&mut rig, text));
+    let (wrote, _) = rig.take();
     assert_eq!(wrote.len(), 1);
     assert_eq!(wrote[0].kind, "msg");
     assert_eq!(wrote[0].payload, text);
@@ -268,16 +258,16 @@ fn a_message_of_the_component_is_written_to_the_program_while_its_view_is_open()
 fn nothing_the_component_says_is_written_once_its_view_is_over_however_it_ended() {
     let text = r#"{"call":{"id":1,"method":"list"}}"#;
     // Before any view.
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    rig.hello();
-    assert_wrote_nothing(&mut rig, text);
+    let mut before = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    hello(&mut before);
+    assert_wrote_nothing(&mut before, text);
 
     let endings: [(&str, End); 5] = [
         ("the program's bye", |rig| {
-            rig.json("bye", &json!({ "token": TOKEN, "reason": "exit" }))
+            rig.json("bye", &json!({ "token": TOKEN, "reason": "exit" }));
         }),
         ("the program's dismiss", |rig| {
-            rig.json("dismiss", &json!({ "token": TOKEN }))
+            rig.json("dismiss", &json!({ "token": TOKEN }));
         }),
         ("the person closing the view", |rig| {
             rig.host.close_view();
@@ -293,21 +283,21 @@ fn nothing_the_component_says_is_written_once_its_view_is_over_however_it_ended(
         }),
     ];
     for (name, end) in endings {
-        let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-        rig.up(json!({}));
-        assert!(rig.module_says(text), "{name}: open");
+        let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+        up(&mut rig, &json!({}));
+        assert!(module_says(&mut rig, text), "{name}: open");
         rig.take();
         end(&mut rig);
-        let acted = rig.taken_actions();
+        // The view is gone at once, whatever ended it: nothing is waited for.
+        let (_, acted) = rig.take();
         assert!(
             acted.contains(&Action::DestroyView),
             "{name}: the view is destroyed, got {acted:?}"
         );
-        rig.take();
         assert_wrote_nothing(&mut rig, text);
         // And not after the program has said hello again either: a view that is gone is gone.
         if name != "the program ending" {
-            rig.hello();
+            hello(&mut rig);
             assert_wrote_nothing(&mut rig, text);
         }
     }
@@ -315,12 +305,11 @@ fn nothing_the_component_says_is_written_once_its_view_is_over_however_it_ended(
 
 #[test]
 fn the_end_of_a_view_tells_the_program_why() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    rig.up(json!({}));
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    up(&mut rig, &json!({}));
     rig.host
         .view_failed("script:12: attempt to index nil with 'x'");
-    rig.collect();
-    let wrote = rig.take();
+    let (wrote, _) = rig.take();
     assert_eq!(wrote.len(), 1);
     assert_eq!(wrote[0].kind, "closed");
     let body: Value = serde_json::from_str(&wrote[0].payload).unwrap();
@@ -329,19 +318,18 @@ fn the_end_of_a_view_tells_the_program_why() {
         json!({ "reason": "error", "code": "view", "message": "script:12: attempt to index nil with 'x'" })
     );
 
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    rig.up(json!({}));
+    let mut rig = self::rig(&[ViewKind::Wasm, ViewKind::Web]);
+    up(&mut rig, &json!({}));
     rig.host.close_view();
-    rig.collect();
-    let body: Value = serde_json::from_str(&rig.take()[0].payload).unwrap();
+    let body: Value = serde_json::from_str(&rig.take().0[0].payload).unwrap();
     assert_eq!(body, json!({ "reason": "user" }));
 }
 
 #[test]
 fn a_host_that_does_not_show_components_leaves_them_out_and_refuses_one() {
-    let mut rig = Rig::new(config(&[ViewKind::Web]));
-    assert_eq!(rig.hello()["views"], json!(["web"]));
-    rig.open(COMPONENT.len() as u64, json!({}));
+    let mut rig = rig(&[ViewKind::Web]);
+    assert_eq!(hello(&mut rig)["views"], offers(&[ViewKind::Web]));
+    open(&mut rig, COMPONENT.len() as u64, &json!({}));
     assert_eq!(refusal(&mut rig), "unsupported");
     assert_eq!(rig.host.state(), State::Idle);
 }
@@ -350,36 +338,40 @@ fn a_host_that_does_not_show_components_leaves_them_out_and_refuses_one() {
 fn a_component_over_the_hosts_limit_is_refused_before_it_is_asked_for() {
     let mut config = config(&[ViewKind::Wasm, ViewKind::Web]);
     config.native_entry_limit = 4;
-    let mut rig = Rig::new(config);
-    rig.hello();
-    rig.open(COMPONENT.len() as u64, json!({}));
-    let wrote = rig.take();
+    let mut rig = Rig::with(config);
+    hello(&mut rig);
+    open(&mut rig, COMPONENT.len() as u64, &json!({}));
+    let (wrote, acted) = rig.take();
     assert_eq!(wrote.len(), 1);
     let body: Value = serde_json::from_str(&wrote[0].payload).unwrap();
     assert_eq!(body["code"], "limit");
-    assert!(rig.taken_actions().is_empty());
+    assert!(acted.is_empty());
 }
 
 #[test]
-fn the_view_s_own_mcp_apps_messages_are_not_a_component_s_to_send() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    rig.up(json!({}));
-    rig.host
-        .view_message(r#"{"jsonrpc":"2.0","id":1,"method":"ui/initialize","params":{}}"#);
-    rig.collect();
-    assert!(rig.taken_actions().is_empty());
-    assert!(rig.take().is_empty());
+fn a_pages_message_channel_is_not_a_components_to_use() {
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    up(&mut rig, &json!({}));
+    for text in [
+        r#"{"call":{"id":1,"method":"list"}}"#,
+        r#"{"context":{}}"#,
+        r#"{"close":{}}"#,
+    ] {
+        rig.host.view_message(text);
+        let (wrote, acted) = rig.take();
+        assert!(wrote.is_empty() && acted.is_empty(), "{text}");
+    }
+    assert_eq!(rig.host.state(), State::Open);
+    assert_eq!(rig.host.page_context(), None);
 }
 
 #[test]
 fn a_restart_ends_the_view_and_offers_a_new_token_without_a_word_to_the_component() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    rig.up(json!({}));
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    up(&mut rig, &json!({}));
     rig.host.restart();
-    rig.collect();
-    let acted = rig.taken_actions();
+    let (wrote, acted) = rig.take();
     assert!(acted.contains(&Action::DestroyView), "{acted:?}");
-    let wrote = rig.take();
     assert_eq!(wrote.len(), 1);
     assert_eq!(wrote[0].kind, "welcome");
     let body: Value = serde_json::from_str(&wrote[0].payload).unwrap();
@@ -388,70 +380,60 @@ fn a_restart_ends_the_view_and_offers_a_new_token_without_a_word_to_the_componen
 }
 
 #[test]
-fn a_web_open_still_needs_its_tool() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    rig.hello();
-    rig.json("open", &json!({ "token": TOKEN, "view": "web" }));
+fn a_web_open_needs_its_bundle_like_any_other() {
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    hello(&mut rig);
+    rig.json(
+        "open",
+        &json!({ "token": TOKEN, "view": "web", "version": "1.0" }),
+    );
     assert_eq!(refusal(&mut rig), "manifest");
-}
-
-/// The code of the one `closed` the host wrote.
-fn refusal(rig: &mut Rig) -> String {
-    let wrote = rig.take();
-    assert_eq!(wrote.len(), 1, "{wrote:?}");
-    assert_eq!(wrote[0].kind, "closed");
-    let body: Value = serde_json::from_str(&wrote[0].payload).unwrap();
-    body["code"].as_str().unwrap().to_owned()
-}
-
-/// A bundle of one file of `media_type`, named `entry`.
-fn one_file_bundle(entry: &str, media_type: &str) -> Value {
-    let digest = Digest::of(COMPONENT).to_string();
-    json!({ "entry": entry, "files": [
-        { "path": entry, "sha256": digest, "size": COMPONENT.len(), "type": media_type }
-    ] })
 }
 
 #[test]
 fn the_welcome_lists_the_kinds_the_host_opens_among_the_ones_the_program_listed_in_its_order() {
-    let mut both = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
+    let mut both = rig(&[ViewKind::Wasm, ViewKind::Web]);
     assert_eq!(
-        both.hello_with(&["web", "wasm"])["views"],
-        json!(["web", "wasm"])
+        hello_with(&mut both, &["web", "wasm"])["views"],
+        offers(&[ViewKind::Web, ViewKind::Wasm])
     );
-    let mut both = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
+    let mut both = rig(&[ViewKind::Wasm, ViewKind::Web]);
     assert_eq!(
-        both.hello_with(&["wasm", "web"])["views"],
-        json!(["wasm", "web"])
+        hello_with(&mut both, &["wasm", "web"])["views"],
+        offers(&[ViewKind::Wasm, ViewKind::Web])
     );
     // The host only eliminates: a kind it does not open, one it has never heard of and one
     // listed twice leave the rest as the program had them.
-    let mut web = Rig::new(config(&[ViewKind::Web]));
-    let welcome = web.hello_with(&["lua", "wasm", "web", "wasm", "web"]);
-    assert_eq!(welcome["views"], json!(["web"]));
+    let mut web = rig(&[ViewKind::Web]);
+    let welcome = hello_with(&mut web, &["lua", "gopher", "wasm", "web", "wasm", "web"]);
+    assert_eq!(welcome["views"], offers(&[ViewKind::Web]));
     assert_eq!(welcome["features"], json!(["bundle", "dismiss"]));
 }
 
 #[test]
 fn a_host_that_opens_nothing_the_program_listed_still_answers_with_an_empty_list() {
-    let mut web = Rig::new(config(&[ViewKind::Web]));
-    let welcome = web.hello_with(&["wasm"]);
+    let mut web = rig(&[ViewKind::Web]);
+    let welcome = hello_with(&mut web, &["wasm"]);
     assert_eq!(welcome["views"], json!([]));
     assert_eq!(welcome["token"], TOKEN);
     // Nothing can be opened with the token it carries.
     web.json(
         "open",
-        &json!({ "token": TOKEN, "view": "wasm", "bundle": one_file_bundle("view.wasm", "application/wasm") }),
+        &json!({ "token": TOKEN, "view": "wasm", "version": KIT, "bundle": one_file_bundle("view.wasm", "application/wasm") }),
     );
     assert_eq!(refusal(&mut web), "unsupported");
 }
 
 #[test]
-fn a_host_without_bundles_does_not_offer_a_component() {
+fn a_host_without_bundles_does_not_offer_any_kind() {
     let mut config = config(&[ViewKind::Wasm, ViewKind::Web]);
     config.bundle = false;
-    let mut rig = Rig::new(config);
-    assert_eq!(rig.hello_with(&["wasm", "web"])["views"], json!(["web"]));
+    let mut rig = Rig::with(config);
+    let welcome = hello_with(&mut rig, &["wasm", "web"]);
+    // Every kind of view arrives as a bundle: a host that takes none opens none.
+    assert_eq!(welcome["views"], json!([]));
+    assert_eq!(welcome["features"], json!(["dismiss"]));
+    assert!(welcome["token"].is_string());
 }
 
 #[test]
@@ -461,45 +443,83 @@ fn a_hello_that_lists_no_kind_of_view_is_not_answered() {
         json!({ "versions": [1], "views": [] }),
         json!({ "versions": [1], "views": "wasm" }),
         json!({ "versions": [1], "views": [1] }),
+        // The kinds alone, without their versions, are not a list of kinds with versions.
+        json!({ "versions": [1], "views": ["wasm"] }),
+        json!({ "versions": [1], "views": [{"kind": "wasm"}] }),
+        json!({ "versions": [1], "views": [{"kind": "wasm", "versions": "0.5"}] }),
+        json!({ "versions": [1], "views": [{"kind": "wasm", "versions": [0.5]}] }),
+        json!({ "versions": [1], "views": [{"versions": ["0.5"]}] }),
+        json!({ "versions": [1], "views": [{"kind": "wasm", "versions": ["0.5"]}, "web"] }),
     ] {
-        let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
+        let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
         rig.json("hello", &hello);
-        assert!(rig.take().is_empty(), "{hello}");
+        assert!(rig.take().0.is_empty(), "{hello}");
         assert_eq!(rig.host.state(), State::Idle);
     }
 }
 
 #[test]
-fn an_open_has_to_name_a_kind_the_welcome_offered() {
+fn an_open_has_to_name_a_kind_and_a_version_the_welcome_offered() {
     // Missing, not a string: the payload is malformed.
-    for view in [None, Some(json!(7)), Some(json!(null))] {
-        let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-        rig.hello();
+    for (view, version) in [
+        (None, Some(json!(KIT))),
+        (Some(json!(7)), Some(json!(KIT))),
+        (Some(json!(null)), Some(json!(KIT))),
+        (Some(json!("wasm")), None),
+        (Some(json!("wasm")), Some(json!(5))),
+        (Some(json!("wasm")), Some(json!(0.5))),
+        (Some(json!("wasm")), Some(json!(null))),
+    ] {
+        let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+        hello(&mut rig);
         let mut body =
             json!({ "token": TOKEN, "bundle": one_file_bundle("view.wasm", "application/wasm") });
         if let Some(view) = view {
             body["view"] = view;
         }
+        if let Some(version) = version {
+            body["version"] = version;
+        }
         rig.json("open", &body);
         assert_eq!(refusal(&mut rig), "manifest", "{body}");
     }
-    // A name outside the table, and a kind the welcome did not offer: unsupported.
+    // A name outside the table, a kind the welcome did not offer and a version of a kind it did
+    // not list: unsupported.
     let component = one_file_bundle("view.wasm", "application/wasm");
+    let page = common::web_bundle();
     for (listed, open) in [
         (
             &["wasm", "web"][..],
-            json!({ "view": "gopher", "bundle": component }),
+            json!({ "view": "gopher", "version": "1.0", "bundle": component }),
         ),
-        (&["wasm"], json!({ "view": "web", "tool": { "name": "t" } })),
-        (&["web"], json!({ "view": "wasm", "bundle": component })),
+        (
+            &["wasm"],
+            json!({ "view": "web", "version": "1.0", "bundle": page }),
+        ),
+        (
+            &["web"],
+            json!({ "view": "wasm", "version": KIT, "bundle": component }),
+        ),
+        (
+            &["wasm", "web"],
+            json!({ "view": "wasm", "version": "0.6", "bundle": component }),
+        ),
+        (
+            &["wasm", "web"],
+            json!({ "view": "wasm", "version": "0.5.1", "bundle": component }),
+        ),
+        (
+            &["wasm", "web"],
+            json!({ "view": "wasm", "version": "", "bundle": component }),
+        ),
     ] {
-        let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-        rig.hello_with(listed);
+        let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+        hello_with(&mut rig, listed);
         let mut body = open.clone();
         body["token"] = json!(TOKEN);
         rig.json("open", &body);
         assert_eq!(refusal(&mut rig), "unsupported", "{listed:?} {open}");
-        assert!(rig.taken_actions().is_empty());
+        assert!(rig.take().1.is_empty());
     }
 }
 
@@ -507,14 +527,15 @@ fn an_open_has_to_name_a_kind_the_welcome_offered() {
 fn a_bundle_whose_entry_is_not_what_the_view_says_is_refused_and_the_host_infers_nothing() {
     let wasm_in_html = one_file_bundle("index.html", "text/html");
     let html_in_wasm = one_file_bundle("view.wasm", "application/wasm");
-    for (view, bundle) in [
-        ("wasm", Some(wasm_in_html.clone())),
-        ("wasm", None),
-        ("web", Some(html_in_wasm.clone())),
+    for (view, version, bundle) in [
+        ("wasm", KIT, Some(wasm_in_html.clone())),
+        ("wasm", KIT, None),
+        ("web", "1.0", Some(html_in_wasm.clone())),
+        ("web", "1.0", None),
     ] {
-        let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-        rig.hello();
-        let mut body = json!({ "token": TOKEN, "view": view, "tool": { "name": "t" } });
+        let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+        hello(&mut rig);
+        let mut body = json!({ "token": TOKEN, "view": view, "version": version });
         if let Some(bundle) = bundle {
             body["bundle"] = bundle;
         }
@@ -523,80 +544,113 @@ fn a_bundle_whose_entry_is_not_what_the_view_says_is_refused_and_the_host_infers
         assert_eq!(rig.host.state(), State::Idle);
     }
     // The token is spent whatever comes of the open, as before.
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    rig.hello();
-    rig.json("open", &json!({ "token": TOKEN, "view": "wasm" }));
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    hello(&mut rig);
+    rig.json(
+        "open",
+        &json!({ "token": TOKEN, "view": "wasm", "version": KIT }),
+    );
     assert_eq!(refusal(&mut rig), "manifest");
-    rig.json("open", &json!({ "token": TOKEN, "view": "wasm" }));
+    rig.json(
+        "open",
+        &json!({ "token": TOKEN, "view": "wasm", "version": KIT }),
+    );
     assert_eq!(refusal(&mut rig), "token");
 }
 
 #[test]
-fn a_restart_offers_every_kind_the_host_opens_in_its_own_order() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    rig.up(json!({}));
-    rig.host.restart();
-    rig.collect();
-    let welcome: Value = serde_json::from_str(&rig.take()[0].payload).unwrap();
-    assert_eq!(welcome["views"], json!(["wasm", "web"]));
-    // A program opens what it likes of them with the new token.
-    rig.json(
-        "open",
-        &json!({ "token": OTHER, "view": "wasm", "bundle": one_file_bundle("view.wasm", "application/wasm") }),
+fn a_restart_offers_every_kind_the_host_opens_in_its_own_order_with_every_version() {
+    let mut config = common::kit_config(&[
+        (ViewKind::Wasm, &["0.5", "0.4"]),
+        (ViewKind::Lua, &[KIT]),
+        (ViewKind::Web, &["1.0"]),
+    ]);
+    // A kind listed twice counts once, at its first place.
+    config
+        .views
+        .push(pencere::session::Offer::new(ViewKind::Web, &["9.9"]));
+    let mut rig = Rig::with(config);
+    let token = rig.hello_with(&json!([{"kind": "wasm", "versions": ["0.5"]}]));
+    assert_eq!(
+        token["views"],
+        json!([{"kind": "wasm", "versions": ["0.5"]}])
     );
-    assert!(rig.take().iter().all(|m| m.kind != "closed"));
+    rig.host.restart();
+    let (wrote, _) = rig.take();
+    let welcome: Value = serde_json::from_str(&wrote[0].payload).unwrap();
+    assert_eq!(
+        welcome["views"],
+        json!([
+            {"kind": "wasm", "versions": ["0.5", "0.4"]},
+            {"kind": "lua", "versions": [KIT]},
+            {"kind": "web", "versions": ["1.0"]},
+        ])
+    );
+    // A program opens what it likes of them with the new token, at any of the versions.
+    let mut body = json!({ "token": OTHER, "view": "wasm", "version": "0.4",
+        "bundle": one_file_bundle("view.wasm", "application/wasm") });
+    rig.json("open", &body);
+    assert!(rig.take().0.iter().all(|m| m.kind != "closed"));
+    // And what the restart did not offer is refused.
+    rig.host.restart();
+    rig.take();
+    body["token"] = json!(TOKENS[2]);
+    body["version"] = json!("0.3");
+    rig.json("open", &body);
+    assert_eq!(refusal(&mut rig), "unsupported");
 }
 
 // --- A script ------------------------------------------------------------------------------------
 
-/// What a script is, for the tests.
-const SCRIPT: &[u8] = b"return { render = function() end }";
-
-impl Rig {
-    /// An `open` of a script named in the manifest, with `extra` members.
-    fn open_script(&mut self, extra: Value) {
-        let digest = Digest::of(SCRIPT).to_string();
-        let mut body = json!({
-            "token": TOKEN,
-            "view": "lua",
-            "bundle": { "entry": "view.lua", "files": [
-                { "path": "view.lua", "sha256": digest, "size": SCRIPT.len(), "type": "text/x-lua" }
-            ] },
-        });
-        for (key, value) in extra.as_object().unwrap() {
-            body[key] = value.clone();
-        }
-        self.json("open", &body);
+/// An `open` of a script named in the manifest, with `extra` members.
+fn open_script(rig: &mut Rig, extra: &Value) {
+    let digest = Digest::of(SCRIPT).to_string();
+    let mut body = json!({
+        "token": TOKEN,
+        "view": "lua",
+        "version": KIT,
+        "bundle": { "entry": "view.lua", "files": [
+            { "path": "view.lua", "sha256": digest, "size": SCRIPT.len(), "type": "text/x-lua" }
+        ] },
+    });
+    for (key, value) in extra.as_object().unwrap() {
+        body[key] = value.clone();
     }
+    rig.json("open", &body);
+}
 
-    /// A script view that is up: `hello`, `open`, its file.
-    fn script_up(&mut self) -> ViewStart {
-        self.hello_with(&["lua", "web"]);
-        self.open_script(json!({ "program": "demopen" }));
-        let need = self.take();
-        assert_eq!(need.len(), 1, "{need:?}");
-        assert_eq!(need[0].kind, "need");
-        let digest = Digest::of(SCRIPT).to_string();
-        self.send("file", Some(&digest), &pencere::base64::encode(SCRIPT));
-        let acted = self.taken_actions();
-        let [Action::StartView(start)] = acted.as_slice() else {
-            panic!("expected one view to start, got {acted:?}");
-        };
-        (**start).clone()
-    }
+/// A script view that is up: `hello`, `open`, its file.
+fn script_up(rig: &mut Rig) -> ViewStart {
+    hello_with(rig, &["lua", "web"]);
+    open_script(rig, &json!({ "program": "demopen" }));
+    let (need, _) = rig.take();
+    assert_eq!(need.len(), 1, "{need:?}");
+    assert_eq!(need[0].kind, "need");
+    let digest = Digest::of(SCRIPT).to_string();
+    rig.send(
+        "file",
+        None,
+        Some(&digest),
+        &pencere::base64::encode(SCRIPT),
+    );
+    let (_, acted) = rig.take();
+    let [Action::StartView(start)] = acted.as_slice() else {
+        panic!("expected one view to start, got {acted:?}");
+    };
+    (**start).clone()
 }
 
 #[test]
 fn a_view_that_is_a_script_starts_like_a_component_and_is_served_as_text() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Lua, ViewKind::Web]));
-    let start = rig.script_up();
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Lua, ViewKind::Web]);
+    let start = script_up(&mut rig);
     assert_eq!(start.kind, ViewKind::Lua);
     assert!(ViewKind::Lua.is_native() && ViewKind::Wasm.is_native() && !ViewKind::Web.is_native());
     assert_eq!(start.program.as_deref(), Some("demopen"));
-    assert!(start.tool.is_empty() && start.policy.is_empty());
+    assert!(start.policy.is_empty() && start.context.is_none());
     assert_eq!(rig.host.state(), State::Open);
-    // No MCP session: nothing but the `need`.
-    assert!(rig.take().is_empty());
+    // Nothing but the `need`.
+    assert!(rig.take().0.is_empty());
     let (media, bytes) = rig.host.serve("view.lua").unwrap();
     assert_eq!(media, "text/x-lua");
     assert_eq!(&*bytes, SCRIPT);
@@ -604,16 +658,15 @@ fn a_view_that_is_a_script_starts_like_a_component_and_is_served_as_text() {
 
 #[test]
 fn a_script_gets_the_messages_of_a_component_and_nothing_it_says_is_written_once_it_is_over() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Lua, ViewKind::Web]));
-    rig.script_up();
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Lua, ViewKind::Web]);
+    script_up(&mut rig);
     let text = pencere::json::to_wire(&json!({ "push": { "id": 1, "value": 2 } })).unwrap();
-    rig.send("msg", None, &text);
-    assert_eq!(rig.taken_actions(), vec![Action::ToView(text)]);
+    rig.send("msg", None, None, &text);
+    assert_eq!(rig.take().1, vec![Action::ToView(text)]);
     let said = r#"{"call":{"id":1,"method":"list"}}"#;
-    assert!(rig.module_says(said));
-    assert_eq!(rig.take()[0].payload, said);
+    assert!(module_says(&mut rig, said));
+    assert_eq!(rig.take().0[0].payload, said);
     rig.host.view_failed("script:3: boom");
-    rig.collect();
     rig.take();
     assert_wrote_nothing(&mut rig, said);
 }
@@ -621,91 +674,98 @@ fn a_script_gets_the_messages_of_a_component_and_nothing_it_says_is_written_once
 #[test]
 fn a_script_view_is_not_a_component_and_a_component_is_not_a_script() {
     // The entry has to be of the kind the program said.
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Lua, ViewKind::Web]));
-    rig.hello_with(&["lua", "wasm"]);
-    rig.open(COMPONENT.len() as u64, json!({ "view": "lua" }));
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Lua, ViewKind::Web]);
+    hello_with(&mut rig, &["lua", "wasm"]);
+    open(&mut rig, COMPONENT.len() as u64, &json!({ "view": "lua" }));
     assert_eq!(refusal(&mut rig), "manifest");
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Lua, ViewKind::Web]));
-    rig.hello_with(&["lua", "wasm"]);
+    let mut rig = self::rig(&[ViewKind::Wasm, ViewKind::Lua, ViewKind::Web]);
+    hello_with(&mut rig, &["lua", "wasm"]);
     let digest = Digest::of(SCRIPT).to_string();
     rig.json(
         "open",
-        &json!({ "token": TOKEN, "view": "wasm", "bundle": { "entry": "view.lua", "files": [
+        &json!({ "token": TOKEN, "view": "wasm", "version": KIT, "bundle": { "entry": "view.lua", "files": [
             { "path": "view.lua", "sha256": digest, "size": SCRIPT.len(), "type": "text/x-lua" }
         ] } }),
     );
     assert_eq!(refusal(&mut rig), "manifest");
     // A script has no document to stand on without its bundle either.
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Lua, ViewKind::Web]));
-    rig.hello_with(&["lua"]);
-    rig.json("open", &json!({ "token": TOKEN, "view": "lua" }));
+    let mut rig = self::rig(&[ViewKind::Wasm, ViewKind::Lua, ViewKind::Web]);
+    hello_with(&mut rig, &["lua"]);
+    rig.json(
+        "open",
+        &json!({ "token": TOKEN, "view": "lua", "version": KIT }),
+    );
     assert_eq!(refusal(&mut rig), "manifest");
 }
 
 #[test]
 fn a_host_that_does_not_run_scripts_leaves_them_out_and_refuses_one() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    assert_eq!(rig.hello_with(&["lua", "web"])["views"], json!(["web"]));
-    rig.open_script(json!({}));
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    assert_eq!(
+        hello_with(&mut rig, &["lua", "web"])["views"],
+        offers(&[ViewKind::Web])
+    );
+    open_script(&mut rig, &json!({}));
     assert_eq!(refusal(&mut rig), "unsupported");
     // And one that runs only scripts offers only them.
-    let mut rig = Rig::new(config(&[ViewKind::Lua]));
-    assert_eq!(rig.hello_with(&["wasm", "lua"])["views"], json!(["lua"]));
+    let mut rig = self::rig(&[ViewKind::Lua]);
+    assert_eq!(
+        hello_with(&mut rig, &["wasm", "lua"])["views"],
+        offers(&[ViewKind::Lua])
+    );
 }
 
 #[test]
 fn a_script_over_the_hosts_limit_is_refused_before_it_is_asked_for() {
     let mut config = config(&[ViewKind::Lua]);
     config.native_entry_limit = 4;
-    let mut rig = Rig::new(config);
-    rig.hello_with(&["lua"]);
-    rig.open_script(json!({}));
-    let wrote = rig.take();
+    let mut rig = Rig::with(config);
+    hello_with(&mut rig, &["lua"]);
+    open_script(&mut rig, &json!({}));
+    let (wrote, _) = rig.take();
     let body: Value = serde_json::from_str(&wrote[0].payload).unwrap();
     assert_eq!(body["code"], "limit");
 }
 
 #[test]
 fn the_words_a_view_failed_with_are_cut_and_cleaned_before_the_program_is_told_them() {
-    let mut rig = Rig::new(config(&[ViewKind::Lua]));
-    rig.script_up();
+    let mut rig = rig(&[ViewKind::Lua]);
+    script_up(&mut rig);
     let long = "x".repeat(2000);
     rig.host
         .view_failed(&format!("\u{1b}[31mscript:1:\u{202e} {long}\n"));
-    rig.collect();
-    let wrote = rig.take();
+    let (wrote, _) = rig.take();
     let body: Value = serde_json::from_str(&wrote[0].payload).unwrap();
     let message = body["message"].as_str().unwrap();
     // No escape, no override, no newline; at most the most the protocol allows; blanks trimmed.
     assert!(message.starts_with("[31mscript:1: xxx"), "{message}");
     assert_eq!(message.chars().count(), pencere::session::MAX_FAILURE_CHARS);
     // A view with nothing to say says nothing.
-    let mut rig = Rig::new(config(&[ViewKind::Lua]));
-    rig.script_up();
+    let mut rig = self::rig(&[ViewKind::Lua]);
+    script_up(&mut rig);
     rig.host.view_failed(" \n ");
-    rig.collect();
-    let body: Value = serde_json::from_str(&rig.take()[0].payload).unwrap();
+    let body: Value = serde_json::from_str(&rig.take().0[0].payload).unwrap();
     assert_eq!(body, json!({ "reason": "error", "code": "view" }));
 }
 
 #[test]
 fn the_words_of_a_failure_told_when_no_view_is_up_are_not_left_for_another_close() {
-    let mut rig = Rig::new(config(&[ViewKind::Wasm, ViewKind::Web]));
-    rig.hello();
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    hello(&mut rig);
     // No view yet: nothing to fail, nothing to remember.
     rig.host.view_failed("script:1: late");
-    rig.collect();
     rig.take();
     // A bundle that fails verification is a close of its own, with its own code and no words.
-    rig.open(COMPONENT.len() as u64, json!({}));
+    open(&mut rig, COMPONENT.len() as u64, &json!({}));
     rig.take();
     let digest = Digest::of(COMPONENT).to_string();
     rig.send(
         "file",
+        None,
         Some(&digest),
         &pencere::base64::encode(b"not the bytes"),
     );
-    let wrote = rig.take();
+    let (wrote, _) = rig.take();
     let body: Value = serde_json::from_str(&wrote.last().unwrap().payload).unwrap();
     assert_eq!(body, json!({ "reason": "error", "code": "bundle" }));
 }

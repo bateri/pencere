@@ -1,6 +1,6 @@
 [package]
 name = "pencere"
-description = "Host side of pencere, the terminal side of MCP Apps: frames, messages, session rules and bundles, without I/O"
+description = "Host side of pencere, a program's view in its terminal pane: frames, messages, session rules and bundles, without I/O"
 # The crate's own version line, apart from the workspace's: it is released on its own
 # (RELEASING.md), and the stand-in host that shares the workspace is never published.
 version = "0.1.0"
@@ -9,7 +9,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-keywords = ["mcp", "mcp-apps", "terminal", "pencere"]
+keywords = ["terminal", "pencere", "protocol"]
 categories = ["parser-implementations"]
 # The tests read the specification's fixtures from the repository, outside the crate,
 # so the package carries the library and what a reader of it needs, not the tests.
@@ -17,9 +17,9 @@ include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTI
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-# `raw_value` lets a message from the program be routed by its id and method
-# without building a tree of its whole body, which a hostile stream could make
-# many times larger than the text.
+# `raw_value` lets a message of the program or its view be routed by the name of its member
+# without building a tree of its whole body, which a hostile stream could make many times
+# larger than the text.
 serde_json = { version = "1", features = ["raw_value"] }
 sha2 = "0.10"
 

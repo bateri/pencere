@@ -11,7 +11,7 @@ use std::fmt::Display;
 use std::io::{self, Write};
 
 /// `text` with every control character written out as an escape. Some of what
-/// the record says was written by the program (a tool's name, a reason), and
+/// the record says was written by the program (a title, a reason), and
 /// the record goes to the person's terminal: a program must not be able to
 /// type into that terminal, or to end a line and forge the next one.
 fn clean(text: &str) -> String {
@@ -41,7 +41,7 @@ mod tests {
 
     #[test]
     fn a_program_cannot_put_a_control_character_in_the_record() {
-        assert_eq!(clean("open tool=\u{1b}[2J"), "open tool=\\u{1b}[2J");
+        assert_eq!(clean("open title=\u{1b}[2J"), "open title=\\u{1b}[2J");
         assert_eq!(clean("a\x1b[2Jb"), "a\\u{1b}[2Jb");
         assert_eq!(clean("one\ntwo\r"), "one\\ntwo\\r");
         assert_eq!(clean("● web 8080→80"), "● web 8080→80");

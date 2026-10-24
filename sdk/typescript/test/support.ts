@@ -1,19 +1,16 @@
 /** What the tests share: the fixtures of the specification, and a host to talk to. */
 
-import { McpServer } from "@modelcontextprotocol/server";
-import {
-  RESOURCE_MIME_TYPE,
-  registerAppResource,
-  registerAppTool,
-} from "@modelcontextprotocol/ext-apps/server";
 import { readFileSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 
+import { bundleFromFiles } from "../src/bundle.js";
 import { StreamDecoder, encode } from "../src/frame.js";
 import type { Direction, Message } from "../src/frame.js";
 import { toWire } from "../src/json.js";
-import type { Environment } from "../src/serve.js";
+import type { ViewOffer } from "../src/messages.js";
+import { serveWith } from "../src/serve.js";
+import type { Environment, ServeOptions, ServeResult } from "../src/serve.js";
 import type { Terminal } from "../src/terminal.js";
 
 const FIXTURES = new URL("../../../spec/draft/fixtures/", import.meta.url);
@@ -42,7 +39,12 @@ export interface DecodeEntry {
 
 export interface SessionEntry {
   name: string;
-  config: { host: { name: string; version: string }; tokens: string[]; store: string[] };
+  config: {
+    host: { name: string; version: string };
+    tokens: string[];
+    store: string[];
+    views?: ViewOffer[];
+  };
   steps: ({ in: string } | { out: string | null })[];
 }
 
@@ -51,6 +53,8 @@ export interface Manifest {
   tokens: { issued: string[] };
   decode: DecodeEntry[];
   session: SessionEntry[];
+  /** The bridge of a page: the host's, not the program's. */
+  bridge: unknown[];
 }
 
 export function manifest(): Manifest {
@@ -83,6 +87,9 @@ export const EXAMPLE_DIGESTS = {
 export const TOKEN = "q7Vh2sB0xJm9kLw4TzN1cA";
 export const TOKEN_2 = "Zk3mP8rD5uYb1Xe6HqS0vg";
 
+/** The bytes of a wasm component that is no more than its header: what the examples' kit view is made of. */
+export const WASM_HEADER = Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+
 /** What a test sees of the tty: the calls made on it, in order. */
 export class FakeTerminal implements Terminal {
   readonly calls: string[] = [];
@@ -91,6 +98,10 @@ export class FakeTerminal implements Terminal {
   enter(): void {
     this.calls.push("enter");
     if (this.failEnter) throw new Error("no tty");
+  }
+
+  discardInput(): void {
+    this.calls.push("discard");
   }
 
   restore(): void {
@@ -237,8 +248,8 @@ export class Rig {
     );
   }
 
-  /** The host writes a JSON-RPC message. */
-  sayJson(value: unknown): void {
+  /** The host passes a message of the view to the program: `msg`, whose payload is `value` as JSON. */
+  sayView(value: unknown): void {
     this.say("msg", toWire(value));
   }
 
@@ -253,40 +264,102 @@ export class Rig {
   }
 }
 
-export function welcomePayload(token: string, features: string[] = ["bundle"], extra = {}): string {
+/** The `views` of a `welcome` that opens the kinds named, each at the versions given (`web` at `1.0` by default). */
+export function offers(...kinds: (string | [string, ...string[]])[]): ViewOffer[] {
+  return kinds.map((kind) =>
+    typeof kind === "string"
+      ? { kind, versions: [kind === "web" ? "1.0" : "0.5"] }
+      : { kind: kind[0], versions: kind.slice(1) },
+  );
+}
+
+export function welcomePayload(
+  token: string,
+  features: string[] = ["bundle", "dismiss"],
+  views: readonly ViewOffer[] = offers("web"),
+  extra = {},
+): string {
   return toWire({
     version: 1,
     token,
     host: { name: "pencere-test", version: "0.0.0" },
     features,
-    views: ["web"],
+    views,
     ...extra,
   });
 }
 
-/** What the tool of {@link makeServer} answers to a call, as the structured content of its result. */
-export const CONTAINERS = [
-  { id: "c1", name: "web", state: "running" },
-  { id: "c2", name: "db", state: "running" },
-];
+// ---- starting `serve` against a host that the test is ---------------------------------
 
-/** An MCP server of the kind a tool author writes: one tool with a view, and the view's document. */
-export function makeServer(): McpServer {
-  const server = new McpServer({ name: "containers", version: "0.0.0" });
-  registerAppTool(
-    server,
-    "list_containers",
-    {
-      description: "List the containers",
-      _meta: { ui: { resourceUri: "ui://containers/view.html" } },
-    },
-    async () => ({
-      content: [{ type: "text", text: `${CONTAINERS.length} containers` }],
-      structuredContent: { containers: CONTAINERS },
-    }),
+/** The terminal's answer to `CSI c`. */
+export const DA_REPLY = "\x1b[?62;4c";
+
+/** Short waits, so that the tests of a wait are quick. */
+export const FAST = { answerTimeout: 40, lateReplyGrace: 40, byeTimeout: 40 } as const;
+
+export const exampleFiles = () =>
+  Object.entries(EXAMPLE_FILES).map(([path, text]) => ({ path, data: Buffer.from(text) }));
+
+/** The page of the examples of the specification. */
+export const webBundle = () => bundleFromFiles(exampleFiles());
+
+/** A component that is no more than its header, the bundle of the `wasm` examples. */
+export const wasmBundle = () =>
+  bundleFromFiles([{ path: "view.wasm", data: WASM_HEADER }], { entry: "view.wasm" });
+
+/** A script. */
+export const luaBundle = () =>
+  bundleFromFiles([{ path: "view.lua", data: Buffer.from("return {}\n") }], { entry: "view.lua" });
+
+/** What the program of the examples asks of a page to reach. */
+export const ACCESS = {
+  connect: ["https://api.example.com"],
+  permissions: ["clipboardWrite" as const],
+};
+
+/** The options of the program of the examples: a page, and the names it gives. */
+export function options(more: Partial<ServeOptions> = {}): ServeOptions {
+  return {
+    views: [{ kind: "web", bundle: webBundle(), access: ACCESS }],
+    program: "containers",
+    title: "Containers",
+    ...FAST,
+    ...more,
+  };
+}
+
+/** What the host answers to the `hello`: the token, the features and the kinds it opens. */
+export interface Answer {
+  token?: string;
+  features?: string[];
+  views?: ViewOffer[];
+}
+
+/** Starts `serve` and answers the capability query the way a host does. */
+export async function start(
+  rig: Rig,
+  more: Partial<ServeOptions> = {},
+  answer: Answer = {},
+): Promise<{ served: Promise<ServeResult>; hello: Message }> {
+  const served = serveWith(options(more), rig.environment());
+  const hello = await rig.next("hello");
+  rig.say(
+    "welcome",
+    welcomePayload(answer.token ?? TOKEN, answer.features, answer.views),
+    hello.id,
   );
-  registerAppResource(server, "Containers", "ui://containers/view.html", {}, async (uri) => ({
-    contents: [{ uri: uri.href, mimeType: RESOURCE_MIME_TYPE, text: "<!doctype html><p>view" }],
-  }));
-  return server;
+  return { served, hello };
+}
+
+/** Starts `serve`, waits for its `open` and answers it: the host has all the files. */
+export async function shown(
+  rig: Rig,
+  more: Partial<ServeOptions> = {},
+  answer: Answer = {},
+): Promise<{ served: Promise<ServeResult>; hello: Message; open: Message }> {
+  const started = await start(rig, more, answer);
+  const open = await rig.next("open");
+  rig.say("need", toWire({ missing: [] }), open.id);
+  await rig.settle();
+  return { ...started, open };
 }

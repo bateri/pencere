@@ -1,1 +1,1 @@
-_pencere;msg;id=4;{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"containers","version":"0.0.0"}}}\
+_pencere;msg;id=4;{"push":{"id":1,"value":{"state":"running"}}}\

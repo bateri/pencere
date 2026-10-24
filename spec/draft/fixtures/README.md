@@ -18,7 +18,7 @@ Tokens in the files are fixed test values. The host identity is
 ## `manifest.json`
 
 ```
-{ "protocol": 1, "tokens": {...}, "decode": [...], "session": [...] }
+{ "protocol": 1, "tokens": {...}, "decode": [...], "session": [...], "bridge": [...] }
 ```
 
 A **`decode`** entry has `file`, `direction` (`to-host`: bytes the program writes;
@@ -34,8 +34,9 @@ what a host gets from its terminal parser. `canonical: true` means the bytes are
 what a conforming writer produces for `messages`: writing them must give the file back.
 
 A **`session`** entry is a conversation with a host. `config` gives the host's identity, the
-tokens it issues, in order, to successive answered hellos, and the digests its store
-already holds. `steps` alternate: an `in` step is a file fed to the host; the next `out` step is
+tokens it issues, in order, to successive answered hellos, the digests its store
+already holds and, when it is not the default of `web` at `1.0` alone, `views`: the kinds it opens,
+each with the versions it speaks, in its own order. `steps` alternate: an `in` step is a file fed to the host; the next `out` step is
 the file holding the bytes the host must write in answer, or `null` when it writes nothing.
 Message ids in these files are the ids the two sides would use: each side counts its own
 messages from 1.
@@ -49,49 +50,55 @@ limits are covered by files at the limit and one byte over.
 
 ### Program to host (`to-host`)
 
-| File                         | Scope           | What it is and the expected result                                                                                                                           |
-| ---------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `to-host/hello.frame`        | body, canonical | the capability query. delivers hello#1; no errors.                                                                                                           |
-| `to-host/hello-fence.frame`  | stream          | hello followed by the CSI c fence, as a program sends them. delivers hello#1; no errors.                                                                     |
-| `to-host/open.frame`         | body, canonical | open without a bundle. delivers open#2; no errors.                                                                                                           |
-| `to-host/open-bundle.frame`  | body, canonical | open with a three-file bundle manifest. delivers open#2; no errors.                                                                                          |
-| `to-host/file.frame`         | body, canonical | file in one frame. delivers file#3(d=72735d03…); no errors.                                                                                                  |
-| `to-host/file-chunked.frame` | body            | file in two chunks of 60 base64 characters, the sender's choice. delivers file#3(d=bcc81d22…); no errors.                                                    |
-| `to-host/msg.frame`          | body, canonical | msg carrying an MCP initialize result. delivers msg#4; no errors.                                                                                            |
-| `to-host/msg-chunked.frame`  | body            | msg in three chunks of 100 payload bytes, the sender's choice. delivers msg#5; no errors.                                                                    |
-| `to-host/open-wasm.frame`    | body, canonical | open for a view that is a WebAssembly component: no tool, the program's and the view's names, an entry of type application/wasm. delivers open#2; no errors. |
-| `to-host/open-lua.frame`     | body, canonical | open for a view that is a Lua script: no tool, the program's and the view's names, an entry of type text/x-lua. delivers open#2; no errors.                  |
-| `to-host/bye.frame`          | body, canonical | bye after SIGINT, with the token the view was opened with. delivers bye#6; no errors.                                                                        |
-| `to-host/dismiss.frame`      | body, canonical | dismiss: the program closes its view and keeps running, with the token the view was opened with. delivers dismiss#6; no errors.                              |
-| `to-host/noise.frame`        | stream          | one hello among terminal output, a foreign APC and a frame of an unknown kind (delivered, then ignored by the receiver). delivers hello#1, zzz#2; no errors. |
-| `to-host/unknown-kind.frame` | body            | a frame of an unknown kind is delivered by the decoder and ignored by the receiver. delivers zzz#1; no errors.                                               |
-| `to-host/unknown-key.frame`  | body            | an unknown control key is ignored but reported with the message. delivers hello#1(x=1); no errors.                                                           |
-| `to-host/incomplete.frame`   | stream          | a frame that never ends produces nothing, not even an error. delivers nothing; no errors.                                                                    |
-| `to-host/limit-frame.frame`  | body, canonical | a frame of exactly 4096 bytes is accepted. delivers msg#7; no errors.                                                                                        |
+| File                         | Scope           | What it is and the expected result                                                                                                                                            |
+| ---------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `to-host/hello.frame`        | body, canonical | the capability query: the kinds of view the program can show, each with the versions of its interface it speaks. delivers hello#1; no errors.                                 |
+| `to-host/hello-fence.frame`  | stream          | hello followed by the CSI c fence, as a program sends them. delivers hello#1; no errors.                                                                                      |
+| `to-host/hello-views.frame`  | body, canonical | a hello with three kinds and, for one, two versions in the order the program prefers them. delivers hello#1; no errors.                                                       |
+| `to-host/open-web.frame`     | body, canonical | open for a web page: the kind and its version, the names, what the page asks to reach, and a three-file bundle. delivers open#2; no errors.                                   |
+| `to-host/open-wasm.frame`    | body, canonical | open for a view that is a WebAssembly component: the kind and its version, the program's and the view's names, an entry of type application/wasm. delivers open#2; no errors. |
+| `to-host/open-lua.frame`     | body, canonical | open for a view that is a Lua script: the kind and its version, the program's and the view's names, an entry of type text/x-lua. delivers open#2; no errors.                  |
+| `to-host/open-icons.frame`   | body, canonical | open with an icon for the program: a data URI of a PNG. delivers open#2; no errors.                                                                                           |
+| `to-host/file.frame`         | body, canonical | file in one frame. delivers file#3(d=72735d03…); no errors.                                                                                                                   |
+| `to-host/file-chunked.frame` | body            | file in two chunks of 60 base64 characters, the sender's choice. delivers file#3(d=bcc81d22…); no errors.                                                                     |
+| `to-host/msg-response.frame` | body, canonical | msg carrying the program's response to a call of the view. delivers msg#4; no errors.                                                                                         |
+| `to-host/msg-chunked.frame`  | body            | msg in three chunks of 59 payload bytes, the sender's choice. delivers msg#5; no errors.                                                                                      |
+| `to-host/msg-push.frame`     | body, canonical | msg carrying a value of a subscription of the view. delivers msg#4; no errors.                                                                                                |
+| `to-host/msg-progress.frame` | body, canonical | msg carrying how far a call that takes a while has got. delivers msg#4; no errors.                                                                                            |
+| `to-host/bye.frame`          | body, canonical | bye after SIGINT, with the token the view was opened with. delivers bye#6; no errors.                                                                                         |
+| `to-host/dismiss.frame`      | body, canonical | dismiss: the program closes its view and keeps running, with the token the view was opened with. delivers dismiss#6; no errors.                                               |
+| `to-host/noise.frame`        | stream          | one hello among terminal output, a foreign APC and a frame of an unknown kind (delivered, then ignored by the receiver). delivers hello#1, zzz#2; no errors.                  |
+| `to-host/unknown-kind.frame` | body            | a frame of an unknown kind is delivered by the decoder and ignored by the receiver. delivers zzz#1; no errors.                                                                |
+| `to-host/unknown-key.frame`  | body            | an unknown control key is ignored but reported with the message. delivers hello#1(x=1); no errors.                                                                            |
+| `to-host/incomplete.frame`   | stream          | a frame that never ends produces nothing, not even an error. delivers nothing; no errors.                                                                                     |
+| `to-host/limit-frame.frame`  | body, canonical | a frame of exactly 4096 bytes is accepted. delivers msg#7; no errors.                                                                                                         |
 
 ### Host to program (`to-program`)
 
-| File                                    | Scope           | What it is and the expected result                                                                                                              |
-| --------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `to-program/welcome.frame`              | body, canonical | the answer to a hello. delivers welcome#1(re=1); no errors.                                                                                     |
-| `to-program/welcome-restart.frame`      | body, canonical | an unsolicited welcome that asks a program with an open view to open it again. delivers welcome#2; no errors.                                   |
-| `to-program/welcome-unsupported.frame`  | body, canonical | the answer to a hello that shares no version with the host. delivers welcome#1(re=1); no errors.                                                |
-| `to-program/welcome-wasm.frame`         | body, canonical | the answer of a host that shows WebAssembly views: wasm among the views. delivers welcome#1(re=1); no errors.                                   |
-| `to-program/welcome-no-views.frame`     | body, canonical | the answer of a host that opens none of the kinds the program listed. delivers welcome#1(re=1); no errors.                                      |
-| `to-program/need.frame`                 | body, canonical | the digests the host lacks. delivers need#2(re=2); no errors.                                                                                   |
-| `to-program/need-empty.frame`           | body, canonical | the host has every file. delivers need#2(re=2); no errors.                                                                                      |
-| `to-program/need-chunked.frame`         | body, canonical | twelve missing digests need three frames at the 511 byte limit. delivers need#2(re=2); no errors.                                               |
-| `to-program/closed-refused.frame`       | body, canonical | an open that was refused. delivers closed#2(re=2); no errors.                                                                                   |
-| `to-program/closed-user.frame`          | body, canonical | the person closed the view. delivers closed#5; no errors.                                                                                       |
-| `to-program/closed-program.frame`       | body, canonical | the answer to a dismiss: the view is gone. delivers closed#5(re=6); no errors.                                                                  |
-| `to-program/closed-error.frame`         | body, canonical | the bundle failed verification. delivers closed#5(re=2); no errors.                                                                             |
-| `to-program/closed-error-view.frame`    | body, canonical | closed for a view the host draws itself that failed: reason error, code view, and the words it failed with. delivers closed#5(re=2); no errors. |
-| `to-program/msg-initialize.frame`       | body, canonical | msg carrying an MCP initialize request. delivers msg#3; no errors.                                                                              |
-| `to-program/msg-chunked.frame`          | body, canonical | a view's tools/call, longer than one frame, with non-ASCII text written as escapes. delivers msg#4; no errors.                                  |
-| `to-program/noise.frame`                | stream          | a welcome followed by the terminal's answer to CSI c and stray typed bytes. delivers welcome#1(re=1); no errors.                                |
-| `to-program/noise-around.frame`         | stream          | a welcome among typed bytes, another protocol's string and the terminal's answer to CSI c. delivers welcome#1(re=1); no errors.                 |
-| `to-program/noise-between-chunks.frame` | stream          | the three chunks of one message with typed text and a terminal answer between them. delivers msg#4; no errors.                                  |
-| `to-program/limit-frame.frame`          | body, canonical | a frame of exactly 511 bytes is accepted. delivers msg#7; no errors.                                                                            |
+| File                                    | Scope           | What it is and the expected result                                                                                                                                                  |
+| --------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `to-program/welcome.frame`              | body, canonical | the answer to a hello: a version, a token and, for each kind of view the host opens, the versions of it that both speak. delivers welcome#1(re=1); no errors.                       |
+| `to-program/welcome-restart.frame`      | body, canonical | an unsolicited welcome that asks a program with an open view to open it again. delivers welcome#2; no errors.                                                                       |
+| `to-program/welcome-unsupported.frame`  | body, canonical | the answer to a hello that shares no version with the host. delivers welcome#1(re=1); no errors.                                                                                    |
+| `to-program/welcome-wasm.frame`         | body, canonical | the answer of a host that shows WebAssembly views: wasm among the views, with its version. delivers welcome#1(re=1); no errors.                                                     |
+| `to-program/welcome-versions.frame`     | body, canonical | the answer to the hello of three kinds: a kind with two versions in common, in the program's order; a kind the host does not open is left out. delivers welcome#1(re=1); no errors. |
+| `to-program/welcome-no-views.frame`     | body, canonical | the answer of a host that opens none of the kinds the program listed. delivers welcome#1(re=1); no errors.                                                                          |
+| `to-program/need.frame`                 | body, canonical | the digests the host lacks. delivers need#2(re=2); no errors.                                                                                                                       |
+| `to-program/need-empty.frame`           | body, canonical | the host has every file. delivers need#2(re=2); no errors.                                                                                                                          |
+| `to-program/need-chunked.frame`         | body, canonical | twelve missing digests need three frames at the 511 byte limit. delivers need#2(re=2); no errors.                                                                                   |
+| `to-program/closed-refused.frame`       | body, canonical | an open that was refused. delivers closed#2(re=2); no errors.                                                                                                                       |
+| `to-program/closed-user.frame`          | body, canonical | the person closed the view. delivers closed#5; no errors.                                                                                                                           |
+| `to-program/closed-program.frame`       | body, canonical | the answer to a dismiss: the view is gone. delivers closed#5(re=6); no errors.                                                                                                      |
+| `to-program/closed-error.frame`         | body, canonical | the bundle failed verification. delivers closed#5(re=2); no errors.                                                                                                                 |
+| `to-program/closed-error-view.frame`    | body, canonical | closed for a view the host draws itself that failed: reason error, code view, and the words it failed with. delivers closed#5(re=2); no errors.                                     |
+| `to-program/msg-call.frame`             | body, canonical | msg carrying a call of the view. delivers msg#3; no errors.                                                                                                                         |
+| `to-program/msg-subscribe.frame`        | body, canonical | msg carrying a subscription of the view. delivers msg#3; no errors.                                                                                                                 |
+| `to-program/msg-cancel.frame`           | body, canonical | msg carrying the view giving up a subscription. delivers msg#4; no errors.                                                                                                          |
+| `to-program/msg-chunked.frame`          | body, canonical | a view's call, longer than one frame, with non-ASCII text written as escapes. delivers msg#4; no errors.                                                                            |
+| `to-program/noise.frame`                | stream          | a welcome followed by the terminal's answer to CSI c and stray typed bytes. delivers welcome#1(re=1); no errors.                                                                    |
+| `to-program/noise-around.frame`         | stream          | a welcome among typed bytes, another protocol's string and the terminal's answer to CSI c. delivers welcome#1(re=1); no errors.                                                     |
+| `to-program/noise-between-chunks.frame` | stream          | the three chunks of one message with typed text and a terminal answer between them. delivers msg#4; no errors.                                                                      |
+| `to-program/limit-frame.frame`          | body, canonical | a frame of exactly 511 bytes is accepted. delivers msg#7; no errors.                                                                                                                |
 
 ### Refused, program to host
 
@@ -130,23 +137,56 @@ limits are covered by files at the limit and one byte over.
 
 ## Session fixtures
 
-| Session                   | What it shows                                                                                                                    | Files                              |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `handshake`               | a hello is answered with a version and a token                                                                                   | `session/handshake/`               |
-| `version-mismatch`        | a hello that shares no version gets no token                                                                                     | `session/version-mismatch/`        |
-| `open-without-token`      | an open that carries no token is refused                                                                                         | `session/open-without-token/`      |
-| `open-wrong-token`        | an open with a token the host never issued is refused                                                                            | `session/open-wrong-token/`        |
-| `token-single-use`        | a token opens once; the second open with it is refused and the first goes on                                                     | `session/token-single-use/`        |
-| `hello-replaces-token`    | a new hello invalidates the token of the previous one                                                                            | `session/hello-replaces-token/`    |
-| `open-busy`               | a second view cannot open while one is opening                                                                                   | `session/open-busy/`               |
-| `bundle-partial`          | the host names only the digests it lacks, in manifest order                                                                      | `session/bundle-partial/`          |
-| `bundle-path-escape`      | a manifest path that leaves the bundle is refused                                                                                | `session/bundle-path-escape/`      |
-| `bye-needs-the-token`     | a bye without the token, or with another, ends nothing; the one with it does                                                     | `session/bye-needs-the-token/`     |
-| `dismiss-and-reopen`      | a program closes its view without ending and opens one again; the second open finds its file in the store                        | `session/dismiss-and-reopen/`      |
-| `wasm-view`               | a host that shows WebAssembly views says so, asks for the component, hands the program's msg to the view and a dismiss closes it | `session/wasm-view/`               |
-| `wasm-unsupported`        | a host that does not show them does not say so and refuses such an open as unsupported                                           | `session/wasm-unsupported/`        |
-| `dismiss-needs-the-token` | a dismiss closes the view only with the token that opened it; a token issued while the view was opening outlasts it              | `session/dismiss-needs-the-token/` |
+| Session                   | What it shows                                                                                                                                      | Files                              |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `handshake`               | a hello is answered with a version and a token                                                                                                     | `session/handshake/`               |
+| `version-mismatch`        | a hello that shares no version gets no token                                                                                                       | `session/version-mismatch/`        |
+| `open-without-token`      | an open that carries no token is refused                                                                                                           | `session/open-without-token/`      |
+| `open-wrong-token`        | an open with a token the host never issued is refused                                                                                              | `session/open-wrong-token/`        |
+| `token-single-use`        | a token opens once; the second open with it is refused and the first goes on                                                                       | `session/token-single-use/`        |
+| `hello-replaces-token`    | a new hello invalidates the token of the previous one                                                                                              | `session/hello-replaces-token/`    |
+| `open-busy`               | a second view cannot open while one is opening                                                                                                     | `session/open-busy/`               |
+| `bundle-partial`          | the host names only the digests it lacks, in manifest order                                                                                        | `session/bundle-partial/`          |
+| `bundle-path-escape`      | a manifest path that leaves the bundle is refused                                                                                                  | `session/bundle-path-escape/`      |
+| `bye-needs-the-token`     | a bye without the token, or with another, ends nothing; the one with it does                                                                       | `session/bye-needs-the-token/`     |
+| `dismiss-and-reopen`      | a program closes its view without ending and opens one again; the second open finds its file in the store                                          | `session/dismiss-and-reopen/`      |
+| `wasm-view`               | a host that shows WebAssembly views says so, asks for the component, hands the program's msg to the view and a dismiss closes it                   | `session/wasm-view/`               |
+| `wasm-unsupported`        | a host that does not show them does not say so and refuses such an open as unsupported                                                             | `session/wasm-unsupported/`        |
+| `dismiss-needs-the-token` | a dismiss closes the view only with the token that opened it; a token issued while the view was opening outlasts it                                | `session/dismiss-needs-the-token/` |
+| `no-common-version`       | a kind with no version in common with the program is left out of the welcome and cannot be opened; with no kind left the welcome still has a token | `session/no-common-version/`       |
+| `several-versions`        | the versions both speak are listed in the program's order; an open names one of them and a version outside the list is refused                     | `session/several-versions/`        |
 
 Within a session directory the files are numbered by step, in the order of the conversation,
 `NN-in.frame` for what the program wrote and `NN-out.frame` for what the host writes back; a step
 where the host writes nothing has no file and its number is skipped.
+
+## Bridge fixtures
+
+The messages of Section 9, which a host and a web page exchange in the page's own channel and
+which never cross the terminal's stream, so they are not frames: each file is one line of JSON,
+without a newline at the end. A **`bridge`** entry has `file`, `direction`, `note` and `outcome`.
+
+- `page-to-host`: a message of the page, fed to the host. `outcome` is what the host does with it:
+  `context` (writes its context to the page), `close` (closes the view), `link` (asks the person
+  to open the link in `url`), `passed` (hands it to the program as a `msg`, unread) or `dropped`
+  (does nothing, and counts it as ignored).
+- `program-to-page`: the payload of a `msg` of the program, fed to the host. `outcome` is `passed`
+  (the page gets it as it is) or `dropped`.
+- `host-to-page`: what a host with the entry's `config` writes to the page, byte for byte
+  (`outcome` is `written`). `config` gives the theme's roles (the roles it leaves out are made up,
+  Section 11.2), the font, the size of the pane, the person's language and time zone, whether
+  motion is reduced and what the person allowed.
+
+| File                           | Direction       | What it is and the expected result                                                                                                                                                                          |
+| ------------------------------ | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bridge/context.json`          | host-to-page    | the host's context for a page: every theme role, the terminal's font, the size of the pane, the person's language and time zone, the accessibility setting, and what the person allowed. Outcome `written`. |
+| `bridge/context-defaults.json` | host-to-page    | the context of a host that knows only the background and the foreground of its theme: the other roles are made up, and what is not known is left out. Outcome `written`.                                    |
+| `bridge/context-request.json`  | page-to-host    | a page that started listening late asks for the context again. Outcome `context`.                                                                                                                           |
+| `bridge/close.json`            | page-to-host    | the page asks to be closed. Outcome `close`.                                                                                                                                                                |
+| `bridge/link.json`             | page-to-host    | the page asks to open a link in the person's browser. Outcome `link`. The link is `https://example.com/docs`.                                                                                               |
+| `bridge/link-not-http.json`    | page-to-host    | a link that is not http or https is dropped. Outcome `dropped`.                                                                                                                                             |
+| `bridge/call.json`             | page-to-host    | a call of the page goes to the program as it is. Outcome `passed`.                                                                                                                                          |
+| `bridge/two-members.json`      | page-to-host    | an object with more than one member is nobody's message of the host's: it goes to the program as it is. Outcome `passed`.                                                                                   |
+| `bridge/not-an-object.json`    | page-to-host    | what is not an object is dropped. Outcome `dropped`.                                                                                                                                                        |
+| `bridge/response.json`         | program-to-page | the program's answer goes to the page as it is. Outcome `passed`.                                                                                                                                           |
+| `bridge/context-forged.json`   | program-to-page | a message that is named like one of the host's own is dropped on its way to the page. Outcome `dropped`.                                                                                                    |

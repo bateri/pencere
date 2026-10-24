@@ -20,28 +20,6 @@ export const BUNDLE_LIMITS = {
 
 const MAX_PATH = 255;
 
-/**
- * The `_meta.ui` of the view (MCP Apps § UI Resource Format): what the host
- * builds the content security policy from, which the person is asked about
- * (specification §12), and whether the view wants a border.
- */
-export interface ViewMeta {
-  csp?: {
-    connectDomains?: string[];
-    resourceDomains?: string[];
-    frameDomains?: string[];
-    baseUriDomains?: string[];
-  };
-  permissions?: {
-    camera?: object;
-    microphone?: object;
-    geolocation?: object;
-    clipboardWrite?: object;
-  };
-  domain?: string;
-  prefersBorder?: boolean;
-}
-
 /** One file of a manifest, as `open` carries it. */
 export interface ManifestFile {
   readonly path: string;
@@ -54,7 +32,6 @@ export interface ManifestFile {
 export interface BundleManifest {
   readonly entry: string;
   readonly files: readonly ManifestFile[];
-  readonly meta?: ViewMeta;
 }
 
 /** Why a set of files is not a bundle. */
@@ -92,10 +69,8 @@ export interface BundleFile {
 
 /** What `bundleFromFiles` and `bundleFromDirectory` take besides the files. */
 export interface BundleOptions {
-  /** The path of the document; `index.html` by default. */
+  /** The path of the entry: the document of a page, the component or the script of a kit view; `index.html` by default. */
   entry?: string;
-  /** The view's `_meta.ui`. */
-  meta?: ViewMeta;
 }
 
 /** What `bundleFromDirectory` takes. */
@@ -206,11 +181,7 @@ export function bundleFromFiles(files: readonly BundleFile[], options: BundleOpt
   }
   const entry = options.entry ?? "index.html";
   if (!paths.has(entry)) throw new BundleError(`the entry "${entry}" is not one of the files`);
-  const manifest: BundleManifest =
-    options.meta === undefined
-      ? { entry, files: listed }
-      : { entry, files: listed, meta: options.meta };
-  return new Bundle(manifest, bytes);
+  return new Bundle({ entry, files: listed }, bytes);
 }
 
 async function walk(
@@ -257,6 +228,5 @@ export async function bundleFromDirectory(
   await walk(root, "", found, { ...options.types });
   // A directory has no order of its own: the manifest of the same files is the same manifest.
   found.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
-  const { types: _types, ...rest } = options;
-  return bundleFromFiles(found, rest);
+  return bundleFromFiles(found, options.entry === undefined ? {} : { entry: options.entry });
 }

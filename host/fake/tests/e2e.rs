@@ -1,10 +1,11 @@
-//! End to end, on a real pty: the example tool (`examples/containers`, built
-//! with `npx tsc -b`, which the gate runs before these) against the stand-in
-//! host, which holds the `pencere` crate's rules and a scripted view.
+//! End to end, on a real pty: small programs written against the TypeScript SDK
+//! (`tests/programs`, which import it from its build, made by `npx tsc -b`, which the
+//! gate runs before these) against the stand-in host, which holds the `pencere` crate's
+//! rules and a scripted page.
 //!
-//! What is read here is the record the host writes to stderr, the bytes the
-//! program wrote to its tty, and how the processes ended. Nothing goes to a
-//! network, and every file written is under the target directory.
+//! What is read here is the record the host writes to stderr, the bytes the program wrote
+//! to its tty, and how the processes ended. Nothing goes to a network, and every file
+//! written is under the target directory.
 
 // A test fails by panicking, and the helpers here are the test's.
 #![allow(clippy::expect_used, clippy::panic)]
@@ -20,14 +21,19 @@ fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn tool() -> String {
-    let main = root().join("examples/containers/dist/main.js");
+fn programs() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programs")
+}
+
+/// A program of `tests/programs`, after a check that the SDK it imports has been built.
+fn program(name: &str) -> String {
+    let sdk = root().join("sdk/typescript/dist/index.js");
     assert!(
-        main.is_file(),
+        sdk.is_file(),
         "{} is missing: build the TypeScript half first with `npx tsc -b` (make check does)",
-        main.display()
+        sdk.display()
     );
-    main.to_string_lossy().into_owned()
+    programs().join(name).to_string_lossy().into_owned()
 }
 
 /// A directory of the test's own under the target directory, empty.
@@ -98,6 +104,18 @@ impl Run {
     fn output_has(&self, text: &str) -> Option<usize> {
         String::from_utf8_lossy(&self.output).find(text)
     }
+
+    /// What the program said on the screen it was given back: where it tells how the
+    /// view ended, and what it did when it was done.
+    fn said_after_the_screen(&self, line: &str) {
+        let off = self
+            .output_has("\x1b[?1049l")
+            .expect("it gave the screen back");
+        let at = self
+            .output_has(line)
+            .unwrap_or_else(|| panic!("no {line:?}:\n{}", self.text()));
+        assert!(off < at, "{line:?} came before the screen was given back");
+    }
 }
 
 fn run(options: &[&str], program: &[&str]) -> Run {
@@ -120,25 +138,34 @@ fn run(options: &[&str], program: &[&str]) -> Run {
     }
 }
 
-fn run_tool(options: &[&str]) -> Run {
-    run(options, &["node", &tool()])
+/// The program named, run in the pane of the stand-in host.
+fn run_program(name: &str, options: &[&str]) -> Run {
+    run(options, &["node", &program(name)])
+}
+
+fn run_containers(options: &[&str]) -> Run {
+    run_program("containers.mjs", options)
 }
 
 fn view_file_size(name: &str) -> u64 {
-    fs::metadata(root().join("examples/containers/view").join(name))
+    fs::metadata(programs().join("view").join(name))
         .expect("a file of the view")
         .len()
 }
 
+// ---- a program with a view ------------------------------------------------------
+
 #[test]
-fn a_tool_goes_from_the_question_to_the_interrupt() {
+fn a_program_goes_from_the_capability_query_to_the_interrupt() {
     let store = fresh("first");
     let store = store.to_string_lossy();
-    let run = run_tool(&[
+    let run = run_containers(&[
         "--store",
         &store,
         "--call",
-        r#"stop_container={"id":"cache"}"#,
+        "list",
+        "--call",
+        r#"stop={"id":"cache"}"#,
         "--then",
         "interrupt",
     ]);
@@ -148,36 +175,37 @@ fn a_tool_goes_from_the_question_to_the_interrupt() {
         // The host looked at the tty before it answered (§6.2): the SDK had made
         // it non-canonical with echo off.
         "host: sees the tty: canonical=false echo=false",
-        "host: welcome id=1 re=1 version=1 with a token",
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web@1.0",
         // The answer to the question comes before the reply to `CSI c` (§5.2).
         "host: answers CSI c",
         "screen: alternate screen on",
-        "program: open id=2 tool=list_containers bundle of 3 files",
+        r#"program: open id=2 view=web version=1.0 title="Containers" bundle of 3 files"#,
         "host: need id=2 re=2 missing=3",
         "program: file",
         "program: file",
         "program: file",
-        "host: msg id=* request initialize",
-        "host: msg id=* notification notifications/initialized",
-        "request tools/list",
         "view: started from the bundle: entry index.html, 3 files",
-        // What the strip above the view says: the tool's title and the server's
-        // name, where a terminal would otherwise show `list_containers` and `node`.
+        "view: kind=web version=1.0",
+        // What the strip above the view says: the program's words for the view and for
+        // itself, and its icon, a PNG in a `data:` URI.
         r#"view: title="Containers" program="containers""#,
-        // The server's icon, a PNG in a `data:` URI; the tool gives none.
-        "view: icons tool=none program=png 64x64",
-        "view: <- ui/initialize result: theme=dark displayMode=inline container=640x384 pane=true",
-        "view: -> ui/notifications/initialized",
-        "view: <- ui/notifications/tool-input",
-        "host: msg id=* request tools/call list_containers",
-        "view: <- ui/notifications/tool-result",
-        r#"view: -> tools/call stop_container {"id":"cache"}"#,
-        "host: msg id=* request tools/call stop_container",
-        r#"view: <- tool result "Stopped cache (redis:7)""#,
+        "view: icons png 64x64",
+        "view: policy default-src 'none'",
+        // The page has loaded: the host told it where it is before it said anything.
+        "view: <- context mode=dark size=640x384 reduceMotion=false access=none",
+        "view: -> call id=1 list",
+        "host: msg id=* call=1 list",
+        "program: msg id=* response=1 result",
+        "view: <- response id=1 result=",
+        r#"view: -> call id=2 stop {"id":"cache"}"#,
+        "host: msg id=* call=2 stop",
+        r#"view: <- response id=2 result={"stopped":"cache"}"#,
         "host: the person presses ^C",
         "program: bye id=* reason=signal",
-        "view: <- ui/resource-teardown (request)",
         "view: destroyed",
+        // The host's last word for the view, and the one frame it writes for a program
+        // that has said it ended (§10.3).
+        "host: closed id=* re=* reason=program",
         "screen: alternate screen off",
         "program: was killed by signal 2",
     ]);
@@ -202,19 +230,208 @@ fn a_tool_goes_from_the_question_to_the_interrupt() {
 }
 
 #[test]
+fn a_call_that_fails_and_a_name_nobody_serves_are_answered_with_an_error() {
+    let run = run_containers(&[
+        "--subscribe",
+        "no-such-topic",
+        "--call",
+        r#"stop={"id":"nobody"}"#,
+        "--call",
+        "no-such-method",
+        "--then",
+        "interrupt",
+    ]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: -> subscribe id=1 no-such-topic",
+        // A topic that is not served is answered at once, and does not hold the script.
+        "view: <- response id=1 error code=not-found",
+        r#"view: -> call id=2 stop {"id":"nobody"}"#,
+        r#"view: <- response id=2 error code=no-such-container message="There is no container \"nobody\"."#,
+        "view: -> call id=3 no-such-method",
+        "program: msg id=* response=3 error",
+        "view: <- response id=3 error code=not-found",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+    ]);
+}
+
+#[test]
+fn a_call_that_reports_progress_is_followed_to_its_answer() {
+    let run = run_containers(&[
+        "--call",
+        r#"slow={"steps":3,"ms":30}"#,
+        "--then",
+        "interrupt",
+    ]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: -> call id=1 slow",
+        "host: msg id=* call=1 slow",
+        "program: msg id=* progress=1",
+        r#"view: <- progress id=1 done=1 total=3 note="step 1 of 3""#,
+        "view: <- progress id=1 done=2 total=3",
+        "view: <- progress id=1 done=3 total=3",
+        r#"view: <- response id=1 result={"steps":3}"#,
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+    ]);
+    run.never("-> cancel");
+}
+
+#[test]
+fn a_call_the_page_cancels_is_stopped_while_the_view_runs() {
+    // The page gives the call up at its first report and goes on with the next call, which
+    // asks the program how many it has stopped: the answer comes while the view is up.
+    let run = run_containers(&[
+        "--call",
+        r#"slow={"steps":5,"ms":300}"#,
+        "--call",
+        "counts",
+        "--cancel-after",
+        "1",
+        "--then",
+        "interrupt",
+    ]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: -> call id=1 slow",
+        "view: <- progress id=1 done=1 total=5",
+        "view: -> cancel id=1",
+        "view: -> call id=2 counts",
+        "host: msg id=* cancel=1",
+        "host: msg id=* call=2 counts",
+        r#"view: <- response id=2 result={"cancelledCalls":1,"endedTopics":0}"#,
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+    ]);
+    // It stopped where it was; nothing more of it reached the page, and it did not finish.
+    run.never("view: <- progress id=1 done=2");
+    run.never("view: <- response id=1");
+    assert!(
+        run.output_has("slow: cancelled after 1 of 5").is_some(),
+        "{}",
+        run.text()
+    );
+    assert!(run.output_has("slow: finished").is_none());
+}
+
+#[test]
+fn a_topic_pushes_until_the_page_cancels_it() {
+    let run = run_containers(&[
+        "--subscribe",
+        r#"ticks={"every":10}"#,
+        "--call",
+        "counts",
+        "--cancel-after",
+        "2",
+        "--then",
+        "interrupt",
+    ]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        r#"view: -> subscribe id=1 ticks {"every":10}"#,
+        "host: msg id=* subscribe=1 ticks",
+        "program: msg id=* push=1",
+        r#"view: <- push id=1 value={"n":1}"#,
+        r#"view: <- push id=1 value={"n":2}"#,
+        "view: -> cancel id=1",
+        // The calls wait for the topic, so the answer says what the cancel did.
+        "view: -> call id=2 counts",
+        "host: msg id=* cancel=1",
+        r#"view: <- response id=2 result={"cancelledCalls":0,"endedTopics":1}"#,
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+    ]);
+    assert!(
+        run.output_has("ticks: stopped after").is_some(),
+        "the program did not clean up:\n{}",
+        run.text()
+    );
+}
+
+#[test]
+fn a_topic_the_page_does_not_cancel_stops_when_the_view_is_over() {
+    let run = run_containers(&["--subscribe", "ticks", "--then", "interrupt"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: -> subscribe id=1 ticks",
+        r#"view: <- push id=1 value={"n":1}"#,
+        // The script was done at the first push, and the program was interrupted.
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "view: destroyed",
+    ]);
+    run.never("-> cancel");
+    assert!(
+        run.output_has("ticks: stopped after").is_some(),
+        "the program did not clean up:\n{}",
+        run.text()
+    );
+}
+
+#[test]
+fn a_message_far_larger_than_the_ttys_input_queue_gets_through() {
+    // The tty takes about a kilobyte of input at a time (specification Appendix B):
+    // the host writes the message's frames as the tty takes them, none inside
+    // another, and the program's answer comes back in frames of its own.
+    let text = "a".repeat(60_000);
+    let call = format!(r#"echo={{"text":"{text}"}}"#);
+    let run = run_containers(&["--call", &call, "--then", "interrupt"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: -> call id=1 echo",
+        "host: msg id=* call=1 echo",
+        "program: msg id=* response=1 result",
+        r#"view: <- response id=1 result={"text":"aaaa"#,
+        "program: bye id=* reason=signal",
+    ]);
+    // The record cuts what it shows and says how long it was: the whole message went each way.
+    assert_eq!(run.count("(60011 bytes)"), 2, "{}", run.text());
+    run.never("dropped a frame");
+}
+
+#[test]
+fn what_the_program_writes_to_the_screen_among_its_frames_gets_through() {
+    let run = run_containers(&[
+        "--call",
+        r#"say={"text":"from the program","lines":20}"#,
+        "--then",
+        "close",
+    ]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: -> call id=1 say",
+        "view: <- progress id=1 done=1 total=20",
+        "view: <- progress id=1 done=20 total=20",
+        r#"view: <- response id=1 result={"written":20}"#,
+        "host: the person closes the view",
+    ]);
+    assert_eq!(run.count("view: <- progress id=1"), 20, "{}", run.text());
+    for line in [1, 2, 20] {
+        // The tty ends a line with a return of its own, so only the first is asked for.
+        let text = format!("say: from the program {line}\r");
+        assert!(run.output_has(&text).is_some(), "no {text:?}");
+    }
+    run.never("dropped a frame");
+}
+
+// ---- how a view ends -------------------------------------------------------------
+
+#[test]
 fn a_second_run_finds_the_bundle_in_the_store_and_the_person_can_close_the_view() {
     let store = fresh("second");
     let store = store.to_string_lossy();
-    let first = run_tool(&["--store", &store, "--then", "close"]);
+    let first = run_containers(&["--store", &store, "--then", "close"]);
     first.in_order(&["host: need id=2 re=2 missing=3", "program: file"]);
 
-    let second = run_tool(&["--store", &store, "--then", "close"]);
+    let second = run_containers(&["--store", &store, "--then", "close"]);
     assert!(second.status.success(), "{}", second.text());
     second.in_order(&[
         "host: need id=2 re=2 missing=0",
         "view: started from the bundle: entry index.html, 3 files",
         "view: fetched app.js",
-        "view: <- ui/notifications/tool-result",
+        "view: <- context",
         "host: the person closes the view",
         "view: destroyed",
         "host: closed id=* reason=user",
@@ -233,7 +450,7 @@ fn a_second_run_finds_the_bundle_in_the_store_and_the_person_can_close_the_view(
         .output_has("\x1b[?1049l")
         .expect("it gave the screen back");
     let farewell = second
-        .output_has("containers: the view closed (user)")
+        .output_has(r#"serve: {"kind":"closed","by":"user""#)
         .expect("it said how the view ended");
     assert!(
         on < open && open < off && off < farewell,
@@ -245,7 +462,7 @@ fn a_second_run_finds_the_bundle_in_the_store_and_the_person_can_close_the_view(
 fn only_the_files_the_store_lacks_cross_the_stream() {
     let dir = fresh("partial");
     let store = dir.to_string_lossy();
-    let first = run_tool(&["--store", &store, "--then", "close"]);
+    let first = run_containers(&["--store", &store, "--then", "close"]);
     assert!(first.status.success(), "{}", first.text());
 
     // The store loses one file: the first one the program sent.
@@ -267,7 +484,7 @@ fn only_the_files_the_store_lacks_cross_the_stream() {
     assert_eq!(lost.len(), 1, "{lost:?}");
     fs::remove_file(&lost[0]).expect("a file of the store");
 
-    let second = run_tool(&["--store", &store, "--then", "close"]);
+    let second = run_containers(&["--store", &store, "--then", "close"]);
     assert!(second.status.success(), "{}", second.text());
     second.in_order(&[
         "host: need id=2 re=2 missing=1",
@@ -280,33 +497,29 @@ fn only_the_files_the_store_lacks_cross_the_stream() {
 }
 
 #[test]
-fn a_message_far_larger_than_the_ttys_input_queue_gets_through() {
-    // The tty takes about a kilobyte of input at a time (specification Appendix B):
-    // the host writes the message's frames as the tty takes them, none inside
-    // another, and the program's answer comes back in frames of its own.
-    let id = "a".repeat(60_000);
-    let call = format!(r#"stop_container={{"id":"{id}"}}"#);
-    let run = run_tool(&["--call", &call, "--then", "interrupt"]);
+fn a_page_that_asks_to_be_closed_is_closed_and_the_program_is_told_so() {
+    let run = run_containers(&["--call", "list", "--then", "page-close"]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "view: -> tools/call stop_container",
-        "host: msg id=* request tools/call stop_container",
-        "program: msg id=* response",
-        r#"view: <- tool result error "There is no container \"aaaa"#,
-        "program: bye id=* reason=signal",
+        "view: <- response id=1 result=",
+        "view: -> close",
+        "view: destroyed",
+        // The page asked, the program is told and decides: this one ends its wait.
+        "host: closed id=* reason=view",
+        "program: exited with status 0",
     ]);
-    run.never("dropped a frame");
+    run.never("program: bye");
+    run.said_after_the_screen(r#"serve: {"kind":"closed","by":"view""#);
 }
 
 #[test]
-fn a_tool_that_is_killed_leaves_no_view_behind() {
-    let run = run_tool(&["--then", "kill"]);
+fn a_program_that_is_killed_leaves_no_view_behind() {
+    let run = run_containers(&["--call", "list", "--then", "kill"]);
     run.in_order(&[
-        "view: <- ui/notifications/tool-result",
+        "view: <- response id=1 result=",
         "host: kills the program with SIGKILL",
         "program: was killed by signal 9",
         // Nobody said goodbye: the host saw the stream end.
-        "view: <- ui/resource-teardown (request)",
         "view: destroyed",
     ]);
     run.never("program: bye");
@@ -314,58 +527,82 @@ fn a_tool_that_is_killed_leaves_no_view_behind() {
 }
 
 #[test]
-fn a_tool_closes_its_view_shows_another_and_closes_that_one_and_goes_on() {
-    let program = root().join("host/fake/tests/programs/reopen.mjs");
-    let run = run(&[], &["node", &program.to_string_lossy()]);
+fn a_terminal_that_goes_away_takes_the_program_and_its_view_with_it() {
+    // ssh going away: the pane's pty is closed, the program's session is hung up and every write
+    // it makes to its tty fails. Nothing of the program is left and nothing of its view.
+    let run = run_containers(&["--call", "list", "--then", "hangup"]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web",
-        "program: open id=2 tool=show bundle of 1 files",
-        "host: need id=2 re=2 missing=1",
+        "view: <- response id=1 result=",
+        "host: hangs up the terminal",
+        // Ended by the signal it was sent, as any program is.
+        "program: was killed by signal 1",
+        "view: destroyed",
+    ]);
+    run.never("program: bye");
+}
+
+#[test]
+fn a_program_closes_its_view_shows_another_and_another_and_closes_that_one_and_goes_on() {
+    let run = run_program("reopen.mjs", &["--call", "show"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web@1.0",
+        "program: open id=2 view=web version=1.0 bundle of 2 files",
+        "host: need id=2 re=2 missing=2",
         "program: file",
-        "view: started from the bundle: entry index.html, 1 files",
-        // The tool has no title: the terminal names the view by the tool.
+        "program: file",
+        "view: started from the bundle: entry index.html, 2 files",
+        // The program has no title: the terminal names the view by the program.
         r#"view: title=none program="reopen""#,
-        "host: msg id=* request tools/call show",
-        // The program closes the view that runs; the host tells the view first and
-        // the program after the view is gone.
+        "view: -> call id=1 show",
+        "host: msg id=* call=1 show",
+        // The program closes the view that runs; the host tells the program once the
+        // view is gone.
         "program: dismiss id=",
         "host: the program asks to close its view",
-        "view: <- ui/resource-teardown (request)",
         "view: destroyed",
         "host: closed id=* re=* reason=program",
         // A new token and a new open, as for a first view: the file that changed
-        // crosses the stream again.
+        // crosses the stream again, the one that did not does not.
         "program: hello id=",
         "host: welcome id=* re=* version=1 with a token",
-        "program: open id=* tool=show bundle of 1 files",
+        "program: open id=* view=web version=1.0 bundle of 2 files",
         "host: need id=* re=* missing=1",
         "program: file",
-        "view: started from the bundle: entry index.html, 1 files",
-        "host: msg id=* request tools/call show",
+        "view: started from the bundle: entry index.html, 2 files",
+        "view: -> call id=1 show",
+        "program: dismiss id=",
+        "view: destroyed",
+        "host: closed id=* re=* reason=program",
+        // Shown again as it was: the host holds all of it.
+        "program: hello id=",
+        "host: welcome id=* re=* version=1 with a token",
+        "program: open id=* view=web version=1.0 bundle of 2 files",
+        "host: need id=* re=* missing=0",
+        "view: started from the bundle: entry index.html, 2 files",
+        "view: -> call id=1 show",
         "program: dismiss id=",
         "view: destroyed",
         "host: closed id=* re=* reason=program",
         "program: exited with status 0",
     ]);
-    // The program asked for no second capability query and no second screen.
-    assert_eq!(run.count("program: hello"), 2, "{}", run.text());
+    // Three views, and only the files that were not held crossed the stream.
+    assert_eq!(run.count("program: open"), 3, "{}", run.text());
+    assert_eq!(run.count("program: file"), 3, "{}", run.text());
+    // The program asked for no second screen.
+    assert_eq!(run.count("program: hello"), 3, "{}", run.text());
+    assert_eq!(run.count("program: dismiss"), 3, "{}", run.text());
     assert_eq!(run.count("answers CSI c"), 1, "{}", run.text());
     run.never("program: bye");
     run.never("dropped a frame");
     // It said how it went, on the screen it was given back.
     for line in [
-        r#"reopen: {"kind":"reopened"}"#,
-        r#"close: {"kind":"closed"}"#,
-        r#"serve: {"kind":"closed","by":"program"}"#,
+        r#"control: {"kind":"reopened"}"#,
+        r#"control: {"kind":"closed"}"#,
+        r#"serve: {"kind":"closed","by":"program""#,
     ] {
-        let at = run
-            .output_has(line)
-            .unwrap_or_else(|| panic!("no {line:?}:\n{}", run.text()));
-        let off = run
-            .output_has("\x1b[?1049l")
-            .expect("it gave the screen back");
-        assert!(off < at, "{line}");
+        run.said_after_the_screen(line);
     }
     assert_eq!(
         String::from_utf8_lossy(&run.output)
@@ -376,8 +613,139 @@ fn a_tool_closes_its_view_shows_another_and_closes_that_one_and_goes_on() {
 }
 
 #[test]
+fn a_program_that_has_its_view_shown_again_after_it_answered_is_waited_for() {
+    // The first view's script ends with the program closing its view, so `--on-view` makes
+    // the interrupt wait for the view that comes after it.
+    let run = run_containers(&["--call", "reload", "--then", "interrupt", "--on-view", "2"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: -> call id=1 reload",
+        r#"view: <- response id=1 result={"reloads":1}"#,
+        "view: has nothing more to do",
+        "program: dismiss id=",
+        "view: destroyed",
+        "host: closed id=* re=* reason=program",
+        "program: hello id=",
+        r#"program: open id=* view=web version=1.0 title="Containers" bundle of 3 files"#,
+        // The terminal held the files: nothing crossed the stream again.
+        "host: need id=* re=* missing=0",
+        "view: -> call id=1 reload",
+        r#"view: <- response id=1 result={"reloads":2}"#,
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "program: was killed by signal 2",
+    ]);
+    assert_eq!(run.count("program: open"), 2, "{}", run.text());
+    assert_eq!(run.count("program: file"), 3, "{}", run.text());
+    assert_eq!(run.count("answers CSI c"), 1, "{}", run.text());
+}
+
+#[test]
+fn the_host_that_starts_the_view_again_gets_it_asked_for_again() {
+    let run = run_containers(&["--call", "list", "--then", "restart"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        r#"program: open id=2 view=web version=1.0 title="Containers" bundle of 3 files"#,
+        "view: -> call id=1 list",
+        "view: <- response id=1 result=",
+        "host: starts the view again, as after a reconnection",
+        "view: destroyed",
+        // No `hello` asked: the host offers again, with every version it speaks, and the
+        // program that has a view open opens it again.
+        "host: welcome id=* version=1 with a token (restart) features=bundle,dismiss views=web@1.0",
+        r#"program: open id=* view=web version=1.0 title="Containers" bundle of 3 files"#,
+        "host: need id=* re=* missing=0",
+        "view: -> call id=1 list",
+        "view: <- response id=1 result=",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "program: was killed by signal 2",
+    ]);
+    assert_eq!(run.count("program: open"), 2, "{}", run.text());
+    assert_eq!(run.count("view: -> call id=1 list"), 2, "{}", run.text());
+}
+
+// ---- what a page asks to reach ---------------------------------------------------
+
+#[test]
+fn the_question_to_the_person_names_the_program_and_refusing_it_leaves_the_page_with_nothing() {
+    // The page of this program asks for an origin and a capability, so the person is asked.
+    // The stand-in person refuses, which is what it does unless it is told otherwise.
+    let run = run_program("access.mjs", &["--call", "show", "--then", "interrupt"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        r#"program: open id=2 view=web version=1.0 title="Show it" bundle of 1 files with access"#,
+        "host: need id=2 re=2 missing=1",
+        "program: file",
+        // The words the program has for itself and for its view; the question names no one else.
+        r#"host: asked the person about origins=1 permissions=1 of program="Domain Desk" title="Show it": refused"#,
+        "view: started from the bundle: entry index.html, 1 files",
+        r#"view: title="Show it" program="Domain Desk""#,
+        // Nothing was allowed: the policy shuts the network, and the page is told so.
+        "view: policy default-src 'none'*connect-src 'none'",
+        "view: <- context mode=dark size=640x384 reduceMotion=false access=none",
+        "view: -> call id=1 show",
+        r#"view: <- response id=1 result={"shown":true}"#,
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+    ]);
+    run.never("api.example.com");
+    run.never("clipboardWrite");
+}
+
+#[test]
+fn what_the_person_allows_is_in_the_policy_and_in_what_the_page_is_told() {
+    let run = run_program(
+        "access.mjs",
+        &["--allow-network", "--call", "show", "--then", "interrupt"],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        r#"host: asked the person about origins=1 permissions=1 of program="Domain Desk" title="Show it": allowed"#,
+        "view: started from the bundle",
+        "view: policy default-src 'none'*connect-src 'self' https://api.example.com",
+        // What was allowed is what the page is told, in the shape the program asked in.
+        r#"view: <- context mode=dark size=640x384 reduceMotion=false access={"connect":["https://api.example.com"],"permissions":["clipboardWrite"]}"#,
+        "view: -> call id=1 show",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+    ]);
+}
+
+#[test]
+fn the_page_asks_to_open_a_link_and_the_host_refuses_and_tells_it_nothing() {
+    let run = run_containers(&[
+        "--link",
+        "https://example.com/docs",
+        "--link",
+        "file:///etc/passwd",
+        "--call",
+        "list",
+        "--then",
+        "interrupt",
+    ]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: -> link https://example.com/docs",
+        "view: -> link file:///etc/passwd",
+        "view: -> call id=1 list",
+        // The person is asked about the one the host may open; the stand-in refuses.
+        "host: refuses to open https://example.com/docs for the view",
+        "view: <- response id=1 result=",
+        "host: the person presses ^C",
+    ]);
+    // An address that is not `http` or `https` is dropped before the person is asked, and the
+    // page is answered neither way: a link is not a call.
+    run.never("refuses to open file:");
+    assert_eq!(run.count("refuses to open"), 1, "{}", run.text());
+    assert_eq!(run.count("view: <- response"), 1, "{}", run.text());
+}
+
+// ---- a terminal that does not host pencere ---------------------------------------
+
+#[test]
 fn a_terminal_that_does_not_host_pencere_gets_the_text_interface() {
-    let run = run_tool(&["--no-host"]);
+    let run = run_containers(&["--no-host"]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "program: hello id=1",
@@ -392,9 +760,15 @@ fn a_terminal_that_does_not_host_pencere_gets_the_text_interface() {
         "the fallback did not print the table"
     );
     assert!(run.output_has("cache").is_some());
+    assert!(
+        run.output_has(r#"serve: {"kind":"no-view","reason":"no-host"}"#)
+            .is_some()
+    );
     // It never took the screen: there was nothing to put on it.
     assert!(run.output_has("\x1b[?1049h").is_none());
 }
+
+// ---- what a program cannot make the host do --------------------------------------
 
 /// A program that writes frames and cannot read what the host answers, as a
 /// file shown with `cat` or a program in the background is.
@@ -409,11 +783,11 @@ fn forger(name: &str, with_raw_tty: bool) -> Run {
     fs::write(
         &script,
         format!(
-            r#"{stty}printf '\033_pencere;hello;id=1;{{"versions":[1],"views":["web"]}}\033\\'
+            r#"{stty}printf '\033_pencere;hello;id=1;{{"versions":[1],"views":[{{"kind":"web","versions":["1.0"]}}]}}\033\\'
 printf '\033[c'
 sleep 0.3
 printf '\033[?1049h'
-printf '\033_pencere;open;id=2;{{"token":"AAAAAAAAAAAAAAAAAAAAAA","view":"web","tool":{{"name":"x\\u001b[2J","arguments":{{}}}}}}\033\\'
+printf '\033_pencere;open;id=2;{{"token":"AAAAAAAAAAAAAAAAAAAAAA","view":"web","version":"1.0","title":"x\\u001b[2J"}}\033\\'
 sleep 0.3
 "#
         ),
@@ -431,9 +805,9 @@ fn a_program_that_cannot_read_the_answer_cannot_open_a_view() {
         "program: hello id=1",
         "host: sees the tty: canonical=false echo=false",
         "host: welcome id=1 re=1 version=1 with a token",
-        // The tool's name has an escape in it; the record writes it out and does
+        // The view's title has an escape in it; the record writes it out and does
         // not put it on the person's terminal.
-        "program: open id=2 tool=x\\u{1b}[2J without a bundle",
+        r#"program: open id=2 view=web version=1.0 title="x\u{1b}[2J" without a bundle"#,
         "reason=refused code=token",
     ]);
     assert!(!run.text().contains('\u{1b}'), "{:?}", run.text());
@@ -467,7 +841,7 @@ fn the_answer_to_hello_comes_before_the_reply_to_csi_c() {
     fs::write(
         &script,
         r#"stty -icanon -echo min 0 time 5
-printf '\033_pencere;hello;id=1;{"versions":[1],"views":["web"]}\033\\'
+printf '\033_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"web","versions":["1.0"]}]}\033\\'
 printf '\033[c'
 dd bs=512 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n'
 "#,
@@ -531,625 +905,6 @@ fn a_program_that_closes_its_tty_and_goes_on_is_cut_short_as_well() {
     cut_short(&["sh", "-c", "exec >/dev/null 2>&1 </dev/null; sleep 30"]);
 }
 
-// ---- `pencere run`: a server that knows nothing of pencere --------------------
-
-fn cli() -> String {
-    let main = root().join("cli/dist/main.js");
-    assert!(
-        main.is_file(),
-        "{} is missing: build the TypeScript half first with `npx tsc -b` (make check does)",
-        main.display()
-    );
-    main.to_string_lossy().into_owned()
-}
-
-/// `pencere <command> [own] -- <server>` in the pane of the stand-in host.
-fn run_command(command: &str, options: &[&str], own: &[&str], server: &[&str]) -> Run {
-    let main = cli();
-    let mut program = vec!["node", main.as_str(), command];
-    program.extend_from_slice(own);
-    program.push("--");
-    program.extend_from_slice(server);
-    run(options, &program)
-}
-
-/// `pencere run [own] -- <server>` in the pane of the stand-in host.
-fn run_cli(options: &[&str], own: &[&str], server: &[&str]) -> Run {
-    run_command("run", options, own, server)
-}
-
-/// `pencere dev [own] -- <server>` in the pane of the stand-in host.
-fn run_dev(options: &[&str], own: &[&str], server: &[&str]) -> Run {
-    run_command("dev", options, own, server)
-}
-
-/// The example tool as a chat client would start it, through a shell that writes
-/// its pid to `log` first (`exec` keeps the pid), so that a test can count how
-/// often the server was started and see that none is left. The words of `node`
-/// come before the tool's path.
-fn logged_tool(log: &Path, node_options: &[&str]) -> Vec<String> {
-    let mut server = vec![
-        "sh".to_owned(),
-        "-c".to_owned(),
-        r#"echo $$ >> "$0"; exec node "$@""#.to_owned(),
-        log.to_string_lossy().into_owned(),
-    ];
-    server.extend(node_options.iter().map(|word| (*word).to_owned()));
-    server.push(tool());
-    server
-}
-
-fn words(server: &[String]) -> Vec<&str> {
-    server.iter().map(String::as_str).collect()
-}
-
-/// The pids of the servers that were started.
-fn started(log: &Path) -> Vec<u32> {
-    fs::read_to_string(log)
-        .unwrap_or_default()
-        .lines()
-        .map(|line| line.trim().parse().expect("a pid"))
-        .collect()
-}
-
-/// Whether the process is gone, given the time a process table takes to catch up.
-fn gone(pid: u32) -> bool {
-    for _ in 0..100 {
-        let exists = Command::new("kill")
-            .args(["-0", &pid.to_string()])
-            .stderr(Stdio::null())
-            .status()
-            .expect("kill runs")
-            .success();
-        if !exists {
-            return true;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    false
-}
-
-#[test]
-fn pencere_run_opens_the_view_of_a_server_and_ends_it_on_ctrl_c() {
-    let dir = fresh("cli-first");
-    let log = dir.join("starts");
-    let server = logged_tool(&log, &[]);
-    let run = run_cli(
-        &[
-            "--call",
-            r#"stop_container={"id":"cache"}"#,
-            "--then",
-            "interrupt",
-        ],
-        &[],
-        &words(&server),
-    );
-    assert!(run.status.success(), "{}", run.text());
-    run.in_order(&[
-        "program: hello id=1",
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web",
-        "screen: alternate screen on",
-        // Asked which tool has a view, so the open names it; the server gave no
-        // files, so the host reads the view from the server's own resource.
-        "program: open id=2 tool=list_containers without a bundle",
-        "host: msg id=* request initialize",
-        "host: msg id=* notification notifications/initialized",
-        "host: msg id=* request tools/list",
-        "host: msg id=* request resources/read",
-        "view: started from resources/read",
-        r#"view: title="Containers" program="containers""#,
-        r#"view: -> tools/call stop_container {"id":"cache"}"#,
-        "host: msg id=* request tools/call stop_container",
-        "program: msg id=* response",
-        r#"view: <- tool result "Stopped cache (redis:7)""#,
-        "host: the person presses ^C",
-        "program: bye id=* reason=signal",
-        "view: destroyed",
-        "screen: alternate screen off",
-        "program: was killed by signal 2",
-    ]);
-    // Once to ask which tool has a view, once for the view: and neither is left.
-    let pids = started(&log);
-    assert_eq!(pids.len(), 2, "{pids:?}");
-    for pid in pids {
-        assert!(gone(pid), "the server {pid} outlived pencere run");
-    }
-    // The screen it gave back has nothing on it that was not the program's own.
-    assert!(run.output_has("pencere:").is_none());
-}
-
-#[test]
-fn pencere_run_lets_go_of_its_server_when_the_terminal_hangs_up() {
-    // ssh going away: the pane's pty is closed, the program's session is hung up and every write
-    // it makes to its tty fails. A server that does not leave at the end of its stdin would be left
-    // running if `pencere run` were ended by the hangup and not by itself.
-    let dir = fresh("cli-hangup");
-    let log = dir.join("starts");
-    let linger = root().join("host/fake/tests/programs/linger.cjs");
-    let linger = linger.to_string_lossy();
-    let server = logged_tool(&log, &["--require", &linger]);
-    let run = run_cli(
-        &["--then", "hangup"],
-        &["--tool", "list_containers", "--args", "{}"],
-        &words(&server),
-    );
-    assert!(run.status.success(), "{}", run.text());
-    run.in_order(&[
-        "program: open id=2 tool=list_containers without a bundle",
-        "view: started from resources/read",
-        "host: hangs up the terminal",
-        // Ended by the signal it was sent, as any program is, once it had let go of the server.
-        "program: was killed by signal 1",
-    ]);
-    let pids = started(&log);
-    assert_eq!(pids.len(), 1, "{pids:?}");
-    for pid in pids {
-        assert!(gone(pid), "the server {pid} outlived the hangup");
-    }
-}
-
-#[test]
-fn pencere_run_does_not_start_a_server_to_ask_when_the_tool_is_named() {
-    let dir = fresh("cli-named");
-    let log = dir.join("starts");
-    let server = logged_tool(&log, &[]);
-    let run = run_cli(
-        &["--then", "close"],
-        &["--tool", "list_containers", "--args", "{}"],
-        &words(&server),
-    );
-    assert!(run.status.success(), "{}", run.text());
-    run.in_order(&[
-        "program: open id=2 tool=list_containers without a bundle",
-        "view: started from resources/read",
-        "host: the person closes the view",
-        "host: closed id=* reason=user",
-        "program: exited with status 0",
-    ]);
-    let pids = started(&log);
-    assert_eq!(pids.len(), 1, "{pids:?}");
-    assert!(gone(pids[0]));
-}
-
-#[test]
-fn pencere_run_sends_the_files_of_a_view_directory_once() {
-    let dir = fresh("cli-view");
-    let store = dir.join("store");
-    let store = store.to_string_lossy();
-    let view = root().join("examples/containers/view");
-    let view = view.to_string_lossy();
-    let log = dir.join("starts");
-    let server = logged_tool(&log, &[]);
-    let options = ["--store", &store, "--then", "close"];
-    let own = ["--tool", "list_containers", "--view", &view];
-
-    let first = run_cli(&options, &own, &words(&server));
-    assert!(first.status.success(), "{}", first.text());
-    first.in_order(&[
-        "program: open id=2 tool=list_containers bundle of 3 files",
-        "host: need id=2 re=2 missing=3",
-        "program: file",
-        "program: file",
-        "program: file",
-        "view: started from the bundle: entry index.html, 3 files",
-    ]);
-
-    // The terminal kept them: the second time only the manifest crosses the stream.
-    let second = run_cli(&options, &own, &words(&server));
-    assert!(second.status.success(), "{}", second.text());
-    second.in_order(&[
-        "host: need id=2 re=2 missing=0",
-        "view: started from the bundle: entry index.html, 3 files",
-    ]);
-    second.never("program: file");
-}
-
-#[test]
-fn pencere_run_starts_the_server_again_when_the_host_starts_the_view_again() {
-    let dir = fresh("cli-restart");
-    let log = dir.join("starts");
-    let server = logged_tool(&log, &[]);
-    let run = run_cli(
-        &["--then", "restart"],
-        &["--tool", "list_containers"],
-        &words(&server),
-    );
-    assert!(run.status.success(), "{}", run.text());
-    run.in_order(&[
-        "program: open id=2 tool=list_containers without a bundle",
-        "view: started from resources/read",
-        "host: starts the view again, as after a reconnection",
-        "view: destroyed",
-        "host: welcome id=* version=1 with a token (restart)",
-        "program: open id=* tool=list_containers without a bundle",
-        "view: started from resources/read",
-        "host: the person presses ^C",
-        "program: bye id=* reason=signal",
-        "program: was killed by signal 2",
-    ]);
-    assert_eq!(run.count("program: open"), 2, "{}", run.text());
-    // A server has one `initialize` for the life of its process: the second view
-    // is a second process, and the first is gone.
-    let pids = started(&log);
-    assert_eq!(pids.len(), 2, "{pids:?}");
-    assert_ne!(pids[0], pids[1]);
-    for pid in pids {
-        assert!(gone(pid), "the server {pid} outlived pencere run");
-    }
-}
-
-#[test]
-fn pencere_run_keeps_the_terminals_ctrl_c_from_the_server() {
-    // ⌃C is the terminal's signal to its foreground group. The server is the
-    // program's to end, with `bye` first: one that took the signal too would die
-    // under the view, and a Python server would print a traceback.
-    let dir = fresh("cli-group");
-    let log = dir.join("starts");
-    let signals = dir.join("signals");
-    let preload = dir.join("record-sigint.cjs");
-    fs::write(
-        &preload,
-        format!(
-            r#"process.on("SIGINT", () => require("node:fs").appendFileSync({signals:?}, "SIGINT\n"));"#,
-            signals = signals.to_string_lossy()
-        ),
-    )
-    .expect("a preload under the target directory");
-    let preload = preload.to_string_lossy().into_owned();
-    let server = logged_tool(&log, &["-r", &preload]);
-    let run = run_cli(
-        &["--then", "interrupt"],
-        &["--tool", "list_containers"],
-        &words(&server),
-    );
-    assert!(run.status.success(), "{}", run.text());
-    run.in_order(&[
-        "view: started from resources/read",
-        "host: the person presses ^C",
-        "program: bye id=* reason=signal",
-        "program: was killed by signal 2",
-    ]);
-    let pids = started(&log);
-    assert_eq!(pids.len(), 1, "{pids:?}");
-    assert!(gone(pids[0]));
-    assert!(
-        !signals.exists(),
-        "the server got the terminal's SIGINT: {:?}",
-        fs::read_to_string(&signals)
-    );
-}
-
-#[test]
-fn pencere_run_tells_a_terminal_that_does_not_host_pencere_what_a_server_is_for() {
-    let dir = fresh("cli-nohost");
-    let log = dir.join("starts");
-    let server = logged_tool(&log, &[]);
-    let run = run_cli(
-        &["--no-host"],
-        &["--tool", "list_containers"],
-        &words(&server),
-    );
-    assert!(run.status.success(), "{}", run.text());
-    run.in_order(&[
-        "program: hello id=1",
-        "host: does not host pencere: no answer",
-        "program: exited with status 3",
-    ]);
-    run.never("welcome");
-    run.never("program: open");
-    assert!(
-        run.output_has("this terminal does not show pencere views")
-            .is_some(),
-        "{:?}",
-        String::from_utf8_lossy(&run.output)
-    );
-    assert!(run.output_has("is an MCP server").is_some());
-    // It never took the screen, and it started no server for a pane that cannot show it.
-    assert!(run.output_has("\x1b[?1049h").is_none());
-    assert!(started(&log).is_empty());
-}
-
-#[test]
-fn pencere_run_says_what_a_server_that_ends_under_its_view_wrote() {
-    let run = run_cli(
-        &[],
-        &["--tool", "list_containers"],
-        &[
-            "node",
-            "-e",
-            r#"console.error("Traceback: boom"); setTimeout(() => process.exit(5), 100);"#,
-        ],
-    );
-    assert!(run.status.success(), "{}", run.text());
-    run.in_order(&[
-        "program: open id=2 tool=list_containers without a bundle",
-        "program: bye id=* reason=exit",
-        "screen: alternate screen off",
-        "program: exited with status 1",
-    ]);
-    // It is said on the screen the person got back, not under the view.
-    let off = run
-        .output_has("\x1b[?1049l")
-        .expect("the screen was given back");
-    let said = run
-        .output_has("ended (exit status 5) while its view was opening")
-        .expect("it said that the server ended");
-    let wrote = run
-        .output_has("  Traceback: boom")
-        .expect("it showed what the server wrote");
-    assert!(off < said && said < wrote, "{off} {said} {wrote}");
-}
-
-#[test]
-fn the_question_to_the_person_names_the_tool_and_the_program() {
-    // The view of this server declares a domain, so the person is asked. The stand-in
-    // person refuses, which is what it does unless it is told otherwise.
-    let program = root().join("host/fake/tests/programs/declares-domains.mjs");
-    let program = program.to_string_lossy();
-    let run = run_cli(
-        &["--then", "interrupt"],
-        &["--tool", "show"],
-        &["node", &program],
-    );
-    assert!(run.status.success(), "{}", run.text());
-    run.in_order(&[
-        "program: open id=2 tool=show without a bundle",
-        "host: msg id=* request resources/read",
-        // The tool's name, and the words the program has for it and for itself.
-        r#"host: asked the person about 1 domains and 0 permissions of tool="show" title="Show it" program="Domain Desk": refused"#,
-        "view: started from resources/read",
-        r#"view: title="Show it" program="Domain Desk""#,
-    ]);
-}
-
-// ---- `pencere dev`: the view is shown again when files change -------------------
-
-/// `program` with `args` as a chat client would start it, through a shell that
-/// writes its pid to `log` first, as `logged_tool` does for the example tool.
-fn logged_program(log: &Path, program: &Path, args: &[&str]) -> Vec<String> {
-    let mut server = vec![
-        "sh".to_owned(),
-        "-c".to_owned(),
-        r#"echo $$ >> "$0"; exec node "$@""#.to_owned(),
-        log.to_string_lossy().into_owned(),
-        program.to_string_lossy().into_owned(),
-    ];
-    server.extend(args.iter().map(|word| (*word).to_owned()));
-    server
-}
-
-fn writes_on_call() -> PathBuf {
-    root().join("host/fake/tests/programs/writes-on-call.mjs")
-}
-
-#[test]
-fn pencere_dev_shows_the_view_again_when_a_file_of_it_changes() {
-    let dir = fresh("cli-dev-view");
-    let view = dir.join("view");
-    fs::create_dir(&view).expect("a view directory");
-    fs::write(
-        view.join("index.html"),
-        "<!doctype html><link rel=stylesheet href=style.css>",
-    )
-    .expect("a page");
-    let style = view.join("style.css");
-    fs::write(&style, "body {}").expect("a stylesheet");
-    let log = dir.join("starts");
-    // Calling the tool edits the stylesheet, which is what a build does under a view.
-    let server = logged_program(
-        &log,
-        &writes_on_call(),
-        &[&style.to_string_lossy(), "body { color: red }"],
-    );
-    let view_arg = view.to_string_lossy();
-    let run = run_dev(
-        &["--then", "interrupt", "--on-view", "2"],
-        &["--tool", "show", "--view", &view_arg],
-        &words(&server),
-    );
-    assert!(run.status.success(), "{}", run.text());
-    run.in_order(&[
-        "program: hello id=1",
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web",
-        "screen: alternate screen on",
-        "program: open id=2 tool=show bundle of 2 files",
-        "host: need id=2 re=2 missing=2",
-        "program: file",
-        "program: file",
-        "view: started from the bundle: entry index.html, 2 files",
-        "host: msg id=* request tools/call show",
-        // The file changed under the view: the program closes it, and the host
-        // tells the view first and the program after the view is gone.
-        "program: dismiss id=",
-        "host: the program asks to close its view",
-        "view: destroyed",
-        "host: closed id=* re=* reason=program",
-        // A new token and a new open, as for a first view. The terminal holds the
-        // page, so the stylesheet is the only file it asks for.
-        "program: hello id=",
-        "host: welcome id=* re=* version=1 with a token",
-        "program: open id=* tool=show bundle of 2 files",
-        "host: need id=* re=* missing=1",
-        "program: file",
-        "view: started from the bundle: entry index.html, 2 files",
-        "host: msg id=* request tools/call show",
-        "host: the person presses ^C",
-        "program: bye id=* reason=signal",
-        "screen: alternate screen off",
-        "program: was killed by signal 2",
-    ]);
-    assert_eq!(run.count("program: file"), 3, "{}", run.text());
-    assert_eq!(run.count("program: open"), 2, "{}", run.text());
-    // The second view asks for no second capability query and no second screen,
-    // and its server finds the file edited already: nothing makes a third.
-    assert_eq!(run.count("program: hello"), 2, "{}", run.text());
-    assert_eq!(run.count("program: dismiss"), 1, "{}", run.text());
-    assert_eq!(run.count("answers CSI c"), 1, "{}", run.text());
-    assert_eq!(
-        String::from_utf8_lossy(&run.output)
-            .matches("\x1b[?1049h")
-            .count(),
-        1
-    );
-    assert_eq!(
-        fs::read_to_string(&style).expect("the stylesheet"),
-        "body { color: red }"
-    );
-    // Each view is a server of its own, and neither outlives `pencere dev`.
-    let pids = started(&log);
-    assert_eq!(pids.len(), 2, "{pids:?}");
-    assert_ne!(pids[0], pids[1]);
-    for pid in pids {
-        assert!(gone(pid), "the server {pid} outlived pencere dev");
-    }
-    assert!(run.output_has("pencere:").is_none());
-}
-
-#[test]
-fn pencere_dev_starts_the_server_again_when_a_file_it_watches_changes() {
-    let dir = fresh("cli-dev-watch");
-    let watched = dir.join("settings");
-    fs::write(&watched, "before").expect("a file the server reads");
-    let log = dir.join("starts");
-    let server = logged_program(
-        &log,
-        &writes_on_call(),
-        &[&watched.to_string_lossy(), "after"],
-    );
-    let watched_arg = watched.to_string_lossy();
-    let run = run_dev(
-        &["--then", "interrupt", "--on-view", "2"],
-        &["--tool", "show", "--watch", &watched_arg],
-        &words(&server),
-    );
-    assert!(run.status.success(), "{}", run.text());
-    // No view directory: the terminal reads the page from the server each time.
-    run.in_order(&[
-        "program: open id=2 tool=show without a bundle",
-        "view: started from resources/read",
-        "host: msg id=* request tools/call show",
-        "program: dismiss id=",
-        "host: closed id=* re=* reason=program",
-        "program: hello id=",
-        "program: open id=* tool=show without a bundle",
-        "view: started from resources/read",
-        "host: the person presses ^C",
-        "program: bye id=* reason=signal",
-        "program: was killed by signal 2",
-    ]);
-    run.never("program: file");
-    assert_eq!(run.count("program: open"), 2, "{}", run.text());
-    assert_eq!(run.count("program: dismiss"), 1, "{}", run.text());
-    assert_eq!(fs::read_to_string(&watched).expect("the file"), "after");
-    let pids = started(&log);
-    assert_eq!(pids.len(), 2, "{pids:?}");
-    for pid in pids {
-        assert!(gone(pid), "the server {pid} outlived pencere dev");
-    }
-}
-
-#[test]
-fn pencere_dev_names_a_path_to_watch_that_is_not_there_and_asks_the_terminal_for_nothing() {
-    let dir = fresh("cli-dev-missing");
-    let log = dir.join("starts");
-    let server = logged_program(&log, &writes_on_call(), &["x", "y"]);
-    let run = run_dev(
-        &[],
-        &["--tool", "show", "--watch", "/nonexistent/server.py"],
-        &words(&server),
-    );
-    assert!(run.status.success(), "{}", run.text());
-    run.in_order(&["program: exited with status 2"]);
-    run.never("program: hello");
-    assert!(
-        run.output_has("--watch /nonexistent/server.py: no such file or directory")
-            .is_some(),
-        "{:?}",
-        String::from_utf8_lossy(&run.output)
-    );
-    assert!(started(&log).is_empty());
-}
-
-#[test]
-fn pencere_dev_says_what_the_server_wrote_and_waits_for_the_next_change_when_it_will_not_start_again()
- {
-    // What saving a syntax error does: the first server runs, the one that is started for the
-    // reopened view dies at once, and what the person saves next starts a server that runs.
-    let dir = fresh("cli-dev-broken");
-    let watched = dir.join("settings");
-    fs::write(&watched, "before").expect("a file the server reads");
-    let log = dir.join("starts");
-    let server = vec![
-        "sh".to_owned(),
-        "-c".to_owned(),
-        concat!(
-            r#"echo $$ >> "$0"; "#,
-            // The second start is the broken one: it says so, and the file is saved again (as
-            // the person fixes it) a moment later, with what is then not the size it was.
-            r#"if [ "$(wc -l < "$0")" -eq 2 ]; then echo "SyntaxError: nope" >&2; "#,
-            r#"sleep 0.3; echo fixed > "$2"; exit 3; fi; "#,
-            r#"exec node "$@""#
-        )
-        .to_owned(),
-        log.to_string_lossy().into_owned(),
-        writes_on_call().to_string_lossy().into_owned(),
-        watched.to_string_lossy().into_owned(),
-        "after".to_owned(),
-    ];
-    let watched_arg = watched.to_string_lossy();
-    let run = run_dev(
-        &["--then", "interrupt", "--on-view", "2"],
-        &["--tool", "show", "--watch", &watched_arg],
-        &words(&server),
-    );
-    assert!(run.status.success(), "{}", run.text());
-    run.in_order(&[
-        "program: dismiss id=",
-        "host: closed id=* re=* reason=program",
-        "program: hello id=",
-        "program: open id=* tool=show without a bundle",
-        // The server fell before the view ran: the program leaves, and the screen is the person's.
-        "program: bye id=* reason=exit",
-        "screen: alternate screen off",
-        // And then it is asked for the view again, which is the change that fixes the server.
-        "program: hello id=",
-        "program: open id=* tool=show without a bundle",
-        "view: started from resources/read",
-        "host: the person presses ^C",
-        "program: bye id=* reason=signal",
-        "program: was killed by signal 2",
-    ]);
-    let off = run
-        .output_has("\x1b[?1049l")
-        .expect("the screen was given back");
-    let said = run
-        .output_has("ended (exit status 3) while its view was opening")
-        .expect("it said that the server ended");
-    let wrote = run
-        .output_has("  SyntaxError: nope")
-        .expect("it showed what the server wrote");
-    let waits = run
-        .output_has("Waiting for a change")
-        .expect("it said that it waits");
-    assert!(
-        off < said && said < wrote && wrote < waits,
-        "{off} {said} {wrote} {waits}"
-    );
-    // The broken server's words are not said again for the view that came after.
-    assert_eq!(
-        String::from_utf8_lossy(&run.output)
-            .matches("SyntaxError: nope")
-            .count(),
-        2,
-        "once in the command that was run, once as what the server wrote"
-    );
-    let pids = started(&log);
-    assert_eq!(pids.len(), 3, "{pids:?}");
-    for pid in pids {
-        assert!(gone(pid), "the server {pid} outlived pencere dev");
-    }
-}
-
 // ---- a filter in a pipeline -------------------------------------------------------
 
 /// `text` in single quotes, for `sh -c`.
@@ -1157,20 +912,14 @@ fn quoted(text: &str) -> String {
     format!("'{}'", text.replace('\'', r"'\''"))
 }
 
-/// `tablepen` (`examples/tablepen`) in the middle of a pipeline: CSV in from
-/// `printf`, its stdout to `out`, and its status after it.
-fn pipeline(dir: &Path, options: &[&str], args: &str) -> (Run, String, String) {
-    let main = root().join("examples/tablepen/dist/main.js");
-    assert!(
-        main.is_file(),
-        "{} is missing: build the TypeScript half first with `npx tsc -b` (make check does)",
-        main.display()
-    );
-    let out = dir.join("out.csv");
+/// `filter.mjs` in the middle of a pipeline: three rows in from `printf`, its stdout to
+/// `out`, and its status after it.
+fn pipeline(dir: &Path, options: &[&str]) -> (Run, String, String) {
+    let out = dir.join("out.txt");
     let status = dir.join("status");
     let script = format!(
-        r#"printf 'name,size\nweb,3\ndb,40\n"cache, hot",5\n' | node {} {args} > {}; echo $? > {}"#,
-        quoted(&main.to_string_lossy()),
+        r#"printf 'web\napi\ndb\n' | node {} > {}; echo $? > {}"#,
+        quoted(&program("filter.mjs")),
         quoted(&out.to_string_lossy()),
         quoted(&status.to_string_lossy()),
     );
@@ -1185,39 +934,32 @@ fn a_filter_asks_for_its_view_on_the_terminal_and_writes_what_was_chosen_to_the_
     let dir = fresh("filter-chosen");
     let (run, out, status) = pipeline(
         &dir,
-        &["--call", r#"choose_rows={"rows":[2,0]}"#],
-        "--select",
+        &["--call", "rows", "--call", r#"choose={"rows":[2,0]}"#],
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "program: hello id=1",
         "host: sees the tty: canonical=false echo=false",
         "screen: alternate screen on",
-        "program: open id=2 tool=show_table bundle of 3 files",
-        r#"view: <- ui/notifications/tool-result "3 rows, 2 columns: name, size""#,
-        r#"view: -> tools/call choose_rows {"rows":[2,0]}"#,
+        r#"program: open id=2 view=web version=1.0 title="Choose rows" bundle of 1 files"#,
+        "view: -> call id=1 rows",
+        "view: -> call id=2 choose",
         // The program answers the call before it closes the view, so the view hears
         // that the rows were taken.
-        "program: msg id=* response",
+        r#"view: <- response id=2 result={"chosen":2}"#,
         "program: dismiss",
         "host: closed id=* reason=program",
         "screen: alternate screen off",
     ]);
-    assert_eq!(
-        run.count(r#"view: <- tool result "Chose 2 of 3 rows, 2 columns.""#),
-        1,
-        "{}",
-        run.text()
-    );
     // The terminal had the protocol; the pipe has the data and nothing else.
-    assert_eq!(out, "name,size\nweb,3\n\"cache, hot\",5\n");
+    assert_eq!(out, "db\nweb\n");
     assert_eq!(status, "0");
 }
 
 #[test]
 fn a_filter_whose_view_closes_with_nothing_chosen_writes_nothing_and_fails() {
     let dir = fresh("filter-nothing");
-    let (run, out, status) = pipeline(&dir, &["--then", "close"], "--select");
+    let (run, out, status) = pipeline(&dir, &["--call", "rows", "--then", "close"]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "screen: alternate screen on",
@@ -1225,7 +967,7 @@ fn a_filter_whose_view_closes_with_nothing_chosen_writes_nothing_and_fails() {
         "host: closed id=* reason=user",
         "screen: alternate screen off",
     ]);
-    // `rows=$(… | tablepen --select) && mail …` stops here.
+    // `rows=$(… | filter) && mail …` stops here.
     assert_eq!(out, "");
     assert_eq!(status, "1");
 }

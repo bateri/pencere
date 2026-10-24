@@ -3,35 +3,116 @@
 import { describe, expect, it } from "vitest";
 
 import { bundleFromFiles } from "../src/bundle.js";
+import type { BundleManifest } from "../src/bundle.js";
 import {
   VERSIONS,
   byePayload,
+  callPayload,
+  cancelPayload,
+  chooseView,
   dismissPayload,
+  failurePayload,
   helloPayload,
   openPayload,
   parseClosed,
   parseNeed,
+  parseViewRequest,
   parseWelcome,
+  progressPayload,
+  pushPayload,
+  readViews,
+  responsePayload,
+  subscribePayload,
 } from "../src/messages.js";
-import { EXAMPLE_FILES, TOKEN, payloadOf } from "./support.js";
+import type { OpenFields, WelcomeOffer } from "../src/messages.js";
+import { EXAMPLE_FILES, TOKEN, TOKEN_2, WASM_HEADER, offers, payloadOf } from "./support.js";
 
-const exampleBundle = () =>
-  bundleFromFiles(
-    Object.entries(EXAMPLE_FILES).map(([path, text]) => ({ path, data: Buffer.from(text) })),
-    { meta: { csp: { connectDomains: ["https://api.example.com"] }, prefersBorder: false } },
-  );
+const web = bundleFromFiles(
+  Object.entries(EXAMPLE_FILES).map(([path, text]) => ({ path, data: Buffer.from(text) })),
+);
+
+const component = bundleFromFiles([{ path: "view.wasm", data: WASM_HEADER }], {
+  entry: "view.wasm",
+});
 
 describe("what the program writes", () => {
-  it("is the hello of the fixtures", () => {
-    expect(helloPayload()).toBe(payloadOf("to-host/hello.frame"));
+  it("is the hello of the fixtures: one kind with its versions", () => {
+    expect(helloPayload(offers("web"))).toBe(payloadOf("to-host/hello.frame"));
   });
 
-  it("is the open of the fixtures, with and without a bundle", () => {
-    const tool = { name: "list_containers" };
-    expect(openPayload({ token: TOKEN, view: "web", tool })).toBe(payloadOf("to-host/open.frame"));
-    expect(openPayload({ token: TOKEN, view: "web", tool, bundle: exampleBundle().manifest })).toBe(
-      payloadOf("to-host/open-bundle.frame"),
+  it("is the hello of three kinds, one of them in two versions, in the order given", () => {
+    expect(helloPayload(offers(["wasm", "0.5", "0.4"], "lua", "web"))).toBe(
+      payloadOf("to-host/hello-views.frame"),
     );
+  });
+
+  it("is the open of a page: the kind and its version, the names, what it asks to reach, the bundle", () => {
+    const open: OpenFields = {
+      token: TOKEN,
+      view: "web",
+      version: "1.0",
+      program: "containers",
+      title: "Containers",
+      access: { connect: ["https://api.example.com"], permissions: ["clipboardWrite"] },
+      bundle: web.manifest,
+    };
+    expect(openPayload(open)).toBe(payloadOf("to-host/open-web.frame"));
+  });
+
+  it("is the open of a kit view: no access", () => {
+    const open = (view: "wasm" | "lua", bundle: BundleManifest): OpenFields => ({
+      token: TOKEN,
+      view,
+      version: "0.5",
+      program: "demopen",
+      title: "Containers",
+      bundle,
+    });
+    expect(openPayload(open("wasm", component.manifest))).toBe(
+      payloadOf("to-host/open-wasm.frame"),
+    );
+    // The script of the fixture is not among the files here: its manifest is read from the fixture.
+    const lua = payloadOf("to-host/open-lua.frame");
+    const manifest = (JSON.parse(lua) as { bundle: BundleManifest }).bundle;
+    expect(openPayload(open("lua", manifest))).toBe(lua);
+  });
+
+  it("is the open with an icon: the icon's members in the order of Appendix A", () => {
+    const src =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
+    const open: OpenFields = {
+      token: TOKEN,
+      view: "wasm",
+      version: "0.5",
+      program: "demopen",
+      title: "Containers",
+      // Written here in another order than the wire's.
+      icons: [{ theme: "dark", sizes: ["1x1"], mimeType: "image/png", src }],
+      bundle: component.manifest,
+    };
+    expect(openPayload(open)).toBe(payloadOf("to-host/open-icons.frame"));
+  });
+
+  it("writes the members of an open in the wire's order whatever order they were given in", () => {
+    const text = openPayload({
+      bundle: component.manifest,
+      access: { permissions: ["camera"], connect: ["https://a.example"] },
+      title: "t",
+      program: "p",
+      version: "0.5",
+      view: "web",
+      token: TOKEN,
+    });
+    expect(Object.keys(JSON.parse(text) as object)).toEqual([
+      "token",
+      "view",
+      "version",
+      "program",
+      "title",
+      "access",
+      "bundle",
+    ]);
+    expect(text).toContain('"access":{"connect":["https://a.example"],"permissions":["camera"]}');
   });
 
   it("is the bye of the fixtures: the token first, then why", () => {
@@ -41,104 +122,264 @@ describe("what the program writes", () => {
   it("is the dismiss of the fixtures: the token of the view, and nothing else", () => {
     expect(dismissPayload(TOKEN)).toBe(payloadOf("to-host/dismiss.frame"));
   });
+});
 
-  it("writes the arguments of the tool as given", () => {
-    expect(
-      openPayload({
-        token: TOKEN,
-        view: "web",
-        tool: { name: "t", arguments: { all: true, n: 2 } },
-      }),
-    ).toBe(`{"token":"${TOKEN}","view":"web","tool":{"name":"t","arguments":{"all":true,"n":2}}}`);
+describe("the six messages", () => {
+  it("are written as the fixtures have them", () => {
+    expect(responsePayload(1, { containers: [{ id: "c1", name: "web", state: "running" }] })).toBe(
+      payloadOf("to-host/msg-response.frame"),
+    );
+    expect(pushPayload(3, { id: "c1", state: "exited" })).toBe(payloadOf("to-host/msg-push.frame"));
+    expect(progressPayload(4, 4, 10, "layer 4 of 10")).toBe(
+      payloadOf("to-host/msg-progress.frame"),
+    );
+    expect(callPayload(1, "list", { all: true })).toBe(payloadOf("to-program/msg-call.frame"));
+    expect(subscribePayload(2, "stats", { name: "web" })).toBe(
+      payloadOf("to-program/msg-subscribe.frame"),
+    );
+    expect(cancelPayload(2)).toBe(payloadOf("to-program/msg-cancel.frame"));
+  });
+
+  it("have their members in the order of §9.2, and leave out the optional ones that are not given", () => {
+    expect(callPayload(1, "m")).toBe('{"call":{"id":1,"method":"m"}}');
+    expect(subscribePayload(2, "t")).toBe('{"subscribe":{"id":2,"topic":"t"}}');
+    expect(progressPayload(4, 1)).toBe('{"progress":{"id":4,"done":1}}');
+    expect(progressPayload(4, 1, undefined, "n")).toBe('{"progress":{"id":4,"done":1,"note":"n"}}');
+    expect(failurePayload(5, "gone")).toBe('{"response":{"id":5,"error":{"code":"gone"}}}');
+    expect(failurePayload(5, "gone", "it is gone")).toBe(
+      '{"response":{"id":5,"error":{"code":"gone","message":"it is gone"}}}',
+    );
+  });
+
+  it("never have a result that is null: nothing to say is {}", () => {
+    expect(responsePayload(1, undefined)).toBe('{"response":{"id":1,"result":{}}}');
+    expect(responsePayload(1, null)).toBe('{"response":{"id":1,"result":{}}}');
+    expect(responsePayload(1, 0)).toBe('{"response":{"id":1,"result":0}}');
+    expect(responsePayload(1, false)).toBe('{"response":{"id":1,"result":false}}');
+    expect(pushPayload(1, undefined)).toBe('{"push":{"id":1,"value":null}}');
+  });
+
+  it("carry text the wire may not as escapes", () => {
+    const text = responsePayload(1, { s: "é\u007f\u{1F600}\n" });
+    expect(text).toBe('{"response":{"id":1,"result":{"s":"\\u00e9\\u007f\\ud83d\\ude00\\n"}}}');
+    expect(/^[\x20-\x7e]*$/.test(text)).toBe(true);
+  });
+
+  it("are read from the view: a call, a subscription, a cancel", () => {
+    expect(parseViewRequest(payloadOf("to-program/msg-call.frame"))).toEqual({
+      type: "call",
+      id: 1,
+      method: "list",
+      params: { all: true },
+    });
+    expect(parseViewRequest(payloadOf("to-program/msg-subscribe.frame"))).toEqual({
+      type: "subscribe",
+      id: 2,
+      topic: "stats",
+      params: { name: "web" },
+    });
+    expect(parseViewRequest(payloadOf("to-program/msg-cancel.frame"))).toEqual({
+      type: "cancel",
+      id: 2,
+    });
+  });
+
+  it("are read from a longer message of the view, its text unescaped", () => {
+    const request = parseViewRequest(payloadOf("to-program/msg-chunked.frame"));
+    expect(request).toMatchObject({ type: "call", id: 4, method: "stop" });
+    const params = (request as { params: { id: string; reason: string } }).params;
+    expect(params.id).toBe("c3");
+    expect(params.reason.startsWith("Arrêt demandé depuis la vue. ")).toBe(true);
+  });
+
+  it("have params only when the view sent them, and any value counts, null too", () => {
+    expect(parseViewRequest('{"call":{"id":1,"method":"m"}}')).toEqual({
+      type: "call",
+      id: 1,
+      method: "m",
+    });
+    expect(parseViewRequest('{"call":{"id":1,"method":"m","params":null}}')).toEqual({
+      type: "call",
+      id: 1,
+      method: "m",
+      params: null,
+    });
+  });
+
+  it("are ignored from the view when they are not what §9.2 says", () => {
+    const ignored = [
+      "not json",
+      "[]",
+      "null",
+      "1",
+      '"call"',
+      "{}",
+      // another member, or the program's own messages: the view does not send them
+      '{"response":{"id":1,"result":{}}}',
+      '{"push":{"id":1,"value":1}}',
+      '{"progress":{"id":1,"done":1}}',
+      '{"close":{}}',
+      '{"context":{}}',
+      // two members: not one of the six
+      '{"call":{"id":1,"method":"m"},"cancel":{"id":1}}',
+      '{"call":{"id":1,"method":"m"},"x":1}',
+      // the value is not an object
+      '{"call":1}',
+      '{"call":null}',
+      '{"call":[]}',
+      '{"cancel":"1"}',
+      // the id is missing, zero, negative, fractional, not a number, too large to be exact
+      '{"call":{"method":"m"}}',
+      '{"call":{"id":0,"method":"m"}}',
+      '{"call":{"id":-1,"method":"m"}}',
+      '{"call":{"id":1.5,"method":"m"}}',
+      '{"call":{"id":"1","method":"m"}}',
+      '{"call":{"id":1e300,"method":"m"}}',
+      '{"cancel":{"id":0}}',
+      '{"cancel":{}}',
+      // the other members are missing or of the wrong kind
+      '{"call":{"id":1}}',
+      '{"call":{"id":1,"method":2}}',
+      '{"subscribe":{"id":1}}',
+      '{"subscribe":{"id":1,"topic":null}}',
+    ];
+    for (const text of ignored) expect(parseViewRequest(text), text).toBeUndefined();
+  });
+
+  it("ignore members they do not know inside the object", () => {
+    expect(parseViewRequest('{"cancel":{"id":3,"why":"bored"}}')).toEqual({
+      type: "cancel",
+      id: 3,
+    });
   });
 });
 
 describe("a welcome", () => {
-  it("with a version and a token is an offer", () => {
+  const offer = (name: string): WelcomeOffer => {
+    const welcome = parseWelcome(payloadOf(name), VERSIONS);
+    if (welcome?.kind !== "offer") throw new Error(`${name} is no offer`);
+    return welcome;
+  };
+
+  it("with a version and a token is an offer, with the kinds the host opens and their versions", () => {
     expect(parseWelcome(payloadOf("to-program/welcome.frame"), VERSIONS)).toEqual({
       kind: "offer",
       version: 1,
       token: TOKEN,
+      host: { name: "pencere-test", version: "0.0.0" },
       features: ["bundle", "dismiss"],
-      views: ["web"],
+      views: [{ kind: "web", versions: ["1.0"] }],
       restart: false,
     });
   });
 
-  it("lists the kinds of view the program can open, in the order it listed them", () => {
-    const welcome = payloadOf("to-program/welcome-wasm.frame");
-    expect(parseWelcome(welcome, VERSIONS)).toMatchObject({ views: ["web"] });
-    expect(parseWelcome(welcome, VERSIONS, ["web", "wasm"])).toMatchObject({
-      views: ["wasm", "web"],
-    });
+  it("lists the kinds in the order the host wrote them, each with its versions in its order", () => {
+    expect(offer("to-program/welcome-wasm.frame").views).toEqual([
+      { kind: "wasm", versions: ["0.5"] },
+      { kind: "web", versions: ["1.0"] },
+    ]);
+    expect(offer("to-program/welcome-versions.frame").views).toEqual([
+      { kind: "wasm", versions: ["0.5", "0.4"] },
+      { kind: "web", versions: ["1.0"] },
+    ]);
   });
 
-  it("with no kind of view this program can show is not an offer", () => {
-    expect(parseWelcome(payloadOf("to-program/welcome-no-views.frame"), VERSIONS)).toEqual({
-      kind: "no-views",
-    });
-    expect(parseWelcome(payloadOf("to-program/welcome-wasm.frame"), VERSIONS, ["lua"])).toEqual({
-      kind: "no-views",
-    });
-    expect(
-      parseWelcome(`{"version":1,"token":"${TOKEN}","features":["bundle"]}`, VERSIONS),
-    ).toEqual({ kind: "no-views" });
+  it("with no kind in common is still an offer: there is a host, and nothing to open", () => {
+    expect(offer("to-program/welcome-no-views.frame")).toMatchObject({ token: TOKEN, views: [] });
   });
 
-  it("that asks to start again says so", () => {
-    expect(parseWelcome(payloadOf("to-program/welcome-restart.frame"), VERSIONS)).toMatchObject({
-      kind: "offer",
+  it("unsolicited, with restart, is an offer that says so", () => {
+    expect(offer("to-program/welcome-restart.frame")).toMatchObject({
+      token: TOKEN_2,
       restart: true,
     });
   });
 
-  it("with supported and no version shares no version", () => {
+  it("with only the versions the host speaks is an unsupported one", () => {
     expect(parseWelcome(payloadOf("to-program/welcome-unsupported.frame"), VERSIONS)).toEqual({
       kind: "unsupported",
       supported: [1],
     });
   });
 
-  it("with a version the program did not offer shares none either", () => {
-    expect(parseWelcome(payloadOf("to-program/welcome.frame"), [2])).toEqual({
-      kind: "unsupported",
-      supported: [],
+  it("with a version the program did not offer is an unsupported one", () => {
+    const welcome = payloadOf("to-program/welcome.frame").replace('"version":1', '"version":7');
+    expect(parseWelcome(welcome, VERSIONS)).toEqual({ kind: "unsupported", supported: [] });
+    expect(parseWelcome(welcome, [7])).toMatchObject({ kind: "offer", version: 7 });
+  });
+
+  it("is not read when it is not a welcome", () => {
+    const good = payloadOf("to-program/welcome.frame");
+    expect(parseWelcome("not json", VERSIONS)).toBeUndefined();
+    expect(parseWelcome("[]", VERSIONS)).toBeUndefined();
+    expect(parseWelcome("{}", VERSIONS)).toBeUndefined();
+    expect(parseWelcome(good.replace(TOKEN, "short"), VERSIONS)).toBeUndefined();
+    expect(parseWelcome(good.replace('"token":"', '"tok":"'), VERSIONS)).toBeUndefined();
+    expect(parseWelcome(good.replace('"version":1', '"version":0'), VERSIONS)).toBeUndefined();
+    expect(parseWelcome(good.replace('"version":1', '"version":"1"'), VERSIONS)).toBeUndefined();
+  });
+
+  it("reads the kinds leniently: what is not an entry of §5.2 is left out, a kind counts once", () => {
+    expect(
+      readViews([
+        { kind: "web", versions: ["1.0", "nine", 2, "1.0.0"] },
+        { kind: "web", versions: ["2.0"] },
+        { kind: "wasm" },
+        { kind: "lua", versions: [] },
+        { kind: 3, versions: ["0.5"] },
+        "wasm",
+        null,
+        { kind: "lua", versions: ["0.5"] },
+      ]),
+    ).toEqual([
+      { kind: "web", versions: ["1.0"] },
+      { kind: "lua", versions: ["0.5"] },
+    ]);
+    expect(readViews(undefined)).toEqual([]);
+    expect(readViews({ kind: "web", versions: ["1.0"] })).toEqual([]);
+  });
+});
+
+describe("choosing the view", () => {
+  const mine = offers(["wasm", "0.6", "0.5", "0.4"], "lua", "web");
+
+  it("is the first kind of the program's list that the host lists, at the first version it lists", () => {
+    // session/several-versions: the host opens wasm at 0.5 and 0.4, and web.
+    const welcome = parseWelcome(payloadOf("to-program/welcome-versions.frame"), VERSIONS);
+    if (welcome?.kind !== "offer") throw new Error("no offer");
+    expect(chooseView(mine, welcome.views)).toEqual({ kind: "wasm", version: "0.5" });
+  });
+
+  it("follows the program's order of kinds and not the host's", () => {
+    expect(chooseView(offers("web", ["wasm", "0.5"]), offers(["wasm", "0.5"], "web"))).toEqual({
+      kind: "web",
+      version: "1.0",
     });
   });
 
-  it("is ignored when it cannot be understood", () => {
-    for (const payload of [
-      "not json",
-      "[]",
-      "{}",
-      '{"version":1}',
-      '{"version":1,"token":7}',
-      '{"version":1,"token":"short"}',
-      `{"version":"1","token":"${TOKEN}"}`,
-      `{"version":0,"token":"${TOKEN}"}`,
-      `{"version":1.5,"token":"${TOKEN}"}`,
-    ])
-      expect(parseWelcome(payload, VERSIONS), payload).toBeUndefined();
+  it("follows the program's order of versions when the host lists its own order (§10.7)", () => {
+    expect(chooseView(offers(["wasm", "0.5", "0.4"]), offers(["wasm", "0.4", "0.5"]))).toEqual({
+      kind: "wasm",
+      version: "0.5",
+    });
   });
 
-  it("takes no feature that is not a string", () => {
-    expect(
-      parseWelcome(
-        `{"version":1,"token":"${TOKEN}","features":["bundle",1,null],"views":["web",2]}`,
-        VERSIONS,
-      ),
-    ).toMatchObject({ features: ["bundle"], views: ["web"] });
-    expect(
-      parseWelcome(
-        `{"version":1,"token":"${TOKEN}","features":"bundle","views":["web"]}`,
-        VERSIONS,
-      ),
-    ).toMatchObject({ features: [] });
+  it("goes on to the next kind when a kind has no version in common (session/no-common-version)", () => {
+    expect(chooseView(offers(["wasm", "0.9"], "web"), offers("web"))).toEqual({
+      kind: "web",
+      version: "1.0",
+    });
+    expect(chooseView(offers(["wasm", "0.9"]), offers(["wasm", "0.4", "0.5"]))).toBeUndefined();
+  });
+
+  it("is nothing when the host lists nothing, or a kind the program did not list", () => {
+    expect(chooseView(mine, [])).toBeUndefined();
+    expect(chooseView(offers("web"), offers(["wasm", "0.5"]))).toBeUndefined();
   });
 });
 
 describe("a need", () => {
-  it("is the digests in the host's order", () => {
+  it("lists the digests the host lacks, in its order", () => {
     expect(parseNeed(payloadOf("to-program/need.frame"))).toEqual([
       "bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c",
     ]);
@@ -146,20 +387,22 @@ describe("a need", () => {
     expect(parseNeed(payloadOf("to-program/need-chunked.frame"))).toHaveLength(12);
   });
 
-  it("is ignored without a list, and skips what is no digest", () => {
+  it("leaves out what is not a digest, and is not read without a list", () => {
+    expect(parseNeed('{"missing":["xyz",1,"' + "a".repeat(64) + '"]}')).toEqual(["a".repeat(64)]);
     expect(parseNeed("{}")).toBeUndefined();
-    expect(parseNeed('{"missing":"x"}')).toBeUndefined();
-    expect(parseNeed(`{"missing":["nope",7,"${"a".repeat(64)}","${"A".repeat(64)}"]}`)).toEqual([
-      "a".repeat(64),
-    ]);
+    expect(parseNeed("not json")).toBeUndefined();
   });
 });
 
 describe("a closed", () => {
-  it("has its reason and its code", () => {
+  it("has a reason, a code when there is one, and words when a view failed", () => {
     expect(parseClosed(payloadOf("to-program/closed-refused.frame"))).toEqual({
       reason: "refused",
       code: "token",
+    });
+    expect(parseClosed(payloadOf("to-program/closed-user.frame"))).toEqual({ reason: "user" });
+    expect(parseClosed(payloadOf("to-program/closed-program.frame"))).toEqual({
+      reason: "program",
     });
     expect(parseClosed(payloadOf("to-program/closed-error.frame"))).toEqual({
       reason: "error",
@@ -170,18 +413,15 @@ describe("a closed", () => {
       code: "view",
       message: "script:12: attempt to index nil with 'x'",
     });
-    expect(parseClosed(payloadOf("to-program/closed-user.frame"))).toEqual({ reason: "user" });
-    expect(parseClosed(payloadOf("to-program/closed-program.frame"))).toEqual({
-      reason: "program",
-    });
   });
 
   it("with a reason this version does not know still ends the view, as an error", () => {
     expect(parseClosed('{"reason":"later"}')).toEqual({ reason: "error" });
   });
 
-  it("is ignored without a reason", () => {
-    for (const payload of ["not json", "[]", "{}", '{"reason":1}'])
-      expect(parseClosed(payload), payload).toBeUndefined();
+  it("is not read without a reason", () => {
+    expect(parseClosed("{}")).toBeUndefined();
+    expect(parseClosed('{"reason":3}')).toBeUndefined();
+    expect(parseClosed("[]")).toBeUndefined();
   });
 });

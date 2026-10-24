@@ -8,6 +8,15 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ### Changed
 
+- **Breaking: one protocol, no MCP.** `serve` no longer takes an MCP server: a program lists the views it
+  can show (`views`: kind, versions, bundle, and for a page its `access`), answers the view's calls
+  (`calls`), feeds its subscriptions (`topics`) and learns how the run ended from the result
+  (`ServeResult`). The six view messages are written and read by `messages.ts`, the handshake lists
+  kinds with versions, `@modelcontextprotocol/*`, `ext-apps` and `zod` are no dependencies any more, and
+  the bundle has no `meta`. The program waits for the host's `closed` after `bye` and throws away the
+  input it has not read (specification §10.3). The wire of the draft changed in place; there is no
+  support for the previous draft.
+
 - `parseClosed` reads `message`, the words a view the host draws itself failed with (specification
   §8.8). `.lua` files are served as `text/x-lua`.
 

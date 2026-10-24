@@ -242,7 +242,7 @@ fn a_canonical_entry_is_what_the_writer_writes() {
 fn the_two_chunked_examples_are_what_a_sender_that_picks_those_sizes_writes() {
     for (file, size) in [
         ("to-host/file-chunked.frame", 60),
-        ("to-host/msg-chunked.frame", 100),
+        ("to-host/msg-chunked.frame", 59),
     ] {
         let entry = entries().into_iter().find(|e| e.file == file).unwrap();
         let bytes = common::file(file);

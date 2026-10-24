@@ -13,7 +13,6 @@ use sha2::{Digest as _, Sha256};
 
 use crate::base64;
 use crate::message::{RawBundle, RawFile};
-use crate::sandbox::UiMeta;
 
 /// The most files a manifest may list (specification §8.2).
 pub const MAX_FILES: usize = 1024;
@@ -200,8 +199,7 @@ pub enum Refusal {
     Limit,
 }
 
-/// The media type of a view that is a WebAssembly component (specification §8.8): the `type` of
-/// a bundle's entry that makes the view one the terminal draws itself.
+/// The media type of the entry of a WebAssembly view (specification §6.3, §8.8): a component.
 pub const WASM_MEDIA_TYPE: &str = "application/wasm";
 
 /// The media type of the entry of a Lua view: the text of a script.
@@ -225,7 +223,6 @@ pub struct File {
 pub struct Manifest {
     entry: String,
     files: Vec<File>,
-    meta: Option<UiMeta>,
 }
 
 fn is_segment(segment: &str) -> bool {
@@ -264,12 +261,6 @@ fn is_media_type(text: &str) -> bool {
 
 impl Manifest {
     pub(crate) fn check(raw: RawBundle, limits: BundleLimits) -> Result<Self, Refusal> {
-        let meta = raw
-            .meta
-            .as_ref()
-            .map(UiMeta::from_value)
-            .transpose()
-            .map_err(|_| Refusal::Manifest)?;
         let mut files = Vec::with_capacity(raw.files.len().min(MAX_FILES + 1));
         let mut paths = std::collections::HashSet::new();
         for RawFile {
@@ -306,7 +297,6 @@ impl Manifest {
         Ok(Self {
             entry: raw.entry,
             files,
-            meta,
         })
     }
 
@@ -324,11 +314,6 @@ impl Manifest {
     /// The files, in the order the manifest lists them.
     pub fn files(&self) -> &[File] {
         &self.files
-    }
-
-    /// The `_meta.ui` of the view the manifest carries.
-    pub fn meta(&self) -> Option<&UiMeta> {
-        self.meta.as_ref()
     }
 
     /// The file at `path`. A host serves nothing that is not in the manifest, so
@@ -558,9 +543,6 @@ mod tests {
         assert_eq!(check(value, BundleLimits::PROTOCOL), Err(Refusal::Manifest));
         let mut value = manifest_json(&[("a", "a")]);
         value["files"][0]["type"] = json!("Text/Plain");
-        assert_eq!(check(value, BundleLimits::PROTOCOL), Err(Refusal::Manifest));
-        let mut value = manifest_json(&[("a", "a")]);
-        value["meta"] = json!({"csp": 5});
         assert_eq!(check(value, BundleLimits::PROTOCOL), Err(Refusal::Manifest));
         // Within the grammar, over a limit: a malformed one is a manifest even when it is also too big.
         let mut value = manifest_json(&[("a", "a")]);

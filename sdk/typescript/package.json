@@ -1,7 +1,7 @@
 {
   "name": "@pencere/sdk",
   "version": "0.1.1",
-  "description": "Show an MCP App view in the terminal pane your MCP server runs in",
+  "description": "Show a view in the terminal pane your program runs in",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bateri/pencere/tree/main/sdk/typescript#readme",
   "bugs": "https://github.com/bateri/pencere/issues",
@@ -11,10 +11,11 @@
     "directory": "sdk/typescript"
   },
   "keywords": [
-    "mcp",
-    "mcp-apps",
     "terminal",
-    "pencere"
+    "pencere",
+    "view",
+    "webassembly",
+    "lua"
   ],
   "type": "module",
   "exports": {
@@ -37,14 +38,5 @@
   },
   "engines": {
     "node": ">=22"
-  },
-  "peerDependencies": {
-    "@modelcontextprotocol/server": "^2.3.1"
-  },
-  "devDependencies": {
-    "@modelcontextprotocol/client": "^2.3.1",
-    "@modelcontextprotocol/ext-apps": "^2.0.3",
-    "@modelcontextprotocol/server": "^2.3.1",
-    "zod": "^4.6.7"
   }
 }

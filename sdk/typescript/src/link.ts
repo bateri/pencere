@@ -87,6 +87,7 @@ export class Link {
   #queue: Promise<void> = Promise.resolve();
   #running = false;
   #stopped = false;
+  #muted = false;
   #failure: Error | undefined;
 
   readonly #onData = (chunk: Uint8Array | string): void => {
@@ -146,6 +147,15 @@ export class Link {
   }
 
   /**
+   * Stops writing what is queued, and anything queued from now on, while reading goes on: the
+   * program has ended its view and waits for the host's last word (§10.3). {@link Link.sendNow} and
+   * {@link Link.writeNow} still write.
+   */
+  mute(): void {
+    this.#muted = true;
+  }
+
+  /**
    * Queues a message toward the host. Its frames are written together, and after
    * everything queued before it.
    *
@@ -186,13 +196,15 @@ export class Link {
 
   /**
    * Writes a message now, like {@link Link.writeNow}: the `bye` of a program that
-   * is leaving. It has the next id, as any message has.
+   * is leaving. It has the next id, as any message has, and the id is returned.
    */
-  sendNow(kind: string, payload: string): void {
-    const bytes = encode("to-host", { kind, id: this.#ids.next(), payload });
+  sendNow(kind: string, payload: string): number {
+    const id = this.#ids.next();
+    const bytes = encode("to-host", { kind, id, payload });
     this.#output.write(bytes, (error) => {
       if (error) this.#failure = error;
     });
+    return id;
   }
 
   /** Resolves when everything queued so far has been written. */
@@ -204,7 +216,7 @@ export class Link {
     const written = this.#queue.then(
       () =>
         new Promise<void>((resolve) => {
-          if (this.#stopped) {
+          if (this.#stopped || this.#muted) {
             resolve();
             return;
           }

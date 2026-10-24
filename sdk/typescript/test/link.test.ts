@@ -249,3 +249,35 @@ describe("what the link writes", () => {
     expect(link.failure).toBe(later);
   });
 });
+
+describe("a link that is muted", () => {
+  it("drops what is queued and not yet written, and what is queued afterwards, and still writes now", async () => {
+    const output = new FakeOutput();
+    const link = new Link(new FakeInput(), output, { message() {}, reply() {} });
+    link.send("msg", '{"a":1}');
+    link.mute();
+    const id = link.sendNow("bye", '{"token":"x"}');
+    link.send("msg", '{"b":2}');
+    link.writeNow("\x1b[?1049l");
+    await link.flush();
+    // The `bye` has the next id after the message that was queued, and is the only frame written.
+    expect(id).toBe(2);
+    expect(output.writes.map((w) => w.toString("latin1").slice(0, 12))).toEqual([
+      "\x1b_pencere;by",
+      "\x1b[?1049l",
+    ]);
+  });
+
+  it("goes on reading", () => {
+    const input = new FakeInput();
+    const seen: string[] = [];
+    const link = new Link(input, new FakeOutput(), {
+      message: (m) => seen.push(m.kind),
+      reply() {},
+    });
+    link.start();
+    link.mute();
+    input.push(frame("closed", 1, '{"reason":"program"}', 1));
+    expect(seen).toEqual(["closed"]);
+  });
+});

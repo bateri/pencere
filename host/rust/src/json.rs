@@ -8,7 +8,11 @@
 //! is ASCII, so any such character found in the text is inside a string, where
 //! `\uXXXX` (a surrogate pair from U+10000 up) means the same character.
 
-use serde::Serialize;
+use std::marker::PhantomData;
+
+use serde::de::value::MapAccessDeserializer;
+use serde::de::{Deserializer, MapAccess, Visitor};
+use serde::{Deserialize, Serialize};
 
 /// Serialises `value` as compact JSON text that is printable ASCII throughout.
 ///
@@ -57,6 +61,27 @@ pub fn from_object<T: for<'de> serde::Deserialize<'de>>(text: &str) -> Option<T>
         serde_json::from_str(text).ok()
     } else {
         None
+    }
+}
+
+/// A `T` that is read from a JSON object and from nothing else. A struct that serde reads can
+/// also be read from an array of its fields in order (see [`is_object`]); this is for the
+/// members of a payload, where an array standing for an object is not one.
+pub(crate) struct Object<T>(pub T);
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Object<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct V<T>(PhantomData<T>);
+        impl<'de, T: Deserialize<'de>> Visitor<'de> for V<T> {
+            type Value = Object<T>;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a JSON object")
+            }
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<Object<T>, A::Error> {
+                T::deserialize(MapAccessDeserializer::new(map)).map(Object)
+            }
+        }
+        deserializer.deserialize_map(V(PhantomData))
     }
 }
 
@@ -114,6 +139,20 @@ mod tests {
         assert!(from_object::<Pair>(r#"{"a":1}"#).is_some());
         assert!(from_object::<Pair>("[1]").is_none());
         assert!(from_object::<Pair>(r#"{"a":"x"}"#).is_none());
+    }
+
+    #[test]
+    fn an_object_member_is_not_read_from_an_array() {
+        #[derive(Deserialize)]
+        struct Pair {
+            a: u32,
+            b: u32,
+        }
+        let read = |text: &str| serde_json::from_str::<Object<Pair>>(text).map(|p| (p.0.a, p.0.b));
+        assert_eq!(read(r#"{"b":2,"a":1,"c":[{}]}"#).unwrap(), (1, 2));
+        assert!(read("[1,2]").is_err());
+        assert!(read("7").is_err());
+        assert!(read(r#"{"a":1}"#).is_err());
     }
 
     #[test]

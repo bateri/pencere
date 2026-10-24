@@ -1,7 +1,6 @@
-// The release tooling's one rule that no other check sees: a package that names another
-// package of this repository names exactly `^<that package's version>`, in its manifest and
-// in the lockfile, and `release.mjs prepare` keeps it so. When it does not hold, `npm ci`
-// looks for the version on the registry instead of linking the workspace's, and fails.
+// The release tooling's rules that no other check sees: `release.mjs prepare` moves a line's
+// version, in its manifest and in the lockfile, and dates its changelog; `release.mjs check`
+// refuses a release whose version and changelog disagree, before it looks at git or the registry.
 
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -10,46 +9,29 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { LINES, moveRanges, needs, rangeFor, ranges, strayRanges } from "./lines.mjs";
+import { LINES } from "./lines.mjs";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const json = (root, ...path) => JSON.parse(readFileSync(join(root, ...path), "utf8"));
-const versionOf = (root, line) => json(root, line.dir, "package.json").version;
+const text = (root, ...path) => readFileSync(join(root, ...path), "utf8");
 const npmLines = Object.values(LINES).filter((line) => line.kind === "npm");
 
-describe("the repository's packages", () => {
-  it("name each other by the version each is at", () => {
-    for (const line of npmLines) {
-      expect(strayRanges(repo, line.name, versionOf(repo, line)), line.name).toEqual([]);
-    }
-  });
-
-  it("have the same ranges in the lockfile as in their manifests", () => {
-    const lock = json(repo, "package-lock.json");
-    for (const { dir, field, name, range } of ranges(repo)) {
-      // Only the workspace's members are in the lockfile; the templates are not.
-      const member = lock.packages[dir];
-      if (member !== undefined) expect(member[field]?.[name], `${dir} ${name}`).toBe(range);
-    }
-  });
-
-  it("are the ones the lines say they are", () => {
+describe("the repository's lines", () => {
+  it("are the packages the lines say they are", () => {
     for (const line of npmLines) {
       expect(json(repo, line.dir, "package.json").name).toBe(line.name);
-      expect(line.shipped).toContain(line.dir);
     }
+    expect(text(repo, LINES["host-rust"].dir, "Cargo.toml")).toMatch(
+      /^\[package\]\nname = "pencere"$/m,
+    );
   });
 
-  it("need, of the other lines, exactly what their manifests name", () => {
-    const sdk = rangeFor(versionOf(repo, LINES["sdk-typescript"]));
-    const cli = rangeFor(versionOf(repo, LINES.cli));
-    expect(needs(repo, LINES["sdk-typescript"])).toEqual([]);
-    expect(needs(repo, LINES.cli)).toEqual([{ name: "@pencere/sdk", range: sdk }]);
-    expect(needs(repo, LINES.create)).toEqual([
-      { name: "@pencere/sdk", range: sdk },
-      { name: "@pencere/cli", range: cli },
-    ]);
-    expect(needs(repo, LINES["host-rust"])).toEqual([]);
+  it("have the lockfile record each npm package at the version of its manifest", () => {
+    const lock = json(repo, "package-lock.json");
+    for (const line of npmLines) {
+      const manifest = json(repo, line.dir, "package.json");
+      expect(lock.packages[line.dir]?.version, line.name).toBe(manifest.version);
+    }
   });
 });
 
@@ -75,103 +57,32 @@ const CHANGELOG = (what) => `# Changelog
 - ${what}
 `;
 
-/** A copy of the repository's shape, with every package at `0.1.0` and each naming the others at `^0.1.0`. */
+/** A copy of the repository's shape, with both lines at `0.1.0` and something unreleased in each. */
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "pencere-release-test-"));
   roots.push(root);
-  const manifest = (name, dependencies = {}, devDependencies = {}) => ({
-    name,
-    version: "0.1.0",
-    dependencies,
-    devDependencies,
+  const sdk = { name: "@pencere/sdk", version: "0.1.0", devDependencies: { zod: "^4.6.7" } };
+  write(root, "sdk/typescript/package.json", sdk);
+  write(root, "package-lock.json", {
+    lockfileVersion: 3,
+    packages: { "": { name: "root", workspaces: ["sdk/*"] }, "sdk/typescript": sdk },
   });
-  const lines = {
-    "sdk/typescript": manifest("@pencere/sdk", {}, { zod: "^4.6.7" }),
-    cli: manifest("@pencere/cli", {
-      "@pencere/sdk": "^0.1.0",
-      "@modelcontextprotocol/client": "^2.3.1",
-    }),
-    create: manifest("create-pencere"),
-    "create/templates/react": manifest(
-      "{{name}}",
-      { "@pencere/sdk": "^0.1.0", react: "^19.3.1" },
-      {
-        "@pencere/cli": "^0.1.0",
-      },
-    ),
-    "create/templates/vue": manifest(
-      "{{name}}",
-      { "@pencere/sdk": "^0.1.0" },
-      { "@pencere/cli": "^0.1.0" },
-    ),
-  };
-  const packages = {};
-  for (const [dir, content] of Object.entries(lines)) {
-    write(root, `${dir}/package.json`, content);
-    if (!dir.includes("templates")) {
-      packages[dir] = {
-        name: content.name,
-        version: content.version,
-        dependencies: content.dependencies,
-        devDependencies: content.devDependencies,
-      };
-    }
-  }
-  write(root, "package-lock.json", { lockfileVersion: 3, packages });
-  for (const dir of ["sdk/typescript", "cli", "create"]) {
-    write(root, `${dir}/CHANGELOG.md`, CHANGELOG(`a change of ${dir}`));
-  }
+  write(root, "sdk/typescript/CHANGELOG.md", CHANGELOG("a change of the SDK"));
+  // The crate's version is its own line in [package], apart from the workspace's.
+  write(
+    root,
+    "Cargo.toml",
+    `[workspace]\nresolver = "3"\nmembers = ["host/rust"]\n\n[workspace.package]\nversion = "0.0.0"\nedition = "2024"\n`,
+  );
+  write(
+    root,
+    "host/rust/Cargo.toml",
+    `[package]\nname = "pencere"\nversion = "0.1.0"\nedition.workspace = true\n`,
+  );
+  write(root, "host/rust/src/lib.rs", "");
+  write(root, "host/rust/CHANGELOG.md", CHANGELOG("a change of the crate"));
   return root;
 }
-
-describe("moveRanges", () => {
-  it("makes every range that names the package say the new version, in manifests and lockfile", () => {
-    const root = fixture();
-    const written = moveRanges(root, "@pencere/sdk", "0.2.0");
-    expect(written.sort()).toEqual([
-      "cli/package.json",
-      "create/templates/react/package.json",
-      "create/templates/vue/package.json",
-      "package-lock.json",
-    ]);
-    expect(json(root, "cli", "package.json").dependencies["@pencere/sdk"]).toBe("^0.2.0");
-    expect(json(root, "create/templates/react/package.json").dependencies["@pencere/sdk"]).toBe(
-      "^0.2.0",
-    );
-    expect(json(root, "create/templates/vue/package.json").dependencies["@pencere/sdk"]).toBe(
-      "^0.2.0",
-    );
-    expect(json(root, "package-lock.json").packages.cli.dependencies["@pencere/sdk"]).toBe(
-      "^0.2.0",
-    );
-  });
-
-  it("leaves what does not name the package as it was", () => {
-    const root = fixture();
-    moveRanges(root, "@pencere/sdk", "0.2.0");
-    const cli = json(root, "cli", "package.json");
-    expect(cli.dependencies["@modelcontextprotocol/client"]).toBe("^2.3.1");
-    expect(json(root, "create/templates/react/package.json").devDependencies["@pencere/cli"]).toBe(
-      "^0.1.0",
-    );
-    expect(json(root, "create/templates/react/package.json").name).toBe("{{name}}");
-    // The package's own version is `prepare`'s, not a range's.
-    expect(json(root, "sdk/typescript", "package.json").version).toBe("0.1.0");
-  });
-
-  it("writes nothing when the ranges already say it", () => {
-    const root = fixture();
-    expect(moveRanges(root, "@pencere/sdk", "0.1.0")).toEqual([]);
-    expect(moveRanges(root, "create-pencere", "0.2.0")).toEqual([]);
-  });
-
-  it("is what strayRanges asks for", () => {
-    const root = fixture();
-    expect(strayRanges(root, "@pencere/sdk", "0.2.0")).toHaveLength(3);
-    moveRanges(root, "@pencere/sdk", "0.2.0");
-    expect(strayRanges(root, "@pencere/sdk", "0.2.0")).toEqual([]);
-  });
-});
 
 /** `tools/release.mjs` of the fixture, which is the script of this repository run on its files. */
 function release(root, ...args) {
@@ -183,48 +94,31 @@ function release(root, ...args) {
 }
 
 describe("release.mjs prepare", () => {
-  it("moves the version of a line and the ranges that name it, together", () => {
+  it("moves the version of an npm line in its manifest and the lockfile, and dates the changelog", () => {
     const root = fixture();
     const done = release(root, "prepare", "sdk-typescript", "0.2.0");
     expect(done.err).toBe("");
     expect(done.status).toBe(0);
-    expect(done.out).toContain("the range ^0.2.0 of @pencere/sdk is now also in: cli/package.json");
     expect(json(root, "sdk/typescript", "package.json").version).toBe("0.2.0");
     expect(json(root, "package-lock.json").packages["sdk/typescript"].version).toBe("0.2.0");
-    expect(json(root, "cli", "package.json").dependencies["@pencere/sdk"]).toBe("^0.2.0");
-    expect(json(root, "package-lock.json").packages.cli.dependencies["@pencere/sdk"]).toBe(
-      "^0.2.0",
-    );
-    expect(json(root, "create/templates/vue/package.json").dependencies["@pencere/sdk"]).toBe(
-      "^0.2.0",
-    );
-    // The other line's own version is not moved with it.
-    expect(json(root, "cli", "package.json").version).toBe("0.1.0");
-    expect(readFileSync(join(root, "sdk/typescript/CHANGELOG.md"), "utf8")).toMatch(
-      /## \[0\.2\.0\] - \d{4}-\d{2}-\d{2}/,
-    );
+    const changelog = text(root, "sdk/typescript/CHANGELOG.md");
+    expect(changelog).toMatch(/## \[Unreleased\]\n\n## \[0\.2\.0\] - \d{4}-\d{2}-\d{2}\n/);
+    expect(changelog).toContain("- a change of the SDK");
+    // The other line is not moved with it.
+    expect(text(root, "host/rust/Cargo.toml")).toContain('version = "0.1.0"');
+    expect(text(root, "host/rust/CHANGELOG.md")).not.toContain("0.2.0");
   });
 
-  it("names the command's own line's package in the templates, one line at a time", () => {
+  it("moves the crate's own version, not the workspace's", () => {
     const root = fixture();
-    expect(release(root, "prepare", "cli", "0.2.0").status).toBe(0);
-    expect(json(root, "create/templates/react/package.json").devDependencies["@pencere/cli"]).toBe(
-      "^0.2.0",
-    );
-    expect(json(root, "create/templates/vue/package.json").devDependencies["@pencere/cli"]).toBe(
-      "^0.2.0",
-    );
-    // The SDK's ranges are the SDK line's to move.
-    expect(json(root, "cli", "package.json").dependencies["@pencere/sdk"]).toBe("^0.1.0");
-    expect(json(root, "package-lock.json").packages.cli.version).toBe("0.2.0");
-  });
-
-  it("moves nothing for a line that no other package names", () => {
-    const root = fixture();
-    const done = release(root, "prepare", "create", "0.2.0");
+    const done = release(root, "prepare", "host-rust", "0.2.0");
+    expect(done.err).toBe("");
     expect(done.status).toBe(0);
-    expect(done.out).not.toContain("is now also in");
-    expect(json(root, "cli", "package.json").dependencies["@pencere/sdk"]).toBe("^0.1.0");
+    expect(text(root, "host/rust/Cargo.toml")).toContain('version = "0.2.0"');
+    expect(text(root, "host/rust/Cargo.toml")).not.toContain('version = "0.1.0"');
+    expect(text(root, "Cargo.toml")).toContain('version = "0.0.0"');
+    expect(text(root, "host/rust/CHANGELOG.md")).toMatch(/## \[0\.2\.0\] - \d{4}-\d{2}-\d{2}/);
+    expect(json(root, "sdk/typescript", "package.json").version).toBe("0.1.0");
   });
 
   it("refuses a version that is not after the line's, and changes nothing", () => {
@@ -232,41 +126,87 @@ describe("release.mjs prepare", () => {
     const done = release(root, "prepare", "sdk-typescript", "0.1.0");
     expect(done.status).toBe(1);
     expect(done.err).toContain("0.1.0 is not after 0.1.0");
-    expect(json(root, "cli", "package.json").dependencies["@pencere/sdk"]).toBe("^0.1.0");
+    expect(json(root, "sdk/typescript", "package.json").version).toBe("0.1.0");
+    expect(text(root, "sdk/typescript/CHANGELOG.md")).toBe(CHANGELOG("a change of the SDK"));
+  });
+
+  it("refuses a line with nothing unreleased", () => {
+    const root = fixture();
+    write(root, "sdk/typescript/CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n");
+    const done = release(root, "prepare", "sdk-typescript", "0.2.0");
+    expect(done.status).toBe(1);
+    expect(done.err).toContain("Unreleased is empty, nothing to release");
+    expect(json(root, "sdk/typescript", "package.json").version).toBe("0.1.0");
   });
 });
 
 describe("release.mjs check", () => {
-  it("refuses a package whose range names a version its line is not at", () => {
-    const root = fixture();
-    // A version moved by hand, which `prepare` would have moved the ranges with.
+  const released = (version, date = "2026-01-01") =>
+    `# Changelog\n\n## [Unreleased]\n\n## [${version}] - ${date}\n\n### Added\n\n- a change\n`;
+  const at = (root, version) =>
     write(root, "sdk/typescript/package.json", {
       ...json(root, "sdk/typescript", "package.json"),
-      version: "0.2.0",
+      version,
     });
-    write(
-      root,
-      "sdk/typescript/CHANGELOG.md",
-      `# Changelog\n\n## [Unreleased]\n\n## [0.2.0] - 2026-01-01\n\n### Added\n\n- a change\n`,
-    );
-    const done = release(root, "check", "sdk-typescript");
-    expect(done.status).toBe(1);
-    expect(done.err).toContain(
-      "cli/package.json names @pencere/sdk as ^0.1.0 and the line is at 0.2.0",
-    );
-  });
 
   it("refuses a line that was never prepared", () => {
     const root = fixture();
-    write(root, "cli/package.json", { ...json(root, "cli", "package.json"), version: "0.0.0" });
-    const done = release(root, "check", "cli");
+    at(root, "0.0.0");
+    const done = release(root, "check", "sdk-typescript");
     expect(done.status).toBe(1);
-    expect(done.err).toContain("@pencere/cli is at 0.0.0");
+    expect(done.err).toContain("@pencere/sdk is at 0.0.0");
+  });
+
+  it("refuses an Unreleased section that still holds changes", () => {
+    const done = release(fixture(), "check", "sdk-typescript");
+    expect(done.status).toBe(1);
+    expect(done.err).toContain("Unreleased is not empty");
+  });
+
+  it("refuses a manifest whose version is not the changelog's newest section", () => {
+    const root = fixture();
+    write(root, "sdk/typescript/CHANGELOG.md", released("0.1.0"));
+    at(root, "0.2.0");
+    const done = release(root, "check", "sdk-typescript");
+    expect(done.status).toBe(1);
+    expect(done.err).toContain("the newest section is not 0.2.0");
+  });
+
+  it("refuses a manifest with no released section at all", () => {
+    const root = fixture();
+    write(root, "sdk/typescript/CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n");
+    at(root, "0.2.0");
+    const done = release(root, "check", "sdk-typescript");
+    expect(done.status).toBe(1);
+    expect(done.err).toContain("the newest section is not 0.2.0");
+  });
+
+  it("refuses an empty section of the version", () => {
+    const root = fixture();
+    write(
+      root,
+      "sdk/typescript/CHANGELOG.md",
+      "# Changelog\n\n## [Unreleased]\n\n## [0.2.0] - 2026-01-01\n",
+    );
+    at(root, "0.2.0");
+    const done = release(root, "check", "sdk-typescript");
+    expect(done.status).toBe(1);
+    expect(done.err).toContain("the section of 0.2.0 is empty");
   });
 
   it("knows the lines and refuses others", () => {
     const done = release(fixture(), "check", "nothing");
     expect(done.status).toBe(1);
-    expect(done.err).toContain("the lines are sdk-typescript, cli, create, host-rust");
+    expect(done.err).toContain("the lines are sdk-typescript, host-rust");
+  });
+});
+
+describe("release.mjs notes", () => {
+  it("prints the changelog section of the version the manifest is at", () => {
+    const root = fixture();
+    expect(release(root, "prepare", "sdk-typescript", "0.2.0").status).toBe(0);
+    const done = release(root, "notes", "sdk-typescript");
+    expect(done.status).toBe(0);
+    expect(done.out.trim()).toBe("### Added\n\n- a change of the SDK");
   });
 });

@@ -1,23 +1,48 @@
 /**
- * The tool side of pencere: an MCP server running in a terminal asks the
- * terminal whether it hosts pencere views and, if it does, shows its MCP App
- * view in its own pane, over the terminal's own stream.
+ * The program side of pencere: a program running in a terminal asks the terminal
+ * whether it hosts pencere views and, if it does, shows a view of its own in the
+ * program's pane, over the terminal's own stream. The view is a WebAssembly
+ * component (`wasm`), a Lua script (`lua`) or a web page (`web`); whichever it is, it
+ * and the program talk in six small messages: the view calls the program and
+ * subscribes to its topics, and the program answers and pushes.
  *
  * ```ts
- * const server = new McpServer({ name: "containers", version: "1.0.0" });
- * // ... registerAppTool, registerAppResource ...
- * await serve(server, {
- *   tool: "list_containers",
- *   bundle: await bundleFromDirectory(new URL("./view/", import.meta.url)),
+ * const result = await serve({
+ *   views: [
+ *     { kind: "wasm", versions: ["0.5", "0.4"], bundle: (version) => wasmBundle(version) },
+ *     { kind: "web", bundle: await bundleFromDirectory(new URL("./view/", import.meta.url)) },
+ *   ],
+ *   program: "containers",
+ *   title: "Containers",
+ *   calls: { list: () => ({ containers: listContainers() }) },
+ *   topics: {
+ *     stats: (_params, subscription) => {
+ *       const timer = setInterval(() => subscription.push(readStats()), 1000);
+ *       return () => clearInterval(timer);
+ *     },
+ *   },
  *   fallback: () => console.log(table()),
  * });
  * ```
  */
 
-export { serve } from "./serve.js";
+export { serve, ViewError } from "./serve.js";
 export { ViewControl } from "./control.js";
 export type { CloseResult, ReopenOptions, ReopenResult } from "./control.js";
-export type { Connectable, EndedBy, NoViewReason, ServeOptions, ServeResult } from "./serve.js";
+export type {
+  BundleSource,
+  CallContext,
+  CallHandler,
+  EndedBy,
+  NoView,
+  NoViewReason,
+  ServeOptions,
+  ServeResult,
+  ShownView,
+  Subscription,
+  TopicHandler,
+  ViewSpec,
+} from "./serve.js";
 export {
   BUNDLE_LIMITS,
   Bundle,
@@ -31,6 +56,5 @@ export type {
   BundleOptions,
   DirectoryOptions,
   ManifestFile,
-  ViewMeta,
 } from "./bundle.js";
-export type { ToolCall } from "./messages.js";
+export type { Access, Icon, Permission, ViewKind, ViewMessage } from "./messages.js";

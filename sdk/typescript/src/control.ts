@@ -10,34 +10,31 @@
  *
  * ```ts
  * const control = new ViewControl();
- * const served = serve(server, { tool: "list_containers", bundle, control });
+ * const served = serve({ views: [{ kind: "web", bundle }], calls, control });
  * // ... later, when the files changed:
- * await control.reopen({ bundle: await bundleFromDirectory(directory) });
+ * await control.reopen({ views: [{ kind: "web", bundle: await bundleFromDirectory(directory) }] });
  * ```
  *
  * Both calls need a host that lists `dismiss` in its `welcome`; with another the
  * view is not touched and the answer says so.
  */
 
-import type { Bundle } from "./bundle.js";
-import type { ToolCall } from "./messages.js";
-import type { NoViewReason } from "./serve.js";
+import type { NoViewReason, ViewSpec } from "./serve.js";
 
 /** What the view that replaces the closed one is made of. */
 export interface ReopenOptions {
   /**
-   * The files of the new view. Without it the files `serve` was given, or the
-   * last reopening gave, are used again: the host keeps what it verified, so
+   * The kinds of view the program can show now, in its order, with their files, as
+   * `ServeOptions.views` has them: the new `hello` lists them. Without it, the list `serve`
+   * was given, or the last reopening gave, is used again: the host keeps what it verified, so
    * what did not change does not cross the stream a second time.
    */
-  bundle?: Bundle;
-  /** The tool whose view to show. Without it, the tool of the view that closes. */
-  tool?: string | ToolCall;
+  views?: readonly ViewSpec[];
 }
 
 /** What {@link ViewControl.reopen} came to. */
 export type ReopenResult =
-  /** The old view is closed and the new one runs: the host has called its tool. */
+  /** The old view is closed and the host has accepted the open of the new one (it answered with a `need`). */
   | { readonly kind: "reopened" }
   /** The host does not list `dismiss`. Nothing was sent and the view is as it was. */
   | { readonly kind: "unsupported" }
@@ -57,6 +54,7 @@ export type ReopenResult =
       readonly kind: "no-view";
       readonly reason: NoViewReason;
       readonly code?: string;
+      readonly message?: string;
     };
 
 /** What {@link ViewControl.close} came to. */
@@ -93,9 +91,9 @@ export function unbindControl(control: ViewControl, target: ViewTarget): void {
 export class ViewControl {
   /**
    * Closes the view and opens one again: with the same files (the host serves
-   * them from its store), or with `next.bundle` (only what changed is sent).
+   * them from its store), or with `next.views` (only what changed is sent).
    * Waits as long as the host takes to tear the old view down, which the host
-   * bounds. The program's MCP server is connected afresh, as for any view.
+   * bounds. What the old view had asked of the program is over with it, as for any view.
    */
   reopen(next: ReopenOptions = {}): Promise<ReopenResult> {
     const target = targets.get(this);

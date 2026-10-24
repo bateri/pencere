@@ -1,9 +1,9 @@
-//! A stand-in terminal for the authors of tools and for tests.
+//! A stand-in terminal for the authors of programs and for tests.
 //!
 //! It runs a program on a pty and plays the host of the views that program
 //! opens, with the `pencere` crate holding every rule of the conversation, so a
-//! tool can be tried, and the SDK tested, without a terminal that hosts pencere.
-//! The view is a script, not a web view: what is tried is the conversation, and
+//! program can be tried, and the SDK tested, without a terminal that hosts pencere.
+//! The page is a script, not a web view: what is tried is the conversation, and
 //! it is written to stderr in the order it happens. Run it from a terminal and
 //! the program's keys are yours: ^C ends the program the way it ends it
 //! anywhere.

@@ -1,19 +1,19 @@
-//! The cage of a view (specification §12): what the view's metadata declares,
-//! what the person is asked, and the content security policy built from what the
-//! person allowed.
+//! The cage of a web view (specification §12): what the page asks to reach in the `access`
+//! of its `open`, what the person is asked, and the content security policy built from what
+//! the person allowed.
 //!
-//! The view is untrusted code that runs on the person's machine, so what it
-//! declares is a request, not a grant. MCP Apps asks a host to warn; here the
-//! person is asked before any declared domain or permission is usable, and the
-//! policy is built from the answer, never from the declaration.
+//! A page is untrusted code that runs on the person's machine, so what it asks for is a
+//! request, not a grant. The person is asked before any origin or permission it names is
+//! usable, and the policy is built from the answer, never from the request.
 
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use serde_json::{Map, Value, json};
+use serde::ser::{Serialize, SerializeMap, Serializer};
+use serde_json::Value;
 
-/// The policy of a view whose metadata declares no `csp` at all (MCP Apps § UI
-/// Resource Format, "Restrictive Default").
+/// The policy of a page that is allowed no origin (specification §12.1): the one a page
+/// without an `access` gets, and one whose person allowed nothing.
 pub const DEFAULT_POLICY: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; connect-src 'none';";
 
 /// Where an address is, as far as its text says. A name can resolve to an
@@ -182,34 +182,34 @@ fn ipv6_locality(address: Ipv6Addr) -> Locality {
     }
 }
 
-/// The directive a declared domain belongs to.
+/// The directive a requested origin belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Directive {
-    /// `connectDomains`: `connect-src`, network requests.
+    /// `connect`: `connect-src`, network requests.
     Connect,
-    /// `resourceDomains`: scripts, styles, images, fonts and media.
+    /// `resources`: scripts, styles, images, fonts and media.
     Resource,
-    /// `frameDomains`: `frame-src`, nested frames.
+    /// `frames`: `frame-src`, nested frames.
     Frame,
-    /// `baseUriDomains`: `base-uri`.
+    /// `base`: `base-uri`.
     BaseUri,
 }
 
 impl Directive {
-    /// The name the view's metadata gives the list.
+    /// The name the `access` of an `open` gives the list (specification §6.3).
     pub const fn key(self) -> &'static str {
         match self {
-            Self::Connect => "connectDomains",
-            Self::Resource => "resourceDomains",
-            Self::Frame => "frameDomains",
-            Self::BaseUri => "baseUriDomains",
+            Self::Connect => "connect",
+            Self::Resource => "resources",
+            Self::Frame => "frames",
+            Self::BaseUri => "base",
         }
     }
 
     const ALL: [Self; 4] = [Self::Connect, Self::Resource, Self::Frame, Self::BaseUri];
 }
 
-/// The domains a view declares, by directive.
+/// The origins of a page, by directive.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Csp {
     connect: Vec<Domain>,
@@ -244,7 +244,7 @@ impl Csp {
     }
 }
 
-/// A browser capability a view may ask for.
+/// A browser capability a page may ask for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Permission {
     /// `camera`.
@@ -265,7 +265,7 @@ impl Permission {
         Self::ClipboardWrite,
     ];
 
-    /// The name the view's metadata gives it.
+    /// The name the `access` of an `open` gives it.
     pub const fn key(self) -> &'static str {
         match self {
             Self::Camera => "camera",
@@ -324,131 +324,97 @@ impl Permissions {
     }
 }
 
-/// Why a view's metadata could not be read.
+/// Why an `access` could not be read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MetaError;
+pub struct AccessError;
 
-impl fmt::Display for MetaError {
+impl fmt::Display for AccessError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("the view's metadata is malformed")
+        f.write_str("the access a page asks for is malformed")
     }
 }
 
-impl std::error::Error for MetaError {}
+impl std::error::Error for AccessError {}
 
-/// The `_meta.ui` of a view (MCP Apps § UI Resource Format).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct UiMeta {
-    csp: Option<Csp>,
+/// What a page asks to reach: the `access` of its `open` (specification §6.3).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Access {
+    domains: Csp,
     permissions: Permissions,
-    domain: Option<String>,
-    prefers_border: Option<bool>,
     rejected: Vec<String>,
 }
 
-fn optional<'a>(object: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
-    object.get(key).filter(|value| !value.is_null())
-}
-
-impl UiMeta {
-    /// Reads `_meta.ui`. A domain that is not an origin this crate accepts is
-    /// not an error and is not allowed: it is left out and listed in
-    /// [`rejected`](Self::rejected), because leaving it out can only narrow what
-    /// the view reaches. A member of the wrong type is an error.
+impl Access {
+    /// Reads an `access`. An origin that is not one this crate accepts is not an error and is
+    /// not allowed: it is left out and listed in [`rejected`](Self::rejected), because leaving
+    /// it out can only narrow what the page reaches. A permission name that is not on the closed
+    /// list is ignored the same way. A member of the wrong type is an error.
     ///
     /// # Errors
     ///
-    /// [`MetaError`] when the value, `csp`, `permissions` or a list of domains is
-    /// not the kind of JSON value it should be.
-    pub fn from_value(value: &Value) -> Result<Self, MetaError> {
-        let object = value.as_object().ok_or(MetaError)?;
-        let mut meta = Self::default();
-        if let Some(csp) = optional(object, "csp") {
-            let csp = csp.as_object().ok_or(MetaError)?;
-            let mut declared = Csp::default();
-            for directive in Directive::ALL {
-                let Some(list) = optional(csp, directive.key()) else {
-                    continue;
-                };
-                for item in list.as_array().ok_or(MetaError)? {
-                    let text = item.as_str().ok_or(MetaError)?;
-                    match Domain::parse(text) {
-                        Some(domain) if !declared.domains(directive).contains(&domain) => {
-                            declared.list_mut(directive).push(domain);
-                        }
-                        Some(_) => {}
-                        None => meta.rejected.push(text.chars().take(100).collect()),
+    /// [`AccessError`] when the value, one of the lists of origins or `permissions` is not the
+    /// kind of JSON value it should be, or a list holds an item that is not a string.
+    pub fn from_value(value: &Value) -> Result<Self, AccessError> {
+        let object = value.as_object().ok_or(AccessError)?;
+        let mut access = Self::default();
+        for directive in Directive::ALL {
+            let Some(list) = object.get(directive.key()) else {
+                continue;
+            };
+            for item in list.as_array().ok_or(AccessError)? {
+                let text = item.as_str().ok_or(AccessError)?;
+                match Domain::parse(text) {
+                    Some(domain) if !access.domains.domains(directive).contains(&domain) => {
+                        access.domains.list_mut(directive).push(domain);
                     }
-                }
-            }
-            meta.csp = Some(declared);
-        }
-        if let Some(permissions) = optional(object, "permissions") {
-            let permissions = permissions.as_object().ok_or(MetaError)?;
-            for permission in Permission::ALL {
-                if let Some(asked) = optional(permissions, permission.key()) {
-                    asked.as_object().ok_or(MetaError)?;
-                    meta.permissions.set(permission);
+                    Some(_) => {}
+                    None => access.rejected.push(text.chars().take(100).collect()),
                 }
             }
         }
-        if let Some(domain) = optional(object, "domain") {
-            meta.domain = Some(domain.as_str().ok_or(MetaError)?.to_owned());
+        if let Some(list) = object.get("permissions") {
+            for item in list.as_array().ok_or(AccessError)? {
+                let name = item.as_str().ok_or(AccessError)?;
+                if let Some(permission) = Permission::ALL.into_iter().find(|p| p.key() == name) {
+                    access.permissions.set(permission);
+                }
+            }
         }
-        if let Some(border) = optional(object, "prefersBorder") {
-            meta.prefers_border = Some(border.as_bool().ok_or(MetaError)?);
-        }
-        Ok(meta)
+        Ok(access)
     }
 
-    /// The `csp` the view declares; `None` when it declares none at all, which
-    /// gets the restrictive default policy.
-    pub fn csp(&self) -> Option<&Csp> {
-        self.csp.as_ref()
+    /// The origins the page asks for.
+    pub fn domains(&self) -> &Csp {
+        &self.domains
     }
 
-    /// The permissions the view asks for.
+    /// The permissions the page asks for.
     pub fn permissions(&self) -> Permissions {
         self.permissions
     }
 
-    /// The `domain` the view asks for, which a host may ignore.
-    pub fn domain(&self) -> Option<&str> {
-        self.domain.as_deref()
-    }
-
-    /// Whether the view prefers a border, when it says.
-    pub fn prefers_border(&self) -> Option<bool> {
-        self.prefers_border
-    }
-
-    /// The declared domains that were left out for not being origins this crate
-    /// accepts, as written (cut at 100 characters), for the host's log.
+    /// The origins that were left out for not being ones this crate accepts, as written (cut at
+    /// 100 characters), for the host's log.
     pub fn rejected(&self) -> &[String] {
         &self.rejected
     }
 
-    /// What the person has to be asked, or `None` when the view declares nothing
-    /// that needs asking. The metadata does not know which tool the view is for:
-    /// the question it returns names none and has no [`Consent::id`] yet: the
-    /// session names the tool ([`Consent::tool`]) and numbers the question before
-    /// it asks.
+    /// What the person has to be asked, or `None` when the page asks for nothing that needs
+    /// asking. The question it returns has no [`Consent::id`] yet, and names neither the program
+    /// nor the view: the session numbers the question and names both before it asks.
     pub fn consent(&self) -> Option<Consent> {
         let mut domains = Vec::new();
-        if let Some(csp) = &self.csp {
-            for directive in Directive::ALL {
-                for domain in csp.domains(directive) {
-                    domains.push(Declared {
-                        directive,
-                        domain: domain.clone(),
-                    });
-                }
+        for directive in Directive::ALL {
+            for domain in self.domains.domains(directive) {
+                domains.push(Declared {
+                    directive,
+                    domain: domain.clone(),
+                });
             }
         }
         let permissions = self.permissions.list();
         (!domains.is_empty() || !permissions.is_empty()).then_some(Consent {
             id: 0,
-            tool: None,
             title: None,
             program: None,
             domains,
@@ -457,61 +423,46 @@ impl UiMeta {
     }
 }
 
-/// One domain a view declared, with the directive it is for.
+/// One origin a page asked for, with the directive it is for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Declared {
-    /// The directive the domain is declared under.
+    /// The directive the origin is asked for under.
     pub directive: Directive,
-    /// The domain.
+    /// The origin.
     pub domain: Domain,
 }
 
-/// What the person is asked: the domains and the permissions a view declared,
-/// and which tool the view is for. The question names them, says where the
-/// program runs (the host knows that, not this crate) and says which ones are on
-/// this machine or a private network ([`Domain::locality`]).
+/// What the person is asked: the origins and the permissions a page asked for, and which
+/// program asked. The question names them, says where the program runs (the host knows that,
+/// not this crate) and says which origins are on this machine or a private network
+/// ([`Domain::locality`]).
 ///
-/// A host that remembers an answer finds what it was an answer about here: the
-/// tool and what was declared. How long an answer is remembered, and for which
-/// programs, is the host's policy (specification §12.2); `program` is what the
-/// program calls itself, and tells two programs apart no better than its say-so.
+/// A host that remembers an answer finds what it was an answer about here: the program and what
+/// was asked. How long an answer is remembered, and for which programs, is the host's policy
+/// (specification §12.2); `program` is what the program calls itself, and tells two programs
+/// apart no better than its say-so does.
 ///
-/// This is not `#[non_exhaustive]`: a terminal that builds one itself, in a test
-/// or a stand-in host, names the question and the tool and the two words as well.
+/// This is not `#[non_exhaustive]`: a terminal that builds one itself, in a test or a stand-in
+/// host, names the question and the two words as well.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Consent {
     /// Which question this is: the session numbers each one it asks, and
     /// [`Session::consent`](crate::session::Session::consent) takes the number back
     /// with the answer, so that the answer to a question that is no longer asked
     /// (the open it was about ended, [`Action::WithdrawConsent`](crate::session::Action::WithdrawConsent))
-    /// cannot settle another. `0` on what [`UiMeta::consent`] returns, which no
-    /// session has numbered.
+    /// cannot settle another. `0` on what [`Access::consent`] returns, which no session has
+    /// numbered.
     pub id: u32,
-    /// The tool the view is for, by the name the `open` gave it: what a host keys
-    /// an answer by, and what it shows when the tool has no
-    /// [`title`](Self::title). `None` when nothing is left of the name once it is
-    /// cleaned: the question is still asked, and there is nothing to remember the
-    /// answer by.
-    ///
-    /// The program wrote it and a terminal draws the question in its own chrome,
-    /// so the session cuts it to [`MAX_LABEL_CHARS`](crate::session::MAX_LABEL_CHARS)
-    /// characters and leaves out control characters, the bidirectional overrides
-    /// and the invisible format characters, as for
-    /// [`ViewStart::title`](crate::session::ViewStart::title). Names that this
-    /// makes one are one tool to the person, who was shown one name; the tool the
-    /// view calls is [`ViewStart::tool`](crate::session::ViewStart::tool), as the
-    /// program has it, and the name the terminal draws for it is
-    /// [`ViewStart::tool_label`](crate::session::ViewStart::tool_label), which is
-    /// this.
-    pub tool: Option<String>,
-    /// What the program calls the tool for people: the same text, from the same
-    /// place and cleaned the same way, as
+    /// What the program calls the view: the same text, cleaned the same way, as
     /// [`ViewStart::title`](crate::session::ViewStart::title).
     pub title: Option<String>,
     /// What the program calls itself: the same text as
-    /// [`ViewStart::program`](crate::session::ViewStart::program).
+    /// [`ViewStart::program`](crate::session::ViewStart::program). The program wrote it and a
+    /// terminal draws the question in its own chrome, so the session cuts it to
+    /// [`MAX_LABEL_CHARS`](crate::session::MAX_LABEL_CHARS) characters and leaves out control
+    /// characters, the bidirectional overrides and the invisible format characters.
     pub program: Option<String>,
-    /// The declared domains.
+    /// The origins asked for.
     pub domains: Vec<Declared>,
     /// The permissions asked for.
     pub permissions: Vec<Permission>,
@@ -539,13 +490,12 @@ pub struct Grant {
 }
 
 impl Grant {
-    /// Nothing allowed: the answer when the view declares nothing, or the person
-    /// refuses.
+    /// Nothing allowed: the answer when the page asks for nothing, or the person refuses.
     pub fn none() -> Self {
         Self::default()
     }
 
-    /// Allows a domain for a directive.
+    /// Allows an origin for a directive.
     pub fn allow_domain(&mut self, directive: Directive, domain: Domain) {
         let list = self.csp.list_mut(directive);
         if !list.contains(&domain) {
@@ -558,28 +508,26 @@ impl Grant {
         self.permissions.set(permission);
     }
 
-    /// This grant cut down to what `meta` declares: nothing the view did not ask
-    /// for is ever allowed, whatever the answer says.
-    pub fn within(&self, meta: &UiMeta) -> Self {
+    /// This grant cut down to what `access` asks for: nothing the page did not ask for is ever
+    /// allowed, whatever the answer says.
+    pub fn within(&self, access: &Access) -> Self {
         let mut grant = Self::none();
-        if let Some(declared) = meta.csp() {
-            for directive in Directive::ALL {
-                for domain in self.csp.domains(directive) {
-                    if declared.domains(directive).contains(domain) {
-                        grant.allow_domain(directive, domain.clone());
-                    }
+        for directive in Directive::ALL {
+            for domain in self.csp.domains(directive) {
+                if access.domains().domains(directive).contains(domain) {
+                    grant.allow_domain(directive, domain.clone());
                 }
             }
         }
         for permission in self.permissions.list() {
-            if meta.permissions().has(permission) {
+            if access.permissions().has(permission) {
                 grant.allow_permission(permission);
             }
         }
         grant
     }
 
-    /// The allowed domains.
+    /// The allowed origins.
     pub fn csp(&self) -> &Csp {
         &self.csp
     }
@@ -589,7 +537,12 @@ impl Grant {
         self.permissions
     }
 
-    /// The value of the `allow` attribute of the view's frame: the Permissions
+    /// Whether nothing is allowed.
+    pub fn is_empty(&self) -> bool {
+        self.csp.is_empty() && self.permissions.list().is_empty()
+    }
+
+    /// The value of the `allow` attribute of the page's frame: the Permissions
     /// Policy features that were allowed, separated by spaces.
     pub fn allow_attribute(&self) -> String {
         let features: Vec<&str> = self
@@ -600,44 +553,47 @@ impl Grant {
             .collect();
         features.join(" ")
     }
+}
 
-    /// `hostCapabilities.sandbox` for the view (MCP Apps § Host Capabilities):
-    /// what was allowed, and only that.
-    pub fn capability(&self) -> Value {
-        let mut permissions = Map::new();
-        for permission in self.permissions.list() {
-            permissions.insert(permission.key().to_owned(), json!({}));
-        }
-        let mut csp = Map::new();
+/// A grant serialises in the shape of the `access` of an `open`, which is how the page is told
+/// what it was allowed (the `access` of its `context`, specification §9.5): the lists that are
+/// not empty, in the order of the specification, and nothing else.
+impl Serialize for Grant {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let lists = Directive::ALL
+            .into_iter()
+            .filter(|d| !self.csp.domains(*d).is_empty())
+            .count();
+        let permissions = self.permissions.list();
+        let mut map =
+            serializer.serialize_map(Some(lists + usize::from(!permissions.is_empty())))?;
         for directive in Directive::ALL {
             let domains = self.csp.domains(directive);
             if !domains.is_empty() {
-                csp.insert(
-                    directive.key().to_owned(),
-                    Value::Array(domains.iter().map(|d| Value::from(d.as_str())).collect()),
-                );
+                let list: Vec<&str> = domains.iter().map(Domain::as_str).collect();
+                map.serialize_entry(directive.key(), &list)?;
             }
         }
-        let mut sandbox = Map::new();
         if !permissions.is_empty() {
-            sandbox.insert("permissions".to_owned(), Value::Object(permissions));
+            let list: Vec<&str> = permissions.iter().map(|p| p.key()).collect();
+            map.serialize_entry("permissions", &list)?;
         }
-        if !csp.is_empty() {
-            sandbox.insert("csp".to_owned(), Value::Object(csp));
-        }
-        Value::Object(sandbox)
+        map.end()
     }
 }
 
-/// The content security policy of a view: the restrictive default when the view
-/// declares no `csp`, otherwise MCP Apps' construction from the declared domains
-/// **that were allowed** (§ Security Implications → Content Security Policy
-/// Enforcement), with no domain the person did not approve.
-pub fn content_security_policy(meta: &UiMeta, grant: &Grant) -> String {
-    if meta.csp().is_none() {
+/// The content security policy of a page (specification §12.1): the restrictive one when the
+/// `open` has no `access` or the person allowed nothing of it, otherwise that policy with what
+/// the person allowed added to the directive each list is for. A page never gets an origin the
+/// person did not approve, whatever it asked.
+pub fn content_security_policy(access: Option<&Access>, grant: &Grant) -> String {
+    let Some(access) = access else {
+        return DEFAULT_POLICY.to_owned();
+    };
+    let allowed = grant.within(access);
+    if allowed.csp.is_empty() {
         return DEFAULT_POLICY.to_owned();
     }
-    let allowed = grant.within(meta);
     let list = |directive| -> Vec<String> {
         allowed
             .csp
@@ -707,9 +663,10 @@ pub fn is_openable_link(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
-    fn meta(value: Value) -> UiMeta {
-        UiMeta::from_value(&value).unwrap()
+    fn access(value: Value) -> Access {
+        Access::from_value(&value).unwrap()
     }
 
     #[test]
@@ -833,85 +790,85 @@ mod tests {
     }
 
     #[test]
-    fn metadata_is_read_and_what_is_not_an_origin_is_left_out_and_reported() {
-        let m = meta(json!({
-            "csp": {
-                "connectDomains": ["https://api.example.com", "https://API.example.com", "not an origin", "https://b.example"],
-                "resourceDomains": ["https://cdn.example.com"],
-                "frameDomains": null,
-            },
-            "permissions": {"camera": {}, "geolocation": {}, "microphone": null},
-            "domain": "abc.example",
-            "prefersBorder": false,
+    fn an_access_is_read_and_what_is_not_an_origin_is_left_out_and_reported() {
+        let a = access(json!({
+            "connect": ["https://api.example.com", "https://API.example.com", "not an origin", "https://b.example"],
+            "resources": ["https://cdn.example.com"],
+            "frames": [],
+            "permissions": ["camera", "geolocation", "teleport"],
             "unknown": 1,
         }));
-        let csp = m.csp().unwrap();
         assert_eq!(
-            csp.domains(Directive::Connect)
+            a.domains()
+                .domains(Directive::Connect)
                 .iter()
                 .map(Domain::as_str)
                 .collect::<Vec<_>>(),
             vec!["https://api.example.com", "https://b.example"]
         );
-        assert_eq!(csp.domains(Directive::Resource).len(), 1);
-        assert!(csp.domains(Directive::Frame).is_empty());
-        assert_eq!(m.rejected(), ["not an origin"]);
+        assert_eq!(a.domains().domains(Directive::Resource).len(), 1);
+        assert!(a.domains().domains(Directive::Frame).is_empty());
+        assert_eq!(a.rejected(), ["not an origin"]);
+        // A name that is not on the closed list is ignored, not an error.
         assert_eq!(
-            m.permissions().list(),
+            a.permissions().list(),
             vec![Permission::Camera, Permission::Geolocation]
         );
-        assert_eq!(
-            (m.domain(), m.prefers_border()),
-            (Some("abc.example"), Some(false))
-        );
-        // Members of the wrong type are errors.
+        // Members of the wrong type, and items that are not strings, are errors.
         for bad in [
             json!(5),
-            json!({"csp": 5}),
-            json!({"csp": {"connectDomains": "https://a.example"}}),
-            json!({"csp": {"connectDomains": [5]}}),
-            json!({"permissions": []}),
-            json!({"permissions": {"camera": true}}),
-            json!({"domain": 5}),
-            json!({"prefersBorder": "yes"}),
+            json!([]),
+            json!({"connect": 5}),
+            json!({"connect": "https://a.example"}),
+            json!({"connect": null}),
+            json!({"connect": [5]}),
+            json!({"resources": [["https://a.example"]]}),
+            json!({"permissions": {}}),
+            json!({"permissions": "camera"}),
+            json!({"permissions": [true]}),
+            json!({"permissions": [null]}),
         ] {
-            assert_eq!(UiMeta::from_value(&bad), Err(MetaError), "{bad}");
+            assert_eq!(Access::from_value(&bad), Err(AccessError), "{bad}");
         }
-        assert_eq!(UiMeta::from_value(&json!({})).unwrap(), UiMeta::default());
+        assert_eq!(Access::from_value(&json!({})).unwrap(), Access::default());
     }
 
     #[test]
-    fn a_view_that_declares_nothing_gets_the_default_policy_and_nothing_to_ask() {
-        let m = meta(json!({"prefersBorder": true}));
-        assert!(m.consent().is_none());
-        assert_eq!(content_security_policy(&m, &Grant::none()), DEFAULT_POLICY);
-        // Even a grant for something the view did not declare changes nothing.
+    fn a_page_that_asks_for_nothing_gets_the_default_policy_and_nothing_to_ask() {
+        let a = access(json!({"permissions": ["teleport"]}));
+        assert!(a.consent().is_none());
+        assert_eq!(
+            content_security_policy(Some(&a), &Grant::none()),
+            DEFAULT_POLICY
+        );
+        // Without an `access` at all the policy is the same.
+        assert_eq!(
+            content_security_policy(None, &Grant::none()),
+            DEFAULT_POLICY
+        );
+        // Even a grant for something the page did not ask for changes nothing.
         let mut grant = Grant::none();
         grant.allow_domain(
             Directive::Connect,
             Domain::parse("https://evil.example").unwrap(),
         );
-        assert_eq!(content_security_policy(&m, &grant), DEFAULT_POLICY);
+        assert_eq!(content_security_policy(Some(&a), &grant), DEFAULT_POLICY);
+        assert_eq!(content_security_policy(None, &grant), DEFAULT_POLICY);
         assert!(DEFAULT_POLICY.contains("connect-src 'none'"));
     }
 
     #[test]
-    fn a_declared_csp_is_built_from_what_the_person_allowed() {
-        let m = meta(json!({
-            "csp": {
-                "connectDomains": ["https://api.example.com", "wss://live.example.com"],
-                "resourceDomains": ["https://cdn.example.com"],
-                "frameDomains": ["https://video.example.com"],
-                "baseUriDomains": ["https://base.example.com"],
-            },
-            "permissions": {"camera": {}, "clipboardWrite": {}},
+    fn the_policy_is_built_from_what_the_person_allowed() {
+        let a = access(json!({
+            "connect": ["https://api.example.com", "wss://live.example.com"],
+            "resources": ["https://cdn.example.com"],
+            "frames": ["https://video.example.com"],
+            "base": ["https://base.example.com"],
+            "permissions": ["camera", "clipboardWrite"],
         }));
-        let consent = m.consent().unwrap();
-        // The metadata alone names no tool: the session does, when it asks.
-        assert_eq!(
-            (&consent.tool, &consent.title, &consent.program),
-            (&None, &None, &None)
-        );
+        let consent = a.consent().unwrap();
+        // The access alone names no program: the session does, when it asks.
+        assert_eq!((&consent.title, &consent.program), (&None, &None));
         assert_eq!(consent.domains.len(), 5);
         assert_eq!(
             consent.permissions,
@@ -919,7 +876,7 @@ mod tests {
         );
         let all = consent.grant_all();
         assert_eq!(
-            content_security_policy(&m, &all),
+            content_security_policy(Some(&a), &all),
             "default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.example.com; \
              style-src 'self' 'unsafe-inline' https://cdn.example.com; \
              connect-src 'self' https://api.example.com wss://live.example.com; \
@@ -928,14 +885,19 @@ mod tests {
              object-src 'none'; base-uri https://base.example.com;"
         );
         assert_eq!(all.allow_attribute(), "camera clipboard-write");
-        // Nothing allowed: the construction with empty lists.
+        // Nothing allowed: the restrictive policy, whatever was asked.
         assert_eq!(
-            content_security_policy(&m, &Grant::none()),
-            "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; \
-             connect-src 'self'; img-src 'self' data:; font-src 'self'; media-src 'self' data:; \
-             frame-src 'none'; object-src 'none'; base-uri 'self';"
+            content_security_policy(Some(&a), &Grant::none()),
+            DEFAULT_POLICY
         );
-        // A grant for a domain the view did not declare is cut away.
+        // Only a permission allowed: no origin, so the same policy again.
+        let mut only_permission = Grant::none();
+        only_permission.allow_permission(Permission::Camera);
+        assert_eq!(
+            content_security_policy(Some(&a), &only_permission),
+            DEFAULT_POLICY
+        );
+        // A grant for an origin the page did not ask for is cut away.
         let mut greedy = Grant::none();
         greedy.allow_domain(
             Directive::Connect,
@@ -950,11 +912,11 @@ mod tests {
             Domain::parse("https://api.example.com").unwrap(),
         );
         greedy.allow_permission(Permission::Microphone);
-        let within = greedy.within(&m);
+        let within = greedy.within(&a);
         assert_eq!(within.csp().domains(Directive::Connect).len(), 1);
         assert!(within.csp().domains(Directive::Resource).is_empty());
         assert!(within.permissions().list().is_empty());
-        let policy = content_security_policy(&m, &greedy);
+        let policy = content_security_policy(Some(&a), &greedy);
         assert!(
             policy.contains("connect-src 'self' https://api.example.com;"),
             "{policy}"
@@ -963,28 +925,46 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_csp_object_is_a_declared_csp() {
-        let m = meta(json!({"csp": {}}));
-        assert!(m.consent().is_none());
-        assert!(content_security_policy(&m, &Grant::none()).contains("connect-src 'self';"));
+    fn an_empty_access_is_an_access_that_asks_for_nothing() {
+        let a = access(json!({}));
+        assert!(a.consent().is_none());
+        assert_eq!(
+            content_security_policy(Some(&a), &Grant::none()),
+            DEFAULT_POLICY
+        );
     }
 
     #[test]
-    fn the_capability_names_what_was_allowed_and_only_that() {
-        let m = meta(json!({
-            "csp": {"connectDomains": ["https://api.example.com"], "resourceDomains": ["https://cdn.example.com"]},
-            "permissions": {"camera": {}},
+    fn what_was_allowed_is_written_in_the_shape_of_an_access_and_only_that() {
+        let a = access(json!({
+            "connect": ["https://api.example.com"],
+            "resources": ["https://cdn.example.com"],
+            "base": ["https://base.example.com"],
+            "permissions": ["camera", "clipboardWrite"],
         }));
         let mut grant = Grant::none();
-        assert_eq!(grant.capability(), json!({}));
+        assert!(grant.is_empty());
+        assert_eq!(serde_json::to_string(&grant).unwrap(), "{}");
         grant.allow_domain(
             Directive::Connect,
             Domain::parse("https://api.example.com").unwrap(),
         );
+        grant.allow_permission(Permission::ClipboardWrite);
         grant.allow_permission(Permission::Camera);
+        assert!(!grant.is_empty());
         assert_eq!(
-            grant.within(&m).capability(),
-            json!({"permissions": {"camera": {}}, "csp": {"connectDomains": ["https://api.example.com"]}})
+            serde_json::to_string(&grant.within(&a)).unwrap(),
+            r#"{"connect":["https://api.example.com"],"permissions":["camera","clipboardWrite"]}"#
+        );
+        // The members come in the order of the specification, whatever order they were allowed in.
+        let mut all = a.consent().unwrap().grant_all();
+        all.allow_domain(
+            Directive::Frame,
+            Domain::parse("https://video.example.com").unwrap(),
+        );
+        assert_eq!(
+            serde_json::to_string(&all).unwrap(),
+            r#"{"connect":["https://api.example.com"],"resources":["https://cdn.example.com"],"frames":["https://video.example.com"],"base":["https://base.example.com"],"permissions":["camera","clipboardWrite"]}"#
         );
     }
 

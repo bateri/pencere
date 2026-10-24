@@ -31,14 +31,14 @@ function quote(text: string): string {
  * wants a pipe or a file for its own stdin, not the socket that `spawn` makes, so
  * a shell makes the pipe.
  */
-function underATty(): { before: string; inside: string; after: string } | undefined {
-  const flags = ["--experimental-strip-types", "--input-type=module", "-e", child];
+function underATty<T>(code: string, typed = ""): T | undefined {
+  const flags = ["--experimental-strip-types", "--input-type=module", "-e", code];
   const command = [process.execPath, ...flags].map(quote).join(" ");
   const script =
     process.platform === "darwin"
       ? `script -q /dev/null ${command}`
       : `script -qec ${quote(command)} /dev/null`;
-  const run = spawnSync("sh", ["-c", `printf '' | ${script}`], {
+  const run = spawnSync("sh", ["-c", `printf '%s' ${quote(typed)} | ${script}`], {
     encoding: "utf8",
     timeout: 30_000,
   });
@@ -60,7 +60,9 @@ const supported =
     0;
 
 describe.skipIf(!supported)("SttyTerminal on a tty", () => {
-  const seen = supported ? underATty() : undefined;
+  const seen = supported
+    ? underATty<{ before: string; inside: string; after: string }>(child)
+    : undefined;
 
   it("reads the modes of the tty it runs on", () => {
     expect(seen, "the child printed nothing: script or stty is not usable here").toBeDefined();
@@ -78,5 +80,47 @@ describe.skipIf(!supported)("SttyTerminal on a tty", () => {
   it("gives them back", () => {
     for (const name of ["icanon", "echo", "isig"])
       expect(flag(seen?.after ?? "", name), name).toBe(flag(seen?.before ?? "", name));
+  });
+});
+
+/**
+ * What a program that said `bye` does with the input the host wrote and it did not read (§10.3):
+ * Node has no `tcflush`, so `discardInput` reads the queue empty. The child is typed three
+ * characters before it has entered its modes, as a host writes into a tty, and looks at the queue
+ * afterwards; the control child looks at it without discarding, to show the characters were there.
+ */
+const queued = (discard: boolean) => `
+import { SttyTerminal, readQueued, runStty } from ${JSON.stringify(`file://${terminal}`)};
+// Node's stream on the tty makes the descriptor one that does not wait: the read then fails
+// with EAGAIN on an empty queue, as it does in a program that reads its stdin.
+void process.stdin;
+const modes = new SttyTerminal(runStty, 0);
+modes.enter();
+// The characters arrive while the child is starting; they are in the queue by now.
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 600);
+${discard ? "modes.discardInput();" : ""}
+runStty(["min", "0", "time", "0"]);
+const into = new Uint8Array(64);
+let left = "";
+for (;;) {
+  const got = readQueued(0, into);
+  if (got <= 0) break;
+  left += Buffer.from(into.subarray(0, got)).toString("latin1");
+}
+modes.restore();
+console.log("PENCERE " + JSON.stringify({ left }));
+`;
+
+describe.skipIf(!supported)("SttyTerminal.discardInput on a tty", () => {
+  it("leaves the characters of the queue in it when nothing discards them", () => {
+    const seen = underATty<{ left: string }>(queued(false), "abc");
+    expect(seen, "the child printed nothing: script or stty is not usable here").toBeDefined();
+    expect(seen?.left).toContain("abc");
+  });
+
+  it("reads them away, so that whatever reads the tty next does not find them", () => {
+    const seen = underATty<{ left: string }>(queued(true), "abc");
+    expect(seen, "the child printed nothing: script or stty is not usable here").toBeDefined();
+    expect(seen?.left).toBe("");
   });
 });

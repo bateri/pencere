@@ -1,4 +1,4 @@
-.PHONY: setup fmt check check-network release-prepare release publish publish-local approve
+.PHONY: setup fmt check release-prepare release publish publish-local approve
 
 # Installs the TypeScript half's dependencies from the lockfile. The only
 # target that reaches the network.
@@ -11,13 +11,13 @@ fmt:
 
 # The gate: both halves, formatted, linted, type-checked and tested, and the
 # specification's examples checked against its fixtures. The TypeScript half is
-# built before the Rust tests run, because the end-to-end tests start the example
-# tool from its build. It does not install anything, so it never reaches the
-# network.
+# built before the Rust tests run, because the stand-in host's tests start programs
+# that import `@pencere/sdk`, which they run from its build. It does not install
+# anything, so it never reaches the network.
 check:
 	@test -d node_modules || { echo "check: node_modules is missing, run 'make setup' first"; exit 1; }
 	node tools/check-spec.mjs
-	@for name in LICENSE NOTICE; do for dir in sdk/typescript host/rust cli create; do cmp -s $$name $$dir/$$name || { echo "check: $$dir/$$name is not the repository's $$name"; exit 1; }; done; done
+	@for name in LICENSE NOTICE; do for dir in sdk/typescript host/rust; do cmp -s $$name $$dir/$$name || { echo "check: $$dir/$$name is not the repository's $$name"; exit 1; }; done; done
 	npx tsc -b
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
@@ -25,18 +25,8 @@ check:
 	npx prettier --check .
 	npx vitest run --passWithNoTests
 
-# The part of the gate that needs the network, so it is not in `make check`: the templates
-# `create-pencere` writes and the Python example are installed from the registries, built
-# and opened under the stand-in host, with this repository's packages in place of the
-# published ones (tools/network-check.mjs). TARGETS limits it to react, vue or python. It
-# needs python3 with venv, and cargo; CI runs it as the `network` job.
-check-network:
-	@test -d node_modules || { echo "check-network: node_modules is missing, run 'make setup' first"; exit 1; }
-	node tools/network-check.mjs $(TARGETS)
-
 # Releasing a package (RELEASING.md). LINE is one of the lines in tools/lines.mjs:
-# sdk-typescript (@pencere/sdk), cli (@pencere/cli), create (create-pencere) or host-rust
-# (the pencere crate).
+# sdk-typescript (@pencere/sdk) or host-rust (the pencere crate).
 #
 # release-prepare sets the version and dates the changelog; nothing is committed.
 release-prepare:

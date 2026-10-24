@@ -1,6 +1,6 @@
 [package]
 name = "pencere-fake-host"
-description = "A stand-in terminal for tool authors and for tests: runs a program on a pty and plays the host of its views, so a tool can be tried without a terminal that hosts pencere"
+description = "A stand-in terminal for the authors of programs and for tests: runs a program on a pty and plays the host of its views, so a program can be tried without a terminal that hosts pencere"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

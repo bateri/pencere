@@ -1,1 +1,1 @@
-_pencere;msg;id=5;{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"list_containers","description":"List the containers","inputSchema":{"type":"object"},"_meta":{"ui":{"resourceUri":"ui://containers/view.html"}}}]}}\
+_pencere;dismiss;id=5;{"token":"q7Vh2sB0xJm9kLw4TzN1cA"}\

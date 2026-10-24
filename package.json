@@ -4,9 +4,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "workspaces": [
-    "sdk/*",
-    "cli",
-    "create"
+    "sdk/*"
   ],
   "engines": {
     "node": ">=22"

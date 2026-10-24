@@ -1,14 +1,9 @@
-//! The terminal's look as MCP Apps styling (specification §11.2): the roles of a
-//! terminal theme mapped to the CSS variables of MCP Apps § Theming.
-
-use std::collections::BTreeMap;
+//! The terminal's look as a page is told it (specification §9.5 and §11.2): the roles of a
+//! terminal theme, each as `#rrggbb`, with the ones a host does not have made up.
 
 /// A colour, as the terminal draws it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rgb(pub u8, pub u8, pub u8);
-
-/// A map of CSS variables, in a stable order.
-pub type Variables = BTreeMap<&'static str, String>;
 
 impl Rgb {
     /// Reads `#rrggbb` (or `rrggbb`).
@@ -52,11 +47,52 @@ impl Rgb {
             mix(self.2, other.2),
         )
     }
+
+    /// This colour moved `part` of `whole` of the way toward `other`, in sRGB, each channel
+    /// rounded to the nearest value with halves away from zero (specification §11.2). Whole
+    /// numbers all through, so that the result is the same on every machine.
+    fn part_toward(self, other: Self, part: u32, whole: u32) -> Self {
+        let whole = whole.max(1);
+        let mix = |from: u8, to: u8| {
+            let part = part.min(whole);
+            let total = u32::from(from) * (whole - part) + u32::from(to) * part;
+            let nearest = (2 * total + whole) / (2 * whole);
+            u8::try_from(nearest).unwrap_or(u8::MAX)
+        };
+        Self(
+            mix(self.0, other.0),
+            mix(self.1, other.1),
+            mix(self.2, other.2),
+        )
+    }
 }
 
-/// The roles of a terminal theme the view is given. Only the background and the
+/// The nine roles of a theme, every one of them a colour (specification §11.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Roles {
+    /// The default background.
+    pub background: Rgb,
+    /// The default foreground.
+    pub foreground: Rgb,
+    /// The dimmed foreground.
+    pub dim: Rgb,
+    /// The accent colour.
+    pub accent: Rgb,
+    /// The colour of rules and borders.
+    pub border: Rgb,
+    /// The success colour.
+    pub success: Rgb,
+    /// The error colour.
+    pub error: Rgb,
+    /// The warning colour.
+    pub warning: Rgb,
+    /// The information colour.
+    pub info: Rgb,
+}
+
+/// The roles of a terminal theme the page is given. Only the background and the
 /// foreground are required; the others are what a host knows and are made up
-/// from those two when it does not.
+/// (see [`roles`](Self::roles)) when it does not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Theme {
     /// The default background.
@@ -66,7 +102,7 @@ pub struct Theme {
     /// The dimmed foreground (secondary text). Default: a third of the way from
     /// the foreground to the background.
     pub dim: Option<Rgb>,
-    /// The accent colour (focus rings). Default: the information colour.
+    /// The accent colour. Default: the information colour.
     pub accent: Option<Rgb>,
     /// The colour of rules and borders. Default: the background a fifth of the
     /// way toward the foreground.
@@ -84,8 +120,9 @@ pub struct Theme {
 
 impl Theme {
     /// A theme of a background, a foreground and the terminal's font (a CSS
-    /// `font-family` list, `"Menlo", monospace`). Characters a font list does not
-    /// need are dropped from it: it is put into the view's styles.
+    /// `font-family` list, `"Menlo", monospace`; empty when the host does not know it).
+    /// Characters a font list does not need are dropped from it: a page may put it into
+    /// its styles.
     pub fn new(background: Rgb, foreground: Rgb, font_mono: &str) -> Self {
         let font_mono = font_mono
             .chars()
@@ -113,86 +150,39 @@ impl Theme {
         self.background.luminance() < self.foreground.luminance()
     }
 
-    /// `dark` or `light`, as `hostContext.theme` has it.
+    /// `dark` or `light`, as the `mode` of the page's `context` has it.
     pub fn mode(&self) -> &'static str {
         if self.is_dark() { "dark" } else { "light" }
     }
 
-    /// The font list.
+    /// The font list; empty when the host gave none.
     pub fn font_mono(&self) -> &str {
         &self.font_mono
     }
 
-    /// The CSS variables for `hostContext.styles.variables`: whole families, so
-    /// that a view that reads one colour of a family never falls back on its own
-    /// value for the rest (MCP Apps § Theming). Plain colours: a terminal theme has
-    /// one mode, so no `light-dark()`.
-    pub fn variables(&self) -> Variables {
-        let (bg, fg) = (self.background, self.foreground);
+    /// All nine roles: what the host gave, and for each it did not, the colour the
+    /// specification makes up (§11.2): `dim` a third of the way from the foreground to the
+    /// background, `accent` as `info`, `border` a fifth of the way from the background to the
+    /// foreground, and `success`, `error`, `warning` and `info` as `#3fb950`, `#f85149`,
+    /// `#d29922` and `#58a6ff`.
+    pub fn roles(&self) -> Roles {
+        let (background, foreground) = (self.background, self.foreground);
         let info = self.info.unwrap_or(Rgb(0x58, 0xa6, 0xff));
-        let roles = [
-            ("info", info),
-            ("danger", self.error.unwrap_or(Rgb(0xf8, 0x51, 0x49))),
-            ("success", self.success.unwrap_or(Rgb(0x3f, 0xb9, 0x50))),
-            ("warning", self.warning.unwrap_or(Rgb(0xd2, 0x99, 0x22))),
-        ];
-        let dim = self.dim.unwrap_or_else(|| fg.toward(bg, 1.0 / 3.0));
-        let accent = self.accent.unwrap_or(info);
-        let border = self.border.unwrap_or_else(|| bg.toward(fg, 0.2));
-        let transparent = "transparent".to_owned();
-
-        let mut v = Variables::new();
-        v.insert("--color-background-primary", bg.css());
-        v.insert("--color-background-secondary", bg.toward(fg, 0.06).css());
-        v.insert("--color-background-tertiary", bg.toward(fg, 0.12).css());
-        v.insert("--color-background-inverse", fg.css());
-        v.insert("--color-background-ghost", transparent.clone());
-        v.insert("--color-background-disabled", bg.toward(fg, 0.03).css());
-        v.insert("--color-text-primary", fg.css());
-        v.insert("--color-text-secondary", dim.css());
-        v.insert("--color-text-tertiary", dim.toward(bg, 0.35).css());
-        v.insert("--color-text-inverse", bg.css());
-        v.insert("--color-text-ghost", dim.css());
-        v.insert("--color-text-disabled", fg.toward(bg, 0.55).css());
-        v.insert("--color-border-primary", border.css());
-        v.insert("--color-border-secondary", border.toward(bg, 0.4).css());
-        v.insert("--color-border-tertiary", border.toward(bg, 0.7).css());
-        v.insert("--color-border-inverse", fg.css());
-        v.insert("--color-border-ghost", transparent);
-        v.insert("--color-border-disabled", border.toward(bg, 0.5).css());
-        v.insert("--color-ring-primary", accent.css());
-        v.insert("--color-ring-secondary", border.css());
-        v.insert("--color-ring-inverse", fg.css());
-        for (name, role) in roles {
-            let key = |prefix: &str| -> &'static str {
-                match (prefix, name) {
-                    ("background", "info") => "--color-background-info",
-                    ("background", "danger") => "--color-background-danger",
-                    ("background", "success") => "--color-background-success",
-                    ("background", "warning") => "--color-background-warning",
-                    ("text", "info") => "--color-text-info",
-                    ("text", "danger") => "--color-text-danger",
-                    ("text", "success") => "--color-text-success",
-                    ("text", "warning") => "--color-text-warning",
-                    ("border", "info") => "--color-border-info",
-                    ("border", "danger") => "--color-border-danger",
-                    ("border", "success") => "--color-border-success",
-                    ("border", "warning") => "--color-border-warning",
-                    ("ring", "info") => "--color-ring-info",
-                    ("ring", "danger") => "--color-ring-danger",
-                    ("ring", "success") => "--color-ring-success",
-                    _ => "--color-ring-warning",
-                }
-            };
-            v.insert(key("background"), bg.toward(role, 0.18).css());
-            v.insert(key("text"), role.css());
-            v.insert(key("border"), role.css());
-            v.insert(key("ring"), role.css());
+        Roles {
+            background,
+            foreground,
+            dim: self
+                .dim
+                .unwrap_or_else(|| foreground.part_toward(background, 1, 3)),
+            accent: self.accent.unwrap_or(info),
+            border: self
+                .border
+                .unwrap_or_else(|| background.part_toward(foreground, 1, 5)),
+            success: self.success.unwrap_or(Rgb(0x3f, 0xb9, 0x50)),
+            error: self.error.unwrap_or(Rgb(0xf8, 0x51, 0x49)),
+            warning: self.warning.unwrap_or(Rgb(0xd2, 0x99, 0x22)),
+            info,
         }
-        if !self.font_mono.is_empty() {
-            v.insert("--font-mono", self.font_mono.clone());
-        }
-        v
     }
 }
 
@@ -261,58 +251,51 @@ mod tests {
     }
 
     #[test]
-    fn a_variable_comes_with_the_whole_family_it_belongs_to() {
-        let variables = white_on_black().variables();
-        for family in ["background", "text", "border"] {
-            for member in [
-                "primary",
-                "secondary",
-                "tertiary",
-                "inverse",
-                "ghost",
-                "info",
-                "danger",
-                "success",
-                "warning",
-                "disabled",
-            ] {
-                let name = format!("--color-{family}-{member}");
-                assert!(variables.contains_key(name.as_str()), "{name}");
-            }
-        }
-        for member in [
-            "primary",
-            "secondary",
-            "inverse",
-            "info",
-            "danger",
-            "success",
-            "warning",
-        ] {
-            let name = format!("--color-ring-{member}");
-            assert!(variables.contains_key(name.as_str()), "{name}");
-        }
-        assert_eq!(variables["--color-background-primary"], "#000000");
-        assert_eq!(variables["--color-text-primary"], "#eeeeee");
-        assert_eq!(variables["--font-mono"], "monospace");
-        assert!(
-            variables
-                .values()
-                .all(|v| v == "transparent" || v == "monospace" || Rgb::parse(v).is_some())
-        );
+    fn a_part_of_the_way_is_rounded_to_the_nearest_with_halves_away_from_zero() {
+        let (black, white) = (Rgb(0, 0, 0), Rgb(255, 255, 255));
+        assert_eq!(black.part_toward(white, 0, 3), black);
+        assert_eq!(black.part_toward(white, 3, 3), white);
+        // 255 / 3 is 85 exactly; 255 / 5 is 51.
+        assert_eq!(black.part_toward(white, 1, 3), Rgb(85, 85, 85));
+        assert_eq!(black.part_toward(white, 1, 5), Rgb(51, 51, 51));
+        // Halves go up, and a part past the whole stops at the whole.
+        assert_eq!(Rgb(0, 0, 0).part_toward(Rgb(5, 5, 5), 1, 2), Rgb(3, 3, 3));
+        assert_eq!(Rgb(5, 5, 5).part_toward(Rgb(0, 0, 0), 1, 2), Rgb(3, 3, 3));
+        assert_eq!(Rgb(1, 1, 1).part_toward(Rgb(9, 9, 9), 9, 3), Rgb(9, 9, 9));
     }
 
     #[test]
-    fn what_the_host_gives_is_used_and_the_rest_is_made_up() {
+    fn all_nine_roles_are_there_what_the_host_gave_and_the_rest_made_up() {
+        // The two a host always has; the other seven are made up from the table of §11.2.
+        let made_up = Theme::new(Rgb(255, 255, 255), Rgb(0x1f, 0x23, 0x28), "").roles();
+        assert_eq!(made_up.dim.css(), "#6a6c70");
+        assert_eq!(made_up.border.css(), "#d2d3d4");
+        assert_eq!(
+            [
+                made_up.accent.css(),
+                made_up.success.css(),
+                made_up.error.css(),
+                made_up.warning.css(),
+                made_up.info.css(),
+            ],
+            ["#58a6ff", "#3fb950", "#f85149", "#d29922", "#58a6ff"]
+        );
         let mut theme = black_on_white();
         theme.accent = Some(Rgb(1, 2, 3));
         theme.error = Some(Rgb(9, 8, 7));
         theme.dim = Some(Rgb(5, 5, 5));
-        let v = theme.variables();
-        assert_eq!(v["--color-ring-primary"], "#010203");
-        assert_eq!(v["--color-text-danger"], "#090807");
-        assert_eq!(v["--color-text-secondary"], "#050505");
-        assert_eq!(v["--font-mono"], "\"Menlo\", monospace");
+        theme.info = Some(Rgb(7, 7, 7));
+        let roles = theme.roles();
+        assert_eq!(roles.accent, Rgb(1, 2, 3));
+        assert_eq!(roles.error, Rgb(9, 8, 7));
+        assert_eq!(roles.dim, Rgb(5, 5, 5));
+        assert_eq!(roles.info, Rgb(7, 7, 7));
+        // An accent the host does not give is the information colour, whatever that is.
+        theme.accent = None;
+        assert_eq!(theme.roles().accent, Rgb(7, 7, 7));
+        assert_eq!(roles.background, Rgb(255, 255, 255));
+        assert_eq!(roles.foreground, Rgb(0x17, 0x17, 0x17));
+        assert_eq!(theme.font_mono(), "\"Menlo\", monospace");
     }
 
     #[test]
@@ -328,6 +311,6 @@ mod tests {
                 .contains([';', '{', '}', '<', '(', ')', ':', '/'])
         );
         let empty = Theme::new(Rgb(0, 0, 0), Rgb(255, 255, 255), "");
-        assert!(!empty.variables().contains_key("--font-mono"));
+        assert!(empty.font_mono().is_empty());
     }
 }

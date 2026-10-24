@@ -45,13 +45,23 @@ describe("a bundle of files", () => {
     expect(bundle.read("0".repeat(64))).toBeUndefined();
   });
 
-  it("carries the meta of the view and the entry it was given", () => {
-    const meta = { prefersBorder: true };
+  it("is the entry and the files and nothing else: what a page asks to reach is the open's", () => {
     const bundle = bundleFromFiles([{ path: "main.html", data: Buffer.from("<p>") }], {
       entry: "main.html",
-      meta,
     });
-    expect(bundle.manifest).toMatchObject({ entry: "main.html", meta });
+    expect(Object.keys(bundle.manifest)).toEqual(["entry", "files"]);
+    expect(bundle.manifest.entry).toBe("main.html");
+  });
+
+  it("has the media type of a component and of a script for the kit views", () => {
+    const bundle = bundleFromFiles(
+      [
+        { path: "view.wasm", data: Buffer.from([0, 0x61, 0x73, 0x6d]) },
+        { path: "view.lua", data: Buffer.from("return {}") },
+      ],
+      { entry: "view.wasm" },
+    );
+    expect(bundle.manifest.files.map((f) => f.type)).toEqual(["application/wasm", "text/x-lua"]);
   });
 
   it("keeps one entry for two files with the same bytes", () => {

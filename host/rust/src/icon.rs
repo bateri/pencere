@@ -1,12 +1,11 @@
-//! The icons a program gives for itself and for its tools (MCP 2025-11-25 §
-//! icons), read the way a terminal may draw them (specification §7.3).
+//! The icons a program gives for itself in the `icons` of its `open`, read the way a terminal
+//! may draw them (specification §7.3).
 //!
-//! MCP lets an icon be an `https:` URL or a `data:` URI. A terminal draws on the
-//! person's machine, where a view has no network unless the person allowed it,
-//! and a program on the other end of an ssh connection has no origin an icon
-//! could be checked against: fetching an icon would tell the program's author who
-//! opened it, from where and when. So only `data:` URIs are read, and the bytes
-//! that arrive in the terminal's own stream are all there is.
+//! An icon's `src` is a `data:` URI with base64 data. A terminal draws on the person's machine,
+//! where a view has no network unless the person allowed it, and a program on the other end of
+//! an ssh connection has no origin an icon could be checked against: fetching an icon would tell
+//! the program's author who opened it, from where and when. So only `data:` URIs are read, and
+//! the bytes that arrive in the terminal's own stream are all there is.
 //!
 //! The bytes are the program's, and a terminal hands them to an image decoder in
 //! its own process. They are therefore taken only when their own first bytes say
@@ -55,7 +54,7 @@ impl IconFormat {
     }
 
     /// The format a media type names, of those an icon may be. `image/jpg` is the
-    /// alias MCP names beside `image/jpeg`.
+    /// alias some programs write beside `image/jpeg`.
     fn named(media_type: &str) -> Option<Self> {
         let named = |name: &str| media_type.eq_ignore_ascii_case(name);
         if named("image/png") {
@@ -70,7 +69,7 @@ impl IconFormat {
     }
 }
 
-/// The background an icon was drawn for (MCP's `theme`).
+/// The background an icon was drawn for (its `theme`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IconTheme {
     /// A light background.
@@ -131,6 +130,8 @@ struct Entry {
     #[serde(rename = "mimeType", default)]
     mime_type: Option<Box<RawValue>>,
     #[serde(default)]
+    sizes: Option<Box<RawValue>>,
+    #[serde(default)]
     theme: Option<Box<RawValue>>,
 }
 
@@ -161,6 +162,11 @@ fn icon(entry: &Entry) -> Option<Icon> {
     };
     let src = text(&entry.src)??;
     let mime_type = text(&entry.mime_type)?;
+    // A member of another shape makes the icon unusable (specification §7.3). `sizes` is only
+    // read for that: the size an icon has is the image's own.
+    if let Some(sizes) = &entry.sizes {
+        serde_json::from_str::<Vec<String>>(sizes.get()).ok()?;
+    }
     let theme = match text(&entry.theme)?.as_deref() {
         None => None,
         Some("light") => Some(IconTheme::Light),
@@ -561,6 +567,8 @@ mod tests {
             json!([7, null, "x", {"src": 3}, {"theme": "dark"}]),
             json!([{"src": good["src"], "theme": "sepia"}]),
             json!([{"src": good["src"], "mimeType": 3}]),
+            json!([{"src": good["src"], "sizes": "16x16"}]),
+            json!([{"src": good["src"], "sizes": [16]}]),
         ] {
             assert_eq!(read_json(wrong.clone()), Vec::new(), "{wrong}");
         }

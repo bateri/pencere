@@ -67,3 +67,76 @@ describe("SttyTerminal", () => {
     expect(calls).toEqual([["-g"], [...PROGRAM_MODES], ["500:5:cb00:8a3b"]]);
   });
 });
+
+describe("SttyTerminal.discardInput", () => {
+  /** A queue of chunks: what a tty holds that the program has not read. */
+  function queue(...chunks: number[]) {
+    const reads: number[] = [];
+    const left = [...chunks];
+    return {
+      reads,
+      read: (fd: number, into: Uint8Array): number => {
+        reads.push(fd);
+        return Math.min(left.shift() ?? 0, into.length);
+      },
+    };
+  }
+
+  it("lets a read of an empty queue return at once, then reads the queue empty", () => {
+    const { calls, run } = fake();
+    const { reads, read } = queue(5, 4096, 12);
+    const terminal = new SttyTerminal(run, 7, read);
+    terminal.enter();
+    terminal.discardInput();
+    // VMIN 0 first: a read that waits for a byte of an empty queue would never end.
+    expect(calls[2]).toEqual(["min", "0", "time", "0"]);
+    expect(reads).toEqual([7, 7, 7, 7]);
+    terminal.restore();
+    expect(calls[3]).toEqual(["500:5:cb00:8a3b"]);
+  });
+
+  it("reads nothing when the queue is empty", () => {
+    const { run } = fake();
+    const { reads, read } = queue();
+    const terminal = new SttyTerminal(run, 3, read);
+    terminal.enter();
+    terminal.discardInput();
+    expect(reads).toEqual([3]);
+  });
+
+  it("does not read when VMIN 0 cannot be set: a read that may wait is not taken", () => {
+    const { run } = fake({ "min 0 time 0": { status: 1, stdout: "" } });
+    const { reads, read } = queue(10);
+    const terminal = new SttyTerminal(run, 3, read);
+    terminal.enter();
+    terminal.discardInput();
+    expect(reads).toEqual([]);
+  });
+
+  it("does nothing before enter, and without a descriptor to read", () => {
+    const first = fake();
+    const { reads, read } = queue(10);
+    new SttyTerminal(first.run, 3, read).discardInput();
+    expect(first.calls).toEqual([]);
+    expect(reads).toEqual([]);
+    const second = fake();
+    const terminal = new SttyTerminal(second.run, undefined, read);
+    terminal.enter();
+    terminal.discardInput();
+    expect(second.calls).toHaveLength(2);
+    expect(reads).toEqual([]);
+  });
+
+  it("ends even for a queue that never empties", () => {
+    const { run } = fake();
+    let total = 0;
+    const terminal = new SttyTerminal(run, 3, (_fd, into) => {
+      total += into.length;
+      return into.length;
+    });
+    terminal.enter();
+    terminal.discardInput();
+    expect(total).toBeGreaterThan(0);
+    expect(total).toBeLessThanOrEqual(5 * 1024 * 1024);
+  });
+});

@@ -7,7 +7,7 @@
     {
       "file": "to-host/hello.frame",
       "direction": "to-host",
-      "note": "the capability query",
+      "note": "the capability query: the kinds of view the program can show, each with the versions of its interface it speaks",
       "scope": "body",
       "canonical": true,
       "messages": [
@@ -15,7 +15,7 @@
           "kind": "hello",
           "id": 1,
           "control": {},
-          "payload": "{\"versions\":[1],\"views\":[\"web\"]}"
+          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         }
       ],
       "errors": []
@@ -31,15 +31,31 @@
           "kind": "hello",
           "id": 1,
           "control": {},
-          "payload": "{\"versions\":[1],\"views\":[\"web\"]}"
+          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         }
       ],
       "errors": []
     },
     {
-      "file": "to-host/open.frame",
+      "file": "to-host/hello-views.frame",
       "direction": "to-host",
-      "note": "open without a bundle",
+      "note": "a hello with three kinds and, for one, two versions in the order the program prefers them",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "hello",
+          "id": 1,
+          "control": {},
+          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"wasm\",\"versions\":[\"0.5\",\"0.4\"]},{\"kind\":\"lua\",\"versions\":[\"0.5\"]},{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/open-web.frame",
+      "direction": "to-host",
+      "note": "open for a web page: the kind and its version, the names, what the page asks to reach, and a three-file bundle",
       "scope": "body",
       "canonical": true,
       "messages": [
@@ -47,15 +63,15 @@
           "kind": "open",
           "id": 2,
           "control": {},
-          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"web\",\"tool\":{\"name\":\"list_containers\",\"arguments\":{}}}"
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"web\",\"version\":\"1.0\",\"program\":\"containers\",\"title\":\"Containers\",\"access\":{\"connect\":[\"https://api.example.com\"],\"permissions\":[\"clipboardWrite\"]},\"bundle\":{\"entry\":\"index.html\",\"files\":[{\"path\":\"index.html\",\"sha256\":\"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54\",\"size\":132,\"type\":\"text/html\"},{\"path\":\"app.js\",\"sha256\":\"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c\",\"size\":67,\"type\":\"text/javascript\"},{\"path\":\"style.css\",\"sha256\":\"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e\",\"size\":61,\"type\":\"text/css\"}]}}"
         }
       ],
       "errors": []
     },
     {
-      "file": "to-host/open-bundle.frame",
+      "file": "to-host/open-wasm.frame",
       "direction": "to-host",
-      "note": "open with a three-file bundle manifest",
+      "note": "open for a view that is a WebAssembly component: the kind and its version, the program's and the view's names, an entry of type application/wasm",
       "scope": "body",
       "canonical": true,
       "messages": [
@@ -63,7 +79,39 @@
           "kind": "open",
           "id": 2,
           "control": {},
-          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"web\",\"tool\":{\"name\":\"list_containers\",\"arguments\":{}},\"bundle\":{\"entry\":\"index.html\",\"files\":[{\"path\":\"index.html\",\"sha256\":\"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54\",\"size\":132,\"type\":\"text/html\"},{\"path\":\"app.js\",\"sha256\":\"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c\",\"size\":67,\"type\":\"text/javascript\"},{\"path\":\"style.css\",\"sha256\":\"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e\",\"size\":61,\"type\":\"text/css\"}],\"meta\":{\"csp\":{\"connectDomains\":[\"https://api.example.com\"]},\"prefersBorder\":false}}}"
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"wasm\",\"version\":\"0.5\",\"program\":\"demopen\",\"title\":\"Containers\",\"bundle\":{\"entry\":\"view.wasm\",\"files\":[{\"path\":\"view.wasm\",\"sha256\":\"93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476\",\"size\":8,\"type\":\"application/wasm\"}]}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/open-lua.frame",
+      "direction": "to-host",
+      "note": "open for a view that is a Lua script: the kind and its version, the program's and the view's names, an entry of type text/x-lua",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "open",
+          "id": 2,
+          "control": {},
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"lua\",\"version\":\"0.5\",\"program\":\"demopen\",\"title\":\"Containers\",\"bundle\":{\"entry\":\"view.lua\",\"files\":[{\"path\":\"view.lua\",\"sha256\":\"7d06ba2f8d1d231826e549de62e88f14c83997c82437df8b44597470da66d081\",\"size\":34,\"type\":\"text/x-lua\"}]}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/open-icons.frame",
+      "direction": "to-host",
+      "note": "open with an icon for the program: a data URI of a PNG",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "open",
+          "id": 2,
+          "control": {},
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"wasm\",\"version\":\"0.5\",\"program\":\"demopen\",\"title\":\"Containers\",\"icons\":[{\"src\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==\",\"mimeType\":\"image/png\",\"sizes\":[\"1x1\"],\"theme\":\"dark\"}],\"bundle\":{\"entry\":\"view.wasm\",\"files\":[{\"path\":\"view.wasm\",\"sha256\":\"93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476\",\"size\":8,\"type\":\"application/wasm\"}]}}"
         }
       ],
       "errors": []
@@ -105,9 +153,9 @@
       "errors": []
     },
     {
-      "file": "to-host/msg.frame",
+      "file": "to-host/msg-response.frame",
       "direction": "to-host",
-      "note": "msg carrying an MCP initialize result",
+      "note": "msg carrying the program's response to a call of the view",
       "scope": "body",
       "canonical": true,
       "messages": [
@@ -115,7 +163,7 @@
           "kind": "msg",
           "id": 4,
           "control": {},
-          "payload": "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"containers\",\"version\":\"0.0.0\"}}}"
+          "payload": "{\"response\":{\"id\":1,\"result\":{\"containers\":[{\"id\":\"c1\",\"name\":\"web\",\"state\":\"running\"}]}}}"
         }
       ],
       "errors": []
@@ -123,7 +171,7 @@
     {
       "file": "to-host/msg-chunked.frame",
       "direction": "to-host",
-      "note": "msg in three chunks of 100 payload bytes, the sender's choice",
+      "note": "msg in three chunks of 59 payload bytes, the sender's choice",
       "scope": "body",
       "canonical": false,
       "messages": [
@@ -131,7 +179,39 @@
           "kind": "msg",
           "id": 5,
           "control": {},
-          "payload": "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"3 containers\"}],\"structuredContent\":{\"containers\":[{\"id\":\"c1\",\"name\":\"web\",\"state\":\"running\"},{\"id\":\"c2\",\"name\":\"db\",\"state\":\"running\"},{\"id\":\"c3\",\"name\":\"cache\",\"state\":\"exited\"}]}}}"
+          "payload": "{\"response\":{\"id\":2,\"result\":{\"containers\":[{\"id\":\"c1\",\"name\":\"web\",\"state\":\"running\"},{\"id\":\"c2\",\"name\":\"db\",\"state\":\"running\"},{\"id\":\"c3\",\"name\":\"cache\",\"state\":\"exited\"}]}}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/msg-push.frame",
+      "direction": "to-host",
+      "note": "msg carrying a value of a subscription of the view",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 4,
+          "control": {},
+          "payload": "{\"push\":{\"id\":3,\"value\":{\"id\":\"c1\",\"state\":\"exited\"}}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/msg-progress.frame",
+      "direction": "to-host",
+      "note": "msg carrying how far a call that takes a while has got",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 4,
+          "control": {},
+          "payload": "{\"progress\":{\"id\":4,\"done\":4,\"total\":10,\"note\":\"layer 4 of 10\"}}"
         }
       ],
       "errors": []
@@ -179,7 +259,7 @@
           "kind": "hello",
           "id": 1,
           "control": {},
-          "payload": "{\"versions\":[1],\"views\":[\"web\"]}"
+          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         },
         {
           "kind": "zzz",
@@ -219,7 +299,7 @@
           "control": {
             "x": "1"
           },
-          "payload": "{\"versions\":[1],\"views\":[\"web\"]}"
+          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         }
       ],
       "errors": []
@@ -404,7 +484,7 @@
           "kind": "hello",
           "id": 5,
           "control": {},
-          "payload": "{\"versions\":[1],\"views\":[\"web\"]}"
+          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         }
       ],
       "errors": ["abandoned"]
@@ -412,7 +492,7 @@
     {
       "file": "to-program/welcome.frame",
       "direction": "to-program",
-      "note": "the answer to a hello",
+      "note": "the answer to a hello: a version, a token and, for each kind of view the host opens, the versions of it that both speak",
       "scope": "body",
       "canonical": true,
       "messages": [
@@ -422,7 +502,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[\"web\"]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         }
       ],
       "errors": []
@@ -438,7 +518,7 @@
           "kind": "welcome",
           "id": 2,
           "control": {},
-          "payload": "{\"version\":1,\"token\":\"Zk3mP8rD5uYb1Xe6HqS0vg\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[\"web\"],\"restart\":true}"
+          "payload": "{\"version\":1,\"token\":\"Zk3mP8rD5uYb1Xe6HqS0vg\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}],\"restart\":true}"
         }
       ],
       "errors": []
@@ -457,6 +537,60 @@
             "re": "1"
           },
           "payload": "{\"supported\":[1],\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/welcome-wasm.frame",
+      "direction": "to-program",
+      "note": "the answer of a host that shows WebAssembly views: wasm among the views, with its version",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "welcome",
+          "id": 1,
+          "control": {
+            "re": "1"
+          },
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[{\"kind\":\"wasm\",\"versions\":[\"0.5\"]},{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/welcome-versions.frame",
+      "direction": "to-program",
+      "note": "the answer to the hello of three kinds: a kind with two versions in common, in the program's order; a kind the host does not open is left out",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "welcome",
+          "id": 1,
+          "control": {
+            "re": "1"
+          },
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[{\"kind\":\"wasm\",\"versions\":[\"0.5\",\"0.4\"]},{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/welcome-no-views.frame",
+      "direction": "to-program",
+      "note": "the answer of a host that opens none of the kinds of view the program listed: a version and a token, and no kind",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "welcome",
+          "id": 1,
+          "control": {
+            "re": "1"
+          },
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[]}"
         }
       ],
       "errors": []
@@ -604,9 +738,9 @@
       "errors": []
     },
     {
-      "file": "to-program/msg-initialize.frame",
+      "file": "to-program/msg-call.frame",
       "direction": "to-program",
-      "note": "msg carrying an MCP initialize request",
+      "note": "msg carrying a call of the view",
       "scope": "body",
       "canonical": true,
       "messages": [
@@ -614,15 +748,31 @@
           "kind": "msg",
           "id": 3,
           "control": {},
-          "payload": "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"extensions\":{\"io.modelcontextprotocol/ui\":{\"mimeTypes\":[\"text/html;profile=mcp-app\"]}}},\"clientInfo\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"}}}"
+          "payload": "{\"call\":{\"id\":1,\"method\":\"list\",\"params\":{\"all\":true}}}"
         }
       ],
       "errors": []
     },
     {
-      "file": "to-program/msg-chunked.frame",
+      "file": "to-program/msg-subscribe.frame",
       "direction": "to-program",
-      "note": "a view's tools/call, longer than one frame, with non-ASCII text written as escapes",
+      "note": "msg carrying a subscription of the view",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 3,
+          "control": {},
+          "payload": "{\"subscribe\":{\"id\":2,\"topic\":\"stats\",\"params\":{\"name\":\"web\"}}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/msg-cancel.frame",
+      "direction": "to-program",
+      "note": "msg carrying the view giving up a subscription",
       "scope": "body",
       "canonical": true,
       "messages": [
@@ -630,7 +780,23 @@
           "kind": "msg",
           "id": 4,
           "control": {},
-          "payload": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"stop_container\",\"arguments\":{\"id\":\"c3\",\"reason\":\"Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue.\"}}}"
+          "payload": "{\"cancel\":{\"id\":2}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/msg-chunked.frame",
+      "direction": "to-program",
+      "note": "a view's call, longer than one frame, with non-ASCII text written as escapes",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 4,
+          "control": {},
+          "payload": "{\"call\":{\"id\":4,\"method\":\"stop\",\"params\":{\"id\":\"c3\",\"reason\":\"Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue.\"}}}"
         }
       ],
       "errors": []
@@ -648,7 +814,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[\"web\"]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         }
       ],
       "errors": []
@@ -666,7 +832,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[\"web\"]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         }
       ],
       "errors": []
@@ -682,7 +848,7 @@
           "kind": "msg",
           "id": 4,
           "control": {},
-          "payload": "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"stop_container\",\"arguments\":{\"id\":\"c3\",\"reason\":\"Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue.\"}}}"
+          "payload": "{\"call\":{\"id\":4,\"method\":\"stop\",\"params\":{\"id\":\"c3\",\"reason\":\"Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue. Arr\\u00eat demand\\u00e9 depuis la vue.\"}}}"
         }
       ],
       "errors": []
@@ -774,74 +940,6 @@
       "canonical": false,
       "messages": [],
       "errors": ["chunk-order"]
-    },
-    {
-      "file": "to-host/open-wasm.frame",
-      "direction": "to-host",
-      "note": "open for a view that is a WebAssembly component: no tool, the program's and the view's names, a bundle whose entry has the type application/wasm",
-      "scope": "body",
-      "canonical": true,
-      "messages": [
-        {
-          "kind": "open",
-          "id": 2,
-          "control": {},
-          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"wasm\",\"program\":\"demopen\",\"title\":\"Containers\",\"bundle\":{\"entry\":\"view.wasm\",\"files\":[{\"path\":\"view.wasm\",\"sha256\":\"93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476\",\"size\":8,\"type\":\"application/wasm\"}]}}"
-        }
-      ],
-      "errors": []
-    },
-    {
-      "file": "to-host/open-lua.frame",
-      "direction": "to-host",
-      "note": "open for a view that is a Lua script: no tool, the program's and the view's names, a bundle whose entry has the type text/x-lua",
-      "scope": "body",
-      "canonical": true,
-      "messages": [
-        {
-          "kind": "open",
-          "id": 2,
-          "control": {},
-          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"lua\",\"program\":\"demopen\",\"title\":\"Containers\",\"bundle\":{\"entry\":\"view.lua\",\"files\":[{\"path\":\"view.lua\",\"sha256\":\"7d06ba2f8d1d231826e549de62e88f14c83997c82437df8b44597470da66d081\",\"size\":34,\"type\":\"text/x-lua\"}]}}"
-        }
-      ],
-      "errors": []
-    },
-    {
-      "file": "to-program/welcome-wasm.frame",
-      "direction": "to-program",
-      "note": "the answer of a host that shows WebAssembly views",
-      "scope": "body",
-      "canonical": true,
-      "messages": [
-        {
-          "kind": "welcome",
-          "id": 1,
-          "control": {
-            "re": "1"
-          },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[\"wasm\",\"web\"]}"
-        }
-      ],
-      "errors": []
-    },
-    {
-      "file": "to-program/welcome-no-views.frame",
-      "direction": "to-program",
-      "note": "the answer of a host that opens none of the kinds of view the program listed: a version and a token, and no kind",
-      "scope": "body",
-      "canonical": true,
-      "messages": [
-        {
-          "kind": "welcome",
-          "id": 1,
-          "control": {
-            "re": "1"
-          },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[]}"
-        }
-      ],
-      "errors": []
     }
   ],
   "session": [
@@ -1190,19 +1288,19 @@
           "in": "session/dismiss-and-reopen/05-in.frame"
         },
         {
-          "out": "session/dismiss-and-reopen/06-out.frame"
+          "out": null
         },
         {
           "in": "session/dismiss-and-reopen/07-in.frame"
         },
         {
-          "out": "session/dismiss-and-reopen/08-out.frame"
+          "out": null
         },
         {
           "in": "session/dismiss-and-reopen/09-in.frame"
         },
         {
-          "out": null
+          "out": "session/dismiss-and-reopen/10-out.frame"
         },
         {
           "in": "session/dismiss-and-reopen/11-in.frame"
@@ -1215,12 +1313,6 @@
         },
         {
           "out": "session/dismiss-and-reopen/14-out.frame"
-        },
-        {
-          "in": "session/dismiss-and-reopen/15-in.frame"
-        },
-        {
-          "out": "session/dismiss-and-reopen/16-out.frame"
         }
       ]
     },
@@ -1290,7 +1382,16 @@
         },
         "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
         "store": [],
-        "views": ["wasm", "web"]
+        "views": [
+          {
+            "kind": "wasm",
+            "versions": ["0.5"]
+          },
+          {
+            "kind": "web",
+            "versions": ["1.0"]
+          }
+        ]
       },
       "steps": [
         {
@@ -1350,6 +1451,206 @@
           "out": "session/wasm-unsupported/04-out.frame"
         }
       ]
+    },
+    {
+      "name": "no-common-version",
+      "note": "a kind the host has no version of in common with the program is left out of its welcome, and an open of it is refused as unsupported; when no kind is left the welcome still carries a token",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": [],
+        "views": [
+          {
+            "kind": "wasm",
+            "versions": ["0.4", "0.5"]
+          },
+          {
+            "kind": "web",
+            "versions": ["1.0"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/no-common-version/01-in.frame"
+        },
+        {
+          "out": "session/no-common-version/02-out.frame"
+        },
+        {
+          "in": "session/no-common-version/03-in.frame"
+        },
+        {
+          "out": "session/no-common-version/04-out.frame"
+        },
+        {
+          "in": "session/no-common-version/05-in.frame"
+        },
+        {
+          "out": "session/no-common-version/06-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "several-versions",
+      "note": "the versions the host and the program share are listed in the program's order, not the host's; an open names one of them, and a version outside the list is refused as unsupported",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg", "Hn5xQ2wTj8Vb0YcLrE4aMg"],
+        "store": [],
+        "views": [
+          {
+            "kind": "wasm",
+            "versions": ["0.4", "0.5"]
+          },
+          {
+            "kind": "web",
+            "versions": ["1.0"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/several-versions/01-in.frame"
+        },
+        {
+          "out": "session/several-versions/02-out.frame"
+        },
+        {
+          "in": "session/several-versions/03-in.frame"
+        },
+        {
+          "out": "session/several-versions/04-out.frame"
+        },
+        {
+          "in": "session/several-versions/05-in.frame"
+        },
+        {
+          "out": "session/several-versions/06-out.frame"
+        },
+        {
+          "in": "session/several-versions/07-in.frame"
+        },
+        {
+          "out": "session/several-versions/08-out.frame"
+        },
+        {
+          "in": "session/several-versions/09-in.frame"
+        },
+        {
+          "out": "session/several-versions/10-out.frame"
+        }
+      ]
+    }
+  ],
+  "bridge": [
+    {
+      "file": "bridge/context.json",
+      "direction": "host-to-page",
+      "note": "the host's context for a page: every theme role, the terminal's font, the size of the pane, the person's language and time zone, the accessibility setting, and what the person allowed",
+      "outcome": "written",
+      "config": {
+        "theme": {
+          "background": "#0d1117",
+          "foreground": "#c9d1d9",
+          "dim": "#8b949e",
+          "accent": "#58a6ff",
+          "border": "#30363d",
+          "success": "#3fb950",
+          "error": "#f85149",
+          "warning": "#d29922",
+          "info": "#58a6ff"
+        },
+        "font": "Menlo, monospace",
+        "size": {
+          "width": 800,
+          "height": 600
+        },
+        "locale": "en-US",
+        "timeZone": "Europe/Istanbul",
+        "reduceMotion": false,
+        "access": {
+          "connect": ["https://api.example.com"]
+        }
+      }
+    },
+    {
+      "file": "bridge/context-defaults.json",
+      "direction": "host-to-page",
+      "note": "the context of a host that knows only the background and the foreground of its theme: the other roles are made up, and what is not known is left out",
+      "outcome": "written",
+      "config": {
+        "theme": {
+          "background": "#ffffff",
+          "foreground": "#1f2328"
+        },
+        "size": {
+          "width": 640,
+          "height": 480
+        },
+        "reduceMotion": true
+      }
+    },
+    {
+      "file": "bridge/context-request.json",
+      "direction": "page-to-host",
+      "note": "a page that started listening late asks for the context again",
+      "outcome": "context"
+    },
+    {
+      "file": "bridge/close.json",
+      "direction": "page-to-host",
+      "note": "the page asks to be closed",
+      "outcome": "close"
+    },
+    {
+      "file": "bridge/link.json",
+      "direction": "page-to-host",
+      "note": "the page asks to open a link in the person's browser",
+      "outcome": "link",
+      "url": "https://example.com/docs"
+    },
+    {
+      "file": "bridge/link-not-http.json",
+      "direction": "page-to-host",
+      "note": "a link that is not http or https is dropped",
+      "outcome": "dropped"
+    },
+    {
+      "file": "bridge/call.json",
+      "direction": "page-to-host",
+      "note": "a call of the page goes to the program as it is",
+      "outcome": "passed"
+    },
+    {
+      "file": "bridge/two-members.json",
+      "direction": "page-to-host",
+      "note": "an object with more than one member is nobody's message of the host's: it goes to the program as it is",
+      "outcome": "passed"
+    },
+    {
+      "file": "bridge/not-an-object.json",
+      "direction": "page-to-host",
+      "note": "what is not an object is dropped",
+      "outcome": "dropped"
+    },
+    {
+      "file": "bridge/response.json",
+      "direction": "program-to-page",
+      "note": "the program's answer goes to the page as it is",
+      "outcome": "passed"
+    },
+    {
+      "file": "bridge/context-forged.json",
+      "direction": "program-to-page",
+      "note": "a message that is named like one of the host's own is dropped on its way to the page",
+      "outcome": "dropped"
     }
   ]
 }

@@ -1,16 +1,14 @@
 # A release tag (`<line>-v<version>`, made by `make release`) on main becomes a
-# release (RELEASING.md). A package of an npm line (@pencere/sdk, @pencere/cli,
-# create-pencere) is staged on npm with provenance, through trusted publishing; it
-# becomes public only when a maintainer approves it there with 2FA. The crate is
-# published from the maintainer's machine, so its tag only gets its GitHub release here.
+# release (RELEASING.md). The package of the npm line (@pencere/sdk) is staged on npm
+# with provenance, through trusted publishing; it becomes public only when a maintainer
+# approves it there with 2FA. The crate is published from the maintainer's machine, so
+# its tag only gets its GitHub release here.
 name: release
 
 on:
   push:
     tags:
       - "sdk-typescript-v*"
-      - "cli-v*"
-      - "create-v*"
       - "host-rust-v*"
 
 permissions: {}

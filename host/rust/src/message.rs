@@ -8,9 +8,9 @@
 
 use serde::de::{Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::value::RawValue;
 
-use crate::json;
+use crate::json::{self, Object};
 
 /// The protocol versions this crate implements: this version, and the one
 /// before it when there is one (specification §5.4).
@@ -33,14 +33,39 @@ pub const FEATURE_BUNDLE: &str = "bundle";
 /// sends `dismiss` (specification §10.8).
 pub const FEATURE_DISMISS: &str = "dismiss";
 
+/// A kind of view and the versions of its interface, in the order of whoever wrote the list: an
+/// entry of `views` in a `hello` and in a `welcome` (specification §5.1, §5.2, Appendix A).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ViewOffer {
+    /// The name of the kind (specification §5.5).
+    pub kind: String,
+    /// The versions of the kind's interface (`major.minor`).
+    pub versions: Vec<String>,
+}
+
+impl<'de> Deserialize<'de> for ViewOffer {
+    /// An object with a string `kind` and a `versions` that is a list of strings; anything else,
+    /// a list standing for the object included, is not an entry.
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Fields {
+            kind: String,
+            versions: Vec<String>,
+        }
+        let Object(Fields { kind, versions }) = Object::<Fields>::deserialize(deserializer)?;
+        Ok(ViewOffer { kind, versions })
+    }
+}
+
 /// The program's `hello`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Hello {
-    /// The versions the program speaks.
+    /// The protocol versions the program speaks.
     pub versions: Vec<u32>,
-    /// The kinds of view the program can show, in the order it prefers them (specification
-    /// §5.2). Names the host does not know are kept: the host leaves them out of its answer.
-    pub views: Vec<String>,
+    /// The kinds of view the program can show, each with the versions of its interface the
+    /// program speaks, in the order it prefers them (specification §5.1). Names the host does
+    /// not know are kept: the host leaves them out of its answer.
+    pub views: Vec<ViewOffer>,
 }
 
 #[derive(Serialize)]
@@ -50,7 +75,7 @@ struct Offer<'a> {
     host: &'a HostInfo,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     features: &'a [&'static str],
-    views: &'a [&'static str],
+    views: &'a [ViewOffer],
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     restart: bool,
 }
@@ -62,13 +87,14 @@ struct Unsupported<'a> {
 }
 
 /// The host's `welcome` carrying a version and a token. `views` are the kinds of view it will
-/// open, by name and in the order it was given (specification §5.2); it can be empty.
+/// open, each with the versions of it that the program and the host both speak, in the order it
+/// was given (specification §5.2); it can be empty.
 pub fn welcome_offer(
     version: u32,
     token: &str,
     host: &HostInfo,
     features: &[&'static str],
-    views: &[&'static str],
+    views: &[ViewOffer],
     restart: bool,
 ) -> String {
     wire(&Offer {
@@ -268,29 +294,25 @@ pub(crate) struct OpenBody {
     /// string, it is a malformed payload.
     #[serde(default, deserialize_with = "string_or_none")]
     pub view: Option<String>,
-    /// The tool the view shows the result of, as a [`ToolCall`] once the session knows it is
-    /// to read one. A view that is a WebAssembly component has no tool and no MCP session;
-    /// whatever `tool` it carries is not read.
-    #[serde(default)]
-    pub tool: Option<Value>,
-    #[serde(default)]
-    pub bundle: Option<RawBundle>,
-    /// What a WebAssembly view's program calls itself and the view (specification §8.8);
-    /// a web view takes both from MCP.
+    /// The version of that kind's interface the view is written against. Absent, or not a
+    /// string, it is a malformed payload.
+    #[serde(default, deserialize_with = "string_or_none")]
+    pub version: Option<String>,
+    /// What the program calls itself and its view (specification §7.3).
     #[serde(default, deserialize_with = "string_or_none")]
     pub program: Option<String>,
     #[serde(default, deserialize_with = "string_or_none")]
     pub title: Option<String>,
-}
-
-/// The tool an `open` asks to call.
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
-pub struct ToolCall {
-    /// The tool's name.
-    pub name: String,
-    /// The arguments to call it with.
+    /// The icons of the program, as the program wrote them: the [`icon`](crate::icon) module
+    /// reads them, and whatever is wrong with them is no reason to refuse the view.
     #[serde(default)]
-    pub arguments: Option<serde_json::Map<String, Value>>,
+    pub icons: Option<Box<RawValue>>,
+    /// What a page asks to reach, as the program wrote it: read only for a `web` view
+    /// (specification §6.3).
+    #[serde(default)]
+    pub access: Option<Box<RawValue>>,
+    #[serde(default)]
+    pub bundle: Option<RawBundle>,
 }
 
 /// A bundle manifest as it arrives, before it is checked.
@@ -298,8 +320,6 @@ pub struct ToolCall {
 pub(crate) struct RawBundle {
     pub entry: String,
     pub files: Vec<RawFile>,
-    #[serde(default)]
-    pub meta: Option<Value>,
 }
 
 /// One file of a manifest as it arrives.
@@ -315,11 +335,19 @@ pub(crate) struct RawFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     fn host() -> HostInfo {
         HostInfo {
             name: "pencere-test".into(),
             version: "0.0.0".into(),
+        }
+    }
+
+    fn offer(kind: &str, versions: &[&str]) -> ViewOffer {
+        ViewOffer {
+            kind: kind.into(),
+            versions: versions.iter().map(|v| (*v).to_owned()).collect(),
         }
     }
 
@@ -331,10 +359,10 @@ mod tests {
                 "q7Vh2sB0xJm9kLw4TzN1cA",
                 &host(),
                 &["bundle", "dismiss"],
-                &["web"],
+                &[offer("web", &["1.0"])],
                 false
             ),
-            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":["web"]}"#
+            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}"#
         );
         assert_eq!(
             welcome_offer(
@@ -342,10 +370,10 @@ mod tests {
                 "Zk3mP8rD5uYb1Xe6HqS0vg",
                 &host(),
                 &["bundle", "dismiss"],
-                &["wasm", "web"],
+                &[offer("wasm", &["0.5", "0.4"]), offer("web", &["1.0"])],
                 true
             ),
-            r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":["wasm","web"],"restart":true}"#
+            r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}],"restart":true}"#
         );
         assert_eq!(
             welcome_offer(1, "t", &host(), &[], &[], false),
@@ -384,12 +412,40 @@ mod tests {
     }
 
     #[test]
+    fn a_hello_lists_kinds_with_their_versions_and_nothing_else_is_a_list_of_them() {
+        let hello = |text: &str| json::from_object::<Hello>(text);
+        let read = hello(
+            r#"{"versions":[1],"views":[{"kind":"wasm","versions":["0.5","0.4"],"x":1},{"kind":"web","versions":[]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(read.versions, vec![1]);
+        assert_eq!(
+            read.views,
+            vec![offer("wasm", &["0.5", "0.4"]), offer("web", &[])]
+        );
+        for bad in [
+            r#"{"versions":[1]}"#,
+            r#"{"views":[{"kind":"web","versions":["1.0"]}]}"#,
+            r#"{"versions":[1],"views":["web"]}"#,
+            r#"{"versions":[1],"views":{"kind":"web","versions":["1.0"]}}"#,
+            r#"{"versions":[1],"views":[{"kind":"web"}]}"#,
+            r#"{"versions":[1],"views":[{"versions":["1.0"]}]}"#,
+            r#"{"versions":[1],"views":[{"kind":7,"versions":["1.0"]}]}"#,
+            r#"{"versions":[1],"views":[{"kind":"web","versions":"1.0"}]}"#,
+            r#"{"versions":[1],"views":[{"kind":"web","versions":[1.0]}]}"#,
+            r#"{"versions":[1],"views":[["web",["1.0"]]]}"#,
+        ] {
+            assert_eq!(hello(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
     fn the_token_is_read_before_the_rest_and_without_building_it() {
         assert_eq!(
-            probe_token(r#"{"token":"abc","tool":{"name":"t"}}"#),
+            probe_token(r#"{"token":"abc","bundle":{"entry":"a"}}"#),
             TokenProbe::Token("abc".into())
         );
-        assert_eq!(probe_token(r#"{"tool":{"name":"t"}}"#), TokenProbe::NoToken);
+        assert_eq!(probe_token(r#"{"view":{"kind":"t"}}"#), TokenProbe::NoToken);
         assert_eq!(probe_token(r#"{"token":7}"#), TokenProbe::NoToken);
         assert_eq!(
             probe_token(r#"{"token":["a"],"x":{"y":[1,2,{}]}}"#),

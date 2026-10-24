@@ -1,0 +1,14 @@
+body {
+  margin: 0;
+  font: 14px/1.4 monospace;
+  background: var(--background, #111318);
+  color: var(--foreground, #d8dbe2);
+}
+
+main {
+  padding: 1rem;
+}
+
+.stopped {
+  color: var(--dim, #888);
+}

@@ -1,1 +1,0 @@
-_pencere;need;id=8,re=8;{"missing":[]}\_pencere;msg;id=9;{"jsonrpc":"2.0","id":3,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{"extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":["text/html;profile=mcp-app"]}}},"clientInfo":{"name":"pencere-test","version":"0.0.0"}}}\

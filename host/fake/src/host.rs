@@ -16,11 +16,11 @@ use pencere::frame::{Direction, Event, Message, StreamDecoder};
 use pencere::icon::{Icon, IconTheme};
 use pencere::message::HostInfo;
 use pencere::sandbox::Grant;
-use pencere::session::{Action, Config, Observed, Session, Size, State, ViewSource, ViewStart};
+use pencere::session::{Action, Config, Observed, Session, Size, State, ViewStart};
 use pencere::theme::{Rgb, Theme};
 use serde_json::Value;
 
-use crate::args::{Args, Call, Then};
+use crate::args::{Args, Ask, Then};
 use crate::log;
 use crate::pty::{self, Modes};
 use crate::screen::{Screen, Seen};
@@ -34,10 +34,8 @@ const DEVICE_ATTRIBUTES: &[u8] = b"\x1b[?62;4c";
 const INTERRUPT: u8 = 0x03;
 
 /// How long a terminal waits for the files and the start-up of an open before it
-/// gives up on it, and for a view to answer its teardown. The crate has no clock:
-/// these are the host's.
+/// gives up on it. The crate has no clock: this is the host's.
 const OPENING_PATIENCE: Duration = Duration::from_secs(5);
-const CLOSING_PATIENCE: Duration = Duration::from_secs(1);
 
 /// The most bytes waiting for the pane's input before replies to `CSI c` stop
 /// being queued: a program that asks without ever reading would otherwise grow
@@ -79,11 +77,15 @@ pub struct Host {
     allow_network: bool,
     passthrough: bool,
     then: Then,
-    /// The view whose finished calls `then` waits for.
+    /// The view whose finished script `then` waits for.
     on_view: u32,
     /// How many views have been started: each reopening of the program's is one.
     views: u32,
-    calls: Vec<Call>,
+    /// What the page of each view sends.
+    calls: Vec<Ask>,
+    subscriptions: Vec<Ask>,
+    links: Vec<String>,
+    cancel_after: Option<u32>,
     view: Option<ScriptedView>,
     screen: Screen,
     on_alternate_screen: bool,
@@ -136,6 +138,9 @@ impl Host {
             on_view: args.on_view,
             views: 0,
             calls: args.calls.clone(),
+            subscriptions: args.subscriptions.clone(),
+            links: args.links.clone(),
+            cancel_after: args.cancel_after,
             view: None,
             screen: Screen::new(),
             on_alternate_screen: false,
@@ -222,6 +227,11 @@ impl Host {
         }
     }
 
+    /// A piece of the program's output, cut where the terminal must act in step with it. Each
+    /// message in it is noted and then handed to the session, and what the session queued is
+    /// done, before the next one is read: the record is in the order things happen, whatever
+    /// the tty put in one read. A host that read the lot and then acted would write the
+    /// program's `dismiss` ahead of the view's reaction to the `response` before it.
     fn segment(&mut self, part: &[u8]) {
         if part.is_empty() {
             return;
@@ -230,20 +240,23 @@ impl Host {
         self.heard.feed(part, &mut events);
         for event in events {
             self.noted(&event);
+            let Event::Message(message) = event else {
+                continue;
+            };
+            if !self.answering {
+                continue;
+            }
+            // What the host can see of the pane, for the checks of §6.2 and §6.5:
+            // there is no shell here to ask about, so only the modes and the screen.
+            self.session.observe(Observed {
+                prompt_editing: false,
+                alternate_screen: Some(self.on_alternate_screen),
+                shell_in_foreground: None,
+                tty_canonical_or_echo: self.modes.map(|m| m.canonical || m.echo),
+            });
+            self.session.message(message);
+            self.settle();
         }
-        if !self.answering {
-            return;
-        }
-        // What the host can see of the pane, for the checks of §6.2 and §6.5:
-        // there is no shell here to ask about, so only the modes and the screen.
-        self.session.observe(Observed {
-            prompt_editing: false,
-            alternate_screen: Some(self.on_alternate_screen),
-            shell_in_foreground: None,
-            tty_canonical_or_echo: self.modes.map(|m| m.canonical || m.echo),
-        });
-        self.session.feed(part);
-        self.settle();
     }
 
     /// The program's frames, for the record.
@@ -305,17 +318,16 @@ impl Host {
                 } else {
                     Grant::none()
                 };
-                // The question names the tool it is about, in the words the view
+                // The question names the program that asks, in the words the view
                 // will start with.
                 log::line(
                     "host",
                     format!(
-                        "asked the person about {} domains and {} permissions of tool={} title={} program={}: {}",
+                        "asked the person about origins={} permissions={} of program={} title={}: {}",
                         consent.domains.len(),
                         consent.permissions.len(),
-                        said(&consent.tool),
-                        said(&consent.title),
                         said(&consent.program),
+                        said(&consent.title),
                         if self.allow_network {
                             "allowed"
                         } else {
@@ -345,7 +357,6 @@ impl Host {
                 log::line("view", "destroyed");
                 self.view = None;
             }
-            Action::ViewLog(text) => log::line("view", format!("logged {text}")),
             // An action a later version adds is one this host does not know.
             _ => {}
         }
@@ -353,41 +364,33 @@ impl Host {
 
     fn start_view(&mut self, start: &ViewStart) {
         self.views += 1;
-        match &start.source {
-            ViewSource::Bundle => {
-                let manifest = self.session.bundle().cloned();
-                if let Some(manifest) = manifest {
-                    log::line(
-                        "view",
-                        format!(
-                            "started from the bundle: entry {}, {} files",
-                            manifest.entry(),
-                            manifest.files().len()
-                        ),
-                    );
-                    // What a web view would ask for, served from the store.
-                    for file in manifest.files() {
-                        match self.session.serve(&file.path) {
-                            Some((media_type, bytes)) => log::line(
-                                "view",
-                                format!("fetched {} {media_type} {} bytes", file.path, bytes.len()),
-                            ),
-                            None => log::line("view", format!("could not fetch {}", file.path)),
-                        }
-                    }
-                }
-            }
-            ViewSource::Document(html) => log::line(
+        let manifest = self.session.bundle().cloned();
+        if let Some(manifest) = manifest {
+            log::line(
                 "view",
                 format!(
-                    "started from resources/read: a document of {} bytes",
-                    html.len()
+                    "started from the bundle: entry {}, {} files",
+                    manifest.entry(),
+                    manifest.files().len()
                 ),
-            ),
+            );
+            // What a web view would ask for, served from the store.
+            for file in manifest.files() {
+                match self.session.serve(&file.path) {
+                    Some((media_type, bytes)) => log::line(
+                        "view",
+                        format!("fetched {} {media_type} {} bytes", file.path, bytes.len()),
+                    ),
+                    None => log::line("view", format!("could not fetch {}", file.path)),
+                }
+            }
         }
-        // What a terminal would put in the strip above the view: the program's
-        // own words for the tool and for itself, already cut and cleaned by the
-        // session.
+        log::line(
+            "view",
+            format!("kind={} version={}", start.kind.name(), start.version),
+        );
+        // What a terminal would put in the strip above the view: the program's own
+        // words for the view and for itself, already cut and cleaned by the session.
         log::line(
             "view",
             format!(
@@ -397,17 +400,16 @@ impl Host {
             ),
         );
         // And the pictures it would draw beside them, as the session took them.
-        log::line(
-            "view",
-            format!(
-                "icons tool={} program={}",
-                drawn(&start.tool_icons),
-                drawn(&start.program_icons)
-            ),
-        );
+        log::line("view", format!("icons {}", drawn(&start.icons)));
         log::line("view", format!("policy {}", start.policy));
-        let mut view = ScriptedView::new(self.calls.clone());
-        let reaction = view.start();
+        let mut view = ScriptedView::new(
+            self.calls.clone(),
+            self.subscriptions.clone(),
+            self.links.clone(),
+            self.cancel_after,
+        );
+        // The page has loaded: it is told the context, and begins.
+        let reaction = view.loaded(start.context.as_deref());
         self.view = Some(view);
         self.react(reaction);
     }
@@ -421,7 +423,7 @@ impl Host {
         }
     }
 
-    /// The script has no more to do: what the command line said to do next.
+    /// The script is done: what the command line said to do next.
     fn calls_done(&mut self) {
         // A program that shows its view again is waited for, whatever the action is.
         if self.views < self.on_view {
@@ -446,6 +448,12 @@ impl Host {
                 log::line("host", "the person closes the view");
                 self.session.close_view();
             }
+            Then::PageClose => {
+                let reaction = self.view.as_mut().map(ScriptedView::close);
+                if let Some(reaction) = reaction {
+                    self.react(reaction);
+                }
+            }
             Then::Restart if self.restarted => {
                 log::line("host", "the person presses ^C");
                 self.typed.push(INTERRUPT);
@@ -465,7 +473,6 @@ impl Host {
         let state = self.session.state();
         let patience = match state {
             State::Opening => OPENING_PATIENCE,
-            State::Closing => CLOSING_PATIENCE,
             _ => {
                 self.waiting_since = None;
                 return;
@@ -527,28 +534,39 @@ fn parsed(payload: &str) -> Value {
     serde_json::from_str(payload).unwrap_or(Value::Null)
 }
 
-/// What a JSON-RPC payload is, in a few words.
-fn describe_rpc(payload: &str) -> String {
+/// The most characters of a name the program wrote that the record of its `open` shows.
+const NAME_LIMIT: usize = 60;
+
+/// What a message of the six is, in a few words: its member with the id inside it, and the method
+/// or the topic it names, or whether a response is a result or an error.
+fn describe_message(payload: &str) -> String {
     let message = parsed(payload);
-    if let Some(method) = message.get("method").and_then(Value::as_str) {
-        let what = if message.get("id").is_some() {
-            "request"
-        } else {
-            "notification"
-        };
-        let name = match message.pointer("/params/name").and_then(Value::as_str) {
-            Some(name) if method == "tools/call" => format!(" {name}"),
-            _ => String::new(),
-        };
-        return format!("{what} {method}{name}");
-    }
-    if message.get("error").is_some() {
-        return "error response".to_owned();
-    }
-    if message.get("result").is_some() {
-        return "response".to_owned();
-    }
-    format!("message of {} bytes", payload.len())
+    let member = message
+        .as_object()
+        .filter(|members| members.len() == 1)
+        .and_then(|members| members.iter().next());
+    let Some((name, body)) = member else {
+        return format!("message of {} bytes", payload.len());
+    };
+    let id = body
+        .get("id")
+        .and_then(Value::as_u64)
+        .map_or("?".to_owned(), |id| id.to_string());
+    let detail = match name.as_str() {
+        "call" => named(body, "method"),
+        "subscribe" => named(body, "topic"),
+        "response" if body.get("error").is_some() => " error".to_owned(),
+        "response" => " result".to_owned(),
+        _ => String::new(),
+    };
+    format!("{name}={id}{detail}")
+}
+
+/// ` name`, for a member of a message that names what it asks for.
+fn named(body: &Value, key: &str) -> String {
+    body.get(key)
+        .and_then(Value::as_str)
+        .map_or_else(String::new, |name| format!(" {name}"))
 }
 
 fn payload_str<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
@@ -567,30 +585,70 @@ fn describe_program(message: &Message) -> String {
     match message.kind.as_str() {
         "hello" => format!("hello id={id}"),
         "open" => {
-            let tool = payload
-                .pointer("/tool/name")
-                .and_then(Value::as_str)
-                .unwrap_or("?");
+            let view = payload_str(&payload, "view").unwrap_or("?");
+            let version = payload_str(&payload, "version").unwrap_or("?");
+            // What the program calls its view is its own text: the record writes it out.
+            let title = payload_str(&payload, "title").map_or_else(String::new, |title| {
+                let cut: String = title.chars().take(NAME_LIMIT).collect();
+                format!(" title={cut:?}")
+            });
+            let access = if payload.get("access").is_some() {
+                " with access"
+            } else {
+                ""
+            };
             let files = payload
                 .pointer("/bundle/files")
                 .and_then(Value::as_array)
                 .map(Vec::len);
             match files {
-                Some(files) => format!("open id={id} tool={tool} bundle of {files} files"),
-                None => format!("open id={id} tool={tool} without a bundle"),
+                Some(files) => {
+                    format!(
+                        "open id={id} view={view} version={version}{title} bundle of {files} files{access}"
+                    )
+                }
+                None => format!(
+                    "open id={id} view={view} version={version}{title} without a bundle{access}"
+                ),
             }
         }
         "file" => {
             let digest = message.digest().unwrap_or("?");
             format!("file id={id} {}", digest.get(..8).unwrap_or(digest))
         }
-        "msg" => format!("msg id={id} {}", describe_rpc(&message.payload)),
+        "msg" => format!("msg id={id} {}", describe_message(&message.payload)),
         "bye" => format!(
             "bye id={id} reason={}",
             payload_str(&payload, "reason").unwrap_or("?")
         ),
         kind => format!("{kind} id={id}"),
     }
+}
+
+/// The kinds of view a `welcome` lists, with their versions: `web@1.0`.
+fn offered(payload: &Value) -> String {
+    let list: Vec<String> = payload
+        .get("views")
+        .and_then(Value::as_array)
+        .map(|views| {
+            views
+                .iter()
+                .map(|view| {
+                    let versions: Vec<&str> = view
+                        .get("versions")
+                        .and_then(Value::as_array)
+                        .map(|list| list.iter().filter_map(Value::as_str).collect())
+                        .unwrap_or_default();
+                    format!(
+                        "{}@{}",
+                        payload_str(view, "kind").unwrap_or("?"),
+                        versions.join("|")
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    list.join(",")
 }
 
 /// A message the host wrote into the pane's input.
@@ -615,15 +673,10 @@ fn describe_host(message: &Message) -> String {
                     .and_then(Value::as_array)
                     .map(|list| list.iter().filter_map(Value::as_str).collect())
                     .unwrap_or_default();
-                let views: Vec<&str> = payload
-                    .get("views")
-                    .and_then(Value::as_array)
-                    .map(|list| list.iter().filter_map(Value::as_str).collect())
-                    .unwrap_or_default();
                 format!(
                     "welcome id={id}{re} version={version} with a token{restart} features={} views={}",
                     features.join(","),
-                    views.join(",")
+                    offered(&payload)
                 )
             } else {
                 format!("welcome id={id}{re} (no common version)")
@@ -643,7 +696,7 @@ fn describe_host(message: &Message) -> String {
                 None => format!("closed id={id}{re} reason={reason}"),
             }
         }
-        "msg" => format!("msg id={id} {}", describe_rpc(&message.payload)),
+        "msg" => format!("msg id={id} {}", describe_message(&message.payload)),
         kind => format!("{kind} id={id}{re}"),
     }
 }

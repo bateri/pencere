@@ -4,8 +4,7 @@
 // Each published package is a line with its own version, CHANGELOG.md and tags
 // (`<line>-v<version>`); RELEASING.md is the procedure, this file the checks.
 //
-//   prepare <line> <version>  set the version, move Unreleased into a dated section, and move the
-//                             ranges the repository's other packages name for this one
+//   prepare <line> <version>  set the version and move Unreleased into a dated section
 //   check <line>              everything a release needs, without changing anything
 //   tag <line>                check, then create the annotated tag
 //   push <line>               push main and the tag together (what starts the workflow)
@@ -23,7 +22,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { LINES, moveRanges, needs, strayRanges } from "./lines.mjs";
+import { LINES } from "./lines.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -181,12 +180,6 @@ function prepare(name, version) {
   writeFileSync(changelogPath(line), lines.join("\n"));
   setVersion(line, version);
   console.log(`${line.name} ${current} -> ${version}`);
-  // The packages that name this one must keep naming a version that exists here: their ranges
-  // move with it, in the same commit, so that every commit installs (see lines.mjs).
-  const moved = line.kind === "npm" ? moveRanges(root, line.name, version) : [];
-  if (moved.length > 0) {
-    console.log(`the range ^${version} of ${line.name} is now also in: ${moved.join(", ")}`);
-  }
   console.log(
     `next: review, commit ("Release ${line.name} ${version}"), then make release LINE=${line.id}`,
   );
@@ -206,14 +199,6 @@ function check(name) {
     refuse(`${line.dir}/CHANGELOG.md: the newest section is not ${version}`);
   }
   releasedSection(line, version);
-  if (line.kind === "npm") {
-    for (const wrong of strayRanges(root, line.name, version)) {
-      refuse(
-        `${wrong.dir}/package.json names ${line.name} as ${wrong.range} and the line is at ${version}: ` +
-          `make release-prepare moves the ranges together with the version`,
-      );
-    }
-  }
 
   if (run("git", ["branch", "--show-current"]) !== "main") refuse("not on main");
   if (run("git", ["status", "--porcelain"]) !== "") refuse("the working tree is not clean");
@@ -240,16 +225,6 @@ function check(name) {
       readFileSync(join(root, line.dir, name), "utf8") !== readFileSync(join(root, name), "utf8")
     ) {
       refuse(`${line.dir}/${name} is not the repository's ${name}`);
-    }
-  }
-
-  // A package that names another line's package is installable only once that is on npm.
-  for (const { name, range } of needs(root, line)) {
-    if (!succeeds("npm", ["view", `${name}@${range}`, "version"])) {
-      refuse(
-        `${line.name} needs ${name}@${range}, which npm does not list (not released yet, or ` +
-          `the registry could not be reached): release that line first`,
-      );
     }
   }
 

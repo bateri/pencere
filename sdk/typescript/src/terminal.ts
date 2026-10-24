@@ -12,6 +12,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { readSync } from "node:fs";
 
 /** `CSI c`: primary device attributes, the fence after `hello` (§5.1). */
 export const DEVICE_ATTRIBUTES = "\x1b[c";
@@ -30,6 +31,13 @@ export interface Terminal {
    * @throws when it cannot: a program that cannot is a program with no host.
    */
   enter(): void;
+  /**
+   * Throws away what the tty has queued for this program and it has not read
+   * (`tcflush` with `TCIFLUSH`, §10.3): the last thing a program that said `bye`
+   * does with its input, before it gives the modes back, so that what the host
+   * wrote and the program did not read is not left for whatever reads the tty next.
+   */
+  discardInput(): void;
   /** Gives back what `enter` found. Safe to call again, and without `enter`. */
   restore(): void;
 }
@@ -69,13 +77,55 @@ export const PROGRAM_MODES: readonly string[] = [
   "0",
 ];
 
-/** A {@link Terminal} that reads and sets the modes with `stty`. */
+/** Reads what is queued on the descriptor `fd` into `into` without waiting: how many bytes, 0 when there are none or it cannot be read. */
+export type ReadQueued = (fd: number, into: Uint8Array) => number;
+
+/** {@link ReadQueued} on the file system's `read`: the descriptor must not wait for input (`VMIN` 0, or a descriptor that is not blocking). */
+export const readQueued: ReadQueued = (fd, into) => {
+  try {
+    return readSync(fd, into, 0, into.length, null);
+  } catch {
+    // `EAGAIN` on a descriptor that does not wait, `EIO` on a tty that is gone: nothing more to read.
+    return 0;
+  }
+};
+
+/** What `discardInput` reads at most: far more than any tty queues (Appendix B), so that it ends. */
+const DISCARD_LIMIT = 4 * 1024 * 1024;
+
+/**
+ * A {@link Terminal} that reads and sets the modes with `stty`.
+ *
+ * Node has no `tcflush` either. `discardInput` reads the queue empty instead, on the descriptor
+ * `input` (the program's stdin, or the descriptor of the terminal a filter opened): a descriptor of
+ * the tty itself, not the stream Node reads it with, so that reading it takes what the stream has
+ * not. It sets `VMIN` 0 first, so that a read of an empty queue returns at once and never waits,
+ * and gives the descriptor up unread when that cannot be set. Without an `input` there is nothing
+ * to read and it does nothing.
+ */
 export class SttyTerminal implements Terminal {
   readonly #run: RunStty;
+  readonly #input: number | undefined;
+  readonly #read: ReadQueued;
   #saved: string | undefined;
 
-  constructor(run: RunStty = runStty) {
+  constructor(run: RunStty = runStty, input?: number, read: ReadQueued = readQueued) {
     this.#run = run;
+    this.#input = input;
+    this.#read = read;
+  }
+
+  discardInput(): void {
+    const fd = this.#input;
+    if (fd === undefined || this.#saved === undefined) return;
+    // A read that waits for a byte on an empty queue is a program that never ends.
+    if (this.#run(["min", "0", "time", "0"]).status !== 0) return;
+    const into = new Uint8Array(4096);
+    for (let total = 0; total < DISCARD_LIMIT;) {
+      const got = this.#read(fd, into);
+      if (got <= 0) return;
+      total += got;
+    }
   }
 
   enter(): void {

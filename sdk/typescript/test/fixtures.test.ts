@@ -11,9 +11,30 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { LIMITS, StreamDecoder, encode } from "../src/frame.js";
-import type { DecodeEvent, Direction } from "../src/frame.js";
+import type { DecodeEvent, Direction, Message } from "../src/frame.js";
+import {
+  VERSIONS,
+  byePayload,
+  callPayload,
+  cancelPayload,
+  chooseView,
+  dismissPayload,
+  failurePayload,
+  helloPayload,
+  openPayload,
+  parseClosed,
+  parseNeed,
+  parseViewRequest,
+  parseWelcome,
+  progressPayload,
+  pushPayload,
+  readViews,
+  responsePayload,
+  subscribePayload,
+} from "../src/messages.js";
+import type { OpenFields, ViewOffer } from "../src/messages.js";
 import { fixture, manifest } from "./support.js";
-import type { DecodeEntry } from "./support.js";
+import type { DecodeEntry, SessionEntry } from "./support.js";
 
 function summary(events: readonly DecodeEvent[]) {
   const messages = [];
@@ -77,7 +98,7 @@ describe("every entry decodes as the manifest says, however the stream is cut", 
   }
 
   it("covers the entries the Rust crate covers", () => {
-    expect(entries.length).toBeGreaterThanOrEqual(52);
+    expect(entries.length).toBeGreaterThanOrEqual(67);
   });
 });
 
@@ -106,7 +127,7 @@ describe("what the writer writes", () => {
   const canonical = entries.filter((e) => e.canonical);
 
   it("is every canonical entry, byte for byte", () => {
-    expect(canonical.length).toBeGreaterThanOrEqual(19);
+    expect(canonical.length).toBeGreaterThanOrEqual(32);
     for (const entry of canonical)
       expect(written(entry, "fill"), entry.file).toBe(fixture(entry.file).toString("latin1"));
   });
@@ -114,7 +135,7 @@ describe("what the writer writes", () => {
   it("is the two chunked examples when the sender picks those sizes", () => {
     for (const [file, size] of [
       ["to-host/file-chunked.frame", 60],
-      ["to-host/msg-chunked.frame", 100],
+      ["to-host/msg-chunked.frame", 59],
     ] as const) {
       const entry = entries.find((e) => e.file === file);
       expect(entry, file).toBeDefined();
@@ -170,4 +191,168 @@ describe("limits that do not fit in a file", () => {
       });
     });
   }
+});
+
+// ---- the sessions: what a host and a program say to each other, read with this library ----------
+
+function messagesOf(direction: Direction, file: string): Message[] {
+  const events = new StreamDecoder(direction).collect(fixture(file));
+  expect(
+    events.filter((e) => e.type === "error"),
+    file,
+  ).toEqual([]);
+  return events.flatMap((e) => (e.type === "message" ? [e.message] : []));
+}
+
+function json(payload: string): Record<string, unknown> {
+  return JSON.parse(payload) as Record<string, unknown>;
+}
+
+/** The payload this library writes for what `payload` says, if it writes that kind of message. */
+function rewritten(message: Message): string | undefined {
+  const body = json(message.payload);
+  switch (message.kind) {
+    case "hello":
+      return helloPayload(body.views as ViewOffer[], body.versions as number[]);
+    case "open":
+      return openPayload(body as unknown as OpenFields);
+    case "bye":
+      return byePayload(body.token as string, body.reason as "exit" | "signal" | "error");
+    case "dismiss":
+      return dismissPayload(body.token as string);
+    case "msg": {
+      const [name] = Object.keys(body);
+      const inner = body[name ?? ""] as Record<string, unknown>;
+      const id = inner.id as number;
+      switch (name) {
+        case "call":
+          return callPayload(id, inner.method as string, inner.params);
+        case "subscribe":
+          return subscribePayload(id, inner.topic as string, inner.params);
+        case "cancel":
+          return cancelPayload(id);
+        case "push":
+          return pushPayload(id, inner.value);
+        case "progress":
+          return progressPayload(
+            id,
+            inner.done as number,
+            inner.total as number | undefined,
+            inner.note as string | undefined,
+          );
+        case "response": {
+          const error = inner.error as { code: string; message?: string } | undefined;
+          return error === undefined
+            ? responsePayload(id, inner.result)
+            : failurePayload(id, error.code, error.message);
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/** The view each hello and its welcome come to in the sessions that are about choosing (§5.3). */
+const CHOSEN: Readonly<Record<string, { kind: string; version: string } | null>> = {
+  "no-common-version#1": { kind: "web", version: "1.0" },
+  "no-common-version#2": null,
+  "several-versions#1": { kind: "wasm", version: "0.5" },
+  "several-versions#2": { kind: "wasm", version: "0.4" },
+  "several-versions#3": { kind: "wasm", version: "0.4" },
+  "handshake#1": { kind: "web", version: "1.0" },
+};
+
+describe("every session of the manifest", () => {
+  const sessions: SessionEntry[] = manifest().session;
+
+  it("is read by this library, and the program's side is written as the fixtures have it", () => {
+    expect(sessions.length).toBeGreaterThanOrEqual(16);
+    for (const session of sessions) {
+      let hello: Message | undefined;
+      let hellos = 0;
+      for (const step of session.steps) {
+        if ("in" in step) {
+          for (const message of messagesOf("to-host", step.in)) {
+            const label = `${session.name} ${step.in} ${message.kind}#${message.id}`;
+            // `file` is base64, and the frames the program writes besides are its own words.
+            if (message.kind !== "file" && rewritten(message) !== undefined)
+              expect(rewritten(message), label).toBe(message.payload);
+            if (message.kind === "hello") {
+              hello = message;
+              hellos++;
+            }
+            if (message.kind === "msg") {
+              const request = parseViewRequest(message.payload);
+              // What the program says is not what a view says: the three are the view's.
+              expect(
+                request === undefined || ["call", "subscribe", "cancel"].includes(request.type),
+              ).toBe(true);
+            }
+          }
+        } else if (step.out !== null) {
+          for (const message of messagesOf("to-program", step.out)) {
+            const label = `${session.name} ${step.out} ${message.kind}#${message.id}`;
+            const payload = message.payload;
+            switch (message.kind) {
+              case "welcome": {
+                const welcome = parseWelcome(payload, VERSIONS);
+                expect(welcome, label).toBeDefined();
+                if (welcome?.kind === "offer") {
+                  expect(session.config.tokens, label).toContain(welcome.token);
+                  expect(welcome.views, label).toEqual(readViews(json(payload).views));
+                  // The answer to a hello keeps the program's order and lists no version the program did not.
+                  const asked = readViews(json(hello?.payload ?? "{}").views);
+                  for (const offered of welcome.views) {
+                    const mine = asked.find((view) => view.kind === offered.kind);
+                    expect(mine, label).toBeDefined();
+                    for (const version of offered.versions)
+                      expect(mine?.versions, label).toContain(version);
+                    expect(offered.versions, label).toEqual(
+                      (mine?.versions ?? []).filter((v) => offered.versions.includes(v)),
+                    );
+                  }
+                  const key = `${session.name}#${hellos}`;
+                  if (key in CHOSEN) {
+                    const choice = chooseView(asked, welcome.views) ?? null;
+                    expect(choice, key).toEqual(CHOSEN[key]);
+                  }
+                }
+                break;
+              }
+              case "need":
+                expect(parseNeed(payload), label).toBeDefined();
+                break;
+              case "closed":
+                expect(parseClosed(payload), label).toBeDefined();
+                break;
+              default:
+                throw new Error(`${label}: a host writes no such message to a program`);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("answers a need with the files it names: the digests are the manifest's, in its order", () => {
+    const session = sessions.find((s) => s.name === "bundle-partial");
+    expect(session).toBeDefined();
+    const files = (session?.steps ?? []).flatMap((step) =>
+      "in" in step ? messagesOf("to-host", step.in) : [],
+    );
+    const open = files.find((m) => m.kind === "open");
+    const manifestFiles = (json(open?.payload ?? "{}").bundle as { files: { sha256: string }[] })
+      .files;
+    const need = (session?.steps ?? [])
+      .flatMap((step) =>
+        "out" in step && step.out !== null ? messagesOf("to-program", step.out) : [],
+      )
+      .find((m) => m.kind === "need");
+    const missing = parseNeed(need?.payload ?? "{}") ?? [];
+    expect(missing.length).toBeGreaterThan(0);
+    const wanted = manifestFiles
+      .map((f) => f.sha256)
+      .filter((digest) => !session?.config.store.includes(digest));
+    expect(missing).toEqual(wanted);
+  });
 });
