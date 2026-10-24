@@ -44,6 +44,90 @@ pub fn escape(text: &str) -> String {
     out
 }
 
+/// JSON text that is valid, as a frame can carry it: the whitespace between its tokens that a
+/// frame has no byte for (tab, line feed and carriage return) left out, and [`escape`]d.
+///
+/// This is for a message of a page or of a view the terminal draws itself, which comes as text
+/// anyone may have written and goes into the program's input as it is. In JSON text those
+/// three characters are whitespace between tokens and nothing else (inside a string they are
+/// written `\t`, `\n` and `\r`), so dropping them changes no value. The text has to be JSON
+/// already: for anything else this would change what it says.
+pub fn to_frame(text: &str) -> String {
+    if text
+        .bytes()
+        .any(|byte| matches!(byte, b'\t' | b'\n' | b'\r'))
+    {
+        let compact: String = text
+            .chars()
+            .filter(|ch| !matches!(ch, '\t' | '\n' | '\r'))
+            .collect();
+        escape(&compact)
+    } else {
+        escape(text)
+    }
+}
+
+/// How many bytes JSON text has once its `\uXXXX` and other escapes are undone: the length of the
+/// text a message is, before the escapes of the wire (specification §4.5) made it longer. Each
+/// escape counts as the UTF-8 of the character it stands for (a surrogate pair as one character
+/// of four bytes), and every other byte as itself.
+///
+/// This reads text that may not be JSON: a backslash that does not begin an escape counts as
+/// itself, and nothing is checked. It is the size of a message in either direction (§9.3), so
+/// a program that has to write ASCII is not held to less than a page that need not.
+pub fn unescaped_len(text: &str) -> usize {
+    let bytes = text.as_bytes();
+    let mut len = 0usize;
+    let mut at = 0usize;
+    while let Some(&byte) = bytes.get(at) {
+        if byte != b'\\' {
+            len += 1;
+            at += 1;
+            continue;
+        }
+        match bytes.get(at + 1) {
+            Some(b'u') => match unit_at(bytes, at + 2) {
+                Some(0xD800..=0xDBFF)
+                    if matches!(bytes.get(at + 6..at + 8), Some([b'\\', b'u']))
+                        && matches!(unit_at(bytes, at + 8), Some(0xDC00..=0xDFFF)) =>
+                {
+                    len += 4;
+                    at += 12;
+                }
+                Some(unit) => {
+                    len += match unit {
+                        0..=0x7F => 1,
+                        0x80..=0x7FF => 2,
+                        _ => 3,
+                    };
+                    at += 6;
+                }
+                None => {
+                    len += 1;
+                    at += 1;
+                }
+            },
+            Some(_) => {
+                len += 1;
+                at += 2;
+            }
+            None => {
+                len += 1;
+                at += 1;
+            }
+        }
+    }
+    len
+}
+
+/// The code unit written as four hex digits at `at`.
+fn unit_at(bytes: &[u8], at: usize) -> Option<u32> {
+    let digits = bytes.get(at..at + 4)?;
+    digits.iter().try_fold(0u32, |unit, digit| {
+        Some(unit * 16 + char::from(*digit).to_digit(16)?)
+    })
+}
+
 /// Whether JSON text is an object (its first character is `{`, whitespace aside).
 ///
 /// A struct that serde reads can also be read from an array of its fields in
@@ -117,6 +201,40 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&text).unwrap(),
             value
         );
+    }
+
+    #[test]
+    fn whitespace_between_tokens_is_left_out_and_the_value_is_the_same() {
+        let text = "{\r\n\t\"a\" :\t[ 1,\n2 ],\r\n  \"b\": \"caf\u{e9} \\t \\n\"\n}\n";
+        assert!(!is_frame_text(text));
+        let wire = to_frame(text);
+        assert!(is_frame_text(&wire), "{wire:?}");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&wire).unwrap(),
+            serde_json::from_str::<serde_json::Value>(text).unwrap()
+        );
+        // A space is a byte a frame has, and compact text is untouched.
+        assert_eq!(to_frame(r#"{"a": [1, 2]}"#), r#"{"a": [1, 2]}"#);
+    }
+
+    #[test]
+    fn the_size_of_a_message_is_that_of_its_text_before_the_escapes() {
+        let text = "{\"a\":\"caf\u{e9} \u{7f} \u{2700} \u{1f600}\"}";
+        assert_eq!(unescaped_len(text), text.len());
+        // The wire's form is longer, the size is the same.
+        let wire = to_wire(&serde_json::from_str::<serde_json::Value>(text).unwrap()).unwrap();
+        assert!(wire.len() > text.len());
+        assert_eq!(unescaped_len(&wire), text.len());
+        // Escapes of one character: a pair is four bytes, a quote and a backslash one each.
+        assert_eq!(unescaped_len(r"\ud83d\ude00"), 4);
+        assert_eq!(unescaped_len(r"\u00e9\u2700\u007f"), 2 + 3 + 1);
+        assert_eq!(unescaped_len(r#"\"\\\/\n"#), 4);
+        // What is not an escape counts as itself, whatever it is.
+        assert_eq!(unescaped_len(r"\u12"), 4);
+        assert_eq!(unescaped_len(r"\ud83d"), 3);
+        assert_eq!(unescaped_len(r"\ud83dx"), 4);
+        assert_eq!(unescaped_len("\\"), 1);
+        assert_eq!(unescaped_len(""), 0);
     }
 
     #[test]

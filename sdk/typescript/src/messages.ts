@@ -309,7 +309,11 @@ export function parseClosed(payload: string): Closed | undefined {
 
 // ---- the six messages (§9.2) ----------------------------------------------------
 
-/** The most a `msg` may carry in either direction (§9.3): the limit toward the program. */
+/**
+ * The most a `msg` may carry in either direction (§9.3), in bytes of the JSON text the sender gave,
+ * counted before the escapes of the wire (`unescapedLength`): the escapes can make it six times as
+ * long on the wire.
+ */
 export const MAX_VIEW_MESSAGE = 1024 * 1024;
 
 /** One of the six messages of §9.2: an object with one member, named for what it is. */

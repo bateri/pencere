@@ -1547,6 +1547,106 @@
           "out": "session/several-versions/10-out.frame"
         }
       ]
+    },
+    {
+      "name": "manifest-before-limit",
+      "note": "an open that is malformed and too big is refused as malformed: an entry of the wrong type, an access of the wrong shape, or an access that has an entry that is not a string past the bound of its list",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg", "Hn5xQ2wTj8Vb0YcLrE4aMg"],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/manifest-before-limit/01-in.frame"
+        },
+        {
+          "out": "session/manifest-before-limit/02-out.frame"
+        },
+        {
+          "in": "session/manifest-before-limit/03-in.frame"
+        },
+        {
+          "out": "session/manifest-before-limit/04-out.frame"
+        },
+        {
+          "in": "session/manifest-before-limit/05-in.frame"
+        },
+        {
+          "out": "session/manifest-before-limit/06-out.frame"
+        },
+        {
+          "in": "session/manifest-before-limit/07-in.frame"
+        },
+        {
+          "out": "session/manifest-before-limit/08-out.frame"
+        },
+        {
+          "in": "session/manifest-before-limit/09-in.frame"
+        },
+        {
+          "out": "session/manifest-before-limit/10-out.frame"
+        },
+        {
+          "in": "session/manifest-before-limit/11-in.frame"
+        },
+        {
+          "out": "session/manifest-before-limit/12-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "access-limit",
+      "note": "an access lists at most 32 origins in a list and 64 in all, valid or not; an open over a bound is refused as limit, and one at the bound goes on",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg", "Hn5xQ2wTj8Vb0YcLrE4aMg"],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/access-limit/01-in.frame"
+        },
+        {
+          "out": "session/access-limit/02-out.frame"
+        },
+        {
+          "in": "session/access-limit/03-in.frame"
+        },
+        {
+          "out": "session/access-limit/04-out.frame"
+        },
+        {
+          "in": "session/access-limit/05-in.frame"
+        },
+        {
+          "out": "session/access-limit/06-out.frame"
+        },
+        {
+          "in": "session/access-limit/07-in.frame"
+        },
+        {
+          "out": "session/access-limit/08-out.frame"
+        },
+        {
+          "in": "session/access-limit/09-in.frame"
+        },
+        {
+          "out": "session/access-limit/10-out.frame"
+        },
+        {
+          "in": "session/access-limit/11-in.frame"
+        },
+        {
+          "out": "session/access-limit/12-out.frame"
+        }
+      ]
     }
   ],
   "bridge": [

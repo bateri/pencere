@@ -1,8 +1,52 @@
 import { describe, expect, it } from "vitest";
 
 import { isFrameText } from "../src/frame.js";
-import { escape, parseObject, toWire } from "../src/json.js";
+import { escape, parseObject, toWire, unescapedLength } from "../src/json.js";
 import { manifest } from "./support.js";
+
+describe("unescapedLength", () => {
+  it("is the text's own length in bytes when it has no escapes", () => {
+    expect(unescapedLength("")).toBe(0);
+    expect(unescapedLength("plain ~ text")).toBe(12);
+    // Characters that are not escaped count as their UTF-8.
+    expect(unescapedLength("é")).toBe(2);
+    expect(unescapedLength("✀")).toBe(3);
+    expect(unescapedLength("😀")).toBe(4);
+    expect(unescapedLength("a\ud800b")).toBe(1 + 3 + 1);
+  });
+
+  it("counts a \\uXXXX escape as the UTF-8 of the character it stands for, and a surrogate pair as one of four bytes", () => {
+    expect(unescapedLength(String.raw`\ud83d\ude00`)).toBe(4);
+    expect(unescapedLength(String.raw`\u00e9\u2700\u007f`)).toBe(2 + 3 + 1);
+    expect(unescapedLength(String.raw`\u0041`)).toBe(1);
+  });
+
+  it("counts any other escape as the one character it stands for", () => {
+    expect(unescapedLength(String.raw`\"\\\/\n`)).toBe(4);
+  });
+
+  it("reads text that is not JSON: a backslash that begins no escape counts as itself, and nothing is checked", () => {
+    expect(unescapedLength(String.raw`\u12`)).toBe(4);
+    expect(unescapedLength(String.raw`\ud83d`)).toBe(3);
+    expect(unescapedLength(String.raw`\ud83dx`)).toBe(4);
+    expect(unescapedLength(String.raw`\ud83d\u0041`)).toBe(3 + 1);
+    expect(unescapedLength("\\")).toBe(1);
+  });
+
+  it("is the length of the text before toWire escaped it, in bytes, for any text", () => {
+    for (const text of ["a", "é", "✀ and 😀", "Türkçe ğüşiöç İĞÜŞÖÇ", "\u007f", "tab\tline\n"]) {
+      const json = JSON.stringify({ text });
+      expect(unescapedLength(toWire({ text })), text).toBe(Buffer.byteLength(json) - extra(json));
+    }
+    // JSON.stringify writes control characters as escapes; the host counts one character for each.
+    function extra(json: string): number {
+      return (json.match(/\\["\\bfnrt]|\\u00[01][0-9a-f]/g) ?? []).reduce(
+        (sum, escape) => sum + escape.length - 1,
+        0,
+      );
+    }
+  });
+});
 
 describe("toWire", () => {
   it("writes DEL and everything from U+0080 up as lowercase \\u escapes", () => {

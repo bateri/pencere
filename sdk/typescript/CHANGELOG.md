@@ -6,6 +6,42 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Deno and Bun**, beside Node (20 and later): the same code on all three. What is Node's — the
+  tty's modes, the signals, the files, `Buffer` — sits behind a small layer that each runtime
+  answers in its own way; the rule of §4.9 is the same on all three (`stty`, ISIG on). Deno needs
+  `--allow-read --allow-run`; a program compiled with `deno compile` works, and the `containers`
+  example has the task. On Bun 1.0 a `filter` finds no host (its stream for `/dev/tty` delivers
+  nothing).
+- **`@pencere/sdk/page`**: the bridge of a page (§9.4) as a browser ES module with no
+  dependency — `call` (with `onProgress` and an `AbortSignal` that sends `cancel`), `subscribe`
+  (with `onPush`, `onError` and `onEnd`), `onContext` and `context()`, `close`, `openLink`, and
+  `createBridge` for a channel of your own. `bundleFromDirectory` takes a `files` option for the
+  module and anything else that is not in the directory.
+- **`createRouter`**: the program's dispatch of the view's `call`, `subscribe` and `cancel`
+  to the handlers, with the errors mapped as `serve` maps them, without a terminal, for tests and
+  development harnesses. `serve` uses it.
+- **⌃Z.** SIGTSTP closes the view (`dismiss`, or `bye` for a host that does not list it), gives the
+  screen and the modes back, and stops the program; when it is continued the program takes the
+  modes again and asks for the view anew. Before, ⌃Z left the tty raw in the shell.
+
+### Fixed
+
+- A process that exits with its view up reads the host's last word before it leaves. The
+  `exit` handler said `bye`, threw away what the tty held and restored the modes at once, so the
+  host's `closed` landed in the shell as typed text; it now reads the tty itself, with no event
+  loop, until the answer to the `bye` or `byeTimeout`, as the signal path waits (§10.3).
+- A signal, or an abort, before the host has answered the `hello` throws away what the host and
+  the terminal still write: it waits for the terminal's answer to `CSI c` (`byeTimeout` at most)
+  and empties the input. A late `welcome` and the reply no longer reach the shell (§5.3). The same
+  holds for a process that exits in that time.
+- `serve` checks the list of views once, not twice.
+- The 1 MiB limit of a message the program writes to its view is counted as the host counts it
+  (specification §9.3): on the text before the escapes of the wire, in bytes. A call answered with
+  nearly 1 MiB of Turkish text went through the wire as 3 MiB of `\uXXXX` and was refused as too
+  long; it goes through now.
+
 ### Changed
 
 - **Breaking: one protocol, with no MCP in it.** `serve` no longer takes an MCP server and a
@@ -27,10 +63,13 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
   - `ViewControl.reopen` takes `views` where it took a bundle.
   - After a `bye` the program waits for the host's `closed`, reading and throwing away the input,
     so that nothing the host wrote is left in the tty for whatever reads it next
-    (specification §10.3; `byeTimeout`). A process that exits cannot wait, and does not.
+    (specification §10.3; `byeTimeout`). A process that exits reads the tty itself.
   - The `closed` of a view the host draws itself that failed carries `message`, the words it
     failed with (`NoView.message`, `ServeResult.message`, specification §8.8). `.lua` files are
     served as `text/x-lua`.
+  - A message the host writes into the program's input may be up to 6 MiB on the wire (`LIMITS`,
+    specification §4.6): the 1 MiB limit of a view's message is counted before the host escapes it,
+    and the escapes can make it six times as long.
 
 ### Added
 

@@ -7,9 +7,15 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { createBridge, windowChannel } from "@pencere/sdk/page";
 import { beforeEach, describe, expect, it } from "vitest";
 
-const SCRIPT = readFileSync(fileURLToPath(new URL("../view/app.js", import.meta.url)), "utf8");
+// The page is a module that imports its bridge from `@pencere/sdk/page`, which the bundle serves as
+// a file and an import map names. Here the import is the bridge of the SDK itself, made on the
+// page's window, and the rest runs as a script: `vm` runs no modules.
+const IMPORT = /^import \{([^}]*)\} from "@pencere\/sdk\/page";$/m;
+const SOURCE = readFileSync(fileURLToPath(new URL("../view/app.js", import.meta.url)), "utf8");
+const SCRIPT = SOURCE.replace(IMPORT, "const {$1} = __bridge;");
 
 class Element {
   children: Element[] = [];
@@ -89,7 +95,9 @@ class Page {
         this.message = listener;
       },
     };
-    vm.runInNewContext(SCRIPT, { window, document });
+    expect(SCRIPT).not.toBe(SOURCE);
+    const __bridge = createBridge(windowChannel(window as never));
+    vm.runInNewContext(SCRIPT, { window, document, __bridge });
   }
 
   /** What the host posts to the page, from the window that embeds it unless said otherwise. */
@@ -133,6 +141,25 @@ class Page {
   }
 }
 
+describe("the page's bridge", () => {
+  it("is imported by a name that the import map of its HTML gives, to a file the program puts in the bundle", () => {
+    const html = readFileSync(
+      fileURLToPath(new URL("../view/index.html", import.meta.url)),
+      "utf8",
+    );
+    const map = /<script type="importmap">([\s\S]*?)<\/script>/.exec(html)?.[1];
+    expect(JSON.parse(map ?? "{}")).toEqual({
+      imports: { "@pencere/sdk/page": "./pencere-page.js" },
+    });
+    // The map comes before the module that uses it, and the page is a module.
+    expect(html.indexOf("importmap")).toBeLessThan(html.indexOf('type="module"'));
+    expect(SOURCE).toMatch(/^import \{[^}]*\} from "@pencere\/sdk\/page";$/m);
+    // The program puts that file in the bundle under the name the map gives.
+    const main = readFileSync(fileURLToPath(new URL("../src/main.ts", import.meta.url)), "utf8");
+    expect(main).toContain('path: "pencere-page.js"');
+  });
+});
+
 describe("the page", () => {
   let page: Page;
   beforeEach(() => {
@@ -158,15 +185,27 @@ describe("the page", () => {
     expect(page.root.properties.get("--pane-height")).toBe("600px");
 
     // A context follows every change of the terminal; the members it lacks change nothing.
-    await page.host({ context: { mode: "dark", colors: { background: "#0d1117" } } });
+    await page.host({
+      context: { mode: "dark", colors: { background: "#0d1117" }, size: CONTEXT.size },
+    });
     expect(page.root.attributes.get("data-theme")).toBe("dark");
     expect(page.root.properties.get("--background")).toBe("#0d1117");
     expect(page.root.properties.get("--font")).toBe("Menlo, monospace");
   });
 
   it("takes only the roles of the theme, as colours of its own", async () => {
-    await page.host({ context: { colors: { background: "#000000", "x; --evil": "red" } } });
-    expect([...page.root.properties.keys()]).toEqual(["--background"]);
+    await page.host({
+      context: {
+        mode: "dark",
+        size: CONTEXT.size,
+        colors: { background: "#000000", "x; --evil": "red" },
+      },
+    });
+    expect(
+      [...page.root.properties.keys()].filter(
+        (name) => name !== "--pane-width" && name !== "--pane-height",
+      ),
+    ).toEqual(["--background"]);
   });
 
   it("draws the containers the program answers with", async () => {

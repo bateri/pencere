@@ -43,7 +43,7 @@ messages from 1.
 
 Error names are those of Section 4.7 of the specification: `malformed`, `too-long`,
 `chunk-order`, `abandoned`, `message-too-long`. The message limits are too large for a file
-to cross (16 MiB and 1 MiB), so tests of `message-too-long` build their stream; the frame
+to cross (16 MiB and 6 MiB), so tests of `message-too-long` build their stream; the frame
 limits are covered by files at the limit and one byte over.
 
 ## Decode fixtures
@@ -137,24 +137,26 @@ limits are covered by files at the limit and one byte over.
 
 ## Session fixtures
 
-| Session                   | What it shows                                                                                                                                      | Files                              |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `handshake`               | a hello is answered with a version and a token                                                                                                     | `session/handshake/`               |
-| `version-mismatch`        | a hello that shares no version gets no token                                                                                                       | `session/version-mismatch/`        |
-| `open-without-token`      | an open that carries no token is refused                                                                                                           | `session/open-without-token/`      |
-| `open-wrong-token`        | an open with a token the host never issued is refused                                                                                              | `session/open-wrong-token/`        |
-| `token-single-use`        | a token opens once; the second open with it is refused and the first goes on                                                                       | `session/token-single-use/`        |
-| `hello-replaces-token`    | a new hello invalidates the token of the previous one                                                                                              | `session/hello-replaces-token/`    |
-| `open-busy`               | a second view cannot open while one is opening                                                                                                     | `session/open-busy/`               |
-| `bundle-partial`          | the host names only the digests it lacks, in manifest order                                                                                        | `session/bundle-partial/`          |
-| `bundle-path-escape`      | a manifest path that leaves the bundle is refused                                                                                                  | `session/bundle-path-escape/`      |
-| `bye-needs-the-token`     | a bye without the token, or with another, ends nothing; the one with it does                                                                       | `session/bye-needs-the-token/`     |
-| `dismiss-and-reopen`      | a program closes its view without ending and opens one again; the second open finds its file in the store                                          | `session/dismiss-and-reopen/`      |
-| `wasm-view`               | a host that shows WebAssembly views says so, asks for the component, hands the program's msg to the view and a dismiss closes it                   | `session/wasm-view/`               |
-| `wasm-unsupported`        | a host that does not show them does not say so and refuses such an open as unsupported                                                             | `session/wasm-unsupported/`        |
-| `dismiss-needs-the-token` | a dismiss closes the view only with the token that opened it; a token issued while the view was opening outlasts it                                | `session/dismiss-needs-the-token/` |
-| `no-common-version`       | a kind with no version in common with the program is left out of the welcome and cannot be opened; with no kind left the welcome still has a token | `session/no-common-version/`       |
-| `several-versions`        | the versions both speak are listed in the program's order; an open names one of them and a version outside the list is refused                     | `session/several-versions/`        |
+| Session                   | What it shows                                                                                                                                                                                                                    | Files                              |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `handshake`               | a hello is answered with a version and a token                                                                                                                                                                                   | `session/handshake/`               |
+| `version-mismatch`        | a hello that shares no version gets no token                                                                                                                                                                                     | `session/version-mismatch/`        |
+| `open-without-token`      | an open that carries no token is refused                                                                                                                                                                                         | `session/open-without-token/`      |
+| `open-wrong-token`        | an open with a token the host never issued is refused                                                                                                                                                                            | `session/open-wrong-token/`        |
+| `token-single-use`        | a token opens once; the second open with it is refused and the first goes on                                                                                                                                                     | `session/token-single-use/`        |
+| `hello-replaces-token`    | a new hello invalidates the token of the previous one                                                                                                                                                                            | `session/hello-replaces-token/`    |
+| `open-busy`               | a second view cannot open while one is opening                                                                                                                                                                                   | `session/open-busy/`               |
+| `bundle-partial`          | the host names only the digests it lacks, in manifest order                                                                                                                                                                      | `session/bundle-partial/`          |
+| `bundle-path-escape`      | a manifest path that leaves the bundle is refused                                                                                                                                                                                | `session/bundle-path-escape/`      |
+| `bye-needs-the-token`     | a bye without the token, or with another, ends nothing; the one with it does                                                                                                                                                     | `session/bye-needs-the-token/`     |
+| `dismiss-and-reopen`      | a program closes its view without ending and opens one again; the second open finds its file in the store                                                                                                                        | `session/dismiss-and-reopen/`      |
+| `wasm-view`               | a host that shows WebAssembly views says so, asks for the component, hands the program's msg to the view and a dismiss closes it                                                                                                 | `session/wasm-view/`               |
+| `wasm-unsupported`        | a host that does not show them does not say so and refuses such an open as unsupported                                                                                                                                           | `session/wasm-unsupported/`        |
+| `dismiss-needs-the-token` | a dismiss closes the view only with the token that opened it; a token issued while the view was opening outlasts it                                                                                                              | `session/dismiss-needs-the-token/` |
+| `no-common-version`       | a kind with no version in common with the program is left out of the welcome and cannot be opened; with no kind left the welcome still has a token                                                                               | `session/no-common-version/`       |
+| `several-versions`        | the versions both speak are listed in the program's order; an open names one of them and a version outside the list is refused                                                                                                   | `session/several-versions/`        |
+| `manifest-before-limit`   | an open that is malformed and too big is refused as malformed, whichever way it is malformed: the entry of the wrong type, an access of the wrong shape, an access with an entry that is not a string past the bound of its list | `session/manifest-before-limit/`   |
+| `access-limit`            | an access lists at most 32 origins in a list and 64 in all, valid or not; an open over a bound is refused as limit, one at the bound goes on                                                                                     | `session/access-limit/`            |
 
 Within a session directory the files are numbered by step, in the order of the conversation,
 `NN-in.frame` for what the program wrote and `NN-out.frame` for what the host writes back; a step

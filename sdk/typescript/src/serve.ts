@@ -13,11 +13,12 @@
  */
 
 import { closeSync, openSync } from "node:fs";
-import type { Readable, Writable } from "node:stream";
+import { constants } from "node:os";
 import { ReadStream, WriteStream } from "node:tty";
 
 import { BundleError } from "./bundle.js";
 import type { Bundle } from "./bundle.js";
+import { toBase64 } from "./bytes.js";
 import { bindControl, unbindControl } from "./control.js";
 import type {
   CloseResult,
@@ -33,24 +34,18 @@ import {
   ENTRY_TYPES,
   FEATURE_BUNDLE,
   FEATURE_DISMISS,
-  MAX_VIEW_MESSAGE,
   VERSIONS,
   VIEW_KINDS,
   WEB_VERSION,
   byePayload,
   chooseView,
   dismissPayload,
-  failurePayload,
   helloPayload,
   isVersion,
   openPayload,
   parseClosed,
   parseNeed,
-  parseViewRequest,
   parseWelcome,
-  progressPayload,
-  pushPayload,
-  responsePayload,
 } from "./messages.js";
 import type {
   Access,
@@ -60,18 +55,25 @@ import type {
   Icon,
   ViewKind,
   ViewOffer,
-  ViewRequest,
   WelcomeOffer,
 } from "./messages.js";
+import { synchronousOutput } from "./output.js";
+import { ViewError, createRouter } from "./router.js";
+import type { CallContext, CallHandler, Router, Subscription, TopicHandler } from "./router.js";
 import {
   DEVICE_ATTRIBUTES,
   ENTER_ALTERNATE_SCREEN,
   LEAVE_ALTERNATE_SCREEN,
   SttyTerminal,
   runStty,
+  runtime,
   sttyOn,
 } from "./terminal.js";
 import type { Terminal } from "./terminal.js";
+
+// What the handlers of a program are made of lives with the router; `serve` is where a program meets it.
+export { ViewError } from "./router.js";
+export type { CallContext, CallHandler, Subscription, TopicHandler } from "./router.js";
 
 // ---- what the program offers ---------------------------------------------------
 
@@ -98,64 +100,6 @@ export interface ViewSpec {
   /** What a `web` view asks to reach, which the person is asked about (§12.2). Not for a kit view. */
   access?: Access;
 }
-
-/** An error a handler ends a call or a subscription with: the view gets `code`, and `message` if there is one (§9.2). */
-export class ViewError extends Error {
-  /** A short name the view can act on. */
-  readonly code: string;
-  /** The words for the person, if the error was made with some. */
-  readonly detail: string | undefined;
-
-  constructor(code: string, message?: string) {
-    super(message ?? code);
-    this.name = "ViewError";
-    this.code = code;
-    this.detail = message;
-  }
-}
-
-/** What a handler of a call is given besides the call's parameters. */
-export interface CallContext {
-  /** The method the view called. */
-  readonly method: string;
-  /**
-   * Aborted when the view gives the call up with a `cancel` (§9.2) or when the view is over.
-   * A handler that stops its work then need not answer: the answer would be ignored.
-   */
-  readonly signal: AbortSignal;
-  /** Tells the view how far the call has got (§9.2). Ignored once the call is cancelled or answered. */
-  progress(done: number, total?: number, note?: string): void;
-}
-
-/**
- * Answers a call of the view: returns the result (`undefined` and `null` answer `{}`, since a
- * result is never `null`) or throws a {@link ViewError}, or any error, which is
- * `{ code: "internal" }`. A returned `ViewError` is an error response too.
- */
-export type CallHandler = (params: unknown, call: CallContext) => unknown;
-
-/** What a handler of a topic is given to feed a subscription with. */
-export interface Subscription {
-  /** The topic the view subscribed to. */
-  readonly topic: string;
-  /** Aborted when the view cancels the subscription or is over. */
-  readonly signal: AbortSignal;
-  /**
-   * Pushes a value to the view. `false` when it was not sent: the subscription is over, or the
-   * message would be over 1 MiB (§9.3). `undefined` is pushed as `null`.
-   */
-  push(value: unknown): boolean;
-}
-
-/**
- * Feeds a subscription of the view. May return a function (or a promise of one) that runs when
- * the subscription ends — the view cancels it, or the view is over — to stop whatever feeds it.
- * Throwing ends the subscription with an error response.
- */
-export type TopicHandler = (
-  params: unknown,
-  subscription: Subscription,
-) => void | (() => void) | Promise<void | (() => void)>;
 
 /** What `serve` is asked. */
 export interface ServeOptions {
@@ -301,21 +245,33 @@ export type ServeResult =
 
 type Signal = "SIGINT" | "SIGTERM";
 
+/** ⌃Z: the signal that stops a program (job control). */
+type StopSignal = "SIGTSTP";
+
+/** The numbers of the signals `serve` handles (POSIX). */
+const SIGNAL_NUMBERS: Readonly<Record<Signal, number>> = { SIGINT: 2, SIGTERM: 15 };
+
 /** What `serve` takes from the process it runs in. */
 export interface ProcessLike {
   readonly pid: number;
   on(event: "exit", listener: (code: number) => void): unknown;
-  on(event: Signal, listener: () => void): unknown;
+  on(event: Signal | StopSignal, listener: () => void): unknown;
   removeListener(event: "exit", listener: (code: number) => void): unknown;
-  removeListener(event: Signal, listener: () => void): unknown;
+  removeListener(event: Signal | StopSignal, listener: () => void): unknown;
   listenerCount(event: Signal): number;
-  kill(pid: number, signal: Signal): unknown;
+  /**
+   * Signals a process. The program stops itself with `SIGSTOP`, by its number (Bun does not know
+   * the name), and the call returns when it is continued.
+   */
+  kill(pid: number, signal: Signal | number): unknown;
+  /** Ends the process; used when a program may not signal itself (Deno without `--allow-run`). */
+  exit?(code?: number): unknown;
 }
 
 /** The streams, the tty and the process `serve` works with: the system's, unless a test lends others. */
 export interface Environment {
-  input: Readable & Input;
-  output: Writable & Output;
+  input: Input;
+  output: Output;
   terminal: Terminal;
   process: ProcessLike;
 }
@@ -324,7 +280,8 @@ export interface Environment {
 export function systemEnvironment(): Environment {
   return {
     input: process.stdin,
-    output: process.stdout,
+    // Bun's stream for a tty does not report a write: see `synchronousOutput`.
+    output: runtime === "bun" ? synchronousOutput(1, process.stdout.isTTY) : process.stdout,
     terminal: new SttyTerminal(runStty, 0),
     process,
   };
@@ -342,12 +299,15 @@ export function controllingTerminal(): { environment: Environment; close(): void
     read = openSync("/dev/tty", "r");
     const write = openSync("/dev/tty", "w");
     const input = new ReadStream(read);
-    const output = new WriteStream(write);
+    // Bun's stream for a tty does not report a write: see `synchronousOutput`.
+    const stream = runtime === "bun" ? undefined : new WriteStream(write);
+    const output = stream ?? synchronousOutput(write, true);
     return {
       environment: { input, output, terminal: new SttyTerminal(sttyOn(read), read), process },
       close: () => {
         input.destroy();
-        output.destroy();
+        if (stream === undefined) closeSync(write);
+        else stream.destroy();
       },
     };
   } catch {
@@ -424,15 +384,15 @@ function prepare(views: readonly ViewSpec[]): Prepared[] {
  * @throws {TypeError | BundleError} for `views` that are not a list a program may offer.
  */
 export async function serve(options: ServeOptions): Promise<ServeResult> {
-  prepare(options.views);
-  if (options.filter !== true) return serveWith(options, systemEnvironment());
+  const views = prepare(options.views);
+  if (options.filter !== true) return serveChecked(options, views, systemEnvironment());
   const terminal = controllingTerminal();
   if (terminal === undefined) {
     const aborted = options.signal?.aborted === true;
     return ended(options, { kind: "no-view", reason: aborted ? "aborted" : "no-tty" });
   }
   try {
-    return await serveWith(options, terminal.environment);
+    return await serveChecked(options, views, terminal.environment);
   } finally {
     terminal.close();
   }
@@ -443,7 +403,15 @@ export async function serveWith(
   options: ServeOptions,
   environment: Environment,
 ): Promise<ServeResult> {
-  const views = prepare(options.views);
+  return serveChecked(options, prepare(options.views), environment);
+}
+
+/** {@link serve} for views that have been checked. */
+async function serveChecked(
+  options: ServeOptions,
+  views: Prepared[],
+  environment: Environment,
+): Promise<ServeResult> {
   const { input, output } = environment;
   let result: ServeResult;
   if (options.signal?.aborted) result = { kind: "no-view", reason: "aborted" };
@@ -505,35 +473,18 @@ interface Change {
   timer: ReturnType<typeof setTimeout> | undefined;
 }
 
-/** A subscription of the view that runs. */
-interface Subscribed {
-  readonly controller: AbortController;
-  /** What the topic's handler returned to stop whatever feeds it. */
-  cleanup: (() => void) | undefined;
-}
-
-/** The program is waiting for the `closed` that answers its `bye` (§10.3). */
-interface Farewell {
-  /** The id of the `bye`. */
-  readonly id: number;
-  /** The wait is over: the answer came, or the time is up. Runs what comes next, once. */
+/** A wait that ends when the answer comes or the time is up. */
+interface Wait {
+  /** The wait is over; runs what comes next, once. */
   readonly finish: () => void;
   /** The wait is given up without running what comes next: the program is leaving by another way. */
   readonly drop: () => void;
 }
 
-/** A handler by name, among the handlers the program gave; a name like `constructor` is no handler. */
-function handlerOf<T>(
-  handlers: Readonly<Record<string, T>> | undefined,
-  name: string,
-): T | undefined {
-  return handlers !== undefined && Object.hasOwn(handlers, name) ? handlers[name] : undefined;
-}
-
-/** What an error that ended a call or a subscription tells the view. */
-function failureOf(id: number, error: unknown): string {
-  if (error instanceof ViewError) return failurePayload(id, error.code, error.detail);
-  return failurePayload(id, "internal", error instanceof Error ? error.message : undefined);
+/** The program is waiting for the `closed` that answers its `bye` (§10.3). */
+interface Farewell extends Wait {
+  /** The id of the `bye` or `dismiss`. */
+  readonly id: number;
 }
 
 class TerminalSession implements ViewTarget {
@@ -561,12 +512,20 @@ class TerminalSession implements ViewTarget {
   #accepted = false;
   /** The view has asked something of the program. */
   #heard = false;
-  readonly #calls = new Map<number, AbortController>();
-  readonly #subs = new Map<number, Subscribed>();
+  /** What the view asks of the program: found among the handlers, and answered. */
+  readonly #router: Router;
   #alternate = false;
   #cleaned = false;
   /** The id of the `bye`, once it is out. */
   #byeId: number | undefined;
+  /** The `hello` is out. */
+  #helloSent = false;
+  /** The terminal answered `CSI c`: what the host answered to the `hello` has come before it (§5.2). */
+  #replied = false;
+  /** A program that leaves before the host has answered waits for that, to throw away what comes (§5.3). */
+  #replyWait: Wait | undefined;
+  /** What is unread in the input is thrown away as the terminal is given back, though no `bye` was said. */
+  #drain = false;
   #farewell: Farewell | undefined;
   #unwatch: (() => void) | undefined;
   #end: { resolve: (result: ServeResult) => void; reject: (error: unknown) => void } | undefined;
@@ -579,6 +538,13 @@ class TerminalSession implements ViewTarget {
       message: (message) => this.#onMessage(message),
       reply: () => this.#onReply(),
     });
+    this.#router = createRouter(
+      {
+        ...(options.calls === undefined ? {} : { calls: options.calls }),
+        ...(options.topics === undefined ? {} : { topics: options.topics }),
+      },
+      (payload) => this.#tell(payload),
+    );
   }
 
   async run(): Promise<ServeResult> {
@@ -592,6 +558,7 @@ class TerminalSession implements ViewTarget {
       this.#watch();
       this.#link.start();
       const hello = this.#link.send("hello", helloPayload(this.#offers()));
+      this.#helloSent = true;
       void this.#link.raw(DEVICE_ATTRIBUTES);
       const answer = await this.#ask(hello.id);
       if (answer.kind !== "offer") {
@@ -663,6 +630,10 @@ class TerminalSession implements ViewTarget {
   }
 
   #onReply(): void {
+    this.#replied = true;
+    this.#replyWait?.finish();
+    // A program that is leaving only waits for this: it concludes nothing from it.
+    if (this.#phase === "leaving") return;
     // The terminal answered `CSI c` before any `welcome`: there is no host (§5.3).
     this.#asking?.settle({ kind: "reply" });
     this.#draining?.();
@@ -786,7 +757,7 @@ class TerminalSession implements ViewTarget {
       for (const digest of new Set(missing)) {
         const data = bundle.read(digest);
         if (data === undefined) continue;
-        void this.#link.send("file", Buffer.from(data).toString("base64"), { digest });
+        void this.#link.send("file", toBase64(data), { digest });
       }
     } catch (error) {
       this.#fail(error);
@@ -804,153 +775,19 @@ class TerminalSession implements ViewTarget {
 
   #onMsg(message: Message): void {
     if (this.#phase !== "showing" || !this.#live) return;
-    const request = parseViewRequest(message.payload);
-    if (request === undefined) return;
-    this.#heard = true;
-    switch (request.type) {
-      case "call":
-        this.#call(request);
-        return;
-      case "subscribe":
-        this.#subscribe(request);
-        return;
-      case "cancel":
-        this.#cancel(request.id);
-        return;
-    }
+    if (this.#router.handle(message.payload)) this.#heard = true;
   }
 
-  /** Writes a message of the six toward the view; `false` when it was not (the view is gone, or it is over a message's limit). */
+  /** Writes a message of the six toward the view; `false` when it was not (the view is gone). */
   #tell(payload: string): boolean {
     if (this.#phase !== "showing") return false;
-    if (payload.length > MAX_VIEW_MESSAGE) return false;
-    try {
-      this.#link.send("msg", payload);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /** The response that ends a call with `result`. */
-  #answer(id: number, result: unknown): void {
-    let payload: string;
-    try {
-      payload = responsePayload(id, result);
-    } catch {
-      payload = failurePayload(id, "internal", "the result cannot be written as JSON");
-    }
-    if (payload.length > MAX_VIEW_MESSAGE)
-      payload = failurePayload(id, "message-too-long", "the result is over the limit of a message");
-    this.#tell(payload);
-  }
-
-  #call(request: Extract<ViewRequest, { type: "call" }>): void {
-    const { id } = request;
-    // An id that is out is not used again; a view that does is not following §9.2.
-    if (this.#calls.has(id) || this.#subs.has(id)) return;
-    const handler = handlerOf(this.#options.calls, request.method);
-    if (handler === undefined) {
-      this.#tell(failurePayload(id, "not-found", "there is nothing to call by that name"));
-      return;
-    }
-    const controller = new AbortController();
-    this.#calls.set(id, controller);
-    const context: CallContext = {
-      method: request.method,
-      signal: controller.signal,
-      progress: (done, total, note) => {
-        if (controller.signal.aborted) return;
-        if (!Number.isFinite(done) || (total !== undefined && !Number.isFinite(total))) return;
-        this.#tell(progressPayload(id, done, total, note));
-      },
-    };
-    void (async () => {
-      try {
-        const result = await handler(request.params, context);
-        // Cancelled, or the view is over: the answer would be ignored.
-        if (controller.signal.aborted) return;
-        this.#calls.delete(id);
-        if (result instanceof ViewError) this.#tell(failureOf(id, result));
-        else this.#answer(id, result);
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        this.#calls.delete(id);
-        this.#tell(failureOf(id, error));
-      }
-    })();
-  }
-
-  #subscribe(request: Extract<ViewRequest, { type: "subscribe" }>): void {
-    const { id, topic } = request;
-    if (this.#calls.has(id) || this.#subs.has(id)) return;
-    const handler = handlerOf(this.#options.topics, topic);
-    if (handler === undefined) {
-      this.#tell(failurePayload(id, "not-found", "there is nothing to subscribe to by that name"));
-      return;
-    }
-    const controller = new AbortController();
-    const subscribed: Subscribed = { controller, cleanup: undefined };
-    this.#subs.set(id, subscribed);
-    const subscription: Subscription = {
-      topic,
-      signal: controller.signal,
-      push: (value) => {
-        if (controller.signal.aborted) return false;
-        let payload: string;
-        try {
-          payload = pushPayload(id, value);
-        } catch {
-          return false;
-        }
-        return this.#tell(payload);
-      },
-    };
-    void (async () => {
-      try {
-        const cleanup = await handler(request.params, subscription);
-        if (typeof cleanup !== "function") return;
-        // Cancelled while the handler started: what feeds the subscription stops at once.
-        if (controller.signal.aborted) stop(cleanup);
-        else subscribed.cleanup = cleanup;
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        this.#subs.delete(id);
-        controller.abort();
-        this.#tell(failureOf(id, error));
-      }
-    })();
-  }
-
-  /** The view gives up a call that is out, or ends a subscription; an id that is not out changes nothing (§9.2). */
-  #cancel(id: number): void {
-    const call = this.#calls.get(id);
-    if (call !== undefined) {
-      this.#calls.delete(id);
-      call.abort();
-      return;
-    }
-    const subscribed = this.#subs.get(id);
-    if (subscribed === undefined) return;
-    this.#subs.delete(id);
-    this.#stop(subscribed);
-  }
-
-  #stop(subscribed: Subscribed): void {
-    subscribed.controller.abort();
-    const { cleanup } = subscribed;
-    subscribed.cleanup = undefined;
-    if (cleanup !== undefined) stop(cleanup);
+    this.#link.send("msg", payload);
+    return true;
   }
 
   /** What the view had asked is over with it: calls are cancelled, subscriptions stop. */
   #endView(): void {
-    const calls = [...this.#calls.values()];
-    const subs = [...this.#subs.values()];
-    this.#calls.clear();
-    this.#subs.clear();
-    for (const call of calls) call.abort();
-    for (const subscribed of subs) this.#stop(subscribed);
+    this.#router.end();
   }
 
   /** The host's view is gone, or the program no longer believes in it: nothing of it is served. */
@@ -1126,11 +963,18 @@ class TerminalSession implements ViewTarget {
       return;
     }
     if (plan.views !== undefined) this.#views = plan.views;
-    // The pane is idle: a new token takes a `hello`. The host is known and the fence
-    // is for telling "no host" from "no answer yet", so there is none.
+    await this.#greet(this.#change);
+  }
+
+  /**
+   * The pane is idle and the program wants a view: a new token takes a `hello`, then `open`, as for
+   * the first. The host is known and the fence is for telling "no host" from "no answer yet", so
+   * there is none. `change` is the reopening this is the middle of, if it is one.
+   */
+  async #greet(change: Change | undefined): Promise<void> {
     const hello = this.#link.send("hello", helloPayload(this.#offers()));
     const answer = await this.#ask(hello.id, this.#options.reopenTimeout ?? 10_000);
-    if (this.#phase !== "showing" || this.#change === undefined) return;
+    if (this.#phase !== "showing" || this.#change !== change) return;
     const choice = answer.kind === "offer" ? this.#choose(answer.welcome) : undefined;
     if (answer.kind !== "offer" || choice === undefined) {
       this.#phase = "over";
@@ -1144,7 +988,7 @@ class TerminalSession implements ViewTarget {
       this.#settle({ kind: "no-view", reason });
       return;
     }
-    this.#change.stage = "opening";
+    if (change !== undefined) change.stage = "opening";
     await this.#open(answer.welcome, choice);
   }
 
@@ -1167,14 +1011,35 @@ class TerminalSession implements ViewTarget {
    * The program ends, or ends its use of the terminal, by its own choice: `bye` when a view is
    * opening or open, then the input is read, and thrown away, until the answer to it (§10.3), then
    * the terminal is given back, and then `then` runs. Asynchronous only for the wait.
+   *
+   * With no view to say it to, a program that leaves before the host has answered its `hello`
+   * reads on until the terminal answers `CSI c` (the host's answer, if there is one, comes before
+   * that, §5.2), and throws away what it read: a `welcome` and the reply are not typed text for the
+   * shell (§5.3).
    */
   #goodbye(reason: ByeReason | undefined, then: () => void): void {
     const id = reason === undefined ? undefined : this.#sayBye(reason);
-    if (id === undefined) {
-      this.#cleanup();
-      then();
+    if (id !== undefined) {
+      this.#awaitAnswer(id, () => {
+        this.#cleanup();
+        then();
+      });
       return;
     }
+    if (reason !== undefined && this.#byeId === undefined && this.#helloSent && !this.#replied) {
+      this.#awaitReply(() => {
+        this.#drain = true;
+        this.#cleanup();
+        then();
+      });
+      return;
+    }
+    this.#cleanup();
+    then();
+  }
+
+  /** Waits for the `closed` that answers message `id`, for the time a `bye` is given (§10.3); `then` runs when it comes or the time is up. */
+  #awaitAnswer(id: number, then: () => void): void {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let done = false;
     const finish = (): void => {
@@ -1182,7 +1047,6 @@ class TerminalSession implements ViewTarget {
       done = true;
       clearTimeout(timer);
       this.#farewell = undefined;
-      this.#cleanup();
       then();
     };
     timer = setTimeout(finish, this.#options.byeTimeout ?? 500);
@@ -1193,6 +1057,28 @@ class TerminalSession implements ViewTarget {
         done = true;
         clearTimeout(timer);
         this.#farewell = undefined;
+      },
+    };
+  }
+
+  /** Waits for the terminal's answer to `CSI c`, for the time a `bye` is given; `then` runs when it comes or the time is up. */
+  #awaitReply(then: () => void): void {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let done = false;
+    const finish = (): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      this.#replyWait = undefined;
+      then();
+    };
+    timer = setTimeout(finish, this.#options.byeTimeout ?? 500);
+    this.#replyWait = {
+      finish,
+      drop: () => {
+        done = true;
+        clearTimeout(timer);
+        this.#replyWait = undefined;
       },
     };
   }
@@ -1216,7 +1102,9 @@ class TerminalSession implements ViewTarget {
    * terminal wrote and the program did not read, the primary screen, the tty's modes, the
    * stream. Synchronous and once, so that a signal handler and an `exit` handler can run
    * it. The wait for the answer to the `bye` is not here: it comes before, where the program
-   * can wait ({@link TerminalSession.#goodbye}); an `exit` handler cannot.
+   * can wait ({@link TerminalSession.#goodbye}). An `exit` handler cannot wait for the event loop,
+   * so it passes a `reason` and the answer is read from the tty, synchronously, first
+   * ({@link TerminalSession.#readLastWord}).
    *
    * The listeners go last. A parent that forwards signals (npm running a script)
    * sends the ⌃C the tty already sent a moment later; while a listener is there
@@ -1228,17 +1116,49 @@ class TerminalSession implements ViewTarget {
     if (this.#cleaned) return;
     this.#cleaned = true;
     this.#farewell?.drop();
+    this.#replyWait?.drop();
     if (reason !== undefined) this.#sayBye(reason);
     this.#endView();
     const link = this.#link;
+    // The process is leaving and nothing runs after this: what the host answers is read here.
+    if (reason !== undefined) this.#readLastWord();
     // What the host wrote before it learned of the `bye` and the program did not read must not be
     // left in the tty for whatever reads it next (§10.3); typed-ahead characters go with it.
-    if (this.#byeId !== undefined) this.#env.terminal.discardInput();
+    if (this.#byeId !== undefined || this.#drain) this.#env.terminal.discardInput();
     if (this.#alternate) link.writeNow(LEAVE_ALTERNATE_SCREEN);
     this.#env.terminal.restore();
     link.stop();
     this.#unwatch?.();
     this.#unwatch = undefined;
+  }
+
+  /**
+   * The process is exiting and nothing runs after this: the host's last word is read from the tty
+   * here, without the event loop, for as long as `bye` is given (§10.3), and thrown away. It is the
+   * `closed` that answers the `bye`; for a program that has no view yet, the terminal's answer to
+   * `CSI c`, which the host's own comes before (§5.2, §5.3). What is left of the input is thrown
+   * away after it.
+   */
+  #readLastWord(): void {
+    const id = this.#byeId;
+    let done: () => boolean;
+    if (id !== undefined) {
+      let answered = false;
+      this.#farewell = { id, finish: () => void (answered = true), drop: () => {} };
+      done = () => answered;
+    } else if (this.#helloSent && !this.#replied) {
+      done = () => this.#replied;
+    } else {
+      return;
+    }
+    // What comes is thrown away, but for the answer.
+    this.#phase = "leaving";
+    this.#drain = true;
+    this.#env.terminal.waitFor((bytes) => {
+      this.#link.feed(bytes);
+      return done();
+    }, this.#options.byeTimeout ?? 500);
+    this.#farewell = undefined;
   }
 
   // ---- signals and exit -----------------------------------------------------
@@ -1256,10 +1176,20 @@ class TerminalSession implements ViewTarget {
     const onExit = (code?: number): void =>
       this.#cleanup(code === undefined || code === 0 ? "exit" : "error");
     proc.on("exit", onExit);
+    // ⌃Z: the tty is given back before the program stops. A runtime that cannot catch SIGTSTP
+    // (there is none on Windows) leaves the program with the signal's default.
+    const onStop = (): void => this.#suspend();
+    let stoppable = true;
+    try {
+      proc.on("SIGTSTP", onStop);
+    } catch {
+      stoppable = false;
+    }
     const abort = (): void => this.#aborted();
     this.#options.signal?.addEventListener("abort", abort, { once: true });
     this.#unwatch = () => {
       for (const { signal, handler } of handlers) proc.removeListener(signal, handler);
+      if (stoppable) proc.removeListener("SIGTSTP", onStop);
       proc.removeListener("exit", onExit);
       this.#options.signal?.removeEventListener("abort", abort);
     };
@@ -1276,7 +1206,14 @@ class TerminalSession implements ViewTarget {
       // running: give it back unless the program has a listener of its own.
       const proc = this.#env.process;
       if (proc.listenerCount(signal) === 0) {
-        proc.kill(proc.pid, signal);
+        try {
+          proc.kill(proc.pid, signal);
+        } catch {
+          // Deno refuses a program the signal to itself unless it may run programs; the status a
+          // shell reports for a program that the signal ended (128 and the signal's number) is the
+          // next best.
+          proc.exit?.(128 + SIGNAL_NUMBERS[signal]);
+        }
         return;
       }
       this.#leave(phase, "signal");
@@ -1288,6 +1225,86 @@ class TerminalSession implements ViewTarget {
     if (phase === "leaving") return;
     this.#phase = "leaving";
     this.#goodbye("exit", () => this.#leave(phase, "aborted"));
+  }
+
+  // ---- ⌃Z ---------------------------------------------------------------------
+
+  /**
+   * ⌃Z: the program is to stop, and the shell that gets the terminal must find it as it left it. A
+   * view that is up is closed (`dismiss`, or `bye` for a host that has none, and the `closed` that
+   * answers it is waited for, as for ⌃C), the primary screen and the tty's modes are given back,
+   * and the program stops. When it is continued it takes the modes again and asks for its view
+   * anew, as for the first one (§10.8).
+   *
+   * Without a view (the program is still asking, or is replacing the view) only the modes are
+   * given back and taken again. A program that is on its way out has no use for the signal.
+   */
+  #suspend(): void {
+    if (this.#cleaned || this.#phase === "leaving" || this.#phase === "over") return;
+    const token = this.#token;
+    if (this.#phase === "showing" && token !== undefined && this.#change === undefined) {
+      // What the view had asked is over with it; what the host says meanwhile is read and thrown
+      // away, but for its answer.
+      this.#phase = "leaving";
+      this.#endView();
+      const id = this.#dismiss
+        ? this.#link.send("dismiss", dismissPayload(token)).id
+        : this.#link.send("bye", byePayload(token, "signal")).id;
+      this.#awaitAnswer(id, () => void this.#suspended());
+      return;
+    }
+    this.#env.terminal.restore();
+    this.#stop();
+    this.#take();
+  }
+
+  /** The view is gone from the host: the terminal is given back, the program stops, and it asks again when it is continued. */
+  async #suspended(): Promise<void> {
+    this.#forgetView();
+    // What the host wrote before it learned of the program's word is not left for the shell.
+    this.#env.terminal.discardInput();
+    if (this.#alternate) {
+      this.#alternate = false;
+      this.#link.writeNow(LEAVE_ALTERNATE_SCREEN);
+    }
+    this.#env.terminal.restore();
+    this.#stop();
+    // Continued.
+    if (!this.#take()) {
+      this.#phase = "over";
+      this.#settle({ kind: "no-view", reason: "no-tty" });
+      return;
+    }
+    this.#phase = "showing";
+    try {
+      await this.#greet(undefined);
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
+  /**
+   * Stops the program, with the signal that cannot be caught, and returns when it is continued. The
+   * tty is the shell's meanwhile. A program that may not signal itself (Deno without `--allow-run`)
+   * does not stop; it goes straight on.
+   */
+  #stop(): void {
+    const proc = this.#env.process;
+    try {
+      proc.kill(proc.pid, constants.signals.SIGSTOP);
+    } catch {
+      // Nothing stops it.
+    }
+  }
+
+  /** Takes the tty's modes again, as when the program began; `false` when it cannot (it was continued in the background). */
+  #take(): boolean {
+    try {
+      this.#env.terminal.enter();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -1306,15 +1323,6 @@ class TerminalSession implements ViewTarget {
         ? { kind: "closed", by, view }
         : { kind: "no-view", reason: "aborted" },
     );
-  }
-}
-
-/** Stops whatever feeds a subscription: what a handler returned. Its failure is not the view's. */
-function stop(cleanup: () => void): void {
-  try {
-    cleanup();
-  } catch {
-    // The subscription is over either way.
   }
 }
 

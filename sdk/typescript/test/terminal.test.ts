@@ -140,3 +140,113 @@ describe("SttyTerminal.discardInput", () => {
     expect(total).toBeLessThanOrEqual(5 * 1024 * 1024);
   });
 });
+
+describe("SttyTerminal.waitFor", () => {
+  /** A clock that moves only when the terminal sleeps or a read says it took time. */
+  function clockAt() {
+    let now = 1000;
+    const sleeps: number[] = [];
+    return {
+      sleeps,
+      advance: (ms: number) => void (now += ms),
+      clock: {
+        now: () => now,
+        sleep: (ms: number) => {
+          sleeps.push(ms);
+          now += ms;
+        },
+      },
+    };
+  }
+
+  /** A tty that holds `chunks`, one for each read; empty after them. */
+  function holding(...chunks: string[]) {
+    const left = chunks.map((chunk) => Buffer.from(chunk, "latin1"));
+    return (_fd: number, into: Uint8Array): number => {
+      const next = left.shift();
+      if (next === undefined) return 0;
+      into.set(next);
+      return next.length;
+    };
+  }
+
+  it("lets a read return at once, then hands each piece to feed until feed has what it wanted", () => {
+    const { calls, run } = fake();
+    const { clock } = clockAt();
+    const seen: string[] = [];
+    const terminal = new SttyTerminal(run, 7, holding("typed", "an answer", "more"), clock);
+    terminal.enter();
+    terminal.waitFor((bytes) => {
+      seen.push(Buffer.from(bytes).toString("latin1"));
+      return seen.length === 2;
+    }, 500);
+    expect(calls[2]).toEqual(["min", "0", "time", "0"]);
+    // It stops at the answer: the piece after it is left for the discard.
+    expect(seen).toEqual(["typed", "an answer"]);
+  });
+
+  it("asks an empty queue again after a moment, and gives up when the time is up", () => {
+    const { run } = fake();
+    const { clock, sleeps } = clockAt();
+    let reads = 0;
+    const terminal = new SttyTerminal(
+      run,
+      7,
+      () => {
+        reads += 1;
+        return 0;
+      },
+      clock,
+    );
+    terminal.enter();
+    let fed = 0;
+    terminal.waitFor(() => (fed += 1) > 0, 30);
+    expect(fed).toBe(0);
+    // 30 ms in sleeps of at most a few: the time is the clock's, and it ends.
+    expect(sleeps.reduce((a, b) => a + b, 0)).toBe(30);
+    expect(Math.max(...sleeps)).toBeLessThanOrEqual(10);
+    expect(reads).toBe(sleeps.length + 1);
+  });
+
+  it("ends even for a queue that never empties and never has the answer", () => {
+    const { run } = fake();
+    const { clock, advance } = clockAt();
+    let reads = 0;
+    const terminal = new SttyTerminal(
+      run,
+      7,
+      (_fd, into) => {
+        reads += 1;
+        advance(1);
+        return into.length;
+      },
+      clock,
+    );
+    terminal.enter();
+    terminal.waitFor(() => false, 25);
+    expect(reads).toBeGreaterThanOrEqual(25);
+    expect(reads).toBeLessThanOrEqual(26);
+  });
+
+  it("does nothing before enter, without a descriptor to read, and when VMIN 0 cannot be set", () => {
+    const first = fake();
+    let reads = 0;
+    const read = () => {
+      reads += 1;
+      return 0;
+    };
+    const { clock } = clockAt();
+    new SttyTerminal(first.run, 3, read, clock).waitFor(() => true, 10);
+    expect(first.calls).toEqual([]);
+    const second = fake();
+    const noFd = new SttyTerminal(second.run, undefined, read, clock);
+    noFd.enter();
+    noFd.waitFor(() => true, 10);
+    expect(second.calls).toHaveLength(2);
+    const third = fake({ "min 0 time 0": { status: 1, stdout: "" } });
+    const refused = new SttyTerminal(third.run, 3, read, clock);
+    refused.enter();
+    refused.waitFor(() => true, 10);
+    expect(reads).toBe(0);
+  });
+});
