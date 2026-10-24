@@ -1,0 +1,36 @@
+[package]
+name = "pencere-cli"
+description = "The pencere command: new, dev and build for apps written in Lua, and the runner that a built app is — one file, with its view"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["terminal", "pencere", "lua", "cli"]
+categories = ["command-line-utilities"]
+publish = false
+
+[[bin]]
+name = "pencere"
+path = "src/main.rs"
+
+[dependencies]
+# The program's side of the protocol: the handshake, the tty, the signals, the way out. The
+# runner is a program like any other that uses it; what Lua adds is the language.
+pencere = { path = "../program", version = "0.2.0" }
+# The bundle of a view is the wire's; the runner reads digests and base64 with the same code.
+pencere-wire = { path = "../wire", version = "0.1.0" }
+serde_json = "1"
+libc = "0.2"
+# Luau, the dialect the page API is in, so that an app and its page are one language. Luau is
+# compiled into the binary from the crate's sources; no Lua is installed on the machine.
+mlua = { version = "0.11", features = ["luau"] }
+# Puts the app into a copy of the runner as a section of the executable, and signs the result
+# on a Mac (an ad hoc signature, made in this process: no `codesign`, and a Linux machine can
+# make the file of a Mac).
+libsui = "0.16"
+sha2 = "0.10"
+
+[lints]
+workspace = true

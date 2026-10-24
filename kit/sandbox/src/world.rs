@@ -18,8 +18,10 @@ use wasmtime::component::{Component, HasSelf, Linker};
 use crate::module::{Frame, Runner};
 use crate::sandbox::{self, Fault, Host, Limits, Program};
 
+// The interface is read from the crate's own copy, `wit/view.wit`: a published crate cannot read
+// outside itself. `kit/wit/view.wit` is the source; `make check` fails while they differ.
 wasmtime::component::bindgen!({
-    path: "../wit",
+    path: "wit",
     world: "view",
 });
 

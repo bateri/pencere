@@ -15,9 +15,10 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use pencere::{
-    Bundle, EndedBy, Error, Kind, NoViewReason, Options, Outcome, Terminal, View, ViewError,
+    Bundle, CloseResult, EndedBy, Error, File, Kind, NoViewReason, Options, Outcome, ReopenResult,
+    Terminal, View, ViewControl, ViewError,
 };
-use pencere_wire::frame::{Direction, Event, StreamDecoder};
+use pencere_wire::frame::{Direction, Event, Message as Frame, StreamDecoder};
 use serde_json::{Value, json};
 
 mod common;
@@ -822,4 +823,432 @@ fn where_there_is_no_tty_there_is_no_view() {
         libc::close(ends[0]);
         libc::close(ends[1]);
     }
+}
+
+// ---- closing the view at the program's request (§10.8) ----------------------------------------
+
+/// Runs `call` on a thread of the test, so that the test can be the terminal while it waits.
+fn asking<T: Send + 'static>(call: impl FnOnce() -> T + Send + 'static) -> JoinHandle<T> {
+    std::thread::spawn(call)
+}
+
+fn joined<T>(handle: JoinHandle<T>) -> T {
+    let until = Instant::now() + WITHIN;
+    while !handle.is_finished() {
+        assert!(Instant::now() < until, "the call does not return");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    handle.join().expect("the call does not panic")
+}
+
+/// A view is open and the terminal has taken it (`need` with nothing missing).
+fn shown(pane: &mut Pane) -> Frame {
+    let (_, open) = pane.open_a_view(&web_views());
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    open
+}
+
+#[test]
+fn the_view_the_program_closes_is_closed_by_the_program_and_the_terminal_is_given_back() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let handle = serve_on(pane.terminal(), move |options| options.control(given));
+    shown(&mut pane);
+    let closer = {
+        let control = control.clone();
+        asking(move || control.close())
+    };
+    // The `dismiss` has the token the view was opened with (§10.8).
+    let dismiss = pane.expect("dismiss");
+    let body: Value = serde_json::from_str(&dismiss.payload).expect("JSON");
+    assert_eq!(body, json!({ "token": TOKEN }));
+    pane.send("closed", Some(dismiss.id), &json!({ "reason": "program" }));
+    assert_eq!(joined(closer), CloseResult::Closed);
+    // The program that closed its view is told once the terminal is its own again: it may print,
+    // or run a shell, as soon as it is.
+    modes_are_back(&pane);
+    let Outcome::Closed(closed) = finished(handle) else {
+        panic!("a view that closed");
+    };
+    assert_eq!(closed.by, EndedBy::Program);
+    // The terminal forgot the view: there is no `bye` for it.
+    while pane.read_some(Duration::from_millis(100)) {}
+    assert!(!pane.text().contains("pencere;bye"), "{:?}", pane.text());
+    assert!(pane.text().ends_with("\x1b[?1049l"), "{:?}", pane.text());
+    modes_are_back(&pane);
+    // Once `serve` has ended there is nothing to close.
+    assert_eq!(control.close(), CloseResult::Unavailable);
+}
+
+#[test]
+fn a_reopened_view_is_asked_for_with_a_new_hello_and_a_new_token_and_without_the_fence() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let calls = Arc::new(AtomicU32::new(0));
+    let counted = Arc::clone(&calls);
+    let handle = serve_on(pane.terminal(), move |options| {
+        options.control(given).call("count", move |_params, _call| {
+            Ok(json!({ "n": counted.fetch_add(1, Ordering::SeqCst) + 1 }))
+        })
+    });
+    shown(&mut pane);
+    let reopener = {
+        let control = control.clone();
+        asking(move || control.reopen(None))
+    };
+    let dismiss = pane.expect("dismiss");
+    pane.send("closed", Some(dismiss.id), &json!({ "reason": "program" }));
+    // The pane is idle with the alternate screen as the program left it; the program asks again.
+    let hello = pane.expect("hello");
+    assert_eq!(
+        pane.text().matches("\x1b[c").count(),
+        1,
+        "the fence is for the first hello only"
+    );
+    pane.welcome(hello.id, TOKEN_2, &web_views());
+    let open = pane.expect("open");
+    let body: Value = serde_json::from_str(&open.payload).expect("JSON");
+    assert_eq!(body["token"], TOKEN_2);
+    assert_eq!(
+        pane.text().matches("\x1b[?1049h").count(),
+        1,
+        "the alternate screen stays on between the two views"
+    );
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    assert_eq!(
+        joined(reopener).expect("a reopening"),
+        ReopenResult::Reopened
+    );
+    // The new view is served as the first was.
+    pane.send(
+        "msg",
+        None,
+        &json!({ "call": { "id": 1, "method": "count" } }),
+    );
+    let reply: Value = serde_json::from_str(&pane.expect("msg").payload).expect("JSON");
+    assert_eq!(
+        reply,
+        json!({ "response": { "id": 1, "result": { "n": 1 } } })
+    );
+    // ⌃C ends the second view, with the second token.
+    interrupt();
+    let bye = pane.expect("bye");
+    let body: Value = serde_json::from_str(&bye.payload).expect("JSON");
+    assert_eq!(body, json!({ "token": TOKEN_2, "reason": "signal" }));
+    pane.send("closed", Some(bye.id), &json!({ "reason": "program" }));
+    let Outcome::Closed(closed) = finished(handle) else {
+        panic!("a view that closed");
+    };
+    assert_eq!(closed.by, EndedBy::Signal(libc::SIGINT));
+    modes_are_back(&pane);
+}
+
+#[test]
+fn a_reopening_may_bring_other_files_and_other_kinds() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let handle = serve_on(pane.terminal(), move |options| options.control(given));
+    shown(&mut pane);
+    let newer = Bundle::new(
+        "index.html",
+        [File::new("index.html", &b"<p>newer</p>"[..])],
+    )
+    .expect("a bundle");
+    let reopener = {
+        let control = control.clone();
+        asking(move || control.reopen(Some(vec![View::web(newer)])))
+    };
+    let dismiss = pane.expect("dismiss");
+    pane.send("closed", Some(dismiss.id), &json!({ "reason": "program" }));
+    let hello = pane.expect("hello");
+    pane.welcome(hello.id, TOKEN_2, &web_views());
+    let open = pane.expect("open");
+    let body: Value = serde_json::from_str(&open.payload).expect("JSON");
+    // The manifest is the newer files', and only them.
+    assert_eq!(body["bundle"]["files"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        body["bundle"]["files"][0]["sha256"],
+        digest_of(b"<p>newer</p>")
+    );
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    assert_eq!(
+        joined(reopener).expect("a reopening"),
+        ReopenResult::Reopened
+    );
+    interrupt();
+    let bye = pane.expect("bye");
+    pane.send("closed", Some(bye.id), &json!({ "reason": "program" }));
+    finished(handle);
+}
+
+#[test]
+fn a_terminal_without_dismiss_keeps_the_view_and_is_told_nothing() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let handle = serve_on(pane.terminal(), move |options| options.control(given));
+    let hello = pane.expect("hello");
+    pane.send(
+        "welcome",
+        Some(hello.id),
+        &json!({
+            "version": 1,
+            "token": TOKEN,
+            "host": { "name": "test", "version": "0" },
+            "features": ["bundle"],
+            "views": web_views(),
+        }),
+    );
+    let open = pane.expect("open");
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    assert_eq!(control.close(), CloseResult::Unsupported);
+    assert_eq!(
+        control.reopen(None).expect("a reopening"),
+        ReopenResult::Unsupported
+    );
+    assert!(
+        pane.next_within(Duration::from_millis(200)).is_none(),
+        "nothing is written to a terminal that would ignore it: {:?}",
+        pane.text()
+    );
+    interrupt();
+    let bye = pane.expect("bye");
+    pane.send("closed", Some(bye.id), &json!({ "reason": "program" }));
+    finished(handle);
+}
+
+#[test]
+fn there_is_no_view_to_close_before_the_terminal_has_one_and_while_one_is_being_closed() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    // Not tied to a `serve` yet.
+    assert_eq!(control.close(), CloseResult::Unavailable);
+    let given = control.clone();
+    let handle = serve_on(pane.terminal(), move |options| options.control(given));
+    // Before the terminal has answered the `hello`.
+    let hello = pane.expect("hello");
+    assert_eq!(control.close(), CloseResult::Unavailable);
+    pane.welcome(hello.id, TOKEN, &web_views());
+    let open = pane.expect("open");
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    let closer = {
+        let control = control.clone();
+        asking(move || control.close())
+    };
+    let dismiss = pane.expect("dismiss");
+    // A second ask while the first is under way.
+    assert_eq!(control.close(), CloseResult::Unavailable);
+    pane.send("closed", Some(dismiss.id), &json!({ "reason": "program" }));
+    assert_eq!(joined(closer), CloseResult::Closed);
+    finished(handle);
+}
+
+#[test]
+fn a_terminal_that_does_not_answer_the_dismiss_is_given_up_on_with_a_bye() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let handle = serve_on(pane.terminal(), move |options| {
+        options
+            .control(given)
+            .reopen_timeout(Duration::from_millis(200))
+            .bye_timeout(Duration::from_millis(150))
+    });
+    shown(&mut pane);
+    let reopener = {
+        let control = control.clone();
+        asking(move || control.reopen(None))
+    };
+    let _dismiss = pane.expect("dismiss");
+    // The terminal says nothing: the view it may still show gets a `bye`.
+    let bye = pane.expect("bye");
+    let body: Value = serde_json::from_str(&bye.payload).expect("JSON");
+    assert_eq!(body, json!({ "token": TOKEN, "reason": "error" }));
+    match joined(reopener).expect("a reopening") {
+        ReopenResult::NoView(no_view) => assert_eq!(no_view.reason, NoViewReason::Timeout),
+        other => panic!("no view: {other:?}"),
+    }
+    assert!(matches!(finished(handle), Outcome::NoView(_)));
+    modes_are_back(&pane);
+}
+
+#[test]
+fn a_reopening_that_the_terminal_does_not_answer_ends_serve_as_a_first_open_that_is_not() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let seen = Arc::new(Mutex::new(None));
+    let kept = Arc::clone(&seen);
+    let handle = serve_on(pane.terminal(), move |options| {
+        options
+            .control(given)
+            .reopen_timeout(Duration::from_millis(200))
+            .fallback(move |no_view| {
+                *kept.lock().expect("lock") = Some(no_view.reason);
+            })
+    });
+    shown(&mut pane);
+    let reopener = {
+        let control = control.clone();
+        asking(move || control.reopen(None))
+    };
+    let dismiss = pane.expect("dismiss");
+    pane.send("closed", Some(dismiss.id), &json!({ "reason": "program" }));
+    let _hello = pane.expect("hello");
+    // Nobody answers the new hello.
+    match joined(reopener).expect("a reopening") {
+        ReopenResult::NoView(no_view) => assert_eq!(no_view.reason, NoViewReason::Timeout),
+        other => panic!("no view: {other:?}"),
+    }
+    assert_eq!(no_view_of(finished(handle)).reason, NoViewReason::Timeout);
+    assert_eq!(*seen.lock().expect("lock"), Some(NoViewReason::Timeout));
+    modes_are_back(&pane);
+}
+
+#[test]
+fn the_need_of_the_old_open_that_crosses_a_dismiss_does_not_stop_the_closing() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let handle = serve_on(pane.terminal(), move |options| options.control(given));
+    // The view is opened and the program closes it before the terminal has asked for its files.
+    let (_, open) = pane.open_a_view(&web_views());
+    let closer = {
+        let control = control.clone();
+        asking(move || control.close())
+    };
+    let dismiss = pane.expect("dismiss");
+    // The `need` of the old open was on its way: it is not about a view the program still has.
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    pane.send("closed", Some(dismiss.id), &json!({ "reason": "program" }));
+    assert_eq!(joined(closer), CloseResult::Closed);
+    let Outcome::Closed(closed) = finished(handle) else {
+        panic!("a view that closed");
+    };
+    assert_eq!(closed.by, EndedBy::Program);
+    modes_are_back(&pane);
+}
+
+#[test]
+fn a_terminal_that_asks_for_the_view_again_while_it_is_being_closed_ends_the_closing() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let handle = serve_on(pane.terminal(), move |options| options.control(given));
+    shown(&mut pane);
+    let closer = {
+        let control = control.clone();
+        asking(move || control.close())
+    };
+    let _dismiss = pane.expect("dismiss");
+    // The terminal came up again (§10.7) and asks for the view: that is the view now, and the
+    // closing of the old one has nothing left to close.
+    pane.send(
+        "welcome",
+        None,
+        &json!({
+            "version": 1,
+            "token": TOKEN_2,
+            "host": { "name": "test", "version": "0" },
+            "features": ["bundle", "dismiss"],
+            "views": web_views(),
+            "restart": true,
+        }),
+    );
+    assert_eq!(joined(closer), CloseResult::Unavailable);
+    let open = pane.expect("open");
+    let body: Value = serde_json::from_str(&open.payload).expect("JSON");
+    assert_eq!(body["token"], TOKEN_2);
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    interrupt();
+    let bye = pane.expect("bye");
+    pane.send("closed", Some(bye.id), &json!({ "reason": "program" }));
+    finished(handle);
+}
+
+#[test]
+fn a_terminal_that_asks_again_while_the_program_asks_for_another_view_is_given_the_new_view() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let handle = serve_on(pane.terminal(), move |options| options.control(given));
+    shown(&mut pane);
+    let reopener = {
+        let control = control.clone();
+        asking(move || control.reopen(None))
+    };
+    let dismiss = pane.expect("dismiss");
+    pane.send("closed", Some(dismiss.id), &json!({ "reason": "program" }));
+    let _hello = pane.expect("hello");
+    // The terminal never answers the `hello`: it comes up again and asks for the view itself.
+    pane.send(
+        "welcome",
+        None,
+        &json!({
+            "version": 1,
+            "token": TOKEN_2,
+            "host": { "name": "test", "version": "0" },
+            "features": ["bundle", "dismiss"],
+            "views": web_views(),
+            "restart": true,
+        }),
+    );
+    let open = pane.expect("open");
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    interrupt();
+    let bye = pane.expect("bye");
+    pane.send("closed", Some(bye.id), &json!({ "reason": "program" }));
+    finished(handle);
+    // The reopening was overtaken: it is told there was nothing to do.
+    assert_eq!(
+        joined(reopener).expect("a reopening"),
+        ReopenResult::Unavailable
+    );
+}
+
+#[test]
+fn a_terminal_that_takes_the_new_open_and_says_nothing_more_is_given_up_on() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let handle = serve_on(pane.terminal(), move |options| {
+        options
+            .control(given)
+            .reopen_timeout(Duration::from_millis(200))
+            .bye_timeout(Duration::from_millis(150))
+    });
+    shown(&mut pane);
+    let reopener = {
+        let control = control.clone();
+        asking(move || control.reopen(None))
+    };
+    let dismiss = pane.expect("dismiss");
+    pane.send("closed", Some(dismiss.id), &json!({ "reason": "program" }));
+    let hello = pane.expect("hello");
+    pane.welcome(hello.id, TOKEN_2, &web_views());
+    let _open = pane.expect("open");
+    // Neither a `need` nor a `closed`: the program leaves, with a `bye` for the view it asked for.
+    let bye = pane.expect("bye");
+    let body: Value = serde_json::from_str(&bye.payload).expect("JSON");
+    assert_eq!(body, json!({ "token": TOKEN_2, "reason": "error" }));
+    match joined(reopener).expect("a reopening") {
+        ReopenResult::NoView(no_view) => assert_eq!(no_view.reason, NoViewReason::Timeout),
+        other => panic!("no view: {other:?}"),
+    }
+    assert!(matches!(finished(handle), Outcome::NoView(_)));
+    modes_are_back(&pane);
 }

@@ -25,6 +25,16 @@ All notable changes to the `pencere` crate are recorded here. The format follows
     subscription is fed from any thread with `Subscription::push`, which waits while the terminal is
     behind.
   - `Terminal::controlling` for a filter in a pipeline.
+  - `ViewControl`, for a program that goes on after its view or shows another in its place
+    (specification §10.8): `reopen` closes the view with a `dismiss` and opens one again (with
+    the same files, or with other kinds of view), and `close` ends `serve` with `EndedBy::Program`.
+    It is given to `Options::control` and called from another thread; the answers say when the
+    terminal does not list `dismiss` (`Unsupported`), when there is no view to close
+    (`Unavailable`), and when the new view could not be shown (`NoView`, with
+    `NoViewReason::Timeout` for a terminal that did not answer in time). `Options::reopen_timeout`
+    bounds the terminal's answers (ten seconds). A `close` answers once the terminal has been
+    given back, so the program may print or run a shell as soon as it has the answer.
+  - `Call` can be cloned, so that a handler can hand the call to the thread that answers it.
   - The 1 MiB limit of a view's message is counted before the wire escapes the text, in both
     directions, as the host and the TypeScript SDK count it: a message of non-ASCII text that is
     under the limit as the view said it is read and written, however long its escaped form is.

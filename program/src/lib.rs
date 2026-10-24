@@ -50,8 +50,8 @@
 //!
 //! The program must not print while the view is up: the terminal is the view's.
 //!
-//! Not in this version: closing a view and showing another while the program runs, and the
-//! `dismiss` that goes with it.
+//! A program that goes on after its view, or reloads the view as its files change, closes it and
+//! shows another with a [`ViewControl`] (§10.8).
 
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
@@ -62,6 +62,7 @@
 struct ReadmeExamples;
 
 mod bundle;
+mod control;
 mod handlers;
 mod link;
 mod payload;
@@ -80,6 +81,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 pub use bundle::{Bundle, BundleError, File};
+pub use control::{CloseResult, ReopenResult, ViewControl};
 pub use handlers::{Call, Subscription, ViewError};
 pub use terminal::Terminal;
 pub use view::{Access, Icon, IconTheme, Kind, Permission, View, WEB_VERSION};
@@ -100,9 +102,11 @@ pub struct Options {
     topics: HashMap<String, Arc<TopicFn>>,
     fallback: Option<Fallback>,
     terminal: Option<Terminal>,
+    control: Option<ViewControl>,
     answer_timeout: Duration,
     late_reply_grace: Duration,
     bye_timeout: Duration,
+    reopen_timeout: Duration,
 }
 
 impl fmt::Debug for Options {
@@ -140,9 +144,11 @@ impl Options {
             topics: HashMap::new(),
             fallback: None,
             terminal: None,
+            control: None,
             answer_timeout: Duration::from_secs(2),
             late_reply_grace: Duration::from_secs(1),
             bye_timeout: Duration::from_millis(500),
+            reopen_timeout: Duration::from_secs(10),
         }
     }
 
@@ -261,21 +267,39 @@ impl Options {
         self
     }
 
+    /// The hand the program closes the view with, or shows another in its place, while `serve`
+    /// runs (§10.8).
+    #[must_use]
+    pub fn control(mut self, control: ViewControl) -> Self {
+        self.control = Some(control);
+        self
+    }
+
+    /// How long a reopening or closing ([`ViewControl`]) waits on the terminal for each of its
+    /// answers: the `closed` of the `dismiss`, the `welcome` of the new `hello`, and the `need` or
+    /// `closed` of the new `open`. Ten seconds by default; a terminal that does not answer in time
+    /// is given up on ([`NoViewReason::Timeout`]), with a `bye` for the view it may still show.
+    #[must_use]
+    pub fn reopen_timeout(mut self, timeout: Duration) -> Self {
+        self.reopen_timeout = timeout;
+        self
+    }
+
     /// Checks what the program offers.
     fn check(&self) -> Result<(), Error> {
-        if self.views.is_empty() {
+        Self::check_views(&self.views)
+    }
+
+    /// Checks the kinds of view a program offers, as listed in a `hello`.
+    pub(crate) fn check_views(views: &[View]) -> Result<(), Error> {
+        if views.is_empty() {
             return Err(Error::Options(
                 "a program offers at least one kind of view".into(),
             ));
         }
-        for (at, view) in self.views.iter().enumerate() {
+        for (at, view) in views.iter().enumerate() {
             let name = format!("view {at} ({})", view.kind);
-            if self
-                .views
-                .iter()
-                .take(at)
-                .any(|other| other.kind == view.kind)
-            {
+            if views.iter().take(at).any(|other| other.kind == view.kind) {
                 return Err(Error::Options(format!("{name}: the kind is listed twice")));
             }
             if view.versions.is_empty() {
@@ -456,6 +480,9 @@ pub enum NoViewReason {
     /// The terminal ended the open before the view ran (a bundle that did not verify, files that
     /// did not come in time).
     Failed,
+    /// A reopening or a closing ([`ViewControl`]) waited for the terminal's answer to its `dismiss`,
+    /// its new `hello` or its new `open` longer than [`Options::reopen_timeout`].
+    Timeout,
     /// A signal (its number) ended the wait.
     Interrupted(i32),
 }

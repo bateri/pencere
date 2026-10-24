@@ -17,6 +17,9 @@ pub(crate) const VERSIONS: &[u32] = &[1];
 /// The feature of a `welcome`: the terminal takes bundles (§8.1).
 pub(crate) const FEATURE_BUNDLE: &str = "bundle";
 
+/// The feature a terminal lists when it closes a view at the program's request (§10.8).
+pub(crate) const FEATURE_DISMISS: &str = "dismiss";
+
 /// Why a program ends (`bye.reason`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ByeReason {
@@ -145,6 +148,15 @@ pub(crate) fn bye(token: &str, reason: ByeReason) -> String {
         token,
         reason: reason.name(),
     })
+}
+
+/// The `dismiss`: the token the view was opened with, as the `bye` has it (§10.8).
+pub(crate) fn dismiss(token: &str) -> String {
+    #[derive(Serialize)]
+    struct Dismiss<'a> {
+        token: &'a str,
+    }
+    wire(&Dismiss { token })
 }
 
 /// A value of the types above as the wire writes JSON. They hold strings and numbers only, which
@@ -394,6 +406,17 @@ mod tests {
         assert_eq!(
             bye("q7Vh2sB0xJm9kLw4TzN1cA", ByeReason::Signal),
             payload_of("to-host/bye.frame")
+        );
+    }
+
+    #[test]
+    fn the_dismiss_is_written_as_the_fixture_is() {
+        if fixtures().is_none() {
+            return;
+        }
+        assert_eq!(
+            dismiss("q7Vh2sB0xJm9kLw4TzN1cA"),
+            payload_of("to-host/dismiss.frame")
         );
     }
 

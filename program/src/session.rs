@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::io;
 use std::panic;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, sync_channel};
+use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::time::Instant;
 
 use pencere_wire::base64;
@@ -25,17 +25,20 @@ use pencere_wire::messages::Message;
 use serde_json::Value;
 
 use crate::bundle::{Bundle, BundleError};
+use crate::control::{CloseResult, ReopenResult, Request};
 use crate::handlers::{
     Call, Feed, Flag, Outbox, Subscription, ViewError, Work, fits, payload_of, read_message,
     run_call, run_topic,
 };
 use crate::link::{Item, Reader, Writer};
-use crate::payload::{self, ByeReason, ClosedReason, FEATURE_BUNDLE, Offer, OpenFields, Welcome};
+use crate::payload::{
+    self, ByeReason, ClosedReason, FEATURE_BUNDLE, FEATURE_DISMISS, Offer, OpenFields, Welcome,
+};
 use crate::terminal::{
     self, DEVICE_ATTRIBUTES, ENTER_ALTERNATE, FAREWELL, Pipe, Read, TakeError, Taken, Terminal,
 };
 use crate::view::Source;
-use crate::{Closed, EndedBy, Error, Kind, NoView, NoViewReason, Options, Outcome, Shown};
+use crate::{Closed, EndedBy, Error, Kind, NoView, NoViewReason, Options, Outcome, Shown, View};
 
 /// How many calls of the view run at once. A view that asks for more is told `busy`.
 const MAX_CALLS: usize = 64;
@@ -80,6 +83,38 @@ enum Then {
     Signal(libc::c_int),
     /// The program cannot go on.
     Failure(Error),
+    /// The terminal stopped answering while the program replaced its view: no view was shown.
+    NoView(NoViewReason),
+}
+
+/// What the program asked of its view that the terminal has yet to answer (§10.8).
+enum Reply {
+    Reopen(SyncSender<ReopenResult>),
+    Close(SyncSender<CloseResult>),
+}
+
+/// Where a reopening or a closing is.
+#[derive(PartialEq, Eq)]
+enum Stage {
+    /// The `dismiss` is out; its `closed` has not come.
+    Dismissing,
+    /// The view is gone and a new `hello` is out.
+    Asking,
+    /// The new view has been asked for and the terminal has not taken the open.
+    Opening,
+}
+
+/// A reopening or a closing under way: the program asked to close the view, and has an answer
+/// to give when it is done.
+struct Change {
+    reply: Reply,
+    stage: Stage,
+    /// The id of the `dismiss`, whose `closed` ends the first stage.
+    dismiss: Option<u32>,
+    /// The kinds of view the new `hello` offers instead of the ones so far.
+    views: Option<Vec<View>>,
+    /// When the terminal is given up on for the stage it is in.
+    until: Instant,
 }
 
 /// Gives the terminal back if a panic ends the program in the middle of the conversation, and
@@ -146,6 +181,15 @@ struct Session<'a> {
     accepted: bool,
     /// The view has asked something of the program.
     heard: bool,
+    /// The terminal lists `dismiss` (§10.8): the program may close its view.
+    dismiss: bool,
+    /// The kinds of view a reopening offers instead of the options' ones.
+    reopened: Option<Vec<View>>,
+    /// The program is closing its view or showing another (§10.8).
+    change: Option<Change>,
+    /// The answer to a `close` that is given when the terminal has been given back, not before:
+    /// the program that asked prints, or runs a shell, as soon as it has it.
+    closed_reply: Option<SyncSender<CloseResult>>,
     /// The view is up on the terminal's side: what the view says is served.
     live: bool,
     calls: HashMap<u64, Arc<Flag>>,
@@ -176,6 +220,11 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
     };
     let _hook = PanicHook::install();
     let (sender, work) = sync_channel(WORK_ROOM);
+    let outbox = Outbox::new(sender, Arc::clone(&pipe));
+    let _bound = options
+        .control
+        .as_ref()
+        .map(|control| control.bind(outbox.clone()));
     let mut session = Session {
         options,
         terminal,
@@ -184,7 +233,7 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
         reader: Reader::new(),
         writer: Writer::new(terminal.output()),
         work,
-        outbox: Outbox::new(sender, pipe),
+        outbox,
         phase: Phase::Over,
         fence_answered: false,
         alternate: false,
@@ -194,6 +243,10 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
         open_id: 0,
         accepted: false,
         heard: false,
+        dismiss: false,
+        reopened: None,
+        change: None,
+        closed_reply: None,
         live: false,
         calls: HashMap::new(),
         subscriptions: HashMap::new(),
@@ -203,15 +256,23 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
     };
     let result = session.converse();
     session.finish();
+    // The terminal is the program's again: now the program that closed its view is told so.
+    if let Some(reply) = session.closed_reply.take() {
+        let _ = reply.send(CloseResult::Closed);
+    }
     result
 }
 
 impl Session<'_> {
+    /// The kinds of view the program offers: the options', or the ones a reopening brought.
+    fn views(&self) -> &[View] {
+        self.reopened.as_deref().unwrap_or(&self.options.views)
+    }
+
     /// The offers of the hello and the choice among a terminal's: the kinds the program shows,
     /// with their versions, in the program's order.
     fn offers(&self) -> Vec<(Kind, &[String])> {
-        self.options
-            .views
+        self.views()
             .iter()
             .map(|view| (view.kind, view.versions.as_slice()))
             .collect()
@@ -274,7 +335,14 @@ impl Session<'_> {
             Phase::Asking { until, .. }
             | Phase::Leaving { until, .. }
             | Phase::Draining { until, .. } => Some(*until),
-            Phase::Showing | Phase::Over => None,
+            // The terminal that does not answer the `dismiss`, or does not take the new open, is
+            // not waited for for ever.
+            Phase::Showing => self
+                .change
+                .as_ref()
+                .filter(|change| matches!(change.stage, Stage::Dismissing | Stage::Opening))
+                .map(|change| change.until),
+            Phase::Over => None,
         }
     }
 
@@ -282,10 +350,27 @@ impl Session<'_> {
         let now = Instant::now();
         match &self.phase {
             Phase::Asking { until, .. } if now >= *until => {
-                self.no_view(NoViewReason::NoHost);
+                // The terminal answered before: one that is silent now is late, not absent.
+                let reason = if self.change.is_some() {
+                    NoViewReason::Timeout
+                } else {
+                    NoViewReason::NoHost
+                };
+                self.no_view(reason);
             }
             Phase::Leaving { until, .. } if now >= *until => self.left(),
             Phase::Draining { until, .. } if now >= *until => self.drained(),
+            Phase::Showing
+                if self.change.as_ref().is_some_and(|change| {
+                    matches!(change.stage, Stage::Dismissing | Stage::Opening)
+                        && now >= change.until
+                }) =>
+            {
+                // The terminal has the view the program asked to close and does not say so, or
+                // does not take the open of the new one: the program ends its wait as it does for
+                // a signal, with a `bye` for the view the terminal may still show.
+                self.leave(Then::NoView(NoViewReason::Timeout), ByeReason::Error);
+            }
             _ => {}
         }
     }
@@ -354,6 +439,11 @@ impl Session<'_> {
     fn settle(&mut self, then: Then) {
         let result = match then {
             Then::Failure(error) => Err(error),
+            Then::NoView(reason) => Ok(Outcome::NoView(NoView {
+                reason,
+                code: None,
+                message: None,
+            })),
             Then::Signal(signal) => Ok(match (&self.shown, self.accepted) {
                 (Some(view), true) => Outcome::Closed(Closed {
                     by: EndedBy::Signal(signal),
@@ -396,9 +486,29 @@ impl Session<'_> {
 
     fn over(&mut self, result: Result<Outcome, Error>) {
         self.end_view();
+        self.settle_change(&result);
         self.phase = Phase::Over;
         if self.result.is_none() {
             self.result = Some(result);
+        }
+    }
+
+    /// The program's reopening or closing that is under way ends with `result`: a reopening that
+    /// came to no view says why, anything else leaves the program with nothing to wait for.
+    fn settle_change(&mut self, result: &Result<Outcome, Error>) {
+        let Some(change) = self.change.take() else {
+            return;
+        };
+        match change.reply {
+            Reply::Reopen(reply) => {
+                let _ = reply.send(match result {
+                    Ok(Outcome::NoView(no_view)) => ReopenResult::NoView(no_view.clone()),
+                    _ => ReopenResult::Unavailable,
+                });
+            }
+            Reply::Close(reply) => {
+                let _ = reply.send(CloseResult::Unavailable);
+            }
         }
     }
 
@@ -498,6 +608,8 @@ impl Session<'_> {
         match self.phase {
             // The reply came before any `welcome`: there is no host, and a `welcome` that comes
             // later is ignored (§5.3).
+            // A reopening asks without the fence: this reply is the first view's, late.
+            Phase::Asking { .. } if self.change.is_some() => {}
             Phase::Asking { .. } => self.no_view(NoViewReason::NoHost),
             Phase::Draining { .. } => self.drained(),
             _ => {}
@@ -507,8 +619,19 @@ impl Session<'_> {
     fn on_message(&mut self, message: &Frame) {
         match &self.phase {
             Phase::Asking { hello, .. } => {
-                if message.kind == "welcome" && message.re() == Some(*hello) {
+                if message.kind != "welcome" {
+                    return;
+                }
+                if message.re() == Some(*hello) {
                     self.on_answer(message);
+                } else if message.re().is_none() && self.change.is_some() {
+                    // The terminal came up again while the program was asking for another view:
+                    // it asks for the view, and the answer to the `hello` is not waited for.
+                    if let Some(Welcome::Offer(offer)) = payload::welcome(&message.payload)
+                        && offer.restart
+                    {
+                        self.restart_with(offer);
+                    }
                 }
             }
             Phase::Showing => match message.kind.as_str() {
@@ -547,7 +670,13 @@ impl Session<'_> {
                 // A terminal with a token and nothing to open: the program knows at once and
                 // does not wait (§5.3).
                 None => self.no_view(NoViewReason::NoCommonView),
-                Some(choice) => self.open(offer.token, choice),
+                Some(choice) => {
+                    self.dismiss = offer
+                        .features
+                        .iter()
+                        .any(|feature| feature == FEATURE_DISMISS);
+                    self.open(offer.token, choice);
+                }
             },
         }
     }
@@ -574,19 +703,45 @@ impl Session<'_> {
         if !offer.restart {
             return;
         }
+        self.restart_with(offer);
+    }
+
+    /// The terminal asks for the view again (§10.7): the program opens with the token it gave.
+    fn restart_with(&mut self, offer: Offer) {
         let Some(choice) = self.choose(&offer) else {
             return;
         };
+        // A closing or a reopening that was under way is over with the view it was about.
+        self.drop_change();
         // What the old view had asked is over with it, and its token is the terminal's to have
         // forgotten: until the new open is out there is no view, and a `bye` with the dead token
         // would be nobody's.
         self.forget_view();
+        self.dismiss = offer
+            .features
+            .iter()
+            .any(|feature| feature == FEATURE_DISMISS);
         self.open(offer.token, choice);
+    }
+
+    /// The program's reopening or closing is over without having come to anything: the caller
+    /// is told there was nothing to do.
+    fn drop_change(&mut self) {
+        match self.change.take().map(|change| change.reply) {
+            Some(Reply::Reopen(reply)) => {
+                let _ = reply.send(ReopenResult::Unavailable);
+            }
+            Some(Reply::Close(reply)) => {
+                let _ = reply.send(CloseResult::Unavailable);
+            }
+            None => {}
+        }
     }
 
     /// Asks for the view with the token of a `welcome` (§6.3): the kind and the version chosen.
     fn open(&mut self, token: String, (at, version): (usize, String)) {
-        let Some(spec) = self.options.views.get(at) else {
+        let options = self.options;
+        let Some(spec) = self.views().get(at) else {
             return;
         };
         let kind = spec.kind;
@@ -603,24 +758,28 @@ impl Session<'_> {
                 }
             }
         };
-        self.phase = Phase::Showing;
-        if !self.alternate {
-            self.alternate = true;
-            terminal::note_alternate(true);
-            self.writer.raw(ENTER_ALTERNATE);
-        }
         let open = payload::open(
             &OpenFields {
                 token: &token,
                 kind,
                 version: &version,
-                program: self.options.program.as_deref(),
-                title: self.options.title.as_deref(),
-                icons: &self.options.icons,
+                program: options.program.as_deref(),
+                title: options.title.as_deref(),
+                icons: &options.icons,
                 access: spec.access.as_ref(),
             },
             &bundle,
         );
+        self.phase = Phase::Showing;
+        if let Some(change) = &mut self.change {
+            change.stage = Stage::Opening;
+            change.until = Instant::now() + options.reopen_timeout;
+        }
+        if !self.alternate {
+            self.alternate = true;
+            terminal::note_alternate(true);
+            self.writer.raw(ENTER_ALTERNATE);
+        }
         let Ok(id) = self.writer.message("open", None, None, &open) else {
             self.fail(Error::Io(io::Error::other("the open cannot be written")));
             return;
@@ -647,10 +806,27 @@ impl Session<'_> {
         if self.accepted || message.re() != Some(self.open_id) {
             return;
         }
+        // The open the terminal answers is the old view's, and a `dismiss` for that view is out:
+        // nothing is sent to a view that is being closed, and no reopening has taken its open.
+        if self
+            .change
+            .as_ref()
+            .is_some_and(|change| change.stage == Stage::Dismissing)
+        {
+            return;
+        }
         let Some(missing) = payload::need(&message.payload) else {
             return;
         };
         self.accepted = true;
+        // The terminal took the open of the view the program asked for in place of the old one.
+        if let Some(Change {
+            reply: Reply::Reopen(reply),
+            ..
+        }) = self.change.take()
+        {
+            let _ = reply.send(ReopenResult::Reopened);
+        }
         let mut sent: Vec<&str> = Vec::new();
         for hex in &missing {
             if sent.contains(&hex.as_str()) {
@@ -825,6 +1001,7 @@ impl Session<'_> {
                     self.tell(&payload);
                 }
             }
+            Work::Control(request) => self.on_control(request),
             Work::Started { id, result } => {
                 if let Err(error) = result
                     && let Some(feed) = self.subscriptions.remove(&id)
@@ -857,10 +1034,139 @@ impl Session<'_> {
         self.tell(&payload);
     }
 
+    // ---- closing the view at the program's request (§10.8) --------------------------
+
+    /// The program asks to close its view, or to show another in its place.
+    fn on_control(&mut self, request: Request) {
+        let (reply, views) = match request {
+            Request::Reopen { views, reply } => (Reply::Reopen(reply), views),
+            Request::Close { reply } => (Reply::Close(reply), None),
+        };
+        // There is a view to close only while one is opening or open and nothing else is being
+        // done to it; and only a terminal that lists `dismiss` closes it (any other ignores the
+        // kind, and the view would stay).
+        let unavailable =
+            !matches!(self.phase, Phase::Showing) || self.token.is_none() || self.change.is_some();
+        if unavailable || !self.dismiss {
+            match reply {
+                Reply::Reopen(reply) => {
+                    let _ = reply.send(if unavailable {
+                        ReopenResult::Unavailable
+                    } else {
+                        ReopenResult::Unsupported
+                    });
+                }
+                Reply::Close(reply) => {
+                    let _ = reply.send(if unavailable {
+                        CloseResult::Unavailable
+                    } else {
+                        CloseResult::Unsupported
+                    });
+                }
+            }
+            return;
+        }
+        let Some(token) = self.token.clone() else {
+            return;
+        };
+        // What the view had asked is over with it; the terminal writes nothing it says from here.
+        self.end_view();
+        self.live = false;
+        let sent = self
+            .writer
+            .message("dismiss", None, None, &payload::dismiss(&token));
+        match sent {
+            Ok(id) => {
+                self.change = Some(Change {
+                    reply,
+                    stage: Stage::Dismissing,
+                    dismiss: Some(id),
+                    views,
+                    until: Instant::now() + self.options.reopen_timeout,
+                });
+            }
+            Err(_) => {
+                match reply {
+                    Reply::Reopen(reply) => {
+                        let _ = reply.send(ReopenResult::Unavailable);
+                    }
+                    Reply::Close(reply) => {
+                        let _ = reply.send(CloseResult::Unavailable);
+                    }
+                }
+                self.fail(Error::Io(io::Error::other("the dismiss cannot be written")));
+            }
+        }
+    }
+
+    /// The `closed` that answers the `dismiss` has come: the terminal has torn the view down and
+    /// forgotten its token, so there is no `bye` to send.
+    fn dismissed(&mut self) {
+        let Some(mut change) = self.change.take() else {
+            return;
+        };
+        let shown = self.shown.clone();
+        self.forget_view();
+        match change.reply {
+            Reply::Close(reply) => {
+                let outcome = match shown {
+                    Some(view) => Outcome::Closed(Closed {
+                        by: EndedBy::Program,
+                        view,
+                        code: None,
+                        message: None,
+                    }),
+                    None => Outcome::NoView(NoView {
+                        reason: NoViewReason::NoHost,
+                        code: None,
+                        message: None,
+                    }),
+                };
+                self.closed_reply = Some(reply);
+                self.over(Ok(outcome));
+            }
+            Reply::Reopen(reply) => {
+                if let Some(views) = change.views.take() {
+                    self.reopened = Some(views);
+                }
+                // The pane is idle and the program wants a view: a new token takes a `hello`,
+                // then an `open`, as for the first. The terminal is known and the fence is for
+                // telling "no host" from "no answer yet", so there is none.
+                let hello = payload::hello(&self.offers());
+                let until = Instant::now() + self.options.reopen_timeout;
+                match self.writer.message("hello", None, None, &hello) {
+                    Ok(id) => {
+                        self.phase = Phase::Asking { hello: id, until };
+                        self.change = Some(Change {
+                            reply: Reply::Reopen(reply),
+                            stage: Stage::Asking,
+                            dismiss: None,
+                            views: None,
+                            until,
+                        });
+                    }
+                    Err(_) => {
+                        let _ = reply.send(ReopenResult::Unavailable);
+                        self.fail(Error::Io(io::Error::other("the hello cannot be written")));
+                    }
+                }
+            }
+        }
+    }
+
     // ---- the end of the view --------------------------------------------------------
 
     /// What `closed` means for the program that asked for the view (§13).
     fn on_closed(&mut self, message: &Frame) {
+        // The answer to the `dismiss` the program sent (§10.8).
+        if self.change.as_ref().is_some_and(|change| {
+            change.stage == Stage::Dismissing
+                && change.dismiss.is_some()
+                && message.re() == change.dismiss
+        }) {
+            self.dismissed();
+            return;
+        }
         let Some(shown) = self.shown.clone() else {
             return;
         };

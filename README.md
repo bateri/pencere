@@ -27,22 +27,67 @@ The view runs on the machine of the person looking at it, so it is kept in a san
 or a script gets nothing it was not handed; a web page reaches nothing but its own program unless
 the program names a domain and the person allows it.
 
+## A first app, in three languages
+
+The same program: a view, one call it answers, and one topic it feeds. Whichever you write it in,
+it is one file to hand to someone, and `pencere new <name> --lang lua|ts|rust` starts it for you.
+
+**Lua**, run by the `pencere` command (`pencere build` makes one executable of it):
+
+```lua
+local pencere = require("pencere")
+
+pencere.serve {
+  page = "page.lua", -- the view: a script of the kit's page API, drawn by the terminal
+  calls = { hello = function(params) return { message = "Hello, " .. params.name .. "!" } end },
+  topics = {
+    clock = function(_, sub)
+      local timer = pencere.time.every(1, function() sub:push({ now = pencere.time.now() }) end)
+      sub:on_end(function() timer:cancel() end)
+    end,
+  },
+  fallback = function() print("This terminal shows no views.") end,
+}
+```
+
+The view of a Lua app can be a web page instead (`serve { web = "web", … }`, started by
+`pencere new app --page web`: HTML and JavaScript in `web/`, no npm and no build step), or both,
+the terminal taking the first it can show ([`cli`](cli/README.md)).
+
+**TypeScript**, on Node, Deno or Bun (`deno compile` makes one executable of it):
+
 ```ts
 import { bundleFromDirectory, serve } from "@pencere/sdk";
 
-const result = await serve({
+await serve({
   views: [{ kind: "web", bundle: await bundleFromDirectory(new URL("./view/", import.meta.url)) }],
-  program: "containers",
-  title: "Containers",
-  calls: { list: () => ({ containers: listContainers() }) },
+  calls: { hello: (params) => ({ message: `Hello, ${(params as { name: string }).name}!` }) },
   topics: {
-    stats: (_params, subscription) => {
-      const timer = setInterval(() => subscription.push(readStats()), 1000);
+    clock: (_params, subscription) => {
+      const timer = setInterval(() => subscription.push({ now: Date.now() / 1000 }), 1000);
       return () => clearInterval(timer);
     },
   },
-  fallback: () => console.log(table()),
+  fallback: () => console.log("This terminal shows no views."),
 });
+```
+
+**Rust**, with the `pencere` crate:
+
+```rust
+let outcome = pencere::serve(
+    Options::new()
+        .view(View::web(Bundle::from_dir("view", "index.html")?))
+        .call("hello", |params, _call| Ok(json!({ "message": format!("Hello, {}!", params["name"]) })))
+        .topic("clock", |_params, subscription| {
+            let feed = subscription.clone();
+            std::thread::spawn(move || {
+                while feed.push(json!({ "now": now() })) && !feed.sleep(Duration::from_secs(1)) {}
+            });
+            Ok(())
+        })
+        .fallback(|_| println!("This terminal shows no views.")),
+)?;
 ```
 
 ## Status
@@ -53,6 +98,8 @@ Early: nothing here is stable yet, and the shared release comes later. The repos
   ([`spec/draft`](spec/draft/pencere.md));
 - a TypeScript SDK for programs that show a view ([`@pencere/sdk`](sdk/typescript)), and the same
   for Rust (crate `pencere`, [`program`](program));
+- the `pencere` command ([`cli`](cli)): `new`, `dev` and `build` for apps written in Lua, which it
+  runs and packs into one executable per target, and the runner a built app is;
 - a Rust library for terminals that host views, doing no I/O (crate `pencere-host`,
   [`host/rust`](host/rust)), and the part of the wire it shares with programs (crate
   `pencere-wire`, [`wire`](wire));
@@ -62,11 +109,12 @@ Early: nothing here is stable yet, and the shared release comes later. The repos
   ([`host/fake`](host/fake));
 - an example program with a web view to try it all with ([`examples/containers`](examples/containers)),
   and the same list as a native view of the terminal, as a WebAssembly component or a Lua script
-  ([`examples/containers-rust`](examples/containers-rust), written with the program library).
+  ([`examples/containers-rust`](examples/containers-rust), written with the program library), and
+  the same as a Lua app of one script and a page ([`examples/containers-lua`](examples/containers-lua)).
 
 [bateri](https://github.com/bateri/bateri) will be the first host. The `@pencere/sdk` on npm is an
 earlier draft of this protocol; the one in this repository replaces it and is not released yet,
-and neither is the crate. How a package is released is in [RELEASING.md](RELEASING.md).
+and neither are the crates and the command. How a package is released is in [RELEASING.md](RELEASING.md).
 
 ## License
 

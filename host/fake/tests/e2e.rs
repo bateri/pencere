@@ -17,9 +17,12 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use std::fs;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::OnceLock;
+use std::sync::mpsc::channel;
+use std::time::Duration;
 
 const FAKE_HOST: &str = env!("CARGO_BIN_EXE_pencere-fake-host");
 const TMP: &str = env!("CARGO_TARGET_TMPDIR");
@@ -1716,4 +1719,543 @@ fn the_compiled_example_prints_its_containers_where_no_view_can_be_shown() {
         let run = run(&["--no-host"], &[&binary.to_string_lossy()]);
         check_the_example_prints_its_containers(&run);
     });
+}
+
+// ---- an app written in Lua, made one file by `pencere build` --------------------------------
+//
+// The command (`pencere-cli`, built by cargo next to the stand-in host) makes the executable of an
+// app: the example, and a project `pencere new` makes. The executable is then run in the pane like
+// any program, and held to the same scenarios as the Rust example's.
+
+/// The `pencere` command, built by cargo next to the stand-in host (once, as the Rust example is).
+fn pencere_command() -> PathBuf {
+    static BUILT: OnceLock<PathBuf> = OnceLock::new();
+    BUILT
+        .get_or_init(|| {
+            let profile = Path::new(FAKE_HOST).parent().expect("a directory");
+            let target = profile.parent().expect("the target directory");
+            let mut build = Command::new(env!("CARGO"));
+            build
+                .args(["build", "--quiet", "-p", "pencere-cli", "--target-dir"])
+                .arg(target);
+            if profile.file_name().is_some_and(|name| name == "release") {
+                build.arg("--release");
+            }
+            let status = build.status().expect("cargo runs");
+            assert!(status.success(), "the command does not build");
+            let binary = profile.join("pencere");
+            assert!(binary.is_file(), "{} is missing", binary.display());
+            binary
+        })
+        .clone()
+}
+
+/// Runs `pencere` with `arguments` in `directory`; its status and what it said.
+fn pencere(directory: &Path, arguments: &[&str]) -> (ExitStatus, String) {
+    let output = Command::new(pencere_command())
+        .args(arguments)
+        .current_dir(directory)
+        .stdin(Stdio::null())
+        .output()
+        .expect("pencere runs");
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status, said)
+}
+
+/// The Lua example, built into one file (once).
+fn lua_example() -> PathBuf {
+    static BUILT: OnceLock<PathBuf> = OnceLock::new();
+    BUILT
+        .get_or_init(|| {
+            let out = fresh("lua-example").join("containers-lua");
+            let example = root().join("examples/containers-lua");
+            let (status, said) = pencere(&example, &["build", ".", "-o", &out.to_string_lossy()]);
+            assert!(status.success(), "pencere build: {said}");
+            out
+        })
+        .clone()
+}
+
+/// Whether macOS accepts the executable's signature: a signed file that grew is refused.
+fn assert_signed(executable: &Path) {
+    if cfg!(target_os = "macos") {
+        let output = Command::new("codesign")
+            .arg("--verify")
+            .arg(executable)
+            .output()
+            .expect("codesign runs");
+        assert!(
+            output.status.success(),
+            "codesign --verify {}: {}",
+            executable.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn the_built_lua_app_opens_its_view_answers_calls_and_feeds_its_page_until_the_interrupt() {
+    let app = lua_example();
+    assert_signed(&app);
+    let app = app.to_string_lossy().into_owned();
+    let run = run(
+        &[
+            "--subscribe",
+            "stats",
+            "--call",
+            "list",
+            "--call",
+            r#"toggle={"id":"web"}"#,
+            "--call",
+            r#"toggle={"id":"nobody"}"#,
+            "--call",
+            "unheard",
+            "--then",
+            "interrupt",
+        ],
+        &[&app],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        "host: sees the tty: canonical=false echo=false",
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=lua@1.0",
+        "host: answers CSI c",
+        "screen: alternate screen on",
+        r#"program: open id=2 view=lua version=1.0 title="Containers" bundle of 5 files"#,
+        "host: need id=2 re=2 missing=5",
+        "program: file",
+        "view: started from the bundle: entry page.lua, 5 files",
+        "view: fetched assets/box.svg image/svg+xml",
+        "view: kind=lua version=1.0",
+        r#"view: title="Containers" program="containers-lua""#,
+        "view: icons png 64x64",
+        "view: -> subscribe id=1 stats",
+        "host: msg id=* subscribe=1 stats",
+        "program: msg id=* push=1",
+        r#"view: <- push id=1 value={"readings":[{"cpu":"#,
+        "view: -> call id=2 list",
+        r#"view: <- response id=2 result={"containers":[{"id":"web","image":"nginx:1.27""#,
+        r#"view: -> call id=3 toggle {"id":"web"}"#,
+        r#"view: <- response id=3 result={"id":"web","state":"exited"}"#,
+        r#"view: -> call id=4 toggle {"id":"nobody"}"#,
+        "view: <- response id=4 error code=not-found",
+        "view: -> call id=5 unheard",
+        "view: <- response id=5 error code=not-found",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "view: destroyed",
+        "host: closed id=* re=* reason=program",
+        "screen: alternate screen off",
+        "host: sees the tty after the screen: canonical=true echo=true",
+        "program: exited with status 130",
+    ]);
+    run.said_after_the_screen("containers-lua: the view ended (signal)");
+    assert_eq!(run.count("program: file"), 5, "{}", run.text());
+    assert!(
+        !run.text().contains("host: cannot read the tty's modes"),
+        "{}",
+        run.text()
+    );
+}
+
+#[test]
+fn the_built_lua_app_prints_its_text_where_no_terminal_hosts_pencere() {
+    let app = lua_example().to_string_lossy().into_owned();
+    let run = run(&["--no-host"], &[&app]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&["host: does not host pencere: no answer"]);
+    // The fallback ran: the list, as text.
+    assert!(
+        run.output_has("NAME         IMAGE").is_some(),
+        "{}",
+        run.text()
+    );
+    assert!(run.output_has("nginx:1.27").is_some(), "{}", run.text());
+}
+
+#[test]
+fn the_built_lua_app_sends_print_and_errors_to_the_file_it_is_told() {
+    let log = fresh("lua-log").join("app.log");
+    let app = lua_example().to_string_lossy().into_owned();
+    let run = run(
+        &["--then", "interrupt"],
+        &[&app, "--log", &log.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    // `--no-host` is the fallback test's; here the view is shown, and the text is not printed.
+    assert!(
+        run.output_has("NAME         IMAGE").is_none(),
+        "the list was printed over the view"
+    );
+}
+
+#[test]
+fn an_app_made_by_new_and_built_is_a_program_that_shows_a_view() {
+    let directory = fresh("new-lua");
+    let (status, said) = pencere(&directory, &["new", "greeter", "--lang", "lua"]);
+    assert!(status.success(), "pencere new: {said}");
+    let project = directory.join("greeter");
+    assert!(project.join("app.lua").is_file());
+    let (status, said) = pencere(&project, &["build"]);
+    assert!(status.success(), "pencere build: {said}");
+    let app = project.join("greeter");
+    assert_signed(&app);
+    let run = run(
+        &[
+            "--subscribe",
+            "clock",
+            "--call",
+            r#"hello={"name":"you"}"#,
+            "--then",
+            "interrupt",
+        ],
+        &[&app.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        r#"program: open id=2 view=lua version=1.0 title="greeter" bundle of 2 files"#,
+        "view: -> subscribe id=1 clock",
+        "program: msg id=* push=1",
+        r#"view: <- push id=1 value={"now":"#,
+        r#"view: -> call id=2 hello {"name":"you"}"#,
+        r#"view: <- response id=2 result={"message":"Hello, you!"}"#,
+        "host: the person presses ^C",
+        "program: exited with status 130",
+    ]);
+}
+
+#[test]
+fn a_page_that_does_not_compile_is_refused_when_the_app_is_built() {
+    let directory = fresh("broken-lua");
+    let (status, said) = pencere(&directory, &["new", "broken", "--lang", "lua"]);
+    assert!(status.success(), "{said}");
+    let project = directory.join("broken");
+    fs::write(project.join("lib.lua"), "local = nothing").expect("a broken script");
+    let (status, said) = pencere(&project, &["build"]);
+    assert!(!status.success());
+    assert!(said.contains("lib.lua"), "{said}");
+    assert!(!project.join("broken").exists(), "nothing was made");
+}
+
+/// A change to the files the program is run from.
+type Edit = Box<dyn FnOnce() + Send>;
+
+/// Runs the program in the pane of the stand-in host, and, as the record gets a line with each
+/// marker in turn, makes the edit that goes with it (a change to the files the program is run
+/// from). The record, as `run` has it.
+fn run_editing(options: &[&str], program: &[&str], edits: Vec<(&str, Edit)>) -> Run {
+    let mut child = Command::new(FAKE_HOST)
+        .args(["--limit", "30", "--passthrough"])
+        .args(options)
+        .arg("--")
+        .args(program)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the fake host starts");
+    let mut stdout = child.stdout.take().expect("a pipe");
+    let mut stderr = child.stderr.take().expect("a pipe");
+    let (tell, lines) = channel::<String>();
+    let output = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stdout.read_to_end(&mut bytes);
+        bytes
+    });
+    let record = std::thread::spawn(move || {
+        let mut text = Vec::new();
+        let mut chunk = [0u8; 4096];
+        let mut pending = String::new();
+        loop {
+            match stderr.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let got = chunk.get(..n).unwrap_or_default();
+                    text.extend_from_slice(got);
+                    pending.push_str(&String::from_utf8_lossy(got));
+                    while let Some(at) = pending.find('\n') {
+                        let line: String = pending.drain(..=at).collect();
+                        let _ = tell.send(line.trim_end().to_owned());
+                    }
+                }
+            }
+        }
+        text
+    });
+    // Each edit waits for its marker to be in the record, and for the view to be quiet a moment.
+    for (seen, (marker, edit)) in edits.into_iter().enumerate() {
+        let mut found = false;
+        while let Ok(line) = lines.recv_timeout(Duration::from_secs(20)) {
+            if line.contains(marker) {
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "no {marker:?} in the record (seen {seen})");
+        std::thread::sleep(Duration::from_millis(600));
+        edit();
+    }
+    let status = child.wait().expect("the fake host ends");
+    let events = String::from_utf8_lossy(&record.join().expect("the record"))
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    Run {
+        events,
+        output: output.join().expect("the output"),
+        status,
+    }
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    fs::create_dir_all(to).expect("a directory");
+    for entry in fs::read_dir(from).expect("a directory to copy") {
+        let entry = entry.expect("an entry");
+        let target = to.join(entry.file_name());
+        if entry.file_type().expect("a type").is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).expect("a copy");
+        }
+    }
+}
+
+#[test]
+fn pencere_dev_shows_the_view_again_when_the_page_changes_and_runs_the_app_again_when_a_script_does()
+ {
+    let directory = fresh("dev-lua");
+    copy_dir(&root().join("examples/containers-lua"), &directory);
+    let page = directory.join("page.lua");
+    let app = directory.join("app.lua");
+    let (page_edit, app_edit) = (page.clone(), app.clone());
+    let command = pencere_command().to_string_lossy().into_owned();
+    let run = run_editing(
+        &[
+            "--subscribe",
+            "stats",
+            "--on-view",
+            "3",
+            "--then",
+            "interrupt",
+        ],
+        &[&command, "dev", &directory.to_string_lossy()],
+        vec![
+            (
+                "view: kind=lua version=1.0",
+                Box::new(move || {
+                    let mut text = fs::read_to_string(&page_edit).expect("the page");
+                    text.push_str("\n-- edited\n");
+                    fs::write(&page_edit, text).expect("the page is written");
+                }),
+            ),
+            (
+                "program: dismiss id=",
+                Box::new(move || {
+                    // Once the page has been shown again: a script is changed.
+                    std::thread::sleep(Duration::from_millis(1500));
+                    let mut text = fs::read_to_string(&app_edit).expect("the app");
+                    text.push_str("\n-- edited\n");
+                    fs::write(&app_edit, text).expect("the app is written");
+                }),
+            ),
+        ],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        "program: open id=2 view=lua version=1.0",
+        "view: kind=lua version=1.0",
+        // The page changed: the view is closed by the program and shown again, of the new file.
+        "program: dismiss id=",
+        "host: the program asks to close its view",
+        "view: destroyed",
+        "host: closed id=* re=* reason=program",
+        "program: hello id=",
+        "program: open id=* view=lua version=1.0",
+        "view: kind=lua version=1.0",
+        // A script changed: the view is closed the same way, and the program starts again.
+        "program: dismiss id=",
+        "view: destroyed",
+        "host: closed id=* re=* reason=program",
+        "program: hello id=",
+        "program: open id=* view=lua version=1.0",
+        "view: kind=lua version=1.0",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "program: exited with status 130",
+    ]);
+    // Two of the three views were not the first: the screen was taken once by the first and kept
+    // by the second; the program that started again took it anew.
+    assert_eq!(run.count("program: open"), 3, "{}", run.text());
+    assert_eq!(run.count("answers CSI c"), 2, "{}", run.text());
+}
+
+#[test]
+fn an_app_with_a_web_page_made_by_new_opens_a_web_view_and_its_calls_and_pushes_work() {
+    let directory = fresh("new-web");
+    let (status, said) = pencere(&directory, &["new", "webby", "--page", "web"]);
+    assert!(status.success(), "pencere new: {said}");
+    let project = directory.join("webby");
+    // The bridge to the program is the SDK's page module, as the build of the command took it.
+    let bridge = fs::read_to_string(project.join("web/pencere-page.js")).expect("the bridge");
+    let sdk =
+        fs::read_to_string(root().join("sdk/typescript/dist/page/index.js")).expect("the SDK");
+    assert_eq!(
+        bridge.trim_end(),
+        sdk.lines()
+            .filter(|line| !line.starts_with("//# sourceMappingURL="))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim_end(),
+        "the project carries the SDK's page module"
+    );
+    let (status, said) = pencere(&project, &["build"]);
+    assert!(status.success(), "pencere build: {said}");
+    let app = project.join("webby");
+    assert_signed(&app);
+    let run = run(
+        &[
+            "--subscribe",
+            "clock",
+            "--call",
+            r#"hello={"name":"web"}"#,
+            "--then",
+            "interrupt",
+        ],
+        &[&app.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web@1.0",
+        r#"program: open id=2 view=web version=1.0 title="webby" bundle of 3 files"#,
+        "view: started from the bundle: entry index.html, 3 files",
+        "view: kind=web version=1.0",
+        "view: -> subscribe id=1 clock",
+        "program: msg id=* push=1",
+        r#"view: <- push id=1 value={"now":"#,
+        r#"view: -> call id=2 hello {"name":"web"}"#,
+        r#"view: <- response id=2 result={"message":"Hello, web!"}"#,
+        "host: the person presses ^C",
+        "program: exited with status 130",
+    ]);
+}
+
+#[test]
+fn pencere_dev_shows_a_web_page_again_when_one_of_its_files_changes() {
+    let directory = fresh("dev-web");
+    let (status, said) = pencere(&directory, &["new", "webdev", "--page", "web"]);
+    assert!(status.success(), "pencere new: {said}");
+    let project = directory.join("webdev");
+    let script = project.join("web/app.js");
+    let command = pencere_command().to_string_lossy().into_owned();
+    let run = run_editing(
+        &[
+            "--subscribe",
+            "clock",
+            "--on-view",
+            "2",
+            "--then",
+            "interrupt",
+        ],
+        &[&command, "dev", &project.to_string_lossy()],
+        vec![(
+            "view: kind=web version=1.0",
+            Box::new(move || {
+                let mut text = fs::read_to_string(&script).expect("the page script");
+                text.push_str("\n// edited\n");
+                fs::write(&script, text).expect("the page script is written");
+            }),
+        )],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: open id=2 view=web version=1.0",
+        "view: kind=web version=1.0",
+        "program: dismiss id=",
+        "host: the program asks to close its view",
+        "host: closed id=* re=* reason=program",
+        "program: hello id=",
+        "program: open id=* view=web version=1.0",
+        // The files the page did not change are in the terminal's store already.
+        "host: need id=* re=* missing=1",
+        "view: kind=web version=1.0",
+        "host: the person presses ^C",
+        "program: exited with status 130",
+    ]);
+    assert_eq!(run.count("program: open"), 2, "{}", run.text());
+}
+
+#[test]
+fn an_app_that_hands_the_terminal_to_a_program_gets_it_back_and_shows_its_view_again() {
+    let directory = fresh("handoff");
+    fs::write(
+        directory.join("app.lua"),
+        r#"
+        local pencere = require("pencere")
+        local handed = false
+        pencere.serve {
+            page = "page.lua",
+            calls = {
+                -- The first time, the person's shell stands in: a program that says something and ends.
+                shell = function()
+                    if handed then
+                        return { skipped = true }
+                    end
+                    handed = true
+                    local result = pencere.handoff { "sh", "-c", "echo from-the-child; exit 7" }
+                    print("child ended " .. tostring(result.code))
+                    return { code = result.code }
+                end,
+            },
+        }
+        "#,
+    )
+    .expect("an app");
+    fs::write(
+        directory.join("page.lua"),
+        "return { render = function() return pencere.div() end }",
+    )
+    .expect("a page");
+    let app = directory.join("handoff-app");
+    let (status, said) = pencere(&directory, &["build", ".", "-o", &app.to_string_lossy()]);
+    assert!(status.success(), "pencere build: {said}");
+    let log = directory.join("app.log");
+    let run = run(
+        &["--call", "shell", "--on-view", "2", "--then", "interrupt"],
+        &[&app.to_string_lossy(), "--log", &log.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: open id=2 view=lua version=1.0",
+        "view: -> call id=1 shell",
+        // The view is closed by the program, and the terminal is the program's.
+        "program: dismiss id=",
+        "view: destroyed",
+        "host: closed id=* re=* reason=program",
+        // Taken back: a new view, asked for as for a first one.
+        "program: hello id=",
+        "program: open id=* view=lua version=1.0",
+        "view: -> call id=1 shell",
+        r#"view: <- response id=1 result={"skipped":true}"#,
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "program: exited with status 130",
+    ]);
+    // What the program wrote went to the screen the person had, not to the view's: after the
+    // alternate screen was left and before it was entered again.
+    let text = String::from_utf8_lossy(&run.output).into_owned();
+    let said = text.find("from-the-child").expect("the program's words");
+    let left = text.find("\x1b[?1049l").expect("the screen is given back");
+    let entered_again = text
+        .rfind("\x1b[?1049h")
+        .expect("the screen is taken again");
+    assert!(left < said && said < entered_again, "{text:?}");
+    assert_eq!(text.matches("\x1b[?1049h").count(), 2, "{text:?}");
+    let logged = fs::read_to_string(&log).expect("the log");
+    assert!(logged.contains("child ended 7"), "{logged}");
 }

@@ -8,6 +8,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- The package carries what it is built from and nothing of the repository around it: the interface
+  it reads is its own copy (`wit/view.wit`, equal to the kit's `kit/wit/view.wit`, which `make check`
+  keeps so), and the tests of `src/`, which read files of the repository, are left out.
 - **Images.** `Images` decodes the files of a view's bundle (`Assets`, a path to bytes) for the
   `image` element: PNG, JPEG and SVG, off the thread that draws, once for each path. It gives the
   host the size of an image for the layout (`Images::size`), the pixels to draw (`Images::bitmap`,

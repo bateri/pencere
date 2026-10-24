@@ -1,15 +1,23 @@
 # A release tag (`<line>-v<version>`, made by `make release`) on main becomes a
 # release (RELEASING.md). The package of the npm line (@pencere/sdk) is staged on npm
 # with provenance, through trusted publishing; it becomes public only when a maintainer
-# approves it there with 2FA. The crate is published from the maintainer's machine, so
-# its tag only gets its GitHub release here.
+# approves it there with 2FA. The crates are published from the maintainer's machine, so
+# their tags only get their GitHub release here. The binary line (cli) is built on the
+# maintainer's machine too, and its GitHub release is made there with the files: a tag of
+# it is only verified here and put through the gate, and this workflow writes nothing.
 name: release
 
 on:
   push:
     tags:
       - "sdk-typescript-v*"
+      - "wire-v*"
       - "host-rust-v*"
+      - "view-v*"
+      - "sandbox-v*"
+      - "page-v*"
+      - "program-v*"
+      - "cli-v*"
 
 permissions: {}
 
@@ -81,9 +89,11 @@ jobs:
         working-directory: ${{ needs.verify.outputs.dir }}
         run: npm stage publish
 
+  # The release of a package or a crate is written from its changelog. A binary's is made by
+  # `make publish` with the executables, which only the machine that built them has.
   github-release:
     needs: [verify, npm]
-    if: ${{ always() && needs.verify.result == 'success' && (needs.npm.result == 'success' || needs.npm.result == 'skipped') }}
+    if: ${{ always() && needs.verify.result == 'success' && needs.verify.outputs.kind != 'binary' && (needs.npm.result == 'success' || needs.npm.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

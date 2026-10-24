@@ -9,7 +9,11 @@ repository.workspace = true
 readme = "README.md"
 keywords = ["terminal", "pencere", "layout", "ui"]
 categories = ["gui"]
-include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE"]
+# The tests of `src/` are the repository's: a crate carries its sources and what a reader needs.
+include = [
+    "src/**", "!src/tests.rs", "!src/*_tests.rs",
+    "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE",
+]
 
 [dependencies]
 # The layout: flexbox and grid in pixels. The engine's only dependency, so it takes to wherever a

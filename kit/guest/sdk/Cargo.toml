@@ -1,12 +1,23 @@
 [package]
 name = "pencere-page"
-version.workspace = true
+description = "Write the page of a pencere view as a WebAssembly component: the SDK of the kit, in the style language of the page engine and with the six messages of a program and its view"
+# The crate's own version line, apart from the page modules' workspace: it is released on its own
+# (RELEASING.md), and the modules that workspace builds to try it are never published.
+version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["terminal", "pencere", "wasm", "ui"]
+categories = ["wasm", "gui"]
+# `wit/` is the crate's own copy of the interface (`make check` keeps it equal to
+# `kit/wit/view.wit`): a published crate cannot read outside itself.
+include = ["src/**", "wit/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE"]
 
 [dependencies]
+# The engine's style language, re-exported: a page is written in the vocabulary of the engine that
+# lays it out.
 pencere-view = { workspace = true }
 # The six messages of a program and its view (`messages`), re-exported: a page says them with
 # the same types the program reads them with.

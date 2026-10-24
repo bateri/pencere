@@ -13,6 +13,9 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
+repository = "https://github.com/bateri/pencere"
+# The modules here are built to try the SDK and are never published; `pencere-page`, the SDK, is
+# the one crate of this workspace that is, and says so in its own manifest.
 publish = false
 
 # The same rules as the terminal-side crates (the SDK converts what a page hands out and what the
@@ -25,11 +28,12 @@ indexing_slicing = "deny"
 
 [workspace.dependencies]
 # The page engine's builder language (`div().row().gap(8.0)`): the style language of a page is
-# the engine's own, not a copy of it.
-pencere-view = { path = "../view" }
+# the engine's own, not a copy of it. It and the wire carry a version beside the path, because the
+# SDK is published and its package asks for them by version.
+pencere-view = { path = "../view", version = "0.1.0" }
 pencere-page = { path = "sdk" }
 # What a program and its view say to each other (`pencere_wire::messages`), written once for both.
-pencere-wire = { path = "../../wire" }
+pencere-wire = { path = "../../wire", version = "0.1.0" }
 # The container list the example module is the sandbox's form of.
 containers-page = { path = "../../examples/containers-page" }
 serde = { version = "1", features = ["derive"] }

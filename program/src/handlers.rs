@@ -122,6 +122,8 @@ pub(crate) enum Work {
     },
     /// A value of a subscription: the payload of the `msg`.
     Push { id: u64, payload: String },
+    /// The program asks to close its view or to show another (§10.8).
+    Control(crate::control::Request),
 }
 
 /// The way from a handler's thread to the event loop: a channel with room for a few messages, so
@@ -171,7 +173,9 @@ pub(crate) fn read_message(payload: &str) -> Option<Message> {
     (message.id() != 0).then_some(message)
 }
 
-/// A call of the view that a handler is answering.
+/// A call of the view that a handler is answering. It can be cloned, so that the handler can
+/// hand the call to the thread that answers it and wait there.
+#[derive(Clone)]
 pub struct Call {
     id: u64,
     method: String,

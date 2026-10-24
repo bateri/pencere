@@ -100,6 +100,16 @@ Anything a handler returns is JSON: the result of a call is `Serialize`, an erro
 `ViewError` with a short `code` the view can act on and words for the person, and a handler that
 panics is an `internal` error of its call and nothing else.
 
+## Closing the view and showing another
+
+A program that goes on after its view, or whose author reloads the view as the files change, makes
+a `ViewControl`, gives it to `Options::control` and calls it from another thread while `serve`
+runs. `reopen(None)` closes the view and shows it again; `reopen(Some(views))` shows other files
+or other kinds (the terminal keeps what it verified, so only what changed crosses the stream);
+`close()` closes the view and makes `serve` return `EndedBy::Program`, with the terminal given back
+first. Both need a terminal that lists `dismiss` in its `welcome`; with another they answer
+`Unsupported` and the view is untouched.
+
 ## When there is no view
 
 `serve` returns `Outcome::NoView` — after the fallback has run, and with the terminal as it was
@@ -117,7 +127,6 @@ chosen by a flag of its own and never guessed from the standard streams.
   run on threads that do not take signals.
 - A handler that does not look at `is_cancelled` is not stopped when the view ends; it keeps
   its thread until it returns, and the result is dropped.
-- Not in this version: closing the view and showing another while the program runs (`dismiss`).
 
 The protocol is [the specification](https://github.com/bateri/pencere/blob/main/spec/draft/pencere.md),
 still a draft; the wire is the crate `pencere-wire`. [CHANGELOG.md](CHANGELOG.md) says what each

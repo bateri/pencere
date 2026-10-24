@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{name}}</title>
+    <style>
+      html {
+        color-scheme: dark light;
+      }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        font:
+          20px system-ui,
+          sans-serif;
+      }
+      #clock {
+        opacity: 0.6;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="greeting">Press the button.</div>
+    <div id="clock">…</div>
+    <button id="greet">Greet</button>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

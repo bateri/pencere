@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["wire", "kit/view", "kit/sandbox", "examples/containers-page", "examples/containers-rust", "program", "host/rust", "host/fake"]
+members = ["wire", "kit/view", "kit/sandbox", "examples/containers-page", "examples/containers-rust", "program", "host/rust", "host/fake", "cli"]
 
 # The page modules (`kit/guest/`) are built for another target with another toolchain and have
 # their own workspace and lockfile; this workspace never builds them.
@@ -44,3 +44,8 @@ opt-level = 2
 opt-level = 2
 [profile.dev.package.wasmparser]
 opt-level = 2
+
+# The executables `make dist` ships carry no symbols: the command is a runner that is copied into
+# every app `pencere build` makes.
+[profile.release]
+strip = "symbols"

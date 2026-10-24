@@ -38,8 +38,10 @@
 
 #[doc(hidden)]
 pub mod bindings {
+    // The interface is read from the crate's own copy, `wit/view.wit`: a published crate cannot
+    // read outside itself. `kit/wit/view.wit` is the source; `make check` fails while they differ.
     wit_bindgen::generate!({
-        path: "../../wit",
+        path: "wit",
         world: "view",
         pub_export_macro: true,
         default_bindings_module: "pencere_page::bindings",

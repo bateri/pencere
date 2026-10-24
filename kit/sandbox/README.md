@@ -15,6 +15,9 @@ It also decodes the images of a page (`Images`): the PNG, JPEG and SVG files of 
 the thread that draws, held to the same limits in every terminal that uses it, with a diagnostic for
 the image it refuses. An SVG draws its shapes and reads nothing it names.
 
+The interface it implements is `wit/view.wit`, the crate's own copy of the kit's (`kit/wit`), which
+`make check` keeps equal.
+
 It depends on the engine, on the WebAssembly runtime (`wasmtime`), on the image decoders (`png`,
 `zune-jpeg`, `resvg`) and on nothing of a terminal.
 See [`kit/README.md`](../README.md) for the rest.

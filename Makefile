@@ -1,4 +1,4 @@
-.PHONY: setup fmt check check-heavy audit guest luau release-prepare release publish publish-local approve
+.PHONY: setup fmt check check-heavy audit guest luau dist release-prepare release publish publish-local approve
 
 # Installs the TypeScript half's dependencies from the lockfile. The only
 # target that reaches the network.
@@ -19,7 +19,8 @@ fmt:
 check:
 	@test -d node_modules || { echo "check: node_modules is missing, run 'make setup' first"; exit 1; }
 	node tools/check-spec.mjs
-	@for name in LICENSE NOTICE; do for dir in sdk/typescript host/rust wire program kit/view kit/sandbox; do cmp -s $$name $$dir/$$name || { echo "check: $$dir/$$name is not the repository's $$name"; exit 1; }; done; done
+	@for name in LICENSE NOTICE; do for dir in sdk/typescript host/rust wire program kit/view kit/sandbox kit/guest/sdk cli; do cmp -s $$name $$dir/$$name || { echo "check: $$dir/$$name is not the repository's $$name"; exit 1; }; done; done
+	@for dir in kit/sandbox kit/guest/sdk; do cmp -s kit/wit/view.wit $$dir/wit/view.wit || { echo "check: $$dir/wit/view.wit is not the interface in kit/wit/view.wit (a published crate cannot read outside itself, so it carries a copy: cp kit/wit/view.wit $$dir/wit/view.wit)"; exit 1; }; done
 	@diff -r kit/luau/licenses kit/sandbox/licenses >/dev/null || { echo "check: kit/sandbox/licenses is not a copy of kit/luau/licenses (the crate carries the licences of what is built into its interpreter)"; exit 1; }
 	$(MAKE) --no-print-directory audit
 	npx tsc -b
@@ -43,8 +44,11 @@ audit:
 	if grep -rnE "objc2|dispatch2|block2|wgpu|winit|pencere_(wire|host)" kit/sandbox/src | grep -v ":[[:space:]]*//"; then echo "audit: a platform call or a crate of this repository is named in the source of pencere-sandbox"; fail=1; fi; \
 	if cargo tree --workspace -e normal -i wasmtime --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-sandbox "; then echo "audit: the WebAssembly runtime is linked by a crate other than pencere-sandbox — one door to it"; fail=1; fi; \
 	for decoder in png zune-jpeg resvg; do \
-		if cargo tree --workspace -e normal -i $$decoder --depth 1 --prefix none | tail -n +2 | grep -vE "^(pencere-sandbox|resvg|usvg|tiny-skia) "; then echo "audit: the $$decoder decoder is linked by a crate other than pencere-sandbox — the formats and limits of images are the sandbox's, the same in every terminal"; fail=1; fi; \
+		if cargo tree --workspace -e normal -i $$decoder --depth 1 --prefix none | tail -n +2 | grep -vE "^(pencere-sandbox|resvg|usvg|tiny-skia|image) "; then echo "audit: the $$decoder decoder is linked by a crate other than pencere-sandbox — the formats and limits of images are the sandbox's, the same in every terminal"; fail=1; fi; \
 	done; \
+	if cargo tree --workspace -e normal -i image --depth 1 --prefix none | tail -n +2 | grep -vE "^libsui "; then echo "audit: the image crate is linked by something other than libsui — it is there for the icons of a Windows executable, which the command never writes; nothing that shows a picture links it"; fail=1; fi; \
+	if cargo tree --workspace -e normal -i libsui --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-cli "; then echo "audit: libsui is linked by a crate other than pencere-cli — it is how the command writes an app into an executable, and no library has a use for it"; fail=1; fi; \
+	if cargo tree -p pencere-cli -e normal --prefix none | tail -n +2 | grep -E "^(pencere-(host|sandbox|view)|wasmtime|taffy|objc2|dispatch2|block2|metal|wgpu|winit) "; then echo "audit: the pencere command links a terminal's crate or a platform library — it is a program that uses the program library, and hosts nothing"; fail=1; fi; \
 	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(fontdb|rustybuzz|ttf-parser|harfrust|skrifa|read-fonts|swash|fontconfig|freetype|font-types)"; then echo "audit: pencere-sandbox links to a font or text-shaping library — an SVG draws shapes and no words, and no font is loaded for it"; fail=1; fi; \
 	if grep -rnE "std::(fs|net|process)\b|File::open|TcpStream" kit/sandbox/src --exclude="*_tests.rs" | grep -v ":[[:space:]]*//"; then echo "audit: the sandbox reads a file, opens a connection or runs a program — the only door it has to the bundle is Assets, which the host gives"; fail=1; fi; \
 	if grep -nE "^pencere-(host|sandbox) *=" kit/guest/*/Cargo.toml kit/guest/Cargo.toml; then echo "audit: a page module depends on a crate of the terminal side — a module is written with the SDK, the engine and the wire alone"; fail=1; fi; \
@@ -117,8 +121,27 @@ luau:
 	sh kit/luau/inputs.sh >$(LUAU_OUT)/inputs.sha256; \
 	ls -l $(LUAU_OUT)/luau.wasm
 
+# The executables of the `pencere` command, for the four targets (macOS on Apple silicon and Intel,
+# Linux musl on arm64 and x86_64), in dist/ with SHA256SUMS: what a release of the command carries,
+# and what `pencere build --target` fetches. The Linux ones are built in Docker (tools/linux), the
+# macOS ones here; each is run where this machine can run it, and the example app is made with it
+# and run against the stand-in terminal (tools/dist.sh is the how). Needs Docker and the Apple
+# targets of rustup's stable toolchain (`rustup target add x86_64-apple-darwin`).
+DIST_VERSION = $(shell sed -n 's/^version = "\(.*\)"/\1/p' cli/Cargo.toml | head -n 1)
+DIST_DOCKERFILE = tools/linux/Dockerfile
+DIST_RUST = $(shell sed -n 's/^FROM rust:\([0-9]*\.[0-9]*\)-.*/\1/p' $(DIST_DOCKERFILE))
+dist:
+	@local_rust=$$(rustc --version | sed -n 's/^rustc \([0-9]*\.[0-9]*\).*/\1/p'); \
+	if [ "$$local_rust" != "$(DIST_RUST)" ]; then \
+		echo "dist: local rustc $$local_rust, image rust:$(DIST_RUST) — bring the FROM line of $(DIST_DOCKERFILE) to the local version"; exit 1; fi
+	@if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then \
+		echo "SKIPPED: Docker is missing or the daemon does not answer — make dist could not run"; exit 78; fi
+	DIST_VERSION='$(DIST_VERSION)' DIST_TOOLCHAIN=stable DIST_IMAGE=pencere-linux:$(DIST_RUST) \
+		DIST_DOCKERFILE='$(DIST_DOCKERFILE)' tools/dist.sh
+
 # Releasing a package (RELEASING.md). LINE is one of the lines in tools/lines.mjs:
-# sdk-typescript (@pencere/sdk) or host-rust (the pencere crate).
+# sdk-typescript (@pencere/sdk), the crates wire, host-rust, view, sandbox, page and program, and
+# cli (the pencere command, whose executables `make dist` builds).
 #
 # release-prepare sets the version and dates the changelog; nothing is committed.
 release-prepare:
@@ -132,7 +155,8 @@ release:
 	node tools/release.mjs tag $(LINE)
 
 # publish pushes main and the tag; the release workflow stages the package and a
-# maintainer approves it on npm with 2FA. Publishing: run on the maintainer's word.
+# maintainer approves it on npm with 2FA. For cli it pushes and makes the GitHub release with the
+# executables of dist/. Publishing: run on the maintainer's word.
 publish:
 	@test -n "$(LINE)" || { echo "usage: make publish LINE=<line>"; exit 2; }
 	node tools/release.mjs push $(LINE)
