@@ -1900,10 +1900,11 @@ fn an_app_made_by_new_and_built_is_a_program_that_shows_a_view() {
     let (status, said) = pencere(&directory, &["new", "greeter", "--lang", "lua"]);
     assert!(status.success(), "pencere new: {said}");
     let project = directory.join("greeter");
-    assert!(project.join("app.lua").is_file());
+    assert!(project.join("src/program/app.lua").is_file());
     let (status, said) = pencere(&project, &["build"]);
     assert!(status.success(), "pencere build: {said}");
-    let app = project.join("greeter");
+    // Builds go to `dist/`, beside the sources and not among them.
+    let app = project.join("dist/greeter");
     assert_signed(&app);
     let run = run(
         &[
@@ -1935,11 +1936,11 @@ fn a_page_that_does_not_compile_is_refused_when_the_app_is_built() {
     let (status, said) = pencere(&directory, &["new", "broken", "--lang", "lua"]);
     assert!(status.success(), "{said}");
     let project = directory.join("broken");
-    fs::write(project.join("lib.lua"), "local = nothing").expect("a broken script");
+    fs::write(project.join("src/program/lib.lua"), "local = nothing").expect("a broken script");
     let (status, said) = pencere(&project, &["build"]);
     assert!(!status.success());
     assert!(said.contains("lib.lua"), "{said}");
-    assert!(!project.join("broken").exists(), "nothing was made");
+    assert!(!project.join("dist/broken").exists(), "nothing was made");
 }
 
 /// A change to the files the program is run from.
@@ -2030,8 +2031,8 @@ fn pencere_dev_shows_the_view_again_when_the_page_changes_and_runs_the_app_again
  {
     let directory = fresh("dev-lua");
     copy_dir(&root().join("examples/containers-lua"), &directory);
-    let page = directory.join("page.lua");
-    let app = directory.join("app.lua");
+    let page = directory.join("src/view/page.lua");
+    let app = directory.join("src/program/app.lua");
     let (page_edit, app_edit) = (page.clone(), app.clone());
     let command = pencere_command().to_string_lossy().into_owned();
     let run = run_editing(
@@ -2102,7 +2103,7 @@ fn an_app_with_a_web_page_made_by_new_opens_a_web_view_and_its_calls_and_pushes_
     assert!(status.success(), "pencere new: {said}");
     let project = directory.join("webby");
     // The bridge to the program is the SDK's page module, as the build of the command took it.
-    let bridge = fs::read_to_string(project.join("web/pencere-page.js")).expect("the bridge");
+    let bridge = fs::read_to_string(project.join("src/view/pencere-page.js")).expect("the bridge");
     let sdk =
         fs::read_to_string(root().join("sdk/typescript/dist/page/index.js")).expect("the SDK");
     assert_eq!(
@@ -2116,7 +2117,7 @@ fn an_app_with_a_web_page_made_by_new_opens_a_web_view_and_its_calls_and_pushes_
     );
     let (status, said) = pencere(&project, &["build"]);
     assert!(status.success(), "pencere build: {said}");
-    let app = project.join("webby");
+    let app = project.join("dist/webby");
     assert_signed(&app);
     let run = run(
         &[
@@ -2151,7 +2152,7 @@ fn pencere_dev_shows_a_web_page_again_when_one_of_its_files_changes() {
     let (status, said) = pencere(&directory, &["new", "webdev", "--page", "web"]);
     assert!(status.success(), "pencere new: {said}");
     let project = directory.join("webdev");
-    let script = project.join("web/app.js");
+    let script = project.join("src/view/app.js");
     let command = pencere_command().to_string_lossy().into_owned();
     let run = run_editing(
         &[

@@ -1,25 +1,60 @@
 # pencere
 
 The command that makes apps for [pencere](https://github.com/bateri/pencere): programs that show a
-view in the pane of the terminal they run in. An app is a Lua script and a page, and `pencere
+view in the pane of the terminal they run in. An app is a Lua program and a page, and `pencere
 build` makes one executable of it that runs anywhere its kind of machine does.
 
 ```sh
-pencere new hello          # a project: app.lua, page.lua, assets/
+pencere new hello          # a project: src/program/, src/view/, src/assets/
 cd hello
-pencere dev                # run it in this pane; a change to a file runs it again
-pencere build              # ./hello, one file
+pencere dev                # run it in this pane; a change to a file under src/ runs it again
+pencere build              # dist/hello, one file
 pencere build --target x86_64-unknown-linux-musl     # the same app for a Linux machine
 ```
+
+## Where things go
+
+```
+hello/
+  src/
+    program/    the program: app.lua, and the modules it requires
+    view/       the page: page.lua (a page of the kit) or index.html and its scripts (a web page)
+    assets/     the pictures and icons the app ships
+  README.md  .gitignore
+  dist/         what is built; nothing generated is under src/
+```
+
+Every path an app writes is a path of the packed app, which is the shape the three directories
+make once the app is built (and the shape `pencere dev` reads them in):
+
+| in the project          | in the app        | the app names it                                                        |
+| ----------------------- | ----------------- | ----------------------------------------------------------------------- |
+| `src/program/app.lua`   | `app.lua`         | the script that starts the app                                          |
+| `src/program/api/x.lua` | `api/x.lua`       | `require("api.x")`                                                      |
+| `src/view/page.lua`     | `view/page.lua`   | nothing: `serve` shows what `view/` has                                 |
+| `src/view/index.html`   | `view/index.html` | nothing: the same                                                       |
+| `src/assets/icon.png`   | `assets/icon.png` | `icon = "assets/icon.png"`, `b.image("assets/icon.png")`, `app.read(…)` |
+
+A program does not name its view: `serve{}` shows what `view/` has, a page of the kit if there is a
+`page.lua` and a web page if there is an `index.html` (both: the page of the kit to a terminal that
+draws views itself, the web page to the others). `view/` and `assets/` are the page's and the
+pictures' at the top of the app, so a directory of `src/program/` cannot be called either.
+
+A page that a tool builds (a React page, say) is packed from where it is built, and not from
+`src/view/`: `pencere build --web dist/view`. The name of the app, which is the executable's and
+the one the app's own messages carry, is that of the directory unless `--name` says another.
+
+`pencere build <dir>` takes a directory that is not laid out so, the simple form: an `app.lua`
+with the modules, a `page.lua` or a `web/` directory, and `assets/`, as they lie in the directory,
+and `serve` finds them there. It is what to write for an app of a script and a page.
 
 ## An app
 
 ```lua
--- app.lua: the program
+-- src/program/app.lua: the program
 local pencere = require("pencere")
 
-pencere.serve {
-  page = "page.lua",                       -- the view, a script of the kit's page API
+pencere.serve {                            -- shows src/view/: page.lua, a page of the kit
   calls = {                                -- what the view asks for, once
     hello = function(params) return { message = "Hello, " .. (params.name or "world") end,
   },
@@ -54,26 +89,32 @@ pencere.serve {
 ## The view: a page of the kit, a web page, or both
 
 ```lua
-pencere.serve { page = "page.lua", calls = ... }          -- a script of the kit's page API (the default)
-pencere.serve { web = "web", calls = ... }                -- HTML, JavaScript and CSS: web/index.html is the entry
-pencere.serve {                                           -- either: the terminal takes the first it can show
+pencere.serve { calls = ... }                              -- what src/view/ has: page.lua, index.html, or both
+pencere.serve { page = "view/page.lua", calls = ... }      -- only this script of the kit's page API
+pencere.serve { web = "view", calls = ... }                -- only this directory of HTML, JavaScript and CSS (index.html is the entry)
+pencere.serve {                                            -- either: the terminal takes the first it can show
   views = {
-    { kind = "lua", page = "page.lua" },
-    { kind = "web", dir = "web", access = { connect = { "https://api.example.com" } } },
+    { kind = "lua" },                                      -- view/page.lua
+    { kind = "web", access = { connect = { "https://api.example.com" } } },  -- view/
   },
   calls = ...,
 }
 ```
 
+`page`, `web` and a view's `dir` are paths of the packed app (the table above); a view's `page` and
+`dir` default to the `view/page.lua` and `view/` the app has.
+
 A terminal that draws views itself shows the page of the kit in its own font and theme; one that has
 a web view shows the web page; one that has neither runs `fallback`. A web page may reach the
 network only where `access` says (`connect`, `resources`, `frames`, `base` as lists of origins, and
 `permissions` such as `"camera"`), and the person is asked first. `pencere new <name> --page web`
-makes a Lua program with a web page: `app.lua`, `web/index.html`, `web/app.js` and
-`web/pencere-page.js`, which is the SDK's bridge between a page and its program, one file with no
-dependencies (it is the SDK's, taken when the command is built, not written by hand). There is no
-npm and no build step. `pencere dev` shows the page again when a file under `web/` changes, and
-`pencere build` packs the directory into the executable.
+makes a Lua program with a web page: `src/program/app.lua`, `src/view/index.html`,
+`src/view/app.js` and `src/view/pencere-page.js`, which is the SDK's bridge between a page and its
+program, one file with no dependencies (it is the SDK's, taken when the command is built, not
+written by hand). There is no npm and no build step. `pencere dev` shows the page again when a file
+under `src/view/` changes, and `pencere build` packs the directory into the executable. A page
+that is built by a tool is run and packed from its build directory: `pencere dev --web dist/view`,
+`pencere build --web dist/view`.
 
 ## Files that change
 
@@ -94,8 +135,9 @@ program runs.
 
 Everything an app runs is a coroutine on one thread: a call of the view, a timer, a process's
 output. A function that waits (`process.run`, `time.sleep`, `serve`) suspends only its own, so a
-slow `docker stop` does not freeze the stats that are coming in. Other `.lua` files of the project
-are modules (`require("lib.util")`), and `assets/` goes to the view with the page.
+slow `docker stop` does not freeze the stats that are coming in. Other `.lua` files
+of `src/program/` are modules (`require("api.files")` is `src/program/api/files.lua`), and the
+files of `assets/` go to the page of the kit with it.
 
 `print` and the errors of a built app go to the terminal, which is under the view while it is up:
 run it with `--log FILE` to read them in a file. `pencere dev` does that by itself (`.pencere/log`).

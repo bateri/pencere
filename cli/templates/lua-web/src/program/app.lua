@@ -1,12 +1,13 @@
--- {{name}}: the program. It runs in the terminal pane, and web/ is the page it shows there: HTML,
--- JavaScript and CSS, in the terminal's web view. `pencere dev` runs it and runs it again when a
--- file changes (the page reloads without ending the program); `pencere build` makes one file of it.
+-- {{name}}: the program. It runs in the terminal pane and shows the view of src/view/ there:
+-- `serve` told no view shows what that directory has, here index.html, the entry of a web page
+-- (HTML, JavaScript and CSS, in the terminal's web view). `pencere dev` runs it and runs it again
+-- when a file changes (the page reloads without ending the program); `pencere build` makes one
+-- file of it, dist/{{name}}.
 
 local pencere = require("pencere")
 local time = pencere.time
 
 local outcome = pencere.serve {
-	web = "web", -- the files of web/, whose entry is index.html
 	title = "{{name}}",
 
 	-- What the page asks for, once: a function that answers, or raises `{ code =, message = }`.
@@ -37,7 +38,7 @@ local outcome = pencere.serve {
 }
 
 -- A terminal that draws views itself can be offered a page of the kit's page API first, and this
--- page to the others: `views = { { kind = "lua", page = "page.lua" }, { kind = "web", dir = "web" } }`.
+-- page to the others: put a page.lua beside index.html in src/view/, and `serve` offers both.
 
 -- After the view: ⌃C ends the app with the status a shell gives it.
 pencere.exit(outcome.status)

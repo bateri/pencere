@@ -3,7 +3,7 @@
     "@pencere/sdk": "npm:@pencere/sdk@^0.2.0"
   },
   "tasks": {
-    "dev": "deno run --watch --allow-read --allow-run --allow-env main.ts",
-    "build": "deno compile --allow-read --allow-run --allow-env --include view --output {{name}} main.ts"
+    "dev": "deno run --watch=src/view --allow-read --allow-run --allow-env src/program/main.ts",
+    "build": "deno compile --allow-read --allow-run --allow-env --include src/view --output dist/{{name}} src/program/main.ts"
   }
 }

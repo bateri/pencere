@@ -8,12 +8,20 @@ use std::process::ExitCode;
 /// project's name).
 type Template = &'static [(&'static str, &'static str)];
 
+/// Every project is laid out the same way: the program in `src/program/`, the page in `src/view/`
+/// and the pictures in `src/assets/`; what a tool makes goes to `dist/`, never under `src/`.
 const LUA: Template = &[
-    ("app.lua", include_str!("../templates/lua/app.lua")),
-    ("page.lua", include_str!("../templates/lua/page.lua")),
     (
-        "assets/icon.svg",
-        include_str!("../templates/lua/assets/icon.svg"),
+        "src/program/app.lua",
+        include_str!("../templates/lua/src/program/app.lua"),
+    ),
+    (
+        "src/view/page.lua",
+        include_str!("../templates/lua/src/view/page.lua"),
+    ),
+    (
+        "src/assets/icon.svg",
+        include_str!("../templates/lua/src/assets/icon.svg"),
     ),
     ("README.md", include_str!("../templates/lua/README.md")),
     (".gitignore", include_str!("../templates/lua/gitignore")),
@@ -22,17 +30,20 @@ const LUA: Template = &[
 /// The Lua project with a web page: the page is HTML and JavaScript, and its bridge to the program
 /// is the SDK's, as the build took it.
 const LUA_WEB: Template = &[
-    ("app.lua", include_str!("../templates/lua-web/app.lua")),
     (
-        "web/index.html",
-        include_str!("../templates/lua-web/web/index.html"),
+        "src/program/app.lua",
+        include_str!("../templates/lua-web/src/program/app.lua"),
     ),
     (
-        "web/app.js",
-        include_str!("../templates/lua-web/web/app.js"),
+        "src/view/index.html",
+        include_str!("../templates/lua-web/src/view/index.html"),
     ),
     (
-        "web/pencere-page.js",
+        "src/view/app.js",
+        include_str!("../templates/lua-web/src/view/app.js"),
+    ),
+    (
+        "src/view/pencere-page.js",
         include_str!(concat!(env!("OUT_DIR"), "/pencere-page.js")),
     ),
     ("README.md", include_str!("../templates/lua-web/README.md")),
@@ -41,12 +52,18 @@ const LUA_WEB: Template = &[
 
 const TS: Template = &[
     ("deno.json", include_str!("../templates/ts/deno.json")),
-    ("main.ts", include_str!("../templates/ts/main.ts")),
     (
-        "view/index.html",
-        include_str!("../templates/ts/view/index.html"),
+        "src/program/main.ts",
+        include_str!("../templates/ts/src/program/main.ts"),
     ),
-    ("view/app.js", include_str!("../templates/ts/view/app.js")),
+    (
+        "src/view/index.html",
+        include_str!("../templates/ts/src/view/index.html"),
+    ),
+    (
+        "src/view/app.js",
+        include_str!("../templates/ts/src/view/app.js"),
+    ),
     ("README.md", include_str!("../templates/ts/README.md")),
     (".gitignore", include_str!("../templates/ts/gitignore")),
 ];
@@ -59,12 +76,18 @@ const RUST: Template = &[
         "Cargo.toml",
         include_str!("../templates/rust/Cargo.toml.tmpl"),
     ),
-    ("src/main.rs", include_str!("../templates/rust/src/main.rs")),
-    // The view is the Lua project's, the one page the templates share.
-    ("page.lua", include_str!("../templates/lua/page.lua")),
     (
-        "assets/icon.svg",
-        include_str!("../templates/lua/assets/icon.svg"),
+        "src/program/main.rs",
+        include_str!("../templates/rust/src/program/main.rs"),
+    ),
+    // The view is the Lua project's, the one page the templates share.
+    (
+        "src/view/page.lua",
+        include_str!("../templates/lua/src/view/page.lua"),
+    ),
+    (
+        "src/assets/icon.svg",
+        include_str!("../templates/lua/src/assets/icon.svg"),
     ),
     ("README.md", include_str!("../templates/rust/README.md")),
     (".gitignore", include_str!("../templates/rust/gitignore")),
@@ -151,10 +174,10 @@ pub fn command(args: &[String]) -> ExitCode {
             );
             match lang.as_str() {
                 "lua" => println!(
-                    "  cd {name} && pencere dev       run it in this pane\n  pencere build                  make one executable of it"
+                    "  cd {name} && pencere dev       run it in this pane\n  pencere build                  make one executable of it: dist/{name}"
                 ),
                 "ts" => println!(
-                    "  cd {name} && deno task dev     run it in this pane\n  deno task build                make one executable of it"
+                    "  cd {name} && deno task dev     run it in this pane\n  deno task build                make one executable of it: dist/{name}"
                 ),
                 _ => println!("  cd {name} && cargo run         run it in this pane"),
             }
@@ -232,9 +255,9 @@ mod tests {
             let count = make(&into, "demo-app", lang, "lua").expect("a project");
             assert!(count >= 4, "{lang}");
             let text = fs::read_to_string(into.join(match lang {
-                "lua" => "app.lua",
-                "ts" => "main.ts",
-                _ => "src/main.rs",
+                "lua" => "src/program/app.lua",
+                "ts" => "src/program/main.ts",
+                _ => "src/program/main.rs",
             }))
             .expect("the program");
             assert!(text.contains("demo-app"), "{lang}");
@@ -250,15 +273,15 @@ mod tests {
         let web = dir.join("web");
         make(&web, "demo-web", "lua", "web").expect("a project with a web page");
         for file in [
-            "app.lua",
-            "web/index.html",
-            "web/app.js",
-            "web/pencere-page.js",
+            "src/program/app.lua",
+            "src/view/index.html",
+            "src/view/app.js",
+            "src/view/pencere-page.js",
         ] {
             assert!(web.join(file).is_file(), "{file}");
         }
         // The bridge is the SDK's, not a stand-in: the gate builds the SDK before the tests.
-        let bridge = fs::read_to_string(web.join("web/pencere-page.js")).expect("the bridge");
+        let bridge = fs::read_to_string(web.join("src/view/pencere-page.js")).expect("the bridge");
         assert!(
             !bridge.contains("was not generated"),
             "build the TypeScript half first (npx tsc -b)"

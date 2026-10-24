@@ -175,8 +175,9 @@ module.regex = guard(native.regex)
 module.args = native.args
 module.name = native.name
 
--- app.read(path) reads a file the app came with: next to app.lua when it is run from its
--- directory, inside the executable when it was built. fs.read(path) reads the machine's.
+-- app.read(path) reads a file the app came with, by its path in the packed app ("assets/icon.png"
+-- is src/assets/icon.png): from the directory the app is run from, inside the executable when it
+-- was built. fs.read(path) reads the machine's.
 module.app = {
 	read = function(path)
 		local source = native.app_read(path)
@@ -272,8 +273,9 @@ module.process = {
 	end,
 }
 
--- serve{ page =, assets =, title =, program =, icon =, calls =, topics =, fallback = }
--- shows the view and waits until it is over; what it gives says how:
+-- serve{ page =, web =, views =, assets =, access =, title =, program =, icon =, icons =, calls =,
+-- topics =, fallback = } shows the view and waits until it is over. Told no `page`, `web` or `views`
+-- it shows what the app has in view/ (page.lua, index.html). What it gives says how:
 --   { shown = true, ended = "user" | "view" | "program" | "error" | "signal" | "terminal",
 --     signal =, code =, message =, status = }
 --   { shown = false, reason = "no-tty" | "no-host" | "no-common-version" | "no-common-view" |
@@ -282,7 +284,7 @@ module.process = {
 -- the shell's again, and is where the app shows its text.
 function module.serve(options)
 	if type(options) ~= "table" then
-		error("serve takes a table: { page = \"page.lua\", calls = {...}, topics = {...} }", 2)
+		error("serve takes a table: { calls = {...}, topics = {...} }", 2)
 	end
 	local start = guarded(native.serve)
 	local outcome, failure = suspend(function(done)

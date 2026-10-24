@@ -98,20 +98,20 @@ impl Remote {
     }
 
     /// The scripts that are pages of the view the app shows: a change to one is a change of the
-    /// view, and not of the program.
-    pub fn pages(&self) -> Vec<String> {
+    /// view, and not of the program. Before the app has shown one, those it has.
+    pub fn pages(&self, files: &Files) -> Vec<String> {
         let plan = self.plan.lock().ok().and_then(|plan| plan.clone());
-        match plan {
-            Some(plan) => plan
-                .views
-                .into_iter()
-                .filter_map(|spec| match spec {
-                    ViewSpec::Lua { page, .. } => Some(page),
-                    ViewSpec::Web { .. } => None,
-                })
-                .collect(),
-            None => vec!["page.lua".to_owned()],
-        }
+        let views = match plan {
+            Some(plan) => plan.views,
+            None => serve::offered(files, None),
+        };
+        views
+            .into_iter()
+            .filter_map(|spec| match spec {
+                ViewSpec::Lua { page, .. } => Some(page),
+                ViewSpec::Web { .. } => None,
+            })
+            .collect()
     }
 
     /// Shows the view again, made from the files as they are now.
@@ -220,8 +220,8 @@ fn start_and_wait(core: &Rc<Core>) -> Exit {
     core.exit().unwrap_or(Exit::Done(0))
 }
 
-/// Whether the files of an app are ones that can run: every script compiles, and the page is a
-/// view the library would offer.
+/// Whether the files of an app are ones that can run: every script compiles, and the views the
+/// app has are ones the library would offer.
 pub fn check(files: &std::collections::BTreeMap<String, Vec<u8>>) -> Result<(), String> {
     let lua = Lua::new();
     for (path, bytes) in files {
@@ -233,19 +233,12 @@ pub fn check(files: &std::collections::BTreeMap<String, Vec<u8>>) -> Result<(), 
         }
     }
     let packed = Files::packed(files.clone());
-    if files.contains_key("page.lua") {
-        let spec = ViewSpec::Lua {
-            page: "page.lua".into(),
-            assets: crate::files::ASSETS.into(),
+    for spec in serve::offered(&packed, None) {
+        let what = match &spec {
+            ViewSpec::Lua { page, .. } => page.clone(),
+            ViewSpec::Web { dir, .. } => format!("{dir}/"),
         };
-        serve::view_of(&packed, &spec).map_err(|why| format!("page.lua: {why}"))?;
-    }
-    if files.contains_key("web/index.html") {
-        let spec = ViewSpec::Web {
-            dir: "web".into(),
-            access: None,
-        };
-        serve::view_of(&packed, &spec).map_err(|why| format!("web/: {why}"))?;
+        serve::view_of(&packed, &spec).map_err(|why| format!("{what}: {why}"))?;
     }
     Ok(())
 }

@@ -1,4 +1,6 @@
 //! `pencere dev`: the app in a directory, run in this pane, and run again when its files change.
+//! What is looked at is the app's own files (`src/` of a directory with the layout, the page's
+//! build directory when `--web` names one), and no leavings of its tools.
 //!
 //! A change to a script starts the program again; a change to the page or to what is in `assets/`
 //! shows the view again without ending the program (the terminal is asked to close the view and
@@ -13,7 +15,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use crate::files::Files;
+use crate::files::{Files, Project};
 use crate::runtime::{Config, Exit, Reloaded, Remote, Runner};
 
 /// How often the files are looked at.
@@ -40,11 +42,12 @@ pub fn classify(path: &str, pages: &[String]) -> Change {
 /// The files of a directory and when each last changed.
 type Stamps = BTreeMap<String, (SystemTime, u64)>;
 
-fn stamps(root: &Path) -> Stamps {
-    let files = Files::in_dir(root);
+fn stamps(files: &Files) -> Stamps {
     let mut stamps = BTreeMap::new();
     for path in files.paths().unwrap_or_default() {
-        if let Ok(meta) = std::fs::metadata(root.join(&path)) {
+        if let Some(disk) = files.on_disk(&path)
+            && let Ok(meta) = std::fs::metadata(disk)
+        {
             stamps.insert(
                 path,
                 (
@@ -74,11 +77,11 @@ pub fn changed(before: &Stamps, after: &Stamps) -> Vec<String> {
 }
 
 /// Looks at the directory until `stop`, and tells which files change.
-fn watch(root: PathBuf, tell: Sender<String>, stop: Arc<AtomicBool>) {
-    let mut before = stamps(&root);
+fn watch(project: Arc<Project>, tell: Sender<String>, stop: Arc<AtomicBool>) {
+    let mut before = stamps(&project.files());
     while !stop.load(Ordering::SeqCst) {
         std::thread::sleep(EVERY);
-        let after = stamps(&root);
+        let after = stamps(&project.files());
         for path in changed(&before, &after) {
             if tell.send(path).is_err() {
                 return;
@@ -101,7 +104,7 @@ fn wait_for_change(changed: &Receiver<String>) -> Option<String> {
 fn follow(
     changes: Arc<Mutex<Receiver<String>>>,
     remote: Remote,
-    root: PathBuf,
+    project: Arc<Project>,
     log: PathBuf,
     over: Arc<AtomicBool>,
 ) {
@@ -121,7 +124,7 @@ fn follow(
         if let Ok(changes) = changes.lock() {
             paths.extend(changes.try_iter());
         }
-        let pages = remote.pages();
+        let pages = remote.pages(&project.files());
         let program_changed = paths
             .iter()
             .any(|path| matches!(classify(path, &pages), Change::Program(_)));
@@ -129,7 +132,7 @@ fn follow(
             remote.restart();
             return;
         }
-        match remote.reload_view(&Files::in_dir(&root)) {
+        match remote.reload_view(&project.files()) {
             Reloaded::Yes | Reloaded::NoView => {}
             Reloaded::Unsupported => {
                 // The terminal cannot close a view for the program: the program is run again.
@@ -159,6 +162,8 @@ fn append(log: &Path, line: &str) {
 
 pub fn command(args: &[String]) -> ExitCode {
     let mut dir = None;
+    let mut web = None;
+    let mut name = None;
     let mut log = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -166,6 +171,14 @@ pub fn command(args: &[String]) -> ExitCode {
             "--log" => match args.next() {
                 Some(file) => log = Some(PathBuf::from(file)),
                 None => return crate::usage("--log needs the file to write to"),
+            },
+            "--web" => match args.next() {
+                Some(directory) => web = Some(PathBuf::from(directory)),
+                None => return crate::usage("--web needs the directory the page is built into"),
+            },
+            "--name" => match args.next() {
+                Some(value) => name = Some(value.clone()),
+                None => return crate::usage("--name needs a name"),
             },
             other if other.starts_with('-') => {
                 return crate::usage(format!("{other:?} is not an option of `dev`"));
@@ -175,22 +188,22 @@ pub fn command(args: &[String]) -> ExitCode {
         }
     }
     let root = dir.unwrap_or_else(|| PathBuf::from("."));
-    if !root.join("app.lua").is_file() {
-        eprintln!(
-            "pencere: {} has no app.lua: an app is a directory with one (`pencere new` makes one)",
-            root.display()
-        );
-        return ExitCode::from(1);
-    }
-    let name = match std::path::absolute(&root) {
-        Ok(path) => path.file_name().map_or_else(
-            || "app".to_owned(),
-            |name| name.to_string_lossy().into_owned(),
-        ),
+    let project = match Project::find(&root, web.as_deref()) {
+        Ok(project) => Arc::new(project),
         Err(why) => {
-            eprintln!("pencere: {}: {why}", root.display());
+            eprintln!("pencere: {why}");
             return ExitCode::from(1);
         }
+    };
+    let name = match name {
+        Some(name) => name,
+        None => match project.name() {
+            Ok(name) => name,
+            Err(why) => {
+                eprintln!("pencere: {why}");
+                return ExitCode::from(1);
+            }
+        },
     };
     let log = log.unwrap_or_else(|| root.join(".pencere/log"));
     if let Some(parent) = log.parent()
@@ -206,13 +219,13 @@ pub fn command(args: &[String]) -> ExitCode {
     let (tell, changed) = channel();
     let stop = Arc::new(AtomicBool::new(false));
     {
-        let (root, stop) = (root.clone(), Arc::clone(&stop));
-        std::thread::spawn(move || watch(root, tell, stop));
+        let (project, stop) = (Arc::clone(&project), Arc::clone(&stop));
+        std::thread::spawn(move || watch(project, tell, stop));
     }
     let changed = Arc::new(Mutex::new(changed));
     let status = loop {
         let config = Config {
-            files: Files::in_dir(&root),
+            files: project.files(),
             name: name.clone(),
             args: Vec::new(),
             log: Some(log.clone()),
@@ -227,13 +240,13 @@ pub fn command(args: &[String]) -> ExitCode {
         let remote = runner.remote();
         let over = Arc::new(AtomicBool::new(false));
         let following = {
-            let (changed, root, log, over) = (
+            let (changed, project, log, over) = (
                 Arc::clone(&changed),
-                root.clone(),
+                Arc::clone(&project),
                 log.clone(),
                 Arc::clone(&over),
             );
-            std::thread::spawn(move || follow(changed, remote, root, log, over))
+            std::thread::spawn(move || follow(changed, remote, project, log, over))
         };
         let exit = runner.run();
         over.store(true, Ordering::SeqCst);
@@ -306,6 +319,16 @@ mod tests {
         assert_eq!(
             classify("page.lua", &[]),
             Change::Program("page.lua".into())
+        );
+        // The page of an app with the layout is in `view/`.
+        let pages = ["view/page.lua".to_owned()];
+        assert_eq!(
+            classify("view/page.lua", &pages),
+            Change::View("view/page.lua".into())
+        );
+        assert_eq!(
+            classify("api/files.lua", &pages),
+            Change::Program("api/files.lua".into())
         );
     }
 }

@@ -22,11 +22,19 @@ usage:
   pencere new <name> [--lang lua|ts|rust] [--page lua|web]
                                              make a project to start from (--page: the view of a
                                              Lua project is a page of the kit, or a web page)
-  pencere dev [dir] [--log FILE]             run the Lua app in dir (default .) in this pane, and
+  pencere dev [dir] [--web DIR] [--name NAME] [--log FILE]
+                                             run the Lua app in dir (default .) in this pane, and
                                              run it again when its files change
-  pencere build [dir] [--target T] [--runner FILE] [-o FILE]
+  pencere build [dir] [--web DIR] [--name NAME] [--target T] [--runner FILE] [-o FILE]
                                              make one executable of the Lua app in dir
   pencere --version
+
+An app is a directory with the program in src/program/ (app.lua and its modules), the page in
+src/view/ (page.lua, or index.html for a web page) and the pictures in src/assets/. Builds go to
+dist/. --web packs the page from the directory a tool built it into (dist/view) instead of
+src/view/; --name names the executable and the app in the messages it prints (the directory's name
+unless told). A directory with an app.lua in it is an app too, the simple form: its files are packed
+as they lie.
 
 An app built by `pencere build` runs by itself:
   app [--log FILE] [--] [arguments...]       --log sends `print` and errors to FILE, because the

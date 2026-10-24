@@ -4,7 +4,7 @@
 
 import { bundleFromDirectory, serve } from "@pencere/sdk";
 
-const view = await bundleFromDirectory(new URL("./view/", import.meta.url));
+const view = await bundleFromDirectory(new URL("../view/", import.meta.url));
 
 await serve({
   views: [{ kind: "web", bundle: view }],

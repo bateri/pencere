@@ -32,13 +32,13 @@ the program names a domain and the person allows it.
 The same program: a view, one call it answers, and one topic it feeds. Whichever you write it in,
 it is one file to hand to someone, and `pencere new <name> --lang lua|ts|rust` starts it for you.
 
-**Lua**, run by the `pencere` command (`pencere build` makes one executable of it):
+**Lua**, run by the `pencere` command (`pencere build` makes one executable of it). The program is
+`src/program/app.lua`, the view `src/view/page.lua` and the pictures `src/assets/`:
 
 ```lua
 local pencere = require("pencere")
 
-pencere.serve {
-  page = "page.lua", -- the view: a script of the kit's page API, drawn by the terminal
+pencere.serve { -- shows src/view/: page.lua, a script of the kit's page API, drawn by the terminal
   calls = { hello = function(params) return { message = "Hello, " .. params.name .. "!" } end },
   topics = {
     clock = function(_, sub)
@@ -50,9 +50,10 @@ pencere.serve {
 }
 ```
 
-The view of a Lua app can be a web page instead (`serve { web = "web", … }`, started by
-`pencere new app --page web`: HTML and JavaScript in `web/`, no npm and no build step), or both,
-the terminal taking the first it can show ([`cli`](cli/README.md)).
+The view of a Lua app can be a web page instead (`src/view/index.html`, started by
+`pencere new app --page web`: HTML and JavaScript, no npm and no build step; a page a tool builds is
+packed with `pencere build --web dist/view`), or both, the terminal taking the first it can show
+([`cli`](cli/README.md)).
 
 **TypeScript**, on Node, Deno or Bun (`deno compile` makes one executable of it):
 
