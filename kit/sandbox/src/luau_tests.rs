@@ -495,8 +495,11 @@ fn a_script_that_never_returns_is_cut_off() {
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_script_that_takes_memory_without_end_is_refused_it() {
+    // The time of a call is long enough here that only the memory can stop it: how long 24 MiB take
+    // to fill is the machine's, and on a busy one a short time would end the script first.
     let limits = Limits {
         memory: 24 << 20,
+        call: Duration::from_secs(60),
         ..Limits::default()
     };
     let update = first(

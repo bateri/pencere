@@ -29,6 +29,23 @@ pub trait Program: Send + Sync + 'static {
     /// The module has taken a message of `bytes` the program said: the program may say more.
     /// From the module's thread, after the page was told.
     fn taken(&self, bytes: usize);
+
+    /// The application's clock now, in the seconds the module is given as `now` for a frame, if
+    /// the application keeps one that can be read from any thread (`None` when it does not, as it
+    /// need not: this is the default).
+    ///
+    /// A page that is made again because its program said something (and not because the
+    /// application asked for a frame) is made for the time it is. A program speaks on its own
+    /// clock, long after any frame, and a page that tells the time by `now` (how long ago a reading
+    /// came) is not to be handed the time of a frame long gone. With no clock of the application's
+    /// to read, the time is that of the last frame and what the system's clock says has passed
+    /// since, which is right as long as the application's clock goes as the system's does; an
+    /// application whose clock does not (one that stands still, one that is driven by hand) says
+    /// what it reads here. From the module's thread; a time that is not a number, or is earlier
+    /// than the last frame's, is not taken for one.
+    fn now(&self) -> Option<f64> {
+        None
+    }
 }
 
 /// A program that can always be told, and that is never made to wait for the page.
