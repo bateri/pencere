@@ -143,7 +143,7 @@ pub enum Reason {
 }
 
 /// The host's `closed`. `message` is the words of a view that failed on its own (specification
-/// §8.8); the session has cleaned them.
+/// §9.8); the session has cleaned them.
 pub fn closed(reason: Reason, code: Option<&str>, message: Option<&str>) -> String {
     #[derive(Serialize)]
     struct Closed<'a> {

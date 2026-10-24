@@ -39,7 +39,7 @@ fn text_of(file: &str) -> String {
 fn every_bridge_entry_is_what_the_host_does_with_it() {
     let manifest = common::manifest();
     let entries = manifest["bridge"].as_array().unwrap();
-    assert_eq!(entries.len(), 11);
+    assert_eq!(entries.len(), 16);
     for entry in entries {
         let file = entry["file"].as_str().unwrap();
         let text = text_of(file);
@@ -57,6 +57,21 @@ fn every_bridge_entry_is_what_the_host_does_with_it() {
                 assert_eq!(
                     rig.host.page_context().as_deref(),
                     Some(text.as_str()),
+                    "{file}"
+                );
+            }
+            ("page-to-host", "passed") if entry["wrote"].is_string() => {
+                // What reaches the program is the frame of the entry byte for byte: the line feeds
+                // between tokens gone, the spaces kept, every character a frame cannot carry an
+                // escape.
+                let mut rig = Rig::new();
+                rig.up_web(None);
+                rig.take();
+                rig.host.view_message(&text);
+                let actions = rig.host.take_actions();
+                assert_eq!(
+                    String::from_utf8_lossy(&common::written(&actions)),
+                    String::from_utf8_lossy(&common::file(entry["wrote"].as_str().unwrap())),
                     "{file}"
                 );
             }

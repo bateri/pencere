@@ -201,7 +201,7 @@ export interface NoView {
   /** The `code` of the `closed` of a refusal or a failure (§6.4). */
   readonly code?: string;
   /**
-   * The words of the `closed`, for people (§8.8). For `no-common-view`, when the host opens a kind
+   * The words of the `closed`, for people (§9.8). For `no-common-view`, when the host opens a kind
    * of the program's in other versions, the sentence that names both sides (§5.2); `serve` prints
    * it to stderr before the fallback runs.
    */
@@ -241,7 +241,7 @@ export type ServeResult =
       readonly view: ShownView;
       /** With `by` `error`: the `code` of the `closed`. */
       readonly code?: string;
-      /** With `by` `error`: the words the host gave, which for a view it draws itself are its error and the line (§8.8). */
+      /** With `by` `error`: the words the host gave, which for a view it draws itself are its error and the line (§9.8). */
       readonly message?: string;
     };
 

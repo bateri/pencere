@@ -1,0 +1,1 @@
+_pencere;open;id=5;{"token":"Zk3mP8rD5uYb1Xe6HqS0vg","view":"lua","version":"1.0","access":{"connect":["https://evil.example.com"],"permissions":["camera"]},"bundle":{"entry":"view.lua","files":[{"path":"view.lua","sha256":"1232d8379de77e154ca533689af2e42629dd7574bda5a0a390799849f07607c3","size":10,"type":"text/x-lua"}]}}\

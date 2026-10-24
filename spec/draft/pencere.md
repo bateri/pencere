@@ -84,7 +84,7 @@ nothing it was not handed, and draws what it asks to draw in the terminal's font
 component or the script may ask of the terminal is the interface of the pencere kit: the component
 interface `pencere:view` for `wasm`, the page API of the global `pencere` for `lua`. The kit has a
 document of its own, `kit/SPEC.md` in this repository, and sources that are normative with it
-(Section 8.8); this one names them and the version of the kit that a kind carries (Section 5.5).
+(Section 9.8); this one names them and the version of the kit that a kind carries (Section 5.5).
 
 A **web view** — kind `web` — is a web page that the terminal shows in a web view of its own, in a
 sandbox with no network, no files and no navigation of its own unless the person allows some
@@ -97,6 +97,26 @@ What differs is who draws the view and, for a page, the few messages it exchange
 itself (Section 9.4).
 
 A host MAY open one family and not the other: its `welcome` says which (Section 5.2).
+
+**In brief.** Nine kinds of frame (Section 4.5) carry a conversation, and six messages (Section 9.2)
+are what a program and its view say to each other while the view runs:
+
+1. The program asks whether there is a host: `hello` and `CSI c` (Section 5.1). The host answers
+   with `welcome`: a token and the kinds of view it opens (Section 5.2). Nothing at all, or the answer to
+   `CSI c`, means no host (Section 5.3).
+2. The program asks for a view: `open`, with the token, the kind and the version, and the manifest of
+   the bundle (Section 6). The host checks it and refuses with `closed` (Section 6.4), or answers with
+   `need`, the digests of the files it lacks (Section 8.3).
+3. The program sends the files, one `file` each (Section 8.4). When the bundle is whole, and the person
+   has been asked if the page asked to reach more than its own bundle (Section 12.2), the host starts
+   the view.
+4. While the view runs, the view starts every exchange (`call`, `subscribe`, `cancel`) and the
+   program answers (`response`, `push`, `progress`), in `msg` frames the host carries and does not
+   read (Section 9). A page also has a few messages of the host's own (Section 9.4).
+5. The view ends: the program says `bye` or `dismiss` (Sections 10.3 and 10.8), the person closes
+   it (Section 10.5), the view asks to close (Section 10.6) or fails (Section 9.8), or the host
+   restarts it (Section 10.7). The host tells the program with `closed`, unless the program is the one
+   that ended or the host is restarting (Section 10.2).
 
 ## 4. Transport
 
@@ -343,7 +363,7 @@ number of bytes while the program does not read (Appendix B).
 - A host MUST NOT hold more than 16 MiB (16 777 216 bytes) of what a view says waiting to be
   written to the program. A program that does not read leaves everything the tty does not take in
   the host, and a view can say a good deal: when more than that is waiting, the host closes the
-  view with `closed`, `reason` `error`, `code` `view` (Section 8.8) after it has dropped the words
+  view with `closed`, `reason` `error`, `code` `view` (Section 9.8) after it has dropped the words
   of the view that it has not begun to write, as it does for a signal character. (A host that
   draws the view itself holds a well-behaved view back well before the limit: the kit's
   `program.send` answers `full` and `page.room` tells the view when it may send again, so that
@@ -436,7 +456,12 @@ never names a kind the host will not open. It is for people and for the program'
 changes nothing about which kinds the program may open (`views` alone does that), and a program that
 finds nothing to open in `views` but a kind in `opens` SHOULD say so in words that name both sides
 (Section 5.3). A restart `welcome` (Section 10.7) lists every version the host speaks in `views`, so it
-has no `opens`.
+has no `opens`. The answer of a host that opens web pages at `1.0` and the kit's interface at `1.0`
+to a program that listed `wasm` at `2.0` and `web` at `1.0`:
+
+```frame fixtures/to-program/welcome-opens.frame
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}],"opens":[{"kind":"wasm","versions":["1.0"]}]}<ESC>\
+```
 
 ```frame fixtures/session/handshake/02-out.frame
 <ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
@@ -521,7 +546,7 @@ something else.
 A program whose `hello` listed a version the host stopped opening finds out from `opens` (Section
 5.2), and its library says so in words that name both sides (Section 5.3). A **component** that is
 opened under a version (`open.version`) while its own interface is another one cannot run: the host
-MUST close the view with `closed`, `reason` `error`, `code` `view` (Section 8.8) and a `message`
+MUST close the view with `closed`, `reason` `error`, `code` `view` (Section 9.8) and a `message`
 that names both versions, the one the component is written against and the one it was opened as
 (for instance "this view is written against `pencere:view@0.5.0`; this terminal opens
 `pencere:view@1.0.0`"). The host cannot read the interface out of a file before it has the file, so
@@ -573,7 +598,7 @@ the host cannot open for this program, and it leaves it out as well (Section 5.2
 the kind and the version again in its `open` (Section 6.3), and an `open` of a kind, or of a version
 of it, that the `welcome` of its token did not list is refused as `unsupported` (Section 6.4).
 
-The kinds `wasm` and `lua` are the **kit views**, the views the host draws itself (Section 8.8). They
+The kinds `wasm` and `lua` are the **kit views**, the views the host draws itself (Section 9.8). They
 have a component or a script for an entry and no document. The kind `web` is a page and has an HTML
 document for an entry; it is the one kind that reaches the host with messages of its own (Section 9.4).
 
@@ -718,6 +743,18 @@ a request from a program that is not on the alternate screen is suspect, and a
 host that can observe the screen SHOULD refuse it with `screen`; a program that skips the
 rule is refused by such hosts, and is at fault where the host does not check.
 
+A host that sees that the pane is not on the alternate screen refuses the `open` (its token is
+spent, as for any refusal), and the program that switches to the alternate screen asks again with a
+new `hello`. The `open` of the session `screen-refused`, and the answer to it:
+
+```frame fixtures/session/screen-refused/05-in.frame
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"1.0","bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea","size":66,"type":"text/html"}]}}<ESC>\
+```
+
+```frame fixtures/session/screen-refused/06-out.frame
+<ESC>_pencere;closed;id=2,re=2;{"reason":"refused","code":"screen"}<ESC>\
+```
+
 While a view is shown it covers the pane. The program's output goes on drawing
 the alternate screen underneath, and when the view closes that screen is what
 the person sees, as after any full-screen program.
@@ -732,9 +769,9 @@ the protocol has no field for another place. A pane shows one view at a time.
 ### 7.2 Size and focus
 
 The view's container is the content area of the pane: the host draws no border, no padding and no
-title around a view inside it. A page is told its size in the `context` of Section 9.5, at its start
-and when the pane is resized; a kit view is told it by the kit. What a page or a script asks for in
-the way of another size changes nothing: the container is the pane, and its size is the person's.
+title around a view inside it. The view is told this size, and told again when the pane is resized
+(Section 11.1 says how, for each family). What a page or a script asks for in the way of another
+size changes nothing: the container is the pane, and its size is the person's.
 
 The keyboard is the view's, except for what Section 11.3 reserves.
 
@@ -869,12 +906,13 @@ able to send every file of its manifest at any open.
 
 ### 8.6 Serving
 
-When all missing files have been verified, the host serves the view from the
-store: the entry as the document and the other files at their paths, each with
-the `Content-Type` of its `type`. The view's origin is unique to this instance of the
+When all missing files have been verified, the host starts the view from the store. A **page**
+is served: the entry as the document and the other files at their paths, each with the
+`Content-Type` of its `type`. The page's origin is unique to this instance of the
 view; it is never the host's and never shared with another view, and `'self'` in
 the content security policy means that origin. No path outside the manifest
-answers.
+answers. A kit view is not served and has no origin: the host reads its entry, and the pictures
+it names, out of the store (Section 9.8).
 
 ### 8.7 The entry
 
@@ -882,12 +920,305 @@ The entry of a bundle is the view's own file, and its media type is that of the 
 (Section 6.3): an HTML document for a page, a component for `wasm`, a script for `lua`. The host does
 not decide the kind from the entry, and it does not guess. A page may have other files, which it names
 by their paths; the other kinds have the entry only, unless the kit says otherwise, which it does
-for the images of the kinds the host draws itself (Section 8.8).
+for the images of the kinds the host draws itself (Section 9.8).
 
-### 8.8 Views the host draws itself
+## 9. Messages and the bridge of a page
 
-A view of the kind `wasm` or `lua` (Section 5.5) is one the host draws itself, in the terminal's font
-and theme, without a web view:
+### 9.1 Roles
+
+The **program** is the process on the pane's tty. The **view** is what the host runs or shows in
+the pane. The **host** carries what the two say to each other and, for a page, a few things it says
+to the host itself. A view asks and a program answers: the view starts every exchange, and the
+program never speaks first. The six messages are the same for every kind of view. Sections 9.4 to
+9.7 are about pages, which also have a bridge to the host, and Section 9.8 is about the views the
+host draws itself.
+
+### 9.2 The six messages
+
+Every kind of view and its program talk with six messages. Each is a JSON object with one member,
+named for what it is, whose value is an object:
+
+| Member      | From the | Meaning                                                      |
+| ----------- | -------- | ------------------------------------------------------------ |
+| `call`      | view     | Asks the program to do something and to answer once.         |
+| `response`  | program  | The answer to a `call`: a `result`, or an `error`.           |
+| `subscribe` | view     | Asks to hear a `topic` as it changes, until it is cancelled. |
+| `push`      | program  | A value of a subscription.                                   |
+| `cancel`    | view     | Gives up a `call` that is still out, or ends a subscription. |
+| `progress`  | program  | How far a `call` that takes a while has got.                 |
+
+The members of each, in the order a writer writes them (Appendix A):
+
+- `call`: `id`, `method`, and OPTIONAL `params`;
+- `response`: `id`, and either `result` or `error`. A `result` is never `null`: a call with nothing
+  to say answers `{}`. An `error` has a `code`, a short name a view can act on, and a `message` in
+  words for the person, OPTIONAL;
+- `subscribe`: `id`, `topic`, and OPTIONAL `params`;
+- `push`: `id` and `value`;
+- `cancel`: `id`;
+- `progress`: `id`, `done`, and OPTIONAL `total` and `note`.
+
+An `id` is a positive integer that belongs to the side that asked, and it is at most 2^53 - 1
+(9 007 199 254 740 991): the greatest integer a JSON number holds in the language a page is written
+in, so that the same number means the same to every end. A message with another `id` is ignored. The
+view numbers its `call`s and `subscribe`s, from 1 and upward, and two requests of a view that are out
+at the same time do not share one: a receiver keeps the first and ignores a `call` or `subscribe`
+whose `id` is one of a request that is still out. The `response`, `push`, `progress` and `cancel` that
+go with a request carry its number.
+
+A `response` with a `result` ends its `call`, and it is never the answer to a `subscribe`. A
+`response` with an `error` ends the request whose `id` it carries, a `call` or a `subscribe`: a program
+that cannot serve a `subscribe` (it has no such topic, or the handler failed) answers it so, and the
+subscription is over. Otherwise a subscription lasts until a `cancel` ends it. A `cancel` of a request
+that is already over, or that the program does not know, changes nothing. A program that is sent a
+`cancel` for a `call` it has not answered MAY stop the work and need not answer, and the view ignores
+an answer that comes after its `cancel`.
+
+The `code` of an `error` is the program's to choose and a view acts on the ones it knows. The libraries
+of this repository use `not-found` (the program has no method or topic of that name), `busy` (too many
+calls are being answered at once), `internal` (the handler failed, or its result cannot be written as
+JSON) and `message-too-long` (the answer is over the size of a message, Section 9.3), and a view
+SHOULD read any other code as the plain failure.
+
+The program and the view each read what the other says as untrusted: an object that is not one of
+these, or lacks a member, has one of the wrong kind, has an `id` of 0, or is a `response` with both
+a `result` and an `error` or with neither, is ignored. An unknown member is ignored too.
+
+```frame fixtures/to-program/msg-call.frame
+<ESC>_pencere;msg;id=3;{"call":{"id":1,"method":"list","params":{"all":true}}}<ESC>\
+```
+
+```frame fixtures/to-host/msg-response.frame
+<ESC>_pencere;msg;id=4;{"response":{"id":1,"result":{"containers":[{"id":"c1","name":"web","state":"running"}]}}}<ESC>\
+```
+
+```frame fixtures/to-program/msg-subscribe.frame
+<ESC>_pencere;msg;id=3;{"subscribe":{"id":2,"topic":"stats","params":{"name":"web"}}}<ESC>\
+```
+
+```frame fixtures/to-host/msg-push.frame
+<ESC>_pencere;msg;id=4;{"push":{"id":3,"value":{"id":"c1","state":"exited"}}}<ESC>\
+```
+
+```frame fixtures/to-host/msg-progress.frame
+<ESC>_pencere;msg;id=4;{"progress":{"id":4,"done":4,"total":10,"note":"layer 4 of 10"}}<ESC>\
+```
+
+```frame fixtures/to-program/msg-cancel.frame
+<ESC>_pencere;msg;id=4;{"cancel":{"id":2}}<ESC>\
+```
+
+A longer one is split into chunks like any message (Section 4.4), and its non-ASCII text is written as
+escapes (Section 4.5):
+
+```frame fixtures/to-program/msg-chunked.frame
+<ESC>_pencere;msg;id=4,more=1;{"call":{"id":4,"method":"stop","params":{"id":"c3","reason":"Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis <ESC>\
+<ESC>_pencere;msg;id=4,seq=1,more=1;la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. A<ESC>\
+<ESC>_pencere;msg;id=4,seq=2;rr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue."}}}<ESC>\
+```
+
+### 9.3 Carrying them
+
+A message of the six is one JSON object in the payload of a `msg`, and the host does not read what
+it means: it hands the program's messages to the view and the view's to the program, whole and in
+order. What the objects mean is between the program and the view. The host does this only while the
+view is open: a program's `msg` while no view runs is dropped (Section 10.1). **Once the view has
+closed the host writes nothing the view says**, whatever ended it (the program's `bye` or `dismiss`,
+the person, the view's own failure, the end of the program), because whatever reads the tty next
+would take it for typed input (Section 4.8). The same holds from the moment the host writes a signal
+character for the program: what the view had said and the host had not yet written is dropped, not
+written after it. A program therefore does not expect a message of the view after the `closed` that
+ends its view, or after its own `bye` or `dismiss`, and it must expect to lose the messages that were
+waiting when the person pressed ⌃C. A frame is never cut for any other end, the end of the program
+among them (Section 4.8): the one under way is written whole, and what waits behind it is dropped.
+
+**What the host reads.** Two things in the objects, in both directions, and nothing else:
+
+- that the payload is one complete JSON object: a `msg` that is not one is dropped, as any message
+  the receiver cannot read is (Section 4.5), and
+  so is a text that begins with `{` and goes on as something else;
+- for a page, the name of the member, to tell the host's own messages (Section 9.4) from the six: in
+  the page's direction to handle `context`, `close` and `link`, in the program's to drop a message
+  that is named like one of them, because the page must be able to tell the host's `context` from the
+  program's words. A view that the host draws itself has no messages of the host's own, and for it the
+  host reads only the first.
+
+It reads no value and builds no tree of a message, however large.
+
+**Order.** A page's messages reach the program in the order the page sent them, each whole. A `close`
+is acted on at its place in that order: the `closed` with `reason` `view` (Section 10.6) is written
+after every message the page sent before the `close`, and none that it sent after is written. A page
+that wants the program to know why it closes says so in a message before it, a `call` say; `close` has
+no reason.
+
+**Size.** A message is at most 1 MiB (1 048 576 bytes), counted on its JSON text before the escapes of
+Section 4.5, in either direction: what the page posted, or the payload the program wrote with each
+escape counted as the UTF-8 bytes of the character it stands for (`\u00e9` counts 2, a surrogate pair
+4, `\u007f` 1; a program has to write ASCII, and is not held to less than a page that need not). The escapes the host adds when it writes a page's message into the
+program's input are not counted, and the limit toward the program leaves room for them
+(Section 4.6): a message within the limit is always written. The
+host writes the message otherwise as it came, except that it leaves out the tab, line feed and
+carriage return that JSON allows between tokens, because a frame has no byte for them; a space is
+kept, and the program parses any valid JSON. A program's message over the limit is dropped. A
+message of the view over it, a page's or a component's, is one nobody could answer, and a view that
+waited for the answer would wait for ever, so the host does what it does to a view that goes over
+any limit it is held to: it ends the view and tells the program `closed` with `reason` `error` and
+`code` `view` (Section 9.8), and the message is not written.
+
+A page that writes its message over several lines:
+
+```message fixtures/bridge/call-pretty.json
+{"call": {
+  "id": 1,
+  "method": "list"
+}}
+```
+
+is written to the program with the line feeds gone and the spaces that indented it kept:
+
+```frame fixtures/to-program/msg-pretty.frame
+<ESC>_pencere;msg;id=3;{"call": {  "id": 1,  "method": "list"}}<ESC>\
+```
+
+Text that a frame cannot carry becomes escapes (Section 4.5): a call whose text is the word `café`,
+a DEL and a grinning face, written by the page as it is, reaches the program as
+
+```frame fixtures/to-program/msg-escapes.frame
+<ESC>_pencere;msg;id=3;{"call":{"id":1,"method":"say","params":{"text":"caf\u00e9 \u007f \ud83d\ude00"}}}<ESC>\
+```
+
+**Depth.** A message whose arrays and objects nest 128 levels deep or more, the outermost counting as
+the first, is no message in either direction (Section 4.5): the host drops it, as it drops a text that
+is not a complete JSON object. It is the depth at which the common JSON parsers stop, so that every end
+agrees on what a message is without building a tree. A sender MUST NOT write one.
+
+### 9.4 The bridge of a page
+
+A page cannot reach the host except through the web platform's message channel, and the host's end
+of that channel is the page's bridge. Sections 9.4 to 9.7 are what the kind `web` means, and its version,
+**`1.0`**, is the version of the interface a page is written against (Section 5.5). The kit views
+have their own section, 9.8.
+
+The page sends a message to the host with `postMessage` to the window that embeds it, and receives
+the host's with a `message` event on its own window; the `data` of each is a JSON object with one
+member. A host whose web view has another way of embedding a page gives the page the same two things.
+The host takes a message only from its page, and never builds anything from it but JSON.
+
+The members:
+
+| Member                         | Direction                          | Section |
+| ------------------------------ | ---------------------------------- | ------- |
+| `call`, `subscribe`, `cancel`  | page → host, passed to the program | 9.2     |
+| `response`, `push`, `progress` | program → host, passed to the page | 9.2     |
+| `context`                      | host → page; page → host, to ask   | 9.5     |
+| `close`                        | page → host                        | 9.6     |
+| `link`                         | page → host                        | 9.7     |
+
+`context`, `close` and `link` are the host's own messages, and their names are reserved to the host:
+
+- A message of the page that is an object with exactly one member, named `context`, `close` or
+  `link`, is the host's to handle and is not passed to the program. An object counts as having one
+  member when the page's own parser would find one: a name written twice (`{"close":{},"close":1}`) is
+  one member, the last of them being its value, and a name written with escapes (`"clos\u0065"`) is
+  the name it stands for. Any other object, with whatever members, is passed to the program as a
+  `msg` (Section 9.3), where it is the program's business to ignore what it does not know: an
+  object with a host name and another member (`{"context":{},"x":1}`) is such an object, and reaches
+  the program. What is not an object is dropped. A page SDK sends the host's own messages as the
+  only member of an object, so that nothing it sends is mistaken for the program's.
+- A message of the program whose payload is an object with exactly one member, named `context`,
+  `close` or `link`, is dropped: the page must be able to tell the host's `context` from the
+  program's words.
+
+(Informative: a host that handles a message of its own the page sent counts it as read, and one it
+cannot make sense of as ignored; the counts are for diagnostics and nothing depends on them.)
+
+```message fixtures/bridge/call.json
+{"call":{"id":1,"method":"list"}}
+```
+
+```message fixtures/bridge/two-members.json
+{"close":{},"call":{"id":1,"method":"list"}}
+```
+
+The first is passed to the program; the second has two members, so it is nobody's message of the host's
+and is passed as well.
+
+### 9.5 `context`
+
+`context` is what the host tells the page about the terminal (Section 11): the object has these members,
+in this order.
+
+- `mode`: `dark` or `light`, as Section 11.2 defines it;
+- `colors`: the roles of the terminal's theme, each a colour as `#rrggbb` in sRGB: `background`,
+  `foreground`, `dim`, `accent`, `cursor`, `border`, `success`, `error`, `warning` and `info`, then
+  `selection`, and `ansi`, the sixteen colours of its palette as an array of such strings
+  (Section 11.2);
+- `font`: the terminal's monospace font as a CSS `font-family` list. Left out when the host does not
+  know it;
+- `size`: `width` and `height`, the content area of the pane in CSS pixels;
+- `locale`: the person's language and region (BCP 47) and `timeZone`: the person's time zone (IANA).
+  Each is left out when the host does not know it. They are the person's, not the program's;
+- `reduceMotion`: whether the person asked the system for less motion;
+- `access`: what the person allowed of what the page asked for (Section 12.2), in the shape of the
+  `access` of the `open`; left out when nothing was allowed.
+
+The host sends `context` once the page has loaded, and again whenever any member changes: the pane is
+resized, the theme changes, the person changes language, time zone or the setting for motion. A page that
+starts listening only after it has loaded asks for it again by sending `{"context":{}}`, and the host
+answers with the current one.
+
+```message fixtures/bridge/context.json
+{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","cursor":"#79c0ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#1f3d5c","ansi":["#484f58","#ff7b72","#3fb950","#d29922","#58a6ff","#bc8cff","#39c5cf","#b1bac4","#6e7681","#ffa198","#56d364","#e3b341","#79c0ff","#d2a8ff","#56d4dd","#f0f6fc"]},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
+```
+
+```message fixtures/bridge/context-request.json
+{"context":{}}
+```
+
+A host that knows only the background and the foreground of its theme sends the other roles, the
+selection and the palette made up (Section 11.2) and leaves out the members it does not know:
+
+```message fixtures/bridge/context-defaults.json
+{"context":{"mode":"light","colors":{"background":"#ffffff","foreground":"#1f2328","dim":"#6a6c70","accent":"#58a6ff","cursor":"#58a6ff","border":"#d2d3d4","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#c7e1ff","ansi":["#000000","#cd0000","#00cd00","#cdcd00","#0000ee","#cd00cd","#00cdcd","#e5e5e5","#7f7f7f","#ff0000","#00ff00","#ffff00","#5c5cff","#ff00ff","#00ffff","#ffffff"]},"size":{"width":640,"height":480},"reduceMotion":true}}
+```
+
+### 9.6 `close`
+
+`{"close":{}}`: the page asks to be closed. The host runs Section 10.2 with reason `view` and tells
+the program with `closed` `reason` `view` (Section 10.6). It is a request, like the person's: the
+program is told and decides what it does. A `close` while no view is open changes nothing.
+
+```message fixtures/bridge/close.json
+{"close":{}}
+```
+
+### 9.7 `link`
+
+`{"link":{"url":"…"}}`: the page asks the host to open a link in the person's browser. The only way out of a page
+is through here (Section 12.3): the host MUST accept only a URL that begins with `http://` or
+`https://` (the scheme in either letter case), whose every byte is printable ASCII without the space
+(0x21 to 0x7E) and that is at most 8192 bytes long, drops any other, SHOULD ask the person, and opens
+an accepted one in the person's
+default browser on the person's machine, never on the machine the program runs on. The host does not
+answer the page: whether the person agreed is not the page's to learn. A host MAY bound how many
+questions about links are open at once and drop the rest.
+
+```message fixtures/bridge/link.json
+{"link":{"url":"https://example.com/docs"}}
+```
+
+```message fixtures/bridge/link-not-http.json
+{"link":{"url":"file:///etc/passwd"}}
+```
+
+The first is put to the person; the second is dropped.
+
+### 9.8 Kit views
+
+This section is to the kinds `wasm` and `lua` what Sections 9.4 to 9.7 are to `web`: what the kind means,
+and what the host does for it. A kit view has no bridge of the host's own; it talks to its program in the
+six messages (Section 9.2) and nothing else. A view of the kind `wasm` or `lua` (Section 5.5) is one
+the host draws itself, in the terminal's font and theme, without a web view:
 
 - a **WebAssembly view** (`wasm`): the entry of its bundle, whose media type is `application/wasm`,
   is a WebAssembly component (the component model's binary format) that the host runs in a sandbox
@@ -1026,6 +1357,18 @@ bundle and nothing else, and a path the manifest does not name is an image that 
   readability of text does not apply to it. A picture may also be given an opacity of its own, `0`
   to `1`.
 
+A view of the kit at `1.0` of the interface, with a picture beside its entry. The manifest lists the
+picture like any file, and the view names it by its path (`icons/stop.svg`); the picture is sent when the
+host asks for it, like the rest:
+
+```frame fixtures/to-host/open-wasm-image.frame
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"wasm","version":"1.0","program":"demopen","title":"Containers","bundle":{"entry":"view.wasm","files":[{"path":"view.wasm","sha256":"24eaf3439a60c96764c4f2c92a0a81b52bd4fe5d5b91f090184a0f6486b1bf29","size":8,"type":"application/wasm"},{"path":"icons/stop.svg","sha256":"2b965986578b523e5024f97f2cf9a3b1d4fc74ca149eeef172dfc74c0c84f4af","size":112,"type":"image/svg+xml"}]}}<ESC>\
+```
+
+```frame fixtures/to-host/file-image.frame
+<ESC>_pencere;file;id=3,d=2b965986578b523e5024f97f2cf9a3b1d4fc74ca149eeef172dfc74c0c84f4af;PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSIjODg4Ii8+PC9zdmc+Cg==<ESC>\
+```
+
 **Ending.** Section 10.2 runs as for any view: the view is not told and not waited for, it is stopped.
 A view that fails (a component traps, goes over a limit the host holds it to, a message of the view
 among them (Section 9.3), or hands the host something it cannot use; a script makes an error) is closed as if the person had
@@ -1046,272 +1389,6 @@ In every other way the lifecycle is that of Section 10: the program's `bye` and 
 person closing the view and a restart (Section 10.7) end the view in the same way, and ⌃C goes to
 the program (Section 11.3).
 
-## 9. Messages and the bridge of a page
-
-### 9.1 Roles
-
-The **program** is the process on the pane's tty. The **view** is what the host runs or shows in
-the pane. The **host** carries what the two say to each other and, for a page, a few things it says
-to the host itself. A view asks and a program answers: the view starts every exchange, and the
-program never speaks first.
-
-### 9.2 The six messages
-
-Every kind of view and its program talk with six messages. Each is a JSON object with one member,
-named for what it is, whose value is an object:
-
-| Member      | From the | Meaning                                                      |
-| ----------- | -------- | ------------------------------------------------------------ |
-| `call`      | view     | Asks the program to do something and to answer once.         |
-| `response`  | program  | The answer to a `call`: a `result`, or an `error`.           |
-| `subscribe` | view     | Asks to hear a `topic` as it changes, until it is cancelled. |
-| `push`      | program  | A value of a subscription.                                   |
-| `cancel`    | view     | Gives up a `call` that is still out, or ends a subscription. |
-| `progress`  | program  | How far a `call` that takes a while has got.                 |
-
-The members of each, in the order a writer writes them (Appendix A):
-
-- `call`: `id`, `method`, and OPTIONAL `params`;
-- `response`: `id`, and either `result` or `error`. A `result` is never `null`: a call with nothing
-  to say answers `{}`. An `error` has a `code`, a short name a view can act on, and a `message` in
-  words for the person, OPTIONAL;
-- `subscribe`: `id`, `topic`, and OPTIONAL `params`;
-- `push`: `id` and `value`;
-- `cancel`: `id`;
-- `progress`: `id`, `done`, and OPTIONAL `total` and `note`.
-
-An `id` is a positive integer that belongs to the side that asked, and it is at most 2^53 - 1
-(9 007 199 254 740 991): the greatest integer a JSON number holds in the language a page is written
-in, so that the same number means the same to every end. A message with another `id` is ignored. The
-view numbers its `call`s and `subscribe`s, from 1 and upward, and two requests of a view that are out
-at the same time do not share one: a receiver keeps the first and ignores a `call` or `subscribe`
-whose `id` is one of a request that is still out. The `response`, `push`, `progress` and `cancel` that
-go with a request carry its number.
-
-A `response` with a `result` ends its `call`, and it is never the answer to a `subscribe`. A
-`response` with an `error` ends the request whose `id` it carries, a `call` or a `subscribe`: a program
-that cannot serve a `subscribe` (it has no such topic, or the handler failed) answers it so, and the
-subscription is over. Otherwise a subscription lasts until a `cancel` ends it. A `cancel` of a request
-that is already over, or that the program does not know, changes nothing. A program that is sent a
-`cancel` for a `call` it has not answered MAY stop the work and need not answer, and the view ignores
-an answer that comes after its `cancel`.
-
-The `code` of an `error` is the program's to choose and a view acts on the ones it knows. The libraries
-of this repository use `not-found` (the program has no method or topic of that name), `busy` (too many
-calls are being answered at once), `internal` (the handler failed, or its result cannot be written as
-JSON) and `message-too-long` (the answer is over the size of a message, Section 9.3), and a view
-SHOULD read any other code as the plain failure.
-
-The program and the view each read what the other says as untrusted: an object that is not one of
-these, or lacks a member, has one of the wrong kind, has an `id` of 0, or is a `response` with both
-a `result` and an `error` or with neither, is ignored. An unknown member is ignored too.
-
-```frame fixtures/to-program/msg-call.frame
-<ESC>_pencere;msg;id=3;{"call":{"id":1,"method":"list","params":{"all":true}}}<ESC>\
-```
-
-```frame fixtures/to-host/msg-response.frame
-<ESC>_pencere;msg;id=4;{"response":{"id":1,"result":{"containers":[{"id":"c1","name":"web","state":"running"}]}}}<ESC>\
-```
-
-```frame fixtures/to-program/msg-subscribe.frame
-<ESC>_pencere;msg;id=3;{"subscribe":{"id":2,"topic":"stats","params":{"name":"web"}}}<ESC>\
-```
-
-```frame fixtures/to-host/msg-push.frame
-<ESC>_pencere;msg;id=4;{"push":{"id":3,"value":{"id":"c1","state":"exited"}}}<ESC>\
-```
-
-```frame fixtures/to-host/msg-progress.frame
-<ESC>_pencere;msg;id=4;{"progress":{"id":4,"done":4,"total":10,"note":"layer 4 of 10"}}<ESC>\
-```
-
-```frame fixtures/to-program/msg-cancel.frame
-<ESC>_pencere;msg;id=4;{"cancel":{"id":2}}<ESC>\
-```
-
-A longer one is split into chunks like any message (Section 4.4), and its non-ASCII text is written as
-escapes (Section 4.5):
-
-```frame fixtures/to-program/msg-chunked.frame
-<ESC>_pencere;msg;id=4,more=1;{"call":{"id":4,"method":"stop","params":{"id":"c3","reason":"Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis <ESC>\
-<ESC>_pencere;msg;id=4,seq=1,more=1;la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. A<ESC>\
-<ESC>_pencere;msg;id=4,seq=2;rr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue. Arr\u00eat demand\u00e9 depuis la vue."}}}<ESC>\
-```
-
-### 9.3 Carrying them
-
-A message of the six is one JSON object in the payload of a `msg`, and the host does not read what
-it means: it hands the program's messages to the view and the view's to the program, whole and in
-order. What the objects mean is between the program and the view. The host does this only while the
-view is open: a program's `msg` before the view runs is dropped (Section 4.7). **Once the view has
-closed the host writes nothing the view says**, whatever ended it (the program's `bye` or `dismiss`,
-the person, the view's own failure, the end of the program), because whatever reads the tty next
-would take it for typed input (Section 4.8). The same holds from the moment the host writes a signal
-character for the program: what the view had said and the host had not yet written is dropped, not
-written after it. A program therefore does not expect a message of the view after the `closed` that
-ends its view, or after its own `bye` or `dismiss`, and it must expect to lose the messages that were
-waiting when the person pressed ⌃C. A frame is never cut for any other end, the end of the program
-among them (Section 4.8): the one under way is written whole, and what waits behind it is dropped.
-
-**What the host reads.** Two things in the objects, in both directions, and nothing else:
-
-- that the payload is one complete JSON object: a `msg` that is not one is dropped (Section 4.7), and
-  so is a text that begins with `{` and goes on as something else;
-- for a page, the name of the member, to tell the host's own messages (Section 9.4) from the six: in
-  the page's direction to handle `context`, `close` and `link`, in the program's to drop a message
-  that is named like one of them, because the page must be able to tell the host's `context` from the
-  program's words. A view that the host draws itself has no messages of the host's own, and for it the
-  host reads only the first.
-
-It reads no value and builds no tree of a message, however large.
-
-**Order.** A page's messages reach the program in the order the page sent them, each whole. A `close`
-is acted on at its place in that order: the `closed` with `reason` `view` (Section 10.6) is written
-after every message the page sent before the `close`, and none that it sent after is written. A page
-that wants the program to know why it closes says so in a message before it, a `call` say; `close` has
-no reason.
-
-**Size.** A message is at most 1 MiB (1 048 576 bytes), counted on its JSON text before the escapes of
-Section 4.5, in either direction: what the page posted, or the payload the program wrote with each
-escape counted as the UTF-8 bytes of the character it stands for (`\u00e9` counts 2, a surrogate pair
-4, `\u007f` 1; a program has to write ASCII, and is not held to less than a page that need not). The escapes the host adds when it writes a page's message into the
-program's input are not counted, and the limit toward the program leaves room for them
-(Section 4.6): a message within the limit is always written. The
-host writes the message otherwise as it came, except that it leaves out the tab, line feed and
-carriage return that JSON allows between tokens, because a frame has no byte for them; a space is
-kept, and the program parses any valid JSON. A program's message over the limit is dropped. A
-message of the view over it, a page's or a component's, is one nobody could answer, and a view that
-waited for the answer would wait for ever, so the host does what it does to a view that goes over
-any limit it is held to: it ends the view and tells the program `closed` with `reason` `error` and
-`code` `view` (Section 8.8), and the message is not written.
-
-**Depth.** A message whose arrays and objects nest 128 levels deep or more, the outermost counting as
-the first, is no message in either direction (Section 4.5): the host drops it, as it drops a text that
-is not a complete JSON object. It is the depth at which the common JSON parsers stop, so that every end
-agrees on what a message is without building a tree. A sender MUST NOT write one.
-
-### 9.4 The bridge of a page
-
-A page cannot reach the host except through the web platform's message channel, and the host's end
-of that channel is the page's bridge. This section is what the kind `web` means, and its version,
-**`1.0`**, is the version of the interface a page is written against (Section 5.5).
-
-The page sends a message to the host with `postMessage` to the window that embeds it, and receives
-the host's with a `message` event on its own window; the `data` of each is a JSON object with one
-member. A host whose web view has another way of embedding a page gives the page the same two things.
-The host takes a message only from its page, and never builds anything from it but JSON.
-
-The members:
-
-| Member                         | Direction                          | Section |
-| ------------------------------ | ---------------------------------- | ------- |
-| `call`, `subscribe`, `cancel`  | page → host, passed to the program | 9.2     |
-| `response`, `push`, `progress` | program → host, passed to the page | 9.2     |
-| `context`                      | host → page; page → host, to ask   | 9.5     |
-| `close`                        | page → host                        | 9.6     |
-| `link`                         | page → host                        | 9.7     |
-
-`context`, `close` and `link` are the host's own messages, and their names are reserved to the host:
-
-- A message of the page that is an object with exactly one member, named `context`, `close` or
-  `link`, is the host's to handle and is not passed to the program. An object counts as having one
-  member when the page's own parser would find one: a name written twice (`{"close":{},"close":1}`) is
-  one member, the last of them being its value, and a name written with escapes (`"clos\u0065"`) is
-  the name it stands for. Any other object, with whatever members, is passed to the program as a
-  `msg` (Section 9.3), where it is the program's business to ignore what it does not know: an
-  object with a host name and another member (`{"context":{},"x":1}`) is such an object, and reaches
-  the program. What is not an object is dropped. A page SDK sends the host's own messages as the
-  only member of an object, so that nothing it sends is mistaken for the program's.
-- A message of the program whose payload is an object with exactly one member, named `context`,
-  `close` or `link`, is dropped: the page must be able to tell the host's `context` from the
-  program's words.
-
-A host that handles a message of its own the page sent counts it as read; one it cannot make sense of
-it counts as ignored.
-
-```message fixtures/bridge/call.json
-{"call":{"id":1,"method":"list"}}
-```
-
-```message fixtures/bridge/two-members.json
-{"close":{},"call":{"id":1,"method":"list"}}
-```
-
-The first is passed to the program; the second has two members, so it is nobody's message of the host's
-and is passed as well.
-
-### 9.5 `context`
-
-`context` is what the host tells the page about the terminal (Section 11): the object has these members,
-in this order.
-
-- `mode`: `dark` when the pane's default background is darker than its default foreground, by
-  relative luminance, `light` otherwise;
-- `colors`: the roles of the terminal's theme, each a colour as `#rrggbb` in sRGB: `background`,
-  `foreground`, `dim`, `accent`, `cursor`, `border`, `success`, `error`, `warning` and `info`, then
-  `selection`, and `ansi`, the sixteen colours of its palette as an array of such strings
-  (Section 11.2);
-- `font`: the terminal's monospace font as a CSS `font-family` list. Left out when the host does not
-  know it;
-- `size`: `width` and `height`, the content area of the pane in CSS pixels;
-- `locale`: the person's language and region (BCP 47) and `timeZone`: the person's time zone (IANA).
-  Each is left out when the host does not know it. They are the person's, not the program's;
-- `reduceMotion`: whether the person asked the system for less motion;
-- `access`: what the person allowed of what the page asked for (Section 12.2), in the shape of the
-  `access` of the `open`; left out when nothing was allowed.
-
-The host sends `context` once the page has loaded, and again whenever any member changes: the pane is
-resized, the theme changes, the person changes language, time zone or the setting for motion. A page that
-starts listening only after it has loaded asks for it again by sending `{"context":{}}`, and the host
-answers with the current one.
-
-```message fixtures/bridge/context.json
-{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","cursor":"#79c0ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#1f3d5c","ansi":["#484f58","#ff7b72","#3fb950","#d29922","#58a6ff","#bc8cff","#39c5cf","#b1bac4","#6e7681","#ffa198","#56d364","#e3b341","#79c0ff","#d2a8ff","#56d4dd","#f0f6fc"]},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
-```
-
-```message fixtures/bridge/context-request.json
-{"context":{}}
-```
-
-A host that knows only the background and the foreground of its theme sends the other roles, the
-selection and the palette made up (Section 11.2) and leaves out the members it does not know:
-
-```message fixtures/bridge/context-defaults.json
-{"context":{"mode":"light","colors":{"background":"#ffffff","foreground":"#1f2328","dim":"#6a6c70","accent":"#58a6ff","cursor":"#58a6ff","border":"#d2d3d4","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#c7e1ff","ansi":["#000000","#cd0000","#00cd00","#cdcd00","#0000ee","#cd00cd","#00cdcd","#e5e5e5","#7f7f7f","#ff0000","#00ff00","#ffff00","#5c5cff","#ff00ff","#00ffff","#ffffff"]},"size":{"width":640,"height":480},"reduceMotion":true}}
-```
-
-### 9.6 `close`
-
-`{"close":{}}`: the page asks to be closed. The host runs Section 10.2 with reason `view` and tells
-the program with `closed` `reason` `view` (Section 10.6). It is a request, like the person's: the
-program is told and decides what it does. A `close` while no view is open changes nothing.
-
-```message fixtures/bridge/close.json
-{"close":{}}
-```
-
-### 9.7 `link`
-
-`{"link":{"url":"…"}}`: the page asks the host to open a link in the person's browser. The only way out of a page
-is through here (Section 12.3): the host MUST accept only a URL that begins with `http://` or
-`https://` (the scheme in either letter case), whose every byte is printable ASCII without the space
-(0x21 to 0x7E) and that is at most 8192 bytes long, drops any other, SHOULD ask the person, and opens
-an accepted one in the person's
-default browser on the person's machine, never on the machine the program runs on. The host does not
-answer the page: whether the person agreed is not the page's to learn. A host MAY bound how many
-questions about links are open at once and drop the rest.
-
-```message fixtures/bridge/link.json
-{"link":{"url":"https://example.com/docs"}}
-```
-
-```message fixtures/bridge/link-not-http.json
-{"link":{"url":"file:///etc/passwd"}}
-```
-
-The first is put to the person; the second is dropped.
-
 ## 10. Lifecycle
 
 ### 10.1 States
@@ -1320,6 +1397,8 @@ A pane is idle, or offered (a token is outstanding), or opening (an open
 accepted, files pending or the person being asked), or open (the view running). Closing a view is
 instant: nothing is waited for (Section 10.2). A `hello` at any time gets its answer and a new token
 without affecting a view that is opening or open; an `open` while one is opening or open is `busy`.
+A `msg` of the program in any state but open is dropped, and so is what a page or a script says
+before it runs or after it has closed (Section 9.3).
 
 ### 10.2 Closing
 
@@ -1331,9 +1410,9 @@ Whatever ends a view, the host:
    (Section 10.7), writes `closed` into its input (Sections 10.5, 10.6 and 10.8);
 3. forgets the view's token: the one that opened it (Section 6.1), and no other.
 
-A `hello` that arrives after the view is gone is answered at once (Section 10.1), and it shows that a
-program is reading the tty. The token it gets is not the view's: it is still good after step 3, and
-the end of the view does not make that program ended, whatever the cause (Section 4.8).
+A `hello` that arrives after the view is gone is answered at once (Section 10.1). It shows that a
+program is reading the tty. The token it gets is not the view's, so step 3 does not forget it. And
+the end of a view, whatever the cause, is not the end of the program (Section 4.8).
 
 **The `re` of a `closed`.** A `closed` carries `re` when it answers something that is outstanding.
 One that answers a `dismiss` or a `bye` has the id of that message. Any other `closed` that ends a
@@ -1459,6 +1538,32 @@ in a time of its choosing.
 <ESC>_pencere;welcome;id=2;{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}],"restart":true}<ESC>\
 ```
 
+A running view that the host restarts is torn down at once and without a `closed` (Section 10.2, step
+2); the host offers the new token, and the program opens again with it. The session `restart` shows the
+offer and what becomes of the token the view had, which is no more:
+
+```frame fixtures/session/restart/06-out.frame
+<ESC>_pencere;welcome;id=3;{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}],"restart":true}<ESC>\
+```
+
+```frame fixtures/session/restart/07-in.frame
+<ESC>_pencere;open;id=3;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"1.0","bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea","size":66,"type":"text/html"}]}}<ESC>\
+```
+
+```frame fixtures/session/restart/08-out.frame
+<ESC>_pencere;closed;id=4,re=3;{"reason":"refused","code":"token"}<ESC>\
+```
+
+and of the `open` with the new token:
+
+```frame fixtures/session/restart/09-in.frame
+<ESC>_pencere;open;id=4;{"token":"Zk3mP8rD5uYb1Xe6HqS0vg","view":"web","version":"1.0","bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea","size":66,"type":"text/html"}]}}<ESC>\
+```
+
+```frame fixtures/session/restart/10-out.frame
+<ESC>_pencere;need;id=5,re=4;{"missing":[]}<ESC>\
+```
+
 ### 10.8 The program closes its view
 
 A program that is done with its view but not with the terminal — it has a text
@@ -1495,14 +1600,14 @@ sends `hello`, so that the `closed` of the view that ended is not taken for a wo
 ### 11.1 Host context
 
 A page is told what the host knows of the person's machine, not the program's, in its `context`
-(Section 9.5): the size of the pane, the theme and the font, `locale` and `timeZone`, which are the
-person's, and whether the person asked for less motion.
+(Section 9.5): the size of the pane (Section 7.2), the theme and the font, `locale` and `timeZone`,
+which are the person's, and whether the person asked for less motion.
 
 A kit view is told less, and by the kit's own interface: each time it is asked to draw, the size of
 the pane (in points), the time and whether the person asked for less motion (`kit/wit/view.wit`,
 `render`). It is **not** told the person's language or time zone, the font or the `mode` of the
 theme, and it has no `context` message: it names a colour as a role of the theme, which the host
-resolves in the theme the pane wears (Section 8.8), and the host draws its text in the terminal's
+resolves in the theme the pane wears (Section 9.8), and the host draws its text in the terminal's
 font. Where the two families have the same thing they have the same name: the roles of Section 11.2.
 
 ### 11.2 Theme
@@ -1603,9 +1708,7 @@ The view has no access to files and does not navigate to another document: after
 entry, the host MUST cancel every navigation of the web view, whatever starts it (a link the page
 follows, a change of `location`, a form, a script that opens a window). `form-action 'none'` in the
 policy (Section 12.1) says the same of forms to the web view itself. The `link` message of the
-page (Section 9.7) is the only way out: the host MUST accept only the URLs it describes, SHOULD
-ask the person, and opens them in the person's default browser on the person's machine, never on the
-machine the program runs on.
+page is the only way out; what the host accepts and what it does with it is in Section 9.7.
 
 ### 12.4 Origin, limits, indication
 
@@ -1693,7 +1796,7 @@ images whose bytes it has checked and bounded; and it draws none in a question i
 own name (Section 7.3).
 
 **A view the host draws itself, and the messages.** The component or the script is untrusted code from a program the
-person may not control, and what it is given is the host's to decide (Section 8.8): the host runs
+person may not control, and what it is given is the host's to decide (Section 9.8): the host runs
 it in a sandbox that gives it nothing it was not handed, and bounds its memory and time
 (Section 12.4). The messages between it and its program are a stream anyone can write to while the
 view is open — the rule of the first paragraph applies, since a process that can write the pane's
@@ -1717,7 +1820,7 @@ There are two levels. **Core** is Sections 4 to 9, 10 without 10.7 and 10.8, 11,
 adds restart (Section 10.7) and the program closing its view (Section 10.8). A host below Full does not
 list `dismiss` in its `features`; a program below Full does not send a `dismiss` and ignores an
 unsolicited `welcome`. Each kind of view is optional: a host offers in its `views` the kinds it shows,
-the pages (`web`) among them or not, the views it draws itself (Section 8.8) among them or not, and a
+the pages (`web`) among them or not, the views it draws itself (Section 9.8) among them or not, and a
 program sends an `open` only of a kind, and at a version, that the host offered.
 
 The fixtures of this repository are the conformance suite:
@@ -1734,9 +1837,11 @@ The fixtures of this repository are the conformance suite:
   a host that writes a `context` writes the entry of `host-to-page` byte for byte when it is
   configured as the entry's `config` says;
 - every `session` entry is a conversation with a host configured as the entry's `config` says
-  (its name and version, the tokens it issues in order, the digests its store already holds):
-  the bytes the host emits after each `in` step are the next `out` step's file, or nothing when
-  the step is `null`.
+  (its name and version, the tokens it issues in order, the digests its store already holds, the
+  kinds it opens): the bytes the host emits after each `in` step, or after each `event` step
+  (something on the terminal's side: the person closing the view, a wait running out, a restart, a
+  page's message), are the next `out` step's file, or nothing when the step is `null`; an `out` step
+  may also name the other actions the host takes (`acted`) and what it tells the view (`to-view`).
 
 Two implementations that pass them agree on the wire.
 
@@ -1807,7 +1912,7 @@ interface Need {
 interface Closed {
   reason: "refused" | "error" | "user" | "view" | "program";
   code?: string;
-  message?: string; // for people; never parsed. A failed view says why (Section 8.8)
+  message?: string; // for people; never parsed. A failed view says why (Section 9.8)
 }
 
 interface Bye {
@@ -1871,7 +1976,7 @@ type PageToHost =
 ```
 
 Codes of `Closed`: for `refused`, those of Section 6.4; for `error`, `bundle` (Section 8.4), `view`
-(Section 8.8) and `timeout` (Sections 8.4 and 12.2). A receiver treats a code it does not know as the
+(Section 9.8) and `timeout` (Sections 8.4 and 12.2). A receiver treats a code it does not know as the
 plain reason. (The codes of the `error` of a `response`, Section 9.2, are another thing.)
 
 ## Appendix B. The tty's input queue

@@ -63,7 +63,7 @@ pub const MAX_BACKLOG: usize = 16 * 1024 * 1024;
 pub const MAX_LABEL_CHARS: usize = 100;
 
 /// The most characters of the words a view the terminal draws itself failed with that go in
-/// the `closed` (specification §8.8): room for an error and the line it is on.
+/// the `closed` (specification §9.8): room for an error and the line it is on.
 pub const MAX_FAILURE_CHARS: usize = 500;
 
 /// The most questions about links that a page may have open at once (specification §9.7); the
@@ -209,10 +209,10 @@ pub enum ViewKind {
     /// host only through the bridge of specification §9.4.
     Web,
     /// A WebAssembly component the terminal runs in its own sandbox and draws itself
-    /// (specification §8.8).
+    /// (specification §9.8).
     Wasm,
     /// A script in the Lua language, which the terminal runs in the same sandbox (its interpreter
-    /// is a component) and draws itself (specification §8.8).
+    /// is a component) and draws itself (specification §9.8).
     Lua,
 }
 
@@ -228,7 +228,7 @@ impl ViewKind {
     }
 
     /// Whether the terminal draws a view of this kind itself, with no document and no web view:
-    /// the kit views of specification §8.8.
+    /// the kit views of specification §9.8.
     pub fn is_native(self) -> bool {
         matches!(self, Self::Wasm | Self::Lua)
     }
@@ -468,7 +468,7 @@ pub struct Session<S: Store, E: Entropy> {
     /// The outstanding token came with an unsolicited `welcome` (§10.7).
     restart_offer: bool,
     /// The words a view the terminal draws itself failed with, for the `closed` of the close
-    /// that is running (specification §8.8).
+    /// that is running (specification §9.8).
     failure: Option<String>,
     ended: bool,
     observed: Observed,
@@ -1291,7 +1291,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
 
     /// A view said a message over the size one may have (§9.3). Nothing could answer it, so a
     /// view that waits for the answer would wait for ever: the view has gone over a limit it is
-    /// held to, which ends it as any failure of a view does (§8.8), and the program is told.
+    /// held to, which ends it as any failure of a view does (§9.8), and the program is told.
     fn view_said_too_much(&mut self) {
         self.ignored();
         self.view_failed("a message of the view was over 1 MiB");
@@ -1324,7 +1324,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// A view ended on its own failure: the component trapped, went over a limit the terminal
     /// holds it to, handed out something it cannot use, a script made an error, or a page's web
     /// view ended. The view is closed as for any other end, and the program is told `closed`
-    /// with `reason` `error`, `code` `view` and, in `message`, `why` (specification §8.8): the
+    /// with `reason` `error`, `code` `view` and, in `message`, `why` (specification §9.8): the
     /// words the view failed with, which a script's error has the line in. They are the view's
     /// own, so they are cut and cleaned of what a terminal would act on before they are passed
     /// on.

@@ -1,4 +1,4 @@
-//! A view that is a WebAssembly component or a Lua script (specification §8.8): the terminal
+//! A view that is a WebAssembly component or a Lua script (specification §9.8): the terminal
 //! runs it in its own sandbox and draws it itself, and the host between the view and the
 //! program does nothing but route.
 //!

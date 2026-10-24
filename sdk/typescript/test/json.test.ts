@@ -86,7 +86,8 @@ describe("toWire", () => {
   it("writes the JSON payloads of the fixtures as the fixtures have them", () => {
     let checked = 0;
     for (const entry of manifest().decode) {
-      if (!entry.canonical) continue;
+      // A page's text passed on as it came is not compact JSON (`relayed`).
+      if (!entry.canonical || entry.relayed === true) continue;
       for (const message of entry.messages) {
         if (message.kind === "file") continue;
         expect(toWire(JSON.parse(message.payload)), entry.file).toBe(message.payload);

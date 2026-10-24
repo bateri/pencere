@@ -15,7 +15,7 @@ the list holds (`Paint::Image`), and the engine makes its room and says how it f
 layout crate (`taffy`) and nothing else.
 
 It is the engine of the kit; see [`kit/README.md`](../README.md) for the rest, and the specification
-(Section 8.8) for how a terminal opens the views that use it.
+(Section 9.8) for how a terminal opens the views that use it.
 
 ## License
 
