@@ -1,0 +1,130 @@
+/* The colours and the font are the terminal's: the host sends them in its `context`
+   message and app.js puts them in these variables. The values here only matter before
+   the first `context` arrives, and in a host that sends none. */
+:root {
+  color-scheme: dark;
+  --background: #111318;
+  --foreground: #d8dbe2;
+  --dim: #8b909c;
+  --accent: #58a6ff;
+  --border: #2a2d36;
+  --success: #3fb950;
+  --error: #f85149;
+  --row-height: 2rem;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #1f2328;
+  --dim: #6a6c70;
+  --border: #d2d3d4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem 2rem;
+  min-height: var(--pane-height, 0);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font, ui-monospace, monospace);
+  font-size: 14px;
+}
+
+h1 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--dim);
+  border-bottom: 1px solid var(--border);
+  padding: 0 0.75rem 0.4rem 0;
+}
+
+td {
+  height: var(--row-height);
+  padding: 0 0.75rem 0 0;
+}
+
+.number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A surface a little lighter than the background: the host sends roles, and the steps
+   between them are the page's to make. */
+tr.chosen td {
+  background: color-mix(in srgb, var(--foreground) 8%, var(--background));
+}
+
+.state {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+tr.running .state {
+  background: var(--success);
+}
+
+tr.stopped .number {
+  color: var(--dim);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1rem 0.7rem;
+  cursor: pointer;
+}
+
+button:hover,
+button:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+#status {
+  min-height: 1.2rem;
+  margin: 1rem 0 0;
+  color: var(--dim);
+}
+
+#status.failed {
+  color: var(--error);
+}
+
+.keys {
+  margin: 0.5rem 0 0;
+  color: var(--dim);
+}
+
+kbd {
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 0.3rem;
+}

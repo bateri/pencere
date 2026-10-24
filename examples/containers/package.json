@@ -1,0 +1,14 @@
+{
+  "name": "pencere-example-containers",
+  "private": true,
+  "version": "0.0.0",
+  "description": "A containers program with a view, to show in a terminal pane with pencere",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@pencere/sdk": "*"
+  }
+}

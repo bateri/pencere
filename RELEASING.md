@@ -110,6 +110,14 @@ Then, on npmjs.com, in the settings of `@pencere/sdk`:
 
 From then on a version becomes public only through the workflow and a maintainer's approval.
 
+## Packages that are retired
+
+`@pencere/cli` and `create-pencere` ran and generated programs for an earlier draft of the
+protocol, and this repository no longer has them: a program now shows its view with `@pencere/sdk`
+directly. Any version of either that is on npm is deprecated (`npm deprecate`, with a message that
+says what replaced it) on the day the tools that take their place are released. It is a step of
+that release, done by a maintainer with 2FA, and no check here covers it.
+
 ## The crate
 
 `pencere` is published from the maintainer's machine:

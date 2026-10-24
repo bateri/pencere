@@ -8,62 +8,59 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Changed
 
-- **Breaking: one protocol, no MCP.** Every kind of view now speaks the six view messages (specification
-  §9), and the host only carries them; a `web` page additionally exchanges the bridge messages `context`,
-  `close` and `link` with the host (§9.4 to §9.7). The MCP client and MCP Apps host are gone (`jsonrpc`,
-  `session::mcp`, `session::view`, `ToolCall`, `ViewSource`, `UiMeta`, `Theme::variables`,
-  `Action::ViewLog`, `Config::logging`), and so are the teardown round trip (`State::Closing`,
-  `Session::requests_timed_out`) and the `tool`, `bundle.meta`, `serverInfo` and `resources/read`
-  handling: a view is always a bundle. `hello.views` and `welcome.views` list kinds with the versions of
-  their interface (`message::ViewOffer`, `Config::views` is `Vec<Offer>`), and `open` names the `view`,
-  its `version`, the `program` and `title`, `icons` and, for a page, the `access` it asks to reach
-  (`sandbox::Access`). `ViewStart` carries the page's first `context` message; `Session::set_locale`
-  and `Session::set_reduce_motion` join `set_size` and `set_theme`. The wire of the draft changed in
-  place; there is no support for the previous draft.
-
-- The `closed` of a view the terminal draws itself that failed (specification §8.8) carries `message`,
-  the words the view failed with (for a script its error and the line it is on). `Session::view_failed`
-  takes them; the session cuts them to `MAX_FAILURE_CHARS` and leaves out control characters and
-  bidirectional overrides, as it does for the names a program gives. `message::closed` takes the
-  message. `Config::wasm_entry_limit` is `native_entry_limit`: it holds the entry of a `lua` view too.
-
-- A believed `bye` is answered (specification §10.3): the host writes a `closed` with `re` set to
-  the `bye`'s id and `reason` `program`, the last frame it writes for the view and the only one it
-  writes for a program that has said it ended. A program that reads up to it has read everything
-  the host wrote before, so nothing the host had in flight when it learned of the `bye` is left in
-  the tty's queue for whatever reads the tty next.
+- **Breaking: one protocol, with no MCP in it.** Every kind of view speaks the same six view
+  messages (specification §9), and the host only carries them; a `web` page additionally exchanges
+  the bridge messages `context`, `close` and `link` with the host (§9.4 to §9.7). The wire of the
+  draft changed in place, and there is no support for the previous draft.
+  - **Gone:** the MCP client toward the program and the MCP Apps host toward the view (`jsonrpc`,
+    `session::mcp`, `session::view`, `ToolCall`, `ViewSource`, `UiMeta`, `Theme::variables`,
+    `Action::ViewLog`, `Config::logging`), the `tool` of an `open`, `bundle.meta`, `serverInfo` and
+    `resources/read`: a view is always a bundle. So is the teardown round trip (`State::Closing`,
+    `Session::requests_timed_out`): closing a view is instant for every kind of view
+    (specification §10.2).
+  - **Kinds with versions.** `hello.views` and `welcome.views` list the kinds of view with the
+    versions of their interface (`message::ViewOffer`; `Config::views` is a `Vec<Offer>`, `web` at
+    `WEB_BRIDGE_VERSION` by default). The `welcome` lists the kinds the host opens, at the
+    versions both speak, in the program's order. `open` names the `view` and its `version`, the
+    `program` and `title`, `icons` and, for a page, the `access` it asks to reach
+    (`sandbox::Access`: connect, resources, frames, base, permissions); the answer to the person
+    and the content security policy are built from it as before. The host only eliminates: with no
+    kind in common it still answers, with `views: []`, so that the program does not wait, and a
+    `hello` that lists no kind is not answered. An `open` without a `view`, a `version` or a
+    bundle, or whose entry is not of the kind's type (`text/html` for `web`, `application/wasm` for
+    `wasm`, `text/x-lua` for `lua`), is refused with `manifest`; one of a kind or a version the
+    `welcome` did not offer, with `unsupported`; and a `wasm` or `lua` entry over
+    `Config::native_entry_limit`, with `limit`. The `welcome` of a restart (specification §10.7)
+    offers every kind the host opens, in the order of `Config::views`.
+  - **The page.** `ViewStart` carries the page's first `context` message, which the terminal
+    delivers when the page has loaded; `Session::set_locale` and `Session::set_reduce_motion` join
+    `set_size` and `set_theme` in what a later `context` tells it. A page's `{"context":{}}` is
+    answered with the current one.
+  - `Config::wasm_entry_limit` is `native_entry_limit`: it holds the entry of a `lua` view too.
+  - A believed `bye` is answered (specification §10.3): the host writes a `closed` with `re` set to
+    the `bye`'s id and `reason` `program`, the last frame it writes for the view and the only one
+    it writes for a program that has said it ended. A program that reads up to it has read
+    everything the host wrote before, so nothing the host had in flight when it learned of the
+    `bye` is left in the tty's queue for whatever reads the tty next.
 
 ### Added
 
-- Lua views (specification §8.8), the kind `lua`: the entry of the bundle is the text of a script
-  (`text/x-lua`), which the terminal runs in the sandbox it runs components in. Everything of a
-  `wasm` view holds for it (no MCP session, `msg` routed unread, nothing written once the view is
-  over). `ViewKind::Lua`, `ViewKind::is_native` (the kinds the terminal draws itself).
-- Kinds of view (specification §5.5), named in the handshake: `hello` has to list `views`, the
-  kinds the program can show in its order of preference, and the `welcome` answers with `views`,
-  that list without the kinds the host will not open (the host only eliminates; with none in common
-  it still answers, with `views: []`, so that the program does not wait). `open` has to say `view`,
-  one of the kinds its token's `welcome` offered; the host does not infer the kind from the bundle.
-  `Config::views` (`Vec<ViewKind>`, only `ViewKind::Web` by default) says what the host opens;
-  `ViewKind::name` and `ViewKind::from_name` are the table of names. A `hello` without `views`
-  is not answered, an `open` without `view` or whose entry is not of the kind's type
-  (`text/html` for `web`, `application/wasm` for `wasm`) is refused with `manifest`, and an
-  `open` of a kind the `welcome` did not offer with `unsupported`. The `welcome` of a restart offers
-  every kind the host opens, in the host's order.
-- WebAssembly views (specification §8.8), the kind `wasm`: the entry of the bundle is a component
-  the terminal runs in a sandbox of its own and draws itself. `ViewKind::Wasm` in `Config::views`
-  makes the host offer and take such an `open`, without a `tool`, with an optional `program` and
-  `title`, and without an MCP session: the view starts as soon as the files are held,
-  `ViewStart::kind` is `ViewKind::Wasm`, and `policy`, `allow` and `tool` are empty.
-  `Config::wasm_entry_limit` refuses a component over a size of the host's choosing with `limit`.
-  The program's `msg` reaches the terminal as `Action::ToView`, unread (a JSON object, and only
-  while the view is open); `Session::module_message` writes the component's message to the program,
-  and writes nothing once the view is over, however it ended, so a late message cannot reach the
-  tty as typed input. `Session::view_failed` closes a view that failed and tells the program
-  `closed` with `reason` `error` and `code` `view`.
-- `ViewStart::kind` (`ViewKind`, `#[non_exhaustive]`), `Config::wasm_entry_limit`,
-  `Manifest::entry_file`, `bundle::WASM_MEDIA_TYPE`. `ViewStart` and `Config` are not
-  `#[non_exhaustive]`, so a terminal that builds one itself adds the fields.
+- Views the terminal draws itself (specification §8.8): the kinds `wasm` (the entry of the bundle
+  is a component) and `lua` (the entry is the text of a script, `text/x-lua`, run in the sandbox
+  components run in). `ViewKind::Wasm`, `ViewKind::Lua` and `ViewKind::is_native`, with
+  `ViewKind::name` and `ViewKind::from_name` as the table of names; `Offer` in `Config::views`
+  makes the host offer and take them. Such a view starts as soon as its files are held, with no
+  document and no web view. The program's messages reach the terminal as `Action::ToView`, unread
+  (a JSON object, and only while the view is open); `Session::module_message` writes the view's
+  message to the program, and writes nothing once the view is over, however it ended, so a late
+  message cannot reach the tty as typed input. `Session::view_failed` closes a view that failed
+  and tells the program `closed` with `reason` `error`, `code` `view` and `message`, the words the
+  view failed with (for a script its error and the line it is on); the session cuts them to
+  `MAX_FAILURE_CHARS` and leaves out control characters and bidirectional overrides, as it does
+  for the names a program gives.
+- `ViewStart::kind` and `ViewStart::version`, `bundle::WASM_MEDIA_TYPE`, `bundle::LUA_MEDIA_TYPE`
+  and `Manifest::entry_file`. `ViewStart` and `Config` are not `#[non_exhaustive]`, so a terminal
+  that builds one itself adds the fields.
 
 ## [0.1.0] - 2026-10-21
 

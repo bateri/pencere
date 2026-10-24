@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Containers</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Containers</h1>
+      <table aria-label="Containers">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Name</th>
+            <th>Image</th>
+            <th>Ports</th>
+            <th class="number">CPU</th>
+            <th class="number">Memory</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p id="status" role="status"></p>
+      <p class="keys"><kbd>↑</kbd> <kbd>↓</kbd> choose · <kbd>⏎</kbd> start or stop</p>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

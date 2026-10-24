@@ -147,6 +147,17 @@ fn run_containers(options: &[&str]) -> Run {
     run_program("containers.mjs", options)
 }
 
+/// The containers example (`examples/containers`), built by `npx tsc -b`, run in the pane.
+fn run_example(options: &[&str]) -> Run {
+    let main = root().join("examples/containers/dist/main.js");
+    assert!(
+        main.is_file(),
+        "{} is missing: build the TypeScript half first with `npx tsc -b` (make check does)",
+        main.display()
+    );
+    run(options, &["node", &main.to_string_lossy()])
+}
+
 fn view_file_size(name: &str) -> u64 {
     fs::metadata(programs().join("view").join(name))
         .expect("a file of the view")
@@ -970,4 +981,81 @@ fn a_filter_whose_view_closes_with_nothing_chosen_writes_nothing_and_fails() {
     // `rows=$(… | filter) && mail …` stops here.
     assert_eq!(out, "");
     assert_eq!(status, "1");
+}
+
+// ---- the example ----------------------------------------------------------------
+
+#[test]
+fn the_containers_example_opens_answers_a_call_and_pushes_to_its_page() {
+    let run = run_example(&[
+        "--subscribe",
+        r#"stats={"every":20}"#,
+        "--call",
+        "list",
+        "--call",
+        r#"stop={"id":"web"}"#,
+        "--then",
+        "interrupt",
+    ]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web@1.0",
+        r#"program: open id=2 view=web version=1.0 title="Containers" bundle of 3 files"#,
+        "view: started from the bundle: entry index.html, 3 files",
+        // What the strip above the view says, and the icon.
+        r#"view: title="Containers" program="containers""#,
+        "view: icons png 64x64",
+        "view: <- context mode=dark size=640x384",
+        // The program pushes the use of the running containers as soon as it is asked
+        // and the page hears it.
+        r#"view: -> subscribe id=1 stats {"every":20}"#,
+        "host: msg id=* subscribe=1 stats",
+        "program: msg id=* push=1",
+        r#"view: <- push id=1 value={"stats":[{"cpu":4,"id":"web","memory":38}"#,
+        // The calls wait for the first push, and each is answered with the list.
+        "view: -> call id=2 list",
+        "host: msg id=* call=2 list",
+        "program: msg id=* response=2 result",
+        r#"view: <- response id=2 result={"containers":[{"id":"web","image":"nginx:1.27","name":"web","ports":"8080→80","state":"running"}"#,
+        r#"view: -> call id=3 stop {"id":"web"}"#,
+        "host: msg id=* call=3 stop",
+        r#"view: <- response id=3 result={"containers":[{"id":"web","image":"nginx:1.27","name":"web","ports":"8080→80","state":"stopped"}"#,
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "view: destroyed",
+        "host: closed id=* re=* reason=program",
+        "screen: alternate screen off",
+        "program: was killed by signal 2",
+    ]);
+
+    // The files the page would fetch are the files on disk, whole.
+    for (name, media_type) in [
+        ("index.html", "text/html"),
+        ("app.js", "text/javascript"),
+        ("style.css", "text/css"),
+    ] {
+        let size = fs::metadata(root().join("examples/containers/view").join(name))
+            .expect("a file of the view")
+            .len();
+        let wanted = format!("view: fetched {name} {media_type} {size} bytes");
+        assert!(
+            run.events.contains(&wanted),
+            "no {wanted:?}:\n{}",
+            run.text()
+        );
+    }
+}
+
+#[test]
+fn the_containers_example_prints_its_containers_where_no_view_can_be_shown() {
+    let run = run_example(&["--no-host"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.never("program: open");
+    for line in ["● web", "● api", "○ cache", "8080→80"] {
+        assert!(
+            run.output_has(line).is_some(),
+            "the fallback did not print {line:?}:\n{}",
+            run.text()
+        );
+    }
 }

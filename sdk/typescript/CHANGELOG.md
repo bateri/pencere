@@ -8,27 +8,35 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ### Changed
 
-- **Breaking: one protocol, no MCP.** `serve` no longer takes an MCP server: a program lists the views it
-  can show (`views`: kind, versions, bundle, and for a page its `access`), answers the view's calls
-  (`calls`), feeds its subscriptions (`topics`) and learns how the run ended from the result
-  (`ServeResult`). The six view messages are written and read by `messages.ts`, the handshake lists
-  kinds with versions, `@modelcontextprotocol/*`, `ext-apps` and `zod` are no dependencies any more, and
-  the bundle has no `meta`. The program waits for the host's `closed` after `bye` and throws away the
-  input it has not read (specification §10.3). The wire of the draft changed in place; there is no
-  support for the previous draft.
+- **Breaking: one protocol, with no MCP in it.** `serve` no longer takes an MCP server and a
+  program is no longer an MCP server on stdio: it lists the views it can show (`views`: kind,
+  versions, bundle and, for a page, its `access`), answers the view's calls (`calls`), feeds its
+  subscriptions (`topics`) and learns how the run ended from the result (`ServeResult`: `closed`
+  with who ended it, or `no-view` with why). `@modelcontextprotocol/*`, `ext-apps` and `zod` are no
+  dependencies any more, and the bundle has no `meta`. The wire of the draft changed in place, and
+  there is no support for the previous draft.
+  - **The six messages.** The view and the program talk in `call`/`response`, `subscribe`/`push`,
+    `cancel` and `progress` (specification §9); a handler gets a `CallContext` (`signal`,
+    `progress`) or a `Subscription` (`push`, `signal`), and ends in error with a `ViewError`. A page
+    reaches the host through the bridge of §9.4, which `serve` does not read.
+  - **Kinds with versions.** `hello` lists `views`, the kinds the program can show with the
+    versions of their interface, in its order of preference; the `welcome` is read for the ones the
+    host opens, and a host that opens none of them ends `serve` at once with the `no-view` reason
+    `no-common-view` instead of after the wait for an answer. `open` names the `view` and its
+    `version`, the `program`, `title`, `icons` and a page's `access`.
+  - `ViewControl.reopen` takes `views` where it took a bundle.
+  - After a `bye` the program waits for the host's `closed`, reading and throwing away the input,
+    so that nothing the host wrote is left in the tty for whatever reads it next
+    (specification §10.3; `byeTimeout`). A process that exits cannot wait, and does not.
+  - The `closed` of a view the host draws itself that failed carries `message`, the words it
+    failed with (`NoView.message`, `ServeResult.message`, specification §8.8). `.lua` files are
+    served as `text/x-lua`.
 
-- `parseClosed` reads `message`, the words a view the host draws itself failed with (specification
-  §8.8). `.lua` files are served as `text/x-lua`.
+### Added
 
-- The wire names the kind of view (specification §5.5). `hello` now lists `views` (`VIEWS`, `["web"]`:
-  this library shows the MCP bridge), `open` says `view` (`openPayload` takes it), and a `welcome` is
-  read for its `views`: the ones of the program's list the host opens. A host that opens none of them
-  ends `serve` at once, with the `no-view` reason `no-common-view`, instead of after the wait for an
-  answer. A host that does not name the kinds it opens (the draft before this change) is read as one
-  that opens none.
-- The host answers a `bye` with a `closed` (specification §10.3). `serve` still gives the terminal
-  back in one synchronous step, as an `exit` handler needs, so it does not yet read up to that
-  answer before it leaves: what the host wrote and the program had not read can be left in the tty.
+- Views of the kinds `wasm` and `lua`, which the terminal draws itself (specification §8.8), beside
+  `web`: `ViewSpec.versions` says which versions of the kit's interface they are written against,
+  and `ViewSpec.bundle` may be a function of the version that was agreed.
 
 ## [0.1.1] - 2026-10-21
 
