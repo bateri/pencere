@@ -1,7 +1,7 @@
 # The pencere kit: the page API, colours and sandbox floors
 
 Version `1.0` of the kinds `lua` and `wasm` ([the protocol](../spec/draft/pencere.md), Sections 5.5
-and 8.8). This document is normative for what the protocol leaves to the kit: with the interface
+and 9.8). This document is normative for what the protocol leaves to the kit: with the interface
 [`wit/view.wit`](wit/view.wit) for `wasm` views, and with the prelude [`luau/prelude`](luau/prelude)
 for `lua` views. The key words are those of Section 2 of the protocol. A statement here that the
 interface or the prelude contradicts is a mistake in this document.
@@ -49,7 +49,7 @@ An element is a plain table that a chain of builder methods fills. Lengths are p
 | `pencere.div()`                  | A box: a column of its children until told otherwise.                 |
 | `pencere.text(string \| number)` | One line of text, in the font, size and colour of the boxes it is in. |
 | `pencere.spark(values, color)`   | A sparkline of numbers, newest last; `:peak(value)` is its largest.   |
-| `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 8.8).   |
+| `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 9.8).   |
 | `pencere.spacer()`               | A box that takes the room left over.                                  |
 
 The builders return the element. Layout: `row`, `col`, `wrap`, `grid(columns)`, `grid_rows(rows)`,
@@ -148,7 +148,7 @@ for the roles a host has to make up and for the tones that no theme gives.
 
 ## 4. What a host gives a view at least
 
-The sandbox floors are those of the protocol, Section 8.8 (memory 64 MiB, a call 250 ms, the start 2 s,
+The sandbox floors are those of the protocol, Section 9.8 (memory 64 MiB, a call 250 ms, the start 2 s,
 20 000 elements to a frame, a tree 128 deep, a line of text 64 KiB, a component 4 MiB, 32 messages to
 the program to a call, a message 1 MiB, and the limits on pictures). A view that stays within them
 opens on every host. The values of this repository's implementation are the defaults of
@@ -157,4 +157,4 @@ opens on every host. The values of this repository's implementation are the defa
 ## 5. Pictures
 
 [`README.md`](README.md) describes how a page names a picture and how the host draws it; the limits
-and the formats are those of the protocol, Section 8.8.
+and the formats are those of the protocol, Section 9.8.

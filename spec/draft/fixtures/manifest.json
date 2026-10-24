@@ -940,6 +940,91 @@
       "canonical": false,
       "messages": [],
       "errors": ["chunk-order"]
+    },
+    {
+      "file": "to-program/msg-pretty.frame",
+      "direction": "to-program",
+      "note": "what the host writes for the call of bridge/call-pretty.json: the line feeds between the tokens gone and the spaces kept; the payload is the page's text as it came, not compact JSON",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 3,
+          "control": {},
+          "payload": "{\"call\": {  \"id\": 1,  \"method\": \"list\"}}"
+        }
+      ],
+      "errors": [],
+      "relayed": true
+    },
+    {
+      "file": "to-program/msg-escapes.frame",
+      "direction": "to-program",
+      "note": "what the host writes for the call of bridge/call-escapes.json: every character a frame cannot carry as an escape of lower case hex digits, a surrogate pair for the character outside the first plane",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 3,
+          "control": {},
+          "payload": "{\"call\":{\"id\":1,\"method\":\"say\",\"params\":{\"text\":\"caf\\u00e9 \\u007f \\ud83d\\ude00\"}}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/open-wasm-image.frame",
+      "direction": "to-host",
+      "note": "open for a view of the kit at the version 1.0 of the interface, with a picture in its bundle beside its entry: the picture is a file of the manifest and the view names it by its path",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "open",
+          "id": 2,
+          "control": {},
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"wasm\",\"version\":\"1.0\",\"program\":\"demopen\",\"title\":\"Containers\",\"bundle\":{\"entry\":\"view.wasm\",\"files\":[{\"path\":\"view.wasm\",\"sha256\":\"24eaf3439a60c96764c4f2c92a0a81b52bd4fe5d5b91f090184a0f6486b1bf29\",\"size\":8,\"type\":\"application/wasm\"},{\"path\":\"icons/stop.svg\",\"sha256\":\"2b965986578b523e5024f97f2cf9a3b1d4fc74ca149eeef172dfc74c0c84f4af\",\"size\":112,\"type\":\"image/svg+xml\"}]}}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/welcome-opens.frame",
+      "direction": "to-program",
+      "note": "the answer of a host that opens web pages at 1.0 and the interface of the kit at 1.0 to a program that listed wasm at 2.0 and web at 1.0: wasm is left out of views for want of a version in common, and named in opens with the version the host does open",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "welcome",
+          "id": 1,
+          "control": {
+            "re": "1"
+          },
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}],\"opens\":[{\"kind\":\"wasm\",\"versions\":[\"1.0\"]}]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/file-image.frame",
+      "direction": "to-host",
+      "note": "the picture of to-host/open-wasm-image.frame as a file message",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "file",
+          "id": 3,
+          "control": {
+            "d": "2b965986578b523e5024f97f2cf9a3b1d4fc74ca149eeef172dfc74c0c84f4af"
+          },
+          "payload": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSIjODg4Ii8+PC9zdmc+Cg=="
+        }
+      ],
+      "errors": []
     }
   ],
   "session": [
@@ -1647,6 +1732,843 @@
           "out": "session/access-limit/12-out.frame"
         }
       ]
+    },
+    {
+      "name": "screen-refused",
+      "note": "a pane that is not on the alternate screen has its open refused as screen; once it is, the same program opens",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": []
+      },
+      "steps": [
+        {
+          "event": "observe",
+          "alternate-screen": false
+        },
+        {
+          "out": null
+        },
+        {
+          "in": "session/screen-refused/03-in.frame"
+        },
+        {
+          "out": "session/screen-refused/04-out.frame"
+        },
+        {
+          "in": "session/screen-refused/05-in.frame"
+        },
+        {
+          "out": "session/screen-refused/06-out.frame"
+        },
+        {
+          "event": "observe",
+          "alternate-screen": true
+        },
+        {
+          "out": null
+        },
+        {
+          "in": "session/screen-refused/09-in.frame"
+        },
+        {
+          "out": "session/screen-refused/10-out.frame"
+        },
+        {
+          "in": "session/screen-refused/11-in.frame"
+        },
+        {
+          "out": "session/screen-refused/12-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "policy-refused",
+      "note": "a host whose own policy lets no program open a view answers a hello and refuses the open as policy",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": []
+      },
+      "steps": [
+        {
+          "event": "allow-opens",
+          "allow": false
+        },
+        {
+          "out": null
+        },
+        {
+          "in": "session/policy-refused/03-in.frame"
+        },
+        {
+          "out": "session/policy-refused/04-out.frame"
+        },
+        {
+          "in": "session/policy-refused/05-in.frame"
+        },
+        {
+          "out": "session/policy-refused/06-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "bundle-corrupt",
+      "note": "a file whose bytes do not have the digest it is sent under ends the open as error bundle",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/bundle-corrupt/01-in.frame"
+        },
+        {
+          "out": "session/bundle-corrupt/02-out.frame"
+        },
+        {
+          "in": "session/bundle-corrupt/03-in.frame"
+        },
+        {
+          "out": "session/bundle-corrupt/04-out.frame"
+        },
+        {
+          "in": "session/bundle-corrupt/05-in.frame"
+        },
+        {
+          "out": "session/bundle-corrupt/06-out.frame",
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "bundle-files-ignored",
+      "note": "a file nobody asked for and a file already verified for this open are ignored and stored nowhere; the view starts when the files asked for are all here",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/bundle-files-ignored/01-in.frame"
+        },
+        {
+          "out": "session/bundle-files-ignored/02-out.frame"
+        },
+        {
+          "in": "session/bundle-files-ignored/03-in.frame"
+        },
+        {
+          "out": "session/bundle-files-ignored/04-out.frame"
+        },
+        {
+          "in": "session/bundle-files-ignored/05-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/bundle-files-ignored/07-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/bundle-files-ignored/09-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/bundle-files-ignored/11-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["start-view"]
+        }
+      ]
+    },
+    {
+      "name": "bundle-duplicate-digests",
+      "note": "two files with the same bytes are one digest: the need names it once and one file message completes the bundle",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/bundle-duplicate-digests/01-in.frame"
+        },
+        {
+          "out": "session/bundle-duplicate-digests/02-out.frame"
+        },
+        {
+          "in": "session/bundle-duplicate-digests/03-in.frame"
+        },
+        {
+          "out": "session/bundle-duplicate-digests/04-out.frame"
+        },
+        {
+          "in": "session/bundle-duplicate-digests/05-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["start-view"]
+        }
+      ]
+    },
+    {
+      "name": "files-timeout",
+      "note": "an open whose files do not come in the time the host chose ends as error timeout",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/files-timeout/01-in.frame"
+        },
+        {
+          "out": "session/files-timeout/02-out.frame"
+        },
+        {
+          "in": "session/files-timeout/03-in.frame"
+        },
+        {
+          "out": "session/files-timeout/04-out.frame"
+        },
+        {
+          "event": "timeout"
+        },
+        {
+          "out": "session/files-timeout/06-out.frame",
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "consent-timeout",
+      "note": "an open that waits in vain for the answer of the person ends as error timeout, and the question is taken back",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": ["83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea"]
+      },
+      "steps": [
+        {
+          "in": "session/consent-timeout/01-in.frame"
+        },
+        {
+          "out": "session/consent-timeout/02-out.frame"
+        },
+        {
+          "in": "session/consent-timeout/03-in.frame"
+        },
+        {
+          "out": "session/consent-timeout/04-out.frame",
+          "acted": ["consent"]
+        },
+        {
+          "event": "timeout"
+        },
+        {
+          "out": "session/consent-timeout/06-out.frame",
+          "acted": ["withdraw-consent"]
+        }
+      ]
+    },
+    {
+      "name": "view-ends",
+      "note": "the person closing a view and the view asking to close are told to the program as user and view, with no re because nothing of the program is outstanding; nothing the view says afterwards is written; a close is written after what the page said before it",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": ["83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea"]
+      },
+      "steps": [
+        {
+          "in": "session/view-ends/01-in.frame"
+        },
+        {
+          "out": "session/view-ends/02-out.frame"
+        },
+        {
+          "in": "session/view-ends/03-in.frame"
+        },
+        {
+          "out": "session/view-ends/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "close-view"
+        },
+        {
+          "out": "session/view-ends/06-out.frame",
+          "acted": ["destroy-view"]
+        },
+        {
+          "event": "page",
+          "file": "bridge/call.json"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/view-ends/09-in.frame"
+        },
+        {
+          "out": "session/view-ends/10-out.frame"
+        },
+        {
+          "in": "session/view-ends/11-in.frame"
+        },
+        {
+          "out": "session/view-ends/12-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "page",
+          "file": "bridge/call.json"
+        },
+        {
+          "out": "session/view-ends/14-out.frame",
+          "acted": []
+        },
+        {
+          "event": "page",
+          "file": "bridge/call.json"
+        },
+        {
+          "out": "session/view-ends/16-out.frame",
+          "acted": []
+        },
+        {
+          "event": "page",
+          "file": "bridge/close.json"
+        },
+        {
+          "out": "session/view-ends/18-out.frame",
+          "acted": ["destroy-view"]
+        },
+        {
+          "event": "page",
+          "file": "bridge/call.json"
+        },
+        {
+          "out": null,
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "page-message-too-long",
+      "note": "a message of the page over 1 MiB ends the view as error view, since nobody could answer it; the message is not written",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": ["83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea"]
+      },
+      "steps": [
+        {
+          "in": "session/page-message-too-long/01-in.frame"
+        },
+        {
+          "out": "session/page-message-too-long/02-out.frame"
+        },
+        {
+          "in": "session/page-message-too-long/03-in.frame"
+        },
+        {
+          "out": "session/page-message-too-long/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "page",
+          "pad": 1048577
+        },
+        {
+          "out": "session/page-message-too-long/06-out.frame",
+          "acted": ["destroy-view"]
+        }
+      ]
+    },
+    {
+      "name": "restart",
+      "note": "a host that restarts a running view tears it down without a closed and offers a new token with restart; the program opens again with the new token and the old one is no more",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": ["83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea"]
+      },
+      "steps": [
+        {
+          "in": "session/restart/01-in.frame"
+        },
+        {
+          "out": "session/restart/02-out.frame"
+        },
+        {
+          "in": "session/restart/03-in.frame"
+        },
+        {
+          "out": "session/restart/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "restart"
+        },
+        {
+          "out": "session/restart/06-out.frame",
+          "acted": ["destroy-view"]
+        },
+        {
+          "in": "session/restart/07-in.frame"
+        },
+        {
+          "out": "session/restart/08-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/restart/09-in.frame"
+        },
+        {
+          "out": "session/restart/10-out.frame",
+          "acted": ["start-view"]
+        }
+      ]
+    },
+    {
+      "name": "messages-outside-a-view",
+      "note": "a msg of the program reaches no view before one runs and none after it has closed; nothing of the view is written once it is over",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/messages-outside-a-view/01-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/messages-outside-a-view/03-in.frame"
+        },
+        {
+          "out": "session/messages-outside-a-view/04-out.frame"
+        },
+        {
+          "in": "session/messages-outside-a-view/05-in.frame"
+        },
+        {
+          "out": "session/messages-outside-a-view/06-out.frame"
+        },
+        {
+          "in": "session/messages-outside-a-view/07-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/messages-outside-a-view/09-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["start-view"]
+        },
+        {
+          "in": "session/messages-outside-a-view/11-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["to-view"]
+        },
+        {
+          "event": "page",
+          "file": "bridge/call.json"
+        },
+        {
+          "out": "session/messages-outside-a-view/14-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/messages-outside-a-view/15-in.frame"
+        },
+        {
+          "out": "session/messages-outside-a-view/16-out.frame",
+          "acted": ["destroy-view"]
+        },
+        {
+          "in": "session/messages-outside-a-view/17-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "page",
+          "file": "bridge/call.json"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/messages-outside-a-view/21-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "hello-edges",
+      "note": "a hello with no kind, or whose protocol versions are not a list of integers, is not answered; a kind listed twice counts once at its first place; an empty list of protocol versions shares none",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/hello-edges/01-in.frame"
+        },
+        {
+          "out": null
+        },
+        {
+          "in": "session/hello-edges/03-in.frame"
+        },
+        {
+          "out": null
+        },
+        {
+          "in": "session/hello-edges/05-in.frame"
+        },
+        {
+          "out": "session/hello-edges/06-out.frame"
+        },
+        {
+          "in": "session/hello-edges/07-in.frame"
+        },
+        {
+          "out": "session/hello-edges/08-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "kit-open-ignores-access",
+      "note": "the access of an open of a view the host draws itself is not read: a broken one does not refuse the open and a good one asks the person nothing",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": [
+          "24eaf3439a60c96764c4f2c92a0a81b52bd4fe5d5b91f090184a0f6486b1bf29",
+          "1232d8379de77e154ca533689af2e42629dd7574bda5a0a390799849f07607c3"
+        ],
+        "views": [
+          {
+            "kind": "wasm",
+            "versions": ["1.0"]
+          },
+          {
+            "kind": "lua",
+            "versions": ["1.0"]
+          },
+          {
+            "kind": "web",
+            "versions": ["1.0"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/kit-open-ignores-access/01-in.frame"
+        },
+        {
+          "out": "session/kit-open-ignores-access/02-out.frame"
+        },
+        {
+          "in": "session/kit-open-ignores-access/03-in.frame"
+        },
+        {
+          "out": "session/kit-open-ignores-access/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "in": "session/kit-open-ignores-access/05-in.frame"
+        },
+        {
+          "out": "session/kit-open-ignores-access/06-out.frame",
+          "acted": ["destroy-view"]
+        },
+        {
+          "in": "session/kit-open-ignores-access/07-in.frame"
+        },
+        {
+          "out": "session/kit-open-ignores-access/08-out.frame"
+        },
+        {
+          "in": "session/kit-open-ignores-access/09-in.frame"
+        },
+        {
+          "out": "session/kit-open-ignores-access/10-out.frame",
+          "acted": ["start-view"]
+        }
+      ]
+    },
+    {
+      "name": "bundle-limits",
+      "note": "a manifest over a limit of the protocol is refused as limit: a file over 8 MiB, more than 64 MiB in all; one exactly at both limits goes on",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/bundle-limits/01-in.frame"
+        },
+        {
+          "out": "session/bundle-limits/02-out.frame"
+        },
+        {
+          "in": "session/bundle-limits/03-in.frame"
+        },
+        {
+          "out": "session/bundle-limits/04-out.frame"
+        },
+        {
+          "in": "session/bundle-limits/05-in.frame"
+        },
+        {
+          "out": "session/bundle-limits/06-out.frame"
+        },
+        {
+          "in": "session/bundle-limits/07-in.frame"
+        },
+        {
+          "out": "session/bundle-limits/08-out.frame"
+        },
+        {
+          "in": "session/bundle-limits/09-in.frame"
+        },
+        {
+          "out": "session/bundle-limits/10-out.frame"
+        },
+        {
+          "in": "session/bundle-limits/11-in.frame"
+        },
+        {
+          "out": "session/bundle-limits/12-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "bundle-too-many-files",
+      "note": "a manifest of 1025 files is refused as limit: a bundle has at most 1024",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": []
+      },
+      "steps": [
+        {
+          "in": "session/bundle-too-many-files/01-in.frame"
+        },
+        {
+          "out": "session/bundle-too-many-files/02-out.frame"
+        },
+        {
+          "in": "session/bundle-too-many-files/03-in.frame"
+        },
+        {
+          "out": "session/bundle-too-many-files/04-out.frame"
+        }
+      ]
+    },
+    {
+      "name": "context-resent",
+      "note": "the page is told its context again when a member changes, and only then",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": ["83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea"]
+      },
+      "steps": [
+        {
+          "in": "session/context-resent/01-in.frame"
+        },
+        {
+          "out": "session/context-resent/02-out.frame"
+        },
+        {
+          "in": "session/context-resent/03-in.frame"
+        },
+        {
+          "out": "session/context-resent/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "set-size",
+          "width": 800,
+          "height": 600
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "set-size",
+          "width": 1024,
+          "height": 768
+        },
+        {
+          "out": null,
+          "acted": ["to-view"],
+          "to-view": ["bridge/context-resized.json"]
+        }
+      ]
     }
   ],
   "bridge": [
@@ -1771,6 +2693,38 @@
       "direction": "program-to-page",
       "note": "a message that is named like one of the host's own is dropped on its way to the page",
       "outcome": "dropped"
+    },
+    {
+      "file": "bridge/link-too-long.json",
+      "direction": "page-to-host",
+      "note": "a link of 8193 bytes is dropped; the limit is 8192",
+      "outcome": "dropped"
+    },
+    {
+      "file": "bridge/link-with-space.json",
+      "direction": "page-to-host",
+      "note": "a link with a space in it is dropped: every byte is printable ASCII and not the space",
+      "outcome": "dropped"
+    },
+    {
+      "file": "bridge/link-non-ascii.json",
+      "direction": "page-to-host",
+      "note": "a link with a character that is not ASCII is dropped",
+      "outcome": "dropped"
+    },
+    {
+      "file": "bridge/call-pretty.json",
+      "direction": "page-to-host",
+      "note": "a call written over several lines: the line feeds go and the spaces stay, and the program is written the rest as it came",
+      "outcome": "passed",
+      "wrote": "to-program/msg-pretty.frame"
+    },
+    {
+      "file": "bridge/call-escapes.json",
+      "direction": "page-to-host",
+      "note": "a call with text a frame cannot carry (a letter with an accent, a DEL, a character outside the first plane): the program is written the same message with each as an escape",
+      "outcome": "passed",
+      "wrote": "to-program/msg-escapes.frame"
     }
   ]
 }

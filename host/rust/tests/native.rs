@@ -1,4 +1,4 @@
-//! A view that is a WebAssembly component or a Lua script (specification §8.8) against a host
+//! A view that is a WebAssembly component or a Lua script (specification §9.8) against a host
 //! session: what starts it, what is routed to and from it, and that nothing it says is written
 //! to the program once its view is over.
 

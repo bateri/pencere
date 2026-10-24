@@ -645,6 +645,88 @@ mod tests {
         assert_eq!(choose(&mine, &[]), None);
     }
 
+    /// The messages of a fixture of what a host writes: `(kind, id, re, payload)`.
+    fn read_from_host(name: &str) -> Vec<(String, u32, Option<u32>, String)> {
+        let dir = fixtures().expect("the repository");
+        let bytes = std::fs::read(dir.join(name)).expect("a fixture");
+        let mut events = Vec::new();
+        StreamDecoder::new(Direction::ToProgram).feed(&bytes, &mut events);
+        events
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::Message(m) => Some((m.kind.clone(), m.id, m.re(), m.payload.clone())),
+                Event::Error(_) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_message_the_sessions_have_a_host_write_is_read_by_this_library() {
+        let Some(dir) = fixtures() else {
+            return;
+        };
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("manifest.json")).expect("a manifest"))
+                .expect("JSON");
+        let mut read = 0;
+        for session in manifest["session"].as_array().expect("sessions") {
+            for step in session["steps"].as_array().expect("steps") {
+                let Some(file) = step["out"].as_str() else {
+                    continue;
+                };
+                for (kind, _, _, payload) in read_from_host(file) {
+                    let label = format!("{} {file} {kind}", session["name"]);
+                    read += 1;
+                    match kind.as_str() {
+                        "welcome" => assert!(welcome(&payload).is_some(), "{label}"),
+                        "need" => assert!(need(&payload).is_some(), "{label}"),
+                        "closed" => assert!(closed(&payload).is_some(), "{label}"),
+                        // The words of a page, as the host passes them on.
+                        "msg" => {
+                            assert!(crate::handlers::read_message(&payload).is_some(), "{label}")
+                        }
+                        other => panic!("{label}: a host writes no {other} to a program"),
+                    }
+                }
+            }
+        }
+        assert!(read > 80, "{read}");
+    }
+
+    #[test]
+    fn what_a_restart_and_a_refusal_say_is_read_as_the_sessions_have_it() {
+        if fixtures().is_none() {
+            return;
+        }
+        // A restart is an offer with no hello it answers, a new token and `restart`.
+        let restart = read_from_host("session/restart/06-out.frame");
+        let (_, _, re, payload) = &restart[0];
+        assert_eq!(*re, None);
+        let Some(Welcome::Offer(offer)) = welcome(payload) else {
+            panic!("an offer");
+        };
+        assert!(offer.restart);
+        assert_eq!(offer.token, "Zk3mP8rD5uYb1Xe6HqS0vg");
+        // A kind the host opens at no version the program speaks is named in `opens`.
+        let (_, _, _, payload) = &read_from_host("to-program/welcome-opens.frame")[0];
+        let Some(Welcome::Offer(offer)) = welcome(payload) else {
+            panic!("an offer");
+        };
+        assert_eq!(offer.views.len(), 1);
+        assert_eq!(offer.opens.len(), 1);
+        assert_eq!(offer.opens[0].kind, "wasm");
+        // A `closed` that answers something has `re`; one that ends a running view has none.
+        let (_, _, re, payload) = &read_from_host("session/view-ends/06-out.frame")[0];
+        assert_eq!(*re, None);
+        assert_eq!(closed(payload).map(|c| c.reason), Some(ClosedReason::User));
+        let (_, _, re, payload) = &read_from_host("session/screen-refused/06-out.frame")[0];
+        assert_eq!(*re, Some(2));
+        assert_eq!(
+            closed(payload).and_then(|c| c.code).as_deref(),
+            Some("screen")
+        );
+    }
+
     #[test]
     fn a_need_and_a_closed_are_read_as_the_fixtures_have_them() {
         let digest = "a".repeat(64);

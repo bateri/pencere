@@ -94,7 +94,10 @@ function checkSpecDir(dir) {
   for (const entry of manifest.bridge ?? []) listed.add(entry.file);
   for (const session of manifest.session ?? []) {
     for (const step of session.steps ?? []) {
-      for (const file of [step.in, step.out]) if (typeof file === "string") listed.add(file);
+      // The files of a step: what the program writes, what the host writes, the message a page
+      // sends in an `event` step and the texts the view is told.
+      const files = [step.in, step.out, step.file, ...(step["to-view"] ?? [])];
+      for (const file of files) if (typeof file === "string") listed.add(file);
     }
   }
   const onDisk = new Map(

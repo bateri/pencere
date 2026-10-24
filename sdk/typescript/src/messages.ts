@@ -309,7 +309,7 @@ export interface Closed {
   readonly reason: ClosedReason;
   /** `token`, `busy`, `bundle`, `view`, ...; a code this library does not know is no more than the reason. */
   readonly code?: string;
-  /** For people, never parsed: why a view the host draws itself failed, for a script the error and its line (§8.8). */
+  /** For people, never parsed: why a view the host draws itself failed, for a script the error and its line (§9.8). */
   readonly message?: string;
 }
 

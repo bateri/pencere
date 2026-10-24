@@ -418,7 +418,7 @@ pub struct Closed {
     /// With [`EndedBy::Error`]: the `code` of the terminal's `closed`.
     pub code: Option<String>,
     /// With [`EndedBy::Error`]: the words the terminal gave, which for a view it draws itself
-    /// are its error and the line (§8.8).
+    /// are its error and the line (§9.8).
     pub message: Option<String>,
 }
 
@@ -457,7 +457,7 @@ pub struct NoView {
     pub reason: NoViewReason,
     /// The `code` of the `closed` of a refusal or a failure (§6.4).
     pub code: Option<String>,
-    /// The words of the `closed`, for people (§8.8). For [`NoViewReason::NoCommonView`], when the
+    /// The words of the `closed`, for people (§9.8). For [`NoViewReason::NoCommonView`], when the
     /// terminal opens a kind of the program's in other versions, the sentence that names both
     /// sides (§5.2); [`serve`] prints it before the fallback runs.
     pub message: Option<String>,

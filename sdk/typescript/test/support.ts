@@ -33,6 +33,8 @@ export interface DecodeEntry {
   note: string;
   scope: "body" | "stream";
   canonical: boolean;
+  /** The payload is a page's text passed on as it came: not compact JSON. */
+  relayed?: boolean;
   messages: ManifestMessage[];
   errors: string[];
 }
@@ -45,7 +47,20 @@ export interface SessionEntry {
     store: string[];
     views?: ViewOffer[];
   };
-  steps: ({ in: string } | { out: string | null })[];
+  steps: (
+    | { in: string }
+    | {
+        event: string;
+        file?: string;
+        "alternate-screen"?: boolean;
+        allow?: boolean;
+        grant?: string;
+        width?: number;
+        height?: number;
+        pad?: number;
+      }
+    | { out: string | null; acted?: string[]; "to-view"?: string[] }
+  )[];
 }
 
 export interface Manifest {

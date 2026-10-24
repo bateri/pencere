@@ -21,6 +21,7 @@ import {
   dismissPayload,
   failurePayload,
   helloPayload,
+  noVersionSentence,
   openPayload,
   parseClosed,
   parseNeed,
@@ -33,7 +34,7 @@ import {
   subscribePayload,
 } from "../src/messages.js";
 import type { OpenFields, ViewOffer } from "../src/messages.js";
-import { fixture, manifest } from "./support.js";
+import { fixture, manifest, payloadOf } from "./support.js";
 import type { DecodeEntry, SessionEntry } from "./support.js";
 
 function summary(events: readonly DecodeEvent[]) {
@@ -68,7 +69,9 @@ describe("the manifest", () => {
     const listed = [
       ...entries.map((e) => e.file),
       ...manifest().session.flatMap((s) =>
-        s.steps.flatMap((step) => ("in" in step ? [step.in] : step.out === null ? [] : [step.out])),
+        s.steps.flatMap((step) =>
+          "in" in step ? [step.in] : "out" in step && step.out !== null ? [step.out] : [],
+        ),
       ),
     ];
     expect(listed.sort()).toEqual(found.sort());
@@ -98,7 +101,7 @@ describe("every entry decodes as the manifest says, however the stream is cut", 
   }
 
   it("covers the entries the Rust crate covers", () => {
-    expect(entries.length).toBeGreaterThanOrEqual(67);
+    expect(entries.length).toBeGreaterThanOrEqual(72);
   });
 });
 
@@ -262,11 +265,23 @@ const CHOSEN: Readonly<Record<string, { kind: string; version: string } | null>>
   "handshake#1": { kind: "web", version: "1.0" },
 };
 
+/**
+ * The sessions in which the program is not this library but a hostile one, or one that tests a
+ * limit: what it writes is not what this library writes.
+ */
+const HOSTILE = new Set([
+  "hello-edges",
+  "kit-open-ignores-access",
+  "bundle-limits",
+  "bundle-too-many-files",
+  "bundle-corrupt",
+]);
+
 describe("every session of the manifest", () => {
   const sessions: SessionEntry[] = manifest().session;
 
   it("is read by this library, and the program's side is written as the fixtures have it", () => {
-    expect(sessions.length).toBeGreaterThanOrEqual(16);
+    expect(sessions.length).toBeGreaterThanOrEqual(34);
     for (const session of sessions) {
       let hello: Message | undefined;
       let hellos = 0;
@@ -275,7 +290,11 @@ describe("every session of the manifest", () => {
           for (const message of messagesOf("to-host", step.in)) {
             const label = `${session.name} ${step.in} ${message.kind}#${message.id}`;
             // `file` is base64, and the frames the program writes besides are its own words.
-            if (message.kind !== "file" && rewritten(message) !== undefined)
+            if (
+              message.kind !== "file" &&
+              !HOSTILE.has(session.name) &&
+              rewritten(message) !== undefined
+            )
               expect(rewritten(message), label).toBe(message.payload);
             if (message.kind === "hello") {
               hello = message;
@@ -289,7 +308,7 @@ describe("every session of the manifest", () => {
               ).toBe(true);
             }
           }
-        } else if (step.out !== null) {
+        } else if ("out" in step && step.out !== null) {
           for (const message of messagesOf("to-program", step.out)) {
             const label = `${session.name} ${step.out} ${message.kind}#${message.id}`;
             const payload = message.payload;
@@ -325,6 +344,10 @@ describe("every session of the manifest", () => {
               case "closed":
                 expect(parseClosed(payload), label).toBeDefined();
                 break;
+              case "msg":
+                // The words of a page, which the host passes on as they came.
+                expect(parseViewRequest(payload), label).toBeDefined();
+                break;
               default:
                 throw new Error(`${label}: a host writes no such message to a program`);
             }
@@ -332,6 +355,72 @@ describe("every session of the manifest", () => {
         }
       }
     }
+  });
+
+  it("reads the closed of each session as its note says: a re when it answers something, none when the view ran", () => {
+    const closedOf = (name: string) =>
+      (sessions.find((s) => s.name === name)?.steps ?? [])
+        .flatMap((step) =>
+          "out" in step && step.out !== null ? messagesOf("to-program", step.out) : [],
+        )
+        .filter((m) => m.kind === "closed")
+        .map((m) => ({ re: m.control.re, ...parseClosed(m.payload) }));
+    expect(closedOf("view-ends")).toEqual([
+      { re: undefined, reason: "user" },
+      { re: undefined, reason: "view" },
+    ]);
+    expect(closedOf("page-message-too-long")).toEqual([
+      {
+        re: undefined,
+        reason: "error",
+        code: "view",
+        message: "a message of the view was over 1 MiB",
+      },
+    ]);
+    expect(closedOf("files-timeout")).toEqual([{ re: "2", reason: "error", code: "timeout" }]);
+    expect(closedOf("consent-timeout")).toEqual([{ re: "2", reason: "error", code: "timeout" }]);
+    expect(closedOf("bundle-corrupt")).toEqual([{ re: "2", reason: "error", code: "bundle" }]);
+    expect(closedOf("screen-refused")).toEqual([{ re: "2", reason: "refused", code: "screen" }]);
+    expect(closedOf("policy-refused")).toEqual([{ re: "2", reason: "refused", code: "policy" }]);
+    expect(closedOf("bundle-limits").map((c) => c.code)).toEqual(["limit", "limit"]);
+    expect(closedOf("bundle-too-many-files").map((c) => c.code)).toEqual(["limit"]);
+    // Answering a dismiss, not an open.
+    expect(closedOf("messages-outside-a-view")).toEqual([{ re: "7", reason: "program" }]);
+  });
+
+  it("reads the restart of a view as an offer with a new token and no hello it answers", () => {
+    const session = sessions.find((s) => s.name === "restart");
+    const welcomes = (session?.steps ?? [])
+      .flatMap((step) =>
+        "out" in step && step.out !== null ? messagesOf("to-program", step.out) : [],
+      )
+      .filter((m) => m.kind === "welcome");
+    expect(welcomes).toHaveLength(2);
+    const [first, restart] = welcomes.map((m) => parseWelcome(m.payload, VERSIONS));
+    expect(first).toMatchObject({ kind: "offer", restart: false });
+    expect(restart).toMatchObject({ kind: "offer", restart: true });
+    expect(welcomes[1]?.control.re).toBeUndefined();
+    expect(
+      restart?.kind === "offer" && first?.kind === "offer" && restart.token !== first.token,
+    ).toBe(true);
+  });
+
+  it("says in words which versions would have served, from the welcome that names them (§5.2)", () => {
+    const welcome = parseWelcome(payloadOf("to-program/welcome-opens.frame"), VERSIONS);
+    expect(welcome).toMatchObject({
+      kind: "offer",
+      views: [{ kind: "web", versions: ["1.0"] }],
+      opens: [{ kind: "wasm", versions: ["1.0"] }],
+    });
+    if (welcome?.kind !== "offer") throw new Error("an offer");
+    const mine: ViewOffer[] = [
+      { kind: "wasm", versions: ["2.0"] },
+      { kind: "web", versions: ["1.0"] },
+    ];
+    expect(chooseView(mine, welcome.views)).toEqual({ kind: "web", version: "1.0" });
+    expect(noVersionSentence(mine, welcome.opens)).toBe(
+      "this program is written for wasm 2.0; this terminal opens wasm 1.0",
+    );
   });
 
   it("answers a need with the files it names: the digests are the manifest's, in its order", () => {
