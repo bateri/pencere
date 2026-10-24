@@ -38,6 +38,9 @@ fn convert(value: &Value, marker: &Table, depth: usize) -> Result<Json, String> 
     }
     Ok(match value {
         Value::Nil => Json::Null,
+        // `json.null`: the null light userdata is the one value that says `null` where a nil
+        // would leave the field out.
+        Value::LightUserData(pointer) if pointer.0.is_null() => Json::Null,
         Value::Boolean(flag) => Json::Bool(*flag),
         Value::Integer(n) => Json::Number(Number::from(*n)),
         Value::Number(n) => number(*n)?,

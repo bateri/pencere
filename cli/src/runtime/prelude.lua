@@ -170,6 +170,8 @@ module.json = guard(native.json)
 module.hash = guard(native.hash)
 module.os = guard(native.os)
 module.io = guard(native.io)
+module.text = guard(native.text)
+module.regex = guard(native.regex)
 module.args = native.args
 module.name = native.name
 
@@ -205,9 +207,14 @@ local spawn = guarded(native.spawn)
 module.process = {
 	spawn = spawn,
 	-- run{ argv = {...} } (or run{"docker", "ps"}) waits for the program to end, and gives what it
-	-- said: { code =, signal =, ok =, timed_out =, stdout =, stderr = } as text; `timeout` (seconds)
-	-- ends it if it takes longer. Lines are also given to
-	-- `on_stdout` and `on_stderr` while it runs, if the options have them.
+	-- said: { code =, signal =, ok =, timed_out =, overflowed =, stdout =, stderr = } as text;
+	-- `timeout` (seconds) ends it if it takes longer. Lines are also given to
+	-- `on_stdout` and `on_stderr` while it runs, if the options have them. `raw = true` is for
+	-- output that is not text (names ended by NUL): `stdout` and `stderr` are then the bytes as the
+	-- program wrote them, no line ends taken out or put in. `max_output` (bytes, both streams
+	-- together, line ends included) ends the program that says more, and `overflowed` says it did;
+	-- what it said up to the limit is in `stdout` and `stderr`, and nothing after it is kept. The
+	-- program and everything it started (a shell's pipeline) are ended together.
 	run = function(options)
 		if type(options) ~= "table" then
 			error("process.run takes a table: { argv = {...} } or the argv itself", 2)
@@ -221,6 +228,7 @@ module.process = {
 		end
 		local out, err = {}, {}
 		local timer, timed_out = nil, false
+		local child, overflowed = nil, false
 		local function collect(into, forward)
 			return function(line)
 				into[#into + 1] = line
@@ -232,13 +240,14 @@ module.process = {
 		spec.on_stdout = collect(out, options.on_stdout)
 		spec.on_stderr = collect(err, options.on_stderr)
 		local code, signal = suspend(function(done)
-			spec.on_exit = function(code, signal)
+			spec.on_exit = function(code, signal, over)
+				overflowed = over == true
 				if options.on_exit then
 					options.on_exit(code, signal)
 				end
 				done(code, signal)
 			end
-			local child = spawn(spec)
+			child = spawn(spec)
 			-- `timeout` (seconds) ends it if it takes longer.
 			if options.timeout then
 				timer = native.after(options.timeout, function()
@@ -250,13 +259,15 @@ module.process = {
 		if timer then
 			timer:cancel()
 		end
+		local joint = options.raw and "" or "\n"
 		return {
 			code = code,
 			signal = signal,
 			timed_out = timed_out,
-			ok = code == 0,
-			stdout = table.concat(out, "\n"),
-			stderr = table.concat(err, "\n"),
+			overflowed = overflowed,
+			ok = code == 0 and not overflowed,
+			stdout = table.concat(out, joint),
+			stderr = table.concat(err, joint),
 		}
 	end,
 }

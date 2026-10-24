@@ -40,6 +40,8 @@ pub fn natives(lua: &Lua, core: &Rc<Core>) -> mlua::Result<Table> {
     native.set("hash", hash(lua)?)?;
     native.set("os", system(lua)?)?;
     native.set("io", terminal(lua)?)?;
+    native.set("text", super::text::natives(lua)?)?;
+    native.set("regex", super::pattern::natives(lua)?)?;
     native.set("args", core.args.clone())?;
     native.set("name", core.name.as_str())?;
 
@@ -318,6 +320,39 @@ fn files(lua: &Lua) -> mlua::Result<Table> {
                 .map_err(|why| fail("fs.append", &path, &why))
         })?,
     )?;
+    // fs.create(path): a new empty file, and an error if anything is at the path already (a file, a
+    // directory, a link, even one that points at nothing). The path is made with `O_EXCL`, which
+    // does not follow a link: an existing file is not truncated and a link's target is not made.
+    table.set(
+        "create",
+        lua.create_function(|_, path: String| {
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .map(drop)
+                .map_err(|why| fail("fs.create", &path, &why))
+        })?,
+    )?;
+    // fs.rename(from, to): moves a file or a directory; a file at `to` is replaced.
+    table.set(
+        "rename",
+        lua.create_function(|_, (from, to): (String, String)| {
+            fs::rename(&from, &to).map_err(|why| fail("fs.rename", &from, &why))
+        })?,
+    )?;
+    // fs.writable(path): whether this process may write to the file, as the system answers it
+    // (the file's mode is not all that decides it).
+    table.set(
+        "writable",
+        lua.create_function(|_, path: String| {
+            let Ok(path) = std::ffi::CString::new(path) else {
+                return Ok(false);
+            };
+            // SAFETY: asks the system about a path of ours.
+            Ok(unsafe { libc::access(path.as_ptr(), libc::W_OK) } == 0)
+        })?,
+    )?;
     table.set(
         "list",
         lua.create_function(|lua, path: String| {
@@ -327,16 +362,20 @@ fn files(lua: &Lua) -> mlua::Result<Table> {
                 let Ok(name) = entry.file_name().into_string() else {
                     continue;
                 };
+                let link = entry.file_type().is_ok_and(|kind| kind.is_symlink());
                 let meta = fs::metadata(entry.path()).or_else(|_| entry.metadata());
-                entries.push((name, meta.ok()));
+                entries.push((name, link, meta.ok()));
             }
             entries.sort_by(|a, b| a.0.cmp(&b.0));
             let list = lua.create_table()?;
-            for (index, (name, meta)) in entries.into_iter().enumerate() {
+            for (index, (name, link, meta)) in entries.into_iter().enumerate() {
                 let item = lua.create_table()?;
                 item.set("name", name)?;
+                // What a link points at, when it points at something (a link to nothing is
+                // `other`); `link` says it is one.
                 item.set("kind", meta.as_ref().map_or("other", kind_of))?;
                 item.set("size", meta.as_ref().map_or(0, fs::Metadata::len))?;
+                item.set("link", link)?;
                 list.raw_set(index + 1, item)?;
             }
             Ok(list)
@@ -497,6 +536,8 @@ fn json(lua: &Lua) -> mlua::Result<Table> {
             from_json(lua, &json)
         })?,
     )?;
+    // json.null: what is sent as `null` (a field that is nil is not sent at all).
+    table.set("null", Value::NULL)?;
     // json.object() -> an empty table that is sent as `{}` and not as `[]`.
     table.set(
         "object",
@@ -544,6 +585,62 @@ fn system(lua: &Lua) -> mlua::Result<Table> {
         "tmpdir",
         lua.create_function(|_, ()| Ok(std::env::temp_dir().display().to_string()))?,
     )?;
+    // The machine's name, as it calls itself ("" where it cannot be found).
+    table.set(
+        "hostname",
+        lua.create_function(|_, ()| {
+            let mut name = [0u8; 256];
+            // SAFETY: fills a buffer of ours, with room for the end of the text.
+            let got = unsafe { libc::gethostname(name.as_mut_ptr().cast(), name.len() - 1) };
+            if got != 0 {
+                return Ok(String::new());
+            }
+            let end = name
+                .iter()
+                .position(|byte| *byte == 0)
+                .unwrap_or(name.len());
+            Ok(String::from_utf8_lossy(name.get(..end).unwrap_or_default()).into_owned())
+        })?,
+    )?;
+    // The name of the person who runs the app, from the system's records of users ("" where the
+    // user has no entry).
+    table.set(
+        "username",
+        lua.create_function(|_, ()| {
+            // The record is filled into a buffer of ours, which has to be big enough for it: a
+            // user with many names in the record, or a long home, outgrows a small one (ERANGE).
+            let mut size = 1024usize;
+            let name = loop {
+                let mut buffer = vec![0u8; size];
+                // SAFETY: the record is filled into buffers of ours, which outlive its use below.
+                let (status, name) = unsafe {
+                    let mut record: libc::passwd = std::mem::zeroed();
+                    let mut found: *mut libc::passwd = std::ptr::null_mut();
+                    let status = libc::getpwuid_r(
+                        libc::geteuid(),
+                        &raw mut record,
+                        buffer.as_mut_ptr().cast(),
+                        buffer.len(),
+                        &raw mut found,
+                    );
+                    let name = if status != 0 || found.is_null() || record.pw_name.is_null() {
+                        String::new()
+                    } else {
+                        std::ffi::CStr::from_ptr(record.pw_name)
+                            .to_string_lossy()
+                            .into_owned()
+                    };
+                    (status, name)
+                };
+                if status == libc::ERANGE && size < 1 << 20 {
+                    size *= 4;
+                    continue;
+                }
+                break name;
+            };
+            Ok(name)
+        })?,
+    )?;
     Ok(table)
 }
 
@@ -562,6 +659,18 @@ fn terminal(lua: &Lua) -> mlua::Result<Table> {
             out.write_all(&text.as_bytes())
                 .and_then(|()| out.flush())
                 .map_err(|why| fail("io.write", "stdout", &why))
+        })?,
+    )?;
+    // io.ewrite(text): to the terminal's error output, as it is: what a program says of its own
+    // failure, apart from what it prints for a person or a pipe to read.
+    table.set(
+        "ewrite",
+        lua.create_function(|_, text: mlua::String| {
+            use std::io::Write as _;
+            let mut out = io::stderr().lock();
+            out.write_all(&text.as_bytes())
+                .and_then(|()| out.flush())
+                .map_err(|why| fail("io.ewrite", "stderr", &why))
         })?,
     )?;
     // io.read_line([prompt]) -> the line without its end, or nil at the end of the input.

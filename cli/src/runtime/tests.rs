@@ -421,7 +421,7 @@ fn a_hash_a_system_and_the_terminals_text_are_in_the_module() {
         print(pencere.hash.sha256(""))
         print(pencere.os.platform == "macos" or pencere.os.platform == "linux", type(pencere.os.arch))
         print(type(pencere.os.home()), pencere.os.tmpdir() ~= "")
-        print(type(pencere.io.read_line), type(pencere.io.write))
+        print(type(pencere.io.read_line), type(pencere.io.write), type(pencere.io.ewrite))
     "#);
     assert_eq!(exit, Exit::Done(0));
     let lines: Vec<&str> = printed.lines().collect();
@@ -436,7 +436,7 @@ fn a_hash_a_system_and_the_terminals_text_are_in_the_module() {
     assert_eq!(lines[2], "true\tstring");
     assert_eq!(lines[3], "string\ttrue");
     // (Reading a line waits for the person; the end-to-end tests do not type.)
-    assert_eq!(lines[4], "function\tfunction");
+    assert_eq!(lines[4], "function\tfunction\tfunction");
 }
 
 #[test]
@@ -517,4 +517,276 @@ fn a_program_given_the_terminal_runs_and_the_app_goes_on_when_it_ends() {
         "{printed}"
     );
     assert!(lines[3].starts_with("false\thandoff needs"), "{printed}");
+}
+
+// ---- what a program that edits files needs ------------------------------------------------------
+
+#[test]
+fn a_file_is_created_only_where_nothing_is_and_a_link_is_never_followed() {
+    let dir = std::env::temp_dir().join(format!("pencere-create-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a directory");
+    let target = dir.join("target-of-a-dangling-link");
+    std::os::unix::fs::symlink(&target, dir.join("dangling")).expect("a link");
+    std::fs::write(dir.join("kept"), "keep me").expect("a file");
+    let source = format!(
+        r#"
+        local pencere = require("pencere")
+        local fs, path = pencere.fs, pencere.path
+        local dir = {dir:?}
+        fs.create(path.join(dir, "new"))
+        print(fs.stat(path.join(dir, "new")).size)
+        print((pcall(fs.create, path.join(dir, "kept"))))
+        print((pcall(fs.create, path.join(dir, "dangling"))))
+        print(fs.exists(path.join(dir, "target-of-a-dangling-link")))
+        print(fs.read(path.join(dir, "kept")))
+        fs.rename(path.join(dir, "new"), path.join(dir, "renamed"))
+        print(fs.exists(path.join(dir, "new")), fs.exists(path.join(dir, "renamed")))
+        print(fs.writable(path.join(dir, "kept")), fs.writable(path.join(dir, "nowhere")))
+        local links = {{}}
+        for _, entry in ipairs(fs.list(dir)) do links[#links + 1] = entry.name .. ":" .. entry.kind .. ":" .. tostring(entry.link) end
+        print(table.concat(links, " "))
+    "#
+    );
+    let (exit, printed) = run(&source);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(exit, Exit::Done(0), "{printed}");
+    assert_eq!(
+        printed,
+        "0\nfalse\nfalse\nfalse\nkeep me\nfalse\ttrue\ntrue\tfalse\ndangling:other:true kept:file:false renamed:file:false\n"
+    );
+}
+
+#[test]
+fn output_that_is_not_text_comes_as_it_was_written_and_too_much_of_it_ends_the_program() {
+    let (exit, printed) = run(r#"
+        local pencere = require("pencere")
+        local result = pencere.process.run { argv = { "printf", "a\\0b\\nc\\r\\n\\0" }, raw = true }
+        print(#result.stdout, (string.gsub(result.stdout, "%z", "0")))
+        local lines = pencere.process.run { argv = { "printf", "a\\nb\\r\\n" } }
+        print(lines.stdout == "a\nb")
+        -- Past a megabyte the lines of the program are cut; raw is not.
+        local big = pencere.process.run { argv = { "sh", "-c", "head -c 3000000 /dev/zero | tr '\\0' 'x'" }, raw = true }
+        print(#big.stdout, big.overflowed)
+        local capped = pencere.process.run { argv = { "sh", "-c", "yes" }, raw = true, max_output = 100000 }
+        print(capped.overflowed, capped.ok, #capped.stdout < 1000000)
+    "#);
+    assert_eq!(exit, Exit::Done(0), "{printed}");
+    assert_eq!(
+        printed,
+        "8\ta0b\nc\r\n0\ntrue\n3000000\tfalse\ntrue\tfalse\ttrue\n"
+    );
+}
+
+#[test]
+fn what_a_program_may_say_is_counted_as_it_is_read_line_ends_and_empty_lines_included() {
+    let started = std::time::Instant::now();
+    // Lines with nothing in them are no bytes of text and a million of them are a million bytes
+    // of lines; the program is a pipeline, and is ended whole.
+    let (exit, printed) = run(r#"
+        local pencere = require("pencere")
+        local capped = pencere.process.run {
+            argv = { "sh", "-c", "cat /dev/zero | tr '\\0' '\\n'" },
+            max_output = 1000000,
+        }
+        print(capped.overflowed, capped.ok, #capped.stdout, capped.code, capped.signal)
+        local exact = pencere.process.run { argv = { "printf", "abcd" }, max_output = 4 }
+        print(exact.overflowed, exact.ok, exact.stdout)
+        local over = pencere.process.run { argv = { "printf", "abcde" }, max_output = 4 }
+        print(over.overflowed, over.ok, over.stdout)
+        local errors = pencere.process.run { argv = { "sh", "-c", "yes >&2" }, max_output = 10 }
+        print(errors.overflowed, #errors.stderr)
+    "#);
+    assert_eq!(exit, Exit::Done(0), "{printed}");
+    assert_eq!(
+        printed,
+        "true\tfalse\t999999\tnil\t9\nfalse\ttrue\tabcd\ntrue\tfalse\tabcd\ntrue\t9\n"
+    );
+    assert!(started.elapsed() < Duration::from_secs(20));
+}
+
+#[test]
+fn a_program_that_is_a_pipeline_is_ended_whole_by_a_timeout_and_by_the_end_of_the_app() {
+    let dir = std::env::temp_dir().join(format!("pencere-group-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a directory");
+    let pids = dir.join("pids");
+    let started = std::time::Instant::now();
+    let source = format!(
+        r#"
+        local pencere = require("pencere")
+        -- Both parts of the pipeline hold the pipe the app reads; the shell's end alone frees nothing.
+        local result = pencere.process.run {{ argv = {{ "sh", "-c", "sleep 30 | sleep 30" }}, timeout = 0.3 }}
+        print(result.timed_out, result.ok, result.signal)
+        -- Left running when the app ends: a program in the background of a shell, which is the group's.
+        pencere.process.spawn {{
+            argv = {{ "sh", "-c", "sleep 30 & echo $! > {pids}; wait" }},
+        }}
+        pencere.time.sleep(0.5)
+    "#,
+        pids = pids.display()
+    );
+    let (exit, printed) = run(&source);
+    assert_eq!(exit, Exit::Done(0), "{printed}");
+    assert_eq!(printed, "true\tfalse\t9\n");
+    assert!(started.elapsed() < Duration::from_secs(10));
+    let pid: libc::pid_t = std::fs::read_to_string(&pids)
+        .expect("a pid")
+        .trim()
+        .parse()
+        .expect("a number");
+    let _ = std::fs::remove_dir_all(&dir);
+    // The sleep was not the shell, and it is gone with it (once the system has seen it go).
+    let until = std::time::Instant::now() + Duration::from_secs(5);
+    let gone = loop {
+        // SAFETY: asks whether a process exists; no signal is sent.
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        if !alive || std::time::Instant::now() > until {
+            break !alive;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(gone, "the program the shell started is still running");
+}
+
+#[test]
+fn null_is_sent_as_null_and_the_machine_has_a_name_and_a_user() {
+    let (exit, printed) = run(r#"
+        local pencere = require("pencere")
+        local json = pencere.json
+        print(json.encode({ git = json.null, list = {}, none = json.object() }))
+        print(json.decode("null"), json.decode('{"a":null}').a)
+        print(#pencere.os.hostname() > 0, #pencere.os.username() > 0)
+    "#);
+    assert_eq!(exit, Exit::Done(0), "{printed}");
+    assert_eq!(
+        printed,
+        "{\"git\":null,\"list\":[],\"none\":{}}\nnil\tnil\ntrue\ttrue\n"
+    );
+}
+
+#[test]
+fn text_is_counted_in_utf16_units_and_names_are_ordered_as_people_read_them() {
+    let (exit, printed) = run(r#"
+        local pencere = require("pencere")
+        local text = pencere.text
+        local s = "aş😀z"
+        print(text.units(s), text.units(s, 1, 1), text.units(s, 2, 3), text.units(s, 4, 7))
+        print(text.index(s, 0), text.index(s, 1), text.index(s, 2), text.index(s, 3), text.index(s, 4), text.index(s, 5), text.index(s, 6))
+        print(text.index(s, 1, 2), text.index(s, 2, 2), #s + 1)
+        print(text.valid("abc"), text.valid("a\255b"), text.lossy("a\255b") == "a\239\191\189b")
+        print(text.wire_size('a"b\n'), text.wire_size("ş"), text.wire_size("😀"), text.wire_size("\1"))
+        print(text.wire_fit("abcdef", 1, 3), text.wire_fit("abcdef", 3, 100), text.wire_fit("ş😀ş", 1, 12), text.wire_fit("ş😀ş", 1, 5))
+        local names = { "file10", "b.txt", "A.txt", "file9", "zdir" }
+        table.sort(names, function(a, b) return text.compare(a, b, true) < 0 end)
+        print(table.concat(names, " "), text.compare("a", "A"), text.compare("a", "A", true))
+        -- A byte that is not text is one character, and the places are the real bytes'.
+        print(text.index("a\255ş", 2), text.wire_size("a\255"), text.wire_fit("a\255b", 1, 4))
+    "#);
+    assert_eq!(exit, Exit::Done(0), "{printed}");
+    let lines: Vec<&str> = printed.lines().collect();
+    assert_eq!(lines[0], "5\t1\t1\t2");
+    assert_eq!(lines[1], "1\t2\t4\tnil\t8\t9\tnil");
+    assert_eq!(lines[2], "4\tnil\t9");
+    assert_eq!(lines[3], "true\tfalse\ttrue");
+    assert_eq!(lines[4], "4\t2\t4\t1");
+    assert_eq!(lines[5], "3\t6\t8\t2\t1");
+    assert_eq!(lines[6], "A.txt b.txt file9 file10 zdir\t0\t1");
+    assert_eq!(lines[7], "3\t4\t2\t2");
+}
+
+#[test]
+fn a_pattern_found_by_a_person_is_a_regex_with_words_for_what_is_wrong() {
+    let (exit, printed) = run(r#"
+        local pencere = require("pencere")
+        local regex = pencere.regex
+        local re = regex.new("orders?\\b")
+        print(re:find("no order here", 1))
+        print(re:find("no order here", 8))
+        print(re:find("x orders", 1))
+        local word = regex.new("order", { whole_word = true, ignore_case = true })
+        print(word:find("reorder ORDER", 1))
+        print(word:find("orders", 1))
+        print(regex.new("é+", {}):find("aééb", 1))
+        print(regex.new("\\p{L}+É", { ignore_case = true }):find("1 abcé", 1))
+        print(regex.new("^"):find("abc", 1))
+        print(select(2, pcall(regex.new, "(a)\\1")))
+        print(select(2, pcall(regex.new, "(?<=a)b")))
+        print(regex.escape("a.b*c"), regex.new(regex.escape("a.b")):find("a.b", 1))
+        local ok, why = pcall(regex.new, "(")
+        print(ok, why)
+        print(re:find("é order", 2))
+        -- A negative start counts from the end, as `string.find` does.
+        print(re:find("order and orders", -7), re:find("order", -100), re:find("order", 0), re:find("order", 7))
+    "#);
+    assert_eq!(exit, Exit::Done(0), "{printed}");
+    assert_eq!(
+        printed,
+        "4\t8\nnil\tnil\n3\t8\n9\t13\nnil\tnil\n2\t5\n3\t7\n1\t0\n\
+         regex.new: this pattern uses a back-reference, which search does not support\n\
+         regex.new: this pattern uses look-ahead or look-behind, which search does not support\n\
+         a\\.b\\*c\t1\t3\nfalse\tregex.new: unclosed group\n4\t8\n\
+         11\t1\t1\tnil\tnil\n"
+    );
+}
+
+#[test]
+fn an_app_has_an_icon_for_each_background_and_the_size_a_png_says_it_is() {
+    // The start of a PNG: its signature and the header with a width and a height.
+    let png = |side: u32| {
+        let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13];
+        bytes.extend_from_slice(b"IHDR");
+        bytes.extend_from_slice(&side.to_be_bytes());
+        bytes.extend_from_slice(&side.to_be_bytes());
+        bytes
+    };
+    let files = Files::packed(BTreeMap::from([
+        ("assets/dark-32.png".to_owned(), png(32)),
+        ("assets/light-64.png".to_owned(), png(64)),
+    ]));
+    let lua = mlua::Lua::new();
+    let list: mlua::Table = lua
+        .load(
+            r#"return {
+                { file = "assets/dark-32.png", theme = "dark" },
+                { file = "assets/light-64.png", theme = "light" },
+                { file = "assets/dark-32.png" },
+            }"#,
+        )
+        .eval()
+        .expect("a table");
+    let icons = super::serve::icons_of(&files, &list).expect("icons");
+    assert_eq!(icons.len(), 3);
+    assert_eq!(icons[0].sizes, ["32x32"]);
+    assert_eq!(icons[0].theme, Some(pencere::IconTheme::Dark));
+    assert_eq!(icons[1].sizes, ["64x64"]);
+    assert_eq!(icons[1].theme, Some(pencere::IconTheme::Light));
+    assert_eq!(icons[2].theme, None);
+    assert!(icons[0].src.starts_with("data:image/png;base64,"));
+    let bad: mlua::Table = lua
+        .load(r#"return { { file = "assets/dark-32.png", theme = "blue" } }"#)
+        .eval()
+        .expect("a table");
+    assert!(super::serve::icons_of(&files, &bad).is_err());
+    // A file that is not a PNG, or whose first chunk is not the header, says no size: whatever bytes
+    // are where the size would be are not one.
+    let mut not_png = png(48);
+    not_png[1] = b'X';
+    let mut no_header = png(48);
+    no_header[12..16].copy_from_slice(b"IDAT");
+    let files = Files::packed(BTreeMap::from([
+        ("assets/not.png".to_owned(), not_png),
+        ("assets/headless.png".to_owned(), no_header),
+    ]));
+    let sizes = |file: &str| {
+        let list: mlua::Table = lua
+            .load(format!(r#"return {{ {{ file = "{file}" }} }}"#))
+            .eval()
+            .expect("a table");
+        super::serve::icons_of(&files, &list).expect("icons")[0]
+            .sizes
+            .clone()
+    };
+    assert!(sizes("assets/not.png").is_empty());
+    assert!(sizes("assets/headless.png").is_empty());
 }

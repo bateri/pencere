@@ -7,6 +7,7 @@ mod app;
 mod build_cmd;
 mod dev;
 mod files;
+mod macho;
 mod new;
 mod payload;
 mod runtime;

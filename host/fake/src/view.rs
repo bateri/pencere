@@ -22,8 +22,16 @@ use serde_json::{Map, Value, json};
 use crate::args::Ask;
 use crate::log;
 
-/// How much of a value the record shows, in characters.
+/// How much of a value the record shows, in characters. `PENCERE_FAKE_GIST=N` says another number: a
+/// test of a program that wants to read what it answered (the order of a listing) asks for all of it.
 const GIST_LIMIT: usize = 100;
+
+fn gist_limit() -> usize {
+    std::env::var("PENCERE_FAKE_GIST")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(GIST_LIMIT)
+}
 
 /// What the script does after a message.
 #[derive(Debug, Default)]
@@ -77,10 +85,11 @@ pub struct ScriptedView {
 /// `value` as the record shows it: compact, and cut where it would fill the line.
 fn gist(value: &Value) -> String {
     let text = value.to_string();
-    if text.chars().count() <= GIST_LIMIT {
+    let limit = gist_limit();
+    if text.chars().count() <= limit {
         return text;
     }
-    let head: String = text.chars().take(GIST_LIMIT).collect();
+    let head: String = text.chars().take(limit).collect();
     format!("{head}... ({} bytes)", text.len())
 }
 

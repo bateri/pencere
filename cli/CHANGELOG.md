@@ -6,11 +6,44 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+### Changed
+
+- A program that `process.spawn` or `process.run` starts runs in a group of its own, and `kill`, a
+  `timeout`, `max_output` and the end of the app signal the whole group. Before, a shell's
+  pipeline kept the pipe open after the shell was ended, and `run` did not return. `max_output`
+  counts the bytes as they are read, line ends included, and keeps nothing past the limit (empty
+  lines were counted as nothing, and a program that said only those filled the memory); a pipe is
+  read a bounded amount in a turn. An app that shows nothing and is ended by ⌃C or a hangup asks the
+  programs it started to end first (they are not in the group the terminal signals). `on_exit` is told as a third value whether the program was ended
+  for saying too much.
+- `text.wire_size` and `text.wire_fit` count as the protocol counts a message: the text's UTF-8 before
+  any escape (they counted six bytes for each unit outside ASCII). `text.index`, `wire_fit` and
+  `units` walk the bytes they are given: a run of bytes that is not UTF-8 is one character and the
+  places are those of the real bytes, and a text sent in pieces costs the text, not the text for
+  each piece.
+- `regex` uses an engine that does not backtrack, so a pattern a person typed or a page sent cannot hold
+  the app. Back-references and look-ahead or look-behind are refused ("this pattern uses a
+  back-reference, which search does not support"). `whole_word` is checked in code around the match,
+  and a search that would read the same stretch again and again says so and stops. `:find` takes
+  a negative `init`, as `string.find` does.
+- `pencere build` refuses a Mac runner without the room in its header for the app's section.
+  `serve{ icons }` reads the size only of a file that is a PNG; `os.username` has a buffer that
+  grows for a long record.
+
 ### Fixed
 
 - `fs.watch` on macOS told of what happened before the watch started (a directory made just before it); the stream's beginning is now told from the past by an event of its own. `fs.watch` returns without waiting for the system to confirm that it has begun. The Rust project template is `Cargo.toml.tmpl` in the repository, so that cargo does not read it as a manifest in a project that takes this repository by git.
 
 ### Added
+
+- For an app that edits files, such as an editor: `fs.create` (a new file, where nothing is: it does
+  not truncate a file or write through a link), `fs.rename`, `fs.writable`, `link` in `fs.list`;
+  `process.run` with `raw` (output that is not text, exactly as written) and `max_output`;
+  `json.null`; `os.hostname` and `os.username`; `text` (names in the order people read them, and a
+  text counted in UTF-16 units); `regex` (patterns a person types, without back-references or look-around); `serve{ icons }` (an icon for
+  each background and size).
+- A Mac's runner is linked with room in its header for the segment `pencere build` adds. Without
+  it an app could be written over its first functions, and fail at the first call of one.
 
 - The command itself, and the runner a built app is: one executable that, with an app inside it,
   runs that app, and without one is `pencere`.

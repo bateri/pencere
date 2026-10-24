@@ -104,6 +104,20 @@ pub struct Stream {
     pub buffer: Vec<u8>,
     pub handler: Option<Function>,
     pub open: bool,
+    /// Given as it is read, in pieces, and not as lines: output that is not text.
+    pub raw: bool,
+}
+
+impl Stream {
+    /// The stream is over, or is no longer read: what is left in the buffer (the last line, which
+    /// has no end) goes to the handler, and nothing more is read.
+    fn finish(&mut self, out: &mut Vec<Vec<u8>>) {
+        self.open = false;
+        let rest = std::mem::take(&mut self.buffer);
+        if !rest.is_empty() && self.handler.is_some() {
+            out.push(rest);
+        }
+    }
 }
 
 pub struct Child {
@@ -112,7 +126,49 @@ pub struct Child {
     pub stdout: Stream,
     pub stderr: Stream,
     pub on_exit: Option<Function>,
+    /// How many bytes the two streams together may say before the program is ended (`max_output`).
+    pub limit: Option<usize>,
+    /// How many bytes the streams have said so far, line ends included.
+    pub produced: usize,
+    /// The program said more than `limit` and was ended for it.
+    pub overflowed: bool,
+    /// When the program was ended by force. Its streams are given a moment to say what they have and
+    /// then no longer waited for: a program it started that went into a group of its own keeps a
+    /// pipe open, and the app must not wait for that.
+    pub killed_at: Option<Instant>,
 }
+
+impl Child {
+    /// Sends a signal to the program and to everything it started: it runs in a group of its own,
+    /// so that a shell with a pipeline in it, or a program with children, is ended whole and not
+    /// only at its head.
+    pub fn signal(&self, signal: libc::c_int) {
+        signal_group(self.process.id(), signal);
+    }
+}
+
+/// A signal to the group of processes whose leader is `pid`, which is a program this one started
+/// and has not yet seen end (a group's number is not taken again while one of its members lives).
+fn signal_group(pid: u32, signal: libc::c_int) {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return;
+    };
+    // SAFETY: a signal to a group of processes that this one started.
+    unsafe {
+        libc::kill(-pid, signal);
+    }
+}
+
+/// A program that ended: what to tell the app, its exit code, the signal that ended it, and whether it
+/// was ended for saying too much.
+type Finished = (Option<Function>, Option<i32>, Option<i32>, bool);
+
+/// How long the streams of a program that was ended by force are waited for.
+const KILLED_GRACE: Duration = Duration::from_millis(250);
+
+/// How much of one pipe is read in one turn. The loop then goes back to waiting and to the app, so
+/// that a program that says more than the app can follow does not fill the memory with it.
+const TURN_BYTES: usize = 256 * 1024;
 
 /// The `serve` that is running: what its view's calls and topics are in Lua.
 pub struct ServeRun {
@@ -344,7 +400,7 @@ impl Core {
                     watched.push((child.id, is_err));
                 }
             }
-            if !child.stdout.open && !child.stderr.open {
+            if (!child.stdout.open && !child.stderr.open) || child.killed_at.is_some() {
                 reaping = true;
             }
         }
@@ -400,19 +456,33 @@ impl Core {
     // ---- processes -------------------------------------------------------------------
 
     fn read_child(&self, id: u64, is_err: bool) {
-        let mut lines: Vec<(Function, Vec<u8>)> = Vec::new();
+        // The handler and the lines to give it, for each stream that has some.
+        let mut batches: Vec<(Function, Vec<Vec<u8>>)> = Vec::new();
         {
             let mut children = self.children.borrow_mut();
             let Some(child) = children.iter_mut().find(|child| child.id == id) else {
                 return;
             };
-            let stream = if is_err {
-                &mut child.stderr
+            let signal_pid = child.process.id();
+            let Child {
+                stdout,
+                stderr,
+                limit,
+                produced,
+                overflowed,
+                killed_at,
+                ..
+            } = child;
+            let (stream, other) = if is_err {
+                (stderr, stdout)
             } else {
-                &mut child.stdout
+                (stdout, stderr)
             };
+            let mut lines: Vec<Vec<u8>> = Vec::new();
+            let mut ended_for_size = false;
+            let mut taken = 0usize;
             let mut chunk = [0u8; 16384];
-            loop {
+            while taken < TURN_BYTES {
                 // SAFETY: reads into a buffer of ours from a descriptor of ours.
                 let got = unsafe {
                     libc::read(
@@ -422,20 +492,28 @@ impl Core {
                     )
                 };
                 if got > 0 {
-                    stream
-                        .buffer
-                        .extend_from_slice(chunk.get(..got as usize).unwrap_or_default());
+                    let got = got as usize;
+                    taken += got;
+                    let mut piece = chunk.get(..got).unwrap_or_default();
+                    // Counted as it is read, before anything is made of it (a line, an entry in a
+                    // table): what is more than the program may say is not kept.
+                    if let Some(limit) = *limit {
+                        let room = limit.saturating_sub(*produced);
+                        if piece.len() > room {
+                            piece = piece.get(..room).unwrap_or_default();
+                            ended_for_size = true;
+                        }
+                    }
+                    *produced += piece.len();
+                    stream.buffer.extend_from_slice(piece);
                     split_lines(stream, &mut lines);
+                    if ended_for_size {
+                        break;
+                    }
                     continue;
                 }
                 if got == 0 {
-                    stream.open = false;
-                    if !stream.buffer.is_empty() {
-                        let rest = std::mem::take(&mut stream.buffer);
-                        if let Some(handler) = &stream.handler {
-                            lines.push((handler.clone(), rest));
-                        }
-                    }
+                    stream.finish(&mut lines);
                 } else {
                     let error = std::io::Error::last_os_error();
                     if error.kind() == std::io::ErrorKind::Interrupted {
@@ -447,46 +525,78 @@ impl Core {
                 }
                 break;
             }
+            let mut others: Vec<Vec<u8>> = Vec::new();
+            if ended_for_size {
+                // More than it may say: the program is ended whole, and what it was in the middle of
+                // saying is the end of what the app hears.
+                *overflowed = true;
+                stream.finish(&mut lines);
+                other.finish(&mut others);
+                signal_group(signal_pid, libc::SIGKILL);
+                killed_at.get_or_insert_with(Instant::now);
+            }
+            if let (false, Some(handler)) = (lines.is_empty(), &stream.handler) {
+                batches.push((handler.clone(), lines));
+            }
+            if let (false, Some(handler)) = (others.is_empty(), &other.handler) {
+                batches.push((handler.clone(), others));
+            }
         }
-        for (handler, line) in lines {
-            let text = match self.lua.create_string(&line) {
-                Ok(text) => Value::String(text),
-                Err(_) => continue,
-            };
-            self.callback(handler, vec![text]);
-            if self.exit().is_some() {
-                return;
+        for (handler, lines) in batches {
+            for line in lines {
+                let text = match self.lua.create_string(&line) {
+                    Ok(text) => Value::String(text),
+                    Err(_) => continue,
+                };
+                self.callback(handler.clone(), vec![text]);
+                if self.exit().is_some() {
+                    return;
+                }
             }
         }
     }
 
     /// Finds the processes that have ended and whose output has been read to its end.
     fn reap(&self) {
-        let mut finished: Vec<(Option<Function>, Option<i32>, Option<i32>)> = Vec::new();
+        let mut finished: Vec<Finished> = Vec::new();
         {
             let mut children = self.children.borrow_mut();
             children.retain_mut(|child| {
-                if child.stdout.open || child.stderr.open {
+                let waiting_for_streams = child.stdout.open || child.stderr.open;
+                let given_up = child
+                    .killed_at
+                    .is_some_and(|at| at.elapsed() >= KILLED_GRACE);
+                if waiting_for_streams && !given_up {
                     return true;
                 }
                 match child.process.try_wait() {
                     Ok(Some(status)) => {
                         use std::os::unix::process::ExitStatusExt as _;
-                        finished.push((child.on_exit.take(), status.code(), status.signal()));
+                        super::ending::remove(child.process.id());
+                        finished.push((
+                            child.on_exit.take(),
+                            status.code(),
+                            status.signal(),
+                            child.overflowed,
+                        ));
                         false
                     }
                     Ok(None) => true,
                     Err(_) => {
-                        finished.push((child.on_exit.take(), None, None));
+                        super::ending::remove(child.process.id());
+                        finished.push((child.on_exit.take(), None, None, child.overflowed));
                         false
                     }
                 }
             });
         }
-        for (on_exit, code, signal) in finished {
+        for (on_exit, code, signal, overflowed) in finished {
             if let Some(on_exit) = on_exit {
                 let number = |n: Option<i32>| n.map_or(Value::Nil, |n| Value::Number(f64::from(n)));
-                self.callback(on_exit, vec![number(code), number(signal)]);
+                self.callback(
+                    on_exit,
+                    vec![number(code), number(signal), Value::Boolean(overflowed)],
+                );
                 if self.exit().is_some() {
                     return;
                 }
@@ -502,22 +612,28 @@ impl Core {
         }
         let mut waiting: Vec<Process> = Vec::new();
         for mut child in children {
-            // SAFETY: a signal to a process of ours.
-            unsafe {
-                libc::kill(child.process.id() as libc::pid_t, libc::SIGTERM);
-            }
+            child.signal(libc::SIGTERM);
             if child.process.try_wait().ok().flatten().is_none() {
                 waiting.push(child.process);
+            } else {
+                super::ending::remove(child.process.id());
             }
         }
         let until = Instant::now() + Duration::from_millis(400);
         while !waiting.is_empty() && Instant::now() < until {
-            waiting.retain_mut(|process| process.try_wait().ok().flatten().is_none());
+            waiting.retain_mut(|process| {
+                let running = process.try_wait().ok().flatten().is_none();
+                if !running {
+                    super::ending::remove(process.id());
+                }
+                running
+            });
             std::thread::sleep(Duration::from_millis(10));
         }
         for mut process in waiting {
-            let _ = process.kill();
+            signal_group(process.id(), libc::SIGKILL);
             let _ = process.wait();
+            super::ending::remove(process.id());
         }
     }
 
@@ -548,24 +664,36 @@ impl Core {
 }
 
 /// The lines in a stream's buffer, taken out of it.
-fn split_lines(stream: &mut Stream, out: &mut Vec<(Function, Vec<u8>)>) {
+fn split_lines(stream: &mut Stream, out: &mut Vec<Vec<u8>>) {
+    if stream.handler.is_none() {
+        // Nobody is told, and nothing is kept.
+        stream.buffer.clear();
+        return;
+    }
+    if stream.raw {
+        let piece = std::mem::take(&mut stream.buffer);
+        if !piece.is_empty() {
+            out.push(piece);
+        }
+        return;
+    }
     // A line that never ends is not kept for ever.
     const LONGEST: usize = 1 << 20;
-    loop {
-        let end = match stream.buffer.iter().position(|byte| *byte == b'\n') {
-            Some(at) => at,
-            None if stream.buffer.len() >= LONGEST => stream.buffer.len(),
-            None => return,
+    // Looked through once, and what was taken out is dropped from the buffer once: dropping it a line
+    // at a time moves the rest of the buffer every time.
+    let mut from = 0usize;
+    while let Some(rest) = stream.buffer.get(from..) {
+        let (end, next) = match rest.iter().position(|byte| *byte == b'\n') {
+            Some(at) => (from + at, from + at + 1),
+            None if rest.len() >= LONGEST => (stream.buffer.len(), stream.buffer.len()),
+            None => break,
         };
-        let mut line: Vec<u8> = stream.buffer.drain(..end).collect();
-        if stream.buffer.first() == Some(&b'\n') {
-            stream.buffer.remove(0);
-        }
+        let mut line = stream.buffer.get(from..end).unwrap_or_default().to_vec();
         if line.last() == Some(&b'\r') {
             line.pop();
         }
-        if let Some(handler) = &stream.handler {
-            out.push((handler.clone(), line));
-        }
+        out.push(line);
+        from = next;
     }
+    stream.buffer.drain(..from);
 }

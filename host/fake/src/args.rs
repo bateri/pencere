@@ -56,6 +56,11 @@ options:
   --size COLSxROWS     the pane's size (default: this terminal's, else 80x24)
   --limit SECONDS      kill the program and give up after this long (default 30)
   -h, --help           this text
+
+environment:
+  PENCERE_FAKE_GIST=N  how many characters of a result the record shows (default
+                       100): a test that reads what the program answered asks for
+                       all of it
 ";
 
 /// What happens when the script is done.
