@@ -1298,7 +1298,7 @@ mod tests {
                 .iter()
                 .filter(|item| {
                     matches!(item, Paint::Quad(q) if q.fill.is_none()
-                        && q.border.is_some_and(|b| b.color.tone == tone && b.width == 3.0))
+                        && q.border.is_some_and(|b| b.color.role() == Some(tone) && b.width == 3.0))
                 })
                 .count()
         };

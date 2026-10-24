@@ -1,12 +1,12 @@
 # The page modules and the tools that build them: the SDK a page is written with (`pencere-page`),
-# the modules the sandbox's tests run (`containers`, `broken`, `chatty`) and the tools that make
+# the modules the sandbox's tests run (`containers`, `broken`, `chatty`, `tints`) and the tools that make
 # the interpreter's component (`cbindgen`, `componentize`). Another workspace on purpose — these
 # are built for `wasm32-unknown-unknown` with the rustup `stable` toolchain (`make guest`), while
 # the terminal-side crates are built with the toolchain the repository pins; `make check` never
 # builds them, so it needs no WebAssembly toolchain.
 [workspace]
 resolver = "3"
-members = ["sdk", "containers", "broken", "chatty", "componentize", "cbindgen"]
+members = ["sdk", "containers", "broken", "chatty", "tints", "componentize", "cbindgen"]
 
 [workspace.package]
 version = "0.1.0"

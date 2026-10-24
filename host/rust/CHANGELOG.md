@@ -7,6 +7,14 @@ under this name) are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`selection` and `ansi` in a web page's `context.colors`.** `theme::Theme` gains `selection`
+  (made up as a third of the way from the background to the accent) and `ansi`, the sixteen colours
+  of the palette (made up as xterm's: `theme::XTERM_ANSI`); `Roles` carries both. The page is told
+  them after `info`, the palette as an array of sixteen `#rrggbb` strings (specification §9.5,
+  §11.2).
+
 ### Changed
 
 - **Breaking: the crate is `pencere-host`** (the library is `pencere_host`). The name `pencere` is

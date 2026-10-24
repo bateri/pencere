@@ -51,7 +51,7 @@ audit:
 # (`rustup target add wasm32-unknown-unknown --toolchain stable`). Its linker finds its LLVM
 # through the toolchain's library directory, which rustup's own proxies put in the environment
 # and a PATH that Homebrew's rustc comes first in does not: it is put there here.
-GUEST_MODULES = containers broken chatty
+GUEST_MODULES = containers broken chatty tints
 GUEST_BIN = $(shell dirname "$$(rustup which --toolchain stable cargo 2>/dev/null)" 2>/dev/null)
 GUEST_CARGO = PATH="$(GUEST_BIN):$$PATH" DYLD_FALLBACK_LIBRARY_PATH="$(dir $(GUEST_BIN))lib" $(GUEST_BIN)/cargo
 guest:

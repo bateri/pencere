@@ -25,10 +25,7 @@ const DEFAULT_TEXT: TextStyle = TextStyle {
     family: Some(Family::Terminal),
     size: Some(12.5),
     weight: Some(400),
-    color: Some(Color {
-        tone: Tone::Foreground,
-        alpha: 1.0,
-    }),
+    color: Some(Tone::Foreground.solid()),
     align: Some(Align::Start),
 };
 

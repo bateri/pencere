@@ -1553,7 +1553,7 @@
     {
       "file": "bridge/context.json",
       "direction": "host-to-page",
-      "note": "the host's context for a page: every theme role, the terminal's font, the size of the pane, the person's language and time zone, the accessibility setting, and what the person allowed",
+      "note": "the host's context for a page: every theme role, its selection and its palette, the terminal's font, the size of the pane, the person's language and time zone, the accessibility setting, and what the person allowed",
       "outcome": "written",
       "config": {
         "theme": {
@@ -1565,7 +1565,26 @@
           "success": "#3fb950",
           "error": "#f85149",
           "warning": "#d29922",
-          "info": "#58a6ff"
+          "info": "#58a6ff",
+          "selection": "#1f3d5c",
+          "ansi": [
+            "#484f58",
+            "#ff7b72",
+            "#3fb950",
+            "#d29922",
+            "#58a6ff",
+            "#bc8cff",
+            "#39c5cf",
+            "#b1bac4",
+            "#6e7681",
+            "#ffa198",
+            "#56d364",
+            "#e3b341",
+            "#79c0ff",
+            "#d2a8ff",
+            "#56d4dd",
+            "#f0f6fc"
+          ]
         },
         "font": "Menlo, monospace",
         "size": {
@@ -1583,7 +1602,7 @@
     {
       "file": "bridge/context-defaults.json",
       "direction": "host-to-page",
-      "note": "the context of a host that knows only the background and the foreground of its theme: the other roles are made up, and what is not known is left out",
+      "note": "the context of a host that knows only the background and the foreground of its theme: the other roles, the selection and the palette are made up, and what is not known is left out",
       "outcome": "written",
       "config": {
         "theme": {

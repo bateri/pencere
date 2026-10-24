@@ -8,6 +8,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- The interface and the Lua page API carry the new colours: the theme's ANSI palette and selection
+  as roles (`"red"`, `"bright-red"`, `"selection"`), and values (`"#rrggbb"`, `"#rrggbbaa"`,
+  `{ light = "#…", dark = "#…" }`, with an opacity as before: `pencere.alpha(colour, 0.5)`). The
+  interface is still `pencere:view@1.0.0`, because it has not been published.
+
 - The crate itself, taken from the terminal that wrote it first: the sandbox, its limits and
   watchdog, the thread a module runs on, and the embedded interpreter. The interface is
   `pencere:view@1.0.0` and the Lua global is `pencere`.

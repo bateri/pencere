@@ -106,6 +106,8 @@ pub(super) fn context_text(context: &ViewContext, grant: &Grant) -> String {
         error: String,
         warning: String,
         info: String,
+        selection: String,
+        ansi: Vec<String>,
     }
     #[derive(Serialize)]
     struct Area {
@@ -148,6 +150,8 @@ pub(super) fn context_text(context: &ViewContext, grant: &Grant) -> String {
                 error: roles.error.css(),
                 warning: roles.warning.css(),
                 info: roles.info.css(),
+                selection: roles.selection.css(),
+                ansi: roles.ansi.iter().map(|colour| colour.css()).collect(),
             },
             font: (!font.is_empty()).then_some(font),
             size: Area {

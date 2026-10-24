@@ -543,3 +543,70 @@ fn the_container_list_sends_its_payload_as_fast_as_its_program_has_room_and_lose
     assert_eq!(all.iter().map(|c| c.1).sum::<usize>(), 4 << 20);
     assert_eq!(all.iter().filter(|c| c.2).count(), 1);
 }
+
+/// What the page `tints` says in Rust, said in Lua.
+const TINTS_LUA: &str = r##"
+local palette = {
+    "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+    "bright-black", "bright-red", "bright-green", "bright-yellow",
+    "bright-blue", "bright-magenta", "bright-cyan", "bright-white",
+}
+local both = { light = "#203040", dark = "#e0d0c0" }
+return { render = function()
+    local root = pencere.div():p(4):gap(2)
+    for _, name in ipairs(palette) do root:child(pencere.text(name):color(name)) end
+    return root
+        :child(pencere.text("selection"):color("selection"):bg("selection"))
+        :child(pencere.text("value"):color("#1a2b3c"))
+        :child(pencere.text("value with opacity"):color("#1a2b3c80"))
+        :child(pencere.text("forms"):color(both))
+        :child(pencere.text("forms alone"):color("#aabbcc"))
+        :child(pencere.text("role with opacity"):color(pencere.alpha("bright-red", 0.5)))
+        :child(pencere.text("value on top of opacity"):color(pencere.alpha("#1a2b3c80", 0.25)))
+        :child(pencere.text("forms with opacity"):color(pencere.alpha(both, 0.75)))
+        :child(
+            pencere.div():w(10):h(10):bg(both)
+                :border(1, pencere.alpha("cyan", 0.5))
+                :shadow(0, 2, 4, "#1a2b3c80")
+        )
+        :child(pencere.spark({ 1, 2, 3 }, "bright-green"))
+        :child(pencere.spark({ 3, 2, 1 }, both))
+end }
+"##;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_colour_said_in_rust_and_in_lua_is_the_same_colour_across_the_sandbox() {
+    let Some(mut module) = open("tints", Limits::default()) else {
+        return;
+    };
+    module.module.render(SIZE, 0.0, false);
+    let from_module = module.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    assert_eq!(from_module.closed, None);
+    let mut script = crate::luau_tests::open_script(TINTS_LUA, Limits::default());
+    script.module.render(SIZE, 0.0, false);
+    let from_script = script.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    assert_eq!(from_script.closed, None);
+    let (module, script) = (
+        from_module.frame.expect("the module's page"),
+        from_script.frame.expect("the script's page"),
+    );
+    assert!(
+        module.root == script.root,
+        "the Rust page and the script say the same colours differently"
+    );
+    // And the comparison is not of two empty things: the pair of forms is in the tree.
+    let both = pencere_view::Rgba::rgb(0x20, 0x30, 0x40)
+        .or_dark(pencere_view::Rgba::rgb(0xe0, 0xd0, 0xc0));
+    assert!(
+        module
+            .root
+            .fold()
+            .iter()
+            .any(|node| node.style.text.color == Some(both) && node.style.fill.is_none())
+    );
+}

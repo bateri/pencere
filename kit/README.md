@@ -14,8 +14,9 @@ but the interface here; the terminal lays out what it hands out and draws it.
 | [`guest`](guest)     | `pencere-page` and the test pages | Another workspace, built for `wasm32`: the SDK a page module is written with, and modules to try it on       |
 
 The page language and the sandbox know nothing of a window, a font or a renderer. A terminal
-measures text for the engine (`pencere_view::Measure`), resolves the colour roles of a page in its
-own theme, and turns the draw list into what it draws.
+measures text for the engine (`pencere_view::Measure`), resolves the colours of a page in its own
+theme (a role in the theme, a value in the form that goes with its brightness), keeps text readable
+against the grounds the draw list names under it, and turns the draw list into what it draws.
 
 ## Versions
 
@@ -36,7 +37,7 @@ The kit's version is the one a view names in its `open` (specification Sections 
 
 ```sh
 make check        # the gate: needs no toolchain for WebAssembly
-make guest        # the page modules (containers, broken, chatty) and the example program
+make guest        # the page modules (containers, broken, chatty, tints) and the example program
 make check-heavy  # what runs a real module and the interpreter; builds `guest` first
 make luau         # rebuilds the interpreter in Docker (pinned wasi-sdk and Luau); `make check` fails when it is due
 ```

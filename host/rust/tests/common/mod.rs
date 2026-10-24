@@ -467,6 +467,14 @@ pub fn bridge_config(config: &Value) -> Config {
     theme.error = colour("error");
     theme.warning = colour("warning");
     theme.info = colour("info");
+    theme.selection = colour("selection");
+    theme.ansi = config["theme"]["ansi"].as_array().map(|palette| {
+        let palette: Vec<Rgb> = palette
+            .iter()
+            .map(|c| Rgb::parse(c.as_str().unwrap()).unwrap())
+            .collect();
+        palette.try_into().unwrap()
+    });
     let mut host = web_config();
     host.view.theme = theme;
     host.view.size = Size {

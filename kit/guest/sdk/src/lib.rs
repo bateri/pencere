@@ -55,8 +55,8 @@ use bindings::pencere::view::program as to_program;
 pub use pencere_view::wire;
 pub use pencere_view::{
     Align, Border, Button, Color, Cursor, Element, Event, Extent, Fades, Family, Id, Input, Key,
-    Keyboard, Menu, MenuEntry, Mods, Point, Queries, Rect, Reply, Rows, Shadow, Size, Tone, Track,
-    Ui, div, spacer, spark, text,
+    Keyboard, Menu, MenuEntry, Mods, Point, Queries, Rect, Reply, Rgba, Rows, Shadow, Size, Source,
+    Tone, Track, Ui, div, spacer, spark, text,
 };
 pub use pencere_wire::messages;
 

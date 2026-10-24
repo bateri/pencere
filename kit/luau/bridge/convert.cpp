@@ -118,10 +118,21 @@ const char* const kAlign[] = {"start", "center", "end"};
 pencere_view_types_tone_t tone_of(lua_State* L, const char* given) {
     static const char* const plain[] = {"background", "foreground", "dim",     "accent", "cursor",
                                         "success",    "error",      "info",    "warning"};
+    // The theme's ANSI palette, in the interface's order (so that the tags run on from `black`).
+    static const char* const ansi[] = {"black",        "red",          "green",        "yellow",
+                                       "blue",         "magenta",      "cyan",         "white",
+                                       "bright-black", "bright-red",   "bright-green", "bright-yellow",
+                                       "bright-blue",  "bright-magenta", "bright-cyan", "bright-white"};
     pencere_view_types_tone_t tone = {};
     for (int at = 0; at < 9; at++) {
         if (strcmp(given, plain[at]) == 0) {
             tone.tag = (uint8_t)at;
+            return tone;
+        }
+    }
+    for (int at = 0; at < 16; at++) {
+        if (strcmp(given, ansi[at]) == 0) {
+            tone.tag = (uint8_t)(PENCERE_VIEW_TYPES_TONE_BLACK + at);
             return tone;
         }
     }
@@ -135,6 +146,10 @@ pencere_view_types_tone_t tone_of(lua_State* L, const char* given) {
     }
     if (strcmp(given, "shadow") == 0) {
         tone.tag = PENCERE_VIEW_TYPES_TONE_SHADOW;
+        return tone;
+    }
+    if (strcmp(given, "selection") == 0) {
+        tone.tag = PENCERE_VIEW_TYPES_TONE_SELECTION;
         return tone;
     }
     if (strncmp(given, "raised", 6) == 0) {
@@ -157,23 +172,99 @@ pencere_view_types_tone_t tone_of(lua_State* L, const char* given) {
     luaL_error(L, "\"%s\" is not the name of a tone", given);
 }
 
-// A colour: a tone's name, or `{tone, alpha}`.
+int hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+// A colour value: "#rrggbb" or "#rrggbbaa", any case.
+pencere_view_types_rgba_t rgba_of(lua_State* L, const char* given) {
+    size_t length = strlen(given);
+    bool ok = given[0] == '#' && (length == 7 || length == 9);
+    uint8_t channel[4] = {0, 0, 0, 255};
+    for (size_t at = 0; ok && at * 2 + 1 < length - 1; at++) {
+        int high = hex_digit(given[1 + at * 2]);
+        int low = hex_digit(given[2 + at * 2]);
+        if (high < 0 || low < 0) ok = false;
+        else channel[at] = (uint8_t)(high * 16 + low);
+    }
+    if (!ok) luaL_error(L, "\"%s\" is not a colour value (\"#rrggbb\" or \"#rrggbbaa\")", given);
+    pencere_view_types_rgba_t out = {};
+    out.r = channel[0];
+    out.g = channel[1];
+    out.b = channel[2];
+    out.a = channel[3];
+    return out;
+}
+
+// What a string names: a value if it starts with '#', else a tone.
+pencere_view_types_source_t source_of(lua_State* L, const char* given) {
+    pencere_view_types_source_t source = {};
+    if (given[0] == '#') {
+        source.tag = PENCERE_VIEW_TYPES_SOURCE_RGBA;
+        source.val.rgba.light = rgba_of(L, given);
+    } else {
+        source.tag = PENCERE_VIEW_TYPES_SOURCE_ROLE;
+        source.val.role = tone_of(L, given);
+    }
+    return source;
+}
+
+// A value for each brightness of the theme: the table `{ light = "#...", dark = "#..." }`, the dark
+// one optional, at the absolute stack index `t`.
+pencere_view_types_source_t forms_at(lua_State* L, int t) {
+    pencere_view_types_source_t source = {};
+    source.tag = PENCERE_VIEW_TYPES_SOURCE_RGBA;
+    lua_rawgetfield(L, t, "light");
+    if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "light must be a colour value (\"#rrggbb\" or \"#rrggbbaa\")");
+    source.val.rgba.light = rgba_of(L, lua_tostring(L, -1));
+    lua_pop(L, 1);
+    lua_rawgetfield(L, t, "dark");
+    if (!lua_isnil(L, -1)) {
+        if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "dark must be a colour value (\"#rrggbb\" or \"#rrggbbaa\")");
+        source.val.rgba.dark.is_some = true;
+        source.val.rgba.dark.val = rgba_of(L, lua_tostring(L, -1));
+    }
+    lua_pop(L, 1);
+    return source;
+}
+
+const char kColourIs[] =
+    "a colour is a tone's name, a \"#rrggbb\" or \"#rrggbbaa\" value, { light = value, dark = value }, "
+    "or one of those with an opacity: { colour, alpha }";
+
+// A colour: a tone's name, a value, a value for each brightness, or any of those with an
+// opacity: `{colour, alpha}`.
 pencere_view_types_color_t color_at(lua_State* L, int index) {
     pencere_view_types_color_t color = {};
     color.alpha = 1.0f;
     int kind = lua_type(L, index);
     if (kind == LUA_TSTRING) {
-        color.tone = tone_of(L, lua_tostring(L, index));
+        color.source = source_of(L, lua_tostring(L, index));
     } else if (kind == LUA_TTABLE) {
         lua_rawgeti(L, index, 1);
-        if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "a colour is a tone's name, or {tone, alpha}");
-        color.tone = tone_of(L, lua_tostring(L, -1));
+        int first = lua_type(L, -1);
+        if (first == LUA_TSTRING) {
+            color.source = source_of(L, lua_tostring(L, -1));
+        } else if (first == LUA_TTABLE) {
+            color.source = forms_at(L, lua_gettop(L));
+        } else if (first == LUA_TNIL) {
+            lua_rawgetfield(L, index, "light");
+            bool forms = !lua_isnil(L, -1);
+            lua_pop(L, 1);
+            if (!forms) luaL_error(L, "%s", kColourIs);
+            color.source = forms_at(L, index);
+        } else {
+            luaL_error(L, "%s", kColourIs);
+        }
         lua_pop(L, 1);
         lua_rawgeti(L, index, 2);
         if (lua_type(L, -1) == LUA_TNUMBER) color.alpha = (float)lua_tonumber(L, -1);
         lua_pop(L, 1);
     } else {
-        luaL_error(L, "a colour is a tone's name, or {tone, alpha}");
+        luaL_error(L, "%s", kColourIs);
     }
     return color;
 }

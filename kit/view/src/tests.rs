@@ -2,8 +2,8 @@
 //! and what the draw list holds. The host's measuring is a fixed-width stand-in.
 
 use crate::{
-    Align, DrawList, Family, Font, Measure, Metrics, Paint, Rect, Size, Tone, Track, div, layout,
-    spacer, spark, text,
+    Align, Color, DrawList, Family, Font, Measure, Metrics, Paint, Rect, Rgba, Size, Source, Tone,
+    Track, div, layout, spacer, spark, text,
 };
 
 /// Every character is `0.5 × size` wide and the line `1.25 × size` tall: round numbers.
@@ -156,12 +156,12 @@ fn text_takes_what_the_host_says_and_inherits_the_boxes_around_it() {
     assert_eq!(runs[0].font.size, 20.0);
     assert_eq!(runs[0].font.weight, 600);
     assert_eq!(runs[0].font.family, Family::System);
-    assert_eq!(runs[0].color.tone, Tone::Dim);
+    assert_eq!(runs[0].color.role(), Some(Tone::Dim));
     assert_eq!(runs[1].font.size, 40.0);
     assert_eq!(runs[1].font.weight, 400);
     assert_eq!(
-        runs[1].color.tone,
-        Tone::Dim,
+        runs[1].color.role(),
+        Some(Tone::Dim),
         "the colour is still the box's"
     );
     // The second line sits under the first, whose box is 1.25 × 20 px tall.
@@ -339,4 +339,165 @@ fn a_host_with_no_text_gets_the_boxes_and_no_words() {
     let list = laid.paint(&mut Mute);
     assert_eq!(quads(&list).len(), 1);
     assert!(runs(&list).is_empty());
+}
+
+// --- Colours -------------------------------------------------------------------------------
+
+#[test]
+fn the_ansi_palette_is_sixteen_roles_in_the_order_of_its_colours() {
+    assert_eq!(Tone::ANSI.len(), 16);
+    for (at, tone) in Tone::ANSI.iter().enumerate() {
+        assert_eq!(tone.ansi_index(), Some(at as u8));
+    }
+    assert_eq!(Tone::Black.ansi_index(), Some(0));
+    assert_eq!(Tone::BrightWhite.ansi_index(), Some(15));
+    // The theme's own roles are not in the palette, not even the ones that share a colour with it.
+    for tone in [
+        Tone::Error,
+        Tone::Selection,
+        Tone::Foreground,
+        Tone::Raised(1),
+    ] {
+        assert_eq!(tone.ansi_index(), None);
+    }
+}
+
+#[test]
+fn a_hex_value_is_six_or_eight_digits_after_a_hash_and_nothing_else() {
+    assert_eq!(Rgba::parse("#1a2B3c"), Some(Rgba::rgb(0x1a, 0x2b, 0x3c)));
+    assert_eq!(
+        Rgba::parse("#1a2b3c80"),
+        Some(Rgba::new(0x1a, 0x2b, 0x3c, 0x80))
+    );
+    for bad in [
+        "",
+        "#",
+        "1a2b3c",
+        "#123",
+        "#1a2b3",
+        "#1a2b3c8",
+        "#1a2b3c800",
+        "#gg0000",
+        "# 1a2b3c",
+        "#+1a2b3c",
+        "#1a2b3é",
+    ] {
+        assert_eq!(Rgba::parse(bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn a_value_has_a_form_for_each_brightness_and_the_light_one_where_it_gave_one_only() {
+    let light = Rgba::rgb(10, 20, 30);
+    let dark = Rgba::rgb(200, 210, 220);
+    let one = Source::Rgba { light, dark: None };
+    let both = Source::Rgba {
+        light,
+        dark: Some(dark),
+    };
+    assert_eq!(one.value(false), Some(light));
+    assert_eq!(one.value(true), Some(light));
+    assert_eq!(both.value(false), Some(light));
+    assert_eq!(both.value(true), Some(dark));
+    assert_eq!(Source::Role(Tone::Red).value(true), None);
+}
+
+#[test]
+fn a_colour_is_opaque_when_every_form_of_it_covers_what_is_under_it() {
+    assert!(Tone::Raised(1).solid().is_opaque());
+    assert!(!Tone::Accent.alpha(0.99).is_opaque());
+    assert!(Rgba::rgb(1, 2, 3).solid().is_opaque());
+    assert!(!Rgba::new(1, 2, 3, 254).solid().is_opaque());
+    assert!(Rgba::rgb(1, 2, 3).or_dark(Rgba::rgb(4, 5, 6)).is_opaque());
+    // One translucent form is enough: the host may wear either.
+    assert!(
+        !Rgba::rgb(1, 2, 3)
+            .or_dark(Rgba::new(4, 5, 6, 200))
+            .is_opaque()
+    );
+    let half = Color {
+        alpha: 0.5,
+        ..Rgba::rgb(1, 2, 3).solid()
+    };
+    assert!(!half.is_opaque());
+    assert!(!Tone::Accent.alpha(f32::NAN).is_opaque());
+}
+
+fn grounds(root: crate::Element, line: &str) -> Vec<Color> {
+    let list = paint(root, 100.0, 100.0, 1.0);
+    let runs = runs(&list);
+    let run = runs
+        .iter()
+        .find(|run| run.text == line)
+        .expect("the line was drawn");
+    run.grounds.clone()
+}
+
+#[test]
+fn a_line_names_the_fills_under_it_nearest_first_and_stops_at_the_first_opaque_one() {
+    let root = div().bg(Tone::Background).child(
+        div().bg(Tone::Raised(1)).child(
+            div()
+                .bg(Tone::Accent.alpha(0.2))
+                .child(div().child(text("deep").bg(Rgba::new(9, 9, 9, 128).solid()))),
+        ),
+    );
+    assert_eq!(
+        grounds(root, "deep"),
+        vec![
+            Rgba::new(9, 9, 9, 128).solid(),
+            Tone::Accent.alpha(0.2),
+            // The opaque card ends it: the page's background beyond it is not named.
+            Tone::Raised(1).solid(),
+        ]
+    );
+}
+
+#[test]
+fn nested_translucent_fills_come_in_the_order_they_are_laid_over_each_other_outward() {
+    let root = div().bg(Tone::Foreground.alpha(0.1)).child(
+        div()
+            .bg(Tone::Accent.alpha(0.2))
+            .child(div().bg(Tone::Error.alpha(0.3)).child(text("x"))),
+    );
+    // None is opaque: all three are named and the page's background is under the last.
+    assert_eq!(
+        grounds(root, "x"),
+        vec![
+            Tone::Error.alpha(0.3),
+            Tone::Accent.alpha(0.2),
+            Tone::Foreground.alpha(0.1)
+        ]
+    );
+}
+
+#[test]
+fn a_line_on_nothing_has_no_grounds_and_a_fill_with_nothing_drawn_is_not_one() {
+    assert_eq!(
+        grounds(div().child(text("bare")), "bare"),
+        Vec::<Color>::new()
+    );
+    let root = div()
+        .bg(Tone::Raised(1))
+        // No room: it is not drawn, and the line that spills out of it stands on the card.
+        .child(
+            div()
+                .row()
+                .size(0.0, 20.0)
+                .bg(Tone::Accent.alpha(0.5))
+                .child(text("spill").no_shrink()),
+        );
+    assert_eq!(grounds(root, "spill"), vec![Tone::Raised(1).solid()]);
+}
+
+#[test]
+fn both_forms_of_a_value_reach_the_draw_list_unresolved() {
+    let ink = Rgba::rgb(0x20, 0x30, 0x40).or_dark(Rgba::rgb(0xe0, 0xd0, 0xc0));
+    let ground = Rgba::new(0x11, 0x22, 0x33, 0x44).or_dark(Rgba::rgb(0xaa, 0xbb, 0xcc));
+    let root = div().bg(ground).child(text("hue").color(ink));
+    let list = paint(root, 100.0, 100.0, 1.0);
+    let run = runs(&list)[0].clone();
+    assert_eq!(run.color, ink);
+    assert_eq!(run.grounds, vec![ground]);
+    assert_eq!(quads(&list)[0].fill, Some(ground));
 }

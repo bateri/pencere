@@ -1,11 +1,17 @@
-//! Colours by name. A page never holds a colour value: it names a [`Tone`] of the pane's
-//! theme and, where it wants the tone translucent, an alpha — `color-mix(accent 13%,
+//! Colours. A page says a colour in one of two ways. The way to prefer is a [`Tone`], a role of
+//! the pane's theme, and, where it wants the tone translucent, an alpha — `color-mix(accent 13%,
 //! transparent)` is `Tone::Accent.alpha(0.13)`. What the tone is, in a given theme, is the
 //! host's to say (a terminal resolves it in the theme of the pane), so the page follows the theme
-//! the terminal wears and the arithmetic of colours stays in one place.
+//! the terminal wears and the arithmetic of colours stays in one place. The other way is a value
+//! ([`Rgba`]), for the colour a role does not name — a brand's, a syntax's — with, if it wants
+//! to stay readable on a theme of the other brightness, a second value for a dark theme.
+//!
+//! The engine resolves neither: a [`Color`] stays what the page said, and the host that draws it
+//! turns it into a colour of its renderer — the role in its theme, the value that goes with its
+//! theme's brightness ([`Source::value`]).
 
-/// A tone of the theme: its nine roles, and the values the theme derives from them for
-/// surfaces, lines and shadows.
+/// A role of the theme: its nine roles, the sixteen colours of its ANSI palette and its
+/// selection, and the values the theme derives from them for surfaces, lines and shadows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tone {
     /// The ground of the pane.
@@ -38,30 +44,207 @@ pub enum Tone {
     /// The colour a shadow is cast in: the theme's dark end (black on a dark theme, the
     /// foreground on a light one).
     Shadow,
-}
-
-/// A tone with an opacity.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Color {
-    pub tone: Tone,
-    /// `0.0` transparent, `1.0` solid.
-    pub alpha: f32,
+    /// The ground of what the person selected.
+    Selection,
+    /// The ANSI palette, in the order of its sixteen colours (xterm's names): the first eight
+    /// are the normal colours, the last eight the bright ones.
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+    BrightBlack,
+    BrightRed,
+    BrightGreen,
+    BrightYellow,
+    BrightBlue,
+    BrightMagenta,
+    BrightCyan,
+    BrightWhite,
 }
 
 impl Tone {
+    /// The ANSI palette, in the order of its colours: `ANSI[n].ansi_index() == Some(n)`.
+    pub const ANSI: [Tone; 16] = [
+        Tone::Black,
+        Tone::Red,
+        Tone::Green,
+        Tone::Yellow,
+        Tone::Blue,
+        Tone::Magenta,
+        Tone::Cyan,
+        Tone::White,
+        Tone::BrightBlack,
+        Tone::BrightRed,
+        Tone::BrightGreen,
+        Tone::BrightYellow,
+        Tone::BrightBlue,
+        Tone::BrightMagenta,
+        Tone::BrightCyan,
+        Tone::BrightWhite,
+    ];
+
     /// This tone at `alpha` of its opacity.
     pub const fn alpha(self, alpha: f32) -> Color {
-        Color { tone: self, alpha }
+        Color {
+            source: Source::Role(self),
+            alpha,
+        }
     }
 
     /// This tone, solid.
     pub const fn solid(self) -> Color {
         self.alpha(1.0)
     }
+
+    /// Where the tone stands in the theme's ANSI palette, `0..=15`; `None` for a tone that is
+    /// not one of its colours.
+    pub const fn ansi_index(self) -> Option<u8> {
+        match self {
+            Tone::Black => Some(0),
+            Tone::Red => Some(1),
+            Tone::Green => Some(2),
+            Tone::Yellow => Some(3),
+            Tone::Blue => Some(4),
+            Tone::Magenta => Some(5),
+            Tone::Cyan => Some(6),
+            Tone::White => Some(7),
+            Tone::BrightBlack => Some(8),
+            Tone::BrightRed => Some(9),
+            Tone::BrightGreen => Some(10),
+            Tone::BrightYellow => Some(11),
+            Tone::BrightBlue => Some(12),
+            Tone::BrightMagenta => Some(13),
+            Tone::BrightCyan => Some(14),
+            Tone::BrightWhite => Some(15),
+            _ => None,
+        }
+    }
+}
+
+/// A colour value: sRGB, eight bits to a channel, `a` the opacity (`255` solid).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Rgba {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+impl Rgba {
+    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
+    }
+
+    /// A solid colour.
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
+        Self::new(r, g, b, 255)
+    }
+
+    /// Reads `#rrggbb` or `#rrggbbaa` (any case); `None` for anything else.
+    pub fn parse(text: &str) -> Option<Self> {
+        let digits = text.strip_prefix('#')?;
+        if !matches!(digits.len(), 6 | 8) || !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let channel = |at: usize| u8::from_str_radix(digits.get(at..at + 2)?, 16).ok();
+        Some(Self {
+            r: channel(0)?,
+            g: channel(2)?,
+            b: channel(4)?,
+            a: if digits.len() == 8 { channel(6)? } else { 255 },
+        })
+    }
+
+    /// This colour as a [`Color`] that is the same on every theme.
+    pub const fn solid(self) -> Color {
+        Color {
+            source: Source::Rgba {
+                light: self,
+                dark: None,
+            },
+            alpha: 1.0,
+        }
+    }
+
+    /// This colour on a light theme and `dark` on a dark one.
+    pub const fn or_dark(self, dark: Rgba) -> Color {
+        Color {
+            source: Source::Rgba {
+                light: self,
+                dark: Some(dark),
+            },
+            alpha: 1.0,
+        }
+    }
+}
+
+/// Where a colour comes from: a role of the theme, or a value of the page's own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Source {
+    /// A role, in the host's theme.
+    Role(Tone),
+    /// A value. `dark` is what the colour is on a dark theme where that is not `light`; the
+    /// host decides which theme it wears (a terminal: whether its background is dark), the page
+    /// only gives both.
+    Rgba { light: Rgba, dark: Option<Rgba> },
+}
+
+impl Source {
+    /// The value of a colour that is one, on a theme that is dark or not; `None` for a role.
+    pub const fn value(self, dark: bool) -> Option<Rgba> {
+        match self {
+            Source::Role(_) => None,
+            Source::Rgba { light, dark: other } => match other {
+                Some(other) if dark => Some(other),
+                _ => Some(light),
+            },
+        }
+    }
+}
+
+/// A colour with an opacity: what the page said, a role or a value, and how much of it shows
+/// on top of that (`0.0` transparent, `1.0` solid; a value's own opacity, `Rgba::a`, goes with
+/// it).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Color {
+    pub source: Source,
+    /// `0.0` transparent, `1.0` solid.
+    pub alpha: f32,
+}
+
+impl Color {
+    /// The role, when the colour is one.
+    pub const fn role(&self) -> Option<Tone> {
+        match self.source {
+            Source::Role(tone) => Some(tone),
+            Source::Rgba { .. } => None,
+        }
+    }
+
+    /// Whether the colour covers what is under it altogether, whatever the theme: a solid
+    /// role, or a value whose every form is solid. (A role is taken for solid at its full
+    /// opacity: the engine cannot know a theme that gave a role a translucent value.)
+    pub fn is_opaque(&self) -> bool {
+        let solid = match self.source {
+            Source::Role(_) => true,
+            Source::Rgba { light, dark } => light.a == 255 && dark.is_none_or(|dark| dark.a == 255),
+        };
+        solid && self.alpha >= 1.0
+    }
 }
 
 impl From<Tone> for Color {
     fn from(tone: Tone) -> Self {
         tone.solid()
+    }
+}
+
+impl From<Rgba> for Color {
+    fn from(value: Rgba) -> Self {
+        value.solid()
     }
 }

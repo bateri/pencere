@@ -841,6 +841,26 @@ The host asks for the files as for any bundle (Sections 8.3 and 8.4) and starts 
 holds them. It MAY refuse an entry over a size of its own choosing with `limit` (Section 8.2), so
 a program must be ready for that.
 
+**Colours.** A page of the kit says a colour in one of two ways. The way to prefer is a **role**
+of the theme, which follows the theme the terminal wears: the nine roles of its theme
+(`background`, `foreground`, `dim`, `accent`, `cursor`, `success`, `error`, `info`, `warning`),
+`selection`, the sixteen colours of the palette by xterm's names (`black`, `red`, `green`,
+`yellow`, `blue`, `magenta`, `cyan`, `white` and the same eight prefixed `bright-`), and the
+surfaces the kit derives from them (a ground raised by some steps, quieter text, a hairline, the
+colour of a shadow). The other way is a **value**, for a colour that no role says: `#rrggbb` or
+`#rrggbbaa` in sRGB, with, if the page wants one, a second value for a dark theme. The host decides
+which of the two a pane wears (it is `dark` as in Section 11.2) and takes that one; the kit never
+does. Either way a colour has an opacity of its own on top, `0` to `1`.
+
+The kit hands the host what the page said, not what it came to. For each line of text it also
+hands the **grounds** under it: the fills of the box the line is in and of the boxes that hold it,
+nearest first, up to and including the first that is opaque; the page's background (`background`)
+is under the last of them when it is not. A host that keeps text readable (a terminal with a
+setting for the lowest contrast of text) resolves the grounds in its theme, lays them over each
+other, and holds the colour of the line to its contrast with the result. That is a rule of the
+host, not of the kit: it applies to a line whether its colour is a role or a value, and only to
+lines of text; lines, fills, borders and the values of a chart are drawn as the page said them.
+
 **Ending.** Section 10.2 runs as for any view: the view is not told and not waited for, it is stopped.
 A view that fails (a component traps, goes over a limit the host holds it to, or hands the host
 something it cannot use; a script makes an error) is closed as if the person had
@@ -1013,7 +1033,8 @@ in this order.
 - `mode`: `dark` when the pane's default background is darker than its default foreground, by
   relative luminance, `light` otherwise;
 - `colors`: the roles of the terminal's theme, each a colour as `#rrggbb` in sRGB: `background`,
-  `foreground`, `dim`, `accent`, `border`, `success`, `error`, `warning` and `info` (Section 11.2);
+  `foreground`, `dim`, `accent`, `border`, `success`, `error`, `warning` and `info`, then `selection`,
+  and `ansi`, the sixteen colours of its palette as an array of such strings (Section 11.2);
 - `font`: the terminal's monospace font as a CSS `font-family` list. Left out when the host does not
   know it;
 - `size`: `width` and `height`, the content area of the pane in CSS pixels;
@@ -1029,18 +1050,18 @@ starts listening only after it has loaded asks for it again by sending `{"contex
 answers with the current one.
 
 ```message fixtures/bridge/context.json
-{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff"},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
+{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#1f3d5c","ansi":["#484f58","#ff7b72","#3fb950","#d29922","#58a6ff","#bc8cff","#39c5cf","#b1bac4","#6e7681","#ffa198","#56d364","#e3b341","#79c0ff","#d2a8ff","#56d4dd","#f0f6fc"]},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
 ```
 
 ```message fixtures/bridge/context-request.json
 {"context":{}}
 ```
 
-A host that knows only the background and the foreground of its theme sends the other roles made up
-(Section 11.2) and leaves out the members it does not know:
+A host that knows only the background and the foreground of its theme sends the other roles, the
+selection and the palette made up (Section 11.2) and leaves out the members it does not know:
 
 ```message fixtures/bridge/context-defaults.json
-{"context":{"mode":"light","colors":{"background":"#ffffff","foreground":"#1f2328","dim":"#6a6c70","accent":"#58a6ff","border":"#d2d3d4","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff"},"size":{"width":640,"height":480},"reduceMotion":true}}
+{"context":{"mode":"light","colors":{"background":"#ffffff","foreground":"#1f2328","dim":"#6a6c70","accent":"#58a6ff","border":"#d2d3d4","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#c7e1ff","ansi":["#000000","#cd0000","#00cd00","#cdcd00","#0000ee","#cd00cd","#00cdcd","#e5e5e5","#7f7f7f","#ff0000","#00ff00","#ffff00","#5c5cff","#ff00ff","#00ffff","#ffffff"]},"size":{"width":640,"height":480},"reduceMotion":true}}
 ```
 
 ### 9.6 `close`
@@ -1242,22 +1263,27 @@ person's, and whether the person asked for less motion. A kit view is told the s
 foreground (by relative luminance), `light` otherwise. The host gives the view the roles of the
 terminal's theme, as `#rrggbb` in sRGB:
 
-| Role         | The terminal's                                                                                               |
-| ------------ | ------------------------------------------------------------------------------------------------------------ |
-| `background` | default background                                                                                           |
-| `foreground` | default foreground                                                                                           |
-| `dim`        | the dimmed foreground the terminal uses; made up as a third of the way from the foreground to the background |
-| `accent`     | the accent colour; made up as `info`                                                                         |
-| `border`     | the colour of rules and borders; made up as a fifth of the way from the background to the foreground         |
-| `success`    | the success colour; made up as `#3fb950`                                                                     |
-| `error`      | the error colour; made up as `#f85149`                                                                       |
-| `warning`    | the warning colour; made up as `#d29922`                                                                     |
-| `info`       | the information colour; made up as `#58a6ff`                                                                 |
+| Role         | The terminal's                                                                                                                                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `background` | default background                                                                                                                                                                                                              |
+| `foreground` | default foreground                                                                                                                                                                                                              |
+| `dim`        | the dimmed foreground the terminal uses; made up as a third of the way from the foreground to the background                                                                                                                    |
+| `accent`     | the accent colour; made up as `info`                                                                                                                                                                                            |
+| `border`     | the colour of rules and borders; made up as a fifth of the way from the background to the foreground                                                                                                                            |
+| `success`    | the success colour; made up as `#3fb950`                                                                                                                                                                                        |
+| `error`      | the error colour; made up as `#f85149`                                                                                                                                                                                          |
+| `warning`    | the warning colour; made up as `#d29922`                                                                                                                                                                                        |
+| `info`       | the information colour; made up as `#58a6ff`                                                                                                                                                                                    |
+| `selection`  | the background of what the person selected; made up as a third of the way from the background to the accent                                                                                                                     |
+| `ansi`       | the theme's sixteen palette colours, in the order black, red, green, yellow, blue, magenta, cyan, white, then the same eight bright (xterm's names, the order of the palette's numbers 0 to 15); made up as xterm's own palette |
 
-A host sends all nine, whatever it knows of its theme: a role it does not have is made up as the table
+A host sends all of them, whatever it knows of its theme: a role it does not have is made up as the table
 says, a colour between two others rounded to the nearest value of each channel (halves away from
-zero). A page that wants the steps between them — a surface a little lighter than the background —
-makes them itself. The roles are plain colours: a terminal theme has one mode.
+zero), and a palette is all sixteen or the made-up one. The made-up palette is `#000000`, `#cd0000`,
+`#00cd00`, `#cdcd00`, `#0000ee`, `#cd00cd`, `#00cdcd`, `#e5e5e5`, `#7f7f7f`, `#ff0000`, `#00ff00`,
+`#ffff00`, `#5c5cff`, `#ff00ff`, `#00ffff` and `#ffffff`. A page that wants the steps between them — a
+surface a little lighter than the background — makes them itself. The roles are plain colours: a
+terminal theme has one mode.
 
 ### 11.3 Keyboard
 
@@ -1668,7 +1694,7 @@ messages left out are skipped.
    origin the person allowed:
 
 ```message fixtures/bridge/context.json
-{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff"},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
+{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#1f3d5c","ansi":["#484f58","#ff7b72","#3fb950","#d29922","#58a6ff","#bc8cff","#39c5cf","#b1bac4","#6e7681","#ffa198","#56d364","#e3b341","#79c0ff","#d2a8ff","#56d4dd","#f0f6fc"]},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
 ```
 
 7. The page calls the program; the host passes the call on as a `msg`, unread:

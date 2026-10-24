@@ -1,7 +1,7 @@
 //! What a laid-out page draws, as a flat list in painter's order: later items cover earlier
 //! ones. Everything is in **pixels** of the page, top-left origin, and colours are still
-//! names ([`Color`]): the host resolves them in the pane's theme and turns the items into
-//! whatever its renderer draws.
+//! what the page said ([`Color`]): the host resolves them in the pane's theme and turns the items
+//! into whatever its renderer draws.
 
 use crate::layout::{Content, Laid, Node, TextLine};
 use crate::style::{Border, Shadow};
@@ -21,12 +21,23 @@ pub struct Quad {
 
 /// One line of text: `origin` is the top-left of its line box. Already cut to fit its box
 /// (ending in "…" where it did not) — what the host shapes is what to draw.
+///
+/// `grounds` is what the line is read against: the fills under it, **nearest first** — its own
+/// box's, then each box that holds it, outward — up to and including the first that is
+/// opaque ([`Color::is_opaque`]), or all of them where none is. Where the last of them is
+/// translucent, or there is none, the page's background is under it (the host knows it:
+/// `Tone::Background` in its theme). They are what the page said, unresolved: a host that keeps
+/// text readable resolves them, lays them over each other from the last to the first, and
+/// holds `color` to its lowest contrast against that. A fill the line does not stand on (the
+/// box that holds it ends before the line does) is still named; the engine does not
+/// intersect boxes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Run {
     pub origin: Point,
     pub text: String,
     pub font: Font,
     pub color: Color,
+    pub grounds: Vec<Color>,
     pub clip: Rect,
 }
 
@@ -53,7 +64,7 @@ impl Laid {
     /// The page's draw list. `measure` is asked again for a line that has to be cut to fit.
     pub fn paint(&self, measure: &mut dyn Measure) -> DrawList {
         let mut list = DrawList::default();
-        for node in &self.nodes {
+        for (index, node) in self.nodes.iter().enumerate() {
             if node.hidden || node.rect.w <= 0.0 || node.rect.h <= 0.0 {
                 continue;
             }
@@ -70,7 +81,8 @@ impl Laid {
             match &node.content {
                 Content::None => {}
                 Content::Text(line) => {
-                    if let Some(run) = place_text(node, line, measure) {
+                    if let Some(mut run) = place_text(node, line, measure) {
+                        run.grounds = self.grounds_under(index);
                         list.items.push(Paint::Text(run));
                     }
                 }
@@ -89,6 +101,25 @@ impl Laid {
             }
         }
         list
+    }
+
+    /// The fills under the element at `index`, nearest first: its own, then those of the boxes
+    /// that hold it, until one is opaque (see [`Run::grounds`]); only fills that are drawn.
+    fn grounds_under(&self, index: usize) -> Vec<Color> {
+        let mut grounds = Vec::new();
+        let mut at = Some(index);
+        while let Some(node) = at.and_then(|at| self.nodes.get(at)) {
+            // A box with no room is not drawn, and so is not a ground.
+            let drawn = !node.hidden && node.rect.w > 0.0 && node.rect.h > 0.0;
+            if let Some(fill) = node.fill.filter(|_| drawn) {
+                grounds.push(fill);
+                if fill.is_opaque() {
+                    break;
+                }
+            }
+            at = node.parent;
+        }
+        grounds
     }
 }
 
@@ -125,6 +156,7 @@ fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Option
         text,
         font: line.font,
         color: line.color,
+        grounds: Vec::new(),
         clip,
     })
 }

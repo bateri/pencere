@@ -3,7 +3,8 @@
 //!
 //! A page is written as a function from the size it is given to an [`Element`] tree, in the
 //! chain of a style sheet's properties (`div().row().gap(8.0).child(...)`), in **points**,
-//! with colours named for the theme ([`Tone`]). [`layout`] puts the tree on a page of pixels —
+//! with colours named for the theme ([`Tone`]) or, where a role does not say it, given as a value
+//! ([`Rgba`]). [`layout`] puts the tree on a page of pixels —
 //! asking the host, through [`Measure`], how large each line of text is — and
 //! [`Laid::paint`] turns it into a [`DrawList`] of boxes and lines of text.
 //!
@@ -39,7 +40,7 @@ mod text;
 mod ui;
 pub mod wire;
 
-pub use color::{Color, Tone};
+pub use color::{Color, Rgba, Source, Tone};
 pub use element::{Element, div, spacer, spark, text};
 pub use fades::{FADE_SECONDS, Fades};
 pub use geometry::{Point, Rect, Size};
