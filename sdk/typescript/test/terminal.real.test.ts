@@ -201,6 +201,13 @@ for (const { runtime, present } of runtimes) {
     },
   );
 
+  /**
+   * What the child heard, without the byte `script` writes to the tty when its own input ends: ^D
+   * on macOS, NUL with util-linux on Linux. Neither is anything the test typed.
+   */
+  const typed = (heard: string | undefined): string | undefined =>
+    heard?.replaceAll("\u0004", "").replaceAll("\u0000", "");
+
   describe.skipIf(!supported || !present)(
     `SttyTerminal.waitFor on a tty, on ${runtime.name}`,
     () => {
@@ -211,7 +218,7 @@ for (const { runtime, present } of runtimes) {
           "abc",
         );
         expect(seen, "the child printed nothing: script or stty is not usable here").toBeDefined();
-        expect(seen?.heard.replaceAll("\u0004", "")).toBe("abc");
+        expect(typed(seen?.heard)).toBe("abc");
         expect(seen?.elapsed).toBeLessThan(2000);
       });
 
@@ -222,7 +229,7 @@ for (const { runtime, present } of runtimes) {
           "",
         );
         expect(seen, "the child printed nothing: script or stty is not usable here").toBeDefined();
-        expect(seen?.heard.replaceAll("\u0004", "")).toBe("");
+        expect(typed(seen?.heard)).toBe("");
         expect(seen?.elapsed).toBeGreaterThanOrEqual(280);
         expect(seen?.elapsed).toBeLessThan(3000);
       });
