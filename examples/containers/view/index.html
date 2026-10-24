@@ -26,6 +26,11 @@
       <p id="status" role="status"></p>
       <p class="keys"><kbd>↑</kbd> <kbd>↓</kbd> choose · <kbd>⏎</kbd> start or stop</p>
     </main>
-    <script src="app.js"></script>
+    <!-- The bridge of a page is a module of the SDK that the program puts in the bundle as
+         pencere-page.js; the name the page imports it by is this map's. -->
+    <script type="importmap">
+      { "imports": { "@pencere/sdk/page": "./pencere-page.js" } }
+    </script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>

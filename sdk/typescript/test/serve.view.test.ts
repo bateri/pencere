@@ -157,6 +157,18 @@ describe("a call of the view", () => {
     await end();
   });
 
+  it("gets an answer of nearly 1 MiB of Turkish text through the wire whole: 3 MB of escapes", async () => {
+    const text = "Türkçe şğüıöç ".repeat(45_000);
+    const { rig, end } = await running({ calls: { turkish: () => ({ text }) } });
+    rig.say("msg", callPayload(1, "turkish"));
+    await rig.settle();
+    await sleep(200);
+    const answer = spoken(rig) as { response: { id: number; result: { text: string } } }[];
+    expect(answer).toHaveLength(1);
+    expect(answer[0]?.response.result.text).toBe(text);
+    await end();
+  });
+
   it("is answered an error when the result cannot be written, or is over the limit of a message", async () => {
     const { rig, end } = await running({
       calls: {

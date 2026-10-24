@@ -1,0 +1,13 @@
+{
+  "tasks": {
+    // One executable with the Deno runtime, the program, the SDK and the view in it. Run
+    // `npx tsc -b` first: it compiles dist/main.js and the SDK. `--no-config` and the import map
+    // keep the executable to what the program needs: in this repository, inside an npm workspace,
+    // Deno would put the whole of node_modules in it. The import map names the SDK that is next
+    // to the example; in a project of your own it is the package ("npm:@pencere/sdk@^0.2.0").
+    // `--include` brings in what the program reads at run time, which `deno compile` cannot see:
+    // the view, and the module that is its bridge to the program (bin/containers needs nothing else).
+    // The first compile for a version of Deno downloads that version's runtime.
+    "compile": "deno compile --no-config --import-map import-map.json --no-check --allow-read --allow-run --no-prompt --include view --include ../../sdk/typescript/dist/page/index.js --output bin/containers dist/main.js",
+  },
+}

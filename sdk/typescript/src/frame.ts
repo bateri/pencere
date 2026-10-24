@@ -13,6 +13,8 @@
  * (the fixture `c1-st`) is one of them.
  */
 
+import { latin1, latin1Bytes } from "./bytes.js";
+
 /** What starts the body of every frame of this protocol. */
 const PREFIX = "pencere;";
 
@@ -36,10 +38,14 @@ export interface Limits {
   readonly message: number;
 }
 
-/** The limits of each direction. */
+/**
+ * The limits of each direction. A message of a view is at most 1 MiB as the view said it, and the
+ * escapes of the wire (§4.5) make a character up to six times as long, so six times that is what
+ * always fits toward the program.
+ */
 export const LIMITS: Readonly<Record<Direction, Limits>> = {
   "to-host": { frame: 4096, message: 16 * 1024 * 1024 },
-  "to-program": { frame: 511, message: 1024 * 1024 },
+  "to-program": { frame: 511, message: 6 * 1024 * 1024 },
 };
 
 /**
@@ -355,7 +361,7 @@ export class StreamDecoder {
       emit({ type: "error", error: "malformed" });
       return;
     }
-    const chunk = parseChunk(Buffer.from(this.#body.buffer, 0, length).toString("latin1"));
+    const chunk = parseChunk(latin1(this.#body, 0, length));
     if (chunk === undefined) emit({ type: "error", error: "malformed" });
     else this.#assembler.chunk(chunk, emit);
   }
@@ -495,5 +501,5 @@ export function encode(direction: Direction, message: Outgoing, split: Split = "
     seq += 1;
     if (seq > 0xffff_ffff) throw new WriteError("no-room");
   }
-  return Buffer.from(frames.join(""), "latin1");
+  return latin1Bytes(frames.join(""));
 }
