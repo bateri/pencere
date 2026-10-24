@@ -239,7 +239,7 @@ yourself. Receivers parse any valid JSON.
 | Limit                                 | `to-host`           | `to-program`      |
 | ------------------------------------- | ------------------- | ----------------- |
 | A frame, `ESC _` and `ESC \` included | 4096 bytes          | 511 bytes         |
-| A message's payload                   | 16 MiB (16 777 216) | 1 MiB (1 048 576) |
+| A message's payload                   | 16 MiB (16 777 216) | 6 MiB (6 291 456) |
 
 A receiver MUST drop a frame or a message over its direction's limit (errors
 `too-long` and `message-too-long`). A sender MAY always send smaller frames.
@@ -251,6 +251,12 @@ systems examined; the derivation is Appendix B. 4096 is the size kitty's graphic
 protocol allows for the payload of a chunk; here it bounds the whole frame. The
 message limits are protocol constants, not measurements: they bound what a
 receiver has to buffer.
+
+The limit toward the program is not 1 MiB because a message of a view has that size
+(Section 9.3) and no more, but six times it: the host writes a view's message in the form of
+Section 4.5, where a character that a frame cannot carry becomes an escape of six bytes (a DEL
+is `\u007f`), and a message that is within the view's limit must always be writable. The escapes
+are the transport's, and they are split into frames like the rest of the message.
 
 Bundle limits are in Section 8.2.
 
@@ -575,7 +581,13 @@ the page may send network requests to; `resources`, those it may load scripts, s
 and media from; `frames`, those it may nest as frames; `base`, those a `<base>` element may name; and
 `permissions`, the browser capabilities it asks for, from the closed list `camera`, `microphone`,
 `geolocation` and `clipboardWrite`. An origin is `scheme://host[:port]` with a scheme of `http`,
-`https`, `ws` or `wss`.
+`https`, `ws` or `wss`. A member of another name is ignored, so that a program written against a later
+version of this specification can say more than an earlier host knows.
+
+The person is asked about every origin that is listed (Section 12.2), so the lists are bounded to
+what a person can read: at most 32 entries in each list of origins and 64 in all of them. The entries are
+counted as they are written, whether or not they are origins, and a host MAY enforce lower bounds. An
+`open` whose `access` goes over a bound is refused with `limit` (Section 6.4).
 
 ```frame fixtures/to-host/open-web.frame
 <ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"1.0","program":"containers","title":"Containers","access":{"connect":["https://api.example.com"],"permissions":["clipboardWrite"]},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}]}}<ESC>\
@@ -599,9 +611,13 @@ answers a failure with a `closed` message whose `re` is the open's id,
 | `busy`        | A view is already opening or open in this pane.                                                                                                                                                                       |
 | `screen`      | The pane is not on the alternate screen (Section 6.5). A host SHOULD refuse so.                                                                                                                                       |
 | `manifest`    | The payload or the bundle manifest is malformed (Sections 6.3 and 8.2): no `view`, no `version`, no bundle, an `access` that is not of the shape of Section 6.3, or an entry whose type is not that of the `view`.    |
-| `limit`       | A limit of Section 8.2 is exceeded.                                                                                                                                                                                   |
+| `limit`       | A limit of Section 8.2 is exceeded, or the `access` lists more origins than Section 6.3 allows.                                                                                                                       |
 | `unsupported` | The host does not support what was asked: a `view`, or a `version` of it, that the `welcome` of the token did not list (or a kind that is not in the table of Section 5.5), or a bundle without the `bundle` feature. |
 | `policy`      | The host's own policy, or the person's, refuses.                                                                                                                                                                      |
+
+Everything that makes an `open` malformed comes before every limit: an `open` that is both, an entry of the
+wrong type and a file over the size, say, or an `access` that goes over its bound and has an entry that is
+not a string further on, is refused with `manifest`.
 
 A refusal MUST NOT disturb a view that is already opening or open. A receiver
 treats a code it does not know as a refusal without a reason.
@@ -821,8 +837,8 @@ holds them. It MAY refuse an entry over a size of its own choosing with `limit` 
 a program must be ready for that.
 
 **Ending.** Section 10.2 runs as for any view: the view is not told and not waited for, it is stopped.
-A view that fails (a component traps, goes over a limit the host holds it to, or hands the host
-something it cannot use; a script makes an error) is closed as if the person had
+A view that fails (a component traps, goes over a limit the host holds it to, a message of the view
+among them (Section 9.3), or hands the host something it cannot use; a script makes an error) is closed as if the person had
 closed it, except that the program is told `closed` with `reason` `error` and `code` `view`, and
 with `message`: the words the view failed with, which for a script is its error and the line it is
 on. They are text the view wrote, so the host cuts them and leaves out control characters and
@@ -921,23 +937,50 @@ escapes (Section 4.5):
 
 ### 9.3 Carrying them
 
-A message of the six is one JSON object, written as Section 4.5 says, in the payload of a `msg`,
-and the host does not read it: it hands the program's messages to the view and the view's to the
-program, whole and in order. What the objects mean is between the program and the view. The host
-does this only while the view is open: a program's `msg` before the view runs, and any `msg`
-that is not an object, is dropped (Section 4.7), and a message over 1 MiB, the limit toward the
-program (Section 4.6), is dropped in whichever direction it goes. **Once the view has closed the host
-writes nothing the view says**, whatever ended it (the program's `bye` or `dismiss`, the person, the
-view's own failure, the end of the program), because whatever reads the tty next would take it for
-typed input (Section 4.8). The same holds from the moment the host writes a signal character for the
-program: what the view had said and the host had not yet written is dropped, not written after
-it. A program therefore does not expect a message of the view after the `closed` that ends its
-view, or after its own `bye` or `dismiss`, and it must expect to lose the messages that were waiting
-when the person pressed ⌃C. A frame is never cut for any other end: the one under way is written
-whole, and what waits behind it is dropped.
+A message of the six is one JSON object in the payload of a `msg`, and the host does not read what
+it means: it hands the program's messages to the view and the view's to the program, whole and in
+order. What the objects mean is between the program and the view. The host does this only while the
+view is open: a program's `msg` before the view runs is dropped (Section 4.7). **Once the view has
+closed the host writes nothing the view says**, whatever ended it (the program's `bye` or `dismiss`,
+the person, the view's own failure, the end of the program), because whatever reads the tty next
+would take it for typed input (Section 4.8). The same holds from the moment the host writes a signal
+character for the program: what the view had said and the host had not yet written is dropped, not
+written after it. A program therefore does not expect a message of the view after the `closed` that
+ends its view, or after its own `bye` or `dismiss`, and it must expect to lose the messages that were
+waiting when the person pressed ⌃C. A frame is never cut for any other end: the one under way is
+written whole, and what waits behind it is dropped.
 
-A host that shows a page reads one thing in the objects, and only in its page's direction: the name
-of the member, to tell the host's own messages (Section 9.4) from the six. It reads no value.
+**What the host reads.** Two things in the objects, in both directions, and nothing else:
+
+- that the payload is one complete JSON object: a `msg` that is not one is dropped (Section 4.7), and
+  so is a text that begins with `{` and goes on as something else;
+- for a page, the name of the member, to tell the host's own messages (Section 9.4) from the six: in
+  the page's direction to handle `context`, `close` and `link`, in the program's to drop a message
+  that is named like one of them, because the page must be able to tell the host's `context` from the
+  program's words. A view that the host draws itself has no messages of the host's own, and for it the
+  host reads only the first.
+
+It reads no value and builds no tree of a message, however large.
+
+**Order.** A page's messages reach the program in the order the page sent them, each whole. A `close`
+is acted on at its place in that order: the `closed` with `reason` `view` (Section 10.6) is written
+after every message the page sent before the `close`, and none that it sent after is written. A page
+that wants the program to know why it closes says so in a message before it, a `call` say; `close` has
+no reason.
+
+**Size.** A message is at most 1 MiB (1 048 576 bytes), counted on its JSON text before the escapes of
+Section 4.5, in either direction: what the page posted, or the payload the program wrote with each
+escape counted as the character it stands for (a program has to write ASCII, and is not held to less
+than a page that need not). The escapes the host adds when it writes a page's message into the
+program's input are not counted, and the limit toward the program leaves room for them
+(Section 4.6): a message within the limit is always written. The
+host writes the message otherwise as it came, except that it leaves out the tab, line feed and
+carriage return that JSON allows between tokens, because a frame has no byte for them; a space is
+kept, and the program parses any valid JSON. A program's message over the limit is dropped. A
+message of the view over it, a page's or a component's, is one nobody could answer, and a view that
+waited for the answer would wait for ever, so the host does what it does to a view that goes over
+any limit it is held to: it ends the view and tells the program `closed` with `reason` `error` and
+`code` `view` (Section 8.8), and the message is not written.
 
 ### 9.4 The bridge of a page
 
@@ -1151,7 +1194,8 @@ of the view then, which the call that opened it observes.
 ### 10.6 The view asks to close
 
 A page that wants to be closed sends `close` (Section 9.6); the host then runs Section 10.2 and tells
-the program with `closed` `reason` `view`. A kit view has no message of the host's own: a view that
+the program with `closed` `reason` `view`, after every message the page sent before the `close`
+(Section 9.3). A kit view has no message of the host's own: a view that
 wants the program to end sends it a `call`, and the program ends and Section 10.3 follows, or
 `dismiss`es the view (Section 10.8).
 
@@ -1259,18 +1303,23 @@ The host builds the policy of a page from what the person allowed. Without any `
 
 ```
 default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';
-img-src 'self' data:; media-src 'self' data:; connect-src 'none';
+connect-src 'self'; img-src 'self' data:; font-src 'self'; media-src 'self' data:;
+frame-src 'none'; object-src 'none'; base-uri 'self';
 ```
 
-(one line), where `'self'` is the page's own origin (Section 8.6). What the person allows of each
-list of the `access` is added to the directive it is for: `connect` to `connect-src`, `resources` to
-`script-src`, `style-src`, `img-src`, `font-src` and `media-src`, `frames` to `frame-src` (which is
-`'none'` otherwise) and `base` to `base-uri` (which is `'self'` otherwise). A page never gets a domain
-the person did not approve, whatever it asked.
+(one line), where `'self'` is the page's own origin (Section 8.6). A page can always read its own
+bundle, with `fetch` and `XMLHttpRequest` as well as with elements, whatever the person allowed;
+that is why `connect-src` and `font-src` have `'self'`, and it reaches no network. What the person
+allows of each list of the `access` is added to the directive it is for, and the policy is that one
+with those origins and nothing else changed: `connect` to `connect-src`, `resources` to `script-src`,
+`style-src`, `img-src`, `font-src` and `media-src`, `frames` to `frame-src` (in place of `'none'`) and
+`base` to `base-uri` (in place of `'self'`). A page never gets a domain the person did not approve,
+whatever it asked.
 
 ### 12.2 Network
 
-By default a page reaches nothing outside the host's own bridge to its program. Where the `access` of
+By default a page reaches nothing outside its own bundle (Section 8.6) and the host's own bridge to its
+program. Where the `access` of
 the `open` names origins (any of `connect`, `resources`, `frames`, `base`) or asks for a
 browser capability in `permissions`, the host MUST ask the person before the page can use them, MUST NOT
 allow what the person did not approve, and tells the page what it allowed in the `access` of its
