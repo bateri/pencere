@@ -318,9 +318,15 @@ struct Asked {
 }
 
 impl Asked {
-    /// The time on the application's clock now: the time it gave, and what has passed since.
-    fn since(&self) -> f64 {
-        self.now + self.at.elapsed().as_secs_f64()
+    /// The time on the application's clock now: its own reading if it has a clock to read
+    /// ([`Program::now`]), otherwise the time it gave for the frame and what the system's clock
+    /// says has passed since. Never earlier than the frame.
+    fn since(&self, program: &dyn Program) -> f64 {
+        program
+            .now()
+            .filter(|now| now.is_finite())
+            .unwrap_or_else(|| self.now + self.at.elapsed().as_secs_f64())
+            .max(self.now)
     }
 }
 
@@ -435,7 +441,7 @@ fn serve<R: Runner>(
             }
         }
         if owed && let Some(asked) = last {
-            let frame = runner.render(asked.size, asked.since(), asked.reduce_motion)?;
+            let frame = runner.render(asked.size, asked.since(program), asked.reduce_motion)?;
             post.say(runner.take_sent());
             post.put(Some(frame), None);
         }
@@ -498,6 +504,8 @@ mod tests {
     impl Runner for Plain {
         fn render(&mut self, size: Size, now: f64, _reduce: bool) -> Result<Frame, Fault> {
             if let Some(gate) = self.gate.take() {
+                // Said before waiting, for a test that has to know the module is held.
+                self.log.lock().unwrap().push("held".into());
                 let _ = gate.recv();
             }
             self.note(format!("render {} {now}", size.w))?;
@@ -553,6 +561,15 @@ mod tests {
     }
 
     fn rig(gate: Option<Receiver<()>>, fail_on: Option<&'static str>, settles: bool) -> Rig {
+        rig_for(Arc::new(Unbounded), gate, fail_on, settles)
+    }
+
+    fn rig_for(
+        program: Arc<dyn Program>,
+        gate: Option<Receiver<()>>,
+        fail_on: Option<&'static str>,
+        settles: bool,
+    ) -> Rig {
         let log = Arc::new(Mutex::new(Vec::new()));
         let (told, woken) = mpsc::channel();
         let told = Mutex::new(told);
@@ -565,7 +582,7 @@ mod tests {
         };
         let module = Module::spawn(
             move || Ok(plain),
-            Arc::new(Unbounded),
+            program,
             move || {
                 let _ = told.lock().unwrap().send(());
             },
@@ -585,6 +602,78 @@ mod tests {
         }
     }
 
+    /// A program whose application keeps a clock that stands where the test puts it.
+    struct Clocked(Mutex<Option<f64>>);
+
+    impl Program for Clocked {
+        fn may_say(&self, _bytes: usize) -> bool {
+            true
+        }
+
+        fn taken(&self, _bytes: usize) {}
+
+        fn now(&self) -> Option<f64> {
+            *self.0.lock().unwrap()
+        }
+    }
+
+    /// The time of the render `n` (counting from 1) in the log, once there is one.
+    fn render_time(rig: &Rig, n: usize) -> f64 {
+        let began = std::time::Instant::now();
+        loop {
+            let log = rig.log();
+            let renders: Vec<&String> = log.iter().filter(|l| l.starts_with("render")).collect();
+            if let Some(line) = renders.get(n - 1) {
+                return line.rsplit(' ').next().unwrap().parse().unwrap();
+            }
+            assert!(
+                began.elapsed() < Duration::from_secs(5),
+                "no render {n}: {log:?}"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn a_page_made_again_for_what_its_program_said_is_made_for_the_time_on_the_application_s_clock()
+    {
+        // An application with a clock it can read says what it reads, whatever the system's
+        // clock has done since the frame: the page's time is the application's.
+        let clock = Arc::new(Clocked(Mutex::new(Some(40.0))));
+        let rig = rig_for(clock.clone(), None, None, false);
+        rig.module.render(Size::new(10.0, 10.0), 1.0, false);
+        assert_eq!(render_time(&rig, 1), 1.0);
+        rig.module.message("redraw".into());
+        assert_eq!(render_time(&rig, 2), 40.0);
+
+        // A clock that is behind the frame, or is not a number, is not taken for one: the page
+        // is never made for a time before the frame it follows, and a clock that says nothing
+        // sensible is as good as none.
+        *clock.0.lock().unwrap() = Some(0.5);
+        rig.module.message("redraw".into());
+        assert_eq!(render_time(&rig, 3), 1.0);
+        *clock.0.lock().unwrap() = Some(f64::NAN);
+        rig.module.message("redraw".into());
+        let by_the_system = render_time(&rig, 4);
+        assert!((1.0..30.0).contains(&by_the_system), "{by_the_system}");
+    }
+
+    #[test]
+    fn without_a_clock_of_the_application_s_the_page_is_made_for_the_frame_s_time_and_what_passed()
+    {
+        let rig = rig(None, None, false);
+        rig.module.render(Size::new(10.0, 10.0), 100.0, false);
+        // The time passes from the frame the module made, not from the one it was asked for.
+        assert_eq!(render_time(&rig, 1), 100.0);
+        std::thread::sleep(Duration::from_millis(60));
+        rig.module.message("redraw".into());
+        let again = render_time(&rig, 2);
+        assert!(
+            (100.06..130.0).contains(&again),
+            "the frame's time and the time that passed: {again}"
+        );
+    }
+
     fn move_to(x: f32) -> Event {
         Event::Input(Input::Move(Point::new(x, 1.0)))
     }
@@ -595,7 +684,15 @@ mod tests {
         let (hold, gate) = mpsc::channel();
         let rig = rig(Some(gate), None, false);
         rig.module.render(Size::new(10.0, 10.0), 0.0, false);
-        // Queued while the first render is held: all of it is one batch.
+        // Queued while the first render is held: all of it is one batch. (Held: the module has
+        // taken the render, and with it whatever was waiting then, and is not looking at the
+        // mailbox until it is let go. Messages sent before that could be in the first batch, with
+        // the render, and a page would follow it too.)
+        let began = std::time::Instant::now();
+        while !rig.log().contains(&"held".to_string()) {
+            assert!(began.elapsed() < Duration::from_secs(5), "never held");
+            std::thread::sleep(Duration::from_millis(2));
+        }
         rig.module.message("ping".into());
         rig.module.message("redraw 1".into());
         rig.module.message("quiet".into());

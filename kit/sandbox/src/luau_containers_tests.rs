@@ -8,7 +8,7 @@
 //! text are not rounded: a text has to be the same text). Nothing else is forgiven.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
@@ -41,16 +41,80 @@ fn roomy() -> Limits {
     }
 }
 
-fn open_script(program: Arc<dyn Program>) -> Open {
+/// The application's clock, as a test keeps it: it stands at the time of the last frame it asked
+/// for and moves when the test says. The module is made for this time when its program speaks,
+/// and not for the time of the last frame and what the system's clock says has passed since, which
+/// in a test is as long as the test took to get there: on a machine that is busy a different page
+/// from the one the test is written for.
+struct OnClock {
+    program: Arc<dyn Program>,
+    now: AtomicU64,
+}
+
+impl Program for OnClock {
+    fn may_say(&self, bytes: usize) -> bool {
+        self.program.may_say(bytes)
+    }
+
+    fn taken(&self, bytes: usize) {
+        self.program.taken(bytes);
+    }
+
+    fn now(&self) -> Option<f64> {
+        Some(f64::from_bits(self.now.load(Ordering::SeqCst)))
+    }
+}
+
+/// The script's page open, with the clock the module is told the time by.
+struct Scripted {
+    open: Open,
+    clock: Arc<OnClock>,
+}
+
+impl std::ops::Deref for Scripted {
+    type Target = Open;
+
+    fn deref(&self) -> &Open {
+        &self.open
+    }
+}
+
+impl std::ops::DerefMut for Scripted {
+    fn deref_mut(&mut self) -> &mut Open {
+        &mut self.open
+    }
+}
+
+impl Scripted {
+    /// Asks the module for a frame at `now`, which is the time on the clock from then on.
+    fn render(&self, size: Size, now: f64, reduce_motion: bool) {
+        self.clock.now.store(now.to_bits(), Ordering::SeqCst);
+        self.open.module.render(size, now, reduce_motion);
+    }
+}
+
+fn open_script(program: Arc<dyn Program>) -> Scripted {
     let (told, woken) = channel();
     let told = std::sync::Mutex::new(told);
-    let module = Module::from_script(SCRIPT.as_bytes().to_vec(), roomy(), program, move || {
-        let _ = told.lock().unwrap().send(());
+    let clock = Arc::new(OnClock {
+        program: Arc::clone(&program),
+        now: AtomicU64::new(0.0_f64.to_bits()),
     });
-    Open {
-        module,
-        woken,
-        seen: Update::default(),
+    let module = Module::from_script(
+        SCRIPT.as_bytes().to_vec(),
+        roomy(),
+        clock.clone(),
+        move || {
+            let _ = told.lock().unwrap().send(());
+        },
+    );
+    Scripted {
+        open: Open {
+            module,
+            woken,
+            seen: Update::default(),
+        },
+        clock,
     }
 }
 
@@ -191,7 +255,7 @@ fn assert_same_reply(what: &str, lua: &Reply, native: &Reply) {
 /// the application tells a page: a frame is made, laid out, and the module is told the layout;
 /// an event that changed the page makes the next frame for the time of the last.
 struct Pair {
-    lua: Open,
+    lua: Scripted,
     native: Containers,
     size: Size,
     /// The time of the last frame.
@@ -214,7 +278,7 @@ struct Pair {
 impl Pair {
     fn open(size: Size) -> Self {
         let lua = open_script(Arc::new(Unbounded));
-        lua.module.render(size, 0.0, false);
+        lua.render(size, 0.0, false);
         let mut native = Containers::fixture();
         native.advance(0.0, false);
         let tree = native.view(size);
@@ -331,7 +395,7 @@ impl Pair {
     fn render(&mut self, size: Size, now: f64) {
         self.size = size;
         self.now = now;
-        self.lua.module.render(size, now, self.reduce_motion);
+        self.lua.render(size, now, self.reduce_motion);
         self.native.advance(now, self.reduce_motion);
         self.tree = self.view(size);
         self.animating = self.native.animating();
@@ -1278,10 +1342,15 @@ fn next_frame(page: &mut Open) -> Element {
         assert!(began.elapsed() < PATIENCE, "no frame came");
         assert_eq!(page.take(Duration::from_millis(50)).closed, None);
     }
+    // Until nothing has come for a while. A taking returns when the application is woken, and the
+    // module wakes it for what it says before it posts the frame that goes with it: a taking that
+    // returned early with no frame is not a quiet one, the frame is on its way.
+    let quiet = Duration::from_millis(200);
     loop {
-        let update = page.take(Duration::from_millis(200));
+        let began = Instant::now();
+        let update = page.take(quiet);
         assert_eq!(update.closed, None);
-        if update.frame.is_none() {
+        if update.frame.is_none() && began.elapsed() >= quiet {
             break;
         }
     }
@@ -1289,9 +1358,9 @@ fn next_frame(page: &mut Open) -> Element {
 }
 
 /// A frame for `now`, asked for and waited for: what the module was told before it is done.
-fn settled(page: &mut Open, now: f64) -> Element {
+fn settled(page: &mut Scripted, now: f64) -> Element {
     page.seen.frame = None;
-    page.module.render(SIZE, now, false);
+    page.render(SIZE, now, false);
     next_frame(page)
 }
 
@@ -1364,7 +1433,7 @@ fn the_script_sends_its_payload_as_fast_as_its_program_has_room_and_loses_none()
         assert!(calls < 200, "the payload never ended");
         program.add(1_000);
         page.module.room();
-        page.module.render(SIZE, f64::from(calls) * 0.016, false);
+        page.render(SIZE, f64::from(calls) * 0.016, false);
         page.until(Duration::from_millis(100), |_| false);
         assert!(page.seen.closed.is_none(), "{:?}", page.seen.closed);
     }
@@ -1432,7 +1501,7 @@ fn a_program_with_room_is_told_a_few_chunks_in_each_frame() {
     loop {
         now += 0.016;
         page.seen.frame = None;
-        page.module.render(SIZE, now, false);
+        page.render(SIZE, now, false);
         next_frame(&mut page);
         frames += 1;
         let animating = page

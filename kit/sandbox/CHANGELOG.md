@@ -8,6 +8,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **`Program::now`.** An application that keeps a clock it can read from any thread says what it
+  reads (the same seconds `render` is given as `now`), and the page that is made again because its
+  program said something is made for that time. Without it (the default, `None`) the time is that
+  of the last frame and what the system's clock says has passed since, as it was: right as long as
+  the application's clock goes as the system's does, which a clock that stands still or is driven by
+  hand does not. A time that is not a number, or is earlier than the last frame's, is not taken.
+
 - **Images.** `Images` decodes the files of a view's bundle (`Assets`, a path to bytes) for the
   `image` element: PNG, JPEG and SVG, off the thread that draws, once for each path. It gives the
   host the size of an image for the layout (`Images::size`), the pixels to draw (`Images::bitmap`,
