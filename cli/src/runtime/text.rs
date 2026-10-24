@@ -1,6 +1,13 @@
 //! `text`: what an app needs of a string that Lua's byte strings do not give. A page counts a text in
 //! UTF-16 units, as JavaScript does (the places of an edit, the length of a piece), and names files
 //! in an order people read: `file9` before `file10`, `a` beside `A`.
+//!
+//! A Lua string is bytes, and a file that is read may not be UTF-8. These functions walk the bytes
+//! they are given, and every place they say is a place in those bytes: a run of bytes that is not
+//! UTF-8 counts as one character (what a page makes of it is U+FFFD, one unit and, in a message,
+//! three bytes), as `text.lossy` makes it, and they do not drift from the real offsets. They also
+//! walk no further than they need, so that a text sent in pieces costs the text and not the text
+//! once for each piece.
 
 use std::cmp::Ordering;
 
@@ -72,76 +79,118 @@ pub fn natives(lua: &Lua) -> mlua::Result<Table> {
         lua.create_function(|_, (s, units, i): (mlua::String, usize, Option<usize>)| {
             let bytes = s.as_bytes();
             let start = i.unwrap_or(1).saturating_sub(1);
-            let Some(rest) = bytes.get(start..) else {
-                return Ok(None);
-            };
-            let text = String::from_utf8_lossy(rest);
-            let mut seen = 0usize;
-            let mut at = 0usize;
-            for ch in text.chars() {
-                if seen == units {
-                    return Ok(Some(start + at + 1));
-                }
-                if seen > units {
-                    return Ok(None);
-                }
-                seen += ch.len_utf16();
-                at += ch.len_utf8();
-            }
-            Ok((seen == units).then_some(start + rest.len() + 1))
+            Ok(index_of(&bytes, start, units).map(|at| at + 1))
         })?,
     )?;
 
-    // text.wire_size(s) -> how many bytes s takes in a message to a page: JSON's escapes, and six
-    // for every UTF-16 unit outside ASCII (the escape `\uXXXX`).
+    // text.wire_size(s) -> how many bytes s takes in a message: the size the protocol counts, which
+    // is the one of the JSON text before its escapes, each counted as the UTF-8 of the character it
+    // stands for. A quotation mark, a newline or a control character is one byte, whatever escape
+    // a message writes it with; `ş` is two, an emoji four.
     table.set(
         "wire_size",
-        lua.create_function(|_, s: mlua::String| {
-            let text = String::from_utf8_lossy(&s.as_bytes()).into_owned();
-            Ok(text.encode_utf16().map(unit_size).sum::<usize>())
-        })?,
+        lua.create_function(|_, s: mlua::String| Ok(wire_len(&s.as_bytes())))?,
     )?;
 
     // text.wire_fit(s, i, budget) -> j, units: the end (as `string.sub` takes it) of the longest piece
-    // of s that starts at the byte i and takes at most `budget` bytes in a message to a page, a
-    // piece always having one character in it; and how many UTF-16 units that piece is. A piece
-    // does not end inside a character.
+    // of s that starts at the byte i and takes at most `budget` bytes in a message (see wire_size),
+    // a piece always having one character in it; and how many UTF-16 units that piece is. A piece
+    // does not end inside a character. It reads the piece and no more, so a text can be sent in
+    // pieces by asking for each from where the last one ended.
     table.set(
         "wire_fit",
         lua.create_function(|_, (s, i, budget): (mlua::String, usize, usize)| {
-            let bytes = s.as_bytes();
-            let start = i.saturating_sub(1);
-            let rest = String::from_utf8_lossy(bytes.get(start..).unwrap_or_default());
-            let (mut used, mut taken, mut units) = (0usize, 0usize, 0usize);
-            let mut buffer = [0u16; 2];
-            for ch in rest.chars() {
-                let size: usize = ch
-                    .encode_utf16(&mut buffer)
-                    .iter()
-                    .map(|unit| unit_size(*unit))
-                    .sum();
-                if used + size > budget && taken > 0 {
-                    break;
-                }
-                used += size;
-                taken += ch.len_utf8();
-                units += ch.len_utf16();
-            }
-            Ok((start + taken, units))
+            let (end, units) = fit(&s.as_bytes(), i.saturating_sub(1), budget);
+            Ok((end, units))
         })?,
     )?;
 
     Ok(table)
 }
 
-/// How many bytes a UTF-16 unit takes in a message to a page.
-fn unit_size(unit: u16) -> usize {
-    match unit {
-        0x7f.. => 6,
-        0x22 | 0x5c | 0x0a | 0x09 | 0x0d => 2,
-        0..=0x1f => 6,
-        _ => 1,
+/// The characters of some bytes, each with the bytes it takes: a character of valid UTF-8, or a run
+/// of bytes that is not (one character, U+FFFD, for the run that `str::from_utf8` calls an error).
+struct Chars<'a> {
+    bytes: &'a [u8],
+    at: usize,
+}
+
+impl Iterator for Chars<'_> {
+    /// The character and how many bytes it takes.
+    type Item = (char, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // No character takes more than four bytes, so a window of four holds the next one whole.
+        let window = self.bytes.get(self.at..)?;
+        let window = window.get(..window.len().min(4))?;
+        if window.is_empty() {
+            return None;
+        }
+        let (ch, size) = match std::str::from_utf8(window) {
+            Ok(text) => text.chars().next().map(|ch| (ch, ch.len_utf8()))?,
+            Err(error) if error.valid_up_to() > 0 => {
+                let text = std::str::from_utf8(window.get(..error.valid_up_to())?).ok()?;
+                text.chars().next().map(|ch| (ch, ch.len_utf8()))?
+            }
+            // A run that is not UTF-8 (`None`: one that the end of the bytes cut short).
+            Err(error) => (
+                char::REPLACEMENT_CHARACTER,
+                error.error_len().unwrap_or(window.len()),
+            ),
+        };
+        self.at += size;
+        Some((ch, size))
     }
+}
+
+fn chars_from(bytes: &[u8], at: usize) -> Chars<'_> {
+    Chars { bytes, at }
+}
+
+/// How many bytes a character takes in a message: as the protocol counts a message, its UTF-8,
+/// whichever escape writes it (specification §9.3). A run that is not UTF-8 is U+FFFD there.
+fn wire_size_of(ch: char) -> usize {
+    ch.len_utf8()
+}
+
+/// How many bytes `bytes` take in a message.
+fn wire_len(bytes: &[u8]) -> usize {
+    chars_from(bytes, 0).map(|(ch, _)| wire_size_of(ch)).sum()
+}
+
+/// The end of the longest piece of `bytes` that starts at `start` and takes at most `budget` bytes in
+/// a message (one character at least), as the index of the last byte of it in `string.sub`'s terms,
+/// and the piece's length in UTF-16 units.
+fn fit(bytes: &[u8], start: usize, budget: usize) -> (usize, usize) {
+    let (mut used, mut taken, mut units) = (0usize, 0usize, 0usize);
+    for (ch, size) in chars_from(bytes, start) {
+        let cost = wire_size_of(ch);
+        if used + cost > budget && taken > 0 {
+            break;
+        }
+        used += cost;
+        taken += size;
+        units += ch.len_utf16();
+    }
+    (start + taken, units)
+}
+
+/// The place (0-based) of the character that starts `units` UTF-16 units after `start`, `bytes.len()`
+/// for the end; none past the end, or inside a character of two units.
+fn index_of(bytes: &[u8], start: usize, units: usize) -> Option<usize> {
+    bytes.get(start..)?;
+    let (mut seen, mut at) = (0usize, start);
+    for (ch, size) in chars_from(bytes, start) {
+        if seen == units {
+            return Some(at);
+        }
+        if seen > units {
+            return None;
+        }
+        seen += ch.len_utf16();
+        at += size;
+    }
+    (seen == units).then_some(bytes.len())
 }
 
 /// The bytes i..j (inclusive, 1-based, negative from the end) as the range `from..to` of a string
@@ -160,10 +209,7 @@ fn span(length: usize, i: Option<i64>, j: Option<i64>) -> (usize, usize) {
 
 /// The UTF-16 units of some UTF-8 (a cut character counts as one).
 fn units_in(bytes: &[u8]) -> usize {
-    String::from_utf8_lossy(bytes)
-        .chars()
-        .map(char::len_utf16)
-        .sum()
+    chars_from(bytes, 0).map(|(ch, _)| ch.len_utf16()).sum()
 }
 
 // ---- the order of names ---------------------------------------------------------------------
@@ -248,5 +294,66 @@ mod tests {
         assert_eq!(span(5, Some(2), Some(3)), (1, 3));
         assert_eq!(span(5, None, None), (0, 5));
         assert_eq!(span(5, Some(-2), None), (3, 5));
+    }
+
+    #[test]
+    fn a_run_of_bytes_that_is_not_utf8_is_one_character_and_the_places_stay_in_the_real_bytes() {
+        // a, a byte that is nothing, b, and the start of a three-byte character that the end cut.
+        let bytes = b"a\xffb\xe2\x82";
+        assert_eq!(units_in(bytes), 4);
+        assert_eq!(index_of(bytes, 0, 2), Some(2));
+        assert_eq!(index_of(bytes, 0, 3), Some(3));
+        assert_eq!(index_of(bytes, 0, 4), Some(5));
+        assert_eq!(index_of(bytes, 0, 5), None);
+        assert_eq!(index_of(bytes, 9, 0), None);
+        assert_eq!(fit(bytes, 0, 100), (5, 4));
+        // Each run is U+FFFD in a message: three bytes. `a` and the first run take four.
+        assert_eq!(wire_len(bytes), 1 + 3 + 1 + 3);
+        assert_eq!(fit(bytes, 0, 4), (2, 2));
+        assert_eq!(fit(bytes, 2, 4), (5, 2));
+    }
+
+    #[test]
+    fn the_size_of_a_text_in_a_message_is_the_one_the_protocol_counts() {
+        for text in [
+            "",
+            "plain",
+            "a\"b\\c/d",
+            "line\nbreak\ttab\r",
+            "\u{1}\u{1f}",
+            "\u{7f}",
+            "ş",
+            "日本語",
+            "😀 emoji",
+            "mixed ş😀\"\n\u{7f}",
+        ] {
+            let wire = pencere_wire::json::to_wire(text).unwrap_or_default();
+            // The quotation marks around a string are two bytes of the message, not of the text.
+            assert_eq!(
+                pencere_wire::json::unescaped_len(&wire),
+                wire_len(text.as_bytes()) + 2,
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_text_sent_in_pieces_costs_the_text_and_not_the_text_for_each_piece() {
+        let text = "ş😀abc ".repeat(400_000).into_bytes();
+        let started = std::time::Instant::now();
+        let (mut at, mut pieces, mut units) = (0usize, 0usize, 0usize);
+        while at < text.len() {
+            let (end, piece) = fit(&text, at, 100);
+            assert!(end > at);
+            at = end;
+            units += piece;
+            pieces += 1;
+        }
+        // Every piece asks for the text to be read from where it starts; a piece that read the rest
+        // of the text, as one that decodes it all would, takes minutes here.
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        assert_eq!(at, text.len());
+        assert!(pieces > 30_000, "{pieces}");
+        assert_eq!(units, units_in(&text));
     }
 }

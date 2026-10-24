@@ -607,25 +607,36 @@ fn system(lua: &Lua) -> mlua::Result<Table> {
     table.set(
         "username",
         lua.create_function(|_, ()| {
-            let mut buffer = vec![0u8; 1024];
-            // SAFETY: the record is filled into buffers of ours, which outlive its use below.
-            let name = unsafe {
-                let mut record: libc::passwd = std::mem::zeroed();
-                let mut found: *mut libc::passwd = std::ptr::null_mut();
-                let status = libc::getpwuid_r(
-                    libc::geteuid(),
-                    &raw mut record,
-                    buffer.as_mut_ptr().cast(),
-                    buffer.len(),
-                    &raw mut found,
-                );
-                if status != 0 || found.is_null() || record.pw_name.is_null() {
-                    String::new()
-                } else {
-                    std::ffi::CStr::from_ptr(record.pw_name)
-                        .to_string_lossy()
-                        .into_owned()
+            // The record is filled into a buffer of ours, which has to be big enough for it: a
+            // user with many names in the record, or a long home, outgrows a small one (ERANGE).
+            let mut size = 1024usize;
+            let name = loop {
+                let mut buffer = vec![0u8; size];
+                // SAFETY: the record is filled into buffers of ours, which outlive its use below.
+                let (status, name) = unsafe {
+                    let mut record: libc::passwd = std::mem::zeroed();
+                    let mut found: *mut libc::passwd = std::ptr::null_mut();
+                    let status = libc::getpwuid_r(
+                        libc::geteuid(),
+                        &raw mut record,
+                        buffer.as_mut_ptr().cast(),
+                        buffer.len(),
+                        &raw mut found,
+                    );
+                    let name = if status != 0 || found.is_null() || record.pw_name.is_null() {
+                        String::new()
+                    } else {
+                        std::ffi::CStr::from_ptr(record.pw_name)
+                            .to_string_lossy()
+                            .into_owned()
+                    };
+                    (status, name)
+                };
+                if status == libc::ERANGE && size < 1 << 20 {
+                    size *= 4;
+                    continue;
                 }
+                break name;
             };
             Ok(name)
         })?,

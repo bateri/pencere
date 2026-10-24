@@ -201,21 +201,28 @@ fn icon_of(files: &Files, path: &str) -> Result<Icon, String> {
         pencere_wire::base64::encode(&bytes)
     ));
     icon.mime_type = Some(mime.to_owned());
-    // A PNG says its size in its header, and a terminal picks the icon whose size it wants by it.
-    if let (Some(width), Some(height), "image/png") = (
-        bytes
-            .get(16..20)
-            .and_then(|part| <[u8; 4]>::try_from(part).ok()),
-        bytes
-            .get(20..24)
-            .and_then(|part| <[u8; 4]>::try_from(part).ok()),
-        mime,
-    ) {
-        icon.sizes = vec![format!(
-            "{}x{}",
-            u32::from_be_bytes(width),
-            u32::from_be_bytes(height)
-        )];
+    // A PNG says its size in its header (after its signature and the `IHDR` chunk that has to come
+    // first), and a terminal picks the icon whose size it wants by it. A file that says it is a PNG
+    // and is not one has no size to read.
+    const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+    if mime == "image/png"
+        && bytes.get(..8) == Some(&PNG_SIGNATURE)
+        && bytes.get(12..16) == Some(b"IHDR")
+    {
+        if let (Some(width), Some(height)) = (
+            bytes
+                .get(16..20)
+                .and_then(|part| <[u8; 4]>::try_from(part).ok()),
+            bytes
+                .get(20..24)
+                .and_then(|part| <[u8; 4]>::try_from(part).ok()),
+        ) {
+            icon.sizes = vec![format!(
+                "{}x{}",
+                u32::from_be_bytes(width),
+                u32::from_be_bytes(height)
+            )];
+        }
     }
     Ok(icon)
 }

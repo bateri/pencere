@@ -579,6 +579,77 @@ fn output_that_is_not_text_comes_as_it_was_written_and_too_much_of_it_ends_the_p
 }
 
 #[test]
+fn what_a_program_may_say_is_counted_as_it_is_read_line_ends_and_empty_lines_included() {
+    let started = std::time::Instant::now();
+    // Lines with nothing in them are no bytes of text and a million of them are a million bytes
+    // of lines; the program is a pipeline, and is ended whole.
+    let (exit, printed) = run(r#"
+        local pencere = require("pencere")
+        local capped = pencere.process.run {
+            argv = { "sh", "-c", "cat /dev/zero | tr '\\0' '\\n'" },
+            max_output = 1000000,
+        }
+        print(capped.overflowed, capped.ok, #capped.stdout, capped.code, capped.signal)
+        local exact = pencere.process.run { argv = { "printf", "abcd" }, max_output = 4 }
+        print(exact.overflowed, exact.ok, exact.stdout)
+        local over = pencere.process.run { argv = { "printf", "abcde" }, max_output = 4 }
+        print(over.overflowed, over.ok, over.stdout)
+        local errors = pencere.process.run { argv = { "sh", "-c", "yes >&2" }, max_output = 10 }
+        print(errors.overflowed, #errors.stderr)
+    "#);
+    assert_eq!(exit, Exit::Done(0), "{printed}");
+    assert_eq!(
+        printed,
+        "true\tfalse\t999999\tnil\t9\nfalse\ttrue\tabcd\ntrue\tfalse\tabcd\ntrue\t9\n"
+    );
+    assert!(started.elapsed() < Duration::from_secs(20));
+}
+
+#[test]
+fn a_program_that_is_a_pipeline_is_ended_whole_by_a_timeout_and_by_the_end_of_the_app() {
+    let dir = std::env::temp_dir().join(format!("pencere-group-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a directory");
+    let pids = dir.join("pids");
+    let started = std::time::Instant::now();
+    let source = format!(
+        r#"
+        local pencere = require("pencere")
+        -- Both parts of the pipeline hold the pipe the app reads; the shell's end alone frees nothing.
+        local result = pencere.process.run {{ argv = {{ "sh", "-c", "sleep 30 | sleep 30" }}, timeout = 0.3 }}
+        print(result.timed_out, result.ok, result.signal)
+        -- Left running when the app ends: a program in the background of a shell, which is the group's.
+        pencere.process.spawn {{
+            argv = {{ "sh", "-c", "sleep 30 & echo $! > {pids}; wait" }},
+        }}
+        pencere.time.sleep(0.5)
+    "#,
+        pids = pids.display()
+    );
+    let (exit, printed) = run(&source);
+    assert_eq!(exit, Exit::Done(0), "{printed}");
+    assert_eq!(printed, "true\tfalse\t9\n");
+    assert!(started.elapsed() < Duration::from_secs(10));
+    let pid: libc::pid_t = std::fs::read_to_string(&pids)
+        .expect("a pid")
+        .trim()
+        .parse()
+        .expect("a number");
+    let _ = std::fs::remove_dir_all(&dir);
+    // The sleep was not the shell, and it is gone with it (once the system has seen it go).
+    let until = std::time::Instant::now() + Duration::from_secs(5);
+    let gone = loop {
+        // SAFETY: asks whether a process exists; no signal is sent.
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        if !alive || std::time::Instant::now() > until {
+            break !alive;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(gone, "the program the shell started is still running");
+}
+
+#[test]
 fn null_is_sent_as_null_and_the_machine_has_a_name_and_a_user() {
     let (exit, printed) = run(r#"
         local pencere = require("pencere")
@@ -609,6 +680,8 @@ fn text_is_counted_in_utf16_units_and_names_are_ordered_as_people_read_them() {
         local names = { "file10", "b.txt", "A.txt", "file9", "zdir" }
         table.sort(names, function(a, b) return text.compare(a, b, true) < 0 end)
         print(table.concat(names, " "), text.compare("a", "A"), text.compare("a", "A", true))
+        -- A byte that is not text is one character, and the places are the real bytes'.
+        print(text.index("a\255ş", 2), text.wire_size("a\255"), text.wire_fit("a\255b", 1, 4))
     "#);
     assert_eq!(exit, Exit::Done(0), "{printed}");
     let lines: Vec<&str> = printed.lines().collect();
@@ -616,9 +689,10 @@ fn text_is_counted_in_utf16_units_and_names_are_ordered_as_people_read_them() {
     assert_eq!(lines[1], "1\t2\t4\tnil\t8\t9\tnil");
     assert_eq!(lines[2], "4\tnil\t9");
     assert_eq!(lines[3], "true\tfalse\ttrue");
-    assert_eq!(lines[4], "6\t6\t12\t6");
-    assert_eq!(lines[5], "3\t6\t2\t2\t1");
+    assert_eq!(lines[4], "4\t2\t4\t1");
+    assert_eq!(lines[5], "3\t6\t8\t2\t1");
     assert_eq!(lines[6], "A.txt b.txt file9 file10 zdir\t0\t1");
+    assert_eq!(lines[7], "3\t4\t2\t2");
 }
 
 #[test]
@@ -636,16 +710,23 @@ fn a_pattern_found_by_a_person_is_a_regex_with_words_for_what_is_wrong() {
         print(regex.new("é+", {}):find("aééb", 1))
         print(regex.new("\\p{L}+É", { ignore_case = true }):find("1 abcé", 1))
         print(regex.new("^"):find("abc", 1))
-        print(regex.new("(a)\\1"):find("xaa", 1))
+        print(select(2, pcall(regex.new, "(a)\\1")))
+        print(select(2, pcall(regex.new, "(?<=a)b")))
         print(regex.escape("a.b*c"), regex.new(regex.escape("a.b")):find("a.b", 1))
         local ok, why = pcall(regex.new, "(")
-        print(ok, string.sub(why, 1, 11))
+        print(ok, why)
         print(re:find("é order", 2))
+        -- A negative start counts from the end, as `string.find` does.
+        print(re:find("order and orders", -7), re:find("order", -100), re:find("order", 0), re:find("order", 7))
     "#);
     assert_eq!(exit, Exit::Done(0), "{printed}");
     assert_eq!(
         printed,
-        "4\t8\nnil\tnil\n3\t8\n9\t13\nnil\tnil\n2\t5\n3\t7\n1\t0\n2\t3\na\\.b\\*c\t1\t3\nfalse\tregex.new: \n4\t8\n"
+        "4\t8\nnil\tnil\n3\t8\n9\t13\nnil\tnil\n2\t5\n3\t7\n1\t0\n\
+         regex.new: this pattern uses a back-reference, which search does not support\n\
+         regex.new: this pattern uses look-ahead or look-behind, which search does not support\n\
+         a\\.b\\*c\t1\t3\nfalse\tregex.new: unclosed group\n4\t8\n\
+         11\t1\t1\tnil\tnil\n"
     );
 }
 
@@ -687,4 +768,25 @@ fn an_app_has_an_icon_for_each_background_and_the_size_a_png_says_it_is() {
         .eval()
         .expect("a table");
     assert!(super::serve::icons_of(&files, &bad).is_err());
+    // A file that is not a PNG, or whose first chunk is not the header, says no size: whatever bytes
+    // are where the size would be are not one.
+    let mut not_png = png(48);
+    not_png[1] = b'X';
+    let mut no_header = png(48);
+    no_header[12..16].copy_from_slice(b"IDAT");
+    let files = Files::packed(BTreeMap::from([
+        ("assets/not.png".to_owned(), not_png),
+        ("assets/headless.png".to_owned(), no_header),
+    ]));
+    let sizes = |file: &str| {
+        let list: mlua::Table = lua
+            .load(format!(r#"return {{ {{ file = "{file}" }} }}"#))
+            .eval()
+            .expect("a table");
+        super::serve::icons_of(&files, &list).expect("icons")[0]
+            .sizes
+            .clone()
+    };
+    assert!(sizes("assets/not.png").is_empty());
+    assert!(sizes("assets/headless.png").is_empty());
 }

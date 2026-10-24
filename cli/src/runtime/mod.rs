@@ -2,6 +2,7 @@
 
 mod convert;
 mod core;
+mod ending;
 mod events;
 mod handoff;
 mod modules;
