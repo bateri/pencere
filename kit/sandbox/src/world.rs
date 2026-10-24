@@ -10,13 +10,13 @@ use pencere_view::wire::{
 };
 use pencere_view::{
     Align, Border, Button, Color, Cursor, Element, Event, Extent, Family, Id, Input, Key, Keyboard,
-    Laid, Menu, MenuEntry, Mods, Point, Rect, Reply, Rgba, Shadow, Size, Source, Tone, Track,
+    Laid, Menu, MenuEntry, Mods, Point, Rect, Reply, Rgba, Role, Shadow, Size, Source, Track,
 };
 use wasmtime::Store;
 use wasmtime::component::{Component, HasSelf, Linker};
 
 use crate::module::{Frame, Runner};
-use crate::sandbox::{self, Fault, Host, Limits, Program};
+use crate::sandbox::{self, Fault, Host, ModuleLimits, Program};
 
 // The interface is read from the crate's own copy, `wit/view.wit`: a published crate cannot read
 // outside itself. `kit/wit/view.wit` is the source; `make check` fails while they differ.
@@ -144,7 +144,7 @@ fn mods_in(mods: Mods) -> wit::Mods {
     wit::Mods {
         shift: mods.shift,
         control: mods.control,
-        alt: mods.option,
+        alt: mods.alt,
         command: mods.command,
     }
 }
@@ -162,7 +162,7 @@ fn key_in(key: Key) -> wit::Key {
         Key::Enter => wit::Key::Enter,
         Key::Escape => wit::Key::Escape,
         Key::Tab => wit::Key::Tab,
-        Key::Char(c) => wit::Key::Character(c),
+        Key::Character(c) => wit::Key::Character(c),
     }
 }
 
@@ -212,38 +212,38 @@ fn share(value: f32) -> f32 {
     pt(value).max(0.0)
 }
 
-fn tone_out(tone: &wit::Tone) -> Tone {
-    match tone {
-        wit::Tone::Background => Tone::Background,
-        wit::Tone::Foreground => Tone::Foreground,
-        wit::Tone::Dim => Tone::Dim,
-        wit::Tone::Accent => Tone::Accent,
-        wit::Tone::Cursor => Tone::Cursor,
-        wit::Tone::Success => Tone::Success,
-        wit::Tone::Error => Tone::Error,
-        wit::Tone::Info => Tone::Info,
-        wit::Tone::Warning => Tone::Warning,
-        wit::Tone::Raised(steps) => Tone::Raised(*steps),
-        wit::Tone::Quiet => Tone::Quiet,
-        wit::Tone::Line => Tone::Line,
-        wit::Tone::Shadow => Tone::Shadow,
-        wit::Tone::Selection => Tone::Selection,
-        wit::Tone::Black => Tone::Black,
-        wit::Tone::Red => Tone::Red,
-        wit::Tone::Green => Tone::Green,
-        wit::Tone::Yellow => Tone::Yellow,
-        wit::Tone::Blue => Tone::Blue,
-        wit::Tone::Magenta => Tone::Magenta,
-        wit::Tone::Cyan => Tone::Cyan,
-        wit::Tone::White => Tone::White,
-        wit::Tone::BrightBlack => Tone::BrightBlack,
-        wit::Tone::BrightRed => Tone::BrightRed,
-        wit::Tone::BrightGreen => Tone::BrightGreen,
-        wit::Tone::BrightYellow => Tone::BrightYellow,
-        wit::Tone::BrightBlue => Tone::BrightBlue,
-        wit::Tone::BrightMagenta => Tone::BrightMagenta,
-        wit::Tone::BrightCyan => Tone::BrightCyan,
-        wit::Tone::BrightWhite => Tone::BrightWhite,
+fn role_out(role: &wit::Role) -> Role {
+    match role {
+        wit::Role::Background => Role::Background,
+        wit::Role::Foreground => Role::Foreground,
+        wit::Role::Dim => Role::Dim,
+        wit::Role::Accent => Role::Accent,
+        wit::Role::Cursor => Role::Cursor,
+        wit::Role::Success => Role::Success,
+        wit::Role::Error => Role::Error,
+        wit::Role::Info => Role::Info,
+        wit::Role::Warning => Role::Warning,
+        wit::Role::Raised(steps) => Role::Raised(*steps),
+        wit::Role::Quiet => Role::Quiet,
+        wit::Role::Line => Role::Line,
+        wit::Role::Shadow => Role::Shadow,
+        wit::Role::Selection => Role::Selection,
+        wit::Role::Black => Role::Black,
+        wit::Role::Red => Role::Red,
+        wit::Role::Green => Role::Green,
+        wit::Role::Yellow => Role::Yellow,
+        wit::Role::Blue => Role::Blue,
+        wit::Role::Magenta => Role::Magenta,
+        wit::Role::Cyan => Role::Cyan,
+        wit::Role::White => Role::White,
+        wit::Role::BrightBlack => Role::BrightBlack,
+        wit::Role::BrightRed => Role::BrightRed,
+        wit::Role::BrightGreen => Role::BrightGreen,
+        wit::Role::BrightYellow => Role::BrightYellow,
+        wit::Role::BrightBlue => Role::BrightBlue,
+        wit::Role::BrightMagenta => Role::BrightMagenta,
+        wit::Role::BrightCyan => Role::BrightCyan,
+        wit::Role::BrightWhite => Role::BrightWhite,
     }
 }
 
@@ -258,7 +258,7 @@ fn color_out(color: &wit::Color) -> Color {
         1.0
     };
     let source = match &color.source {
-        wit::Source::Role(tone) => Source::Role(tone_out(tone)),
+        wit::Source::Role(role) => Source::Role(role_out(role)),
         wit::Source::Rgba(forms) => Source::Rgba {
             light: rgba_out(&forms.light),
             dark: forms.dark.as_ref().map(rgba_out),
@@ -287,7 +287,7 @@ fn track_out(track: &wit::Track) -> Track {
     }
 }
 
-fn tracks_out(tracks: &[wit::Track], limits: &Limits) -> Result<Vec<Track>, Fault> {
+fn tracks_out(tracks: &[wit::Track], limits: &ModuleLimits) -> Result<Vec<Track>, Fault> {
     if tracks.len() > limits.tracks {
         return Err(Fault::Malformed(format!(
             "a grid with {} tracks (at most {})",
@@ -339,7 +339,7 @@ fn text_style_out(text: &wit::TextStyle) -> TextStyle {
     }
 }
 
-fn style_out(style: &wit::Style, limits: &Limits) -> Result<Style, Fault> {
+fn style_out(style: &wit::Style, limits: &ModuleLimits) -> Result<Style, Fault> {
     Ok(Style {
         display: match style.display {
             wit::Display::Flex => Display::Flex,
@@ -416,9 +416,9 @@ fn style_out(style: &wit::Style, limits: &Limits) -> Result<Style, Fault> {
     })
 }
 
-fn kind_out(content: wit::Content, limits: &Limits) -> Result<Kind, Fault> {
+fn kind_out(content: wit::Content, limits: &ModuleLimits) -> Result<Kind, Fault> {
     Ok(match content {
-        wit::Content::Container => Kind::Box,
+        wit::Content::Box => Kind::Box,
         wit::Content::Text(text) => {
             if text.len() > limits.text {
                 return Err(Fault::Malformed(format!(
@@ -469,7 +469,7 @@ fn kind_out(content: wit::Content, limits: &Limits) -> Result<Kind, Fault> {
     })
 }
 
-fn node_out(node: wit::Node, limits: &Limits) -> Result<Node, Fault> {
+fn node_out(node: wit::Node, limits: &ModuleLimits) -> Result<Node, Fault> {
     Ok(Node {
         style: style_out(&node.style, limits)?,
         kind: kind_out(node.content, limits)?,
@@ -484,7 +484,7 @@ fn node_out(node: wit::Node, limits: &Limits) -> Result<Node, Fault> {
 }
 
 /// The tree a module handed out, if it is one within the limits.
-fn frame_out(frame: wit::Frame, limits: &Limits) -> Result<Frame, Fault> {
+fn frame_out(frame: wit::Frame, limits: &ModuleLimits) -> Result<Frame, Fault> {
     if frame.nodes.len() > limits.nodes {
         return Err(Fault::Malformed(format!(
             "a page of {} elements (at most {})",
@@ -507,7 +507,7 @@ fn frame_out(frame: wit::Frame, limits: &Limits) -> Result<Frame, Fault> {
     })
 }
 
-fn reply_out(reply: wit::Reply, limits: &Limits) -> Result<Reply, Fault> {
+fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
     let text = |text: String| {
         if text.len() > limits.text.saturating_mul(16) {
             Err(Fault::Malformed(format!(
@@ -556,7 +556,7 @@ fn reply_out(reply: wit::Reply, limits: &Limits) -> Result<Reply, Fault> {
         menu,
         keyboard: reply.keyboard.map(|keyboard| match keyboard {
             wit::Keyboard::Page => Keyboard::Page,
-            wit::Keyboard::Field => Keyboard::Filter,
+            wit::Keyboard::Field => Keyboard::Field,
         }),
         copy: reply.copy.map(text).transpose()?,
         cursor: match reply.cursor {
@@ -573,7 +573,7 @@ fn reply_out(reply: wit::Reply, limits: &Limits) -> Result<Reply, Fault> {
 pub(crate) struct World {
     store: Store<Host>,
     view: View,
-    limits: Limits,
+    limits: ModuleLimits,
 }
 
 impl World {
@@ -581,7 +581,7 @@ impl World {
     /// the caller is on a thread of its own.
     pub(crate) fn load(
         bytes: &[u8],
-        limits: Limits,
+        limits: ModuleLimits,
         program: Arc<dyn Program>,
     ) -> Result<Self, Fault> {
         if bytes.len() > limits.component {
@@ -601,7 +601,7 @@ impl World {
     /// the process, so that the next page of a script starts at once) and the script it runs.
     pub(crate) fn load_script(
         script: Vec<u8>,
-        limits: Limits,
+        limits: ModuleLimits,
         program: Arc<dyn Program>,
     ) -> Result<Self, Fault> {
         let engine = sandbox::engine()?;
@@ -620,7 +620,7 @@ impl World {
     fn start(
         engine: wasmtime::Engine,
         component: &Component,
-        limits: Limits,
+        limits: ModuleLimits,
         program: Arc<dyn Program>,
         script: Arc<[u8]>,
     ) -> Result<Self, Fault> {
@@ -808,7 +808,7 @@ mod tests {
     }
 
     fn container(children: u32) -> wit::Node {
-        node(wit::Content::Container, children)
+        node(wit::Content::Box, children)
     }
 
     #[test]
@@ -818,7 +818,7 @@ mod tests {
         row.pressable = true;
         row.style.width = wit::Length::Px(120.0);
         row.style.fill = Some(wit::Color {
-            source: wit::Source::Role(wit::Tone::Raised(2)),
+            source: wit::Source::Role(wit::Role::Raised(2)),
             alpha: 0.5,
         });
         row.style.columns = vec![
@@ -827,14 +827,14 @@ mod tests {
         ];
         let mut page = frame(vec![row, node(wit::Content::Text("api".into()), 0)]);
         page.animating = true;
-        let made = frame_out(page, &Limits::default()).expect("a page");
+        let made = frame_out(page, &ModuleLimits::default()).expect("a page");
         assert!(made.animating);
         let nodes = made.root.fold();
         assert_eq!(nodes.len(), 2);
         assert_eq!(nodes[0].meta.id, Some(Id::new(7)));
         assert!(nodes[0].meta.pressable);
         assert_eq!(nodes[0].style.width, Length::Px(120.0));
-        assert_eq!(nodes[0].style.fill, Some(Tone::Raised(2).alpha(0.5)));
+        assert_eq!(nodes[0].style.fill, Some(Role::Raised(2).alpha(0.5)));
         assert_eq!(
             nodes[0].style.columns,
             vec![Track::Fr(1.0), Track::Range { min: 10.0, fr: 2.0 }]
@@ -852,7 +852,7 @@ mod tests {
         odd.style.grow = f32::NEG_INFINITY;
         odd.style.text.size = Some(f32::NAN);
         odd.style.fill = Some(wit::Color {
-            source: wit::Source::Role(wit::Tone::Accent),
+            source: wit::Source::Role(wit::Role::Accent),
             alpha: f32::NAN,
         });
         odd.style.shadow = Some(wit::Shadow {
@@ -860,11 +860,11 @@ mod tests {
             dy: 1.0e30,
             blur: -5.0,
             color: wit::Color {
-                source: wit::Source::Role(wit::Tone::Shadow),
+                source: wit::Source::Role(wit::Role::Shadow),
                 alpha: 7.0,
             },
         });
-        let made = frame_out(frame(vec![odd]), &Limits::default()).expect("a page");
+        let made = frame_out(frame(vec![odd]), &ModuleLimits::default()).expect("a page");
         let style = &made.root.fold()[0].style;
         assert_eq!(style.width, Length::Px(0.0));
         assert_eq!(style.height, Length::Percent(100.0));
@@ -872,15 +872,15 @@ mod tests {
         assert_eq!(style.margin[3], -1.0e6);
         assert_eq!(style.grow, 0.0);
         assert_eq!(style.text.size, Some(1.0));
-        assert_eq!(style.fill, Some(Tone::Accent.alpha(1.0)));
+        assert_eq!(style.fill, Some(Role::Accent.alpha(1.0)));
         let shadow = style.shadow.expect("a shadow");
         assert_eq!((shadow.dx, shadow.dy, shadow.blur), (0.0, 1.0e6, 0.0));
-        assert_eq!(shadow.color, Tone::Shadow.alpha(1.0));
+        assert_eq!(shadow.color, Role::Shadow.alpha(1.0));
     }
 
     #[test]
     fn the_roles_and_values_a_page_can_say_are_read_as_the_engines_own() {
-        use wit::Tone as W;
+        use wit::Role as W;
         // The palette in the interface's order is the engine's, colour for colour.
         let palette = [
             W::Black,
@@ -900,17 +900,17 @@ mod tests {
             W::BrightCyan,
             W::BrightWhite,
         ];
-        for (at, tone) in palette.iter().enumerate() {
-            assert_eq!(tone_out(tone), Tone::ANSI[at]);
+        for (at, role) in palette.iter().enumerate() {
+            assert_eq!(role_out(role), Role::ANSI[at]);
         }
-        assert_eq!(tone_out(&W::Selection), Tone::Selection);
+        assert_eq!(role_out(&W::Selection), Role::Selection);
         let role = |tone, alpha| wit::Color {
             source: wit::Source::Role(tone),
             alpha,
         };
         assert_eq!(
             color_out(&role(W::BrightRed, 0.25)),
-            Tone::BrightRed.alpha(0.25)
+            Role::BrightRed.alpha(0.25)
         );
         // A value comes with both its forms, untouched, and its own opacity on top.
         let forms = |light: wit::Rgba, dark| wit::Color {
@@ -950,13 +950,13 @@ mod tests {
 
     #[test]
     fn a_page_past_any_limit_is_not_a_page() {
-        let limits = Limits {
+        let limits = ModuleLimits {
             nodes: 3,
             depth: 3,
             text: 8,
             tracks: 2,
             values: 2,
-            ..Limits::default()
+            ..ModuleLimits::default()
         };
         let refused =
             |page: wit::Frame| matches!(frame_out(page, &limits), Err(Fault::Malformed(_)));
@@ -968,7 +968,7 @@ mod tests {
             container(0)
         ])));
         // Three deep is allowed and a fourth level is not (a chain of four, with room for them).
-        let roomy = Limits {
+        let roomy = ModuleLimits {
             nodes: 10,
             ..limits.clone()
         };
@@ -994,7 +994,7 @@ mod tests {
             wit::Content::Spark(wit::Spark {
                 values: vec![1.0; 3],
                 color: wit::Color {
-                    source: wit::Source::Role(wit::Tone::Accent),
+                    source: wit::Source::Role(wit::Role::Accent),
                     alpha: 1.0,
                 },
                 peak: None,
@@ -1010,10 +1010,10 @@ mod tests {
 
     #[test]
     fn a_reply_past_a_limit_is_refused_and_one_within_them_is_read() {
-        let limits = Limits {
+        let limits = ModuleLimits {
             menu: 2,
             text: 4,
-            ..Limits::default()
+            ..ModuleLimits::default()
         };
         let reply = |menu: Option<wit::Menu>, copy: Option<String>| wit::Reply {
             redraw: true,
@@ -1045,7 +1045,7 @@ mod tests {
             &limits,
         )
         .expect("a reply");
-        assert_eq!(read.keyboard, Some(Keyboard::Filter));
+        assert_eq!(read.keyboard, Some(Keyboard::Field));
         assert_eq!(read.cursor, Cursor::Pointer);
         assert_eq!(read.copy.as_deref(), Some("id"));
         let at = read.menu.expect("a menu").at;
@@ -1075,7 +1075,7 @@ mod tests {
                 mods: Mods {
                     shift: true,
                     control: false,
-                    option: true,
+                    alt: true,
                     command: false
                 },
             })),
@@ -1092,7 +1092,7 @@ mod tests {
         ));
         assert!(matches!(
             event_in(Event::Input(Input::Key {
-                key: Key::Char('ç'),
+                key: Key::Character('ç'),
                 mods: Mods::default()
             })),
             wit::Event::Key(wit::KeyPress {
@@ -1113,10 +1113,10 @@ mod tests {
     #[test]
     fn what_a_module_says_to_its_program_is_kept_within_what_a_call_may_send() {
         use pencere::view::program::Host as _;
-        let limits = Limits {
+        let limits = ModuleLimits {
             messages: 2,
             message: 10,
-            ..Limits::default()
+            ..ModuleLimits::default()
         };
         let mut host = Host::new(&limits, Arc::new(Unbounded));
         host.send("{}".into());
@@ -1154,7 +1154,7 @@ mod tests {
     fn a_program_without_the_room_makes_the_module_full_and_not_closed() {
         use pencere::view::program::{Delivery, Host as _};
         let mut host = Host::new(
-            &Limits::default(),
+            &ModuleLimits::default(),
             Arc::new(Room(std::sync::atomic::AtomicUsize::new(10))),
         );
         assert!(matches!(host.send("{}".into()), Delivery::Accepted));

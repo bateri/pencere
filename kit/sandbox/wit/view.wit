@@ -57,7 +57,7 @@ interface types {
 
     /// What a colour is called: the nine roles of the theme, its ANSI palette and its selection,
     /// and the values it derives from them.
-    variant tone {
+    variant role {
         background,
         foreground,
         dim,
@@ -113,7 +113,7 @@ interface types {
 
     /// Where a colour comes from: a role of the theme, or a value of the page's own.
     variant source {
-        role(tone),
+        role(role),
         rgba(rgba-forms),
     }
 
@@ -325,7 +325,7 @@ interface types {
     /// What an element is.
     variant content {
         /// A box that holds the elements after it.
-        container,
+        box,
         /// One line of text.
         text(string),
         spark(spark),

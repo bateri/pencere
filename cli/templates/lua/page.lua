@@ -31,7 +31,7 @@ return {
 	render = function(size, now, reduce_motion)
 		local hovered = ui.hover == BUTTON
 		return b.div():size_full():items_center():justify_center():gap(14)
-			:child(b.image { src = "assets/icon.svg", tint = "accent" }:size(48, 48))
+			:child(b.image("assets/icon.svg"):tint("accent"):size(48, 48))
 			:child(b.text(greeting):text_size(20))
 			:child(b.text(clock()):color("dim"))
 			:child(b.div():press(BUTTON):px(14):py(8):rounded(8)

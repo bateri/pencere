@@ -20,7 +20,7 @@ against the grounds the draw list names under it, and turns the draw list into w
 
 ## Images
 
-A page shows pictures with `image(src, fit)` (in Lua, `pencere.image { src = …, fit = …, tint = … }`):
+A page shows pictures with `image(src, fit)` (in Lua, `pencere.image(src):fit(…):tint(…):opacity(…)`):
 `src` is the path of a file of the view's own bundle, as its manifest names it, and nothing else is
 reachable (no network, no file system). PNG, JPEG and SVG; at most 4096 × 4096 pixels an image and
 64 MiB of decoded pixels a view; `contain` (all of it, centred) or `cover` (the box filled, the

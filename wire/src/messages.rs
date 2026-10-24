@@ -28,7 +28,7 @@ use serde_json::Value;
 /// The most bytes one message may have: the protocol's own limit for a message toward the
 /// program (1 MiB, specification §4.6). The terminal carries them as they are, and the same
 /// bound holds in the other direction so that one rule serves both. The sandbox holds a module to
-/// the same number (`pencere_sandbox::Limits::message`), and the tests of the example program pin
+/// the same number (`pencere_sandbox::ModuleLimits::message`), and the tests of the example program pin
 /// the two to the protocol's.
 pub const MAX_BYTES: usize = 1 << 20;
 

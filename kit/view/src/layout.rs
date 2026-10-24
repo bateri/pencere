@@ -17,7 +17,7 @@ use crate::element::{Fit, Kind, Meta, Spark};
 use crate::style::{
     Border, Direction, Display, Items, Justify, Length, Overflow, Shadow, Style, TextStyle, Track,
 };
-use crate::{Align, Color, Element, Family, Font, Id, Measure, Metrics, Point, Rect, Size, Tone};
+use crate::{Align, Color, Element, Family, Font, Id, Measure, Metrics, Point, Rect, Role, Size};
 
 /// The text a page is written in until a box says otherwise: the terminal's face at 12.5
 /// points, regular, in the foreground, at the start of its box.
@@ -25,7 +25,7 @@ const DEFAULT_TEXT: TextStyle = TextStyle {
     family: Some(Family::Terminal),
     size: Some(12.5),
     weight: Some(400),
-    color: Some(Tone::Foreground.solid()),
+    color: Some(Role::Foreground.solid()),
     align: Some(Align::Start),
 };
 
@@ -42,7 +42,7 @@ pub(crate) struct TextLine {
 /// An image laid out: what the host said of its size when the page was laid out, so that what
 /// is drawn is what the room was made for.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Picture {
+pub(crate) struct Placed {
     pub src: String,
     pub fit: Fit,
     pub tint: Option<Color>,
@@ -61,7 +61,7 @@ pub(crate) enum Content {
     None,
     Text(TextLine),
     Spark(Spark),
-    Image(Picture),
+    Image(Placed),
 }
 
 /// An element after layout: its box on the page, in pixels, and how it is drawn.
@@ -318,7 +318,7 @@ fn build(
         size: text.size.unwrap_or(12.5) * scale,
         weight: text.weight.unwrap_or(400),
     };
-    let color = text.color.unwrap_or(Tone::Foreground.solid());
+    let color = text.color.unwrap_or(Role::Foreground.solid());
 
     let index = pending.len();
     let px = |points: f32| points * scale;
@@ -376,7 +376,7 @@ fn build(
                 .border
                 .map_or(0.0, |b| (b.width * scale).round().max(1.0));
             if let Some(entry) = pending.get_mut(index) {
-                entry.content = Content::Image(Picture {
+                entry.content = Content::Image(Placed {
                     src: image.src,
                     fit: image.fit,
                     tint: image.tint,

@@ -8,30 +8,30 @@
 //! the two trees have to be the same tree.
 
 use pencere_page::{
-    Color, Event, Fit, Frame, Layout, Page, Reply, Rgba, Size, Tone, div, export_page, image,
+    Color, Event, Fit, Frame, Layout, Page, Reply, Rgba, Role, Size, div, export_page, image,
     spark, text,
 };
 
 struct Tints;
 
 /// The colours of the palette by their names, in the order of the palette.
-const PALETTE: [(&str, Tone); 16] = [
-    ("black", Tone::Black),
-    ("red", Tone::Red),
-    ("green", Tone::Green),
-    ("yellow", Tone::Yellow),
-    ("blue", Tone::Blue),
-    ("magenta", Tone::Magenta),
-    ("cyan", Tone::Cyan),
-    ("white", Tone::White),
-    ("bright-black", Tone::BrightBlack),
-    ("bright-red", Tone::BrightRed),
-    ("bright-green", Tone::BrightGreen),
-    ("bright-yellow", Tone::BrightYellow),
-    ("bright-blue", Tone::BrightBlue),
-    ("bright-magenta", Tone::BrightMagenta),
-    ("bright-cyan", Tone::BrightCyan),
-    ("bright-white", Tone::BrightWhite),
+const PALETTE: [(&str, Role); 16] = [
+    ("black", Role::Black),
+    ("red", Role::Red),
+    ("green", Role::Green),
+    ("yellow", Role::Yellow),
+    ("blue", Role::Blue),
+    ("magenta", Role::Magenta),
+    ("cyan", Role::Cyan),
+    ("white", Role::White),
+    ("bright-black", Role::BrightBlack),
+    ("bright-red", Role::BrightRed),
+    ("bright-green", Role::BrightGreen),
+    ("bright-yellow", Role::BrightYellow),
+    ("bright-blue", Role::BrightBlue),
+    ("bright-magenta", Role::BrightMagenta),
+    ("bright-cyan", Role::BrightCyan),
+    ("bright-white", Role::BrightWhite),
 ];
 
 impl Page for Tints {
@@ -44,16 +44,16 @@ impl Page for Tints {
         let seen = Rgba::new(0x1a, 0x2b, 0x3c, 0x80);
         let both = Rgba::rgb(0x20, 0x30, 0x40).or_dark(Rgba::rgb(0xe0, 0xd0, 0xc0));
         let mut root = div().p(4.0).gap(2.0);
-        for (name, tone) in PALETTE {
-            root = root.child(text(name).color(tone));
+        for (name, role) in PALETTE {
+            root = root.child(text(name).color(role));
         }
         root = root
-            .child(text("selection").color(Tone::Selection).bg(Tone::Selection))
+            .child(text("selection").color(Role::Selection).bg(Role::Selection))
             .child(text("value").color(ink))
             .child(text("value with opacity").color(seen))
             .child(text("forms").color(both))
             .child(text("forms alone").color(Rgba::rgb(0xaa, 0xbb, 0xcc)))
-            .child(text("role with opacity").color(Tone::BrightRed.alpha(0.5)))
+            .child(text("role with opacity").color(Role::BrightRed.alpha(0.5)))
             .child(text("value on top of opacity").color(Color {
                 alpha: 0.25,
                 ..seen.solid()
@@ -67,10 +67,10 @@ impl Page for Tints {
                     .w(10.0)
                     .h(10.0)
                     .bg(both)
-                    .border(1.0, Tone::Cyan.alpha(0.5))
+                    .border(1.0, Role::Cyan.alpha(0.5))
                     .shadow(0.0, 2.0, 4.0, seen),
             )
-            .child(spark(&[1.0, 2.0, 3.0], Tone::BrightGreen))
+            .child(spark(&[1.0, 2.0, 3.0], Role::BrightGreen))
             .child(spark(&[3.0, 2.0, 1.0], both))
             .child(image("icons/stop.svg", Fit::Contain))
             .child(
@@ -81,11 +81,11 @@ impl Page for Tints {
             )
             .child(
                 image("icons/run.svg", Fit::Contain)
-                    .tint(Tone::Error)
+                    .tint(Role::Error)
                     .w(16.0),
             )
             .child(image("icons/run.svg", Fit::Contain).tint(both))
-            .child(image("icons/run.svg", Fit::Contain).tint(Tone::Accent.alpha(0.5)));
+            .child(image("icons/run.svg", Fit::Contain).tint(Role::Accent.alpha(0.5)));
         Frame::still(root)
     }
 

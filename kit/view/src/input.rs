@@ -7,7 +7,7 @@
 
 use crate::Point;
 
-/// A key the page reads. Letters and symbols come as [`Key::Char`] — the character the key makes.
+/// A key the page reads. Letters and symbols come as [`Key::Character`] — the character the key makes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
     Up,
@@ -21,7 +21,7 @@ pub enum Key {
     Enter,
     Escape,
     Tab,
-    Char(char),
+    Character(char),
 }
 
 /// The modifiers held with a key or a press.
@@ -29,14 +29,15 @@ pub enum Key {
 pub struct Mods {
     pub shift: bool,
     pub control: bool,
-    pub option: bool,
+    /// The alt key: ⌥, the option key on a Mac.
+    pub alt: bool,
     pub command: bool,
 }
 
 impl Mods {
-    /// Whether ⌃, ⌥ or ⌘ is held: the key is a shortcut and not a letter being typed.
+    /// Whether control, alt or command is held: the key is a shortcut and not a letter being typed.
     pub fn any_command(self) -> bool {
-        self.control || self.option || self.command
+        self.control || self.alt || self.command
     }
 }
 
@@ -103,9 +104,9 @@ pub enum Cursor {
 pub enum Keyboard {
     /// The page's own keys.
     Page,
-    /// The page's filter field, a text field of the host's: it asks for the keyboard and
-    /// types into it.
-    Filter,
+    /// The text field the host put over the page (the room of an element that said it is one):
+    /// the page asks for the keyboard to type into it.
+    Field,
 }
 
 /// One line of a menu the host pops up for the page.

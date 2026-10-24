@@ -2,7 +2,7 @@
 //! and what the draw list holds. The host's measuring is a fixed-width stand-in.
 
 use crate::{
-    Align, Color, DrawList, Family, Font, Measure, Metrics, Paint, Rect, Rgba, Size, Source, Tone,
+    Align, Color, DrawList, Family, Font, Measure, Metrics, Paint, Rect, Rgba, Role, Size, Source,
     Track, div, layout, spacer, spark, text,
 };
 
@@ -129,7 +129,7 @@ fn a_page_written_in_points_is_laid_out_in_pixels() {
     let root = div()
         .row()
         .p(10.0)
-        .child(div().size(20.0, 30.0).rounded(4.0).border(1.0, Tone::Line));
+        .child(div().size(20.0, 30.0).rounded(4.0).border(1.0, Role::Line));
     let list = {
         let laid = layout(root, Size::new(400.0, 200.0), 2.0, &mut Fixed);
         assert_eq!(laid.rects().nth(1), Some(Rect::new(20.0, 20.0, 40.0, 60.0)));
@@ -145,7 +145,7 @@ fn text_takes_what_the_host_says_and_inherits_the_boxes_around_it() {
     let root = div()
         .text_size(10.0)
         .weight(600)
-        .color(Tone::Dim)
+        .color(Role::Dim)
         .family(Family::System)
         .child(text("abcd"))
         .child(text("ef").text_size(20.0).weight(400));
@@ -156,12 +156,12 @@ fn text_takes_what_the_host_says_and_inherits_the_boxes_around_it() {
     assert_eq!(runs[0].font.size, 20.0);
     assert_eq!(runs[0].font.weight, 600);
     assert_eq!(runs[0].font.family, Family::System);
-    assert_eq!(runs[0].color.role(), Some(Tone::Dim));
+    assert_eq!(runs[0].color.role(), Some(Role::Dim));
     assert_eq!(runs[1].font.size, 40.0);
     assert_eq!(runs[1].font.weight, 400);
     assert_eq!(
         runs[1].color.role(),
-        Some(Tone::Dim),
+        Some(Role::Dim),
         "the colour is still the box's"
     );
     // The second line sits under the first, whose box is 1.25 × 20 px tall.
@@ -232,15 +232,15 @@ fn a_line_stands_at_the_end_or_the_middle_of_its_box() {
 #[test]
 fn a_hidden_box_takes_no_room_and_draws_nothing_nor_do_its_children() {
     let root = div()
-        .child(div().h(10.0).bg(Tone::Accent))
+        .child(div().h(10.0).bg(Role::Accent))
         .child(
             div()
                 .hidden()
                 .h(10.0)
-                .bg(Tone::Error)
-                .child(text("gone").color(Tone::Error)),
+                .bg(Role::Error)
+                .child(text("gone").color(Role::Error)),
         )
-        .child(div().h(10.0).bg(Tone::Success));
+        .child(div().h(10.0).bg(Role::Success));
     let laid = layout(root, Size::new(50.0, 50.0), 1.0, &mut Fixed);
     // The root, the first box, the hidden one and its line, the last box.
     assert_eq!(laid.rects().nth(4), Some(Rect::new(0.0, 10.0, 50.0, 10.0)));
@@ -255,7 +255,7 @@ fn a_box_that_clips_cuts_what_is_drawn_inside_it() {
         div()
             .size(30.0, 20.0)
             .clip()
-            .child(div().size(100.0, 100.0).bg(Tone::Accent)),
+            .child(div().size(100.0, 100.0).bg(Role::Accent)),
     );
     let list = paint(root, 100.0, 100.0, 1.0);
     let quad = quads(&list)[0];
@@ -269,9 +269,9 @@ fn a_scrolling_box_moves_its_content_behind_it() {
         div()
             .size(50.0, 40.0)
             .scroll_y(offset)
-            .child(div().h(30.0).no_shrink().bg(Tone::Accent))
-            .child(div().h(30.0).no_shrink().bg(Tone::Success))
-            .child(div().h(30.0).no_shrink().bg(Tone::Error))
+            .child(div().h(30.0).no_shrink().bg(Role::Accent))
+            .child(div().h(30.0).no_shrink().bg(Role::Success))
+            .child(div().h(30.0).no_shrink().bg(Role::Error))
     };
     let at = |offset: f32| {
         let list = paint(div().child(rows(offset)), 100.0, 100.0, 1.0);
@@ -308,7 +308,7 @@ fn an_absolute_box_is_placed_against_its_parent_and_takes_no_room() {
 #[test]
 fn a_sparkline_stays_in_its_box_and_ends_at_the_newest_value() {
     let values = [1.0, 4.0, 2.0, 8.0, 3.0, 5.0];
-    let root = div().child(spark(&values, Tone::Accent).size(60.0, 20.0));
+    let root = div().child(spark(&values, Role::Accent).size(60.0, 20.0));
     let list = paint(root, 100.0, 100.0, 1.0);
     let quads = quads(&list);
     assert!(!quads.is_empty());
@@ -333,7 +333,7 @@ fn a_host_with_no_text_gets_the_boxes_and_no_words() {
     }
     let root = div()
         .row()
-        .child(div().size(10.0, 10.0).bg(Tone::Accent))
+        .child(div().size(10.0, 10.0).bg(Role::Accent))
         .child(text("words"));
     let laid = layout(root, Size::new(100.0, 20.0), 1.0, &mut Mute);
     let list = laid.paint(&mut Mute);
@@ -345,20 +345,20 @@ fn a_host_with_no_text_gets_the_boxes_and_no_words() {
 
 #[test]
 fn the_ansi_palette_is_sixteen_roles_in_the_order_of_its_colours() {
-    assert_eq!(Tone::ANSI.len(), 16);
-    for (at, tone) in Tone::ANSI.iter().enumerate() {
-        assert_eq!(tone.ansi_index(), Some(at as u8));
+    assert_eq!(Role::ANSI.len(), 16);
+    for (at, role) in Role::ANSI.iter().enumerate() {
+        assert_eq!(role.ansi_index(), Some(at as u8));
     }
-    assert_eq!(Tone::Black.ansi_index(), Some(0));
-    assert_eq!(Tone::BrightWhite.ansi_index(), Some(15));
+    assert_eq!(Role::Black.ansi_index(), Some(0));
+    assert_eq!(Role::BrightWhite.ansi_index(), Some(15));
     // The theme's own roles are not in the palette, not even the ones that share a colour with it.
-    for tone in [
-        Tone::Error,
-        Tone::Selection,
-        Tone::Foreground,
-        Tone::Raised(1),
+    for role in [
+        Role::Error,
+        Role::Selection,
+        Role::Foreground,
+        Role::Raised(1),
     ] {
-        assert_eq!(tone.ansi_index(), None);
+        assert_eq!(role.ansi_index(), None);
     }
 }
 
@@ -399,13 +399,13 @@ fn a_value_has_a_form_for_each_brightness_and_the_light_one_where_it_gave_one_on
     assert_eq!(one.value(true), Some(light));
     assert_eq!(both.value(false), Some(light));
     assert_eq!(both.value(true), Some(dark));
-    assert_eq!(Source::Role(Tone::Red).value(true), None);
+    assert_eq!(Source::Role(Role::Red).value(true), None);
 }
 
 #[test]
 fn a_colour_is_opaque_when_every_form_of_it_covers_what_is_under_it() {
-    assert!(Tone::Raised(1).solid().is_opaque());
-    assert!(!Tone::Accent.alpha(0.99).is_opaque());
+    assert!(Role::Raised(1).solid().is_opaque());
+    assert!(!Role::Accent.alpha(0.99).is_opaque());
     assert!(Rgba::rgb(1, 2, 3).solid().is_opaque());
     assert!(!Rgba::new(1, 2, 3, 254).solid().is_opaque());
     assert!(Rgba::rgb(1, 2, 3).or_dark(Rgba::rgb(4, 5, 6)).is_opaque());
@@ -420,7 +420,7 @@ fn a_colour_is_opaque_when_every_form_of_it_covers_what_is_under_it() {
         ..Rgba::rgb(1, 2, 3).solid()
     };
     assert!(!half.is_opaque());
-    assert!(!Tone::Accent.alpha(f32::NAN).is_opaque());
+    assert!(!Role::Accent.alpha(f32::NAN).is_opaque());
 }
 
 fn grounds(root: crate::Element, line: &str) -> Vec<Color> {
@@ -435,10 +435,10 @@ fn grounds(root: crate::Element, line: &str) -> Vec<Color> {
 
 #[test]
 fn a_line_names_the_fills_under_it_nearest_first_and_stops_at_the_first_opaque_one() {
-    let root = div().bg(Tone::Background).child(
-        div().bg(Tone::Raised(1)).child(
+    let root = div().bg(Role::Background).child(
+        div().bg(Role::Raised(1)).child(
             div()
-                .bg(Tone::Accent.alpha(0.2))
+                .bg(Role::Accent.alpha(0.2))
                 .child(div().child(text("deep").bg(Rgba::new(9, 9, 9, 128).solid()))),
         ),
     );
@@ -446,27 +446,27 @@ fn a_line_names_the_fills_under_it_nearest_first_and_stops_at_the_first_opaque_o
         grounds(root, "deep"),
         vec![
             Rgba::new(9, 9, 9, 128).solid(),
-            Tone::Accent.alpha(0.2),
+            Role::Accent.alpha(0.2),
             // The opaque card ends it: the page's background beyond it is not named.
-            Tone::Raised(1).solid(),
+            Role::Raised(1).solid(),
         ]
     );
 }
 
 #[test]
 fn nested_translucent_fills_come_in_the_order_they_are_laid_over_each_other_outward() {
-    let root = div().bg(Tone::Foreground.alpha(0.1)).child(
+    let root = div().bg(Role::Foreground.alpha(0.1)).child(
         div()
-            .bg(Tone::Accent.alpha(0.2))
-            .child(div().bg(Tone::Error.alpha(0.3)).child(text("x"))),
+            .bg(Role::Accent.alpha(0.2))
+            .child(div().bg(Role::Error.alpha(0.3)).child(text("x"))),
     );
     // None is opaque: all three are named and the page's background is under the last.
     assert_eq!(
         grounds(root, "x"),
         vec![
-            Tone::Error.alpha(0.3),
-            Tone::Accent.alpha(0.2),
-            Tone::Foreground.alpha(0.1)
+            Role::Error.alpha(0.3),
+            Role::Accent.alpha(0.2),
+            Role::Foreground.alpha(0.1)
         ]
     );
 }
@@ -478,16 +478,16 @@ fn a_line_on_nothing_has_no_grounds_and_a_fill_with_nothing_drawn_is_not_one() {
         Vec::<Color>::new()
     );
     let root = div()
-        .bg(Tone::Raised(1))
+        .bg(Role::Raised(1))
         // No room: it is not drawn, and the line that spills out of it stands on the card.
         .child(
             div()
                 .row()
                 .size(0.0, 20.0)
-                .bg(Tone::Accent.alpha(0.5))
+                .bg(Role::Accent.alpha(0.5))
                 .child(text("spill").no_shrink()),
         );
-    assert_eq!(grounds(root, "spill"), vec![Tone::Raised(1).solid()]);
+    assert_eq!(grounds(root, "spill"), vec![Role::Raised(1).solid()]);
 }
 
 #[test]

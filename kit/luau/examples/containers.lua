@@ -291,24 +291,24 @@ local function kbd(label, size)
 		:child(text(label):text_size(size):color("dim"))
 end
 
--- A round dot of `size` points in `tone`; `ring` adds the soft halo of a live one.
-local function dot(size, tone, ring)
-	local core = div():size(size, size):rounded(size / 2):bg(tone)
+-- A round dot of `size` points in `role`; `ring` adds the soft halo of a live one.
+local function dot(size, role, ring)
+	local core = div():size(size, size):rounded(size / 2):bg(role)
 	if ring then
 		local halo = size + 6
 		return div():row():items_center():justify_center():size(halo, halo):rounded(halo / 2)
-			:bg(alpha(tone, 0.18)):child(core)
+			:bg(alpha(role, 0.18)):child(core)
 	end
 	return core
 end
 
 -- The state's dot: solid with a halo for a container that is up, a hollow ring for one that has
 -- ended (in the error colour when it ended badly).
-local function state_dot(state, tone)
+local function state_dot(state, role)
 	if state.kind == "exited" then
-		return div():size(10, 10):rounded(5):border(1.5, tone)
+		return div():size(10, 10):rounded(5):border(1.5, role)
 	end
-	return dot(10, tone, true)
+	return dot(10, role, true)
 end
 
 -- A value at the right of a meter: the number, in a box of its own width.
@@ -321,10 +321,10 @@ local function dash()
 	return text("\u{2013}"):color("quiet"):align("end")
 end
 
--- A small label in a tone, on the tone's own faint ground.
-local function tag(label, tone)
-	return div():row():items_center():h(18):px(6):rounded(4):bg(alpha(tone, 0.13)):no_shrink()
-		:child(text(label):text_size(10.5):color(tone))
+-- A small label in a role, on the role's own faint ground.
+local function tag(label, role)
+	return div():row():items_center():h(18):px(6):rounded(4):bg(alpha(role, 0.13)):no_shrink()
+		:child(text(label):text_size(10.5):color(role))
 end
 
 -- A published port: the tool's link colour on its faint ground.
@@ -646,10 +646,10 @@ local function rail_item(label, current, count, badge)
 	return row
 end
 
-local function meter(label, values, tone, reading)
+local function meter(label, values, role, reading)
 	return div():row():items_center():gap(6):text_size(10.5)
 		:child(text(label):color("quiet"):w(26))
-		:child(spark(values, tone):size(70, 14))
+		:child(spark(values, role):size(70, 14))
 		:child(text(reading):color("dim"):weight(500):grow(1):align("end"))
 end
 
@@ -706,7 +706,7 @@ function Containers:toolbar()
 		:child(div():id(FIELD):text_field():grow(1):min_w(0):h(18))
 		:child(kbd("/", 10.5))
 	local counts = self:counts()
-	local function option(status, count, tone)
+	local function option(status, count, role)
 		local active = self.status == status
 		local id = status_id(status)
 		local glow = self:glow(id)
@@ -717,7 +717,7 @@ function Containers:toolbar()
 		elseif glow > 0 then
 			cell = cell:bg(alpha("foreground", 0.07 * glow))
 		end
-		local count_color = tone or (active and "dim" or "quiet")
+		local count_color = role or (active and "dim" or "quiet")
 		return cell:child(text(STATUS_LABELS[status]))
 			:child(text(tostring(count)):text_size(10.5):color(count_color))
 	end
@@ -863,27 +863,27 @@ end
 local function container_row(id, c, width, chosen, hovered, marked)
 	local up = is_up(c)
 	local kind, code = c.state.kind, c.state.code
-	local tone
+	local role
 	if kind == "running" then
-		tone = "success"
+		role = "success"
 	elseif kind == "starting" or kind == "paused" then
-		tone = "warning"
+		role = "warning"
 	elseif kind == "unhealthy" then
-		tone = "error"
+		role = "error"
 	elseif code ~= 0 then
-		tone = "error"
+		role = "error"
 	else
-		tone = "quiet"
+		role = "quiet"
 	end
-	local label, label_tone
+	local label, label_role
 	if kind == "unhealthy" then
-		label, label_tone = "unhealthy", "error"
+		label, label_role = "unhealthy", "error"
 	elseif kind == "starting" then
-		label, label_tone = "starting", "warning"
+		label, label_role = "starting", "warning"
 	elseif kind == "paused" then
-		label, label_tone = "paused", "warning"
+		label, label_role = "paused", "warning"
 	elseif kind == "exited" and code ~= 0 then
-		label, label_tone = string.format("exited %d", code), "error"
+		label, label_role = string.format("exited %d", code), "error"
 	end
 	local name = div():row():items_center():gap(8):min_w(0):pl(14)
 		:child(
@@ -892,11 +892,11 @@ local function container_row(id, c, width, chosen, hovered, marked)
 		)
 	-- Where the name has little room, the state is the dot's colour alone.
 	if width ~= "tiny" and width ~= "narrow" and label then
-		name = name:child(tag(label, label_tone))
+		name = name:child(tag(label, label_role))
 	end
 
 	local cells = {
-		div():row():items_center():justify_center():child(state_dot(c.state, tone)),
+		div():row():items_center():justify_center():child(state_dot(c.state, role)),
 		name,
 	}
 	if shows_image(width) then

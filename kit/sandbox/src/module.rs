@@ -4,7 +4,7 @@
 //! compiles it, starts it and calls it; the application only posts what it wants done (a frame
 //! for this size, this event, this layout) and later takes what came out (the page, the replies)
 //! — neither ever waits for the module. A module that does not come back is cut off where it is
-//! ([`crate::Limits`]), its thread ends and the application is told why; the application never
+//! ([`crate::ModuleLimits`]), its thread ends and the application is told why; the application never
 //! hung with it.
 //!
 //! The posting is cheap and loses nothing that matters: a frame asked for while an older one is
@@ -20,7 +20,7 @@ use std::time::Instant;
 
 use pencere_view::{Element, Event, Input, Laid, Reply, Size};
 
-use crate::sandbox::{Fault, Limits, Program};
+use crate::sandbox::{Fault, ModuleLimits, Program};
 use crate::world::World;
 
 /// A page the module handed out: the tree, and whether the page is still moving.
@@ -158,7 +158,7 @@ impl Module {
     /// Starts the component in `bytes` (binary or text) under `limits`, for `program`.
     pub fn from_component(
         bytes: Vec<u8>,
-        limits: Limits,
+        limits: ModuleLimits,
         program: Arc<dyn Program>,
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Self {
@@ -170,7 +170,7 @@ impl Module {
     /// `limits`, for `program`: the same sandbox, the same terms.
     pub fn from_script(
         script: Vec<u8>,
-        limits: Limits,
+        limits: ModuleLimits,
         program: Arc<dyn Program>,
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Self {

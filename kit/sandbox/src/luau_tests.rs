@@ -10,18 +10,22 @@ use std::time::{Duration, Instant};
 
 use pencere_view::wire::Kind;
 use pencere_view::{
-    Button, Color, Element, Event, Fit, Id, Input, Key, Mods, Point, Rgba, Source, Tone, image,
+    Button, Color, Element, Event, Fit, Id, Input, Key, Mods, Point, Rgba, Role, Source, image,
 };
 use wasmtime::component::Component;
 
 use crate::guests_tests::{Open, Rough, SIZE};
-use crate::{Fault, Limits, Module, Program, Unbounded, Update};
+use crate::{Fault, Module, ModuleLimits, Program, Unbounded, Update};
 
-pub(crate) fn open_script(script: &str, limits: Limits) -> Open {
+pub(crate) fn open_script(script: &str, limits: ModuleLimits) -> Open {
     open_script_for(script, limits, Arc::new(Unbounded))
 }
 
-pub(crate) fn open_script_for(script: &str, limits: Limits, program: Arc<dyn Program>) -> Open {
+pub(crate) fn open_script_for(
+    script: &str,
+    limits: ModuleLimits,
+    program: Arc<dyn Program>,
+) -> Open {
     let (told, woken) = channel();
     let told = std::sync::Mutex::new(told);
     let module = Module::from_script(script.as_bytes().to_vec(), limits, program, move || {
@@ -35,7 +39,7 @@ pub(crate) fn open_script_for(script: &str, limits: Limits, program: Arc<dyn Pro
 }
 
 /// The first thing a script's page is: the page, or why it is closed.
-fn first(script: &str, limits: Limits) -> Update {
+fn first(script: &str, limits: ModuleLimits) -> Update {
     let mut page = open_script(script, limits);
     page.module.render(SIZE, 0.0, false);
     page.until(Duration::from_secs(20), |u| {
@@ -87,7 +91,7 @@ fn the_interpreter_asks_for_nothing_the_page_interface_does_not_give() {
     // And it is the interface of this sandbox: it starts, and runs a page.
     let update = first(
         "return { render = function() return pencere.div() end }",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     assert_eq!(update.closed, None);
     assert!(update.frame.is_some());
@@ -105,7 +109,7 @@ fn a_script_that_returns_a_page_is_drawn_with_what_it_made_of_the_viewport() {
             end,
         }
         "#,
-        Limits::default(),
+        ModuleLimits::default(),
     );
     assert_eq!(update.closed, None);
     let frame = update.frame.expect("a page");
@@ -118,7 +122,7 @@ fn a_script_that_returns_a_page_is_drawn_with_what_it_made_of_the_viewport() {
 fn a_page_that_asks_to_animate_is_asked_for_again() {
     let update = first(
         "return { render = function() return pencere.div(), true end }",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     assert!(update.frame.expect("a page").animating);
 }
@@ -128,7 +132,7 @@ fn a_page_that_asks_to_animate_is_asked_for_again() {
 fn a_syntax_error_closes_the_page_and_says_the_line() {
     let update = first(
         "local ok = 1\nlocal oops = = 3\nreturn {}",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     let why = failed(&update);
     assert!(why.starts_with("script:2:"), "{why}");
@@ -138,7 +142,7 @@ fn a_syntax_error_closes_the_page_and_says_the_line() {
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn an_error_while_the_script_starts_says_the_line() {
-    let update = first("local t = nil\n\nreturn t.page", Limits::default());
+    let update = first("local t = nil\n\nreturn t.page", ModuleLimits::default());
     let why = failed(&update);
     assert!(why.starts_with("script:3:"), "{why}");
 }
@@ -162,24 +166,24 @@ fn a_helper_given_the_wrong_argument_says_the_line_of_the_script_that_called_it(
         ),
         (
             "pencere.image(x)",
-            "pencere.image takes a table { src = ..., fit = ..., tint = ... }, not nil",
+            "pencere.image takes the path of a file of the bundle, not nil",
         ),
         (
-            "pencere.image { fit = 'cover' }",
-            "needs the path of a file of the bundle as `src`, not nil",
+            "pencere.image('a.png'):fit('stretch')",
+            "fit is \"contain\" or \"cover\", not stretch",
         ),
         (
-            "pencere.image { src = 'a.png', fit = 'stretch' }",
-            "`fit` is \"contain\" or \"cover\", not stretch",
+            "pencere.image('a.png'):opacity('half')",
+            "opacity is a number from 0 to 1, not string",
         ),
         (
-            "pencere.image { src = 'a.png', opacity = 'half' }",
-            "`opacity` is a number from 0 to 1, not string",
+            "pencere.div():tint('error')",
+            "tint is for an image, and this is a box",
         ),
     ] {
         let update = first(
             &format!("return {{ render = function()\n  local x = nil\n  return {call}\nend }}"),
-            Limits::default(),
+            ModuleLimits::default(),
         );
         let why = failed(&update);
         assert!(why.starts_with("script:3:"), "{why}");
@@ -192,7 +196,7 @@ fn a_helper_given_the_wrong_argument_says_the_line_of_the_script_that_called_it(
 fn an_error_in_render_says_the_line_and_the_frame_is_not_read() {
     let update = first(
         "return { render = function()\n  local x = nil\n  return pencere.div():child(x.y)\nend }",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     let why = failed(&update);
     assert!(why.starts_with("script:3:"), "{why}");
@@ -207,7 +211,7 @@ fn an_error_in_render_says_the_line_and_the_frame_is_not_read() {
 fn an_error_in_a_handler_closes_the_page_with_its_line() {
     let mut page = open_script(
         "return {\n render = function() return pencere.div() end,\n handle = function(e)\n  error('no ' .. e.type)\n end,\n}",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     page.module.render(SIZE, 0.0, false);
     page.until(Duration::from_secs(20), |u| u.frame.is_some());
@@ -229,7 +233,7 @@ fn an_error_the_script_catches_is_not_an_error() {
             return pencere.div():child(pencere.text(tostring(ok) .. " " .. why .. " | " .. why2))
         end }
         "#,
-        Limits::default(),
+        ModuleLimits::default(),
     );
     assert_eq!(update.closed, None);
     let text = words(&update.frame.expect("a page").root).join("");
@@ -240,13 +244,13 @@ fn an_error_the_script_catches_is_not_an_error() {
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_script_that_does_not_return_a_page_is_closed_and_told_so() {
     for script in ["return 3", "return {}", "return { render = 4 }", ""] {
-        let update = first(script, Limits::default());
+        let update = first(script, ModuleLimits::default());
         let why = failed(&update);
         assert!(why.contains("must return a page"), "{script:?}: {why}");
     }
     let update = first(
         "return { render = function() return 5 end }",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     assert!(failed(&update).contains("render must return an element"));
 }
@@ -256,24 +260,24 @@ fn a_script_that_does_not_return_a_page_is_closed_and_told_so() {
 fn a_tree_that_is_not_a_page_is_closed_with_what_is_wrong_in_it() {
     let update = first(
         "return { render = function() return pencere.div():bg('puce') end }",
-        Limits::default(),
+        ModuleLimits::default(),
     );
-    assert!(failed(&update).contains("\"puce\" is not the name of a tone"));
+    assert!(failed(&update).contains("\"puce\" is not the name of a role"));
     let update = first(
         "return { render = function() local d = pencere.div(); d:child(d); return d end }",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     assert!(failed(&update).contains("nested more than"));
     let update = first(
         "return { render = function() return { kind = 'box', style = { width = 'wide' } } end }",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     assert!(failed(&update).contains("width"));
 }
 
 /// The text colour of each line a script's page has, in order.
 fn text_colours(script: &str) -> Vec<Option<Color>> {
-    let update = first(script, Limits::default());
+    let update = first(script, ModuleLimits::default());
     assert_eq!(update.closed, None);
     update
         .frame
@@ -290,24 +294,24 @@ fn text_colours(script: &str) -> Vec<Option<Color>> {
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_script_names_every_role_of_the_theme_and_the_roles_are_the_engines() {
     // Every name the page API takes, and the role it is.
-    let names: [(&str, Tone); 17] = [
-        ("selection", Tone::Selection),
-        ("black", Tone::Black),
-        ("red", Tone::Red),
-        ("green", Tone::Green),
-        ("yellow", Tone::Yellow),
-        ("blue", Tone::Blue),
-        ("magenta", Tone::Magenta),
-        ("cyan", Tone::Cyan),
-        ("white", Tone::White),
-        ("bright-black", Tone::BrightBlack),
-        ("bright-red", Tone::BrightRed),
-        ("bright-green", Tone::BrightGreen),
-        ("bright-yellow", Tone::BrightYellow),
-        ("bright-blue", Tone::BrightBlue),
-        ("bright-magenta", Tone::BrightMagenta),
-        ("bright-cyan", Tone::BrightCyan),
-        ("bright-white", Tone::BrightWhite),
+    let names: [(&str, Role); 17] = [
+        ("selection", Role::Selection),
+        ("black", Role::Black),
+        ("red", Role::Red),
+        ("green", Role::Green),
+        ("yellow", Role::Yellow),
+        ("blue", Role::Blue),
+        ("magenta", Role::Magenta),
+        ("cyan", Role::Cyan),
+        ("white", Role::White),
+        ("bright-black", Role::BrightBlack),
+        ("bright-red", Role::BrightRed),
+        ("bright-green", Role::BrightGreen),
+        ("bright-yellow", Role::BrightYellow),
+        ("bright-blue", Role::BrightBlue),
+        ("bright-magenta", Role::BrightMagenta),
+        ("bright-cyan", Role::BrightCyan),
+        ("bright-white", Role::BrightWhite),
     ];
     let list = names
         .iter()
@@ -324,12 +328,12 @@ fn a_script_names_every_role_of_the_theme_and_the_roles_are_the_engines() {
     );
     let colours = text_colours(&script);
     assert_eq!(colours.len(), names.len());
-    for ((name, tone), colour) in names.iter().zip(colours) {
-        assert_eq!(colour, Some(tone.solid()), "{name}");
+    for ((name, role), colour) in names.iter().zip(colours) {
+        assert_eq!(colour, Some(role.solid()), "{name}");
     }
     // The palette's names, in the order of its numbers.
-    for (at, (_, tone)) in names[1..].iter().enumerate() {
-        assert_eq!(tone.ansi_index(), Some(at as u8));
+    for (at, (_, role)) in names[1..].iter().enumerate() {
+        assert_eq!(role.ansi_index(), Some(at as u8));
     }
 }
 
@@ -360,10 +364,10 @@ fn a_script_gives_a_value_with_a_form_for_a_dark_theme_and_an_opacity_on_any_col
             Some(Rgba::new(0x1a, 0x2b, 0x3c, 0x80).solid()),
             Some(Rgba::rgb(0x20, 0x30, 0x40).or_dark(Rgba::rgb(0xe0, 0xd0, 0xc0))),
             Some(Rgba::rgb(0x20, 0x30, 0x40).solid()),
-            Some(Tone::BrightRed.alpha(0.5)),
+            Some(Role::BrightRed.alpha(0.5)),
             Some(value(Rgba::new(0xff, 0, 0, 0x80), None, 0.25)),
             Some(value(Rgba::rgb(1, 2, 3), Some(Rgba::rgb(4, 5, 6)), 0.75)),
-            Some(Tone::Selection.alpha(0.5)),
+            Some(Role::Selection.alpha(0.5)),
         ]
     );
 }
@@ -374,13 +378,13 @@ fn a_script_says_an_image_and_the_engine_reads_what_it_said() {
     let update = first(
         r##"return { render = function()
             return pencere.div()
-                :child(pencere.image { src = "icons/stop.svg" })
-                :child(pencere.image { src = "logo.png", fit = "cover", opacity = 0.5 }:size(48, 24):rounded(4))
-                :child(pencere.image { src = "icons/run.svg", tint = "error" }:w(16))
-                :child(pencere.image { src = "icons/run.svg", tint = { light = "#203040", dark = "#e0d0c0" } })
-                :child(pencere.image { src = "icons/run.svg", tint = pencere.alpha("accent", 0.5) })
+                :child(pencere.image("icons/stop.svg"))
+                :child(pencere.image("logo.png"):fit("cover"):opacity(0.5):size(48, 24):rounded(4))
+                :child(pencere.image("icons/run.svg"):tint("error"):w(16))
+                :child(pencere.image("icons/run.svg"):tint({ light = "#203040", dark = "#e0d0c0" }))
+                :child(pencere.image("icons/run.svg"):tint(pencere.alpha("accent", 0.5)))
         end }"##,
-        Limits::default(),
+        ModuleLimits::default(),
     );
     assert_eq!(update.closed, None);
     let root = update.frame.expect("a page").root;
@@ -414,7 +418,7 @@ fn a_script_says_an_image_and_the_engine_reads_what_it_said() {
     assert_eq!(images[1].style.radii, [4.0; 4]);
     assert_eq!(
         said(images[2]),
-        rust(image("icons/run.svg", Fit::Contain).tint(Tone::Error))
+        rust(image("icons/run.svg", Fit::Contain).tint(Role::Error))
     );
     assert_eq!(
         said(images[3]),
@@ -425,7 +429,7 @@ fn a_script_says_an_image_and_the_engine_reads_what_it_said() {
     );
     assert_eq!(
         said(images[4]),
-        rust(image("icons/run.svg", Fit::Contain).tint(Tone::Accent.alpha(0.5)))
+        rust(image("icons/run.svg", Fit::Contain).tint(Role::Accent.alpha(0.5)))
     );
 }
 
@@ -435,7 +439,7 @@ fn a_colour_that_is_not_one_is_refused_in_words_that_say_what_one_is() {
     let refused = |colour: &str| {
         let update = first(
             &format!("return {{ render = function() return pencere.div():bg({colour}) end }}"),
-            Limits::default(),
+            ModuleLimits::default(),
         );
         failed(&update)
     };
@@ -453,20 +457,20 @@ fn a_colour_that_is_not_one_is_refused_in_words_that_say_what_one_is() {
             refused(bad)
         );
     }
-    assert!(refused("'chartreuse'").contains("\"chartreuse\" is not the name of a tone"));
-    assert!(refused("{ dark = '#000000' }").contains("a colour is a tone's name"));
+    assert!(refused("'chartreuse'").contains("\"chartreuse\" is not the name of a role"));
+    assert!(refused("{ dark = '#000000' }").contains("a colour is a role's name"));
     assert!(refused("{ light = 5 }").contains("light must be a colour value"));
     assert!(refused("{ light = '#000000', dark = 5 }").contains("dark must be a colour value"));
-    assert!(refused("5").contains("a colour is a tone's name"));
+    assert!(refused("5").contains("a colour is a role's name"));
     assert!(refused("{ light = 'red' }").contains("is not a colour value"));
 }
 
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_script_that_never_returns_is_cut_off() {
-    let limits = Limits {
+    let limits = ModuleLimits {
         call: Duration::from_millis(200),
-        ..Limits::default()
+        ..ModuleLimits::default()
     };
     let began = Instant::now();
     let update = first(
@@ -485,7 +489,7 @@ fn a_script_that_never_returns_is_cut_off() {
     page.module.render(SIZE, 0.0, false);
     page.until(Duration::from_secs(20), |u| u.frame.is_some());
     page.module.event(Event::Input(Input::Key {
-        key: Key::Char('x'),
+        key: Key::Character('x'),
         mods: Mods::default(),
     }));
     let update = page.until(Duration::from_secs(10), |u| u.closed.is_some());
@@ -497,10 +501,10 @@ fn a_script_that_never_returns_is_cut_off() {
 fn a_script_that_takes_memory_without_end_is_refused_it() {
     // The time of a call is long enough here that only the memory can stop it: how long 24 MiB take
     // to fill is the machine's, and on a busy one a short time would end the script first.
-    let limits = Limits {
+    let limits = ModuleLimits {
         memory: 24 << 20,
         call: Duration::from_secs(60),
-        ..Limits::default()
+        ..ModuleLimits::default()
     };
     let update = first(
         "local held = {}\nreturn { render = function() while true do held[#held + 1] = string.rep('y', 100000) .. #held end end }",
@@ -530,7 +534,7 @@ fn a_script_can_reach_nothing_of_the_system() {
             return pencere.div():child(pencere.text(table.concat(found, " "))):child(pencere.text(table.concat(more, " ")))
         end }
         "#,
-        Limits::default(),
+        ModuleLimits::default(),
     );
     assert_eq!(update.closed, None, "{:?}", update.closed);
     let frame = update.frame.expect("a page");
@@ -554,7 +558,7 @@ fn a_script_cannot_change_what_every_script_shares() {
             return pencere.div():child(pencere.text(tostring(ok1) .. tostring(ok2) .. tostring(ok3) .. tostring(owned_by_me)))
         end }
         "#,
-        Limits::default(),
+        ModuleLimits::default(),
     );
     assert_eq!(update.closed, None);
     // The libraries are read only; the script's own globals are its own.
@@ -578,7 +582,7 @@ fn json_is_written_and_read_the_same_way_in_both_directions() {
                 :child(pencere.text(tostring(bad) .. " " .. tostring(why))):child(pencere.text(uni))
         end }
         "#,
-        Limits::default(),
+        ModuleLimits::default(),
     );
     assert_eq!(update.closed, None, "{:?}", update.closed);
     let said = words(&update.frame.expect("a page").root);
@@ -627,7 +631,7 @@ fn a_page_that_asks_its_program_things_is_answered_and_pushed_to() {
             return pencere.div():child(pencere.text(seen)):child(pencere.text(answered))
         end }
         "#,
-        Limits::default(),
+        ModuleLimits::default(),
     );
     page.module.render(SIZE, 0.0, false);
     page.until(Duration::from_secs(20), |u| {
@@ -674,7 +678,7 @@ fn a_page_told_full_keeps_what_it_meant_to_say_until_it_is_called_with_room() {
         return { render = function() return pencere.div() end,
             room = function() return true end }
         "#,
-        Limits::default(),
+        ModuleLimits::default(),
         program.clone(),
     );
     page.module.render(SIZE, 0.0, false);
@@ -705,7 +709,7 @@ fn a_page_that_says_a_great_deal_is_not_closed_for_it() {
     // until it is all said.
     let mut page = open_script(
         "for n = 1, 100 do pencere.call('part', { n = n }) end\nreturn { render = function() return pencere.div() end }",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     let mut rounds = 0;
     while page.seen.sent.len() < 100 && rounds < 50 {
@@ -729,7 +733,7 @@ fn what_a_script_hands_out_that_is_not_text_is_made_into_text() {
     // A string in Lua is any bytes; the application is only handed text.
     let update = first(
         "return { render = function() return pencere.div():child(pencere.text('a\\xffb\\xc3')) end }",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     assert_eq!(update.closed, None);
     assert_eq!(
@@ -745,13 +749,13 @@ fn the_compiled_interpreter_is_kept_and_the_next_page_starts_from_it() {
     let began = Instant::now();
     let _ = first(
         "return { render = function() return pencere.div() end }",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     let compiled = began.elapsed();
     let began = Instant::now();
     let update = first(
         "return { render = function() return pencere.div() end }",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     let kept = began.elapsed();
     eprintln!(
@@ -768,9 +772,9 @@ fn errors_a_script_catches_are_not_kept() {
     // a script that catches them by the hundred thousand does not run the heap out.
     // (What is under test is the heap and not the speed: a call may take as long as a loaded
     // machine makes it.)
-    let limits = Limits {
+    let limits = ModuleLimits {
         call: Duration::from_secs(10),
-        ..Limits::default()
+        ..ModuleLimits::default()
     };
     let mut page = open_script(
         "return { render = function() for n = 1, 5000 do pcall(error, 'again') end return pencere.div() end }",
@@ -790,7 +794,7 @@ fn errors_a_script_catches_are_not_kept() {
 fn the_example_page_counts_clicks() {
     let mut page = open_script(
         include_str!("../../luau/examples/hello.lua"),
-        Limits::default(),
+        ModuleLimits::default(),
     );
     page.module.render(SIZE, 0.0, false);
     let update = page.until(Duration::from_secs(20), |u| {
@@ -847,7 +851,7 @@ fn what_an_event_asks_past_a_calls_share_goes_out_in_the_frames_after_it() {
            render = function() return pencere.div() end,\n\
            handle = function() for i = 1, 20 do pencere.call('ping', { n = i }) end end,\n\
          }",
-        Limits::default(),
+        ModuleLimits::default(),
     );
     page.module.render(SIZE, 0.0, false);
     until_seen(&mut page, Duration::from_secs(20), |seen| {

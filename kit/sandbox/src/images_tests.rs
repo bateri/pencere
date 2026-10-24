@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use pencere_view::{Fit, Font, Measure, Metrics, Paint, Size, div, image, layout};
 
-use crate::images::{Arrived, Assets, Bitmap, ImageLimits, Images};
+use crate::images::{Arrival, Assets, Bitmap, ImageLimits, Images};
 
 // --- The files and the host ---------------------------------------------------------------------
 
@@ -84,7 +84,7 @@ fn rig(files: Vec<(&str, Vec<u8>)>) -> Rig {
 
 impl Rig {
     /// Waits to be woken, and takes what arrived.
-    fn wait(&self) -> Arrived {
+    fn wait(&self) -> Arrival {
         self.woke
             .recv_timeout(Duration::from_secs(20))
             .expect("the images woke the host");
@@ -92,8 +92,8 @@ impl Rig {
     }
 
     /// Waits until what has arrived, all together, is what `done` says is enough.
-    fn until(&self, done: impl Fn(&Arrived) -> bool) -> Arrived {
-        let mut total = Arrived::default();
+    fn until(&self, done: impl Fn(&Arrival) -> bool) -> Arrival {
+        let mut total = Arrival::default();
         while !done(&total) {
             let more = self.wait();
             total.relayout |= more.relayout;
@@ -581,7 +581,7 @@ fn an_image_past_the_side_limit_is_refused_with_a_diagnostic_and_leaves_its_box_
 #[test]
 fn the_pixels_of_a_view_are_held_to_a_budget_and_the_image_that_would_pass_it_is_refused() {
     let limits = ImageLimits {
-        bytes: 2 * 4 * 4 * 4,
+        pixel_bytes: 2 * 4 * 4 * 4,
         ..ImageLimits::default()
     };
     let files = ["a.png", "b.png", "c.png"]
@@ -604,7 +604,7 @@ fn the_pixels_of_a_view_are_held_to_a_budget_and_the_image_that_would_pass_it_is
 #[test]
 fn the_budget_diagnostic_names_the_image_and_the_budget() {
     let limits = ImageLimits {
-        bytes: 63,
+        pixel_bytes: 63,
         ..ImageLimits::default()
     };
     let rig = rig_with(vec![("a.png", solid(4, 4, [1, 1, 1, 255]))], limits, None);
@@ -623,7 +623,7 @@ fn a_new_drawing_of_an_svg_gives_back_the_pixels_of_the_one_before_to_the_budget
     // Room for one drawing of 16 by 8 (512 bytes) and not for two: the second size replaces the
     // first, as it did not pass the budget by being held beside it.
     let limits = ImageLimits {
-        bytes: 16 * 8 * 4,
+        pixel_bytes: 16 * 8 * 4,
         ..ImageLimits::default()
     };
     let rig = rig_with(
@@ -721,7 +721,7 @@ fn what_is_not_an_image_is_refused_and_told_why_once() {
 #[test]
 fn a_file_larger_than_a_file_may_be_is_refused_unread() {
     let limits = ImageLimits {
-        source: 100,
+        file_bytes: 100,
         ..ImageLimits::default()
     };
     let rig = rig_with(

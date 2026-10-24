@@ -42,9 +42,9 @@ pub struct ImageLimits {
     /// The most pixels an image may be wide or tall (so the most a drawn SVG is).
     pub side: u32,
     /// Bytes of decoded pixels the view may hold in all, over its images (4 bytes a pixel).
-    pub bytes: usize,
-    /// Bytes a file of an image may be: the most any file of a bundle may be.
-    pub source: usize,
+    pub pixel_bytes: usize,
+    /// Bytes the file of one image may be: the most any file of a bundle may be.
+    pub file_bytes: usize,
     /// Different paths a view may name, as many as a bundle may have files; the ones after that
     /// are refused without being read.
     pub paths: usize,
@@ -54,8 +54,8 @@ impl Default for ImageLimits {
     fn default() -> Self {
         Self {
             side: 4096,
-            bytes: 64 << 20,
-            source: 8 << 20,
+            pixel_bytes: 64 << 20,
+            file_bytes: 8 << 20,
             paths: 1024,
         }
     }
@@ -103,7 +103,7 @@ impl std::fmt::Display for Diagnostic {
 
 /// What came of the images since the host last looked ([`Images::poll`]).
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct Arrived {
+pub struct Arrival {
     /// A size is known that was not: the page is laid out again, because the room an image takes
     /// is not what it was.
     pub relayout: bool,
@@ -113,7 +113,7 @@ pub struct Arrived {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-impl Arrived {
+impl Arrival {
     /// Nothing came.
     pub fn is_empty(&self) -> bool {
         !self.relayout && !self.redraw && self.diagnostics.is_empty()
@@ -150,7 +150,7 @@ struct State {
     entries: HashMap<String, Entry>,
     /// Bytes of pixels held, over every bitmap in `entries`.
     held: usize,
-    arrived: Arrived,
+    arrived: Arrival,
     /// The host has been woken and has not looked since.
     woken: bool,
     /// The next `Bitmap::id`.
@@ -250,7 +250,7 @@ impl Images {
 
     /// What arrived since the last look, and the host is not woken again for it. A host that is
     /// woken looks; one that looks at no time is only not told.
-    pub fn poll(&self) -> Arrived {
+    pub fn poll(&self) -> Arrival {
         let mut state = self.lock();
         state.woken = false;
         std::mem::take(&mut state.arrived)
@@ -379,11 +379,11 @@ impl Shared {
 
     /// Whether `bytes` more of pixels, `freed` of the ones held being let go, stay within the limit.
     fn room(&self, state: &State, bytes: usize, freed: usize) -> Result<(), Failure> {
-        if state.held.saturating_sub(freed).saturating_add(bytes) <= self.limits.bytes {
+        if state.held.saturating_sub(freed).saturating_add(bytes) <= self.limits.pixel_bytes {
             Ok(())
         } else {
             Err(Failure::Budget {
-                most: self.limits.bytes,
+                most: self.limits.pixel_bytes,
             })
         }
     }
@@ -481,10 +481,10 @@ enum Decoded {
 
 fn read_and_decode(shared: &Shared, path: &str) -> Result<Decoded, Failure> {
     let bytes = shared.assets.read(path).ok_or(Failure::Missing)?;
-    if bytes.len() > shared.limits.source {
+    if bytes.len() > shared.limits.file_bytes {
         return Err(Failure::Source {
             bytes: bytes.len(),
-            most: shared.limits.source,
+            most: shared.limits.file_bytes,
         });
     }
     match decode::sniff(&bytes).ok_or(Failure::Unknown)? {
@@ -519,7 +519,7 @@ fn draw(shared: &Arc<Shared>, vectors: &HashMap<String, Vector>, path: &str, at:
     };
     let outcome = decode::pixel_bytes(width, height)
         .ok_or(Failure::Budget {
-            most: shared.limits.bytes,
+            most: shared.limits.pixel_bytes,
         })
         .and_then(|bytes| shared.room(&shared.lock(), bytes, freed))
         .and_then(|()| vector.draw(width, height));

@@ -42,7 +42,7 @@ pub enum Direction {
 
 /// The limits of one direction (specification §4.6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Limits {
+pub struct WireLimits {
     /// The most bytes a frame may have, `ESC _` and `ESC \` included.
     pub frame: usize,
     /// The most bytes a message's payload may have.
@@ -51,16 +51,16 @@ pub struct Limits {
 
 impl Direction {
     /// The limits of this direction.
-    pub const fn limits(self) -> Limits {
+    pub const fn limits(self) -> WireLimits {
         match self {
-            Self::ToHost => Limits {
+            Self::ToHost => WireLimits {
                 frame: 4096,
                 message: 16 * 1024 * 1024,
             },
             // A message of a view is at most 1 MiB as the view said it, and the escapes of the
             // wire (§4.5) make a character up to six times as long (a DEL is `\u007f`): six
             // times the limit of a view's message is what always fits.
-            Self::ToProgram => Limits {
+            Self::ToProgram => WireLimits {
                 frame: 511,
                 message: 6 * 1024 * 1024,
             },
@@ -351,7 +351,7 @@ enum Body {
 /// terminating it. A string whose first bytes are not `pencere;` is dropped at
 /// the first byte that differs, without buffering and without an error.
 pub struct BodyDecoder {
-    limits: Limits,
+    limits: WireLimits,
     state: Body,
     body: Vec<u8>,
     assembler: Assembler,
@@ -720,7 +720,7 @@ pub fn encode(
 }
 
 fn encode_chunks(
-    limits: Limits,
+    limits: WireLimits,
     msg: &Outgoing<'_>,
     split: Split,
     out: &mut Vec<u8>,

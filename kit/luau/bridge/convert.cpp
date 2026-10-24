@@ -114,44 +114,81 @@ const char* const kFamily[] = {"system", "terminal"};
 const char* const kAlign[] = {"start", "center", "end"};
 const char* const kFit[] = {"contain", "cover"};
 
+// A word of the tables above is the place of the constant it names, so the places are held to the
+// interface here: an enum that is reordered or grows in the middle stops the build and does not
+// quietly name another word.
+static_assert(PENCERE_VIEW_TYPES_DISPLAY_FLEX == 0 && PENCERE_VIEW_TYPES_DISPLAY_GRID == 1 &&
+                  PENCERE_VIEW_TYPES_DISPLAY_NONE == 2,
+              "kDisplay is the order of display");
+static_assert(PENCERE_VIEW_TYPES_DIRECTION_ROW == 0 && PENCERE_VIEW_TYPES_DIRECTION_COLUMN == 1,
+              "kDirection is the order of direction");
+static_assert(PENCERE_VIEW_TYPES_ITEMS_START == 0 && PENCERE_VIEW_TYPES_ITEMS_CENTER == 1 &&
+                  PENCERE_VIEW_TYPES_ITEMS_END == 2 && PENCERE_VIEW_TYPES_ITEMS_STRETCH == 3,
+              "kItems is the order of items");
+static_assert(PENCERE_VIEW_TYPES_JUSTIFY_START == 0 && PENCERE_VIEW_TYPES_JUSTIFY_CENTER == 1 &&
+                  PENCERE_VIEW_TYPES_JUSTIFY_END == 2 && PENCERE_VIEW_TYPES_JUSTIFY_BETWEEN == 3,
+              "kJustify is the order of justify");
+static_assert(PENCERE_VIEW_TYPES_OVERFLOW_VISIBLE == 0 && PENCERE_VIEW_TYPES_OVERFLOW_HIDDEN == 1 &&
+                  PENCERE_VIEW_TYPES_OVERFLOW_SCROLL == 2,
+              "kOverflow is the order of overflow");
+static_assert(PENCERE_VIEW_TYPES_FAMILY_SYSTEM == 0 && PENCERE_VIEW_TYPES_FAMILY_TERMINAL == 1,
+              "kFamily is the order of family");
+static_assert(PENCERE_VIEW_TYPES_ALIGN_START == 0 && PENCERE_VIEW_TYPES_ALIGN_CENTER == 1 &&
+                  PENCERE_VIEW_TYPES_ALIGN_END == 2,
+              "kAlign is the order of align");
+static_assert(PENCERE_VIEW_TYPES_FIT_CONTAIN == 0 && PENCERE_VIEW_TYPES_FIT_COVER == 1,
+              "kFit is the order of fit");
+
 // --- Colours, lengths, tracks ---------------------------------------------------------------
 
-pencere_view_types_tone_t tone_of(lua_State* L, const char* given) {
-    static const char* const plain[] = {"background", "foreground", "dim",     "accent", "cursor",
-                                        "success",    "error",      "info",    "warning"};
-    // The theme's ANSI palette, in the interface's order (so that the tags run on from `black`).
-    static const char* const ansi[] = {"black",        "red",          "green",        "yellow",
-                                       "blue",         "magenta",      "cyan",         "white",
-                                       "bright-black", "bright-red",   "bright-green", "bright-yellow",
-                                       "bright-blue",  "bright-magenta", "bright-cyan", "bright-white"};
-    pencere_view_types_tone_t tone = {};
-    for (int at = 0; at < 9; at++) {
-        if (strcmp(given, plain[at]) == 0) {
-            tone.tag = (uint8_t)at;
-            return tone;
+// The roles that are a name and nothing else, each with the interface's own constant: found by
+// name, not by where a constant stands among the others, so that a role added to the interface
+// in the middle of its list moves nothing here.
+struct NamedRole {
+    const char* name;
+    uint8_t tag;
+};
+
+const NamedRole kRoles[] = {
+    {"background", PENCERE_VIEW_TYPES_ROLE_BACKGROUND},
+    {"foreground", PENCERE_VIEW_TYPES_ROLE_FOREGROUND},
+    {"dim", PENCERE_VIEW_TYPES_ROLE_DIM},
+    {"accent", PENCERE_VIEW_TYPES_ROLE_ACCENT},
+    {"cursor", PENCERE_VIEW_TYPES_ROLE_CURSOR},
+    {"success", PENCERE_VIEW_TYPES_ROLE_SUCCESS},
+    {"error", PENCERE_VIEW_TYPES_ROLE_ERROR},
+    {"info", PENCERE_VIEW_TYPES_ROLE_INFO},
+    {"warning", PENCERE_VIEW_TYPES_ROLE_WARNING},
+    {"quiet", PENCERE_VIEW_TYPES_ROLE_QUIET},
+    {"line", PENCERE_VIEW_TYPES_ROLE_LINE},
+    {"shadow", PENCERE_VIEW_TYPES_ROLE_SHADOW},
+    {"selection", PENCERE_VIEW_TYPES_ROLE_SELECTION},
+    // The theme's ANSI palette.
+    {"black", PENCERE_VIEW_TYPES_ROLE_BLACK},
+    {"red", PENCERE_VIEW_TYPES_ROLE_RED},
+    {"green", PENCERE_VIEW_TYPES_ROLE_GREEN},
+    {"yellow", PENCERE_VIEW_TYPES_ROLE_YELLOW},
+    {"blue", PENCERE_VIEW_TYPES_ROLE_BLUE},
+    {"magenta", PENCERE_VIEW_TYPES_ROLE_MAGENTA},
+    {"cyan", PENCERE_VIEW_TYPES_ROLE_CYAN},
+    {"white", PENCERE_VIEW_TYPES_ROLE_WHITE},
+    {"bright-black", PENCERE_VIEW_TYPES_ROLE_BRIGHT_BLACK},
+    {"bright-red", PENCERE_VIEW_TYPES_ROLE_BRIGHT_RED},
+    {"bright-green", PENCERE_VIEW_TYPES_ROLE_BRIGHT_GREEN},
+    {"bright-yellow", PENCERE_VIEW_TYPES_ROLE_BRIGHT_YELLOW},
+    {"bright-blue", PENCERE_VIEW_TYPES_ROLE_BRIGHT_BLUE},
+    {"bright-magenta", PENCERE_VIEW_TYPES_ROLE_BRIGHT_MAGENTA},
+    {"bright-cyan", PENCERE_VIEW_TYPES_ROLE_BRIGHT_CYAN},
+    {"bright-white", PENCERE_VIEW_TYPES_ROLE_BRIGHT_WHITE},
+};
+
+pencere_view_types_role_t role_of(lua_State* L, const char* given) {
+    pencere_view_types_role_t role = {};
+    for (const NamedRole& named : kRoles) {
+        if (strcmp(given, named.name) == 0) {
+            role.tag = named.tag;
+            return role;
         }
-    }
-    for (int at = 0; at < 16; at++) {
-        if (strcmp(given, ansi[at]) == 0) {
-            tone.tag = (uint8_t)(PENCERE_VIEW_TYPES_TONE_BLACK + at);
-            return tone;
-        }
-    }
-    if (strcmp(given, "quiet") == 0) {
-        tone.tag = PENCERE_VIEW_TYPES_TONE_QUIET;
-        return tone;
-    }
-    if (strcmp(given, "line") == 0) {
-        tone.tag = PENCERE_VIEW_TYPES_TONE_LINE;
-        return tone;
-    }
-    if (strcmp(given, "shadow") == 0) {
-        tone.tag = PENCERE_VIEW_TYPES_TONE_SHADOW;
-        return tone;
-    }
-    if (strcmp(given, "selection") == 0) {
-        tone.tag = PENCERE_VIEW_TYPES_TONE_SELECTION;
-        return tone;
     }
     if (strncmp(given, "raised", 6) == 0) {
         const char* digits = given + 6;
@@ -165,12 +202,12 @@ pencere_view_types_tone_t tone_of(lua_State* L, const char* given) {
             steps = steps * 10 + (*d - '0');
         }
         if (ok && steps <= 255) {
-            tone.tag = PENCERE_VIEW_TYPES_TONE_RAISED;
-            tone.val.raised = (uint8_t)steps;
-            return tone;
+            role.tag = PENCERE_VIEW_TYPES_ROLE_RAISED;
+            role.val.raised = (uint8_t)steps;
+            return role;
         }
     }
-    luaL_error(L, "\"%s\" is not the name of a tone", given);
+    luaL_error(L, "\"%s\" is not the name of a role", given);
 }
 
 int hex_digit(char c) {
@@ -200,7 +237,7 @@ pencere_view_types_rgba_t rgba_of(lua_State* L, const char* given) {
     return out;
 }
 
-// What a string names: a value if it starts with '#', else a tone.
+// What a string names: a value if it starts with '#', else a role.
 pencere_view_types_source_t source_of(lua_State* L, const char* given) {
     pencere_view_types_source_t source = {};
     if (given[0] == '#') {
@@ -208,7 +245,7 @@ pencere_view_types_source_t source_of(lua_State* L, const char* given) {
         source.val.rgba.light = rgba_of(L, given);
     } else {
         source.tag = PENCERE_VIEW_TYPES_SOURCE_ROLE;
-        source.val.role = tone_of(L, given);
+        source.val.role = role_of(L, given);
     }
     return source;
 }
@@ -233,10 +270,10 @@ pencere_view_types_source_t forms_at(lua_State* L, int t) {
 }
 
 const char kColourIs[] =
-    "a colour is a tone's name, a \"#rrggbb\" or \"#rrggbbaa\" value, { light = value, dark = value }, "
+    "a colour is a role's name, a \"#rrggbb\" or \"#rrggbbaa\" value, { light = value, dark = value }, "
     "or one of those with an opacity: { colour, alpha }";
 
-// A colour: a tone's name, a value, a value for each brightness, or any of those with an
+// A colour: a role's name, a value, a value for each brightness, or any of those with an
 // opacity: `{colour, alpha}`.
 pencere_view_types_color_t color_at(lua_State* L, int index) {
     pencere_view_types_color_t color = {};
@@ -513,15 +550,21 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         nodes.ptr[at].content.val.spark = spark;
     } else if (is_image) {
         pencere_view_types_image_t image = {};
-        get(L, element, "src");
+        // What the picture is lives in a table of its own (see `pencere.image`): its names are
+        // the chain's methods' too.
+        get(L, element, "picture");
+        if (lua_type(L, -1) != LUA_TTABLE) luaL_error(L, "an image is made by pencere.image");
+        int picture = lua_gettop(L);
+        get(L, picture, "src");
         size_t length = 0;
         const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
         image.src = host_string(bytes, length);
         lua_pop(L, 1);
-        int fit = word(L, element, "fit", kFit, 2, 0);
+        int fit = word(L, picture, "fit", kFit, 2, 0);
         image.fit = (pencere_view_types_fit_t)fit;
-        image.tint = optional_color(L, element, "tint");
-        image.opacity = number(L, element, "opacity", 1.0f);
+        image.tint = optional_color(L, picture, "tint");
+        image.opacity = number(L, picture, "opacity", 1.0f);
+        lua_pop(L, 1);
         nodes.ptr[at].content.tag = PENCERE_VIEW_TYPES_CONTENT_IMAGE;
         nodes.ptr[at].content.val.image = image;
     }

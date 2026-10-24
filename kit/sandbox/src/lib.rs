@@ -33,7 +33,7 @@ mod luau_containers_tests;
 #[cfg(test)]
 mod luau_tests;
 
-pub use images::{Arrived, Assets, Bitmap, Diagnostic, ImageLimits, Images};
+pub use images::{Arrival, Assets, Bitmap, Diagnostic, ImageLimits, Images};
 pub use luau::COMPONENT as LUAU_COMPONENT;
 pub use module::{Answer, Frame, Module, Runner, Update};
-pub use sandbox::{Fault, Limits, Program, Unbounded};
+pub use sandbox::{Fault, ModuleLimits, Program, Unbounded};

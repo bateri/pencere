@@ -4,7 +4,7 @@
 //! The module gets **nothing it was not given**: the linker holds the page's own interface and
 //! no other (no clock, no file, no network, no environment, no way to print), so a module that
 //! asks for anything else does not start. What it is given it is given on terms: a store that
-//! refuses to grow past [`Limits::memory`], a call that is cut off after [`Limits::call`]
+//! refuses to grow past [`ModuleLimits::memory`], a call that is cut off after [`ModuleLimits::call`]
 //! (the module's code is compiled to check for it at every loop head and function entry), and a
 //! page that is read with its size, depth and strings counted.
 
@@ -62,7 +62,7 @@ impl Program for Unbounded {
 
 /// What a module is held to.
 #[derive(Clone, Debug)]
-pub struct Limits {
+pub struct ModuleLimits {
     /// Bytes of memory and of tables the module may hold in all.
     pub memory: usize,
     /// How long one call (a frame, a settle, an event) may take.
@@ -90,7 +90,7 @@ pub struct Limits {
     pub message: usize,
 }
 
-impl Default for Limits {
+impl Default for ModuleLimits {
     fn default() -> Self {
         Self {
             memory: 64 << 20,
@@ -240,7 +240,7 @@ pub(crate) struct Host {
 }
 
 impl Host {
-    pub(crate) fn new(limits: &Limits, program: Arc<dyn Program>) -> Self {
+    pub(crate) fn new(limits: &ModuleLimits, program: Arc<dyn Program>) -> Self {
         Self {
             limiter: Limiter::new(limits.memory),
             laid: None,
@@ -269,7 +269,7 @@ pub(crate) fn engine() -> Result<Engine, Fault> {
 /// A store for one module under `limits`; `script` is what a module that runs one is given.
 pub(crate) fn store(
     engine: &Engine,
-    limits: &Limits,
+    limits: &ModuleLimits,
     program: Arc<dyn Program>,
     script: Arc<[u8]>,
 ) -> Store<Host> {
@@ -341,7 +341,7 @@ mod tests {
     use wasmtime::component::{Component, Linker};
 
     /// A component with one function, `run`, that does `body`.
-    fn run(wat_body: &str, limits: &Limits) -> Result<(), Fault> {
+    fn run(wat_body: &str, limits: &ModuleLimits) -> Result<(), Fault> {
         let engine = engine()?;
         let source = format!(
             r#"(component
@@ -364,11 +364,11 @@ mod tests {
         call(&mut store, limits.call, |store| run.call(store, ()))
     }
 
-    fn quick() -> Limits {
-        Limits {
+    fn quick() -> ModuleLimits {
+        ModuleLimits {
             call: Duration::from_millis(50),
             memory: 4 << 20,
-            ..Limits::default()
+            ..ModuleLimits::default()
         }
     }
 
