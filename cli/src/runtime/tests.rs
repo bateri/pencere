@@ -421,7 +421,7 @@ fn a_hash_a_system_and_the_terminals_text_are_in_the_module() {
         print(pencere.hash.sha256(""))
         print(pencere.os.platform == "macos" or pencere.os.platform == "linux", type(pencere.os.arch))
         print(type(pencere.os.home()), pencere.os.tmpdir() ~= "")
-        print(type(pencere.io.read_line), type(pencere.io.write))
+        print(type(pencere.io.read_line), type(pencere.io.write), type(pencere.io.ewrite))
     "#);
     assert_eq!(exit, Exit::Done(0));
     let lines: Vec<&str> = printed.lines().collect();
@@ -436,7 +436,7 @@ fn a_hash_a_system_and_the_terminals_text_are_in_the_module() {
     assert_eq!(lines[2], "true\tstring");
     assert_eq!(lines[3], "string\ttrue");
     // (Reading a line waits for the person; the end-to-end tests do not type.)
-    assert_eq!(lines[4], "function\tfunction");
+    assert_eq!(lines[4], "function\tfunction\tfunction");
 }
 
 #[test]

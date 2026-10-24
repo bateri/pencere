@@ -650,6 +650,18 @@ fn terminal(lua: &Lua) -> mlua::Result<Table> {
                 .map_err(|why| fail("io.write", "stdout", &why))
         })?,
     )?;
+    // io.ewrite(text): to the terminal's error output, as it is: what a program says of its own
+    // failure, apart from what it prints for a person or a pipe to read.
+    table.set(
+        "ewrite",
+        lua.create_function(|_, text: mlua::String| {
+            use std::io::Write as _;
+            let mut out = io::stderr().lock();
+            out.write_all(&text.as_bytes())
+                .and_then(|()| out.flush())
+                .map_err(|why| fail("io.ewrite", "stderr", &why))
+        })?,
+    )?;
     // io.read_line([prompt]) -> the line without its end, or nil at the end of the input.
     table.set(
         "read_line",
