@@ -115,8 +115,9 @@ are what a program and its view say to each other while the view runs:
    read (Section 9). A page also has a few messages of the host's own (Section 9.4).
 5. The view ends: the program says `bye` or `dismiss` (Sections 10.3 and 10.8), the person closes
    it (Section 10.5), the view asks to close (Section 10.6) or fails (Section 9.8), or the host
-   restarts it (Section 10.7). The host tells the program with `closed`, unless the program is the one
-   that ended or the host is restarting (Section 10.2).
+   restarts it (Section 10.7). The host tells the program with `closed`, unless the host is restarting or
+   the program is the one that ended; a program that said `bye` is still answered with one
+   (Sections 10.2 and 10.3).
 
 ## 4. Transport
 
@@ -242,7 +243,9 @@ to the receiver. A message of a known kind that arrives in the other direction,
 or whose payload is not valid JSON where the kind has JSON, is ignored too.
 
 **JSON text.** A JSON payload is one line of compact JSON (no whitespace outside
-strings) in which every character the rule of Section 4.2 forbids is escaped.
+strings) in which every character the rule of Section 4.2 forbids is escaped. The one exception is
+a message of a view that the host passes on to the program as it came: it keeps the spaces
+between its tokens, and loses only the tab, line feed and carriage return (Section 9.3).
 A sender writes: `"` as `\"` and `\` as `\\`; U+0008, U+0009, U+000A, U+000C and
 U+000D as `\b`, `\t`, `\n`, `\f` and `\r`; every other code point below U+0020,
 U+007F and every code point from U+0080 up as `\uXXXX` with lowercase hex
@@ -361,10 +364,12 @@ number of bytes while the program does not read (Appendix B).
   never ends. A view that has closed is not the end of the program: the host still writes the
   `closed` that tells the program (Sections 10.5, 10.6 and 10.8) and answers a later `hello`.
 - A host MUST NOT hold more than 16 MiB (16 777 216 bytes) of what a view says waiting to be
-  written to the program. A program that does not read leaves everything the tty does not take in
-  the host, and a view can say a good deal: when more than that is waiting, the host closes the
-  view with `closed`, `reason` `error`, `code` `view` (Section 9.8) after it has dropped the words
-  of the view that it has not begun to write, as it does for a signal character. (A host that
+  written to the program (the messages of the view that it passes on, Section 9.3; its own frames
+  are few and small and are not counted). A program that does not read leaves everything the tty
+  does not take in the host, and a view can say a good deal. The host asks before it holds a
+  message: if that message would take the words of the view that wait past the bound, it does not
+  hold it, it drops the words of the view that it has not begun to write, as it does for a signal
+  character, and it closes the view with `closed`, `reason` `error`, `code` `view` (Section 9.8). (A host that
   draws the view itself holds a well-behaved view back well before the limit: the kit's
   `program.send` answers `full` and `page.room` tells the view when it may send again, so that
   such a view slows down and is not closed.) A **program author** should know that a host
@@ -486,12 +491,12 @@ versions of `wasm` that remain are in the program's order, not the host's.
 
 ### 5.3 What the program concludes
 
-| What the program reads first                                              | Conclusion                                                                                                                                                                                                                                                                                                                                                                           |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| A `welcome` with `version` and `token`, `re` equal to its last hello's id | There is a host. If `views` has a kind, go on with Section 6 and open the first it can show, at the first version listed for it. If `views` is empty, there is a host and nothing to open: fall back at once, as with no host (Section 13); do not wait and do not send `open`. If `opens` names a kind the program listed, say in words which versions would have served, as below. |
-| The terminal's answer to `CSI c` (`ESC [ ? … c`)                          | There is no host. A `welcome` that arrives later MUST be ignored.                                                                                                                                                                                                                                                                                                                    |
-| A `welcome` with `supported` and no `version`                             | There is a host that shares no version with this program. Treat as no host.                                                                                                                                                                                                                                                                                                          |
-| Nothing                                                                   | After a time, no host. The time SHOULD be 2 seconds; a program MAY wait longer on a slow link.                                                                                                                                                                                                                                                                                       |
+| What the program reads first                                              | Conclusion                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A `welcome` with `version` and `token`, `re` equal to its last hello's id | There is a host. If `views` has a kind, go on with Section 6 and open the first it can show, at the first version listed for it. If `views` is empty, there is a host and nothing to open: fall back at once, as with no host (Section 13); do not wait and do not send `open`. If `views` is empty and `opens` names a kind the program listed, say in words which versions would have served, as below. |
+| The terminal's answer to `CSI c` (`ESC [ ? … c`)                          | There is no host. A `welcome` that arrives later MUST be ignored.                                                                                                                                                                                                                                                                                                                                         |
+| A `welcome` with `supported` and no `version`                             | There is a host that shares no version with this program. Treat as no host.                                                                                                                                                                                                                                                                                                                               |
+| Nothing                                                                   | After a time, no host. The time SHOULD be 2 seconds; a program MAY wait longer on a slow link.                                                                                                                                                                                                                                                                                                            |
 
 2 seconds is a precedent, not a measurement (Appendix D). A program that
 concludes "no host" MUST NOT send further frames of this protocol (Section 13).
@@ -852,7 +857,7 @@ limits; a host MAY enforce lower ones and then refuses with `limit`.
 
 ### 8.3 What is missing
 
-For an `open` it accepts that has a manifest, the host answers with a `need`
+For an `open` it accepts, the host answers with a `need`
 message whose `re` is the open's id and whose `missing` lists the digests it
 does not hold, each once, in the order of their first appearance in `files`.
 An empty list means everything is held. Then, without waiting, it starts the
@@ -958,9 +963,11 @@ The members of each, in the order a writer writes them (Appendix A):
 - `cancel`: `id`;
 - `progress`: `id`, `done`, and OPTIONAL `total` and `note`.
 
-An `id` is a positive integer that belongs to the side that asked, and it is at most 2^53 - 1
-(9 007 199 254 740 991): the greatest integer a JSON number holds in the language a page is written
-in, so that the same number means the same to every end. A message with another `id` is ignored. The
+An `id` belongs to the side that asked. It is a JSON number whose value is a whole number from 1 to
+2^53 - 1 (9 007 199 254 740 991), the greatest integer a JSON number holds in the language a page is
+written in, so that the same number means the same to every end: `1`, `1.0` and `1e3` are ids, `0`,
+`1.5`, `"1"` and `9007199254740992` are not, and a message with an `id` that is not one is ignored. A
+sender writes the whole number in its plain form. The
 view numbers its `call`s and `subscribe`s, from 1 and upward, and two requests of a view that are out
 at the same time do not share one: a receiver keeps the first and ignores a `call` or `subscribe`
 whose `id` is one of a request that is still out. The `response`, `push`, `progress` and `cancel` that
@@ -1304,9 +1311,9 @@ colour of a shadow). The other way is a **value**, for a colour that no role say
 which of the two a pane wears (it is `dark` as in Section 11.2) and takes that one; the kit never
 does. Either way a colour has an opacity of its own on top, `0` to `1`, which is **multiplied** with
 the alpha of a value: `#80808080` with an opacity of `0.5` is drawn at a quarter of full opacity. The
-surfaces derived from the roles (`raised`, `quiet`, `border`, `shadow`) are the host's to compute; the
-kit document gives a recommended formula for each, which makes the same page look alike on every
-host that follows it.
+surfaces derived from the roles (`raised`, `quiet` and `shadow`) are the host's to compute, and `border`
+is a role like the rest, with the default of Section 11.2; the kit document gives a recommended formula
+for each of the derived ones, which makes the same page look alike on every host that follows it.
 
 A view tells the host what the page said, not what it came to. For each line of text it also
 names the **grounds** under it: the fills of the box the line is in and of the boxes that hold it,
@@ -1705,8 +1712,11 @@ for the answer for longer than a time of its choosing with `closed`, `reason` `e
 ### 12.3 Files and navigation
 
 The view has no access to files and does not navigate to another document: after the load of its
-entry, the host MUST cancel every navigation of the web view, whatever starts it (a link the page
-follows, a change of `location`, a form, a script that opens a window). `form-action 'none'` in the
+entry, the host MUST cancel every top-level navigation of the web view to another document, whatever
+starts it (a link the page follows, a change of `location`, a form, a script that opens a window). A
+navigation that only changes the fragment (`#…`) of the same document is not one to another document
+and is allowed, and the loading of a frame that the policy lets the page nest (Section 12.1) is not a
+top-level navigation. `form-action 'none'` in the
 policy (Section 12.1) says the same of forms to the web view itself. The `link` message of the
 page is the only way out; what the host accepts and what it does with it is in Section 9.7.
 

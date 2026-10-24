@@ -166,7 +166,7 @@ pub(crate) fn fits(payload: &str) -> bool {
 /// came, escaped by the wire, so the size is counted the way [`fits`] counts it and not on the
 /// text (which is [`Message::parse`]'s way, and up to six times too strict for non-ASCII text).
 pub(crate) fn read_message(payload: &str) -> Option<Message> {
-    if !fits(payload) || !json::is_object(payload) {
+    if !fits(payload) || !json::is_object(payload) || json::too_deep(payload) {
         return None;
     }
     let message: Message = serde_json::from_str(payload).ok()?;

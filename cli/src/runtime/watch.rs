@@ -59,9 +59,8 @@ mod imp {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
-    use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
+    use std::sync::mpsc::channel;
     use std::thread::JoinHandle;
-    use std::time::Duration;
 
     use super::{Change, Tell};
 
@@ -108,6 +107,18 @@ mod imp {
         fn CFRunLoopGetCurrent() -> *mut c_void;
         fn CFRunLoopRun();
         fn CFRunLoopStop(run_loop: *mut c_void);
+        fn CFAbsoluteTimeGetCurrent() -> f64;
+        fn CFRunLoopTimerCreate(
+            allocator: *const c_void,
+            fire_date: f64,
+            interval: f64,
+            flags: u64,
+            order: CFIndex,
+            callout: extern "C" fn(*mut c_void, *mut c_void),
+            context: *const StreamContext,
+        ) -> *mut c_void;
+        fn CFRunLoopAddTimer(run_loop: *mut c_void, timer: *mut c_void, mode: *const c_void);
+        fn CFRunLoopTimerInvalidate(timer: *mut c_void);
     }
 
     #[link(name = "CoreServices", kind = "framework")]
@@ -132,9 +143,9 @@ mod imp {
         fn FSEventStreamRelease(stream: *mut c_void);
     }
 
-    /// How long `start` waits to hear the fence before it gives up on telling the watch's own
-    /// beginning from what came before: it then reports everything, as the system does.
-    const FENCE_WAIT: Duration = Duration::from_secs(3);
+    /// How long the watch waits to hear the fence before it gives up on telling its own beginning
+    /// from what came before: it then reports everything, as the system does (seconds).
+    const FENCE_WAIT: f64 = 3.0;
     const UTF8: u32 = 0x0800_0100;
     const SINCE_NOW: u64 = u64::MAX;
     // File-level events (the default is the directory that changed).
@@ -161,8 +172,11 @@ mod imp {
     /// when the stream was made, and flushing the stream does not bring it out first. What does
     /// order them is the system's own queue: a change made in a private directory after the
     /// stream is up is numbered after everything made before, so the id of that one event (the
-    /// floor) separates what came before the watch from what came after it, and nothing is polled
-    /// or waited for beyond that one event.
+    /// floor) separates what came before the watch from what came after it. Nothing is polled and
+    /// nothing waits for that event: the watch is begun when the change in the fence has been made,
+    /// and what the system reports until the event is heard is the past.
+    const FENCE_PREFIX: &str = "pencere-watch-fence-";
+
     struct Fence {
         directory: PathBuf,
         /// The directory as the system is told it.
@@ -170,11 +184,13 @@ mod imp {
     }
 
     impl Fence {
-        /// A private directory of the temporary kind, or none when one cannot be made.
+        /// A private directory of the temporary kind, or none when one cannot be made. The ones
+        /// that processes which have since died left behind are removed first.
         fn make() -> Option<Fence> {
             static MADE: AtomicU32 = AtomicU32::new(0);
+            sweep(&std::env::temp_dir());
             let directory = std::env::temp_dir().join(format!(
-                "pencere-watch-fence-{}-{}",
+                "{FENCE_PREFIX}{}-{}",
                 std::process::id(),
                 MADE.fetch_add(1, Ordering::Relaxed)
             ));
@@ -200,12 +216,46 @@ mod imp {
         }
     }
 
+    /// Removes the fence directories in `temp` that belong to a process which no longer lives: a
+    /// process that was killed has no time to remove its own.
+    fn sweep(temp: &Path) {
+        let Ok(entries) = std::fs::read_dir(temp) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(rest) = name.to_str().and_then(|n| n.strip_prefix(FENCE_PREFIX)) else {
+                continue;
+            };
+            let Some(pid) = rest
+                .split('-')
+                .next()
+                .and_then(|pid| pid.parse::<i32>().ok())
+            else {
+                continue;
+            };
+            if pid != std::process::id() as i32 && !lives(pid) {
+                let _ = std::fs::remove_dir_all(entry.path());
+            }
+        }
+    }
+
+    /// Whether a process with this id exists (one the user may not signal does).
+    fn lives(pid: i32) -> bool {
+        // SAFETY: signal 0 sends nothing; it asks whether the process could be signalled.
+        let signalled = unsafe { libc::kill(pid, 0) };
+        signalled == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+    }
+
     impl Drop for Fence {
         fn drop(&mut self) {
             let _ = std::fs::remove_file(self.directory.join("up"));
             let _ = std::fs::remove_dir(&self.directory);
         }
     }
+
+    /// One event as the system reports it: the path, its flags and its id.
+    type Reported = (String, u32, u64);
 
     /// What `on_events` works with, on the thread of the watch.
     struct Gate {
@@ -215,11 +265,63 @@ mod imp {
         /// The id of the fence's event once it is heard: what was numbered up to it came before
         /// the watch.
         floor: Cell<Option<u64>>,
-        /// Told, once, that the floor is known.
-        heard: Sender<io::Result<()>>,
-        /// Set by `start` when the fence is not heard in time, or was never made: everything the
-        /// system reports is told.
-        open: Arc<AtomicBool>,
+        /// Everything the system reports is told: there was no fence, or it was not heard in time.
+        open: Cell<bool>,
+    }
+
+    impl Gate {
+        fn new(tell: Tell, fence: Option<PathBuf>) -> Self {
+            Self {
+                tell,
+                open: Cell::new(fence.is_none()),
+                fence,
+                floor: Cell::new(None),
+            }
+        }
+
+        fn of_fence(&self, path: &str) -> bool {
+            self.fence
+                .as_deref()
+                .is_some_and(|fence| Path::new(path).starts_with(fence))
+        }
+
+        /// What of a batch the watch tells of. Until the fence is heard the gate is shut and
+        /// every event is the past; from then on what was numbered up to the fence is, and the
+        /// events of the fence itself are nobody's.
+        fn admit(&self, batch: Vec<Reported>) -> Vec<Reported> {
+            if self.floor.get().is_none()
+                && let Some(id) = batch
+                    .iter()
+                    .filter(|(path, ..)| self.of_fence(path))
+                    .map(|(.., id)| *id)
+                    .max()
+            {
+                self.floor.set(Some(id));
+            }
+            let floor = self.floor.get();
+            let open = self.open.get();
+            batch
+                .into_iter()
+                .filter(|(path, _, id)| {
+                    !self.of_fence(path) && (open || floor.is_some_and(|floor| *id > floor))
+                })
+                .collect()
+        }
+
+        /// The fence was not heard in time: everything is told from now on.
+        fn give_up_waiting(&self) {
+            if self.floor.get().is_none() {
+                self.open.set(true);
+            }
+        }
+    }
+
+    /// The wait for the fence is over (a one-shot timer of the run loop of the watch).
+    extern "C" fn on_late(_timer: *mut c_void, info: *mut c_void) {
+        // SAFETY: `info` is the `Gate` that `start` boxed and leaks until the thread ends, and it
+        // is used on that thread alone.
+        let gate = unsafe { &*(info as *const Gate) };
+        gate.give_up_waiting();
     }
 
     extern "C" fn on_events(
@@ -249,28 +351,8 @@ mod imp {
                 .into_owned();
             reported.push((path, flags, id));
         }
-        let of_fence = |path: &str| {
-            gate.fence
-                .as_deref()
-                .is_some_and(|fence| Path::new(path).starts_with(fence))
-        };
-        if gate.floor.get().is_none()
-            && let Some(id) = reported
-                .iter()
-                .filter(|(path, ..)| of_fence(path))
-                .map(|(.., id)| *id)
-                .max()
-        {
-            gate.floor.set(Some(id));
-            let _ = gate.heard.send(Ok(()));
-        }
-        let floor = gate.floor.get();
-        let open = gate.open.load(Ordering::SeqCst);
         let mut changes = Vec::with_capacity(count);
-        for (path, flags, id) in reported {
-            if of_fence(&path) || (!open && floor.is_none_or(|floor| id <= floor)) {
-                continue;
-            }
+        for (path, flags, _) in gate.admit(reported) {
             // The system gathers what happened to a path since the last time it told: a file made
             // and removed in that time has both flags. What the file is now settles which it is.
             let gone = std::fs::symlink_metadata(&path).is_err();
@@ -319,26 +401,15 @@ mod imp {
         let shared = Arc::clone(&run_loop);
         let stopped = Arc::new(AtomicBool::new(false));
         let stop = Arc::clone(&stopped);
-        let open = Arc::new(AtomicBool::new(false));
-        let opened = Arc::clone(&open);
         let path = CString::new(root.to_string_lossy().as_bytes())
             .map_err(|_| io::Error::other("a path with a NUL in it"))?;
         let thread = std::thread::Builder::new()
             .name("pencere-watch".into())
             .spawn(move || {
                 let fence = Fence::make();
-                if fence.is_none() {
-                    opened.store(true, Ordering::SeqCst);
-                }
-                let gate = Gate {
-                    tell,
-                    fence: fence.as_ref().map(|fence| fence.directory.clone()),
-                    floor: Cell::new(None),
-                    heard: ready.clone(),
-                    open: opened,
-                };
+                let gate = Gate::new(tell, fence.as_ref().map(|fence| fence.directory.clone()));
                 // SAFETY: the calls are the framework's, with arguments it documents; the boxed
-                // gate outlives the stream, which is released before the box is.
+                // gate outlives the stream and the timer, which are released before the box is.
                 unsafe {
                     let info = Box::into_raw(Box::new(gate));
                     let text = CFStringCreateWithCString(kCFAllocatorDefault, path.as_ptr(), UTF8);
@@ -393,16 +464,42 @@ mod imp {
                     }
                     shared.store(current, Ordering::SeqCst);
                     // The stream is up: what is made in the fence from here on is heard after
-                    // everything that came before. Without it, nothing is waited for.
-                    let raised = fence.as_ref().is_some_and(Fence::raise);
-                    if !raised {
-                        (*info).open.store(true, Ordering::SeqCst);
-                        let _ = ready.send(Ok(()));
+                    // everything that came before, and the watch is begun. Without a fence, or
+                    // when it cannot be raised, everything the system reports is told.
+                    let mut late = std::ptr::null_mut();
+                    if fence.as_ref().is_some_and(Fence::raise) {
+                        // If the event is not heard in time the gate opens, once and for all.
+                        let timer_context = StreamContext {
+                            version: 0,
+                            info: info.cast(),
+                            retain: std::ptr::null(),
+                            release: std::ptr::null(),
+                            copy_description: std::ptr::null(),
+                        };
+                        late = CFRunLoopTimerCreate(
+                            kCFAllocatorDefault,
+                            CFAbsoluteTimeGetCurrent() + FENCE_WAIT,
+                            0.0,
+                            0,
+                            0,
+                            on_late,
+                            &raw const timer_context,
+                        );
+                        if !late.is_null() {
+                            CFRunLoopAddTimer(current, late, kCFRunLoopDefaultMode);
+                        }
+                    } else {
+                        (*info).open.set(true);
                     }
+                    let _ = ready.send(Ok(()));
                     // A stop that came before the run loop ran is asked for again by `drop`, until
                     // this thread is gone.
                     while !stop.load(Ordering::SeqCst) {
                         CFRunLoopRun();
+                    }
+                    if !late.is_null() {
+                        CFRunLoopTimerInvalidate(late);
+                        CFRelease(late);
                     }
                     FSEventStreamStop(stream);
                     FSEventStreamInvalidate(stream);
@@ -411,23 +508,20 @@ mod imp {
                 }
                 drop(fence);
             })?;
-        match started.recv_timeout(FENCE_WAIT) {
-            Ok(Ok(())) => {}
+        // The watch is begun, or the system would not begin it: the thread says which at once, and
+        // does not wait for the fence to be heard.
+        match started.recv() {
+            Ok(Ok(())) => Ok(Watcher {
+                run_loop,
+                stopped,
+                thread: Some(thread),
+            }),
             Ok(Err(why)) => {
                 let _ = thread.join();
-                return Err(why);
+                Err(why)
             }
-            // The fence was not heard: the watch goes on, and tells what the system tells.
-            Err(RecvTimeoutError::Timeout) => open.store(true, Ordering::SeqCst),
-            Err(RecvTimeoutError::Disconnected) => {
-                return Err(io::Error::other("the watch did not start"));
-            }
+            Err(_) => Err(io::Error::other("the watch did not start")),
         }
-        Ok(Watcher {
-            run_loop,
-            stopped,
-            thread: Some(thread),
-        })
     }
 
     impl Drop for Watcher {
@@ -447,6 +541,95 @@ mod imp {
                 std::thread::sleep(std::time::Duration::from_millis(2));
             }
             let _ = thread.join();
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn gate(fence: Option<&str>) -> Gate {
+            Gate::new(Box::new(|_| {}), fence.map(PathBuf::from))
+        }
+
+        fn event(path: &str, id: u64) -> Reported {
+            (path.to_owned(), 0, id)
+        }
+
+        fn paths(kept: Vec<Reported>) -> Vec<String> {
+            kept.into_iter().map(|(path, ..)| path).collect()
+        }
+
+        #[test]
+        fn what_the_system_reports_before_the_fence_is_heard_is_the_past() {
+            let gate = gate(Some("/fence"));
+            // A batch of what happened before the watch, delivered before the fence's own event.
+            assert!(
+                gate.admit(vec![event("/root/a", 5), event("/root/b", 6)])
+                    .is_empty()
+            );
+            // The batch that holds the fence's event: what is numbered up to it is the past, what
+            // is numbered after it is the watch's, and the fence is nobody's.
+            let kept = gate.admit(vec![
+                event("/fence/up", 10),
+                event("/root/old", 9),
+                event("/root/new", 11),
+            ]);
+            assert_eq!(paths(kept), ["/root/new"]);
+            // Stragglers of the past that come later are still the past.
+            assert!(gate.admit(vec![event("/root/late", 8)]).is_empty());
+            assert_eq!(
+                paths(gate.admit(vec![event("/root/next", 12)])),
+                ["/root/next"]
+            );
+        }
+
+        #[test]
+        fn a_gate_that_waited_in_vain_opens_and_one_that_heard_the_fence_does_not() {
+            let waited = gate(Some("/fence"));
+            assert!(waited.admit(vec![event("/root/a", 3)]).is_empty());
+            waited.give_up_waiting();
+            assert_eq!(paths(waited.admit(vec![event("/root/a", 3)])), ["/root/a"]);
+            // The fence's own events are nobody's, open or not.
+            assert!(waited.admit(vec![event("/fence/up", 4)]).is_empty());
+            let heard = gate(Some("/fence"));
+            heard.admit(vec![event("/fence/up", 10)]);
+            heard.give_up_waiting();
+            assert!(heard.admit(vec![event("/root/past", 7)]).is_empty());
+            // No fence to wait for: everything is told from the first.
+            assert_eq!(
+                paths(gate(None).admit(vec![event("/root/a", 1)])),
+                ["/root/a"]
+            );
+        }
+
+        #[test]
+        fn the_fences_of_processes_that_died_are_swept_and_the_living_ones_stay() {
+            let temp = std::env::temp_dir().join(format!("pencere-sweep-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&temp);
+            std::fs::create_dir_all(&temp).expect("a directory");
+            let mut child = std::process::Command::new("true").spawn().expect("a child");
+            let dead = child.id();
+            child.wait().expect("it ends");
+            let name = |pid: u32, n: u32| format!("{FENCE_PREFIX}{pid}-{n}");
+            for made in [
+                name(dead, 0),
+                name(std::process::id(), 3),
+                "other".to_owned(),
+            ] {
+                std::fs::create_dir_all(temp.join(&made).join("below")).expect("a directory");
+            }
+            sweep(&temp);
+            let mut left: Vec<String> = std::fs::read_dir(&temp)
+                .expect("a directory")
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect();
+            left.sort();
+            let mut expected = vec![name(std::process::id(), 3), "other".to_owned()];
+            expected.sort();
+            assert_eq!(left, expected);
+            let _ = std::fs::remove_dir_all(&temp);
         }
     }
 }

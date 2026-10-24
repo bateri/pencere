@@ -18,7 +18,7 @@ Tokens in the files are fixed test values. The host identity is
 ## `manifest.json`
 
 ```
-{ "protocol": 1, "tokens": {...}, "decode": [...], "session": [...], "bridge": [...] }
+{ "protocol": 1, "tokens": {...}, "decode": [...], "session": [...], "bridge": [...], "message": [...] }
 ```
 
 A **`decode`** entry has `file`, `direction` (`to-host`: bytes the program writes;
@@ -42,7 +42,7 @@ happens to the host is followed by an `out` step that says what the host does. W
 `in` step, a file fed to the host (the program's bytes), or an `event` step, something on the terminal's side:
 `observe` (with `alternate-screen`: the pane is on the alternate screen or not), `allow-opens` (with
 `allow`), `consent` (with `grant`, `all` or `none`: the person answers the question that was asked last),
-`timeout`, `close-view` (the person closes the view), `restart`, `program-ended`, `set-size` (with `width`
+`backlog` (with `waiting`: the terminal asks whether it may hold that many bytes of what the view says), `timeout`, `close-view` (the person closes the view), `restart`, `program-ended`, `set-size` (with `width`
 and `height`) and `page` (the page sends a message: the bridge file named by `file`, or, with `pad`, a
 message of exactly that many bytes, `{"pad":"aaa…"}`). The `out` step has `out`, the file holding the bytes the host
 must write in answer, or `null` when it writes nothing; it may also have `acted`, the other actions the
@@ -188,10 +188,31 @@ limits are covered by files at the limit and one byte over.
 | `hello-edges`              | a hello with no kind, or whose protocol versions are not a list of integers, is not answered; a kind listed twice counts once; an empty list of protocol versions shares none                                                    | `session/hello-edges/`              |
 | `kit-open-ignores-access`  | the access of an open of a view the host draws itself is not read: a broken one does not refuse the open and a good one asks the person nothing                                                                                  | `session/kit-open-ignores-access/`  |
 | `context-resent`           | the page is told its context again when a member changes, and only then                                                                                                                                                          | `session/context-resent/`           |
+| `view-backlog`             | a view whose words wait for the program up to 16 MiB goes on; asked about more, the host closes it as error view                                                                                                                 | `session/view-backlog/`             |
 
 Within a session directory the files are numbered by step, in the order of the conversation,
 `NN-in.frame` for what the program wrote and `NN-out.frame` for what the host writes back; a step
 where the host writes nothing has no file and its number is skipped.
+
+## Message fixtures
+
+What a program library reads of the messages a view says (Section 9.2), whatever the host did with
+them: each file is the payload of a `msg`, and an entry of **`message`** has `file`, `note` and
+`reads`: `null` when the message is ignored, or `{ kind, id }`, the sort of message it is
+(`call`, `subscribe` or `cancel`) and the `id` it is read with. The Rust program library and the
+TypeScript SDK are both tested from them.
+
+| File                        | What it is and the expected result                                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------ |
+| `messages/id-max.json`      | the greatest id, 2^53 - 1. Read as a cancel of that id.                                    |
+| `messages/id-over.json`     | an id of 2^53. Ignored.                                                                    |
+| `messages/id-float.json`    | an id written `1.0`. Read as a cancel of 1.                                                |
+| `messages/id-exponent.json` | an id written `1e3`. Read as a cancel of 1000.                                             |
+| `messages/id-fraction.json` | an id of `1.5`. Ignored.                                                                   |
+| `messages/id-zero.json`     | an id of 0. Ignored.                                                                       |
+| `messages/id-string.json`   | an id that is a string. Ignored.                                                           |
+| `messages/nested-127.json`  | a call nested 127 levels deep, the outermost object counting as the first. Read as a call. |
+| `messages/nested-128.json`  | a call nested 128 levels deep. Ignored.                                                    |
 
 ## Bridge fixtures
 
@@ -212,22 +233,27 @@ without a newline at the end unless the entry is about whitespace. A **`bridge`*
   Section 11.2), the font, the size of the pane, the person's language and time zone, whether
   motion is reduced and what the person allowed.
 
-| File                           | Direction       | What it is and the expected result                                                                                                                                                                                                         |
-| ------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `bridge/context.json`          | host-to-page    | the host's context for a page: every theme role, its selection and its palette, the terminal's font, the size of the pane, the person's language and time zone, the accessibility setting, and what the person allowed. Outcome `written`. |
-| `bridge/context-defaults.json` | host-to-page    | the context of a host that knows only the background and the foreground of its theme: the other roles, the selection and the palette are made up, and what is not known is left out. Outcome `written`.                                    |
-| `bridge/context-request.json`  | page-to-host    | a page that started listening late asks for the context again. Outcome `context`.                                                                                                                                                          |
-| `bridge/close.json`            | page-to-host    | the page asks to be closed. Outcome `close`.                                                                                                                                                                                               |
-| `bridge/link.json`             | page-to-host    | the page asks to open a link in the person's browser. Outcome `link`. The link is `https://example.com/docs`.                                                                                                                              |
-| `bridge/link-not-http.json`    | page-to-host    | a link that is not http or https is dropped. Outcome `dropped`.                                                                                                                                                                            |
-| `bridge/call.json`             | page-to-host    | a call of the page goes to the program as it is. Outcome `passed`.                                                                                                                                                                         |
-| `bridge/two-members.json`      | page-to-host    | an object with more than one member is nobody's message of the host's: it goes to the program as it is. Outcome `passed`.                                                                                                                  |
-| `bridge/not-an-object.json`    | page-to-host    | what is not an object is dropped. Outcome `dropped`.                                                                                                                                                                                       |
-| `bridge/response.json`         | program-to-page | the program's answer goes to the page as it is. Outcome `passed`.                                                                                                                                                                          |
-| `bridge/context-forged.json`   | program-to-page | a message that is named like one of the host's own is dropped on its way to the page. Outcome `dropped`.                                                                                                                                   |
-| `bridge/link-too-long.json`    | page-to-host    | a link of 8193 bytes is dropped; the limit is 8192. Outcome `dropped`.                                                                                                                                                                     |
-| `bridge/link-with-space.json`  | page-to-host    | a link with a space in it is dropped. Outcome `dropped`.                                                                                                                                                                                   |
-| `bridge/link-non-ascii.json`   | page-to-host    | a link with a character that is not ASCII is dropped. Outcome `dropped`.                                                                                                                                                                   |
-| `bridge/call-pretty.json`      | page-to-host    | a call written over several lines: the host writes the frame of to-program/msg-pretty.frame. Outcome `passed`.                                                                                                                             |
-| `bridge/call-escapes.json`     | page-to-host    | a call with an accent, a DEL and a character outside the first plane: the host writes the frame of to-program/msg-escapes.frame. Outcome `passed`.                                                                                         |
-| `bridge/context-resized.json`  | host-to-page    | the context the page is told when the pane is resized in the session `context-resent` (it is the entry's text, not a bridge entry).                                                                                                        |
+| File                             | Direction       | What it is and the expected result                                                                                                                                                                                                         |
+| -------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bridge/context.json`            | host-to-page    | the host's context for a page: every theme role, its selection and its palette, the terminal's font, the size of the pane, the person's language and time zone, the accessibility setting, and what the person allowed. Outcome `written`. |
+| `bridge/context-defaults.json`   | host-to-page    | the context of a host that knows only the background and the foreground of its theme: the other roles, the selection and the palette are made up, and what is not known is left out. Outcome `written`.                                    |
+| `bridge/context-request.json`    | page-to-host    | a page that started listening late asks for the context again. Outcome `context`.                                                                                                                                                          |
+| `bridge/close.json`              | page-to-host    | the page asks to be closed. Outcome `close`.                                                                                                                                                                                               |
+| `bridge/link.json`               | page-to-host    | the page asks to open a link in the person's browser. Outcome `link`. The link is `https://example.com/docs`.                                                                                                                              |
+| `bridge/link-not-http.json`      | page-to-host    | a link that is not http or https is dropped. Outcome `dropped`.                                                                                                                                                                            |
+| `bridge/call.json`               | page-to-host    | a call of the page goes to the program as it is. Outcome `passed`.                                                                                                                                                                         |
+| `bridge/two-members.json`        | page-to-host    | an object with more than one member is nobody's message of the host's: it goes to the program as it is. Outcome `passed`.                                                                                                                  |
+| `bridge/not-an-object.json`      | page-to-host    | what is not an object is dropped. Outcome `dropped`.                                                                                                                                                                                       |
+| `bridge/response.json`           | program-to-page | the program's answer goes to the page as it is. Outcome `passed`.                                                                                                                                                                          |
+| `bridge/context-forged.json`     | program-to-page | a message that is named like one of the host's own is dropped on its way to the page. Outcome `dropped`.                                                                                                                                   |
+| `bridge/nested-127.json`         | page-to-host    | a message nested 127 levels deep goes to the program as it is. Outcome `passed`.                                                                                                                                                           |
+| `bridge/nested-128.json`         | page-to-host    | a message nested 128 levels deep is dropped. Outcome `dropped`.                                                                                                                                                                            |
+| `bridge/nested-127-program.json` | program-to-page | the same from the program: it goes to the page as it is. Outcome `passed`.                                                                                                                                                                 |
+| `bridge/nested-128-program.json` | program-to-page | the same from the program, 128 levels: dropped. Outcome `dropped`.                                                                                                                                                                         |
+| `bridge/link-max.json`           | page-to-host    | a link of exactly 8192 bytes is put to the person. Outcome `link`.                                                                                                                                                                         |
+| `bridge/link-too-long.json`      | page-to-host    | a link of 8193 bytes is dropped; the limit is 8192. Outcome `dropped`.                                                                                                                                                                     |
+| `bridge/link-with-space.json`    | page-to-host    | a link with a space in it is dropped. Outcome `dropped`.                                                                                                                                                                                   |
+| `bridge/link-non-ascii.json`     | page-to-host    | a link with a character that is not ASCII is dropped. Outcome `dropped`.                                                                                                                                                                   |
+| `bridge/call-pretty.json`        | page-to-host    | a call written over several lines: the host writes the frame of to-program/msg-pretty.frame. Outcome `passed`.                                                                                                                             |
+| `bridge/call-escapes.json`       | page-to-host    | a call with an accent, a DEL and a character outside the first plane: the host writes the frame of to-program/msg-escapes.frame. Outcome `passed`.                                                                                         |
+| `bridge/context-resized.json`    | host-to-page    | the context the page is told when the pane is resized in the session `context-resent` (it is the entry's text, not a bridge entry).                                                                                                        |

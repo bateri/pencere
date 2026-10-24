@@ -8,7 +8,7 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Fixed
 
-- `fs.watch` on macOS told of what happened before the watch started (a directory made just before it); the stream's beginning is now told from the past by an event of its own. The Rust project template is `Cargo.toml.tmpl` in the repository, so that cargo does not read it as a manifest in a project that takes this repository by git.
+- `fs.watch` on macOS told of what happened before the watch started (a directory made just before it); the stream's beginning is now told from the past by an event of its own. `fs.watch` returns without waiting for the system to confirm that it has begun. The Rust project template is `Cargo.toml.tmpl` in the repository, so that cargo does not read it as a manifest in a project that takes this repository by git.
 
 ### Added
 

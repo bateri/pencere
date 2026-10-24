@@ -99,7 +99,7 @@ pub fn written(actions: &[Action]) -> Vec<u8> {
     actions
         .iter()
         .filter_map(|action| match action {
-            Action::Write(bytes) => Some(bytes.as_slice()),
+            Action::Write(bytes) | Action::WriteView(bytes) => Some(bytes.as_slice()),
             _ => None,
         })
         .flatten()
@@ -269,7 +269,7 @@ impl Rig {
     /// Reads what the host has queued: its writes as the program decodes them, and the rest.
     pub fn collect(&mut self) {
         for action in self.host.take_actions() {
-            if let Action::Write(bytes) = &action {
+            if let Action::Write(bytes) | Action::WriteView(bytes) = &action {
                 let mut events = Vec::new();
                 self.decoder.feed(bytes, &mut events);
                 for event in events {

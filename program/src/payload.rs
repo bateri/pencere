@@ -203,6 +203,15 @@ fn is_token(text: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// Reads a payload of the terminal as JSON, unless it nests as deep as no receiver of the protocol
+/// takes (specification §4.5).
+fn parsed(payload: &str) -> Option<Value> {
+    if pencere_wire::json::too_deep(payload) {
+        return None;
+    }
+    serde_json::from_str(payload).ok()
+}
+
 fn strings(value: Option<&Value>) -> Vec<String> {
     value
         .and_then(Value::as_array)
@@ -243,7 +252,7 @@ fn listed(value: Option<&Value>) -> Vec<Listed> {
 /// Reads a `welcome`. A version the program did not offer is not one the terminal can have
 /// chosen, so such a terminal is one that shares no version.
 pub(crate) fn welcome(payload: &str) -> Option<Welcome> {
-    let body: Value = serde_json::from_str(payload).ok()?;
+    let body: Value = parsed(payload)?;
     let body = body.as_object()?;
     if let Some(version) = body.get("version") {
         let version = version.as_u64().filter(|v| *v >= 1)?;
@@ -305,7 +314,7 @@ pub(crate) fn no_version_sentence(mine: &[(Kind, &[String])], opens: &[Listed]) 
 
 /// Reads a `need`: the digests the terminal lacks, in its order.
 pub(crate) fn need(payload: &str) -> Option<Vec<String>> {
-    let body: Value = serde_json::from_str(payload).ok()?;
+    let body: Value = parsed(payload)?;
     let missing = body.as_object()?.get("missing")?.as_array()?;
     Some(
         missing
@@ -344,7 +353,7 @@ pub(crate) struct Closed {
 /// `error`: a terminal that has learned a new reason has no other way to say that the view is
 /// gone.
 pub(crate) fn closed(payload: &str) -> Option<Closed> {
-    let body: Value = serde_json::from_str(payload).ok()?;
+    let body: Value = parsed(payload)?;
     let body = body.as_object()?;
     let reason = match body.get("reason")?.as_str()? {
         "refused" => ClosedReason::Refused,
@@ -691,6 +700,38 @@ mod tests {
             }
         }
         assert!(read > 80, "{read}");
+    }
+
+    #[test]
+    fn what_a_view_says_is_read_as_the_message_fixtures_have_it() {
+        let Some(dir) = fixtures() else {
+            return;
+        };
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.join("manifest.json")).expect("a manifest"))
+                .expect("JSON");
+        let entries = manifest["message"].as_array().expect("messages");
+        assert!(entries.len() >= 9);
+        for entry in entries {
+            let file = entry["file"].as_str().expect("a file");
+            let text = std::fs::read_to_string(dir.join(file)).expect("a fixture");
+            let read = crate::handlers::read_message(&text).map(|message| {
+                let kind = match message {
+                    pencere_wire::messages::Message::Call(_) => "call",
+                    pencere_wire::messages::Message::Subscribe(_) => "subscribe",
+                    pencere_wire::messages::Message::Cancel(_) => "cancel",
+                    _ => "another",
+                };
+                (kind, message.id())
+            });
+            let expected = entry["reads"].as_object().map(|reads| {
+                (
+                    reads["kind"].as_str().expect("a kind"),
+                    reads["id"].as_u64().expect("an id"),
+                )
+            });
+            assert_eq!(read, expected, "{file}");
+        }
     }
 
     #[test]

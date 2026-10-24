@@ -595,6 +595,42 @@ fn json_is_written_and_read_the_same_way_in_both_directions() {
     assert_eq!(said[3], "é😀");
 }
 
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn json_nested_128_levels_deep_is_neither_read_nor_written() {
+    // The protocol's rule (§4.5): 127 levels, the outermost counting as the first, and no more.
+    let update = first(
+        r#"
+        local json = pencere.json
+        local function nested(levels)
+            return string.rep("[", levels) .. string.rep("]", levels)
+        end
+        local function value(levels)
+            local inner = {}
+            for _ = 2, levels do inner = { inner } end
+            return inner
+        end
+        local ok127 = json.decode(nested(127)) ~= nil
+        local bad128, why = json.decode(nested(128))
+        local wrote127 = pcall(json.encode, value(127))
+        local wrote128 = pcall(json.encode, value(128))
+        return { render = function()
+            return pencere.div():child(pencere.text(tostring(ok127))):child(pencere.text(tostring(bad128)))
+                :child(pencere.text(tostring(why))):child(pencere.text(tostring(wrote127)))
+                :child(pencere.text(tostring(wrote128)))
+        end }
+        "#,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None, "{:?}", update.closed);
+    let said = words(&update.frame.expect("a page").root);
+    assert_eq!(said[0], "true");
+    assert_eq!(said[1], "nil");
+    assert!(said[2].contains("nested too deep"), "{}", said[2]);
+    assert_eq!(said[3], "true");
+    assert_eq!(said[4], "false");
+}
+
 /// A program that has room for so many of what the page says.
 struct Room {
     left: AtomicUsize,

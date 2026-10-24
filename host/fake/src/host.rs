@@ -110,6 +110,9 @@ pub struct Host {
     /// the pane is typed goes through here, so that nothing lands inside a frame
     /// (specification §4.8).
     typed: Vec<u8>,
+    /// How many of the bytes in `typed` are what a view said (`Action::WriteView`), at most: the
+    /// session bounds them (`Session::backlog`).
+    viewed: usize,
     kill: bool,
     hang_up: bool,
     /// The view has been started again once, as `--then restart` says.
@@ -168,6 +171,7 @@ impl Host {
             heard: StreamDecoder::new(Direction::ToHost),
             said: StreamDecoder::new(Direction::ToProgram),
             typed: Vec::new(),
+            viewed: 0,
             kill: false,
             hang_up: false,
             restarted: false,
@@ -185,6 +189,7 @@ impl Host {
     /// The tty took `count` of them.
     pub fn typed(&mut self, count: usize) {
         self.typed.drain(..count.min(self.typed.len()));
+        self.viewed = self.viewed.min(self.typed.len());
     }
 
     /// The person typed these into this terminal; they go to the pane as they
@@ -341,18 +346,32 @@ impl Host {
         }
     }
 
+    /// Puts what the session wrote into the pane's input, and into the record.
+    fn write(&mut self, bytes: &[u8]) {
+        let mut events = Vec::new();
+        self.said.feed(bytes, &mut events);
+        for event in &events {
+            if let Event::Message(message) = event {
+                log::line("host", describe_host(message));
+            }
+        }
+        self.typed.extend_from_slice(bytes);
+    }
+
     fn act(&mut self, action: Action) {
         match action {
-            Action::Write(bytes) => {
-                let mut events = Vec::new();
-                self.said.feed(&bytes, &mut events);
-                for event in &events {
-                    if let Event::Message(message) = event {
-                        log::line("host", describe_host(message));
-                    }
+            Action::WriteView(bytes) => {
+                // What a view says is held only up to the bound (§4.8): past it the session
+                // closes the view, and what was held of its words goes.
+                if self.session.backlog(self.viewed + bytes.len()) {
+                    self.viewed += bytes.len();
+                    self.write(&bytes);
+                } else {
+                    self.typed.truncate(self.typed.len() - self.viewed);
+                    self.viewed = 0;
                 }
-                self.typed.extend_from_slice(&bytes);
             }
+            Action::Write(bytes) => self.write(&bytes),
             Action::Consent(consent) => {
                 let grant = if self.allow_network {
                     consent.grant_all()

@@ -277,6 +277,21 @@ const HOSTILE = new Set([
   "bundle-corrupt",
 ]);
 
+describe("what is read of the messages a view says", () => {
+  const entries = manifest().message;
+
+  it("is every entry of the manifest, as it says", () => {
+    expect(entries.length).toBeGreaterThanOrEqual(9);
+    for (const entry of entries) {
+      const request = parseViewRequest(fixture(entry.file).toString("utf8"));
+      expect(
+        request === undefined ? null : { kind: request.type, id: request.id },
+        entry.file,
+      ).toEqual(entry.reads);
+    }
+  });
+});
+
 describe("every session of the manifest", () => {
   const sessions: SessionEntry[] = manifest().session;
 

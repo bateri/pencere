@@ -37,6 +37,37 @@ pub const MAX_BYTES: usize = 1 << 20;
 /// same to both ends.
 pub const MAX_ID: u64 = (1 << 53) - 1;
 
+/// Reads the `id` of a message: any JSON number whose value is an integer, so `1`, `1.0` and `1e3`
+/// are ids as a page's language would have them (specification §9.2). Whether it is one a message
+/// may carry (1 to [`MAX_ID`]) is [`Message::has_usable_id`]'s to say.
+fn read_id<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    struct Id;
+    impl serde::de::Visitor<'_> for Id {
+        type Value = u64;
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a number whose value is a whole number")
+        }
+        fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<u64, E> {
+            Ok(value)
+        }
+        fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<u64, E> {
+            u64::try_from(value).map_err(|_| E::custom("a negative id"))
+        }
+        fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<u64, E> {
+            // Past 2^53 a float is not an integer the language would tell from its neighbours:
+            // such a value is not an id, and `u64::MAX` stands for that.
+            if value.fract() == 0.0 && (0.0..=MAX_ID as f64).contains(&value) {
+                Ok(value as u64)
+            } else if value.fract() == 0.0 && value > 0.0 {
+                Ok(u64::MAX)
+            } else {
+                Err(E::custom("an id that is not a whole number"))
+            }
+        }
+    }
+    deserializer.deserialize_any(Id)
+}
+
 /// One message.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -59,6 +90,7 @@ pub enum Message {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Call {
     /// The view's number for it.
+    #[serde(deserialize_with = "read_id")]
     pub id: u64,
     /// What the view asks for.
     pub method: String,
@@ -72,6 +104,7 @@ pub struct Call {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Response {
     /// The number of the call it answers.
+    #[serde(deserialize_with = "read_id")]
     pub id: u64,
     /// What the call came to, when it did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -95,6 +128,7 @@ pub struct Error {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Subscribe {
     /// The view's number for it.
+    #[serde(deserialize_with = "read_id")]
     pub id: u64,
     /// What the view asks to hear.
     pub topic: String,
@@ -107,6 +141,7 @@ pub struct Subscribe {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Push {
     /// The number of the subscription.
+    #[serde(deserialize_with = "read_id")]
     pub id: u64,
     /// The value.
     pub value: Value,
@@ -116,6 +151,7 @@ pub struct Push {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Cancel {
     /// The number of the call or the subscription.
+    #[serde(deserialize_with = "read_id")]
     pub id: u64,
 }
 
@@ -123,6 +159,7 @@ pub struct Cancel {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Progress {
     /// The number of the call.
+    #[serde(deserialize_with = "read_id")]
     pub id: u64,
     /// How much is done, in the unit `total` is in.
     pub done: f64,
@@ -169,6 +206,9 @@ impl Message {
     pub fn parse(text: &str) -> Result<Self, Refused> {
         if text.len() > MAX_BYTES {
             return Err(Refused::TooLong);
+        }
+        if crate::json::too_deep(text) {
+            return Err(Refused::Malformed);
         }
         let message: Message = serde_json::from_str(text).map_err(|_| Refused::Malformed)?;
         if !message.has_usable_id() {
@@ -336,6 +376,34 @@ mod tests {
             parse(r#"{"call":{"id":9007199254740992,"method":"x"}}"#),
             Err(Refused::NoId)
         );
+        // An id is any number whose value is a whole number, as a page's language has it.
+        for (written, id) in [
+            ("1.0", 1),
+            ("1e3", 1000),
+            ("2E0", 2),
+            ("4503599627370496.0", 1 << 52),
+        ] {
+            let text = format!(r#"{{"cancel":{{"id":{written}}}}}"#);
+            assert_eq!(parse(&text).map(|m| m.id()), Ok(id), "{written}");
+        }
+        for written in ["1.5", "-1.0", "1e-1", "1e400"] {
+            let text = format!(r#"{{"cancel":{{"id":{written}}}}}"#);
+            assert!(parse(&text).is_err(), "{written}");
+        }
+        for written in ["9007199254740992.0", "1e300", "18446744073709551615"] {
+            let text = format!(r#"{{"cancel":{{"id":{written}}}}}"#);
+            assert_eq!(parse(&text), Err(Refused::NoId), "{written}");
+        }
+        // Nested 128 levels deep or more is no message (§4.5), whichever member holds it.
+        let deep = |levels: usize| {
+            format!(
+                r#"{{"push":{{"id":1,"value":{}{}}}}}"#,
+                "[".repeat(levels - 2),
+                "]".repeat(levels - 2)
+            )
+        };
+        assert!(parse(&deep(127)).is_ok());
+        assert_eq!(parse(&deep(128)), Err(Refused::Malformed));
         assert_eq!(parse(r#"{"response":{"id":1}}"#), Err(Refused::Ambiguous));
         assert_eq!(
             parse(r#"{"response":{"id":1,"result":1,"error":{"code":"x"}}}"#),

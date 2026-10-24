@@ -39,7 +39,7 @@ fn text_of(file: &str) -> String {
 fn every_bridge_entry_is_what_the_host_does_with_it() {
     let manifest = common::manifest();
     let entries = manifest["bridge"].as_array().unwrap();
-    assert_eq!(entries.len(), 16);
+    assert_eq!(entries.len(), 21);
     for entry in entries {
         let file = entry["file"].as_str().unwrap();
         let text = text_of(file);

@@ -21,7 +21,11 @@
 //! * [`session`]: one pane's conversation with one program, as a state machine
 //!   that takes what the terminal learns and returns what the terminal does. It
 //!   carries the six messages of a program and its view between the two without reading
-//!   them, and speaks the bridge of a page.
+//!   them, and speaks the bridge of a page. What it writes to the program is [`session::Action::Write`]
+//!   (its own words) and [`session::Action::WriteView`] (what a view says): a terminal that holds
+//!   writes back for the tty bounds the second with [`session::Session::backlog`], which it calls
+//!   before it holds one, so that a program that does not read cannot make a view cost memory
+//!   without end.
 //! * [`bundle`]: the manifests and digests of the wire, and the [`bundle::Store`]
 //!   the terminal supplies.
 //! * [`sandbox`]: what a page asks to reach, what the person is asked, and the

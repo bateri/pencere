@@ -8,3 +8,4 @@ LICENSE
 .notes/
 CLAUDE.md
 spec/*/fixtures/bridge/
+spec/*/fixtures/messages/

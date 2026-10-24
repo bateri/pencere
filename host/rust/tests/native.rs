@@ -404,16 +404,52 @@ fn a_welcome_says_the_versions_a_kind_opens_at_when_the_program_speaks_none_of_t
 }
 
 #[test]
-fn a_view_whose_words_wait_for_a_program_that_does_not_read_is_closed() {
+fn a_hello_nested_128_levels_deep_is_not_one_and_a_hello_at_127_is() {
+    // The depth is counted over the whole text, the outermost object being the first level, and a
+    // member nobody reads counts as well (specification §4.5).
+    let hello = |levels: usize| {
+        format!(
+            r#"{{"versions":[1],"views":[{{"kind":"web","versions":["1.0"]}}],"x":{}{}}}"#,
+            "[".repeat(levels - 1),
+            "]".repeat(levels - 1)
+        )
+    };
+    let mut rig = rig(&[ViewKind::Web]);
+    rig.send("hello", None, None, &hello(128));
+    assert!(rig.take().0.is_empty());
+    rig.send("hello", None, None, &hello(127));
+    assert_eq!(rig.take().0.len(), 1);
+}
+
+#[test]
+fn what_a_view_says_is_its_own_kind_of_write_and_the_bound_is_asked_before_it_is_held() {
     use pencere_host::session::MAX_BACKLOG;
     let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
     up(&mut rig, &json!({}));
-    // What waits, up to the limit, is waited for.
-    rig.host.backlog(MAX_BACKLOG);
+    rig.take();
+    // The host's own words and the view's are told apart.
+    assert!(rig.host.module_message(r#"{"push":{"id":1,"value":1}}"#));
+    let actions = rig.host.take_actions();
+    assert!(
+        matches!(actions.as_slice(), [Action::WriteView(_)]),
+        "{actions:?}"
+    );
+    rig.host.close_view();
+    assert!(
+        rig.host
+            .take_actions()
+            .iter()
+            .any(|a| matches!(a, Action::Write(_)))
+    );
+    // A view that runs again: what waits, up to the bound, is held.
+    let mut rig = self::rig(&[ViewKind::Wasm, ViewKind::Web]);
+    up(&mut rig, &json!({}));
+    rig.take();
+    assert!(rig.host.backlog(MAX_BACKLOG));
     let (wrote, acted) = rig.take();
     assert!(wrote.is_empty() && !acted.contains(&Action::DestroyView));
-    // Past it the view is closed as a view that failed is.
-    rig.host.backlog(MAX_BACKLOG + 1);
+    // Past it the view is closed as a view that failed is, and the terminal holds no more.
+    assert!(!rig.host.backlog(MAX_BACKLOG + 1));
     let (wrote, acted) = rig.take();
     assert!(acted.contains(&Action::DestroyView), "{acted:?}");
     assert_eq!(wrote.len(), 1);
@@ -422,7 +458,7 @@ fn a_view_whose_words_wait_for_a_program_that_does_not_read_is_closed() {
     assert_eq!(body["reason"], "error");
     assert_eq!(body["code"], "view");
     // A view that is gone has nothing to close.
-    rig.host.backlog(MAX_BACKLOG + 1);
+    assert!(rig.host.backlog(MAX_BACKLOG + 1));
     let (wrote, acted) = rig.take();
     assert!(wrote.is_empty() && acted.is_empty());
 }

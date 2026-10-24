@@ -42,7 +42,7 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Changed
 
-- A `welcome` without `bundle` in its `features` no longer means a terminal with nothing to open: the feature is gone from the protocol. A message of the view with an `id` above 2^53 - 1, or nested 128 levels deep or more, is ignored.
+- A `welcome` without `bundle` in its `features` no longer means a terminal with nothing to open: the feature is gone from the protocol. A message of the view with an `id` above 2^53 - 1, or nested 128 levels deep or more, is ignored; an `id` written `1.0` or `1e3` is read as the whole number it is, and what the terminal writes nested that deep is not read either.
 - **The name `pencere` is this crate's.** The host library that was published under it is
   `pencere-host` now, and its first release under that name replaces nothing a program used. This
   crate starts at 0.2.0 so that its versions follow the last one published under the name.

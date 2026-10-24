@@ -8,7 +8,7 @@ All notable changes to the `pencere-wire` crate are recorded here. The format fo
 
 ### Changed
 
-- **Breaking: `FEATURE_BUNDLE` is gone, and `message::welcome_offer` takes the `opens` of the `welcome`** (§5.2). `Message::parse` refuses an `id` above 2^53 - 1 (`Refused::NoId`).
+- **Breaking: `FEATURE_BUNDLE` is gone, and `message::welcome_offer` takes the `opens` of the `welcome`** (§5.2). `Message::parse` refuses an `id` above 2^53 - 1 (`Refused::NoId`) and reads a number whose value is a whole number (`1.0`, `1e3`) as an `id`, and refuses a text nested 128 levels deep or more. `json::from_object` reads nothing that deep.
 
 ### Added
 

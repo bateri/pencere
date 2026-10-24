@@ -93,7 +93,7 @@ pasteboard), `cursor` (`"arrow"`, `"pointer"` or `"text"`), `keyboard` (`"page"`
 What the page says to its program is the six messages of the protocol (Section 9.2):
 `pencere.call(method, params, done, progress)` asks and is answered once, `pencere.subscribe(topic,
 params, on_value)` asks to hear a topic, `pencere.cancel(id)` gives either up, `pencere.json` encodes
-and decodes JSON. A message the program cannot take yet waits its turn (`pencere.send`, the raw word,
+and decodes JSON (arrays and objects nested up to 127 levels, the outermost counting as the first: protocol, Section 4.5). A message the program cannot take yet waits its turn (`pencere.send`, the raw word,
 says whether it took the message), and the host holds the page to the limits of Section 5.
 
 ## 3. Colours
@@ -110,7 +110,7 @@ A colour is said in one of these ways, wherever one is taken:
 The opacity is **multiplied** with the alpha of a value: `pencere.alpha("#80808080", 0.5)` is drawn at a
 quarter of full opacity.
 
-The roles are the nine of the theme and what is derived from them:
+The roles are those of the theme and three tones derived from them:
 
 - the theme's own: `background`, `foreground`, `dim`, `accent`, `cursor`, `success`, `error`, `info`,
   `warning` — and `selection`, the ground of what the person selected, and `border`, the colour of
@@ -130,21 +130,20 @@ use these formulas, so that the same page looks alike on every host. `mix(a, b, 
 of the way from `a` to `b`, each channel rounded to the nearest value (halves away from zero), the
 channels in sRGB.
 
-| Tone        | Meaning                                                                   | Formula                                                          |
-| ----------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `raised(n)` | A surface `n` steps above the background; a card is 1, a field on it is 2 | `mix(background, foreground, 0.04 × min(n, 8))`                  |
-| `quiet`     | Text a step quieter than `dim`: readable and not standing out             | `mix(dim, background, 1/3)`                                      |
-| `border`    | The hairline between things                                               | `mix(background, foreground, 1/5)` (the page's made-up `border`) |
-| `shadow`    | The colour a shadow is cast in                                            | black on a dark theme; the `foreground` on a light one           |
+| Tone        | Meaning                                                                   | Formula                                                |
+| ----------- | ------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `raised(n)` | A surface `n` steps above the background; a card is 1, a field on it is 2 | `mix(background, foreground, 0.04 × min(n, 8))`        |
+| `quiet`     | Text a step quieter than `dim`: readable and not standing out             | `mix(dim, background, 1/3)`                            |
+| `shadow`    | The colour a shadow is cast in                                            | black on a dark theme; the `foreground` on a light one |
 
 `raised(n)` has an **upper bound**: a host MUST accept any `n` from 0 to 255 (the interface carries
 a byte, and so does the Lua name `raised<n>`) but treats an `n` above 8 as 8, and a page uses `1` to
 `4` in practice. Because a surface is lighter than the ground on a dark theme and darker on a light
-one, the formula uses the foreground as the end it moves toward. `border` here is the role the
-interface calls `border`: the page's `context` names the same colour with the same name.
+one, the formula uses the foreground as the end it moves toward.
 
-When the theme gives a role (`border` among them), the theme's colour is the role; the formulas are
-for the roles a host has to make up and for the tones that no theme gives.
+`border` is not a derived tone but a role of the theme, with the name and the meaning it has in a
+page's `context`. Where the theme gives none, the host makes it up as the protocol says (Section 11.2):
+`mix(background, foreground, 1/5)`. The three tones above are for what no theme gives.
 
 ## 4. What a host gives a view at least
 

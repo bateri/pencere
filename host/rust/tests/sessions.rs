@@ -85,7 +85,7 @@ enum Feed {
 /// The name an action has in a step's `acted`.
 fn name_of(action: &Action) -> Option<&'static str> {
     match action {
-        Action::Write(_) => None,
+        Action::Write(_) | Action::WriteView(_) => None,
         Action::Consent(_) => Some("consent"),
         Action::WithdrawConsent(_) => Some("withdraw-consent"),
         Action::StartView(_) => Some("start-view"),
@@ -124,6 +124,10 @@ fn happen<S: Store, E: Entropy>(
                 other => panic!("a grant of {other}"),
             };
             host.consent(asked.id, grant);
+        }
+        "backlog" => {
+            // The terminal asks whether it may hold that many bytes of what a view says.
+            let _ = host.backlog(event["waiting"].as_u64().unwrap() as usize);
         }
         "timeout" => host.timed_out(),
         "close-view" => host.close_view(),
@@ -216,7 +220,7 @@ fn run(session: &Value, how: impl Fn(usize) -> Feed) {
 fn every_session_gives_the_bytes_the_fixtures_name() {
     let manifest = common::manifest();
     let sessions = manifest["session"].as_array().unwrap();
-    assert_eq!(sessions.len(), 34);
+    assert_eq!(sessions.len(), 35);
     for session in sessions {
         run(session, |_| Feed::Whole);
         run(session, |_| Feed::OneByOne);

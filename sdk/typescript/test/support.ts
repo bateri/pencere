@@ -70,6 +70,8 @@ export interface Manifest {
   session: SessionEntry[];
   /** The bridge of a page: the host's, not the program's. */
   bridge: unknown[];
+  /** What a program library reads of the messages a view says. */
+  message: { file: string; note: string; reads: { kind: string; id: number } | null }[];
 }
 
 export function manifest(): Manifest {

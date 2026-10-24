@@ -92,6 +92,7 @@ function checkSpecDir(dir) {
   const listed = new Set();
   for (const entry of manifest.decode ?? []) listed.add(entry.file);
   for (const entry of manifest.bridge ?? []) listed.add(entry.file);
+  for (const entry of manifest.message ?? []) listed.add(entry.file);
   for (const session of manifest.session ?? []) {
     for (const step of session.steps ?? []) {
       // The files of a step: what the program writes, what the host writes, the message a page

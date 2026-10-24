@@ -13,7 +13,9 @@ pencere.json = json
 json.null = setmetatable({}, { __tostring = function() return "null" end })
 json.array = {}
 
-local MAX_DEPTH = 64
+-- Arrays and objects nested this many levels or more, the outermost counting as the first, are
+-- no JSON message (specification section 4.5): neither read nor written.
+local MAX_DEPTH = 128
 
 local escapes = {
 	['"'] = '\\"',
@@ -62,7 +64,7 @@ local function write(value, out, depth)
 	elseif value == nil or value == json.null then
 		out[#out + 1] = "null"
 	elseif kind == "table" then
-		if depth > MAX_DEPTH then
+		if depth >= MAX_DEPTH then
 			error("json.encode: the value is nested too deep", 0)
 		end
 		if is_list(value) then
@@ -168,11 +170,11 @@ local function read_string(text, at)
 end
 
 function read(text, at, depth)
-	if depth > MAX_DEPTH then
-		fail(text, at, "nested too deep")
-	end
 	at = skip(text, at)
 	local character = string.sub(text, at, at)
+	if (character == "{" or character == "[") and depth >= MAX_DEPTH then
+		fail(text, at, "nested too deep")
+	end
 	if character == "{" then
 		local object = {}
 		at = skip(text, at + 1)

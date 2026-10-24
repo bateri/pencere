@@ -309,7 +309,17 @@ pub enum Action {
     /// or more complete frames. The terminal writes them without blocking, keeps
     /// what the tty does not take and writes it later, and puts nothing inside a
     /// frame (specification §4.8).
+    ///
+    /// These are the host's own words (an answer, a `need`, a `closed`), which are few and small.
+    /// What a view says is [`Action::WriteView`], and a terminal that holds writes back bounds
+    /// those with [`Session::backlog`].
     Write(Vec<u8>),
+    /// Write these bytes as [`Action::Write`] does: they are a message of the view, passed on to
+    /// the program as a `msg` (specification §9.3). They are a kind of their own because a view
+    /// can say a great deal and the program may not read it, so the terminal bounds what it holds
+    /// of them (§4.8): before it holds one, it calls [`Session::backlog`] with the bytes of
+    /// these actions that wait for the tty, this one included.
+    WriteView(Vec<u8>),
     /// Ask the person which of the origins and permissions the page asked for it may use,
     /// then answer with [`Session::consent`] and the question's [`id`](Consent::id). The page
     /// does not start before that. The question says which program asks
@@ -1260,6 +1270,12 @@ impl<S: Store, E: Entropy> Session<S, E> {
 
     /// Writes a message to the program, unless it has ended (§4.8).
     fn send(&mut self, kind: &str, re: Option<u32>, payload: &str) -> bool {
+        self.queue(kind, re, payload, false)
+    }
+
+    /// Writes a message to the program, unless it has ended; `from_view` marks it as what a view
+    /// says ([`Action::WriteView`]).
+    fn queue(&mut self, kind: &str, re: Option<u32>, payload: &str, from_view: bool) -> bool {
         if self.ended {
             return false;
         }
@@ -1273,7 +1289,11 @@ impl<S: Store, E: Entropy> Session<S, E> {
         };
         let mut bytes = Vec::new();
         if encode(Direction::ToProgram, &message, Split::Fill, &mut bytes).is_ok() {
-            self.actions.push(Action::Write(bytes));
+            self.actions.push(if from_view {
+                Action::WriteView(bytes)
+            } else {
+                Action::Write(bytes)
+            });
             true
         } else {
             self.diagnostics.unwritable = self.diagnostics.unwritable.saturating_add(1);
@@ -1286,7 +1306,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// is escaped (§4.5) after the size was counted, and the escapes make it up to six times
     /// longer at most, which the program's limit for a message allows for.
     fn send_json(&mut self, text: &str) -> bool {
-        self.send("msg", None, &crate::json::to_frame(text))
+        self.queue("msg", None, &crate::json::to_frame(text), true)
     }
 
     /// A view said a message over the size one may have (§9.3). Nothing could answer it, so a
@@ -1299,17 +1319,23 @@ impl<S: Store, E: Entropy> Session<S, E> {
 
     // ---- closing ---------------------------------------------------------
 
-    /// The terminal tells how many bytes of what the session asked it to write are still waiting
-    /// for the tty (specification §4.8), after each [`Action::Write`] it holds back, and the
-    /// session closes a view that has more than [`MAX_BACKLOG`] bytes of its words waiting: a
-    /// view whose program does not read could otherwise cost the host memory without bound. The
-    /// view is closed as for any failure (`closed` with `reason` `error` and `code` `view`), and
-    /// the terminal drops the view's words that have not been begun, as it does for a signal
-    /// character, before it writes that `closed`. A view that is not running is not closed.
-    pub fn backlog(&mut self, waiting: usize) {
+    /// The terminal asks whether it may hold `waiting` bytes of what a view says (specification
+    /// §4.8). `waiting` is the bytes of the [`Action::WriteView`] actions that wait for the tty,
+    /// **the one it is about to hold included**: it calls this before it holds the action, so
+    /// that the memory a view costs is never past the bound by more than one message.
+    ///
+    /// `true`: within [`MAX_BACKLOG`], hold it. `false`: a view whose program does not read has
+    /// said more than a host keeps. The session closes the view as it does for any failure (an
+    /// [`Action::DestroyView`] and a `closed` with `reason` `error` and `code` `view`), and the
+    /// terminal does not hold the action and drops the [`Action::WriteView`] bytes it holds that it
+    /// has not begun to write, as it does for a signal character, before it writes that `closed`.
+    /// A view that is not running is not closed, and the answer is `true`.
+    pub fn backlog(&mut self, waiting: usize) -> bool {
         if waiting > MAX_BACKLOG && matches!(self.phase, Phase::Live(_)) {
             self.view_failed("the view says more than its program reads");
+            return false;
         }
+        true
     }
 
     /// Ends the open that is opening, with `error` and `code`.

@@ -176,10 +176,10 @@ pub fn is_object(text: &str) -> bool {
         .starts_with('{')
 }
 
-/// Reads an object as `T`; `None` for any other JSON, and for JSON that is not
-/// a `T`.
+/// Reads an object as `T`; `None` for any other JSON, for JSON that is not a `T` and for JSON
+/// nested as deep as no receiver takes ([`too_deep`]).
 pub fn from_object<T: for<'de> serde::Deserialize<'de>>(text: &str) -> Option<T> {
-    if is_object(text) {
+    if is_object(text) && !too_deep(text) {
         serde_json::from_str(text).ok()
     } else {
         None

@@ -9,6 +9,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 ### Changed
 
 - **Breaking: the colour role `line` of the interface (`pencere:view@1.0.0`) and of the Lua page API is `border`.** The interpreter module is rebuilt.
+- `pencere.json` of the Lua page API reads and writes arrays and objects nested up to 127 levels (it was 63); at 128 it is neither (specification §4.5).
 
 ### Added
 
