@@ -31,7 +31,7 @@ const STATS: u64 = 1;
 const STALE_AFTER: f64 = 5.0;
 
 /// What the page says when the readings stopped.
-const STALE_NOTE: &str = "No new readings from containers-native";
+const STALE_NOTE: &str = "No new readings from containers-rust";
 
 /// The key that sends the large payload.
 const UPLOAD_KEY: char = 'U';
@@ -157,16 +157,16 @@ impl ContainerList {
     fn note(&self) -> Option<String> {
         match (&self.upload, self.counted) {
             (Some(upload), _) if upload.waiting => Some(format!(
-                "Sending 4 MiB to containers-native... {}% (it has not read the last yet)",
+                "Sending 4 MiB to containers-rust... {}% (it has not read the last yet)",
                 upload.percent()
             )),
             (Some(upload), _) => Some(format!(
-                "Sending 4 MiB to containers-native... {}%",
+                "Sending 4 MiB to containers-rust... {}%",
                 upload.percent()
             )),
             (None, _) if self.stale => Some(STALE_NOTE.to_owned()),
             (None, Some(bytes)) => Some(format!(
-                "Sent 4 MiB - containers-native counted {bytes} bytes"
+                "Sent 4 MiB - containers-rust counted {bytes} bytes"
             )),
             (None, None) => None,
         }

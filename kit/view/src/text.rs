@@ -1,6 +1,9 @@
 //! Text, as the engine sees it: a font, a string and the size the host says it takes. The
 //! engine has no fonts of its own — the host shapes and measures (it is also what draws, so
-//! what was measured is what appears) and answers through [`Measure`].
+//! what was measured is what appears) and answers through [`Measure`]. It has no images of its own
+//! either: the host says how large the image of a path is.
+
+use crate::Size;
 
 /// The face a line is set in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -46,6 +49,17 @@ pub struct Metrics {
 pub trait Measure {
     /// The size of `text` set in one line in `font`.
     fn measure(&mut self, font: &Font, text: &str) -> Metrics;
+
+    /// The size in **pixels of the image itself** of the image at `src` (the path of a file of
+    /// the view's bundle), or `None` while it is not known: the image is still being decoded, is
+    /// not a file the host can read as an image, or is one that was refused. The engine takes one
+    /// point to a pixel. The host that has an image asked for here lays the page out again once
+    /// it knows it; until then the element has the room its style gives it and draws nothing.
+    ///
+    /// A host with no images answers `None` (the default).
+    fn image(&mut self, _src: &str) -> Option<Size> {
+        None
+    }
 }
 
 /// Where a line stands in the box it is given.

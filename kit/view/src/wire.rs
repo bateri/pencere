@@ -9,7 +9,7 @@
 //! other side says.
 
 use crate::Element;
-pub use crate::element::{Kind, Meta, Spark};
+pub use crate::element::{Fit, Image, Kind, Meta, Spark};
 pub use crate::style::{Direction, Display, Items, Justify, Length, Overflow, Style, TextStyle};
 
 /// One element of a tree laid down in a list.
@@ -115,7 +115,7 @@ impl Element {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Tone, div, spacer, spark, text};
+    use crate::{Fit, Tone, div, image, spacer, spark, text};
 
     fn page() -> Element {
         div()
@@ -132,6 +132,12 @@ mod tests {
                     .child(spark(&[1.0, 2.0, 3.0], Tone::Accent)),
             )
             .child(spacer())
+            .child(
+                image("icons/box.svg", Fit::Cover)
+                    .tint(Tone::Accent)
+                    .opacity(0.5)
+                    .size(16.0, 16.0),
+            )
             .child(div().text_field().h(18.0))
     }
 
@@ -139,8 +145,8 @@ mod tests {
     fn a_tree_folded_and_unfolded_is_the_tree() {
         let tree = page();
         let nodes = tree.fold();
-        assert_eq!(nodes.len(), 7);
-        assert_eq!(nodes[0].children, 4);
+        assert_eq!(nodes.len(), 8);
+        assert_eq!(nodes[0].children, 5);
         assert_eq!(Element::unfold(nodes, 16), Ok(tree));
     }
 

@@ -21,12 +21,13 @@ use std::time::Instant;
 use pencere_wire::base64;
 use pencere_wire::bundle::Digest;
 use pencere_wire::frame::Message as Frame;
-use pencere_wire::messages::{MAX_BYTES, Message};
+use pencere_wire::messages::Message;
 use serde_json::Value;
 
 use crate::bundle::{Bundle, BundleError};
 use crate::handlers::{
-    Call, Feed, Flag, Outbox, Subscription, ViewError, Work, payload_of, run_call, run_topic,
+    Call, Feed, Flag, Outbox, Subscription, ViewError, Work, fits, payload_of, read_message,
+    run_call, run_topic,
 };
 use crate::link::{Item, Reader, Writer};
 use crate::payload::{self, ByeReason, ClosedReason, FEATURE_BUNDLE, Offer, OpenFields, Welcome};
@@ -674,7 +675,7 @@ impl Session<'_> {
             return;
         }
         // The view is not trusted: what is not one of its three messages is left.
-        let Ok(request) = Message::parse(&message.payload) else {
+        let Some(request) = read_message(&message.payload) else {
             return;
         };
         match request {
@@ -697,7 +698,7 @@ impl Session<'_> {
     /// Writes a message of the six toward the view; `false` when it was not (the view is gone, or
     /// it is over a message's limit).
     fn tell(&mut self, payload: &str) -> bool {
-        if !matches!(self.phase, Phase::Showing) || payload.len() > MAX_BYTES {
+        if !matches!(self.phase, Phase::Showing) || !fits(payload) {
             return false;
         }
         self.writer.message("msg", None, None, payload).is_ok()
@@ -843,7 +844,7 @@ impl Session<'_> {
             result
         };
         let payload = payload_of(&Message::answer(id, result));
-        if payload.len() > MAX_BYTES {
+        if !fits(&payload) {
             self.tell_failure(
                 id,
                 &ViewError::with_message(

@@ -100,6 +100,17 @@ export class FakeTerminal implements Terminal {
     if (this.failEnter) throw new Error("no tty");
   }
 
+  /**
+   * What the host writes while the program reads its tty without the event loop (an `exit`
+   * handler): called with the `feed` the program waits with, which says when it has what it wanted.
+   */
+  onWait: ((feed: (bytes: Uint8Array) => boolean) => void) | undefined;
+
+  waitFor(feed: (bytes: Uint8Array) => boolean, _timeout: number): void {
+    this.calls.push("wait");
+    this.onWait?.(feed);
+  }
+
   discardInput(): void {
     this.calls.push("discard");
   }
@@ -112,7 +123,11 @@ export class FakeTerminal implements Terminal {
 /** The process the program runs in, as far as `serve` looks at it. */
 export class FakeProcess {
   readonly pid = 4242;
-  readonly kills: [number, string][] = [];
+  readonly kills: [number, string | number][] = [];
+  /** The codes the process was asked to end with. */
+  readonly exits: number[] = [];
+  /** Makes `kill` throw, as Deno does for a program that may not run programs. */
+  failKill = false;
   readonly #listeners = new Map<string, Set<(...args: never[]) => void>>();
 
   on(event: string, listener: (...args: never[]) => void): this {
@@ -131,9 +146,14 @@ export class FakeProcess {
     return this.#listeners.get(event)?.size ?? 0;
   }
 
-  kill(pid: number, signal: string): boolean {
+  kill(pid: number, signal: string | number): boolean {
+    if (this.failKill) throw new Error("PermissionDenied: kill");
     this.kills.push([pid, signal]);
     return true;
+  }
+
+  exit(code?: number): void {
+    this.exits.push(code ?? 0);
   }
 
   /** Delivers `event` to what listens, as the runtime would. */
@@ -348,6 +368,8 @@ export async function start(
     welcomePayload(answer.token ?? TOKEN, answer.features, answer.views),
     hello.id,
   );
+  // The terminal answers `CSI c` whatever the host does, and after it (§5.2).
+  rig.sayBytes(DA_REPLY);
   return { served, hello };
 }
 

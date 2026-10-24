@@ -8,7 +8,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
-use pencere_view::{Button, Element, Event, Id, Input, Key, Mods, Point};
+use pencere_view::wire::Kind;
+use pencere_view::{
+    Button, Color, Element, Event, Fit, Id, Input, Key, Mods, Point, Rgba, Source, Tone, image,
+};
 use wasmtime::component::Component;
 
 use crate::guests_tests::{Open, Rough, SIZE};
@@ -157,6 +160,22 @@ fn a_helper_given_the_wrong_argument_says_the_line_of_the_script_that_called_it(
             "pencere.div():children(x)",
             "children takes a list of elements, not nil",
         ),
+        (
+            "pencere.image(x)",
+            "pencere.image takes a table { src = ..., fit = ..., tint = ... }, not nil",
+        ),
+        (
+            "pencere.image { fit = 'cover' }",
+            "needs the path of a file of the bundle as `src`, not nil",
+        ),
+        (
+            "pencere.image { src = 'a.png', fit = 'stretch' }",
+            "`fit` is \"contain\" or \"cover\", not stretch",
+        ),
+        (
+            "pencere.image { src = 'a.png', opacity = 'half' }",
+            "`opacity` is a number from 0 to 1, not string",
+        ),
     ] {
         let update = first(
             &format!("return {{ render = function()\n  local x = nil\n  return {call}\nend }}"),
@@ -250,6 +269,196 @@ fn a_tree_that_is_not_a_page_is_closed_with_what_is_wrong_in_it() {
         Limits::default(),
     );
     assert!(failed(&update).contains("width"));
+}
+
+/// The text colour of each line a script's page has, in order.
+fn text_colours(script: &str) -> Vec<Option<Color>> {
+    let update = first(script, Limits::default());
+    assert_eq!(update.closed, None);
+    update
+        .frame
+        .expect("a page")
+        .root
+        .fold()
+        .into_iter()
+        .filter(|node| matches!(node.kind, pencere_view::wire::Kind::Text(_)))
+        .map(|node| node.style.text.color)
+        .collect()
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_names_every_role_of_the_theme_and_the_roles_are_the_engines() {
+    // Every name the page API takes, and the role it is.
+    let names: [(&str, Tone); 17] = [
+        ("selection", Tone::Selection),
+        ("black", Tone::Black),
+        ("red", Tone::Red),
+        ("green", Tone::Green),
+        ("yellow", Tone::Yellow),
+        ("blue", Tone::Blue),
+        ("magenta", Tone::Magenta),
+        ("cyan", Tone::Cyan),
+        ("white", Tone::White),
+        ("bright-black", Tone::BrightBlack),
+        ("bright-red", Tone::BrightRed),
+        ("bright-green", Tone::BrightGreen),
+        ("bright-yellow", Tone::BrightYellow),
+        ("bright-blue", Tone::BrightBlue),
+        ("bright-magenta", Tone::BrightMagenta),
+        ("bright-cyan", Tone::BrightCyan),
+        ("bright-white", Tone::BrightWhite),
+    ];
+    let list = names
+        .iter()
+        .map(|(name, _)| format!("{name:?}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let script = format!(
+        "local names = {{ {list} }}
+         return {{ render = function()
+             local root = pencere.div()
+             for _, name in ipairs(names) do root:child(pencere.text(name):color(name)) end
+             return root
+         end }}"
+    );
+    let colours = text_colours(&script);
+    assert_eq!(colours.len(), names.len());
+    for ((name, tone), colour) in names.iter().zip(colours) {
+        assert_eq!(colour, Some(tone.solid()), "{name}");
+    }
+    // The palette's names, in the order of its numbers.
+    for (at, (_, tone)) in names[1..].iter().enumerate() {
+        assert_eq!(tone.ansi_index(), Some(at as u8));
+    }
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_gives_a_value_with_a_form_for_a_dark_theme_and_an_opacity_on_any_colour() {
+    let colours = text_colours(
+        r##"return { render = function()
+            return pencere.div()
+                :child(pencere.text("a"):color("#1A2b3c"))
+                :child(pencere.text("b"):color("#1a2b3c80"))
+                :child(pencere.text("c"):color({ light = "#203040", dark = "#E0D0C0" }))
+                :child(pencere.text("d"):color({ light = "#203040" }))
+                :child(pencere.text("e"):color(pencere.alpha("bright-red", 0.5)))
+                :child(pencere.text("f"):color(pencere.alpha("#ff000080", 0.25)))
+                :child(pencere.text("g"):color(pencere.alpha({ light = "#010203", dark = "#040506" }, 0.75)))
+                :child(pencere.text("h"):color({ "selection", 0.5 }))
+        end }"##,
+    );
+    let value = |light: Rgba, dark: Option<Rgba>, alpha: f32| Color {
+        source: Source::Rgba { light, dark },
+        alpha,
+    };
+    assert_eq!(
+        colours,
+        vec![
+            Some(Rgba::rgb(0x1a, 0x2b, 0x3c).solid()),
+            Some(Rgba::new(0x1a, 0x2b, 0x3c, 0x80).solid()),
+            Some(Rgba::rgb(0x20, 0x30, 0x40).or_dark(Rgba::rgb(0xe0, 0xd0, 0xc0))),
+            Some(Rgba::rgb(0x20, 0x30, 0x40).solid()),
+            Some(Tone::BrightRed.alpha(0.5)),
+            Some(value(Rgba::new(0xff, 0, 0, 0x80), None, 0.25)),
+            Some(value(Rgba::rgb(1, 2, 3), Some(Rgba::rgb(4, 5, 6)), 0.75)),
+            Some(Tone::Selection.alpha(0.5)),
+        ]
+    );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_says_an_image_and_the_engine_reads_what_it_said() {
+    let update = first(
+        r##"return { render = function()
+            return pencere.div()
+                :child(pencere.image { src = "icons/stop.svg" })
+                :child(pencere.image { src = "logo.png", fit = "cover", opacity = 0.5 }:size(48, 24):rounded(4))
+                :child(pencere.image { src = "icons/run.svg", tint = "error" }:w(16))
+                :child(pencere.image { src = "icons/run.svg", tint = { light = "#203040", dark = "#e0d0c0" } })
+                :child(pencere.image { src = "icons/run.svg", tint = pencere.alpha("accent", 0.5) })
+        end }"##,
+        Limits::default(),
+    );
+    assert_eq!(update.closed, None);
+    let root = update.frame.expect("a page").root;
+    let nodes = root.fold();
+    let images: Vec<&pencere_view::wire::Node> = nodes
+        .iter()
+        .filter(|node| matches!(node.kind, Kind::Image(_)))
+        .collect();
+    let said = |node: &pencere_view::wire::Node| match &node.kind {
+        Kind::Image(image) => image.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(images.len(), 5);
+    // The same elements, as Rust says them.
+    let rust = |element: Element| match element.fold().remove(0).kind {
+        Kind::Image(image) => image,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(said(images[0]), rust(image("icons/stop.svg", Fit::Contain)));
+    assert_eq!(
+        said(images[1]),
+        rust(image("logo.png", Fit::Cover).opacity(0.5))
+    );
+    assert_eq!(
+        (images[1].style.width, images[1].style.height),
+        (
+            pencere_view::wire::Length::Px(48.0),
+            pencere_view::wire::Length::Px(24.0)
+        )
+    );
+    assert_eq!(images[1].style.radii, [4.0; 4]);
+    assert_eq!(
+        said(images[2]),
+        rust(image("icons/run.svg", Fit::Contain).tint(Tone::Error))
+    );
+    assert_eq!(
+        said(images[3]),
+        rust(
+            image("icons/run.svg", Fit::Contain)
+                .tint(Rgba::rgb(0x20, 0x30, 0x40).or_dark(Rgba::rgb(0xe0, 0xd0, 0xc0)))
+        )
+    );
+    assert_eq!(
+        said(images[4]),
+        rust(image("icons/run.svg", Fit::Contain).tint(Tone::Accent.alpha(0.5)))
+    );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_colour_that_is_not_one_is_refused_in_words_that_say_what_one_is() {
+    let refused = |colour: &str| {
+        let update = first(
+            &format!("return {{ render = function() return pencere.div():bg({colour}) end }}"),
+            Limits::default(),
+        );
+        failed(&update)
+    };
+    for bad in [
+        r##""#12345""##,
+        r##""#1234567""##,
+        r##""#12345g""##,
+        r##""# 1a2b3c""##,
+        r##""#1a2b3c8""##,
+        r##""#""##,
+    ] {
+        assert!(
+            refused(bad).contains("is not a colour value"),
+            "{bad}: {}",
+            refused(bad)
+        );
+    }
+    assert!(refused("'chartreuse'").contains("\"chartreuse\" is not the name of a tone"));
+    assert!(refused("{ dark = '#000000' }").contains("a colour is a tone's name"));
+    assert!(refused("{ light = 5 }").contains("light must be a colour value"));
+    assert!(refused("{ light = '#000000', dark = 5 }").contains("dark must be a colour value"));
+    assert!(refused("5").contains("a colour is a tone's name"));
+    assert!(refused("{ light = 'red' }").contains("is not a colour value"));
 }
 
 #[test]

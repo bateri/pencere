@@ -13,7 +13,7 @@ use taffy::style::{
 };
 use taffy::{NodeId, TaffyTree};
 
-use crate::element::{Kind, Meta, Spark};
+use crate::element::{Fit, Kind, Meta, Spark};
 use crate::style::{
     Border, Direction, Display, Items, Justify, Length, Overflow, Shadow, Style, TextStyle, Track,
 };
@@ -25,10 +25,7 @@ const DEFAULT_TEXT: TextStyle = TextStyle {
     family: Some(Family::Terminal),
     size: Some(12.5),
     weight: Some(400),
-    color: Some(Color {
-        tone: Tone::Foreground,
-        alpha: 1.0,
-    }),
+    color: Some(Tone::Foreground.solid()),
     align: Some(Align::Start),
 };
 
@@ -42,12 +39,29 @@ pub(crate) struct TextLine {
     pub truncate: bool,
 }
 
+/// An image laid out: what the host said of its size when the page was laid out, so that what
+/// is drawn is what the room was made for.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Picture {
+    pub src: String,
+    pub fit: Fit,
+    pub tint: Option<Color>,
+    pub opacity: f32,
+    /// The size of the image itself, pixels (a point to a pixel, times the scale); `None` while
+    /// the host did not know it.
+    pub natural: Option<Size>,
+    /// What the element keeps between its box and the image: padding and border, pixels (top,
+    /// right, bottom, left).
+    pub inset: [f32; 4],
+}
+
 /// What a laid-out element draws besides its box.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Content {
     None,
     Text(TextLine),
     Spark(Spark),
+    Image(Picture),
 }
 
 /// An element after layout: its box on the page, in pixels, and how it is drawn.
@@ -83,9 +97,15 @@ pub struct Laid {
 }
 
 /// What a Taffy leaf needs to be measured.
-struct Leaf {
-    text: String,
-    font: Font,
+enum Leaf {
+    Text {
+        text: String,
+        font: Font,
+    },
+    /// An image, with its size in pixels where the host knew it.
+    Image {
+        natural: Option<Size>,
+    },
 }
 
 /// An element between the walk down (the tree being made) and the walk back (the boxes
@@ -115,7 +135,15 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     root.style.height = Length::Px(viewport.h / scale);
     let mut tree: TaffyTree<Leaf> = TaffyTree::new();
     let mut pending = Vec::new();
-    let (_, root_id) = build(&mut tree, &mut pending, root, None, DEFAULT_TEXT, scale);
+    let (_, root_id) = build(
+        &mut tree,
+        &mut pending,
+        root,
+        None,
+        DEFAULT_TEXT,
+        scale,
+        measure,
+    );
 
     let mut cache: HashMap<(Font, String), Metrics> = HashMap::new();
     let space = TSize {
@@ -127,9 +155,13 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         space,
         |known, _available, _node, leaf, _style| {
             let natural = match leaf {
-                Some(Leaf { text, font }) => *cache
+                Some(Leaf::Text { text, font }) => *cache
                     .entry((*font, text.clone()))
                     .or_insert_with(|| measure.measure(font, text)),
+                Some(Leaf::Image { natural }) => {
+                    let (width, height) = image_room(known.width, known.height, *natural);
+                    return TSize { width, height };
+                }
                 None => Metrics::default(),
             };
             TSize {
@@ -221,6 +253,32 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     }
 }
 
+/// The room an image takes: the sides its style gives it, and for one that is not given the
+/// other's with the proportions of the image; both of them when it gives neither (its own size);
+/// nothing of a side while the image is not known and the style has not said it.
+fn image_room(width: Option<f32>, height: Option<f32>, natural: Option<Size>) -> (f32, f32) {
+    let Some(natural) = natural else {
+        return (width.unwrap_or(0.0), height.unwrap_or(0.0));
+    };
+    match (width, height) {
+        (Some(w), Some(h)) => (w, h),
+        (Some(w), None) => (w, w * natural.h / natural.w),
+        (None, Some(h)) => (h * natural.w / natural.h, h),
+        (None, None) => (natural.w, natural.h),
+    }
+}
+
+/// The size an image is laid out with, from what the host said of it: nothing unless it is a size
+/// (more than nothing, no bigger than a number a layout can be trusted with).
+fn natural_size(said: Option<Size>, scale: f32) -> Option<Size> {
+    /// More than the images a view may hold are wide (`ImageLimits`), by far; a size past it is
+    /// not one.
+    const MOST: f32 = 65_536.0;
+    let said = said?;
+    let fits = |side: f32| side.is_finite() && side > 0.0 && side <= MOST;
+    (fits(said.w) && fits(said.h)).then(|| Size::new(said.w * scale, said.h * scale))
+}
+
 fn empty(page: Rect) -> Node {
     Node {
         rect: Rect::default(),
@@ -246,6 +304,7 @@ fn build(
     parent: Option<usize>,
     outer: TextStyle,
     scale: f32,
+    measure: &mut dyn Measure,
 ) -> (usize, NodeId) {
     let Element {
         kind,
@@ -289,7 +348,7 @@ fn build(
     let taffy_style = convert(&style, scale, matches!(kind, Kind::Text(_)));
     let id = match kind {
         Kind::Text(content) => {
-            let leaf = Leaf {
+            let leaf = Leaf::Text {
                 text: content.clone(),
                 font,
             };
@@ -310,10 +369,28 @@ fn build(
             }
             tree.new_leaf(taffy_style)
         }
+        Kind::Image(image) => {
+            let natural = natural_size(measure.image(&image.src), scale);
+            let [top, right, bottom, left] = style.padding;
+            let border = style
+                .border
+                .map_or(0.0, |b| (b.width * scale).round().max(1.0));
+            if let Some(entry) = pending.get_mut(index) {
+                entry.content = Content::Image(Picture {
+                    src: image.src,
+                    fit: image.fit,
+                    tint: image.tint,
+                    opacity: image.opacity,
+                    natural,
+                    inset: [top, right, bottom, left].map(|edge| edge * scale + border),
+                });
+            }
+            tree.new_leaf_with_context(taffy_style, Leaf::Image { natural })
+        }
         Kind::Box => {
             let ids: Vec<NodeId> = children
                 .into_iter()
-                .map(|child| build(tree, pending, child, Some(index), text, scale).1)
+                .map(|child| build(tree, pending, child, Some(index), text, scale, measure).1)
                 .collect();
             tree.new_with_children(taffy_style, &ids)
         }

@@ -1,7 +1,7 @@
 -- The page API, part 2: elements and the chain that writes them,
 -- `pencere.div():row():gap(8):child(pencere.text("hello"))`.
 --
--- An element is a table: { kind = "box" | "text" | "spark", style = {...}, meta = {...}, kids = {...} }.
+-- An element is a table: { kind = "box" | "text" | "spark" | "image", style = {...}, meta = {...}, kids = {...} }.
 -- The host reads it, so the field names are the interface's (`pencere:view` `style`, `node`).
 
 local Element = {}
@@ -43,6 +43,40 @@ function pencere.spark(values, color)
 	local element = make("spark")
 	element.values = values
 	element.line = color
+	return element
+end
+
+-- A picture: a file of the bundle the view came in, in the box of the element.
+--
+--   pencere.image { src = "icons/stop.svg", fit = "contain", tint = "error", opacity = 0.8 }
+--
+-- `src` is the path of the file as the bundle's manifest names it (PNG, JPEG or SVG). Its size is
+-- the element's, as for any box (`:w(24)`, `:h(24)`); a side that is not said follows the
+-- picture's proportions, and an element that says neither is the picture's own size in pixels, a
+-- point to a pixel: a picture meant to be sharp on a screen with two pixels to the point is
+-- sent at twice the size it is given. `fit` is "contain" (all of the picture, centred) or "cover"
+-- (the box filled, what does not fit cut off). `tint` is a colour (any way of saying one, as for
+-- text): the picture is then a shape, drawn in that colour with its own opacity at each pixel.
+-- `opacity` is how much of the picture shows, 0 to 1.
+function pencere.image(spec)
+	if type(spec) ~= "table" then
+		refuse("pencere.image takes a table { src = ..., fit = ..., tint = ... }, not " .. type(spec))
+	end
+	if type(spec.src) ~= "string" then
+		refuse("pencere.image needs the path of a file of the bundle as `src`, not " .. type(spec.src))
+	end
+	local fit = spec.fit
+	if fit ~= nil and fit ~= "contain" and fit ~= "cover" then
+		refuse('pencere.image `fit` is "contain" or "cover", not ' .. tostring(fit))
+	end
+	if spec.opacity ~= nil and type(spec.opacity) ~= "number" then
+		refuse("pencere.image `opacity` is a number from 0 to 1, not " .. type(spec.opacity))
+	end
+	local element = make("image")
+	element.src = spec.src
+	element.fit = fit or "contain"
+	element.tint = spec.tint
+	element.opacity = spec.opacity or 1
 	return element
 end
 

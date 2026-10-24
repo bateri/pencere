@@ -4,6 +4,7 @@
  * are framed and queued in order, each message whole.
  */
 
+import { latin1Bytes } from "./bytes.js";
 import { Ids, StreamDecoder, encode } from "./frame.js";
 import type { DecodeError, DecodeEvent, Message, Outgoing, Split } from "./frame.js";
 
@@ -92,7 +93,7 @@ export class Link {
 
   readonly #onData = (chunk: Uint8Array | string): void => {
     if (!this.#running) return;
-    const bytes = typeof chunk === "string" ? Buffer.from(chunk, "latin1") : chunk;
+    const bytes = typeof chunk === "string" ? latin1Bytes(chunk) : chunk;
     this.#decoder.feed(bytes, (event) => this.#event(event));
   };
 
@@ -120,6 +121,14 @@ export class Link {
   /** The error the output last reported, if any: a tty that is gone. */
   get failure(): Error | undefined {
     return this.#failure;
+  }
+
+  /**
+   * Takes bytes the caller read from the input itself, as if they had come as data: for a program
+   * that reads the tty without the event loop, where nothing runs after it (an `exit` handler).
+   */
+  feed(bytes: Uint8Array): void {
+    this.#onData(bytes);
   }
 
   /** Starts reading the input and watching the output. */
@@ -180,7 +189,7 @@ export class Link {
 
   /** Queues bytes that are not a frame (an escape sequence), after everything queued before. */
   raw(text: string): Promise<void> {
-    return this.#write(Buffer.from(text, "latin1"));
+    return this.#write(latin1Bytes(text));
   }
 
   /**
@@ -189,7 +198,7 @@ export class Link {
    * is synchronous on POSIX, so what is written here is written when this returns.
    */
   writeNow(text: string): void {
-    this.#output.write(Buffer.from(text, "latin1"), (error) => {
+    this.#output.write(latin1Bytes(text), (error) => {
       if (error) this.#failure = error;
     });
   }

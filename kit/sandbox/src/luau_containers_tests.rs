@@ -25,7 +25,7 @@ const SCRIPT: &str = include_str!("../../luau/examples/containers.lua");
 
 /// The script's: seconds without a reading after which it says none is coming, and what it says.
 const STALE_AFTER: f64 = 5.0;
-const STALE_NOTE: &str = "No new readings from containers-native";
+const STALE_NOTE: &str = "No new readings from containers-rust";
 
 /// How long a step may take before the test gives up on it.
 const PATIENCE: Duration = Duration::from_secs(60);
@@ -1253,7 +1253,7 @@ fn with_note(list: Element, note: &str) -> Element {
 /// What the page says of a payload that the program was told `told` bytes of.
 fn sending(told: usize) -> String {
     format!(
-        "Sending 4 MiB to containers-native... {}%",
+        "Sending 4 MiB to containers-rust... {}%",
         told * 100 / UPLOAD_BYTES
     )
 }
@@ -1407,7 +1407,7 @@ fn the_script_sends_its_payload_as_fast_as_its_program_has_room_and_loses_none()
         &frame,
         &with_note(
             list,
-            &format!("Sent 4 MiB - containers-native counted {UPLOAD_BYTES} bytes"),
+            &format!("Sent 4 MiB - containers-rust counted {UPLOAD_BYTES} bytes"),
         ),
     );
     // The same answer again is the answer to nothing.

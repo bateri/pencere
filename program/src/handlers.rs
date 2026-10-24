@@ -150,7 +150,25 @@ impl Outbox {
 
 /// The text of a message of the six as the wire carries it.
 pub(crate) fn payload_of(message: &Message) -> String {
-    json::escape(&message.text())
+    json::to_frame(&message.text())
+}
+
+/// Whether a payload, as the wire carries it, is a message of the size one may have. The size is
+/// that of the text before the escapes of the wire made it longer (§9.3): a view that writes
+/// non-ASCII text is not held to less than a program that has to write ASCII.
+pub(crate) fn fits(payload: &str) -> bool {
+    json::unescaped_len(payload) <= MAX_BYTES
+}
+
+/// Reads what the view sent in a `msg`: one of the six, if it is one. The terminal writes it as it
+/// came, escaped by the wire, so the size is counted the way [`fits`] counts it and not on the
+/// text (which is [`Message::parse`]'s way, and up to six times too strict for non-ASCII text).
+pub(crate) fn read_message(payload: &str) -> Option<Message> {
+    if !fits(payload) || !json::is_object(payload) {
+        return None;
+    }
+    let message: Message = serde_json::from_str(payload).ok()?;
+    (message.id() != 0).then_some(message)
 }
 
 /// A call of the view that a handler is answering.
@@ -207,7 +225,7 @@ impl Call {
         }
         let message = Message::progress(self.id, done, total, note.unwrap_or(""));
         let payload = payload_of(&message);
-        if payload.len() <= MAX_BYTES {
+        if fits(&payload) {
             self.outbox.send(Work::Progress {
                 id: self.id,
                 payload,
@@ -291,7 +309,7 @@ impl Subscription {
             return false;
         }
         let payload = payload_of(&Message::push(self.feed.id, value));
-        if payload.len() > MAX_BYTES {
+        if !fits(&payload) {
             return false;
         }
         self.feed.outbox.send(Work::Push {
@@ -365,4 +383,35 @@ pub(crate) fn run_topic(handler: &TopicFn, params: Value, subscription: &Subscri
         id: subscription.feed.id,
         result,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn the_size_of_a_message_is_counted_before_the_wire_escapes_it() {
+        // 400 000 characters of two bytes: 800 000 bytes as the view said them, 2 400 000 as the
+        // wire carries them.
+        let text = "\u{e9}".repeat(400_000);
+        let payload = payload_of(&Message::call(1, "echo", json!({ "text": text })));
+        assert!(payload.len() > MAX_BYTES, "the wire's form is longer");
+        assert!(fits(&payload));
+        assert!(matches!(read_message(&payload), Some(Message::Call(_))));
+        // The same text, longer than one message may be as the view said it.
+        let too_long = "\u{e9}".repeat(600_000);
+        let payload = payload_of(&Message::call(1, "echo", json!({ "text": too_long })));
+        assert!(!fits(&payload));
+        assert!(read_message(&payload).is_none());
+    }
+
+    #[test]
+    fn what_the_view_sent_is_a_message_only_if_it_is_an_object_of_the_six_with_an_id() {
+        assert!(read_message(r#"{"cancel":{"id":3}}"#).is_some());
+        assert!(read_message(r#"{"cancel":{"id":0}}"#).is_none());
+        assert!(read_message(r#"{"other":{"id":3}}"#).is_none());
+        assert!(read_message(r#"[{"cancel":{"id":3}}]"#).is_none());
+        assert!(read_message("not json").is_none());
+    }
 }

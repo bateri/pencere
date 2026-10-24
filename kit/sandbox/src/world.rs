@@ -5,12 +5,12 @@
 use std::sync::Arc;
 
 use pencere_view::wire::{
-    self, Direction, Display, Items, Justify, Kind, Length, Meta, Node, Overflow, Spark, Style,
-    TextStyle,
+    self, Direction, Display, Fit, Image, Items, Justify, Kind, Length, Meta, Node, Overflow,
+    Spark, Style, TextStyle,
 };
 use pencere_view::{
     Align, Border, Button, Color, Cursor, Element, Event, Extent, Family, Id, Input, Key, Keyboard,
-    Laid, Menu, MenuEntry, Mods, Point, Rect, Reply, Shadow, Size, Tone, Track,
+    Laid, Menu, MenuEntry, Mods, Point, Rect, Reply, Rgba, Shadow, Size, Source, Tone, Track,
 };
 use wasmtime::Store;
 use wasmtime::component::{Component, HasSelf, Linker};
@@ -225,7 +225,28 @@ fn tone_out(tone: &wit::Tone) -> Tone {
         wit::Tone::Quiet => Tone::Quiet,
         wit::Tone::Line => Tone::Line,
         wit::Tone::Shadow => Tone::Shadow,
+        wit::Tone::Selection => Tone::Selection,
+        wit::Tone::Black => Tone::Black,
+        wit::Tone::Red => Tone::Red,
+        wit::Tone::Green => Tone::Green,
+        wit::Tone::Yellow => Tone::Yellow,
+        wit::Tone::Blue => Tone::Blue,
+        wit::Tone::Magenta => Tone::Magenta,
+        wit::Tone::Cyan => Tone::Cyan,
+        wit::Tone::White => Tone::White,
+        wit::Tone::BrightBlack => Tone::BrightBlack,
+        wit::Tone::BrightRed => Tone::BrightRed,
+        wit::Tone::BrightGreen => Tone::BrightGreen,
+        wit::Tone::BrightYellow => Tone::BrightYellow,
+        wit::Tone::BrightBlue => Tone::BrightBlue,
+        wit::Tone::BrightMagenta => Tone::BrightMagenta,
+        wit::Tone::BrightCyan => Tone::BrightCyan,
+        wit::Tone::BrightWhite => Tone::BrightWhite,
     }
+}
+
+fn rgba_out(value: &wit::Rgba) -> Rgba {
+    Rgba::new(value.r, value.g, value.b, value.a)
 }
 
 fn color_out(color: &wit::Color) -> Color {
@@ -234,7 +255,14 @@ fn color_out(color: &wit::Color) -> Color {
     } else {
         1.0
     };
-    tone_out(&color.tone).alpha(alpha)
+    let source = match &color.source {
+        wit::Source::Role(tone) => Source::Role(tone_out(tone)),
+        wit::Source::Rgba(forms) => Source::Rgba {
+            light: rgba_out(&forms.light),
+            dark: forms.dark.as_ref().map(rgba_out),
+        },
+    };
+    Color { source, alpha }
 }
 
 fn length_out(length: &wit::Length) -> Length {
@@ -411,6 +439,29 @@ fn kind_out(content: wit::Content, limits: &Limits) -> Result<Kind, Fault> {
                 values: spark.values.into_iter().map(pt).collect(),
                 color: color_out(&spark.color),
                 peak: spark.peak.map(pt),
+            })
+        }
+        wit::Content::Image(image) => {
+            if image.src.len() > limits.text {
+                return Err(Fault::Malformed(format!(
+                    "an image path of {} bytes (at most {})",
+                    image.src.len(),
+                    limits.text
+                )));
+            }
+            Kind::Image(Image {
+                src: image.src,
+                fit: match image.fit {
+                    wit::Fit::Contain => Fit::Contain,
+                    wit::Fit::Cover => Fit::Cover,
+                },
+                tint: image.tint.as_ref().map(color_out),
+                // Not a share of an image that is not one: all of it shows.
+                opacity: if image.opacity.is_finite() {
+                    image.opacity.clamp(0.0, 1.0)
+                } else {
+                    1.0
+                },
             })
         }
     })
@@ -765,7 +816,7 @@ mod tests {
         row.pressable = true;
         row.style.width = wit::Length::Px(120.0);
         row.style.fill = Some(wit::Color {
-            tone: wit::Tone::Raised(2),
+            source: wit::Source::Role(wit::Tone::Raised(2)),
             alpha: 0.5,
         });
         row.style.columns = vec![
@@ -799,7 +850,7 @@ mod tests {
         odd.style.grow = f32::NEG_INFINITY;
         odd.style.text.size = Some(f32::NAN);
         odd.style.fill = Some(wit::Color {
-            tone: wit::Tone::Accent,
+            source: wit::Source::Role(wit::Tone::Accent),
             alpha: f32::NAN,
         });
         odd.style.shadow = Some(wit::Shadow {
@@ -807,7 +858,7 @@ mod tests {
             dy: 1.0e30,
             blur: -5.0,
             color: wit::Color {
-                tone: wit::Tone::Shadow,
+                source: wit::Source::Role(wit::Tone::Shadow),
                 alpha: 7.0,
             },
         });
@@ -823,6 +874,76 @@ mod tests {
         let shadow = style.shadow.expect("a shadow");
         assert_eq!((shadow.dx, shadow.dy, shadow.blur), (0.0, 1.0e6, 0.0));
         assert_eq!(shadow.color, Tone::Shadow.alpha(1.0));
+    }
+
+    #[test]
+    fn the_roles_and_values_a_page_can_say_are_read_as_the_engines_own() {
+        use wit::Tone as W;
+        // The palette in the interface's order is the engine's, colour for colour.
+        let palette = [
+            W::Black,
+            W::Red,
+            W::Green,
+            W::Yellow,
+            W::Blue,
+            W::Magenta,
+            W::Cyan,
+            W::White,
+            W::BrightBlack,
+            W::BrightRed,
+            W::BrightGreen,
+            W::BrightYellow,
+            W::BrightBlue,
+            W::BrightMagenta,
+            W::BrightCyan,
+            W::BrightWhite,
+        ];
+        for (at, tone) in palette.iter().enumerate() {
+            assert_eq!(tone_out(tone), Tone::ANSI[at]);
+        }
+        assert_eq!(tone_out(&W::Selection), Tone::Selection);
+        let role = |tone, alpha| wit::Color {
+            source: wit::Source::Role(tone),
+            alpha,
+        };
+        assert_eq!(
+            color_out(&role(W::BrightRed, 0.25)),
+            Tone::BrightRed.alpha(0.25)
+        );
+        // A value comes with both its forms, untouched, and its own opacity on top.
+        let forms = |light: wit::Rgba, dark| wit::Color {
+            source: wit::Source::Rgba(wit::RgbaForms { light, dark }),
+            alpha: 2.0,
+        };
+        let ink = wit::Rgba {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 4,
+        };
+        let night = wit::Rgba {
+            r: 250,
+            g: 251,
+            b: 252,
+            a: 255,
+        };
+        assert_eq!(
+            color_out(&forms(ink, Some(night))),
+            Color {
+                source: Source::Rgba {
+                    light: Rgba::new(1, 2, 3, 4),
+                    dark: Some(Rgba::rgb(250, 251, 252)),
+                },
+                alpha: 1.0,
+            }
+        );
+        assert_eq!(
+            color_out(&forms(ink, None)).source,
+            Source::Rgba {
+                light: Rgba::new(1, 2, 3, 4),
+                dark: None,
+            }
+        );
     }
 
     #[test]
@@ -871,7 +992,7 @@ mod tests {
             wit::Content::Spark(wit::Spark {
                 values: vec![1.0; 3],
                 color: wit::Color {
-                    tone: wit::Tone::Accent,
+                    source: wit::Source::Role(wit::Tone::Accent),
                     alpha: 1.0,
                 },
                 peak: None,

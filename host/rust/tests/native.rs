@@ -14,7 +14,7 @@ mod common;
 
 use common::{Rig, TOKENS, kit_config};
 use pencere_host::bundle::Digest;
-use pencere_host::session::{Action, Config, State, ViewKind, ViewStart};
+use pencere_host::session::{Action, Config, MAX_VIEW_MESSAGE, State, ViewKind, ViewStart};
 use serde_json::{Value, json};
 
 /// What ends a view, played against the rig.
@@ -201,6 +201,32 @@ fn an_access_in_the_open_of_a_component_is_not_read() {
 }
 
 #[test]
+fn a_restart_offers_what_a_hello_that_listed_everything_is_offered() {
+    // One rule makes both: the same kinds, in the host's order, at the same versions.
+    let kinds = [ViewKind::Wasm, ViewKind::Lua, ViewKind::Web];
+    let mut asked = rig(&kinds);
+    let welcome = hello_with(&mut asked, &["wasm", "lua", "web"]);
+    let mut restarted = rig(&kinds);
+    restarted.host.restart();
+    let (wrote, _) = restarted.take();
+    assert_eq!(wrote.len(), 1);
+    let offered: Value = serde_json::from_str(&wrote[0].payload).unwrap();
+    assert_eq!(offered["restart"], true);
+    assert_eq!(offered["views"], welcome["views"]);
+    assert_eq!(offered["views"].as_array().unwrap().len(), 3);
+    // A host that does not take bundles offers nothing, at a restart as to a hello.
+    let mut none = Rig::with({
+        let mut config = config(&kinds);
+        config.bundle = false;
+        config
+    });
+    none.host.restart();
+    let (wrote, _) = none.take();
+    let offered: Value = serde_json::from_str(&wrote[0].payload).unwrap();
+    assert_eq!(offered["views"], json!([]));
+}
+
+#[test]
 fn a_msg_of_the_program_reaches_the_view_as_it_is_and_is_not_read() {
     let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
     up(&mut rig, &json!({}));
@@ -236,6 +262,12 @@ fn a_msg_that_is_not_an_object_or_comes_before_the_view_runs_goes_nowhere() {
     rig.send("msg", None, None, "\"text\"");
     assert!(rig.take().1.is_empty());
     assert_eq!(rig.host.diagnostics().ignored, 3);
+    // It has to be an object, not only begin like one: the host reads it as it does a page's.
+    for broken in [r#"{"push":"#, r#"{"push":{"id":1}} {}"#, "{,}", "{1:2}"] {
+        rig.send("msg", None, None, broken);
+        assert!(rig.take().1.is_empty(), "{broken}");
+    }
+    assert_eq!(rig.host.diagnostics().ignored, 7);
 }
 
 #[test]
@@ -248,11 +280,42 @@ fn a_message_of_the_component_is_written_to_the_program_while_its_view_is_open()
     assert_eq!(wrote.len(), 1);
     assert_eq!(wrote[0].kind, "msg");
     assert_eq!(wrote[0].payload, text);
-    // Not an object: not written.
+    // Not an object, or only begins like one: not written.
     assert_wrote_nothing(&mut rig, "[1]");
-    // Over what one message may be: not written.
-    let big = format!("{{\"pad\":\"{}\"}}", "a".repeat(1024 * 1024));
-    assert_wrote_nothing(&mut rig, &big);
+    assert_wrote_nothing(&mut rig, r#"{"call":"#);
+    assert_wrote_nothing(&mut rig, r#"{"call":{}} {"call":{}}"#);
+    // Whitespace between the tokens is accepted and is not written: a frame has no byte for it.
+    assert!(module_says(
+        &mut rig,
+        "{\n\t\"call\" : {\r\n \"id\": 1,\n\"method\":\"list\"}\n}\n"
+    ));
+    let (wrote, _) = rig.take();
+    assert_eq!(wrote.len(), 1);
+    assert_eq!(wrote[0].payload, r#"{"call" : { "id": 1,"method":"list"}}"#);
+    // Named like the host's own messages for a page, it is still the component's.
+    assert!(module_says(&mut rig, r#"{"close":{}}"#));
+    assert_eq!(rig.take().0.len(), 1);
+    assert_eq!(rig.host.state(), State::Open);
+}
+
+#[test]
+fn a_message_of_the_component_over_the_limit_ends_the_view_and_the_program_is_told() {
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    up(&mut rig, &json!({}));
+    // At the limit, to the byte, it is written; one byte more is a failure of the view.
+    let pad = "a".repeat(MAX_VIEW_MESSAGE - r#"{"pad":""}"#.len());
+    assert!(module_says(&mut rig, &format!(r#"{{"pad":"{pad}"}}"#)));
+    assert_eq!(rig.take().0.len(), 1);
+    assert!(!module_says(&mut rig, &format!(r#"{{"pad":"{pad}a"}}"#)));
+    let (wrote, acted) = rig.take();
+    assert_eq!(acted, vec![Action::DestroyView]);
+    assert_eq!(wrote.len(), 1);
+    assert_eq!(wrote[0].kind, "closed");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&wrote[0].payload).unwrap(),
+        json!({"reason": "error", "code": "view", "message": "a message of the view was over 1 MiB"})
+    );
+    assert_eq!(rig.host.state(), State::Idle);
 }
 
 #[test]

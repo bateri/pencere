@@ -155,7 +155,14 @@ impl Pane {
                 bytes = &bytes[wrote as usize..];
             } else {
                 assert!(Instant::now() < until, "the program does not read");
-                std::thread::sleep(Duration::from_millis(2));
+                // Waits for the room the tty makes as the program reads.
+                let mut poll = libc::pollfd {
+                    fd: self.master,
+                    events: libc::POLLOUT,
+                    revents: 0,
+                };
+                // SAFETY: one pollfd.
+                unsafe { libc::poll(&mut poll, 1, 5) };
             }
         }
     }

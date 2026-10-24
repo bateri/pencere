@@ -680,6 +680,44 @@ fn a_result_over_the_limit_of_a_message_is_an_error_not_a_hang() {
     finished(handle);
 }
 
+#[test]
+fn the_limit_of_a_message_is_counted_before_the_wire_escapes_it_in_both_directions() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let handle = serve_on(pane.terminal(), |options| {
+        options.call("echo", |params, _call| Ok(params))
+    });
+    let (_, open) = pane.open_a_view(&web_views());
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    // 200 000 characters of two bytes are 400 000 as the view says them and 1 200 000 as the wire
+    // carries them: under the limit of a message, and over it as the wire has it. The call is
+    // read, and the answer, which is as long, is written.
+    let text = "\u{e9}".repeat(200_000);
+    pane.send(
+        "msg",
+        None,
+        &json!({ "call": { "id": 1, "method": "echo", "params": { "text": text } } }),
+    );
+    let reply: Value = serde_json::from_str(&pane.expect("msg").payload).expect("JSON");
+    assert_eq!(reply["response"]["result"]["text"], text.as_str());
+    // One that is over the limit as the view said it is not read at all.
+    let too_long = "x".repeat(1_100_000);
+    pane.send(
+        "msg",
+        None,
+        &json!({ "call": { "id": 2, "method": "echo", "params": { "text": too_long } } }),
+    );
+    pane.send(
+        "msg",
+        None,
+        &json!({ "call": { "id": 3, "method": "echo" } }),
+    );
+    let reply: Value = serde_json::from_str(&pane.expect("msg").payload).expect("JSON");
+    assert_eq!(reply["response"]["id"], 3, "{reply}");
+    pane.send("closed", None, &json!({ "reason": "user" }));
+    finished(handle);
+}
+
 // ---- when the program itself fails ------------------------------------------------------
 
 #[test]

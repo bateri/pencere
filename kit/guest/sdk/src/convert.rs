@@ -5,8 +5,8 @@
 
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
-    Align, Button, Color, Cursor, Event, Family, Input, Key, Keyboard, MenuEntry, Mods, Point,
-    Reply, Tone, Track,
+    Align, Button, Color, Cursor, Event, Family, Fit, Input, Key, Keyboard, MenuEntry, Mods, Point,
+    Reply, Rgba, Source, Tone, Track,
 };
 
 use crate::Frame;
@@ -29,12 +29,45 @@ fn tone(tone: Tone) -> wit::Tone {
         Tone::Quiet => wit::Tone::Quiet,
         Tone::Line => wit::Tone::Line,
         Tone::Shadow => wit::Tone::Shadow,
+        Tone::Selection => wit::Tone::Selection,
+        Tone::Black => wit::Tone::Black,
+        Tone::Red => wit::Tone::Red,
+        Tone::Green => wit::Tone::Green,
+        Tone::Yellow => wit::Tone::Yellow,
+        Tone::Blue => wit::Tone::Blue,
+        Tone::Magenta => wit::Tone::Magenta,
+        Tone::Cyan => wit::Tone::Cyan,
+        Tone::White => wit::Tone::White,
+        Tone::BrightBlack => wit::Tone::BrightBlack,
+        Tone::BrightRed => wit::Tone::BrightRed,
+        Tone::BrightGreen => wit::Tone::BrightGreen,
+        Tone::BrightYellow => wit::Tone::BrightYellow,
+        Tone::BrightBlue => wit::Tone::BrightBlue,
+        Tone::BrightMagenta => wit::Tone::BrightMagenta,
+        Tone::BrightCyan => wit::Tone::BrightCyan,
+        Tone::BrightWhite => wit::Tone::BrightWhite,
+    }
+}
+
+fn rgba(value: Rgba) -> wit::Rgba {
+    wit::Rgba {
+        r: value.r,
+        g: value.g,
+        b: value.b,
+        a: value.a,
     }
 }
 
 fn color(color: Color) -> wit::Color {
+    let source = match color.source {
+        Source::Role(role) => wit::Source::Role(tone(role)),
+        Source::Rgba { light, dark } => wit::Source::Rgba(wit::RgbaForms {
+            light: rgba(light),
+            dark: dark.map(rgba),
+        }),
+    };
     wit::Color {
-        tone: tone(color.tone),
+        source,
         alpha: color.alpha,
     }
 }
@@ -162,6 +195,15 @@ fn node(node: Node) -> wit::Node {
                 values: spark.values,
                 color: color(spark.color),
                 peak: spark.peak,
+            }),
+            Kind::Image(image) => wit::Content::Image(wit::Image {
+                src: image.src,
+                fit: match image.fit {
+                    Fit::Contain => wit::Fit::Contain,
+                    Fit::Cover => wit::Fit::Cover,
+                },
+                tint: image.tint.map(color),
+                opacity: image.opacity,
             }),
         },
         style: style(node.style),

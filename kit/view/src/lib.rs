@@ -3,7 +3,8 @@
 //!
 //! A page is written as a function from the size it is given to an [`Element`] tree, in the
 //! chain of a style sheet's properties (`div().row().gap(8.0).child(...)`), in **points**,
-//! with colours named for the theme ([`Tone`]). [`layout`] puts the tree on a page of pixels —
+//! with colours named for the theme ([`Tone`]) or, where a role does not say it, given as a value
+//! ([`Rgba`]). [`layout`] puts the tree on a page of pixels —
 //! asking the host, through [`Measure`], how large each line of text is — and
 //! [`Laid::paint`] turns it into a [`DrawList`] of boxes and lines of text.
 //!
@@ -19,6 +20,10 @@
 //! far a highlight has faded — is a [`Ui`] kept by those names; a long list builds only the
 //! rows in view ([`Rows`]). What the host tells a page is an [`Input`], and what the page
 //! tells back a [`Reply`].
+//!
+//! A page shows images too ([`image`]): files of the bundle it came in, which the host decodes
+//! and says the size of ([`Measure::image`]); the engine makes the room for an image and says
+//! how it fills it ([`Picture`]), and has no pixels of its own.
 //!
 //! A page need not live in the host that shows it: [`wire`] lays an [`Element`] tree down as a flat
 //! list and picks it up again, and [`Queries`] is what a page asks of itself laid out — the pair a
@@ -39,19 +44,21 @@ mod text;
 mod ui;
 pub mod wire;
 
-pub use color::{Color, Tone};
-pub use element::{Element, div, spacer, spark, text};
+pub use color::{Color, Rgba, Source, Tone};
+pub use element::{Element, Fit, Image, div, image, spacer, spark, text};
 pub use fades::{FADE_SECONDS, Fades};
 pub use geometry::{Point, Rect, Size};
 pub use id::Id;
 pub use input::{Button, Cursor, Event, Input, Key, Keyboard, Menu, MenuEntry, Mods, Reply};
 pub use layout::{Extent, Laid, Queries, layout};
-pub use paint::{DrawList, Paint, Quad, Run};
+pub use paint::{DrawList, Paint, Picture, Quad, Run};
 pub use rows::Rows;
 pub use style::{Border, Shadow, Track};
 pub use text::{Align, Family, Font, Measure, Metrics};
 pub use ui::Ui;
 
+#[cfg(test)]
+mod image_tests;
 #[cfg(test)]
 mod interact_tests;
 #[cfg(test)]

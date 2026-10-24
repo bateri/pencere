@@ -104,11 +104,27 @@ describe("when there is no tty", () => {
     controller.abort();
     expect(await served).toEqual({ kind: "no-view", reason: "aborted" });
     expect(ran).toBe(0);
-    expect(waiting.terminal.calls).toEqual(["enter", "restore"]);
+    // The host has not answered: what it may still write is thrown away (§5.3).
+    expect(waiting.terminal.calls).toEqual(["enter", "discard", "restore"]);
   });
 });
 
 describe("what a program may offer", () => {
+  it("is checked once: the list is read once, whether serve starts on the system or on an environment", async () => {
+    const rig = new Rig();
+    const base = options({ signal: AbortSignal.abort() });
+    let reads = 0;
+    const counted = Object.defineProperty({ ...base }, "views", {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        return base.views;
+      },
+    });
+    await serveWith(counted, rig.environment());
+    expect(reads).toBe(1);
+  });
+
   const rejected = async (
     views: ServeOptions["views"],
     error: ErrorConstructor | typeof BundleError,
@@ -163,6 +179,7 @@ describe("what a program may offer", () => {
     );
     const hello = await rig.next("hello");
     rig.say("welcome", welcomePayload(TOKEN, undefined, offers("wasm")), hello.id);
+    rig.sayBytes(DA_REPLY);
     await expect(served).rejects.toThrow(BundleError);
     // The terminal is given back, and no open was written.
     expect(rig.terminal.calls).toEqual(["enter", "restore"]);

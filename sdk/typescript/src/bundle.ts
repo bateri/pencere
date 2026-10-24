@@ -7,9 +7,12 @@
  */
 
 import { createHash } from "node:crypto";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile as readFileWith } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { compareBytes, utf8Bytes, utf8Length } from "./bytes.js";
 
 /** The limits of a bundle (specification §8.2): constants of the protocol. */
 export const BUNDLE_LIMITS = {
@@ -77,6 +80,12 @@ export interface BundleOptions {
 export interface DirectoryOptions extends BundleOptions {
   /** Media types by extension (with the dot, lowercase), over the built-in ones. */
   types?: Readonly<Record<string, string>>;
+  /**
+   * Files that are not in the directory but belong to the view: the module of a package that
+   * the page imports, such as `@pencere/sdk/page`. They are listed with the directory's, in the
+   * order of their paths; a path that is also in the directory is listed twice, which is an error.
+   */
+  files?: readonly BundleFile[];
 }
 
 const MEDIA_TYPES: Readonly<Record<string, string>> = {
@@ -118,7 +127,8 @@ const MEDIA_NAME = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
 
 /** Whether `path` is one a manifest may list (specification §8.2). */
 export function isBundlePath(path: string): boolean {
-  if (Buffer.byteLength(path) < 1 || Buffer.byteLength(path) > MAX_PATH) return false;
+  const length = utf8Length(path);
+  if (length < 1 || length > MAX_PATH) return false;
   return path.split("/").every((s) => s !== "." && s !== ".." && SEGMENT.test(s));
 }
 
@@ -184,6 +194,16 @@ export function bundleFromFiles(files: readonly BundleFile[], options: BundleOpt
   return new Bundle({ entry, files: listed }, bytes);
 }
 
+/**
+ * The bytes of a file. `node:fs/promises` is not used: in a program compiled by `deno compile`
+ * it cannot read the files compiled into the binary, and the callback form of `node:fs` can.
+ */
+function readFile(path: string): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    readFileWith(path, (error, data) => (error === null ? resolve(data) : reject(error)));
+  });
+}
+
 async function walk(
   root: string,
   relative: string,
@@ -226,7 +246,8 @@ export async function bundleFromDirectory(
   const root = directory instanceof URL ? fileURLToPath(directory) : directory;
   const found: BundleFile[] = [];
   await walk(root, "", found, { ...options.types });
+  found.push(...(options.files ?? []));
   // A directory has no order of its own: the manifest of the same files is the same manifest.
-  found.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
+  found.sort((a, b) => compareBytes(utf8Bytes(a.path), utf8Bytes(b.path)));
   return bundleFromFiles(found, options.entry === undefined ? {} : { entry: options.entry });
 }

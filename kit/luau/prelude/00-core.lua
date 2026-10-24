@@ -4,8 +4,10 @@
 -- A script is Luau. What it can use besides the language is the base functions, `string`,
 -- `table`, `math` and `utf8`, and `pencere`, the table this prelude fills:
 --
---   elements   pencere.div(), pencere.text(), pencere.spark(), pencere.spacer()
---   colours    a tone's name ("accent", "raised2", ...) or pencere.alpha("accent", 0.5)
+--   elements   pencere.div(), pencere.text(), pencere.spark(), pencere.image(), pencere.spacer()
+--   colours    a role of the theme ("accent", "red", "bright-red", "selection", "raised2", ...), a
+--              value ("#rrggbb", "#rrggbbaa", or { light = "#...", dark = "#..." } for a dark
+--              theme), and any of them with an opacity: pencere.alpha("accent", 0.5)
 --   pages      the script returns { render = ..., handle = ..., settle = ..., message = ..., room = ... }
 --   memory     pencere.Ui, pencere.Fades, pencere.Rows (what a page remembers between frames)
 --   layout     pencere.layout (what is where on the page as it was last laid out)
@@ -38,9 +40,10 @@ pencere.send, pencere.hit, pencere.ids_at, pencere.bounds = nil, nil, nil, nil
 pencere.scroll_extent, pencere.focus_order, pencere.path_of, pencere.text_field = nil, nil, nil, nil
 pencere.host = host
 
--- A colour: a tone with an opacity. Everywhere a colour is taken, a tone's name does too.
-function pencere.alpha(tone, alpha)
-	return { tone, alpha }
+-- A colour with an opacity. Everywhere a colour is taken, a role's name, a "#rrggbb" value and a
+-- { light =, dark = } table do too; `colour` is any of the three.
+function pencere.alpha(colour, alpha)
+	return { colour, alpha }
 end
 
 -- The ground raised by `steps` levels ("raised1" is a card on the pane).

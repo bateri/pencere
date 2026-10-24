@@ -1742,13 +1742,13 @@ end
 -- when it has said.
 local function note()
 	if upload and upload.waiting then
-		return string.format("Sending 4 MiB to containers-native... %d%% (it has not read the last yet)", upload:percent())
+		return string.format("Sending 4 MiB to containers-rust... %d%% (it has not read the last yet)", upload:percent())
 	elseif upload then
-		return string.format("Sending 4 MiB to containers-native... %d%%", upload:percent())
+		return string.format("Sending 4 MiB to containers-rust... %d%%", upload:percent())
 	elseif stale then
-		return "No new readings from containers-native"
+		return "No new readings from containers-rust"
 	elseif counted then
-		return string.format("Sent 4 MiB - containers-native counted %d bytes", counted)
+		return string.format("Sent 4 MiB - containers-rust counted %d bytes", counted)
 	end
 	return nil
 end

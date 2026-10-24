@@ -11,6 +11,7 @@ import {
   isBundlePath,
   isMediaType,
   mediaTypeOf,
+  sha256,
 } from "../src/bundle.js";
 import { EXAMPLE_DIGESTS, EXAMPLE_FILES } from "./support.js";
 
@@ -203,6 +204,25 @@ describe("a bundle of a directory", () => {
       ["linked.js", "text/javascript"],
     ]);
     expect(bundle.read(EXAMPLE_DIGESTS["style.css"])).toBeDefined();
+  });
+
+  it("lists the files it is given beside the directory's, in the same order", async () => {
+    await writeFile(join(dir, "index.html"), EXAMPLE_FILES["index.html"]);
+    await writeFile(join(dir, "app.js"), EXAMPLE_FILES["app.js"]);
+    const module = Buffer.from("export const x = 1;\n");
+    const bundle = await bundleFromDirectory(dir, {
+      files: [{ path: "pencere-page.js", data: module }],
+    });
+    expect(bundle.manifest.files.map((f) => [f.path, f.type])).toEqual([
+      ["app.js", "text/javascript"],
+      ["index.html", "text/html"],
+      ["pencere-page.js", "text/javascript"],
+    ]);
+    expect(Buffer.from(bundle.read(sha256(module)) ?? []).toString()).toBe("export const x = 1;\n");
+    // A file of the directory with the same path is not replaced: it is listed twice.
+    await expect(
+      bundleFromDirectory(dir, { files: [{ path: "app.js", data: module }] }),
+    ).rejects.toThrow(/app\.js.*twice/);
   });
 
   it("takes a URL, and says what is wrong with a name it cannot list", async () => {

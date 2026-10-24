@@ -6,15 +6,30 @@
 //! request, not a grant. The person is asked before any origin or permission it names is
 //! usable, and the policy is built from the answer, never from the request.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use serde::Deserialize;
+use serde::de::{DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::ser::{Serialize, SerializeMap, Serializer};
 use serde_json::Value;
 
 /// The policy of a page that is allowed no origin (specification §12.1): the one a page
-/// without an `access` gets, and one whose person allowed nothing.
-pub const DEFAULT_POLICY: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; connect-src 'none';";
+/// without an `access` gets, and one whose person allowed nothing. It is also the policy of
+/// every page before the origins are added: what a person allows adds those origins to the
+/// directives their lists are for and changes nothing else, and a page can always read its own
+/// bundle (`'self'`).
+pub const DEFAULT_POLICY: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'; media-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'self';";
+
+/// The most entries one list of an `access` may have (specification §6.3). The person is asked
+/// about every origin that is listed, so a list that no one could read is not one a person can
+/// agree to.
+pub const MAX_ORIGINS_PER_LIST: usize = 32;
+
+/// The most entries the lists of an `access` may have together (specification §6.3). This also
+/// bounds [`Access::rejected`], which holds entries that were listed.
+pub const MAX_ORIGINS: usize = 64;
 
 /// Where an address is, as far as its text says. A name can resolve to an
 /// address its text does not suggest, so this is a hint for the question put to
@@ -209,18 +224,41 @@ impl Directive {
     const ALL: [Self; 4] = [Self::Connect, Self::Resource, Self::Frame, Self::BaseUri];
 }
 
+/// The origins of one directive: in the order they were added, each once. The set beside the
+/// list is what keeps adding and asking linear however many there are.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Origins {
+    list: Vec<Domain>,
+    seen: HashSet<Domain>,
+}
+
+impl Origins {
+    /// Adds an origin that is not there yet; whether it was added.
+    fn add(&mut self, domain: Domain) -> bool {
+        if !self.seen.insert(domain.clone()) {
+            return false;
+        }
+        self.list.push(domain);
+        true
+    }
+}
+
 /// The origins of a page, by directive.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Csp {
-    connect: Vec<Domain>,
-    resource: Vec<Domain>,
-    frame: Vec<Domain>,
-    base_uri: Vec<Domain>,
+    connect: Origins,
+    resource: Origins,
+    frame: Origins,
+    base_uri: Origins,
 }
 
 impl Csp {
     /// The domains of a directive.
     pub fn domains(&self, directive: Directive) -> &[Domain] {
+        &self.origins(directive).list
+    }
+
+    fn origins(&self, directive: Directive) -> &Origins {
         match directive {
             Directive::Connect => &self.connect,
             Directive::Resource => &self.resource,
@@ -229,13 +267,18 @@ impl Csp {
         }
     }
 
-    fn list_mut(&mut self, directive: Directive) -> &mut Vec<Domain> {
-        match directive {
+    fn contains(&self, directive: Directive, domain: &Domain) -> bool {
+        self.origins(directive).seen.contains(domain)
+    }
+
+    fn add(&mut self, directive: Directive, domain: Domain) {
+        let origins = match directive {
             Directive::Connect => &mut self.connect,
             Directive::Resource => &mut self.resource,
             Directive::Frame => &mut self.frame,
             Directive::BaseUri => &mut self.base_uri,
-        }
+        };
+        origins.add(domain);
     }
 
     /// Whether no directive has a domain.
@@ -324,13 +367,22 @@ impl Permissions {
     }
 }
 
-/// Why an `access` could not be read.
+/// Why an `access` could not be used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AccessError;
+pub enum AccessError {
+    /// It is not of the shape of specification §6.3 (the `manifest` refusal).
+    Malformed,
+    /// It lists more origins than the specification allows: [`MAX_ORIGINS_PER_LIST`] in a list or
+    /// [`MAX_ORIGINS`] in all (the `limit` refusal).
+    Limit,
+}
 
 impl fmt::Display for AccessError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("the access a page asks for is malformed")
+        f.write_str(match self {
+            Self::Malformed => "the access a page asks for is malformed",
+            Self::Limit => "the access a page asks for lists more origins than a person can read",
+        })
     }
 }
 
@@ -344,43 +396,208 @@ pub struct Access {
     rejected: Vec<String>,
 }
 
+/// How many entries each list of an `access` has, as it was written.
+#[derive(Default)]
+struct Listed {
+    connect: usize,
+    resource: usize,
+    frame: usize,
+    base_uri: usize,
+}
+
+impl Listed {
+    /// Counts one more entry of `directive`'s list; whether the lists are still within what the
+    /// specification allows.
+    fn within(&mut self, directive: Directive) -> bool {
+        let list = match directive {
+            Directive::Connect => &mut self.connect,
+            Directive::Resource => &mut self.resource,
+            Directive::Frame => &mut self.frame,
+            Directive::BaseUri => &mut self.base_uri,
+        };
+        *list = list.saturating_add(1);
+        let own = *list;
+        let all = self
+            .connect
+            .saturating_add(self.resource)
+            .saturating_add(self.frame)
+            .saturating_add(self.base_uri);
+        own <= MAX_ORIGINS_PER_LIST && all <= MAX_ORIGINS
+    }
+}
+
+/// An `access` as it is read, one entry at a time and without a tree of the text: what it
+/// asks, and whether it lists more than the specification allows. The reading goes on past the
+/// bound, storing nothing, so that a fault of shape further on still comes first (§6.4 puts
+/// `manifest` before `limit`).
+#[derive(Default)]
+struct Reading {
+    access: Access,
+    listed: Listed,
+    over: bool,
+}
+
+impl Reading {
+    fn origin(&mut self, directive: Directive, text: &str) {
+        if !self.listed.within(directive) {
+            self.over = true;
+            return;
+        }
+        match Domain::parse(text) {
+            Some(domain) => self.access.domains.add(directive, domain),
+            None => self.access.rejected.push(text.chars().take(100).collect()),
+        }
+    }
+
+    fn permission(&mut self, name: &str) {
+        if let Some(permission) = Permission::ALL.into_iter().find(|p| p.key() == name) {
+            self.access.permissions.set(permission);
+        }
+    }
+}
+
+/// The name of a member of an `access`, as far as the reading cares.
+enum Member {
+    Origins(Directive),
+    Permissions,
+    Other,
+}
+
+impl<'de> Deserialize<'de> for Member {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct V;
+        impl Visitor<'_> for V {
+            type Value = Member;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a member name")
+            }
+            fn visit_str<E: serde::de::Error>(self, name: &str) -> Result<Member, E> {
+                Ok(match name {
+                    "permissions" => Member::Permissions,
+                    other => Directive::ALL
+                        .into_iter()
+                        .find(|d| d.key() == other)
+                        .map_or(Member::Other, Member::Origins),
+                })
+            }
+        }
+        deserializer.deserialize_str(V)
+    }
+}
+
+/// A list of strings, each handed to `take` as it is read.
+struct Strings<F>(F);
+
+impl<'de, F: FnMut(&str)> DeserializeSeed<'de> for Strings<F> {
+    type Value = ();
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<(), D::Error> {
+        deserializer.deserialize_seq(self)
+    }
+}
+
+impl<'de, F: FnMut(&str)> Visitor<'de> for Strings<F> {
+    type Value = ();
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a list of strings")
+    }
+    fn visit_seq<A: SeqAccess<'de>>(mut self, mut seq: A) -> Result<(), A::Error> {
+        struct Item<'a, F>(&'a mut F);
+        impl<'de, F: FnMut(&str)> DeserializeSeed<'de> for Item<'_, F> {
+            type Value = ();
+            fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<(), D::Error> {
+                deserializer.deserialize_str(self)
+            }
+        }
+        impl<F: FnMut(&str)> Visitor<'_> for Item<'_, F> {
+            type Value = ();
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a string")
+            }
+            fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<(), E> {
+                (self.0)(text);
+                Ok(())
+            }
+        }
+        while seq.next_element_seed(Item(&mut self.0))?.is_some() {}
+        Ok(())
+    }
+}
+
+impl<'de> Deserialize<'de> for Reading {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = Reading;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("an access")
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Reading, A::Error> {
+                let mut reading = Reading::default();
+                while let Some(member) = map.next_key::<Member>()? {
+                    match member {
+                        Member::Origins(directive) => {
+                            map.next_value_seed(Strings(|text: &str| {
+                                reading.origin(directive, text);
+                            }))?
+                        }
+                        Member::Permissions => map.next_value_seed(Strings(|name: &str| {
+                            reading.permission(name);
+                        }))?,
+                        // A member this crate does not know is not an error: a newer program may
+                        // have one an older host has never heard of.
+                        Member::Other => {
+                            map.next_value::<IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(reading)
+            }
+        }
+        deserializer.deserialize_map(V)
+    }
+}
+
+impl Reading {
+    fn finish(self) -> Result<Access, AccessError> {
+        if self.over {
+            Err(AccessError::Limit)
+        } else {
+            Ok(self.access)
+        }
+    }
+}
+
 impl Access {
-    /// Reads an `access`. An origin that is not one this crate accepts is not an error and is
-    /// not allowed: it is left out and listed in [`rejected`](Self::rejected), because leaving
-    /// it out can only narrow what the page reaches. A permission name that is not on the closed
-    /// list is ignored the same way. A member of the wrong type is an error.
+    /// Reads an `access` from its JSON text, one entry at a time: no tree of the text is built,
+    /// and the time and memory are those of the text. An origin that is not one this crate
+    /// accepts is not an error and is not allowed: it is left out and listed in
+    /// [`rejected`](Self::rejected), because leaving it out can only narrow what the page
+    /// reaches. A permission name that is not on the closed list is ignored the same way, and so
+    /// is a member this crate does not know.
     ///
     /// # Errors
     ///
-    /// [`AccessError`] when the value, one of the lists of origins or `permissions` is not the
-    /// kind of JSON value it should be, or a list holds an item that is not a string.
+    /// [`AccessError::Malformed`] when the text is not a JSON object, or one of the lists of
+    /// origins or `permissions` is not a list of strings. [`AccessError::Limit`] when a list has
+    /// more than [`MAX_ORIGINS_PER_LIST`] entries or the lists have more than [`MAX_ORIGINS`]
+    /// between them, valid or not; a fault of shape anywhere in the text is `Malformed` even
+    /// then.
+    pub fn from_json(text: &str) -> Result<Self, AccessError> {
+        serde_json::from_str::<Reading>(text)
+            .map_err(|_| AccessError::Malformed)?
+            .finish()
+    }
+
+    /// Reads an `access` that is a JSON value already, as [`from_json`](Self::from_json) reads
+    /// its text.
+    ///
+    /// # Errors
+    ///
+    /// As [`from_json`](Self::from_json).
     pub fn from_value(value: &Value) -> Result<Self, AccessError> {
-        let object = value.as_object().ok_or(AccessError)?;
-        let mut access = Self::default();
-        for directive in Directive::ALL {
-            let Some(list) = object.get(directive.key()) else {
-                continue;
-            };
-            for item in list.as_array().ok_or(AccessError)? {
-                let text = item.as_str().ok_or(AccessError)?;
-                match Domain::parse(text) {
-                    Some(domain) if !access.domains.domains(directive).contains(&domain) => {
-                        access.domains.list_mut(directive).push(domain);
-                    }
-                    Some(_) => {}
-                    None => access.rejected.push(text.chars().take(100).collect()),
-                }
-            }
-        }
-        if let Some(list) = object.get("permissions") {
-            for item in list.as_array().ok_or(AccessError)? {
-                let name = item.as_str().ok_or(AccessError)?;
-                if let Some(permission) = Permission::ALL.into_iter().find(|p| p.key() == name) {
-                    access.permissions.set(permission);
-                }
-            }
-        }
-        Ok(access)
+        Reading::deserialize(value)
+            .map_err(|_| AccessError::Malformed)?
+            .finish()
     }
 
     /// The origins the page asks for.
@@ -394,7 +611,8 @@ impl Access {
     }
 
     /// The origins that were left out for not being ones this crate accepts, as written (cut at
-    /// 100 characters), for the host's log.
+    /// 100 characters), for the host's log. They were listed, so there are at most
+    /// [`MAX_ORIGINS`] of them.
     pub fn rejected(&self) -> &[String] {
         &self.rejected
     }
@@ -497,10 +715,7 @@ impl Grant {
 
     /// Allows an origin for a directive.
     pub fn allow_domain(&mut self, directive: Directive, domain: Domain) {
-        let list = self.csp.list_mut(directive);
-        if !list.contains(&domain) {
-            list.push(domain);
-        }
+        self.csp.add(directive, domain);
     }
 
     /// Allows a permission.
@@ -514,7 +729,7 @@ impl Grant {
         let mut grant = Self::none();
         for directive in Directive::ALL {
             for domain in self.csp.domains(directive) {
-                if access.domains().domains(directive).contains(domain) {
+                if access.domains().contains(directive, domain) {
                     grant.allow_domain(directive, domain.clone());
                 }
             }
@@ -828,7 +1043,16 @@ mod tests {
             json!({"permissions": [true]}),
             json!({"permissions": [null]}),
         ] {
-            assert_eq!(Access::from_value(&bad), Err(AccessError), "{bad}");
+            assert_eq!(
+                Access::from_value(&bad),
+                Err(AccessError::Malformed),
+                "{bad}"
+            );
+            assert_eq!(
+                Access::from_json(&bad.to_string()),
+                Err(AccessError::Malformed),
+                "{bad}"
+            );
         }
         assert_eq!(Access::from_value(&json!({})).unwrap(), Access::default());
     }
@@ -854,7 +1078,180 @@ mod tests {
         );
         assert_eq!(content_security_policy(Some(&a), &grant), DEFAULT_POLICY);
         assert_eq!(content_security_policy(None, &grant), DEFAULT_POLICY);
-        assert!(DEFAULT_POLICY.contains("connect-src 'none'"));
+        // A page can always read its own bundle, and asking for nothing changes that for no one.
+        assert!(DEFAULT_POLICY.contains("connect-src 'self';"));
+        assert!(DEFAULT_POLICY.contains("font-src 'self';"));
+    }
+
+    #[test]
+    fn what_a_person_allows_adds_those_origins_to_the_default_policy_and_nothing_else() {
+        // The policy with every list empty is the default one, directive by directive.
+        let empty = Grant::none();
+        let a = access(json!({"connect": ["https://api.example.com"]}));
+        let bare = {
+            let mut grant = Grant::none();
+            grant.allow_domain(
+                Directive::Connect,
+                Domain::parse("https://api.example.com").unwrap(),
+            );
+            content_security_policy(Some(&a), &grant)
+        };
+        assert_eq!(
+            bare,
+            DEFAULT_POLICY.replace(
+                "connect-src 'self';",
+                "connect-src 'self' https://api.example.com;"
+            )
+        );
+        assert_eq!(content_security_policy(Some(&a), &empty), DEFAULT_POLICY);
+        // The same for every directive at once: removing the origins gives the default back.
+        let everything = access(json!({
+            "connect": ["https://api.example.com"],
+            "resources": ["https://cdn.example.com"],
+            "frames": ["https://video.example.com"],
+            "base": ["https://base.example.com"],
+        }));
+        let all = everything.consent().unwrap().grant_all();
+        let built = content_security_policy(Some(&everything), &all);
+        let mut stripped = built.clone();
+        for origin in [
+            " https://api.example.com",
+            " https://cdn.example.com",
+            " https://video.example.com",
+            " https://base.example.com",
+        ] {
+            stripped = stripped.replace(origin, "");
+        }
+        // `frame-src` has no `'none'` beside an origin and `base-uri` no `'self'`.
+        let stripped = stripped
+            .replace("frame-src;", "frame-src 'none';")
+            .replace("base-uri;", "base-uri 'self';");
+        assert_eq!(stripped, DEFAULT_POLICY, "{built}");
+    }
+
+    #[test]
+    fn an_access_is_read_without_a_tree_and_an_entry_at_a_time() {
+        // Unknown members are ignored whatever they hold, deep or not.
+        let a = Access::from_json(
+            r#"{"later":{"a":[1,2,{"b":null}]},"connect":["https://a.example"],"x":1}"#,
+        )
+        .unwrap();
+        assert_eq!(a.domains().domains(Directive::Connect).len(), 1);
+        // The same origin twice is one; a list given twice adds to the first.
+        let a = Access::from_json(
+            r#"{"connect":["https://a.example","https://a.example"],"connect":["https://b.example"]}"#,
+        )
+        .unwrap();
+        assert_eq!(a.domains().domains(Directive::Connect).len(), 2);
+        // Escapes in an origin are read as JSON reads them.
+        let a = Access::from_json(r#"{"connect":["https:\/\/a.example"]}"#).unwrap();
+        assert_eq!(
+            a.domains().domains(Directive::Connect)[0].as_str(),
+            "https://a.example"
+        );
+        // Anything that is not an object, or is not JSON, or has trailing text, is malformed.
+        for bad in [
+            "[]",
+            "5",
+            "null",
+            "",
+            "{",
+            r#"{"connect":["#,
+            "{} {}",
+            r#"{"connect":[]}x"#,
+        ] {
+            assert_eq!(
+                Access::from_json(bad),
+                Err(AccessError::Malformed),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_list_of_origins_is_bounded_and_a_fault_of_shape_comes_before_the_bound() {
+        let list = |n: usize, prefix: &str| -> String {
+            (0..n)
+                .map(|i| format!("\"https://{prefix}{i}.example.com\""))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        // Up to the bound of a list is read; one more is over, valid origins or not.
+        let at = format!(r#"{{"connect":[{}]}}"#, list(MAX_ORIGINS_PER_LIST, "a"));
+        let a = Access::from_json(&at).unwrap();
+        assert_eq!(
+            a.domains().domains(Directive::Connect).len(),
+            MAX_ORIGINS_PER_LIST
+        );
+        let over = format!(r#"{{"connect":[{}]}}"#, list(MAX_ORIGINS_PER_LIST + 1, "a"));
+        assert_eq!(Access::from_json(&over), Err(AccessError::Limit));
+        let junk = format!(
+            r#"{{"frames":[{}]}}"#,
+            vec![r#""not an origin""#; MAX_ORIGINS_PER_LIST + 1].join(",")
+        );
+        assert_eq!(Access::from_json(&junk), Err(AccessError::Limit));
+        // Each list at its bound is fine until the lists together are over theirs.
+        let together = |n: usize| {
+            format!(
+                r#"{{"connect":[{}],"resources":[{}],"frames":[{}]}}"#,
+                list(MAX_ORIGINS_PER_LIST, "c"),
+                list(MAX_ORIGINS_PER_LIST, "r"),
+                list(n, "f")
+            )
+        };
+        assert!(Access::from_json(&together(MAX_ORIGINS - 2 * MAX_ORIGINS_PER_LIST)).is_ok());
+        assert_eq!(
+            Access::from_json(&together(MAX_ORIGINS - 2 * MAX_ORIGINS_PER_LIST + 1)),
+            Err(AccessError::Limit)
+        );
+        // The same list given twice is one list in the count.
+        let twice = format!(
+            r#"{{"connect":[{}],"connect":[{}]}}"#,
+            list(MAX_ORIGINS_PER_LIST, "a"),
+            list(1, "b")
+        );
+        assert_eq!(Access::from_json(&twice), Err(AccessError::Limit));
+        // A fault of shape is a fault whether it comes before the bound or after it.
+        let after = format!(
+            r#"{{"connect":[{},5]}}"#,
+            list(MAX_ORIGINS_PER_LIST + 1, "a")
+        );
+        assert_eq!(Access::from_json(&after), Err(AccessError::Malformed));
+        let later = format!(
+            r#"{{"connect":[{}],"permissions":"camera"}}"#,
+            list(40, "a")
+        );
+        assert_eq!(Access::from_json(&later), Err(AccessError::Malformed));
+        // What is listed and left out is bounded with the rest.
+        let a = Access::from_json(&format!(
+            r#"{{"connect":[{}]}}"#,
+            vec![r#""not an origin""#; MAX_ORIGINS_PER_LIST].join(",")
+        ))
+        .unwrap();
+        assert_eq!(a.rejected().len(), MAX_ORIGINS_PER_LIST);
+        assert!(a.rejected().len() <= MAX_ORIGINS);
+    }
+
+    #[test]
+    fn allowing_an_origin_twice_adds_it_once_and_a_grant_within_its_access_keeps_what_it_holds() {
+        // Built at the bound; a grant of the same origins, asked about each, is one pass.
+        let list: Vec<String> = (0..MAX_ORIGINS_PER_LIST)
+            .map(|i| format!("\"https://a{i}.example.com\""))
+            .collect();
+        let a = Access::from_json(&format!(r#"{{"connect":[{}]}}"#, list.join(","))).unwrap();
+        let all = a.consent().unwrap().grant_all();
+        assert_eq!(
+            all.csp().domains(Directive::Connect).len(),
+            MAX_ORIGINS_PER_LIST
+        );
+        let again = all.within(&a);
+        assert_eq!(again, all);
+        // Allowing what is allowed already adds nothing.
+        let mut twice = all.clone();
+        for declared in a.consent().unwrap().domains {
+            twice.allow_domain(declared.directive, declared.domain);
+        }
+        assert_eq!(twice, all);
     }
 
     #[test]

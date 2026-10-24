@@ -25,6 +25,9 @@ All notable changes to the `pencere` crate are recorded here. The format follows
     subscription is fed from any thread with `Subscription::push`, which waits while the terminal is
     behind.
   - `Terminal::controlling` for a filter in a pipeline.
+  - The 1 MiB limit of a view's message is counted before the wire escapes the text, in both
+    directions, as the host and the TypeScript SDK count it: a message of non-ASCII text that is
+    under the limit as the view said it is read and written, however long its escaped form is.
 
 ### Changed
 

@@ -1,5 +1,6 @@
 //! The terminal's look as a page is told it (specification §9.5 and §11.2): the roles of a
-//! terminal theme, each as `#rrggbb`, with the ones a host does not have made up.
+//! terminal theme, its ANSI palette and its selection, each as `#rrggbb`, with the ones a host
+//! does not have made up.
 
 /// A colour, as the terminal draws it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,7 +68,30 @@ impl Rgb {
     }
 }
 
-/// The nine roles of a theme, every one of them a colour (specification §11.2).
+/// The sixteen colours of the ANSI palette as xterm has them by default, in the order of the
+/// palette: black, red, green, yellow, blue, magenta, cyan, white, then the bright eight. What a
+/// theme that does not give its palette is made up with (specification §11.2).
+pub const XTERM_ANSI: [Rgb; 16] = [
+    Rgb(0x00, 0x00, 0x00),
+    Rgb(0xcd, 0x00, 0x00),
+    Rgb(0x00, 0xcd, 0x00),
+    Rgb(0xcd, 0xcd, 0x00),
+    Rgb(0x00, 0x00, 0xee),
+    Rgb(0xcd, 0x00, 0xcd),
+    Rgb(0x00, 0xcd, 0xcd),
+    Rgb(0xe5, 0xe5, 0xe5),
+    Rgb(0x7f, 0x7f, 0x7f),
+    Rgb(0xff, 0x00, 0x00),
+    Rgb(0x00, 0xff, 0x00),
+    Rgb(0xff, 0xff, 0x00),
+    Rgb(0x5c, 0x5c, 0xff),
+    Rgb(0xff, 0x00, 0xff),
+    Rgb(0x00, 0xff, 0xff),
+    Rgb(0xff, 0xff, 0xff),
+];
+
+/// The nine roles of a theme, its palette and its selection, every one of them a colour
+/// (specification §11.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Roles {
     /// The default background.
@@ -88,6 +112,11 @@ pub struct Roles {
     pub warning: Rgb,
     /// The information colour.
     pub info: Rgb,
+    /// The background of what the person selected.
+    pub selection: Rgb,
+    /// The ANSI palette, in the order of its colours (black, red, green, yellow, blue, magenta,
+    /// cyan, white, then the bright eight).
+    pub ansi: [Rgb; 16],
 }
 
 /// The roles of a terminal theme the page is given. Only the background and the
@@ -115,6 +144,12 @@ pub struct Theme {
     pub warning: Option<Rgb>,
     /// The information colour.
     pub info: Option<Rgb>,
+    /// The background of what the person selected. Default: the background a third of the way
+    /// toward the accent.
+    pub selection: Option<Rgb>,
+    /// The ANSI palette, in the order of its colours (black, red, green, yellow, blue, magenta,
+    /// cyan, white, then the bright eight): all sixteen or none. Default: [`XTERM_ANSI`].
+    pub ansi: Option<[Rgb; 16]>,
     font_mono: String,
 }
 
@@ -140,6 +175,8 @@ impl Theme {
             error: None,
             warning: None,
             info: None,
+            selection: None,
+            ansi: None,
             font_mono,
         }
     }
@@ -160,21 +197,23 @@ impl Theme {
         &self.font_mono
     }
 
-    /// All nine roles: what the host gave, and for each it did not, the colour the
-    /// specification makes up (§11.2): `dim` a third of the way from the foreground to the
-    /// background, `accent` as `info`, `border` a fifth of the way from the background to the
-    /// foreground, and `success`, `error`, `warning` and `info` as `#3fb950`, `#f85149`,
-    /// `#d29922` and `#58a6ff`.
+    /// All nine roles, the selection and the palette: what the host gave, and for each it did
+    /// not, the colour the specification makes up (§11.2): `dim` a third of the way from the
+    /// foreground to the background, `accent` as `info`, `border` a fifth of the way from the
+    /// background to the foreground, `success`, `error`, `warning` and `info` as `#3fb950`,
+    /// `#f85149`, `#d29922` and `#58a6ff`, `selection` a third of the way from the background to
+    /// the accent, and the palette as xterm's ([`XTERM_ANSI`]).
     pub fn roles(&self) -> Roles {
         let (background, foreground) = (self.background, self.foreground);
         let info = self.info.unwrap_or(Rgb(0x58, 0xa6, 0xff));
+        let accent = self.accent.unwrap_or(info);
         Roles {
             background,
             foreground,
             dim: self
                 .dim
                 .unwrap_or_else(|| foreground.part_toward(background, 1, 3)),
-            accent: self.accent.unwrap_or(info),
+            accent,
             border: self
                 .border
                 .unwrap_or_else(|| background.part_toward(foreground, 1, 5)),
@@ -182,6 +221,10 @@ impl Theme {
             error: self.error.unwrap_or(Rgb(0xf8, 0x51, 0x49)),
             warning: self.warning.unwrap_or(Rgb(0xd2, 0x99, 0x22)),
             info,
+            selection: self
+                .selection
+                .unwrap_or_else(|| background.part_toward(accent, 1, 3)),
+            ansi: self.ansi.unwrap_or(XTERM_ANSI),
         }
     }
 }
@@ -296,6 +339,28 @@ mod tests {
         assert_eq!(roles.background, Rgb(255, 255, 255));
         assert_eq!(roles.foreground, Rgb(0x17, 0x17, 0x17));
         assert_eq!(theme.font_mono(), "\"Menlo\", monospace");
+    }
+
+    #[test]
+    fn the_selection_and_the_palette_are_what_the_host_gave_or_made_up() {
+        // Made up: a third of the way from the background to the accent, and xterm's palette.
+        let made_up = Theme::new(Rgb(0, 0, 0), Rgb(255, 255, 255), "").roles();
+        assert_eq!(made_up.selection, Rgb(0x1d, 0x37, 0x55));
+        assert_eq!(made_up.ansi, XTERM_ANSI);
+        assert_eq!(made_up.ansi[1].css(), "#cd0000");
+        assert_eq!(made_up.ansi[15].css(), "#ffffff");
+        // The selection follows an accent the host gave, and is its own when it gave one.
+        let mut theme = black_on_white();
+        theme.accent = Some(Rgb(0, 0, 255));
+        assert_eq!(theme.roles().selection, Rgb(170, 170, 255));
+        theme.selection = Some(Rgb(1, 2, 3));
+        let mut palette = XTERM_ANSI;
+        palette[4] = Rgb(9, 9, 9);
+        theme.ansi = Some(palette);
+        let roles = theme.roles();
+        assert_eq!(roles.selection, Rgb(1, 2, 3));
+        assert_eq!(roles.ansi[4], Rgb(9, 9, 9));
+        assert_eq!(roles.ansi[5], XTERM_ANSI[5]);
     }
 
     #[test]

@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "@pencere/sdk": "../../sdk/typescript/dist/index.js",
+    "@pencere/sdk/page": "../../sdk/typescript/dist/page/index.js"
+  }
+}

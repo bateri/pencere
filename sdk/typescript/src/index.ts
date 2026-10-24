@@ -28,6 +28,8 @@
 
 export { serve, ViewError } from "./serve.js";
 export { ViewControl } from "./control.js";
+export { createRouter } from "./router.js";
+export type { Router, RouterHandlers, Send } from "./router.js";
 export type { CloseResult, ReopenOptions, ReopenResult } from "./control.js";
 export type {
   BundleSource,

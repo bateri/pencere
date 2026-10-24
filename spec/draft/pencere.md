@@ -239,7 +239,7 @@ yourself. Receivers parse any valid JSON.
 | Limit                                 | `to-host`           | `to-program`      |
 | ------------------------------------- | ------------------- | ----------------- |
 | A frame, `ESC _` and `ESC \` included | 4096 bytes          | 511 bytes         |
-| A message's payload                   | 16 MiB (16 777 216) | 1 MiB (1 048 576) |
+| A message's payload                   | 16 MiB (16 777 216) | 6 MiB (6 291 456) |
 
 A receiver MUST drop a frame or a message over its direction's limit (errors
 `too-long` and `message-too-long`). A sender MAY always send smaller frames.
@@ -251,6 +251,12 @@ systems examined; the derivation is Appendix B. 4096 is the size kitty's graphic
 protocol allows for the payload of a chunk; here it bounds the whole frame. The
 message limits are protocol constants, not measurements: they bound what a
 receiver has to buffer.
+
+The limit toward the program is not 1 MiB because a message of a view has that size
+(Section 9.3) and no more, but six times it: the host writes a view's message in the form of
+Section 4.5, where a character that a frame cannot carry becomes an escape of six bytes (a DEL
+is `\u007f`), and a message that is within the view's limit must always be writable. The escapes
+are the transport's, and they are split into frames like the rest of the message.
 
 Bundle limits are in Section 8.2.
 
@@ -589,7 +595,13 @@ the page may send network requests to; `resources`, those it may load scripts, s
 and media from; `frames`, those it may nest as frames; `base`, those a `<base>` element may name; and
 `permissions`, the browser capabilities it asks for, from the closed list `camera`, `microphone`,
 `geolocation` and `clipboardWrite`. An origin is `scheme://host[:port]` with a scheme of `http`,
-`https`, `ws` or `wss`.
+`https`, `ws` or `wss`. A member of another name is ignored, so that a program written against a later
+version of this specification can say more than an earlier host knows.
+
+The person is asked about every origin that is listed (Section 12.2), so the lists are bounded to
+what a person can read: at most 32 entries in each list of origins and 64 in all of them. The entries are
+counted as they are written, whether or not they are origins, and a host MAY enforce lower bounds. An
+`open` whose `access` goes over a bound is refused with `limit` (Section 6.4).
 
 ```frame fixtures/to-host/open-web.frame
 <ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"1.0","program":"containers","title":"Containers","access":{"connect":["https://api.example.com"],"permissions":["clipboardWrite"]},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}]}}<ESC>\
@@ -613,9 +625,13 @@ answers a failure with a `closed` message whose `re` is the open's id,
 | `busy`        | A view is already opening or open in this pane.                                                                                                                                                                       |
 | `screen`      | The pane is not on the alternate screen (Section 6.5). A host SHOULD refuse so.                                                                                                                                       |
 | `manifest`    | The payload or the bundle manifest is malformed (Sections 6.3 and 8.2): no `view`, no `version`, no bundle, an `access` that is not of the shape of Section 6.3, or an entry whose type is not that of the `view`.    |
-| `limit`       | A limit of Section 8.2 is exceeded.                                                                                                                                                                                   |
+| `limit`       | A limit of Section 8.2 is exceeded, or the `access` lists more origins than Section 6.3 allows.                                                                                                                       |
 | `unsupported` | The host does not support what was asked: a `view`, or a `version` of it, that the `welcome` of the token did not list (or a kind that is not in the table of Section 5.5), or a bundle without the `bundle` feature. |
 | `policy`      | The host's own policy, or the person's, refuses.                                                                                                                                                                      |
+
+Everything that makes an `open` malformed comes before every limit: an `open` that is both, an entry of the
+wrong type and a file over the size, say, or an `access` that goes over its bound and has an entry that is
+not a string further on, is refused with `manifest`.
 
 A refusal MUST NOT disturb a view that is already opening or open. A receiver
 treats a code it does not know as a refusal without a reason.
@@ -794,7 +810,8 @@ answers.
 The entry of a bundle is the view's own file, and its media type is that of the kind
 (Section 6.3): an HTML document for a page, a component for `wasm`, a script for `lua`. The host does
 not decide the kind from the entry, and it does not guess. A page may have other files, which it names
-by their paths; the other kinds have the entry only, unless the kit says otherwise.
+by their paths; the other kinds have the entry only, unless the kit says otherwise, which it does
+for the images of the kinds the host draws itself (Section 8.8).
 
 ### 8.8 Views the host draws itself
 
@@ -841,9 +858,67 @@ The host asks for the files as for any bundle (Sections 8.3 and 8.4) and starts 
 holds them. It MAY refuse an entry over a size of its own choosing with `limit` (Section 8.2), so
 a program must be ready for that.
 
+**Colours.** A page of the kit says a colour in one of two ways. The way to prefer is a **role**
+of the theme, which follows the theme the terminal wears: the nine roles of its theme
+(`background`, `foreground`, `dim`, `accent`, `cursor`, `success`, `error`, `info`, `warning`),
+`selection`, the sixteen colours of the palette by xterm's names (`black`, `red`, `green`,
+`yellow`, `blue`, `magenta`, `cyan`, `white` and the same eight prefixed `bright-`), and the
+surfaces the kit derives from them (a ground raised by some steps, quieter text, a hairline, the
+colour of a shadow). The other way is a **value**, for a colour that no role says: `#rrggbb` or
+`#rrggbbaa` in sRGB, with, if the page wants one, a second value for a dark theme. The host decides
+which of the two a pane wears (it is `dark` as in Section 11.2) and takes that one; the kit never
+does. Either way a colour has an opacity of its own on top, `0` to `1`.
+
+The kit hands the host what the page said, not what it came to. For each line of text it also
+hands the **grounds** under it: the fills of the box the line is in and of the boxes that hold it,
+nearest first, up to and including the first that is opaque; the page's background (`background`)
+is under the last of them when it is not. A host that keeps text readable (a terminal with a
+setting for the lowest contrast of text) resolves the grounds in its theme, lays them over each
+other, and holds the colour of the line to its contrast with the result. That is a rule of the
+host, not of the kit: it applies to a line whether its colour is a role or a value, and only to
+lines of text; lines, fills, borders and the values of a chart are drawn as the page said them.
+
+**Images.** A view of the kit shows pictures. An element of its page names a file of the view's own
+bundle by the path the manifest gives it (`icons/stop.svg`), and the host draws that file in the
+element's box. It is the one thing of its bundle besides its entry that such a view reaches, and the
+view does not reach it: the view's code has no file system and is handed no bytes, the host reads the
+file out of the bundle it holds and decodes it. There is no network, so an image is a file of the
+bundle and nothing else, and a path the manifest does not name is an image that is not there.
+
+- _Formats._ PNG, JPEG and SVG, told from the bytes and not from the name or the `type` of the file.
+  An SVG draws its shapes: no text in it is drawn and no font is loaded for it, and an `<image>`
+  inside it is never loaded, whether it names a path, a URL or carries its data. Nothing else is read
+  (not GIF or WebP, not a compressed SVG), and a PNG that is an animation shows its first picture.
+- _Limits._ No image is wider or taller than 4096 pixels (an SVG is drawn at most that size), a file
+  is at most 8 MiB as any file of a bundle is (Section 8.2), and the decoded pixels of a view, 4 bytes a
+  pixel, are at most 64 MiB at a time; a view names at most 1024 different paths, as many as a bundle
+  has files. A host MAY hold a view to less, and every host that
+  uses the kit holds it to these. An image that is past a limit, or that cannot be read, leaves its
+  box empty and gives the person who wrote the view a diagnostic with the reason; the view is not
+  closed for it and nothing is written to the screen the program shares with the shell.
+- _Size._ The element's size is the style's. A side the style does not say follows the picture's
+  proportions, and an element that says neither is the picture's own size in pixels, one point to a
+  pixel (for an SVG the width and height it says). The sizes are known only once the files are
+  decoded, which is not on the thread that draws: the page is laid out first as it is, with the
+  room of the pictures that are not known as the style gives it, and once more when they are. A page
+  at rest asks for nothing and so is drawn no more often than before.
+- _Sharp pictures._ A page is written in points. A host draws a picture at the pixels it comes to,
+  and a PNG or a JPEG has the pixels it has: to be sharp on a display with two pixels to the point it
+  is given a size in points and sent with twice the pixels (a 24-point icon is a 48-pixel file).
+  An SVG needs nothing of the kind: it is drawn at the size it comes to on the display, and drawn
+  again when that changes.
+- _Fit._ `contain`, the default, draws all of the picture as large as the box lets it be with its
+  proportions kept, in the middle of the box. `cover` fills the box with the proportions kept, and
+  what does not fit is cut off evenly on both sides.
+- _Tint._ A picture may be given a colour (a role or a value, as for any colour above): it is then a
+  shape, and every pixel of it is that colour, with the opacity the picture has at that pixel. It is
+  how an icon of one colour follows the theme. A tint is not a line of text, and the rule for the
+  readability of text does not apply to it. A picture may also be given an opacity of its own, `0`
+  to `1`.
+
 **Ending.** Section 10.2 runs as for any view: the view is not told and not waited for, it is stopped.
-A view that fails (a component traps, goes over a limit the host holds it to, or hands the host
-something it cannot use; a script makes an error) is closed as if the person had
+A view that fails (a component traps, goes over a limit the host holds it to, a message of the view
+among them (Section 9.3), or hands the host something it cannot use; a script makes an error) is closed as if the person had
 closed it, except that the program is told `closed` with `reason` `error` and `code` `view`, and
 with `message`: the words the view failed with, which for a script is its error and the line it is
 on. They are text the view wrote, so the host cuts them and leaves out control characters and
@@ -942,23 +1017,50 @@ escapes (Section 4.5):
 
 ### 9.3 Carrying them
 
-A message of the six is one JSON object, written as Section 4.5 says, in the payload of a `msg`,
-and the host does not read it: it hands the program's messages to the view and the view's to the
-program, whole and in order. What the objects mean is between the program and the view. The host
-does this only while the view is open: a program's `msg` before the view runs, and any `msg`
-that is not an object, is dropped (Section 4.7), and a message over 1 MiB, the limit toward the
-program (Section 4.6), is dropped in whichever direction it goes. **Once the view has closed the host
-writes nothing the view says**, whatever ended it (the program's `bye` or `dismiss`, the person, the
-view's own failure, the end of the program), because whatever reads the tty next would take it for
-typed input (Section 4.8). The same holds from the moment the host writes a signal character for the
-program: what the view had said and the host had not yet written is dropped, not written after
-it. A program therefore does not expect a message of the view after the `closed` that ends its
-view, or after its own `bye` or `dismiss`, and it must expect to lose the messages that were waiting
-when the person pressed ⌃C. A frame is never cut for any other end: the one under way is written
-whole, and what waits behind it is dropped.
+A message of the six is one JSON object in the payload of a `msg`, and the host does not read what
+it means: it hands the program's messages to the view and the view's to the program, whole and in
+order. What the objects mean is between the program and the view. The host does this only while the
+view is open: a program's `msg` before the view runs is dropped (Section 4.7). **Once the view has
+closed the host writes nothing the view says**, whatever ended it (the program's `bye` or `dismiss`,
+the person, the view's own failure, the end of the program), because whatever reads the tty next
+would take it for typed input (Section 4.8). The same holds from the moment the host writes a signal
+character for the program: what the view had said and the host had not yet written is dropped, not
+written after it. A program therefore does not expect a message of the view after the `closed` that
+ends its view, or after its own `bye` or `dismiss`, and it must expect to lose the messages that were
+waiting when the person pressed ⌃C. A frame is never cut for any other end: the one under way is
+written whole, and what waits behind it is dropped.
 
-A host that shows a page reads one thing in the objects, and only in its page's direction: the name
-of the member, to tell the host's own messages (Section 9.4) from the six. It reads no value.
+**What the host reads.** Two things in the objects, in both directions, and nothing else:
+
+- that the payload is one complete JSON object: a `msg` that is not one is dropped (Section 4.7), and
+  so is a text that begins with `{` and goes on as something else;
+- for a page, the name of the member, to tell the host's own messages (Section 9.4) from the six: in
+  the page's direction to handle `context`, `close` and `link`, in the program's to drop a message
+  that is named like one of them, because the page must be able to tell the host's `context` from the
+  program's words. A view that the host draws itself has no messages of the host's own, and for it the
+  host reads only the first.
+
+It reads no value and builds no tree of a message, however large.
+
+**Order.** A page's messages reach the program in the order the page sent them, each whole. A `close`
+is acted on at its place in that order: the `closed` with `reason` `view` (Section 10.6) is written
+after every message the page sent before the `close`, and none that it sent after is written. A page
+that wants the program to know why it closes says so in a message before it, a `call` say; `close` has
+no reason.
+
+**Size.** A message is at most 1 MiB (1 048 576 bytes), counted on its JSON text before the escapes of
+Section 4.5, in either direction: what the page posted, or the payload the program wrote with each
+escape counted as the character it stands for (a program has to write ASCII, and is not held to less
+than a page that need not). The escapes the host adds when it writes a page's message into the
+program's input are not counted, and the limit toward the program leaves room for them
+(Section 4.6): a message within the limit is always written. The
+host writes the message otherwise as it came, except that it leaves out the tab, line feed and
+carriage return that JSON allows between tokens, because a frame has no byte for them; a space is
+kept, and the program parses any valid JSON. A program's message over the limit is dropped. A
+message of the view over it, a page's or a component's, is one nobody could answer, and a view that
+waited for the answer would wait for ever, so the host does what it does to a view that goes over
+any limit it is held to: it ends the view and tells the program `closed` with `reason` `error` and
+`code` `view` (Section 8.8), and the message is not written.
 
 ### 9.4 The bridge of a page
 
@@ -1013,7 +1115,8 @@ in this order.
 - `mode`: `dark` when the pane's default background is darker than its default foreground, by
   relative luminance, `light` otherwise;
 - `colors`: the roles of the terminal's theme, each a colour as `#rrggbb` in sRGB: `background`,
-  `foreground`, `dim`, `accent`, `border`, `success`, `error`, `warning` and `info` (Section 11.2);
+  `foreground`, `dim`, `accent`, `border`, `success`, `error`, `warning` and `info`, then `selection`,
+  and `ansi`, the sixteen colours of its palette as an array of such strings (Section 11.2);
 - `font`: the terminal's monospace font as a CSS `font-family` list. Left out when the host does not
   know it;
 - `size`: `width` and `height`, the content area of the pane in CSS pixels;
@@ -1029,18 +1132,18 @@ starts listening only after it has loaded asks for it again by sending `{"contex
 answers with the current one.
 
 ```message fixtures/bridge/context.json
-{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff"},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
+{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#1f3d5c","ansi":["#484f58","#ff7b72","#3fb950","#d29922","#58a6ff","#bc8cff","#39c5cf","#b1bac4","#6e7681","#ffa198","#56d364","#e3b341","#79c0ff","#d2a8ff","#56d4dd","#f0f6fc"]},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
 ```
 
 ```message fixtures/bridge/context-request.json
 {"context":{}}
 ```
 
-A host that knows only the background and the foreground of its theme sends the other roles made up
-(Section 11.2) and leaves out the members it does not know:
+A host that knows only the background and the foreground of its theme sends the other roles, the
+selection and the palette made up (Section 11.2) and leaves out the members it does not know:
 
 ```message fixtures/bridge/context-defaults.json
-{"context":{"mode":"light","colors":{"background":"#ffffff","foreground":"#1f2328","dim":"#6a6c70","accent":"#58a6ff","border":"#d2d3d4","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff"},"size":{"width":640,"height":480},"reduceMotion":true}}
+{"context":{"mode":"light","colors":{"background":"#ffffff","foreground":"#1f2328","dim":"#6a6c70","accent":"#58a6ff","border":"#d2d3d4","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#c7e1ff","ansi":["#000000","#cd0000","#00cd00","#cdcd00","#0000ee","#cd00cd","#00cdcd","#e5e5e5","#7f7f7f","#ff0000","#00ff00","#ffff00","#5c5cff","#ff00ff","#00ffff","#ffffff"]},"size":{"width":640,"height":480},"reduceMotion":true}}
 ```
 
 ### 9.6 `close`
@@ -1172,7 +1275,8 @@ of the view then, which the call that opened it observes.
 ### 10.6 The view asks to close
 
 A page that wants to be closed sends `close` (Section 9.6); the host then runs Section 10.2 and tells
-the program with `closed` `reason` `view`. A kit view has no message of the host's own: a view that
+the program with `closed` `reason` `view`, after every message the page sent before the `close`
+(Section 9.3). A kit view has no message of the host's own: a view that
 wants the program to end sends it a `call`, and the program ends and Section 10.3 follows, or
 `dismiss`es the view (Section 10.8).
 
@@ -1242,22 +1346,27 @@ person's, and whether the person asked for less motion. A kit view is told the s
 foreground (by relative luminance), `light` otherwise. The host gives the view the roles of the
 terminal's theme, as `#rrggbb` in sRGB:
 
-| Role         | The terminal's                                                                                               |
-| ------------ | ------------------------------------------------------------------------------------------------------------ |
-| `background` | default background                                                                                           |
-| `foreground` | default foreground                                                                                           |
-| `dim`        | the dimmed foreground the terminal uses; made up as a third of the way from the foreground to the background |
-| `accent`     | the accent colour; made up as `info`                                                                         |
-| `border`     | the colour of rules and borders; made up as a fifth of the way from the background to the foreground         |
-| `success`    | the success colour; made up as `#3fb950`                                                                     |
-| `error`      | the error colour; made up as `#f85149`                                                                       |
-| `warning`    | the warning colour; made up as `#d29922`                                                                     |
-| `info`       | the information colour; made up as `#58a6ff`                                                                 |
+| Role         | The terminal's                                                                                                                                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `background` | default background                                                                                                                                                                                                              |
+| `foreground` | default foreground                                                                                                                                                                                                              |
+| `dim`        | the dimmed foreground the terminal uses; made up as a third of the way from the foreground to the background                                                                                                                    |
+| `accent`     | the accent colour; made up as `info`                                                                                                                                                                                            |
+| `border`     | the colour of rules and borders; made up as a fifth of the way from the background to the foreground                                                                                                                            |
+| `success`    | the success colour; made up as `#3fb950`                                                                                                                                                                                        |
+| `error`      | the error colour; made up as `#f85149`                                                                                                                                                                                          |
+| `warning`    | the warning colour; made up as `#d29922`                                                                                                                                                                                        |
+| `info`       | the information colour; made up as `#58a6ff`                                                                                                                                                                                    |
+| `selection`  | the background of what the person selected; made up as a third of the way from the background to the accent                                                                                                                     |
+| `ansi`       | the theme's sixteen palette colours, in the order black, red, green, yellow, blue, magenta, cyan, white, then the same eight bright (xterm's names, the order of the palette's numbers 0 to 15); made up as xterm's own palette |
 
-A host sends all nine, whatever it knows of its theme: a role it does not have is made up as the table
+A host sends all of them, whatever it knows of its theme: a role it does not have is made up as the table
 says, a colour between two others rounded to the nearest value of each channel (halves away from
-zero). A page that wants the steps between them — a surface a little lighter than the background —
-makes them itself. The roles are plain colours: a terminal theme has one mode.
+zero), and a palette is all sixteen or the made-up one. The made-up palette is `#000000`, `#cd0000`,
+`#00cd00`, `#cdcd00`, `#0000ee`, `#cd00cd`, `#00cdcd`, `#e5e5e5`, `#7f7f7f`, `#ff0000`, `#00ff00`,
+`#ffff00`, `#5c5cff`, `#ff00ff`, `#00ffff` and `#ffffff`. A page that wants the steps between them — a
+surface a little lighter than the background — makes them itself. The roles are plain colours: a
+terminal theme has one mode.
 
 ### 11.3 Keyboard
 
@@ -1280,18 +1389,23 @@ The host builds the policy of a page from what the person allowed. Without any `
 
 ```
 default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';
-img-src 'self' data:; media-src 'self' data:; connect-src 'none';
+connect-src 'self'; img-src 'self' data:; font-src 'self'; media-src 'self' data:;
+frame-src 'none'; object-src 'none'; base-uri 'self';
 ```
 
-(one line), where `'self'` is the page's own origin (Section 8.6). What the person allows of each
-list of the `access` is added to the directive it is for: `connect` to `connect-src`, `resources` to
-`script-src`, `style-src`, `img-src`, `font-src` and `media-src`, `frames` to `frame-src` (which is
-`'none'` otherwise) and `base` to `base-uri` (which is `'self'` otherwise). A page never gets a domain
-the person did not approve, whatever it asked.
+(one line), where `'self'` is the page's own origin (Section 8.6). A page can always read its own
+bundle, with `fetch` and `XMLHttpRequest` as well as with elements, whatever the person allowed;
+that is why `connect-src` and `font-src` have `'self'`, and it reaches no network. What the person
+allows of each list of the `access` is added to the directive it is for, and the policy is that one
+with those origins and nothing else changed: `connect` to `connect-src`, `resources` to `script-src`,
+`style-src`, `img-src`, `font-src` and `media-src`, `frames` to `frame-src` (in place of `'none'`) and
+`base` to `base-uri` (in place of `'self'`). A page never gets a domain the person did not approve,
+whatever it asked.
 
 ### 12.2 Network
 
-By default a page reaches nothing outside the host's own bridge to its program. Where the `access` of
+By default a page reaches nothing outside its own bundle (Section 8.6) and the host's own bridge to its
+program. Where the `access` of
 the `open` names origins (any of `connect`, `resources`, `frames`, `base`) or asks for a
 browser capability in `permissions`, the host MUST ask the person before the page can use them, MUST NOT
 allow what the person did not approve, and tells the page what it allowed in the `access` of its
@@ -1668,7 +1782,7 @@ messages left out are skipped.
    origin the person allowed:
 
 ```message fixtures/bridge/context.json
-{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff"},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
+{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#1f3d5c","ansi":["#484f58","#ff7b72","#3fb950","#d29922","#58a6ff","#bc8cff","#39c5cf","#b1bac4","#6e7681","#ffa198","#56d364","#e3b341","#79c0ff","#d2a8ff","#56d4dd","#f0f6fc"]},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
 ```
 
 7. The page calls the program; the host passes the call on as a `msg`, unread:

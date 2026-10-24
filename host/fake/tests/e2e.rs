@@ -4,6 +4,11 @@
 //! (`examples/containers-rust`, built by cargo), against the stand-in host, which holds the
 //! `pencere-host` crate's rules and a scripted page.
 //!
+//! The example (`examples/containers`) runs on each runtime the SDK supports: Node, Deno and
+//! Bun, and as the single executable `deno compile` makes of it. A runtime that is not installed
+//! has its tests print `SKIPPED` and pass (`PENCERE_DENO` and `PENCERE_BUN` name an executable
+//! that is not on the `PATH`; `cargo test -- --nocapture` shows the lines).
+//!
 //! What is read here is the record the host writes to stderr, the bytes the program wrote
 //! to its tty, and how the processes ended. Nothing goes to a network, and every file
 //! written is under the target directory.
@@ -149,15 +154,130 @@ fn run_containers(options: &[&str]) -> Run {
     run_program("containers.mjs", options)
 }
 
-/// The containers example (`examples/containers`), built by `npx tsc -b`, run in the pane.
-fn run_example(options: &[&str]) -> Run {
+/// A JavaScript runtime the SDK runs on.
+#[derive(Clone, Copy, Debug)]
+enum Runtime {
+    Node,
+    Deno,
+    Bun,
+}
+
+/// A runtime that is installed, and where.
+struct Installed {
+    runtime: Runtime,
+    executable: PathBuf,
+}
+
+impl Runtime {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Node => "node",
+            Self::Deno => "deno",
+            Self::Bun => "bun",
+        }
+    }
+
+    /// Where the runtime is: what `PENCERE_DENO` or `PENCERE_BUN` names, else the `PATH`, and for
+    /// Bun the place its installer puts it. Node is the one that runs the gate's own tools.
+    fn find(self) -> Option<Installed> {
+        let var = format!("PENCERE_{}", self.name().to_uppercase());
+        let named = std::env::var_os(var).filter(|value| !value.is_empty());
+        let on_path = || {
+            std::env::split_paths(&std::env::var_os("PATH")?)
+                .map(|dir| dir.join(self.name()))
+                .find(|candidate| candidate.is_file())
+        };
+        let installed = || {
+            let home = PathBuf::from(std::env::var_os("HOME")?);
+            Some(home.join(".bun/bin/bun")).filter(|path| path.is_file())
+        };
+        let executable = match (named, self) {
+            (Some(named), _) => Some(PathBuf::from(named)),
+            (None, Self::Bun) => on_path().or_else(installed),
+            (None, _) => on_path(),
+        }?;
+        Some(Installed {
+            runtime: self,
+            executable,
+        })
+    }
+}
+
+impl Installed {
+    /// The command that runs the script at `script`. Deno is given the permissions the SDK needs
+    /// and no more: to read the files of the view, and to run `stty` and to signal itself.
+    fn command(&self, script: &Path) -> Vec<String> {
+        self.command_with(script, false)
+    }
+
+    /// The command for a filter. Deno asks for all permissions before it lets a program open
+    /// `/dev/tty` to write, which a filter does for the terminal it asks on.
+    fn filter_command(&self, script: &Path) -> Vec<String> {
+        self.command_with(script, true)
+    }
+
+    fn command_with(&self, script: &Path, filter: bool) -> Vec<String> {
+        let executable = self.executable.to_string_lossy().into_owned();
+        let script = script.to_string_lossy().into_owned();
+        match (self.runtime, filter) {
+            (Runtime::Deno, false) => vec![
+                executable,
+                "run".into(),
+                "--allow-read".into(),
+                "--allow-run".into(),
+                script,
+            ],
+            (Runtime::Deno, true) => vec![executable, "run".into(), "--allow-all".into(), script],
+            (Runtime::Node | Runtime::Bun, _) => vec![executable, script],
+        }
+    }
+}
+
+/// Runs `test` with the runtime if it is installed, and says `SKIPPED` if it is not.
+fn on(runtime: Runtime, test: fn(&Installed)) {
+    match runtime.find() {
+        Some(installed) => test(&installed),
+        None => println!("SKIPPED: {} is not installed", runtime.name()),
+    }
+}
+
+/// `$test` on each runtime, as three tests (`$test::on_node`, `::on_deno` and `::on_bun`), so that a
+/// failure says which runtime it was.
+macro_rules! on_each_runtime {
+    ($test:ident) => {
+        mod $test {
+            #[test]
+            fn on_node() {
+                super::on(super::Runtime::Node, super::$test);
+            }
+            #[test]
+            fn on_deno() {
+                super::on(super::Runtime::Deno, super::$test);
+            }
+            #[test]
+            fn on_bun() {
+                super::on(super::Runtime::Bun, super::$test);
+            }
+        }
+    };
+}
+
+/// The built containers example (`examples/containers`, made by `npx tsc -b`).
+fn example_main() -> PathBuf {
     let main = root().join("examples/containers/dist/main.js");
     assert!(
         main.is_file(),
         "{} is missing: build the TypeScript half first with `npx tsc -b` (make check does)",
         main.display()
     );
-    run(options, &["node", &main.to_string_lossy()])
+    main
+}
+
+/// The containers example, run on `on` in the pane.
+fn run_example(on: &Installed, options: &[&str]) -> Run {
+    let command = on.command(&example_main());
+    let command: Vec<&str> = command.iter().map(String::as_str).collect();
+    run(options, &command)
 }
 
 fn view_file_size(name: &str) -> u64 {
@@ -694,8 +814,9 @@ fn the_question_to_the_person_names_the_program_and_refusing_it_leaves_the_page_
         r#"host: asked the person about origins=1 permissions=1 of program="Domain Desk" title="Show it": refused"#,
         "view: started from the bundle: entry index.html, 1 files",
         r#"view: title="Show it" program="Domain Desk""#,
-        // Nothing was allowed: the policy shuts the network, and the page is told so.
-        "view: policy default-src 'none'*connect-src 'none'",
+        // Nothing was allowed: the policy lets the page reach only its own bundle, and the page
+        // is told so.
+        "view: policy default-src 'none'*connect-src 'self'; img-src",
         "view: <- context mode=dark size=640x384 reduceMotion=false access=none",
         "view: -> call id=1 show",
         r#"view: <- response id=1 result={"shown":true}"#,
@@ -927,12 +1048,17 @@ fn quoted(text: &str) -> String {
 
 /// `filter.mjs` in the middle of a pipeline: three rows in from `printf`, its stdout to
 /// `out`, and its status after it.
-fn pipeline(dir: &Path, options: &[&str]) -> (Run, String, String) {
+fn pipeline(dir: &Path, on: &Installed, options: &[&str]) -> (Run, String, String) {
     let out = dir.join("out.txt");
     let status = dir.join("status");
+    let command: Vec<String> = on
+        .filter_command(Path::new(&program("filter.mjs")))
+        .iter()
+        .map(|word| quoted(word))
+        .collect();
     let script = format!(
-        r#"printf 'web\napi\ndb\n' | node {} > {}; echo $? > {}"#,
-        quoted(&program("filter.mjs")),
+        r#"printf 'web\napi\ndb\n' | {} > {}; echo $? > {}"#,
+        command.join(" "),
         quoted(&out.to_string_lossy()),
         quoted(&status.to_string_lossy()),
     );
@@ -942,11 +1068,31 @@ fn pipeline(dir: &Path, options: &[&str]) -> (Run, String, String) {
     (run, out, status.trim().to_owned())
 }
 
-#[test]
-fn a_filter_asks_for_its_view_on_the_terminal_and_writes_what_was_chosen_to_the_pipe() {
-    let dir = fresh("filter-chosen");
+// A filter asks on the terminal it opens itself (`/dev/tty`). Deno and Node read it; Bun's stream
+// for a tty (1.0.0, the one tried) does not deliver what the host writes there, so a filter on Bun
+// finds no host: these two are not run on it.
+macro_rules! on_node_and_deno {
+    ($test:ident) => {
+        mod $test {
+            #[test]
+            fn on_node() {
+                super::on(super::Runtime::Node, super::$test);
+            }
+            #[test]
+            fn on_deno() {
+                super::on(super::Runtime::Deno, super::$test);
+            }
+        }
+    };
+}
+
+fn a_filter_asks_for_its_view_on_the_terminal_and_writes_what_was_chosen_to_the_pipe(
+    on: &Installed,
+) {
+    let dir = fresh(&format!("filter-chosen-{}", on.runtime.name()));
     let (run, out, status) = pipeline(
         &dir,
+        on,
         &["--call", "rows", "--call", r#"choose={"rows":[2,0]}"#],
     );
     assert!(run.status.success(), "{}", run.text());
@@ -968,11 +1114,13 @@ fn a_filter_asks_for_its_view_on_the_terminal_and_writes_what_was_chosen_to_the_
     assert_eq!(out, "db\nweb\n");
     assert_eq!(status, "0");
 }
+on_node_and_deno!(
+    a_filter_asks_for_its_view_on_the_terminal_and_writes_what_was_chosen_to_the_pipe
+);
 
-#[test]
-fn a_filter_whose_view_closes_with_nothing_chosen_writes_nothing_and_fails() {
-    let dir = fresh("filter-nothing");
-    let (run, out, status) = pipeline(&dir, &["--call", "rows", "--then", "close"]);
+fn a_filter_whose_view_closes_with_nothing_chosen_writes_nothing_and_fails(on: &Installed) {
+    let dir = fresh(&format!("filter-nothing-{}", on.runtime.name()));
+    let (run, out, status) = pipeline(&dir, on, &["--call", "rows", "--then", "close"]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "screen: alternate screen on",
@@ -984,26 +1132,28 @@ fn a_filter_whose_view_closes_with_nothing_chosen_writes_nothing_and_fails() {
     assert_eq!(out, "");
     assert_eq!(status, "1");
 }
+on_node_and_deno!(a_filter_whose_view_closes_with_nothing_chosen_writes_nothing_and_fails);
 
-// ---- the example ----------------------------------------------------------------
+// ---- the example, on each runtime and as one executable ------------------------------------
 
-#[test]
-fn the_containers_example_opens_answers_a_call_and_pushes_to_its_page() {
-    let run = run_example(&[
-        "--subscribe",
-        r#"stats={"every":20}"#,
-        "--call",
-        "list",
-        "--call",
-        r#"stop={"id":"web"}"#,
-        "--then",
-        "interrupt",
-    ]);
+/// The size of a file the page would fetch: the files of the view, and the module that is the
+/// page's bridge, which the SDK builds.
+fn example_file_size(name: &str) -> u64 {
+    let path = match name {
+        "pencere-page.js" => root().join("sdk/typescript/dist/page/index.js"),
+        _ => root().join("examples/containers/view").join(name),
+    };
+    fs::metadata(path).expect("a file of the view").len()
+}
+
+/// What the example does in the pane of a host that hosts views: whichever way it was started.
+fn check_the_example_opens_answers_a_call_and_pushes_to_its_page(run: &Run) {
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web@1.0",
-        r#"program: open id=2 view=web version=1.0 title="Containers" bundle of 3 files"#,
-        "view: started from the bundle: entry index.html, 3 files",
+        r#"program: open id=2 view=web version=1.0 title="Containers" bundle of 4 files"#,
+        "host: need id=2 re=2 missing=4",
+        "view: started from the bundle: entry index.html, 4 files",
         // What the strip above the view says, and the icon.
         r#"view: title="Containers" program="containers""#,
         "view: icons png 64x64",
@@ -1022,6 +1172,8 @@ fn the_containers_example_opens_answers_a_call_and_pushes_to_its_page() {
         r#"view: -> call id=3 stop {"id":"web"}"#,
         "host: msg id=* call=3 stop",
         r#"view: <- response id=3 result={"containers":[{"id":"web","image":"nginx:1.27","name":"web","ports":"8080→80","state":"stopped"}"#,
+        // ⌃C reached the program as SIGINT, so the tty kept ISIG on (§4.9), and it ends as the
+        // signal would have ended it.
         "host: the person presses ^C",
         "program: bye id=* reason=signal",
         "view: destroyed",
@@ -1029,16 +1181,20 @@ fn the_containers_example_opens_answers_a_call_and_pushes_to_its_page() {
         "screen: alternate screen off",
         "program: was killed by signal 2",
     ]);
+    // The host looked at the tty before it answered the question: not canonical, no echo.
+    run.in_order(&[
+        "program: hello id=1",
+        "host: sees the tty: canonical=false echo=false",
+    ]);
 
     // The files the page would fetch are the files on disk, whole.
     for (name, media_type) in [
         ("index.html", "text/html"),
         ("app.js", "text/javascript"),
+        ("pencere-page.js", "text/javascript"),
         ("style.css", "text/css"),
     ] {
-        let size = fs::metadata(root().join("examples/containers/view").join(name))
-            .expect("a file of the view")
-            .len();
+        let size = example_file_size(name);
         let wanted = format!("view: fetched {name} {media_type} {size} bytes");
         assert!(
             run.events.contains(&wanted),
@@ -1048,9 +1204,25 @@ fn the_containers_example_opens_answers_a_call_and_pushes_to_its_page() {
     }
 }
 
-#[test]
-fn the_containers_example_prints_its_containers_where_no_view_can_be_shown() {
-    let run = run_example(&["--no-host"]);
+const EXAMPLE_SESSION: [&str; 8] = [
+    "--subscribe",
+    r#"stats={"every":20}"#,
+    "--call",
+    "list",
+    "--call",
+    r#"stop={"id":"web"}"#,
+    "--then",
+    "interrupt",
+];
+
+fn the_containers_example_opens_answers_a_call_and_pushes_to_its_page(on: &Installed) {
+    let run = run_example(on, &EXAMPLE_SESSION);
+    check_the_example_opens_answers_a_call_and_pushes_to_its_page(&run);
+}
+on_each_runtime!(the_containers_example_opens_answers_a_call_and_pushes_to_its_page);
+
+/// What the example printed where no view could be shown.
+fn check_the_example_prints_its_containers(run: &Run) {
     assert!(run.status.success(), "{}", run.text());
     run.never("program: open");
     for line in ["● web", "● api", "○ cache", "8080→80"] {
@@ -1282,4 +1454,266 @@ fn the_rust_example_prints_its_containers_where_it_has_no_terminal_at_all() {
     let text = String::from_utf8_lossy(&output.stdout);
     assert!(text.contains("NAME") && text.contains("IMAGE"), "{text}");
     assert!(!text.contains('\x1b'), "{text:?}");
+}
+
+fn the_containers_example_prints_its_containers_where_no_view_can_be_shown(on: &Installed) {
+    check_the_example_prints_its_containers(&run_example(on, &["--no-host"]));
+}
+on_each_runtime!(the_containers_example_prints_its_containers_where_no_view_can_be_shown);
+
+/// What the tty's flags are in the text `stty -a` printed after the last time the screen was
+/// given back: the words of it, where a flag that is off has a `-` before it.
+fn flags_after_the_screen(run: &Run) -> Vec<String> {
+    let text = String::from_utf8_lossy(&run.output).into_owned();
+    let off = text
+        .rfind("\x1b[?1049l")
+        .expect("the program gave the screen back");
+    text.get(off..)
+        .unwrap_or("")
+        .split(|c: char| c.is_whitespace() || c == ';')
+        .map(str::to_owned)
+        .collect()
+}
+
+fn the_tty_is_as_it_was_when_the_person_closes_the_view_and_the_program_ends_on_its_own(
+    on: &Installed,
+) {
+    // The program is followed by `stty -a`, in the same pane: it prints the modes it was left with.
+    let command: Vec<String> = on
+        .command(&example_main())
+        .iter()
+        .map(|word| quoted(word))
+        .collect();
+    let script = format!("{}; stty -a", command.join(" "));
+    let run = run(
+        &["--call", "list", "--then", "close"],
+        &["sh", "-c", &script],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "screen: alternate screen on",
+        "host: the person closes the view",
+        "host: closed id=* reason=user",
+        "screen: alternate screen off",
+    ]);
+    // It ended without being killed: nothing waits for a byte of input, and nothing was left running.
+    run.never("the time limit is up");
+    let flags = flags_after_the_screen(&run);
+    for on in ["icanon", "echo", "isig"] {
+        assert!(
+            flags.iter().any(|flag| flag == on),
+            "{on} is not on after the program ended: {flags:?}"
+        );
+    }
+    for off in ["-icanon", "-echo", "-isig"] {
+        assert!(
+            !flags.iter().any(|flag| flag == off),
+            "{off} after the program ended: {flags:?}"
+        );
+    }
+}
+on_each_runtime!(
+    the_tty_is_as_it_was_when_the_person_closes_the_view_and_the_program_ends_on_its_own
+);
+
+/// `exit.mjs` or `suspend.mjs`, on the runtime.
+fn run_test_program(on: &Installed, name: &str, options: &[&str], arguments: &[&str]) -> Run {
+    let mut command = on.command(Path::new(&program(name)));
+    command.extend(arguments.iter().map(|argument| (*argument).to_owned()));
+    let command: Vec<&str> = command.iter().map(String::as_str).collect();
+    run(options, &command)
+}
+
+fn a_process_that_exits_with_its_view_up_waits_for_the_answer_to_its_bye_and_leaves_the_screen_after_it(
+    on: &Installed,
+) {
+    let run = run_test_program(on, "exit.mjs", &["--call", "quit"], &[]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "screen: alternate screen on",
+        "view: -> call id=1 quit",
+        "program: bye id=* reason=exit",
+        // The program read the host's last word, without an event loop to wait with: it left
+        // the screen only after, and it is the shell that gets the tty with nothing in its queue.
+        "host: closed id=* re=* reason=program",
+        "screen: alternate screen off",
+        "program: exited with status 0",
+    ]);
+    // After the host had time to answer, the tty held nothing for whatever reads it next.
+    assert!(
+        run.output_has("LEFT:\"\"").is_some(),
+        "the tty was left with the host's answer in it:\n{}",
+        String::from_utf8_lossy(&run.output)
+    );
+}
+on_each_runtime!(
+    a_process_that_exits_with_its_view_up_waits_for_the_answer_to_its_bye_and_leaves_the_screen_after_it
+);
+
+fn a_program_stopped_by_ctrl_z_gives_the_terminal_back_and_shows_its_view_again_when_it_is_continued(
+    on: &Installed,
+) {
+    let dir = fresh(&format!("suspend-{}", on.runtime.name()));
+    let modes = dir.join("modes");
+    let run = run_test_program(
+        on,
+        "suspend.mjs",
+        &["--call", "suspend"],
+        &[&modes.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        "host: sees the tty: canonical=false echo=false",
+        "screen: alternate screen on",
+        "view: -> call id=1 suspend",
+        // ⌃Z: the view is closed with the program's word, and the answer is waited for; the screen
+        // is given back, the program is stopped, and nothing more is heard of it until it is continued.
+        "program: dismiss id=*",
+        "host: closed id=* re=* reason=program",
+        "screen: alternate screen off",
+        // Continued: it takes its modes and asks for a view, as the first time.
+        "program: hello id=*",
+        "host: sees the tty: canonical=false echo=false",
+        "screen: alternate screen on",
+        r#"program: open id=* view=web version=1.0 title="Suspend""#,
+        "view: started from the bundle",
+        // The page is shown again and calls `suspend` once more, which ends the program with SIGINT.
+        "view: -> call id=1 suspend",
+        "program: bye id=* reason=signal",
+        "screen: alternate screen off",
+        "program: was killed by signal 2",
+    ]);
+    // What the shell saw while the program was stopped: the tty as the shell set it (§4.9).
+    let seen = fs::read_to_string(&modes).expect("the helper wrote the modes of the tty");
+    let flags: Vec<&str> = seen
+        .split(|c: char| c.is_whitespace() || c == ';')
+        .collect();
+    for on in ["icanon", "echo", "isig"] {
+        assert!(
+            flags.contains(&on),
+            "{on} is not on while it is stopped: {seen}"
+        );
+    }
+    for off in ["-icanon", "-echo", "-isig"] {
+        assert!(!flags.contains(&off), "{off} while it is stopped: {seen}");
+    }
+    // It was one stop and one continue: the program asked twice, and opened twice.
+    assert_eq!(run.count("program: hello"), 2, "{}", run.text());
+}
+on_each_runtime!(
+    a_program_stopped_by_ctrl_z_gives_the_terminal_back_and_shows_its_view_again_when_it_is_continued
+);
+
+/// The example compiled by `deno compile` with the task of `examples/containers/deno.jsonc`, into
+/// the target directory: where it is, or why there is none (`SKIPPED`). The compile is made once.
+fn compiled_example() -> Result<&'static Path, String> {
+    static COMPILED: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    COMPILED
+        .get_or_init(compile_example)
+        .as_ref()
+        .map(PathBuf::as_path)
+        .map_err(Clone::clone)
+}
+
+fn compile_example() -> Result<PathBuf, String> {
+    let deno = Runtime::Deno
+        .find()
+        .ok_or("deno is not installed")?
+        .executable;
+    example_main();
+    // `deno compile` downloads the runtime it builds on the first time it is used for a version of
+    // Deno; the gate does not reach the network, so it only compiles when that is already done.
+    let version = Command::new(&deno)
+        .arg("--version")
+        .output()
+        .map_err(|e| format!("deno does not run: {e}"))?;
+    let version = String::from_utf8_lossy(&version.stdout).into_owned();
+    let first = version.lines().next().unwrap_or("");
+    let number = first.split_whitespace().nth(1).unwrap_or("");
+    let target = first
+        .trim_end_matches(')')
+        .rsplit(", ")
+        .next()
+        .unwrap_or("");
+    let info = Command::new(&deno)
+        .args(["info", "--json"])
+        .output()
+        .map_err(|e| format!("deno does not run: {e}"))?;
+    let info: serde_json::Value = serde_json::from_slice(&info.stdout).unwrap_or_default();
+    let dir = info.get("denoDir").and_then(|d| d.as_str()).unwrap_or("");
+    let runtime = Path::new(dir)
+        .join("dl/release")
+        .join(format!("v{number}"))
+        .join(format!("denort-{target}.zip"));
+    if !runtime.is_file() {
+        return Err(format!(
+            "the runtime deno compile builds on is not downloaded ({} is missing): \
+             run `deno task compile` in examples/containers once",
+            runtime.display()
+        ));
+    }
+
+    // The task of the example, with its output in the target directory.
+    let example = root().join("examples/containers");
+    let config = fs::read_to_string(example.join("deno.jsonc")).expect("the example's deno.jsonc");
+    let task = config
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(r#""compile": ""#))
+        .and_then(|rest| rest.trim_end_matches(',').strip_suffix('"'))
+        .expect("a compile task in deno.jsonc");
+    assert!(
+        task.contains(" --output bin/containers "),
+        "the task writes to bin/containers: {task}"
+    );
+    let out = fresh("compiled").join("containers");
+    let task = task.replace(
+        "--output bin/containers",
+        &format!("--output {}", quoted(&out.to_string_lossy())),
+    );
+    let path = format!(
+        "{}:{}",
+        deno.parent().unwrap_or(Path::new("")).display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let made = Command::new("sh")
+        .args(["-c", &task])
+        .current_dir(&example)
+        .env("PATH", path)
+        .env("DENO_NO_UPDATE_CHECK", "1")
+        .output()
+        .map_err(|e| format!("deno compile does not run: {e}"))?;
+    if !made.status.success() || !out.is_file() {
+        return Err(format!(
+            "deno compile failed:\n{}",
+            String::from_utf8_lossy(&made.stderr)
+        ));
+    }
+    Ok(out)
+}
+
+/// `test` with the compiled example, or `SKIPPED` and the reason when it cannot be made. A compile
+/// that fails where deno and its runtime are there is a failure.
+fn with_the_compiled_example(test: fn(&Path)) {
+    match compiled_example() {
+        Ok(binary) => test(binary),
+        Err(reason) if reason.starts_with("deno compile failed") => panic!("{reason}"),
+        Err(reason) => println!("SKIPPED: the compiled example: {reason}"),
+    }
+}
+
+#[test]
+fn the_compiled_example_opens_answers_a_call_and_pushes_to_its_page() {
+    with_the_compiled_example(|binary| {
+        let run = run(&EXAMPLE_SESSION, &[&binary.to_string_lossy()]);
+        check_the_example_opens_answers_a_call_and_pushes_to_its_page(&run);
+    });
+}
+
+#[test]
+fn the_compiled_example_prints_its_containers_where_no_view_can_be_shown() {
+    with_the_compiled_example(|binary| {
+        let run = run(&["--no-host"], &[&binary.to_string_lossy()]);
+        check_the_example_prints_its_containers(&run);
+    });
 }
