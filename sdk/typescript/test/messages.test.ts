@@ -235,6 +235,7 @@ describe("the six messages", () => {
       '{"call":{"id":1.5,"method":"m"}}',
       '{"call":{"id":"1","method":"m"}}',
       '{"call":{"id":1e300,"method":"m"}}',
+      '{"call":{"id":9007199254740992,"method":"m"}}',
       '{"cancel":{"id":0}}',
       '{"cancel":{}}',
       // the other members are missing or of the wrong kind
@@ -244,6 +245,24 @@ describe("the six messages", () => {
       '{"subscribe":{"id":1,"topic":null}}',
     ];
     for (const text of ignored) expect(parseViewRequest(text), text).toBeUndefined();
+  });
+
+  it("take the greatest id a JSON number holds exactly, and no more (§9.2)", () => {
+    expect(parseViewRequest('{"cancel":{"id":9007199254740991}}')).toEqual({
+      type: "cancel",
+      id: 9007199254740991,
+    });
+  });
+
+  it("ignore a message nested 128 levels deep, the outermost counting as the first (§4.5)", () => {
+    const nested = (levels: number): string =>
+      `{"call":{"id":1,"method":"m","params":${"[".repeat(levels - 2)}${"]".repeat(levels - 2)}}}`;
+    expect(parseViewRequest(nested(127))).toMatchObject({ type: "call", id: 1 });
+    expect(parseViewRequest(nested(128))).toBeUndefined();
+    // A bracket in a string is not a level.
+    expect(parseViewRequest(`{"call":{"id":1,"method":"${"[".repeat(300)}"}}`)).toMatchObject({
+      type: "call",
+    });
   });
 
   it("ignore members they do not know inside the object", () => {
@@ -267,8 +286,9 @@ describe("a welcome", () => {
       version: 1,
       token: TOKEN,
       host: { name: "pencere-test", version: "0.0.0" },
-      features: ["bundle", "dismiss"],
+      features: ["dismiss"],
       views: [{ kind: "web", versions: ["1.0"] }],
+      opens: [],
       restart: false,
     });
   });

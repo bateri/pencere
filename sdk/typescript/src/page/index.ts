@@ -32,11 +32,20 @@ export interface Colors {
   readonly foreground: string;
   readonly dim: string;
   readonly accent: string;
+  /** The cursor's colour; the accent where the terminal's theme has none. */
+  readonly cursor: string;
   readonly border: string;
   readonly success: string;
   readonly error: string;
   readonly warning: string;
   readonly info: string;
+  /** The background of what the person selected. */
+  readonly selection: string;
+  /**
+   * The theme's sixteen palette colours: black, red, green, yellow, blue, magenta, cyan, white,
+   * then the same eight bright.
+   */
+  readonly ansi: readonly string[];
 }
 
 /**

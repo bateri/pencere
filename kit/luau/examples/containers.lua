@@ -287,7 +287,7 @@ end
 -- A key cap.
 local function kbd(label, size)
 	return div():row():items_center():justify_center():min_w(18):h(18):px(4):rounded(4)
-		:bg("raised2"):border(1, "line"):no_shrink()
+		:bg("raised2"):border(1, "border"):no_shrink()
 		:child(text(label):text_size(size):color("dim"))
 end
 
@@ -363,7 +363,7 @@ local function status_line(width)
 		hints[index] = hint(HINTS[index][1], HINTS[index][2])
 	end
 	return div():col():no_shrink():bg("raised1")
-		:child(div():h(1):bg("line"))
+		:child(div():h(1):bg("border"))
 		:child(
 			div():row():items_center():gap(10):h(25):px(8):clip()
 				:child(div():row():items_center():gap(4):min_w(0):clip():children(hints))
@@ -662,7 +662,7 @@ function Containers:rail()
 		:child(rail_item("Networks", false, "4", nil))
 		:child(rail_item("System", false, nil, nil))
 		:child(rail_item("Activity", false, nil, nil))
-	local engine = div():col():gap(6):p(8):rounded(8):bg(alpha("background", 0.55)):border(1, "line")
+	local engine = div():col():gap(6):p(8):rounded(8):bg(alpha("background", 0.55)):border(1, "border")
 		:child(
 			div():row():items_center():gap(7):text_size(11):color("dim")
 				:child(dot(7, "success", false))
@@ -678,7 +678,7 @@ function Containers:rail()
 				:child(spacer())
 				:child(engine)
 		)
-		:child(div():w(1):bg("line"))
+		:child(div():w(1):bg("border"))
 end
 
 -- --- The section's top -------------------------------------------------------------------------
@@ -702,7 +702,7 @@ function Containers:toolbar()
 	-- The host's text field stands in the box: the page draws the box and the key that reaches it,
 	-- and keeps the room (`FIELD`).
 	local search = div():row():items_center():gap(6):h(28):w(220):min_w(120):px(8):rounded(6)
-		:bg("raised1"):border(1, "line"):press(SEARCH)
+		:bg("raised1"):border(1, "border"):press(SEARCH)
 		:child(div():id(FIELD):text_field():grow(1):min_w(0):h(18))
 		:child(kbd("/", 10.5))
 	local counts = self:counts()
@@ -713,7 +713,7 @@ function Containers:toolbar()
 		local cell = div():row():items_center():gap(6):h(24):px(9):rounded(6):press(id)
 			:color((active or glow > 0) and "foreground" or "dim")
 		if active then
-			cell = cell:bg("raised2"):border(1, "line"):shadow(0, 1, 2, alpha("shadow", 0.5))
+			cell = cell:bg("raised2"):border(1, "border"):shadow(0, 1, 2, alpha("shadow", 0.5))
 		elseif glow > 0 then
 			cell = cell:bg(alpha("foreground", 0.07 * glow))
 		end
@@ -721,7 +721,7 @@ function Containers:toolbar()
 		return cell:child(text(STATUS_LABELS[status]))
 			:child(text(tostring(count)):text_size(10.5):color(count_color))
 	end
-	local segmented = div():row():p(2):gap(1):rounded(8):bg("raised1"):border(1, "line"):no_shrink()
+	local segmented = div():row():p(2):gap(1):rounded(8):bg("raised1"):border(1, "border"):no_shrink()
 		:child(option("all", counts.all, nil))
 		:child(option("running", counts.running, nil))
 		:child(option("stopped", counts.stopped, nil))
@@ -789,7 +789,7 @@ function Containers:list(width, view)
 
 	return div():col():grow(1):min_h(0):clip()
 		:child(top)
-		:child(div():h(1):no_shrink():bg(alpha("line", 0.6)))
+		:child(div():h(1):no_shrink():bg(alpha("border", 0.6)))
 		:child(body)
 end
 
@@ -1782,7 +1782,7 @@ return {
 		local root = view
 		if words then
 			root = div():size_full():child(view):child(
-				div():absolute():inset(nil, 12, 36, nil):px(12):py(6):rounded(6):bg("raised2"):border(1, "line")
+				div():absolute():inset(nil, 12, 36, nil):px(12):py(6):rounded(6):bg("raised2"):border(1, "border")
 					:text_size(12.5):color("foreground"):child(text(words))
 			)
 		end

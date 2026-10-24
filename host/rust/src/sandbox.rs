@@ -20,7 +20,7 @@ use serde_json::Value;
 /// every page before the origins are added: what a person allows adds those origins to the
 /// directives their lists are for and changes nothing else, and a page can always read its own
 /// bundle (`'self'`).
-pub const DEFAULT_POLICY: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'; media-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'self';";
+pub const DEFAULT_POLICY: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'; media-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none';";
 
 /// The most entries one list of an `access` may have (specification §6.3). The person is asked
 /// about every origin that is listed, so a list that no one could read is not one a person can
@@ -861,6 +861,9 @@ pub fn content_security_policy(access: Option<&Access>, grant: &Grant) -> String
                 base.join(" ")
             }
         ),
+        // `form-action` is not covered by `default-src`: a form would otherwise submit the page
+        // to any address.
+        "form-action 'none'".to_owned(),
     ]
     .join("; ")
         + ";"
@@ -1279,7 +1282,7 @@ mod tests {
              connect-src 'self' https://api.example.com wss://live.example.com; \
              img-src 'self' data: https://cdn.example.com; font-src 'self' https://cdn.example.com; \
              media-src 'self' data: https://cdn.example.com; frame-src https://video.example.com; \
-             object-src 'none'; base-uri https://base.example.com;"
+             object-src 'none'; base-uri https://base.example.com; form-action 'none';"
         );
         assert_eq!(all.allow_attribute(), "camera clipboard-write");
         // Nothing allowed: the restrictive policy, whatever was asked.

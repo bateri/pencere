@@ -496,7 +496,7 @@ describe("⌃Z while the view is up", () => {
 
   it("says bye with the reason signal to a host that does not list dismiss", async () => {
     const rig = new Rig();
-    await stopped(rig, { features: ["bundle"] });
+    await stopped(rig, { features: [] });
     const bye = await rig.next("bye");
     expect(JSON.parse(bye.payload)).toEqual({ token: TOKEN, reason: "signal" });
     expect(rig.messages().some((m) => m.kind === "dismiss")).toBe(false);

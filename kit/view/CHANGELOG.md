@@ -6,6 +6,10 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: the role `Role::Line` is `Role::Border`**, the name a page of kind `web` has for the colour of rules and borders (specification §11.2).
+
 ### Added
 
 - **An image keeps its proportions and its border.** An image whose box takes its size from the

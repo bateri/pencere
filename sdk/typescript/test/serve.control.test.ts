@@ -147,7 +147,7 @@ describe("a program that closes its view and goes on (§10.8)", () => {
   });
 
   it("touches nothing when the host does not list dismiss, and says so", async () => {
-    const { rig, control, served } = await withControl({}, { features: ["bundle"] });
+    const { rig, control, served } = await withControl({}, { features: [] });
     expect(await control.reopen()).toEqual({ kind: "unsupported" });
     expect(await control.close()).toEqual({ kind: "unsupported" });
     await rig.settle();

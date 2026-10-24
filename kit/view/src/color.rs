@@ -39,8 +39,8 @@ pub enum Role {
     /// The dim text a step further toward the ground: ink that must be readable and not
     /// stand out.
     Quiet,
-    /// The hairline: seen, never read.
-    Line,
+    /// The colour of rules and borders: the hairline, seen and never read.
+    Border,
     /// The colour a shadow is cast in: the theme's dark end (black on a dark theme, the
     /// foreground on a light one).
     Shadow,

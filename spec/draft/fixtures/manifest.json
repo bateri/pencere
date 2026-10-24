@@ -502,7 +502,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         }
       ],
       "errors": []
@@ -518,7 +518,7 @@
           "kind": "welcome",
           "id": 2,
           "control": {},
-          "payload": "{\"version\":1,\"token\":\"Zk3mP8rD5uYb1Xe6HqS0vg\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}],\"restart\":true}"
+          "payload": "{\"version\":1,\"token\":\"Zk3mP8rD5uYb1Xe6HqS0vg\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}],\"restart\":true}"
         }
       ],
       "errors": []
@@ -554,7 +554,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[{\"kind\":\"wasm\",\"versions\":[\"0.5\"]},{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"wasm\",\"versions\":[\"0.5\"]},{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         }
       ],
       "errors": []
@@ -572,7 +572,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[{\"kind\":\"wasm\",\"versions\":[\"0.5\",\"0.4\"]},{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"wasm\",\"versions\":[\"0.5\",\"0.4\"]},{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         }
       ],
       "errors": []
@@ -590,7 +590,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[]}"
         }
       ],
       "errors": []
@@ -814,7 +814,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         }
       ],
       "errors": []
@@ -832,7 +832,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"bundle\",\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
         }
       ],
       "errors": []
@@ -1454,7 +1454,7 @@
     },
     {
       "name": "no-common-version",
-      "note": "a kind the host has no version of in common with the program is left out of its welcome, and an open of it is refused as unsupported; when no kind is left the welcome still carries a token",
+      "note": "a kind the host has no version of in common with the program is left out of the views of its welcome and named in its opens, with the versions the host does open, and an open of it is refused as unsupported; when no kind is left the welcome still carries a token",
       "config": {
         "host": {
           "name": "pencere-test",
@@ -1661,6 +1661,7 @@
           "foreground": "#c9d1d9",
           "dim": "#8b949e",
           "accent": "#58a6ff",
+          "cursor": "#79c0ff",
           "border": "#30363d",
           "success": "#3fb950",
           "error": "#f85149",

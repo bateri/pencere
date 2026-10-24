@@ -17,7 +17,7 @@ What happens is written to stderr, one line each, in the order it happens:
 
 ```
 host: sees the tty: canonical=false echo=false
-host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web@1.0
+host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@1.0
 host: answers CSI c
 screen: alternate screen on
 program: open id=2 view=web version=1.0 title="Containers" bundle of 3 files

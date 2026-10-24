@@ -31,9 +31,7 @@ use crate::handlers::{
     run_call, run_topic,
 };
 use crate::link::{Item, Reader, Writer};
-use crate::payload::{
-    self, ByeReason, ClosedReason, FEATURE_BUNDLE, FEATURE_DISMISS, Offer, OpenFields, Welcome,
-};
+use crate::payload::{self, ByeReason, ClosedReason, FEATURE_DISMISS, Offer, OpenFields, Welcome};
 use crate::terminal::{
     self, DEVICE_ATTRIBUTES, ENTER_ALTERNATE, FAREWELL, Pipe, Read, TakeError, Taken, Terminal,
 };
@@ -515,10 +513,15 @@ impl Session<'_> {
     /// No view will be shown. The terminal's answer to `CSI c` is read first if it has not come,
     /// so that it does not reach the shell as typed text (§5.3).
     fn no_view(&mut self, reason: NoViewReason) {
+        self.no_view_with(reason, None);
+    }
+
+    /// As [`Self::no_view`], with words for the person.
+    fn no_view_with(&mut self, reason: NoViewReason, message: Option<String>) {
         let no_view = NoView {
             reason,
             code: None,
-            message: None,
+            message,
         };
         if self.fence_answered {
             self.over(Ok(Outcome::NoView(no_view)));
@@ -668,8 +671,12 @@ impl Session<'_> {
             Some(Welcome::Unsupported) => self.no_view(NoViewReason::NoCommonVersion),
             Some(Welcome::Offer(offer)) => match self.choose(&offer) {
                 // A terminal with a token and nothing to open: the program knows at once and
-                // does not wait (§5.3).
-                None => self.no_view(NoViewReason::NoCommonView),
+                // does not wait (§5.3). When the terminal opens a kind of the program's in other
+                // versions, it says which and the program says so in words (§5.2).
+                None => {
+                    let message = payload::no_version_sentence(&self.offers(), &offer.opens);
+                    self.no_view_with(NoViewReason::NoCommonView, message);
+                }
                 Some(choice) => {
                     self.dismiss = offer
                         .features
@@ -683,11 +690,6 @@ impl Session<'_> {
 
     /// The view to open, if the terminal will open one of the program's kinds (§5.3).
     fn choose(&self, offer: &Offer) -> Option<(usize, String)> {
-        // Every kind of view arrives as a bundle: a terminal without the feature has nothing to
-        // open (§8.1).
-        if !offer.features.iter().any(|f| f == FEATURE_BUNDLE) {
-            return None;
-        }
         payload::choose(&self.offers(), &offer.views)
     }
 

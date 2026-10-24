@@ -6,8 +6,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: the colour role `line` of the interface (`pencere:view@1.0.0`) and of the Lua page API is `border`.** The interpreter module is rebuilt.
+
 ### Added
 
+- `kit/SPEC.md`: the Lua page API, the colour strings, the recommended formulas of the derived tones and the sandbox floors.
 - **A frame says what it says once.** The words of every line of text and the paths of pictures,
   the values of sparklines and the tracks of grids are three lists of the frame, and a menu's
   titles one string; an element (an entry) names the part it means (`slice`: a start and a

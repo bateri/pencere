@@ -30,14 +30,14 @@ fn row(id: Id, key: char, title: &str, detail: &str) -> pencere_page::Element {
         .h(44.0)
         .rounded(8.0)
         .bg(Role::Raised(1))
-        .border(1.0, Role::Line)
+        .border(1.0, Role::Border)
         .press(id)
         .child(
             div()
                 .w(26.0)
                 .h(26.0)
                 .rounded(6.0)
-                .border(1.0, Role::Line)
+                .border(1.0, Role::Border)
                 .items_center()
                 .justify_center()
                 .child(text(key.to_string().to_uppercase()).weight(600)),

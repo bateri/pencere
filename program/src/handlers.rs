@@ -170,7 +170,7 @@ pub(crate) fn read_message(payload: &str) -> Option<Message> {
         return None;
     }
     let message: Message = serde_json::from_str(payload).ok()?;
-    (message.id() != 0).then_some(message)
+    message.has_usable_id().then_some(message)
 }
 
 /// A call of the view that a handler is answering. It can be cloned, so that the handler can

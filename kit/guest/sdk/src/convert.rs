@@ -27,7 +27,7 @@ fn role(role: Role) -> wit::Role {
         Role::Warning => wit::Role::Warning,
         Role::Raised(steps) => wit::Role::Raised(steps),
         Role::Quiet => wit::Role::Quiet,
-        Role::Line => wit::Role::Line,
+        Role::Border => wit::Role::Border,
         Role::Shadow => wit::Role::Shadow,
         Role::Selection => wit::Role::Selection,
         Role::Black => wit::Role::Black,

@@ -462,6 +462,7 @@ pub fn bridge_config(config: &Value) -> Config {
     );
     theme.dim = colour("dim");
     theme.accent = colour("accent");
+    theme.cursor = colour("cursor");
     theme.border = colour("border");
     theme.success = colour("success");
     theme.error = colour("error");

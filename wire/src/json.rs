@@ -128,6 +128,44 @@ fn unit_at(bytes: &[u8], at: usize) -> Option<u32> {
     })
 }
 
+/// How deep the arrays and objects of a JSON text may nest before no receiver of this protocol
+/// takes it (specification §4.5): a text that nests this many levels or more, the outermost
+/// counting as the first, is dropped. It is the depth a JSON parser of the common kind stops at
+/// (`serde_json` and the JSON of most languages give up when they reach it), so every receiver
+/// agrees without building a tree.
+pub const MAX_DEPTH: usize = 128;
+
+/// Whether JSON text nests arrays and objects [`MAX_DEPTH`] levels deep or more. It reads text
+/// that may not be JSON, as [`unescaped_len`] does: brackets inside a string are not counted, and
+/// nothing is checked.
+pub fn too_deep(text: &str) -> bool {
+    let (mut depth, mut in_string, mut escaped) = (0usize, false, false);
+    for &byte in text.as_bytes() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'[' | b'{' => {
+                depth += 1;
+                if depth >= MAX_DEPTH {
+                    return true;
+                }
+            }
+            b']' | b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    false
+}
+
 /// Whether JSON text is an object (its first character is `{`, whitespace aside).
 ///
 /// A struct that serde reads can also be read from an array of its fields in
@@ -201,6 +239,51 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&text).unwrap(),
             value
         );
+    }
+
+    #[test]
+    fn a_text_nested_128_levels_or_more_is_too_deep_and_brackets_in_strings_are_not_levels() {
+        let nested = |levels: usize| {
+            format!(
+                "{}1{}",
+                r#"{"a":["#.repeat(levels / 2),
+                "]}".repeat(levels / 2)
+            )
+        };
+        // 126 levels and 127 are within it (`serde_json` takes both), 128 is not.
+        assert!(!too_deep(&nested(126)));
+        assert!(!too_deep(&format!(
+            "{}{}",
+            "[".repeat(127),
+            "]".repeat(127)
+        )));
+        assert!(too_deep(&format!("{}{}", "[".repeat(128), "]".repeat(128))));
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&format!(
+                "{}{}",
+                "[".repeat(127),
+                "]".repeat(127)
+            ))
+            .is_ok()
+        );
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&format!(
+                "{}{}",
+                "[".repeat(128),
+                "]".repeat(128)
+            ))
+            .is_err()
+        );
+        // Levels that closed are not levels any more, and a bracket inside a string never was.
+        let wide = format!("[{}]", "[],".repeat(500));
+        assert!(!too_deep(&wide));
+        assert!(!too_deep(&format!(
+            r#"{{"a":"{}\" {}"}}"#,
+            "[".repeat(300),
+            "[".repeat(300)
+        )));
+        // Not JSON is read the same way and nothing is checked.
+        assert!(too_deep(&"[".repeat(128)));
     }
 
     #[test]

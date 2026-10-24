@@ -79,9 +79,13 @@ impl Members {
 /// What a message is, to the host: `None` when it is not an object the host can read.
 ///
 /// A text that is an object to a web view but that this reader cannot read (nested deeper than
-/// the reader goes, say) is `None` too: a message the host cannot tell the name of is not
+/// the protocol allows, say) is `None` too: a message the host cannot tell the name of is not
 /// passed on in the direction where passing it would let a program speak as the host.
 fn read_members(text: &str) -> Option<Members> {
+    // Nested as deep as no receiver of the protocol takes (specification §4.5): not a message.
+    if crate::json::too_deep(text) {
+        return None;
+    }
     serde_json::from_str(text).ok()
 }
 
@@ -108,6 +112,7 @@ pub(super) fn context_text(context: &ViewContext, grant: &Grant) -> String {
         foreground: String,
         dim: String,
         accent: String,
+        cursor: String,
         border: String,
         success: String,
         error: String,
@@ -152,6 +157,7 @@ pub(super) fn context_text(context: &ViewContext, grant: &Grant) -> String {
                 foreground: roles.foreground.css(),
                 dim: roles.dim.css(),
                 accent: roles.accent.css(),
+                cursor: roles.cursor.css(),
                 border: roles.border.css(),
                 success: roles.success.css(),
                 error: roles.error.css(),

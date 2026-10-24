@@ -198,7 +198,7 @@ impl Pane {
                 "version": 1,
                 "token": token,
                 "host": { "name": "test", "version": "0" },
-                "features": ["bundle", "dismiss"],
+                "features": ["dismiss"],
                 "views": views,
             }),
         );

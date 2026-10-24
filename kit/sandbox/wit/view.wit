@@ -78,8 +78,8 @@ interface types {
         raised(u8),
         /// Text a step quieter than the foreground.
         quiet,
-        /// The hairline between things.
-        line,
+        /// The colour of rules and borders: the hairline between things.
+        border,
         /// The colour a shadow is cast in.
         shadow,
         /// The ground of what the person selected.

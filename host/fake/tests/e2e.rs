@@ -311,7 +311,7 @@ fn a_program_goes_from_the_capability_query_to_the_interrupt() {
         // The host looked at the tty before it answered (§6.2): the SDK had made
         // it non-canonical with echo off.
         "host: sees the tty: canonical=false echo=false",
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web@1.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@1.0",
         // The answer to the question comes before the reply to `CSI c` (§5.2).
         "host: answers CSI c",
         "screen: alternate screen on",
@@ -683,7 +683,7 @@ fn a_program_closes_its_view_shows_another_and_another_and_closes_that_one_and_g
     let run = run_program("reopen.mjs", &["--call", "show"]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web@1.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@1.0",
         "program: open id=2 view=web version=1.0 bundle of 2 files",
         "host: need id=2 re=2 missing=2",
         "program: file",
@@ -788,7 +788,7 @@ fn the_host_that_starts_the_view_again_gets_it_asked_for_again() {
         "view: destroyed",
         // No `hello` asked: the host offers again, with every version it speaks, and the
         // program that has a view open opens it again.
-        "host: welcome id=* version=1 with a token (restart) features=bundle,dismiss views=web@1.0",
+        "host: welcome id=* version=1 with a token (restart) features=dismiss views=web@1.0",
         r#"program: open id=* view=web version=1.0 title="Containers" bundle of 3 files"#,
         "host: need id=* re=* missing=0",
         "view: -> call id=1 list",
@@ -1153,7 +1153,7 @@ fn example_file_size(name: &str) -> u64 {
 fn check_the_example_opens_answers_a_call_and_pushes_to_its_page(run: &Run) {
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web@1.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@1.0",
         r#"program: open id=2 view=web version=1.0 title="Containers" bundle of 4 files"#,
         "host: need id=2 re=2 missing=4",
         "view: started from the bundle: entry index.html, 4 files",
@@ -1299,7 +1299,7 @@ fn the_rust_example_opens_answers_a_call_and_pushes_to_its_page() {
         // The host looked at the tty before it answered (§6.2): the library had made it
         // non-canonical with echo off.
         "host: sees the tty: canonical=false echo=false",
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=lua@1.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@1.0",
         // The answer to the question comes before the reply to `CSI c` (§5.2).
         "host: answers CSI c",
         "screen: alternate screen on",
@@ -1389,7 +1389,7 @@ fn the_rust_example_is_asked_for_its_view_again_by_a_host_that_starts_it_again()
     let run = run_rust_example(&["--subscribe", "stats", "--then", "restart"], &["--lua"]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=lua@1.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@1.0",
         "program: open id=2 view=lua",
         "view: -> subscribe id=1 stats",
         "host: starts the view again, as after a reconnection",
@@ -1823,7 +1823,7 @@ fn the_built_lua_app_opens_its_view_answers_calls_and_feeds_its_page_until_the_i
     run.in_order(&[
         "program: hello id=1",
         "host: sees the tty: canonical=false echo=false",
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=lua@1.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@1.0",
         "host: answers CSI c",
         "screen: alternate screen on",
         r#"program: open id=2 view=lua version=1.0 title="Containers" bundle of 5 files"#,
@@ -2131,7 +2131,7 @@ fn an_app_with_a_web_page_made_by_new_opens_a_web_view_and_its_calls_and_pushes_
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=web@1.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@1.0",
         r#"program: open id=2 view=web version=1.0 title="webby" bundle of 3 files"#,
         "view: started from the bundle: entry index.html, 3 files",
         "view: kind=web version=1.0",

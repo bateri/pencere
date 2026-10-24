@@ -126,10 +126,12 @@ fn a_grid_shares_what_the_fixed_tracks_leave_by_fr_and_keeps_its_minimum() {
 
 #[test]
 fn a_page_written_in_points_is_laid_out_in_pixels() {
-    let root = div()
-        .row()
-        .p(10.0)
-        .child(div().size(20.0, 30.0).rounded(4.0).border(1.0, Role::Line));
+    let root = div().row().p(10.0).child(
+        div()
+            .size(20.0, 30.0)
+            .rounded(4.0)
+            .border(1.0, Role::Border),
+    );
     let list = {
         let laid = layout(root, Size::new(400.0, 200.0), 2.0, &mut Fixed);
         assert_eq!(laid.rects().nth(1), Some(Rect::new(20.0, 20.0, 40.0, 60.0)));

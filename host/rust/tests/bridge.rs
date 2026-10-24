@@ -493,6 +493,34 @@ fn the_pages_messages_are_passed_unread_and_the_host_s_own_are_read_by_name_only
 }
 
 #[test]
+fn a_message_nested_128_levels_deep_is_no_message_in_either_direction() {
+    let nested = |levels: usize| {
+        format!(
+            r#"{{"a":{}{}}}"#,
+            "[".repeat(levels - 1),
+            "]".repeat(levels - 1)
+        )
+    };
+    let mut rig = Rig::new();
+    rig.up_web(None);
+    // 127 levels, the outermost counting as the first: a message, passed as it is.
+    rig.page(&nested(127));
+    let (wrote, _) = rig.take();
+    assert_eq!(wrote.len(), 1);
+    let ignored = rig.host.diagnostics().ignored;
+    // 128 is not: the page's is not passed and the program's is not delivered; each is ignored.
+    rig.page(&nested(128));
+    let (wrote, _) = rig.take();
+    assert!(wrote.is_empty());
+    rig.send("msg", None, None, &nested(128));
+    let (wrote, acted) = rig.take();
+    assert!(wrote.is_empty() && acted.is_empty());
+    assert_eq!(rig.host.diagnostics().ignored, ignored + 2);
+    rig.send("msg", None, None, &nested(127));
+    assert_eq!(rig.take().1, vec![Action::ToView(nested(127))]);
+}
+
+#[test]
 fn a_message_the_page_says_over_the_limit_ends_the_view_and_the_program_is_told() {
     let mut rig = Rig::new();
     rig.up_web(None);

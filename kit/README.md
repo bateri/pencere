@@ -10,6 +10,7 @@ but the interface here; the terminal lays out what it hands out and draws it.
 | [`view`](view)       | `pencere-view`                    | The page engine: elements, style, layout (flexbox and grid), the draw list. Depends on the layout crate only |
 | [`sandbox`](sandbox) | `pencere-sandbox`                 | Runs a component or a script under limits and hands out pages. The one door to the WebAssembly runtime       |
 | [`wit`](wit)         |                                   | The interface a component speaks: `pencere:view`                                                             |
+| [`SPEC.md`](SPEC.md) |                                   | What the kit's views are written against: the Lua page API, the colours and the sandbox floors               |
 | [`luau`](luau)       |                                   | The sources of the interpreter for scripts: Luau, the bridge to the interface and the Lua page API           |
 | [`guest`](guest)     | `pencere-page` and the test pages | Another workspace, built for `wasm32`: the SDK a page module is written with, and modules to try it on       |
 

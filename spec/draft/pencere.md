@@ -41,8 +41,8 @@ Non-goals: letting a program choose where its view appears (a view always takes 
 program that asked; a person who wants it elsewhere splits the pane first and starts the program
 there); reaching a host through a terminal multiplexer that does not forward the stream untouched
 (such a program sees no host and falls back, Section 5.3); the interface of the kit that a `wasm`
-or `lua` view is written against, which has a document of its own; the internals of any platform's
-web view.
+or `lua` view is written against, which has a document of its own (`kit/SPEC.md`); the internals of
+any platform's web view.
 
 ## 2. Conventions and terms
 
@@ -83,7 +83,8 @@ terminal a WebAssembly component or a Lua script; the terminal runs it in a sand
 nothing it was not handed, and draws what it asks to draw in the terminal's font and theme. What the
 component or the script may ask of the terminal is the interface of the pencere kit: the component
 interface `pencere:view` for `wasm`, the page API of the global `pencere` for `lua`. The kit has a
-document of its own; this one names it and the version of it that a kind carries (Section 5.5).
+document of its own, `kit/SPEC.md` in this repository, and sources that are normative with it
+(Section 8.8); this one names them and the version of the kit that a kind carries (Section 5.5).
 
 A **web view** — kind `web` — is a web page that the terminal shows in a web view of its own, in a
 sandbox with no network, no files and no navigation of its own unless the person allows some
@@ -228,10 +229,13 @@ U+007F and every code point from U+0080 up as `\uXXXX` with lowercase hex
 digits, a surrogate pair from U+10000 up; everything else as itself. For the
 types of Appendix A the members are written in the order given there. A JSON
 encoder that only escapes non-ASCII text still writes DEL raw: escape it
-yourself. Receivers parse any valid JSON.
+yourself. Receivers parse any valid JSON, with one limit: a text whose arrays and objects
+nest **128 levels deep or more**, the outermost counting as the first, is not accepted, and a
+sender MUST NOT write one. A receiver drops it as it drops a text that is not JSON, so that no
+two receivers need build a tree to agree on what a message is (Section 9.3).
 
 ```frame fixtures/to-program/welcome.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
 ```
 
 ### 4.6 Limits
@@ -324,14 +328,29 @@ number of bytes while the program does not read (Appendix B).
   meanwhile waits. The one exception is a signal character (below).
 - A signal character flushes the tty's input (Appendix B, fact 4), so what is written after it
   is read by whatever reads the tty next, and what is written before it and not yet read is gone.
-  A host that writes one (⌃C, ⌃\) for the program of a view MUST therefore put it **first**: it
-  drops everything of the view's component it has not written yet, including the rest of a frame
-  it has begun, and writes nothing of the component's after it. It does not wait for the frame
-  that was under way, and it does not write the character behind frames that are waiting.
-- Once the host knows the program has ended (Section 10.3) it MUST NOT write any frame, because
+  A host that writes one (⌃C, ⌃\ or ⌃Z) for the program of a view MUST therefore put it **first**:
+  it drops everything of the view's component it has not written yet, including the rest of a
+  frame it has begun, and writes nothing of the component's after it. It does not wait for the
+  frame that was under way, and it does not write the character behind frames that are waiting.
+  The three characters are the program's whatever the view is (Section 11.3).
+- Once the host knows the program has ended (Section 10.3) it MUST NOT begin a frame, because
   whatever reads the tty next would receive it as typed input, until a `hello` shows that a program
-  is reading again. A view that has closed is not the end of the program: the host still writes the
+  is reading again. The one exception is the single `closed` that answers a `bye` it believes
+  (Section 10.3). A frame already begun is finished, as the first item asks and as Section 9.3
+  says: the rest of a frame left in the input would reach whatever reads next as a frame that
+  never ends. A view that has closed is not the end of the program: the host still writes the
   `closed` that tells the program (Sections 10.5, 10.6 and 10.8) and answers a later `hello`.
+- A host MUST NOT hold more than 16 MiB (16 777 216 bytes) of what a view says waiting to be
+  written to the program. A program that does not read leaves everything the tty does not take in
+  the host, and a view can say a good deal: when more than that is waiting, the host closes the
+  view with `closed`, `reason` `error`, `code` `view` (Section 8.8) after it has dropped the words
+  of the view that it has not begun to write, as it does for a signal character. (A host that
+  draws the view itself holds a well-behaved view back well before the limit: the kit's
+  `program.send` answers `full` and `page.room` tells the view when it may send again, so that
+  such a view slows down and is not closed.) A **program author** should know that a host
+  MAY stop reading the pane's output while its view is behind: a program that writes a great deal
+  of output while its view says a great deal may find its own writes waiting until the program
+  reads what the view said.
 
 ### 4.9 Terminal modes
 
@@ -357,10 +376,17 @@ its input. The fence is what tells "no host" from "no answer yet".
 A `hello` has two members, and both are required: `versions`, the protocol versions the
 program speaks (Section 5.4), and `views`, the kinds of view it can show (Section 5.5), in the
 order it prefers them. Each entry of `views` has a `kind`, the name of a kind, and `versions`, the
-versions of that kind's interface that the program speaks, in the order it prefers them. A host
-ignores a `hello` that lacks either member, whose `views` is empty, or whose `views` is not a list
-of objects with a string `kind` and a `versions` that is a list of strings, as it ignores a message
-it cannot read. A kind that is listed twice counts once, at its first place.
+versions of that kind's interface that the program speaks, in the order it prefers them. The two
+`versions` are different things with one name: the first is a list of integers and names the
+version of this document (the wire), the second is a list of strings and names the version of a
+kind's interface (Section 5.5); the names are not to be changed, and a reader keeps them apart by
+where they stand.
+
+A host ignores a `hello` that lacks either member, whose `versions` is not a list of integers,
+whose `views` is empty, or whose `views` is not a list of objects with a string `kind` and a
+`versions` that is a list of strings, as it ignores a message it cannot read. A `versions` that is
+an empty list is a list: the program speaks no version that the host does, and the host answers
+with `supported` (Section 5.2). A kind that is listed twice counts once, at its first place.
 
 ```frame fixtures/to-host/hello-fence.frame
 <ESC>_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
@@ -382,13 +408,14 @@ writes the reply to that `CSI c`. A host MAY decline to answer (Section 6.2); th
 program then sees only the reply to `CSI c`.
 
 The host chooses the greatest protocol version both support. If there is one, it issues a
-token (Section 6.1) and answers with `version`, `token`, `host`, `features` and `views`,
-and `re` set to the hello's id. If there is none, it answers with `supported`
+token (Section 6.1) and answers with `version`, `token`, `host`, `features`, `views` and, when
+there is something to say in it, `opens`, and `re` set to the hello's id. If there is none (the
+`versions` of the `hello` is empty, or names none the host speaks), it answers with `supported`
 and `host` only.
 
-`features` lists the optional parts of this document the host supports: `bundle`
-(Section 8.1) and `dismiss` (Section 10.8). A program uses only what is listed and ignores a
-name it does not know.
+`features` lists the optional parts of this document the host supports: `dismiss`
+(Section 10.8) is the one there is. A program uses only what is listed and ignores a
+name it does not know. (Every view arrives as a bundle, Section 8, so that is no feature.)
 
 `views` lists what the host will open: the kinds of the `hello` and, for each, the versions of its
 interface that the program and the host both speak. For each entry of the `hello`'s `views`, in
@@ -396,17 +423,27 @@ order, the answer has an entry with the same `kind` and `versions` cut down to t
 also offers, in the order the program listed them; an entry whose kind the host will not open, or
 that shares no version with the host, is left out. The host only eliminates: it never reorders, and
 never adds a kind or a version the program did not list. A name that is not in the table of Section
-5.5 is a kind the host will not open. `views` is always present, and it is empty when the program and
-the host share no kind at a version: the host answers all the same, with a protocol version and a
-token, so that the program knows at once that there is a host and nothing it can show, and does not
-wait.
+5.5 is a kind the host will not open. `views` is present in every `welcome` that carries a token,
+and it is empty when the program and the host share no kind at a version: the host answers all the
+same, with a protocol version and a token, so that the program knows at once that there is a host and
+nothing it can show, and does not wait.
+
+`opens` says why the host left a kind out when it was only for want of a version in common. For each
+entry of the `hello`'s `views`, in order, whose kind the host opens but at none of the versions the
+program listed, it has an entry with that `kind` and **the versions the host does open of it**, in the
+host's own order. It is left out when there is no such kind (the examples below have none), and it
+never names a kind the host will not open. It is for people and for the program's diagnostics: it
+changes nothing about which kinds the program may open (`views` alone does that), and a program that
+finds nothing to open in `views` but a kind in `opens` SHOULD say so in words that name both sides
+(Section 5.3). A restart `welcome` (Section 10.7) lists every version the host speaks in `views`, so it
+has no `opens`.
 
 ```frame fixtures/session/handshake/02-out.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
 ```
 
 ```frame fixtures/to-program/welcome-versions.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}<ESC>\
 ```
 
 The host in this example opens `wasm` at `0.4` and `0.5` and `web` at `1.0`; the program's `hello`
@@ -419,17 +456,17 @@ versions of `wasm` that remain are in the program's order, not the host's.
 ```
 
 ```frame fixtures/to-program/welcome-no-views.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[]}<ESC>\
 ```
 
 ### 5.3 What the program concludes
 
-| What the program reads first                                              | Conclusion                                                                                                                                                                                                                                                                      |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A `welcome` with `version` and `token`, `re` equal to its last hello's id | There is a host. If `views` has a kind, go on with Section 6 and open the first it can show, at the first version listed for it. If `views` is empty, there is a host and nothing to open: fall back at once, as with no host (Section 13); do not wait and do not send `open`. |
-| The terminal's answer to `CSI c` (`ESC [ ? … c`)                          | There is no host. A `welcome` that arrives later MUST be ignored.                                                                                                                                                                                                               |
-| A `welcome` with `supported` and no `version`                             | There is a host that shares no version with this program. Treat as no host.                                                                                                                                                                                                     |
-| Nothing                                                                   | After a time, no host. The time SHOULD be 2 seconds; a program MAY wait longer on a slow link.                                                                                                                                                                                  |
+| What the program reads first                                              | Conclusion                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A `welcome` with `version` and `token`, `re` equal to its last hello's id | There is a host. If `views` has a kind, go on with Section 6 and open the first it can show, at the first version listed for it. If `views` is empty, there is a host and nothing to open: fall back at once, as with no host (Section 13); do not wait and do not send `open`. If `opens` names a kind the program listed, say in words which versions would have served, as below. |
+| The terminal's answer to `CSI c` (`ESC [ ? … c`)                          | There is no host. A `welcome` that arrives later MUST be ignored.                                                                                                                                                                                                                                                                                                                    |
+| A `welcome` with `supported` and no `version`                             | There is a host that shares no version with this program. Treat as no host.                                                                                                                                                                                                                                                                                                          |
+| Nothing                                                                   | After a time, no host. The time SHOULD be 2 seconds; a program MAY wait longer on a slow link.                                                                                                                                                                                                                                                                                       |
 
 2 seconds is a precedent, not a measurement (Appendix D). A program that
 concludes "no host" MUST NOT send further frames of this protocol (Section 13).
@@ -437,11 +474,18 @@ One that concluded by timeout SHOULD discard a late answer to `CSI c`
 (`ESC [ ? … c`) for as long as it still reads the tty, so that it does not reach
 a shell as typed text.
 
+A program that falls back because `views` is empty, and finds in `opens` a kind it listed, SHOULD
+say what would have served before its fallback runs, in a sentence that names the kind and the
+versions of both sides, for instance `this program is written for wasm 2.0; this terminal opens wasm
+1.0`; the libraries of this repository print it on the program's standard error as
+`pencere: <sentence>`. A program that finds nothing in `opens` says nothing of the kind: the host
+does not open what it lists, or there is no host.
+
 A `welcome` is only believed when the program has sent a `hello` and
 the `welcome` answers it; an unsolicited `welcome` is handled by Section 10.7 or ignored.
 
 ```frame fixtures/to-program/noise.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
 <ESC>[?62;4cls<CR>
 ```
 
@@ -460,17 +504,28 @@ change of the wire is a new version with new fixtures.
 The versions of a kind (Section 5.5) are another thing and do not move with this one: they are the
 versions of the interface a view of that kind is written against.
 
-The versions of the kit views (`wasm` and `lua`, Section 5.5) follow one rule. A change that no
-existing view can notice is a new **minor** version, `1.1` after `1.0`: a new function in the
-component interface, a new element or a new colour role in the page API. A change to something a
-view already uses is a new **major** version, `2.0`: a type that gains a variant or a field (a new
-kind of element, a new role in the interface's colour type, a new member of a record), or a
-function that means something else. A host that adopts a new major version offers it together with
-the one before, as Section 5.4 asks of the protocol's own versions; a host that has stopped opening
-a version refuses an `open` for it as `unsupported` (Section 6.4), and SHOULD say why in words
-that name both sides ("this view is written against `pencere:view@0.5`; this terminal opens 1.x and
-2.x"). For `lua` the interpreter is the host's: a new element or a new role is an addition for a
-script, and what breaks a script is a function of the page API that means something else.
+The versions of the kit views (`wasm` and `lua`, Section 5.5) follow one rule, and each of the two
+kinds is numbered by itself: the number of `wasm` is that of the component interface and the number
+of `lua` that of the page API, so `wasm` `1.1` and `lua` `1.0` can be the versions of one kit, and
+nothing ties the minor number of the one to the other's. A change that no existing view can notice
+is a new **minor** version, `1.1` after `1.0`: a new function in the component interface, a new
+element or a new colour role in the page API. A change to something a view already uses is a new
+**major** version, `2.0`: a type that gains a variant or a field (a new kind of element, a new role
+in the interface's colour type, a new member of a record), or a function that means something else.
+A host that adopts a new major version offers it together with the one before, as this section asks
+of the protocol's own versions; a host that has stopped opening a version refuses an `open` for it
+as `unsupported` (Section 6.4). For `lua` the interpreter is the host's: a new element or a new
+role is an addition for a script, and what breaks a script is a function of the page API that means
+something else.
+
+A program whose `hello` listed a version the host stopped opening finds out from `opens` (Section
+5.2), and its library says so in words that name both sides (Section 5.3). A **component** that is
+opened under a version (`open.version`) while its own interface is another one cannot run: the host
+MUST close the view with `closed`, `reason` `error`, `code` `view` (Section 8.8) and a `message`
+that names both versions, the one the component is written against and the one it was opened as
+(for instance "this view is written against `pencere:view@0.5.0`; this terminal opens
+`pencere:view@1.0.0`"). The host cannot read the interface out of a file before it has the file, so
+this is found out when the component is loaded, after the `open` was accepted.
 
 A program MAY send `hello` again at any time; each answered `hello` gets a new
 token (Section 6.1).
@@ -504,6 +559,13 @@ version and the one before. The examples in this document use made-up versions (
 minor number, and one that renames or drops a member or a message moves the major. A host MAY open
 several versions of a kind — a host that updates its kit offers the one it now has and the one
 before — and the program chooses among those both speak (Section 5.2).
+
+A host does not compare versions for "newer" or "older"; it **lists every version it accepts**. A
+host that speaks `M.n` of a kind and accepts the earlier minor versions of the same major, as
+every host of the kit should (a minor version only adds, Section 5.4), lists each of them (`M.0`
+up to `M.n`) and opens each; a program written against `M.k` and not `M.n` is then opened under
+`M.k`, the version it was written for. No rule makes `1.2` stand in for `1.0`: if `1.0` is not
+listed, it is not opened.
 
 The table grows with this document; a name in `hello.views` that a host does not know is a kind it
 does not open, and it leaves it out of its `welcome`. A kind for which no version is shared is a kind
@@ -595,7 +657,13 @@ the page may send network requests to; `resources`, those it may load scripts, s
 and media from; `frames`, those it may nest as frames; `base`, those a `<base>` element may name; and
 `permissions`, the browser capabilities it asks for, from the closed list `camera`, `microphone`,
 `geolocation` and `clipboardWrite`. An origin is `scheme://host[:port]` with a scheme of `http`,
-`https`, `ws` or `wss`. A member of another name is ignored, so that a program written against a later
+`https`, `ws` or `wss`, a host that is a DNS name (labels of letters, digits and `-`, up to 63
+characters each, 253 in all), an IPv4 address or an IPv6 address in brackets, and a port from 1 to
+65535 when there is one; the scheme and the host are read in lower case. The host may be a
+**wildcard**, `*.` followed by a name of at least two labels (`*.example.com`, not `*.com`): it
+stands for the subdomains of the name, at any depth, and not for the name itself, which is listed
+on its own when the page needs it. The question to the person shows a wildcard as it was written
+(Section 12.2). A member of another name is ignored, so that a program written against a later
 version of this specification can say more than an earlier host knows.
 
 The person is asked about every origin that is listed (Section 12.2), so the lists are bounded to
@@ -619,15 +687,15 @@ The host checks an `open` in this order and stops at the first that fails; it
 answers a failure with a `closed` message whose `re` is the open's id,
 `reason` is `refused` and `code` is:
 
-| `code`        | When                                                                                                                                                                                                                  |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `token`       | The payload has no string `token`, or it is not the outstanding token. Checked before anything else in the payload.                                                                                                   |
-| `busy`        | A view is already opening or open in this pane.                                                                                                                                                                       |
-| `screen`      | The pane is not on the alternate screen (Section 6.5). A host SHOULD refuse so.                                                                                                                                       |
-| `manifest`    | The payload or the bundle manifest is malformed (Sections 6.3 and 8.2): no `view`, no `version`, no bundle, an `access` that is not of the shape of Section 6.3, or an entry whose type is not that of the `view`.    |
-| `limit`       | A limit of Section 8.2 is exceeded, or the `access` lists more origins than Section 6.3 allows.                                                                                                                       |
-| `unsupported` | The host does not support what was asked: a `view`, or a `version` of it, that the `welcome` of the token did not list (or a kind that is not in the table of Section 5.5), or a bundle without the `bundle` feature. |
-| `policy`      | The host's own policy, or the person's, refuses.                                                                                                                                                                      |
+| `code`        | When                                                                                                                                                                                                                                                                                                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `token`       | The payload has no string `token`, or it is not the outstanding token. Checked before anything else in the payload.                                                                                                                                                                                                                                           |
+| `busy`        | A view is already opening or open in this pane.                                                                                                                                                                                                                                                                                                               |
+| `screen`      | The pane is not on the alternate screen (Section 6.5). A host SHOULD refuse so.                                                                                                                                                                                                                                                                               |
+| `manifest`    | The payload or the bundle manifest is malformed (Sections 6.3 and 8.2): no `view`, no `version`, no bundle, an `access` that is not of the shape of Section 6.3, or an entry whose type is not that of the `view`. A `view` that is not in the table of Section 5.5 has no type to compare, so that check is skipped and the `open` goes on to `unsupported`. |
+| `limit`       | A limit of Section 8.2 is exceeded, or the `access` lists more origins than Section 6.3 allows.                                                                                                                                                                                                                                                               |
+| `unsupported` | The host does not support what was asked: a `view`, or a `version` of it, that the `welcome` of the token did not list (or a kind that is not in the table of Section 5.5).                                                                                                                                                                                   |
+| `policy`      | The host's own policy, or the person's, refuses.                                                                                                                                                                                                                                                                                                              |
 
 Everything that makes an `open` malformed comes before every limit: an `open` that is both, an entry of the
 wrong type and a file over the size, say, or an `access` that goes over its bound and has an entry that is
@@ -642,13 +710,13 @@ treats a code it does not know as a refusal without a reason.
 
 ### 6.5 Alternate screen
 
-A program SHOULD switch to the alternate screen (`CSI ? 1049 h`) before it sends
-`open`, and switch back (`CSI ? 1049 l`) when it has finished with the view and
+A program MUST switch to the alternate screen (`CSI ? 1049 h`) before it sends
+`open`, and MUST switch back (`CSI ? 1049 l`) when it has finished with the view and
 before it exits. The primary screen is left as it was, which is what makes the
 pane come back when the program ends. The same rule gives the host a cheap check:
 a request from a program that is not on the alternate screen is suspect, and a
-host that checks refuses it with `screen`, so a program that skips the rule is
-refused by such hosts.
+host that can observe the screen SHOULD refuse it with `screen`; a program that skips the
+rule is refused by such hosts, and is at fault where the host does not check.
 
 While a view is shown it covers the pane. The program's output goes on drawing
 the alternate screen underneath, and when the view closes that screen is what
@@ -717,11 +785,11 @@ first sixteen entries of a list.
 A view arrives as a bundle: its files, listed with their digests, so that they cross the stream
 once and are kept by content. Every kind of view has one.
 
-### 8.1 Support
+### 8.1 Every view is a bundle
 
-A host that supports bundles lists `bundle` in `features` of its `welcome`. A
-program sends a manifest only to such a host. Every kind of view arrives as a bundle, so a host that opens any
-kind lists `bundle`; a program that does not find it has nothing to open.
+Every kind of view arrives as a bundle, so there is nothing to ask a host about it: a host that opens
+a kind takes the bundle of that kind, and a program sends the manifest to any host that offered the
+kind (Section 5.2). The `welcome` lists no feature for it.
 
 ### 8.2 The manifest
 
@@ -777,12 +845,15 @@ if it can. The payload is the file's bytes in base64 and the first chunk carries
 <ESC>_pencere;file;id=3,seq=1;ImhlbGxvIGZyb20gcGVuY2VyZSI7Cg==<ESC>\
 ```
 
-The host verifies each file before it keeps it: the decoded length is within the
-`size` the manifest gave for that digest and the SHA-256 of the bytes equals `d`.
-A file it did not ask for, or one it already has verified for this open, is
-ignored and not stored. A file that fails verification ends the open with
-`closed` `reason` `error`, `code` `bundle`. The host SHOULD end an open whose files do
-not arrive in a time of its choosing with `error`, `timeout`.
+The host verifies each file before it keeps it: the decoded length does not exceed the `size` the
+manifest gave for that digest (the greatest of them, when several files of the manifest have the same
+digest and give different sizes) and the SHA-256 of the bytes equals `d`. The `size` is a bound that
+spares the host from decoding more than was announced; the digest decides what the file is, so a file
+shorter than its `size` whose digest matches is the file. A file it did not ask for, or one it
+already has verified for this open, is ignored and not stored. A file that fails verification ends
+the open with `closed` `reason` `error`, `code` `bundle`. The host SHOULD end an open whose files do
+not arrive in a time of its choosing with `error`, `timeout`, and an open that waits in vain for the
+person's answer to the question of Section 12.2 in the same way.
 
 ```frame fixtures/to-program/closed-error.frame
 <ESC>_pencere;closed;id=5,re=2;{"reason":"error","code":"bundle"}<ESC>\
@@ -821,29 +892,38 @@ and theme, without a web view:
 - a **WebAssembly view** (`wasm`): the entry of its bundle, whose media type is `application/wasm`,
   is a WebAssembly component (the component model's binary format) that the host runs in a sandbox
   of its own. What the component is given and may ask of the host is the interface `pencere:view`
-  of the kit (`kit/wit/view.wit` in this repository), which is not part of this document;
+  of the kit, defined by `kit/wit/view.wit` in this repository, which is not part of this document
+  and is normative for `wasm` views;
 - a **Lua view** (`lua`): the entry of its bundle, whose media type is `text/x-lua`, is the text of
   a script in the Lua language (Luau). The host runs it in the same kind of sandbox, with an
   interpreter that is itself such a component; what the script is given and may ask of the host is
   the same interface, in the interpreter's terms, as the page API of the global `pencere`, and it is
-  not part of this document either (the kit's sources are in this repository, in `kit/`). The script is source text: a host does not load compiled code
-  from a program.
+  not part of this document either: `kit/SPEC.md` in this repository describes the page API (the
+  elements, the colour strings, the functions), and the prelude it is written in (`kit/luau/prelude`)
+  is normative with it for `lua` views. The language is **Luau at the release the kit pins**
+  (`0.740` for `lua` `1.x`, `kit/luau/pins`) with the library the interpreter exposes: a script
+  that uses syntax a later Luau added is not a `lua` `1.x` script, and such syntax arrives with a
+  minor version of `lua` that raises Luau (Section 5.4). A host SHOULD run the kit's own interpreter
+  component (`kit/sandbox/luau/luau.wasm`) rather than another Luau, so that a script means one thing
+  on every host. The script is source text: a host does not load compiled code from a program.
 
-The kit is what any terminal needs to show these views, and it is a part of this repository, under
-the same licence: the page engine (`pencere-view`: the elements, their layout and the draw list a
-terminal draws), the sandbox that runs a component or a script and hands out pages
-(`pencere-sandbox`), the interpreter for the scripts, and the SDK a page module is written with
-(`pencere-page`). A terminal that draws a draw list of its own makes the kit's views its own; the
-versions of the kit are those of Section 5.4.
+What these views may ask of the host, and what the host does with it, is the rule of the kit: the
+interface of `kit/wit/view.wit`, the page API of `kit/SPEC.md` and the sandbox floors below. The
+versions of the kit are those of Section 5.4. (This repository also carries an implementation of the
+kit that a terminal may use under the same licence: a page engine that lays out the elements and
+makes the draw list, a sandbox that runs a component or a script and hands out pages, the
+interpreter for the scripts, and the SDK a page module is written with. It is one way of keeping the
+rule and not a part of it: a host that implements the same rules in its own way shows the same
+views.)
 
 A host that shows such views offers `wasm`, `lua` or both in the `views` of its `welcome`
-(Section 5.2), when the program listed them at a version the host speaks and the host takes bundles,
-because the view arrives as a bundle. A program sends such an `open` only to a host that offered the
-kind and the version; a host that did not refuses one with `unsupported` (Section 6.4). A bundle whose
-entry is not of the kind's type, sent with that kind, is refused with `manifest`.
+(Section 5.2), when the program listed them at a version the host speaks. A program sends such an
+`open` only to a host that offered the kind and the version; a host that did not refuses one with
+`unsupported` (Section 6.4). A bundle whose entry is not of the kind's type, sent with that kind, is
+refused with `manifest`.
 
 ```frame fixtures/to-program/welcome-wasm.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[{"kind":"wasm","versions":["0.5"]},{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"wasm","versions":["0.5"]},{"kind":"web","versions":["1.0"]}]}<ESC>\
 ```
 
 Such a view has no `access`: it reaches nothing that the host does not hand it, so there are no
@@ -858,6 +938,30 @@ The host asks for the files as for any bundle (Sections 8.3 and 8.4) and starts 
 holds them. It MAY refuse an entry over a size of its own choosing with `limit` (Section 8.2), so
 a program must be ready for that.
 
+**What a host gives a view at least.** A view is held to limits (Section 12.4), and a program that
+stays within these opens on every host, so a host MUST give a view at least the following, and MAY
+give it more:
+
+| Limit                                                                    | At least               |
+| ------------------------------------------------------------------------ | ---------------------- |
+| Memory of the module (and its tables)                                    | 64 MiB                 |
+| One call (a frame, a settle, an event) before it is cut off              | 250 ms                 |
+| The start of the module (its first code to run)                          | 2 s                    |
+| Compiling a component                                                    | 20 s                   |
+| The component itself, or the script                                      | 4 MiB                  |
+| Elements in one frame                                                    | 20 000                 |
+| Depth of the tree of one frame (the root is 1)                           | 128                    |
+| Bytes of one line of text, of a title, of text for the pasteboard        | 64 KiB                 |
+| Bytes a frame says apart from its elements' fixed fields (words, paths…) | 4 MiB                  |
+| Tracks of a grid's columns or rows                                       | 64                     |
+| Values of a sparkline                                                    | 4096                   |
+| Entries of a menu                                                        | 256                    |
+| Messages to the program that one call may send                           | 32                     |
+| Bytes of one message to the program                                      | 1 MiB (Section 9.3)    |
+| Pictures: the sides, the file, the decoded pixels, the paths named       | as listed under Images |
+
+A view that goes over a limit it is held to is closed as one that fails (below).
+
 **Colours.** A page of the kit says a colour in one of two ways. The way to prefer is a **role**
 of the theme, which follows the theme the terminal wears: the nine roles of its theme
 (`background`, `foreground`, `dim`, `accent`, `cursor`, `success`, `error`, `info`, `warning`),
@@ -867,15 +971,19 @@ surfaces the kit derives from them (a ground raised by some steps, quieter text,
 colour of a shadow). The other way is a **value**, for a colour that no role says: `#rrggbb` or
 `#rrggbbaa` in sRGB, with, if the page wants one, a second value for a dark theme. The host decides
 which of the two a pane wears (it is `dark` as in Section 11.2) and takes that one; the kit never
-does. Either way a colour has an opacity of its own on top, `0` to `1`.
+does. Either way a colour has an opacity of its own on top, `0` to `1`, which is **multiplied** with
+the alpha of a value: `#80808080` with an opacity of `0.5` is drawn at a quarter of full opacity. The
+surfaces derived from the roles (`raised`, `quiet`, `border`, `shadow`) are the host's to compute; the
+kit document gives a recommended formula for each, which makes the same page look alike on every
+host that follows it.
 
-The kit hands the host what the page said, not what it came to. For each line of text it also
-hands the **grounds** under it: the fills of the box the line is in and of the boxes that hold it,
+A view tells the host what the page said, not what it came to. For each line of text it also
+names the **grounds** under it: the fills of the box the line is in and of the boxes that hold it,
 nearest first, up to and including the first that is opaque; the page's background (`background`)
 is under the last of them when it is not. A host that keeps text readable (a terminal with a
 setting for the lowest contrast of text) resolves the grounds in its theme, lays them over each
 other, and holds the colour of the line to its contrast with the result. That is a rule of the
-host, not of the kit: it applies to a line whether its colour is a role or a value, and only to
+host, not of the page: it applies to a line whether its colour is a role or a value, and only to
 lines of text; lines, fills, borders and the values of a chart are drawn as the page said them.
 
 **Images.** A view of the kit shows pictures. An element of its page names a file of the view's own
@@ -895,7 +1003,9 @@ bundle and nothing else, and a path the manifest does not name is an image that 
   has files. A host MAY hold a view to less, and every host that
   uses the kit holds it to these. An image that is past a limit, or that cannot be read, leaves its
   box empty and gives the person who wrote the view a diagnostic with the reason; the view is not
-  closed for it and nothing is written to the screen the program shares with the shell.
+  closed for it and nothing is written to the screen the program shares with the shell. A path
+  beyond the 1024th that a view names is such an image: its box is empty and the diagnostic says
+  that the view names more paths than it may.
 - _Size._ The element's size is the style's. A side the style does not say follows the picture's
   proportions, and an element that says neither is the picture's own size in pixels, one point to a
   pixel (for an SVG the width and height it says). The sizes are known only once the files are
@@ -970,13 +1080,27 @@ The members of each, in the order a writer writes them (Appendix A):
 - `cancel`: `id`;
 - `progress`: `id`, `done`, and OPTIONAL `total` and `note`.
 
-An `id` is a positive integer that belongs to the side that asked. The view numbers its `call`s and
-`subscribe`s, from 1 and upward, and two requests of a view that are out at the same time do not
-share one; the `response`, `push`, `progress` and `cancel` that go with a request carry its number. A
-`response` ends its `call`; a subscription lasts until a `cancel` ends it; a `cancel` of a request
+An `id` is a positive integer that belongs to the side that asked, and it is at most 2^53 - 1
+(9 007 199 254 740 991): the greatest integer a JSON number holds in the language a page is written
+in, so that the same number means the same to every end. A message with another `id` is ignored. The
+view numbers its `call`s and `subscribe`s, from 1 and upward, and two requests of a view that are out
+at the same time do not share one: a receiver keeps the first and ignores a `call` or `subscribe`
+whose `id` is one of a request that is still out. The `response`, `push`, `progress` and `cancel` that
+go with a request carry its number.
+
+A `response` with a `result` ends its `call`, and it is never the answer to a `subscribe`. A
+`response` with an `error` ends the request whose `id` it carries, a `call` or a `subscribe`: a program
+that cannot serve a `subscribe` (it has no such topic, or the handler failed) answers it so, and the
+subscription is over. Otherwise a subscription lasts until a `cancel` ends it. A `cancel` of a request
 that is already over, or that the program does not know, changes nothing. A program that is sent a
 `cancel` for a `call` it has not answered MAY stop the work and need not answer, and the view ignores
 an answer that comes after its `cancel`.
+
+The `code` of an `error` is the program's to choose and a view acts on the ones it knows. The libraries
+of this repository use `not-found` (the program has no method or topic of that name), `busy` (too many
+calls are being answered at once), `internal` (the handler failed, or its result cannot be written as
+JSON) and `message-too-long` (the answer is over the size of a message, Section 9.3), and a view
+SHOULD read any other code as the plain failure.
 
 The program and the view each read what the other says as untrusted: an object that is not one of
 these, or lacks a member, has one of the wrong kind, has an `id` of 0, or is a `response` with both
@@ -1027,8 +1151,8 @@ would take it for typed input (Section 4.8). The same holds from the moment the 
 character for the program: what the view had said and the host had not yet written is dropped, not
 written after it. A program therefore does not expect a message of the view after the `closed` that
 ends its view, or after its own `bye` or `dismiss`, and it must expect to lose the messages that were
-waiting when the person pressed ⌃C. A frame is never cut for any other end: the one under way is
-written whole, and what waits behind it is dropped.
+waiting when the person pressed ⌃C. A frame is never cut for any other end, the end of the program
+among them (Section 4.8): the one under way is written whole, and what waits behind it is dropped.
 
 **What the host reads.** Two things in the objects, in both directions, and nothing else:
 
@@ -1050,8 +1174,8 @@ no reason.
 
 **Size.** A message is at most 1 MiB (1 048 576 bytes), counted on its JSON text before the escapes of
 Section 4.5, in either direction: what the page posted, or the payload the program wrote with each
-escape counted as the character it stands for (a program has to write ASCII, and is not held to less
-than a page that need not). The escapes the host adds when it writes a page's message into the
+escape counted as the UTF-8 bytes of the character it stands for (`\u00e9` counts 2, a surrogate pair
+4, `\u007f` 1; a program has to write ASCII, and is not held to less than a page that need not). The escapes the host adds when it writes a page's message into the
 program's input are not counted, and the limit toward the program leaves room for them
 (Section 4.6): a message within the limit is always written. The
 host writes the message otherwise as it came, except that it leaves out the tab, line feed and
@@ -1061,6 +1185,11 @@ message of the view over it, a page's or a component's, is one nobody could answ
 waited for the answer would wait for ever, so the host does what it does to a view that goes over
 any limit it is held to: it ends the view and tells the program `closed` with `reason` `error` and
 `code` `view` (Section 8.8), and the message is not written.
+
+**Depth.** A message whose arrays and objects nest 128 levels deep or more, the outermost counting as
+the first, is no message in either direction (Section 4.5): the host drops it, as it drops a text that
+is not a complete JSON object. It is the depth at which the common JSON parsers stop, so that every end
+agrees on what a message is without building a tree. A sender MUST NOT write one.
 
 ### 9.4 The bridge of a page
 
@@ -1086,9 +1215,14 @@ The members:
 `context`, `close` and `link` are the host's own messages, and their names are reserved to the host:
 
 - A message of the page that is an object with exactly one member, named `context`, `close` or
-  `link`, is the host's to handle and is not passed to the program. Any other object, with whatever
-  members, is passed to the program as a `msg` (Section 9.3), where it is the program's business
-  to ignore what it does not know. What is not an object is dropped.
+  `link`, is the host's to handle and is not passed to the program. An object counts as having one
+  member when the page's own parser would find one: a name written twice (`{"close":{},"close":1}`) is
+  one member, the last of them being its value, and a name written with escapes (`"clos\u0065"`) is
+  the name it stands for. Any other object, with whatever members, is passed to the program as a
+  `msg` (Section 9.3), where it is the program's business to ignore what it does not know: an
+  object with a host name and another member (`{"context":{},"x":1}`) is such an object, and reaches
+  the program. What is not an object is dropped. A page SDK sends the host's own messages as the
+  only member of an object, so that nothing it sends is mistaken for the program's.
 - A message of the program whose payload is an object with exactly one member, named `context`,
   `close` or `link`, is dropped: the page must be able to tell the host's `context` from the
   program's words.
@@ -1115,8 +1249,9 @@ in this order.
 - `mode`: `dark` when the pane's default background is darker than its default foreground, by
   relative luminance, `light` otherwise;
 - `colors`: the roles of the terminal's theme, each a colour as `#rrggbb` in sRGB: `background`,
-  `foreground`, `dim`, `accent`, `border`, `success`, `error`, `warning` and `info`, then `selection`,
-  and `ansi`, the sixteen colours of its palette as an array of such strings (Section 11.2);
+  `foreground`, `dim`, `accent`, `cursor`, `border`, `success`, `error`, `warning` and `info`, then
+  `selection`, and `ansi`, the sixteen colours of its palette as an array of such strings
+  (Section 11.2);
 - `font`: the terminal's monospace font as a CSS `font-family` list. Left out when the host does not
   know it;
 - `size`: `width` and `height`, the content area of the pane in CSS pixels;
@@ -1132,7 +1267,7 @@ starts listening only after it has loaded asks for it again by sending `{"contex
 answers with the current one.
 
 ```message fixtures/bridge/context.json
-{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#1f3d5c","ansi":["#484f58","#ff7b72","#3fb950","#d29922","#58a6ff","#bc8cff","#39c5cf","#b1bac4","#6e7681","#ffa198","#56d364","#e3b341","#79c0ff","#d2a8ff","#56d4dd","#f0f6fc"]},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
+{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","cursor":"#79c0ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#1f3d5c","ansi":["#484f58","#ff7b72","#3fb950","#d29922","#58a6ff","#bc8cff","#39c5cf","#b1bac4","#6e7681","#ffa198","#56d364","#e3b341","#79c0ff","#d2a8ff","#56d4dd","#f0f6fc"]},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
 ```
 
 ```message fixtures/bridge/context-request.json
@@ -1143,7 +1278,7 @@ A host that knows only the background and the foreground of its theme sends the 
 selection and the palette made up (Section 11.2) and leaves out the members it does not know:
 
 ```message fixtures/bridge/context-defaults.json
-{"context":{"mode":"light","colors":{"background":"#ffffff","foreground":"#1f2328","dim":"#6a6c70","accent":"#58a6ff","border":"#d2d3d4","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#c7e1ff","ansi":["#000000","#cd0000","#00cd00","#cdcd00","#0000ee","#cd00cd","#00cdcd","#e5e5e5","#7f7f7f","#ff0000","#00ff00","#ffff00","#5c5cff","#ff00ff","#00ffff","#ffffff"]},"size":{"width":640,"height":480},"reduceMotion":true}}
+{"context":{"mode":"light","colors":{"background":"#ffffff","foreground":"#1f2328","dim":"#6a6c70","accent":"#58a6ff","cursor":"#58a6ff","border":"#d2d3d4","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#c7e1ff","ansi":["#000000","#cd0000","#00cd00","#cdcd00","#0000ee","#cd00cd","#00cdcd","#e5e5e5","#7f7f7f","#ff0000","#00ff00","#ffff00","#5c5cff","#ff00ff","#00ffff","#ffffff"]},"size":{"width":640,"height":480},"reduceMotion":true}}
 ```
 
 ### 9.6 `close`
@@ -1159,8 +1294,10 @@ program is told and decides what it does. A `close` while no view is open change
 ### 9.7 `link`
 
 `{"link":{"url":"…"}}`: the page asks the host to open a link in the person's browser. The only way out of a page
-is through here (Section 12.3): the host MUST accept only `http:` and `https:` URLs, of printable
-ASCII, at most 8192 bytes, drops any other, SHOULD ask the person, and opens an accepted one in the person's
+is through here (Section 12.3): the host MUST accept only a URL that begins with `http://` or
+`https://` (the scheme in either letter case), whose every byte is printable ASCII without the space
+(0x21 to 0x7E) and that is at most 8192 bytes long, drops any other, SHOULD ask the person, and opens
+an accepted one in the person's
 default browser on the person's machine, never on the machine the program runs on. The host does not
 answer the page: whether the person agreed is not the page's to learn. A host MAY bound how many
 questions about links are open at once and drop the rest.
@@ -1190,13 +1327,22 @@ Whatever ends a view, the host:
 
 1. tears the view down and stops serving its bundle. The view is not told and not waited for: it is
    stopped, and what it had in flight is lost with it;
-2. if the program is still there and the cause was not the program's own end,
-   writes `closed` into its input (Sections 10.5, 10.6 and 10.8);
+2. if the program is still there and the cause was neither the program's own end nor a restart
+   (Section 10.7), writes `closed` into its input (Sections 10.5, 10.6 and 10.8);
 3. forgets the view's token: the one that opened it (Section 6.1), and no other.
 
 A `hello` that arrives after the view is gone is answered at once (Section 10.1), and it shows that a
 program is reading the tty. The token it gets is not the view's: it is still good after step 3, and
 the end of the view does not make that program ended, whatever the cause (Section 4.8).
+
+**The `re` of a `closed`.** A `closed` carries `re` when it answers something that is outstanding.
+One that answers a `dismiss` or a `bye` has the id of that message. Any other `closed` that ends a
+view that has not yet run (it is still opening: refused, its files wrong or late, the person's
+refusal, a failure, the person closing it) answers the `open` and has that `open`'s id as `re`. One
+that ends a view that is running (the person closing it, the page's `close`, a failure of the view)
+answers nothing and has no `re`. A program library therefore takes a `closed` with `re` equal to its `open`
+as the end of an opening view, and one without `re` as the end of the view that runs, and ignores a
+`closed` whose `re` is another message's.
 
 ### 10.3 The program ends
 
@@ -1214,8 +1360,9 @@ whichever comes first:
   command finished (OSC 133 `D`), the tty's foreground process group changed, or the
   stream ended.
 
-Either way the host closes the view as Section 10.2 says; its step 2 does not
-apply, because the program is gone.
+Either way the host closes the view as Section 10.2 says. For the host's own observation its step 2
+does not apply, because the program is gone; for a `bye` the host believes, the answer below takes the
+place of step 2.
 
 A program that is killed with SIGKILL, or crashes, sends nothing, so a host that
 has no observation would leave the view open for ever; every host MUST let the
@@ -1238,7 +1385,10 @@ program that has said it ended; every frame it wrote before comes ahead of it in
 A program library that sent `bye` SHOULD therefore **read, and throw away, its input until that
 `closed` comes**, for a time it chooses (500 ms is RECOMMENDED), then discard what is left of its
 unread input (`tcflush` with `TCIFLUSH`), restore the terminal and exit. Reading up to the
-`closed` empties the queue; the flush covers a host that never answers. A host's answer that comes
+`closed` empties the queue; the flush covers a host that never answers. A `closed` that has no `re`
+ends the wait as well: if the person closed the view as the `bye` went out, the host has no view
+left that the `bye` could end, ignores it (above), and answers nothing; the `closed` it wrote for the
+person is the last frame, and the wait is over when it has been read. A host's answer that comes
 after the program stopped reading is the one frame this document cannot keep from a shell, which
 is why the wait is long enough to make that rare and short enough for a person not to see it.
 
@@ -1248,8 +1398,8 @@ is why the wait is long enough to make that rare and short enough for a person n
 
 ### 10.4 Interrupt
 
-⌃C goes to the program. With `ISIG` on, the tty turns the character into SIGINT
-for the foreground process group. A program library that opened a view SHOULD
+⌃C goes to the program, and so do ⌃\ and ⌃Z (Section 11.3). With `ISIG` on, the tty turns
+the characters into SIGINT, SIGQUIT and SIGTSTP for the foreground process group. A program library that opened a view SHOULD
 handle SIGINT by sending `bye` with reason `signal`, waiting for its answer and throwing away what
 it has not read (Section 10.3), restoring the terminal (Section 4.9), leaving the alternate screen
 (Section 6.5) and exiting. The host writes the character ahead of anything of the view's component
@@ -1260,6 +1410,14 @@ A program that goes on after the signal keeps its view on the screen but hears n
 it: the host cannot tell what the program wrote before it took the signal from what it writes
 after, so it does not start writing the component's words again. A program that wants its view
 to talk to it again ends it (`dismiss`, Section 10.8) and opens a new one.
+
+SIGTSTP (⌃Z) stops the program, and a stopped program cannot take the view's words or answer them.
+A program library that has a view up SHOULD therefore handle SIGTSTP: it ends the view (`dismiss`,
+or `bye` to a host that lists no `dismiss`, and waits for the answer as it does for SIGINT),
+throws away what it has not read, gives the terminal back (the tty's modes, the alternate screen)
+and stops. When it is continued it takes the terminal again, sends a new `hello` and opens its view
+anew (Section 10.8). SIGQUIT is the program's as for any program: a program that does not handle it
+ends, and the host learns of that as of any end (Section 10.3).
 
 ### 10.5 The person closes the view
 
@@ -1298,7 +1456,7 @@ open, SHOULD apply the checks of Section 6.2, and gives up if no `open` arrives
 in a time of its choosing.
 
 ```frame fixtures/to-program/welcome-restart.frame
-<ESC>_pencere;welcome;id=2;{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[{"kind":"web","versions":["1.0"]}],"restart":true}<ESC>\
+<ESC>_pencere;welcome;id=2;{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}],"restart":true}<ESC>\
 ```
 
 ### 10.8 The program closes its view
@@ -1338,7 +1496,14 @@ sends `hello`, so that the `closed` of the view that ended is not taken for a wo
 
 A page is told what the host knows of the person's machine, not the program's, in its `context`
 (Section 9.5): the size of the pane, the theme and the font, `locale` and `timeZone`, which are the
-person's, and whether the person asked for less motion. A kit view is told the same by the kit.
+person's, and whether the person asked for less motion.
+
+A kit view is told less, and by the kit's own interface: each time it is asked to draw, the size of
+the pane (in points), the time and whether the person asked for less motion (`kit/wit/view.wit`,
+`render`). It is **not** told the person's language or time zone, the font or the `mode` of the
+theme, and it has no `context` message: it names a colour as a role of the theme, which the host
+resolves in the theme the pane wears (Section 8.8), and the host draws its text in the terminal's
+font. Where the two families have the same thing they have the same name: the roles of Section 11.2.
 
 ### 11.2 Theme
 
@@ -1352,6 +1517,7 @@ terminal's theme, as `#rrggbb` in sRGB:
 | `foreground` | default foreground                                                                                                                                                                                                              |
 | `dim`        | the dimmed foreground the terminal uses; made up as a third of the way from the foreground to the background                                                                                                                    |
 | `accent`     | the accent colour; made up as `info`                                                                                                                                                                                            |
+| `cursor`     | the cursor's colour; made up as `accent`                                                                                                                                                                                        |
 | `border`     | the colour of rules and borders; made up as a fifth of the way from the background to the foreground                                                                                                                            |
 | `success`    | the success colour; made up as `#3fb950`                                                                                                                                                                                        |
 | `error`      | the error colour; made up as `#f85149`                                                                                                                                                                                          |
@@ -1368,13 +1534,21 @@ zero), and a palette is all sixteen or the made-up one. The made-up palette is `
 surface a little lighter than the background — makes them itself. The roles are plain colours: a
 terminal theme has one mode.
 
+These are the roles of both families, under the same names: a kit view says `border`, `cursor`,
+`selection` and the sixteen colours of `ansi` (by xterm's names) as a page reads them in its
+`context`. The kit has three more, which are derived from the others and which a page makes for itself
+(`raised`, `quiet`, `shadow`): `kit/SPEC.md` says how they are derived.
+
 ### 11.3 Keyboard
 
 The keyboard divides three ways:
 
 - **The host's own shortcuts stay with the host.** The host does not deliver them
   to the view, and it does not tell the view which they are.
-- **⌃C goes to the program,** as the byte 0x03 written to the tty (Section 10.4).
+- **The tty's signal characters go to the program:** INTR (⌃C), QUIT (⌃\) and SUSP (⌃Z), as the
+  bytes the tty is set to take for them (0x03, 0x1C and 0x1A unless the program changed them),
+  written ahead of anything the view has said (Sections 4.8 and 10.4). The kernel makes of them the
+  signals the program has a handler for, whatever the view is showing.
 - **Every other key is the view's,** ⌘F included.
 
 ## 12. Sandbox and network consent
@@ -1390,10 +1564,14 @@ The host builds the policy of a page from what the person allowed. Without any `
 ```
 default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';
 connect-src 'self'; img-src 'self' data:; font-src 'self'; media-src 'self' data:;
-frame-src 'none'; object-src 'none'; base-uri 'self';
+frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none';
 ```
 
-(one line), where `'self'` is the page's own origin (Section 8.6). A page can always read its own
+(one line), where `'self'` is the page's own origin (Section 8.6). The host MUST deliver the policy
+as the `Content-Security-Policy` header of the response to every file it serves for the page, the
+entry included: a `<meta>` element in the page is the page's own writing and does not stand for it.
+`form-action` has no fallback in `default-src`, so it is written out: a form would otherwise submit
+the page to any address. A page can always read its own
 bundle, with `fetch` and `XMLHttpRequest` as well as with elements, whatever the person allowed;
 that is why `connect-src` and `font-src` have `'self'`, and it reaches no network. What the person
 allows of each list of the `access` is added to the directive it is for, and the policy is that one
@@ -1415,18 +1593,23 @@ The question names the origins and the capabilities, says where the program runs
 host name of the other one) and names the program as it called itself. A host SHOULD say when an origin is a
 loopback or private address and MAY refuse such names. An origin that is not of the form Section
 6.3 gives is not allowed, and the page is not told why. How long an answer is remembered is the
-host's policy; it SHOULD NOT carry from one program to another.
+host's policy; it SHOULD NOT carry from one program to another. A host SHOULD end an open that waits
+for the answer for longer than a time of its choosing with `closed`, `reason` `error`, `code`
+`timeout` (Section 8.4), as it does for files that do not arrive.
 
 ### 12.3 Files and navigation
 
-The view has no access to files and does not navigate to another document. The `link` message of the
-page (Section 9.7) is the only way out: the host MUST accept only `http:` and `https:` URLs, SHOULD
+The view has no access to files and does not navigate to another document: after the load of its
+entry, the host MUST cancel every navigation of the web view, whatever starts it (a link the page
+follows, a change of `location`, a form, a script that opens a window). `form-action 'none'` in the
+policy (Section 12.1) says the same of forms to the web view itself. The `link` message of the
+page (Section 9.7) is the only way out: the host MUST accept only the URLs it describes, SHOULD
 ask the person, and opens them in the person's default browser on the person's machine, never on the
 machine the program runs on.
 
 ### 12.4 Origin, limits, indication
 
-A bundled view's origin is unique to it (Section 8.6). A host SHOULD bound the
+A page's origin is unique to it (Section 8.6); a view the host draws itself has none. A host SHOULD bound the
 CPU and memory of a view and
 SHOULD keep an indication outside the view's area that a view is shown and
 where its program runs, because a view that covers the pane could imitate the
@@ -1520,8 +1703,9 @@ a failed view's `closed` carries (`message`) are the view's own and are printed 
 by the host: a program that prints them treats them as it treats any text from another party.
 
 **Resource use.** Frame, message and bundle limits (Sections 4.6, 8.2) bound what a
-receiver buffers; hosts SHOULD also limit how often one pane may ask (answers to `hello`,
-`open`).
+receiver buffers, and the limit on what waits for a program that does not read (Section 4.8) bounds
+what a view can make the host keep; hosts SHOULD also limit how often one pane may ask (answers to
+`hello`, `open`).
 
 ## 15. Conformance
 
@@ -1578,8 +1762,9 @@ interface Welcome {
   version?: number; // present with token, absent with supported
   token?: string;
   host: { name: string; version: string };
-  features?: string[]; // "bundle" (Section 8.1), "dismiss" (Section 10.8)
-  views?: ViewOffer[]; // with token: the program's list cut down to what the host opens, in the program's order; may be empty (Section 5.2)
+  features?: string[]; // "dismiss" (Section 10.8)
+  views?: ViewOffer[]; // with token (always present then): the program's list cut down to what the host opens, in the program's order; may be empty (Section 5.2)
+  opens?: ViewOffer[]; // the kinds of the program's list that the host opens at none of its versions, with the versions it does open (Section 5.2); left out when none
   restart?: boolean; // true on an unsolicited welcome
   supported?: number[]; // present when no protocol version is shared
 }
@@ -1661,11 +1846,14 @@ interface Context {
     foreground: string;
     dim: string;
     accent: string;
+    cursor: string;
     border: string;
     success: string;
     error: string;
     warning: string;
     info: string;
+    selection: string; // the background of what the person selected (Section 11.2)
+    ansi: string[]; // the palette's sixteen colours, as "#rrggbb", in the order of Section 11.2
   };
   font?: string; // a CSS font-family list
   size: { width: number; height: number }; // CSS pixels
@@ -1683,7 +1871,8 @@ type PageToHost =
 ```
 
 Codes of `Closed`: for `refused`, those of Section 6.4; for `error`, `bundle` (Section 8.4), `view`
-(Section 8.8), `timeout` and `internal`. A receiver treats a code it does not know as the plain reason.
+(Section 8.8) and `timeout` (Sections 8.4 and 12.2). A receiver treats a code it does not know as the
+plain reason. (The codes of the `error` of a `response`, Section 9.2, are another thing.)
 
 ## Appendix B. The tty's input queue
 
@@ -1754,7 +1943,7 @@ messages left out are skipped.
 2. The host answers before it answers `CSI c`:
 
 ```frame fixtures/to-program/welcome.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["bundle","dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
 ```
 
 3. The program switches to the alternate screen and opens its view with the token, the kind and its
@@ -1782,7 +1971,7 @@ messages left out are skipped.
    origin the person allowed:
 
 ```message fixtures/bridge/context.json
-{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#1f3d5c","ansi":["#484f58","#ff7b72","#3fb950","#d29922","#58a6ff","#bc8cff","#39c5cf","#b1bac4","#6e7681","#ffa198","#56d364","#e3b341","#79c0ff","#d2a8ff","#56d4dd","#f0f6fc"]},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
+{"context":{"mode":"dark","colors":{"background":"#0d1117","foreground":"#c9d1d9","dim":"#8b949e","accent":"#58a6ff","cursor":"#79c0ff","border":"#30363d","success":"#3fb950","error":"#f85149","warning":"#d29922","info":"#58a6ff","selection":"#1f3d5c","ansi":["#484f58","#ff7b72","#3fb950","#d29922","#58a6ff","#bc8cff","#39c5cf","#b1bac4","#6e7681","#ffa198","#56d364","#e3b341","#79c0ff","#d2a8ff","#56d4dd","#f0f6fc"]},"font":"Menlo, monospace","size":{"width":800,"height":600},"locale":"en-US","timeZone":"Europe/Istanbul","reduceMotion":false,"access":{"connect":["https://api.example.com"]}}}
 ```
 
 7. The page calls the program; the host passes the call on as a `msg`, unread:

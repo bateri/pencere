@@ -14,9 +14,6 @@ use crate::view::{Access, Icon, Kind, is_version};
 /// The versions of the wire this library speaks (specification §5.4).
 pub(crate) const VERSIONS: &[u32] = &[1];
 
-/// The feature of a `welcome`: the terminal takes bundles (§8.1).
-pub(crate) const FEATURE_BUNDLE: &str = "bundle";
-
 /// The feature a terminal lists when it closes a view at the program's request (§10.8).
 pub(crate) const FEATURE_DISMISS: &str = "dismiss";
 
@@ -184,6 +181,9 @@ pub(crate) struct Offer {
     /// both speak, in the program's order; for an unsolicited `welcome`, every kind the terminal
     /// opens, in its own order. Empty when nothing is shared.
     pub(crate) views: Vec<Listed>,
+    /// The kinds of the program's list that the terminal opens, and at no version the program
+    /// speaks, each with the versions it does open (§5.2).
+    pub(crate) opens: Vec<Listed>,
     pub(crate) restart: bool,
 }
 
@@ -255,6 +255,7 @@ pub(crate) fn welcome(payload: &str) -> Option<Welcome> {
             token: token.to_owned(),
             features: strings(body.get("features")),
             views: listed(body.get("views")),
+            opens: listed(body.get("opens")),
             restart: body.get("restart") == Some(&Value::Bool(true)),
         }));
     }
@@ -278,6 +279,28 @@ pub(crate) fn choose(mine: &[(Kind, &[String])], theirs: &[Listed]) -> Option<(u
         }
     }
     None
+}
+
+/// The sentence for a program whose terminal opens kinds of its list, but not in the versions it
+/// speaks (§5.2): the versions of those kinds that it is written for, and those the terminal
+/// opens. `None` when the terminal named no such kind.
+pub(crate) fn no_version_sentence(mine: &[(Kind, &[String])], opens: &[Listed]) -> Option<String> {
+    let (mut wanted, mut held) = (Vec::new(), Vec::new());
+    for (kind, versions) in mine {
+        let Some(host) = opens.iter().find(|offer| offer.kind == kind.name()) else {
+            continue;
+        };
+        wanted.push(format!("{} {}", kind.name(), versions.join(" or ")));
+        held.push(format!("{} {}", kind.name(), host.versions.join(" or ")));
+    }
+    if wanted.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "this program is written for {}; this terminal opens {}",
+        wanted.join(", "),
+        held.join(", ")
+    ))
 }
 
 /// Reads a `need`: the digests the terminal lacks, in its order.
@@ -530,15 +553,40 @@ mod tests {
     }
 
     #[test]
+    fn the_versions_of_both_sides_are_said_in_words_for_the_kinds_the_terminal_named() {
+        let mine = vec!["2.0".to_owned(), "3.0".to_owned()];
+        let web = vec!["1.0".to_owned()];
+        let program: Vec<(Kind, &[String])> = vec![(Kind::Wasm, &mine), (Kind::Web, &web)];
+        let opens = [
+            Listed {
+                kind: "wasm".into(),
+                versions: vec!["1.0".into(), "1.1".into()],
+            },
+            Listed {
+                kind: "lua".into(),
+                versions: vec!["1.0".into()],
+            },
+        ];
+        // Only a kind that the program lists and the terminal named: `lua` is not the program's.
+        assert_eq!(
+            no_version_sentence(&program, &opens).as_deref(),
+            Some(
+                "this program is written for wasm 2.0 or 3.0; this terminal opens wasm 1.0 or 1.1"
+            )
+        );
+        assert_eq!(no_version_sentence(&program, &[]), None);
+    }
+
+    #[test]
     fn a_welcome_is_read_as_the_fixtures_have_it() {
         let offer = welcome(
-            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"t","version":"0"},"features":["bundle","dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}"#,
+            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"t","version":"0"},"features":["dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}"#,
         );
         let Some(Welcome::Offer(offer)) = offer else {
             panic!("an offer");
         };
         assert_eq!(offer.token, "q7Vh2sB0xJm9kLw4TzN1cA");
-        assert!(offer.features.iter().any(|f| f == FEATURE_BUNDLE));
+        assert!(offer.features.iter().any(|f| f == FEATURE_DISMISS));
         assert_eq!(offer.views.len(), 2);
         assert!(!offer.restart);
 

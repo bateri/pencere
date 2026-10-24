@@ -214,16 +214,6 @@ fn a_restart_offers_what_a_hello_that_listed_everything_is_offered() {
     assert_eq!(offered["restart"], true);
     assert_eq!(offered["views"], welcome["views"]);
     assert_eq!(offered["views"].as_array().unwrap().len(), 3);
-    // A host that does not take bundles offers nothing, at a restart as to a hello.
-    let mut none = Rig::with({
-        let mut config = config(&kinds);
-        config.bundle = false;
-        config
-    });
-    none.host.restart();
-    let (wrote, _) = none.take();
-    let offered: Value = serde_json::from_str(&wrote[0].payload).unwrap();
-    assert_eq!(offered["views"], json!([]));
 }
 
 #[test]
@@ -390,6 +380,54 @@ fn the_end_of_a_view_tells_the_program_why() {
 }
 
 #[test]
+fn a_welcome_says_the_versions_a_kind_opens_at_when_the_program_speaks_none_of_them() {
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    // The program speaks wasm 9.9 and web 1.0: the host opens wasm, at 0.5 only.
+    let welcome = rig.hello_with(&json!([
+        {"kind": "wasm", "versions": ["9.9"]},
+        {"kind": "lua", "versions": ["9.9"]},
+        {"kind": "web", "versions": ["1.0"]},
+    ]));
+    assert_eq!(
+        welcome["views"],
+        json!([{"kind": "web", "versions": ["1.0"]}])
+    );
+    // Only a kind the host opens is named, with the versions it opens, in its own order; `lua`
+    // is not opened at all and `web` is shared.
+    assert_eq!(
+        welcome["opens"],
+        json!([{"kind": "wasm", "versions": ["0.5"]}])
+    );
+    // A program that shares a version of every kind it lists is told nothing of the sort.
+    let welcome = hello(&mut rig);
+    assert!(welcome.get("opens").is_none(), "{welcome}");
+}
+
+#[test]
+fn a_view_whose_words_wait_for_a_program_that_does_not_read_is_closed() {
+    use pencere_host::session::MAX_BACKLOG;
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    up(&mut rig, &json!({}));
+    // What waits, up to the limit, is waited for.
+    rig.host.backlog(MAX_BACKLOG);
+    let (wrote, acted) = rig.take();
+    assert!(wrote.is_empty() && !acted.contains(&Action::DestroyView));
+    // Past it the view is closed as a view that failed is.
+    rig.host.backlog(MAX_BACKLOG + 1);
+    let (wrote, acted) = rig.take();
+    assert!(acted.contains(&Action::DestroyView), "{acted:?}");
+    assert_eq!(wrote.len(), 1);
+    assert_eq!(wrote[0].kind, "closed");
+    let body: Value = serde_json::from_str(&wrote[0].payload).unwrap();
+    assert_eq!(body["reason"], "error");
+    assert_eq!(body["code"], "view");
+    // A view that is gone has nothing to close.
+    rig.host.backlog(MAX_BACKLOG + 1);
+    let (wrote, acted) = rig.take();
+    assert!(wrote.is_empty() && acted.is_empty());
+}
+
+#[test]
 fn a_host_that_does_not_show_components_leaves_them_out_and_refuses_one() {
     let mut rig = rig(&[ViewKind::Web]);
     assert_eq!(hello(&mut rig)["views"], offers(&[ViewKind::Web]));
@@ -471,7 +509,7 @@ fn the_welcome_lists_the_kinds_the_host_opens_among_the_ones_the_program_listed_
     let mut web = rig(&[ViewKind::Web]);
     let welcome = hello_with(&mut web, &["lua", "gopher", "wasm", "web", "wasm", "web"]);
     assert_eq!(welcome["views"], offers(&[ViewKind::Web]));
-    assert_eq!(welcome["features"], json!(["bundle", "dismiss"]));
+    assert_eq!(welcome["features"], json!(["dismiss"]));
 }
 
 #[test]
@@ -486,18 +524,6 @@ fn a_host_that_opens_nothing_the_program_listed_still_answers_with_an_empty_list
         &json!({ "token": TOKEN, "view": "wasm", "version": KIT, "bundle": one_file_bundle("view.wasm", "application/wasm") }),
     );
     assert_eq!(refusal(&mut web), "unsupported");
-}
-
-#[test]
-fn a_host_without_bundles_does_not_offer_any_kind() {
-    let mut config = config(&[ViewKind::Wasm, ViewKind::Web]);
-    config.bundle = false;
-    let mut rig = Rig::with(config);
-    let welcome = hello_with(&mut rig, &["wasm", "web"]);
-    // Every kind of view arrives as a bundle: a host that takes none opens none.
-    assert_eq!(welcome["views"], json!([]));
-    assert_eq!(welcome["features"], json!(["dismiss"]));
-    assert!(welcome["token"].is_string());
 }
 
 #[test]

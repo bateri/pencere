@@ -96,8 +96,45 @@ function isLow(code: number): boolean {
   return code >= 0xdc00 && code <= 0xdfff;
 }
 
-/** Parses `text` as JSON and returns it if it is an object (not an array, not `null`). */
+/**
+ * How deep the arrays and objects of a JSON text may nest before no receiver of the protocol
+ * takes it (§4.5): a text that nests this many levels or more, the outermost counting as the
+ * first, is dropped.
+ */
+export const MAX_DEPTH = 128;
+
+/**
+ * Whether `text` nests arrays and objects {@link MAX_DEPTH} levels deep or more. It reads text that
+ * may not be JSON: brackets inside a string are not counted, and nothing is checked.
+ */
+export function nestsTooDeep(text: string): boolean {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let at = 0; at < text.length; at++) {
+    const char = text.charCodeAt(at);
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === 0x5c) escaped = true;
+      else if (char === 0x22) inString = false;
+    } else if (char === 0x22) {
+      inString = true;
+    } else if (char === 0x5b || char === 0x7b) {
+      depth++;
+      if (depth >= MAX_DEPTH) return true;
+    } else if ((char === 0x5d || char === 0x7d) && depth > 0) {
+      depth--;
+    }
+  }
+  return false;
+}
+
+/**
+ * Parses `text` as JSON and returns it if it is an object (not an array, not `null`, not nested
+ * as deep as {@link MAX_DEPTH}).
+ */
 export function parseObject(text: string): Record<string, unknown> | undefined {
+  if (nestsTooDeep(text)) return undefined;
   let value: unknown;
   try {
     value = JSON.parse(text);

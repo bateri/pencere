@@ -1,0 +1,160 @@
+# The pencere kit: the page API, colours and sandbox floors
+
+Version `1.0` of the kinds `lua` and `wasm` ([the protocol](../spec/draft/pencere.md), Sections 5.5
+and 8.8). This document is normative for what the protocol leaves to the kit: with the interface
+[`wit/view.wit`](wit/view.wit) for `wasm` views, and with the prelude [`luau/prelude`](luau/prelude)
+for `lua` views. The key words are those of Section 2 of the protocol. A statement here that the
+interface or the prelude contradicts is a mistake in this document.
+
+The kit is what a view of the kinds `wasm` and `lua` is written against. It does not draw: the
+view says what the page is, and the host lays it out, resolves its colours in the theme of the pane
+and draws it. A host that keeps the rules of this document and the sandbox floors shows the same
+page as any other.
+
+## 1. Versions
+
+| Kind   | The version `1.0` is                                                           | Source of truth               |
+| ------ | ------------------------------------------------------------------------------ | ----------------------------- |
+| `wasm` | the component interface `pencere:view@1.0.0`                                   | `wit/view.wit`                |
+| `lua`  | the page API whose `pencere.version` is `1`, in Luau `0.740` (`kit/luau/pins`) | `luau/prelude`, this document |
+
+The two kinds are numbered apart (protocol, Section 5.4). `lua` `1.x` is bound to the release of
+Luau that the kit pins: a script that needs syntax or a library function a later Luau added is not a
+`lua` `1.x` script, and such a Luau arrives with a new minor version of `lua`. A host SHOULD run the
+kit's own interpreter, the component `kit/sandbox/luau/luau.wasm`, so that a script means one thing
+on every host.
+
+## 2. The Lua page API
+
+A script is Luau. What it can use besides the language is the base functions, `string`, `table`,
+`math`, `utf8`, and `pencere`, the table the prelude fills. It has no files, no network, no clock
+but the one `render` is handed, and no randomness.
+
+A script **returns the page**, a table of the functions the host calls:
+
+| Function                                                              | Called when                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `render(size, now, reduce_motion) -> element[, animating[, wake_at]]` | The host draws. `size` is `{ w =, h = }` in points, `now` seconds on the host's clock, `reduce_motion` the person's setting. `animating` asks for the next frame at once; a page at rest costs no frames. `wake_at` (a time on `now`'s clock) asks a page at rest to be rendered once more then. |
+| `settle() -> boolean` (optional)                                      | The page was laid out: bring back what depends on the layout. `true` when something changed.                                                                                                                                                                                                     |
+| `handle(event) -> reply` (optional)                                   | The person did something. See Section 2.3.                                                                                                                                                                                                                                                       |
+| `message(message) -> reply` (optional)                                | The program said something that no `pencere.call` or `pencere.subscribe` of the page was waiting for. `message` is the decoded JSON.                                                                                                                                                             |
+| `room() -> reply` (optional)                                          | The program has read enough that a message `pencere.send` answered `false` to may be sent again.                                                                                                                                                                                                 |
+
+### 2.1 Elements
+
+An element is a plain table that a chain of builder methods fills. Lengths are points.
+
+| Constructor                      | Element                                                               |
+| -------------------------------- | --------------------------------------------------------------------- |
+| `pencere.div()`                  | A box: a column of its children until told otherwise.                 |
+| `pencere.text(string \| number)` | One line of text, in the font, size and colour of the boxes it is in. |
+| `pencere.spark(values, color)`   | A sparkline of numbers, newest last; `:peak(value)` is its largest.   |
+| `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 8.8).   |
+| `pencere.spacer()`               | A box that takes the room left over.                                  |
+
+The builders return the element. Layout: `row`, `col`, `wrap`, `grid(columns)`, `grid_rows(rows)`,
+`span`, `hidden`, `items_start|center|end|stretch`, `justify_start|center|end|between`, `gap`,
+`gap_x`, `gap_y`, `grow`, `no_shrink`, `w`, `h`, `size`, `w_pct`, `w_full`, `h_full`, `size_full`,
+`min_w`, `min_h`, `max_w`, `p`, `px`, `py`, `pt|pr|pb|pl`, `mt|mr|mb|ml`, `absolute`, `inset`, `clip`,
+`scroll_y(offset)`. Looks: `bg`, `border(width, color)`, `rounded`, `rounded_corners`,
+`shadow(dx, dy, blur, color)`. Text, which the elements inside inherit: `text_size`, `weight`,
+`color`, `family("system" | "terminal")`, `align("start" | "center" | "end")`, `truncate`. Images:
+`fit("contain" | "cover")`, `tint(color)`, `opacity(0..1)`. Names and answers: `id`, `press(id)`,
+`focusable`, `text_field`. Children: `child`, `children`. A grid track is a number (points),
+`pencere.fr(n)`, `pencere.range(least, n)` or `"auto"`.
+
+### 2.2 What a page remembers, and asks of the layout
+
+`pencere.Ui`, `pencere.Fades` and `pencere.Rows` keep what a page needs between frames (pointer and
+keyboard state, eased levels, the heights of a long list). `pencere.layout` answers what is where on
+the page as it was last laid out: `hit`, `ids_at`, `bounds`, `scroll_extent`, `focus_order`,
+`path_of`, `text_field`. They are defined by the prelude.
+
+### 2.3 Events and replies
+
+`handle` is given `{ type = ..., ... }` in the page's points:
+
+| `type`             | Members                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `move`, `leave`    | `x`, `y` (`leave` has none)                                                                                                                            |
+| `press`, `release` | `x`, `y`, `button` (`"left"` or `"right"`), `mods`                                                                                                     |
+| `scroll`           | `x`, `y`, `dy`: the points the content moves up by                                                                                                     |
+| `key`              | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, or the character), `mods` |
+| `text`             | `text`: the text of the host's field                                                                                                                   |
+| `menu`             | `index` (from 1) of the entry picked from the menu the page asked for                                                                                  |
+
+`mods` is `{ shift =, control =, alt =, command = }`. A reply is `nil` (nothing changed), `true` or
+`false` (a frame is worth drawing or not), or a table: `redraw`, `close`, `copy` (text for the
+pasteboard), `cursor` (`"arrow"`, `"pointer"` or `"text"`), `keyboard` (`"page"` or `"field"`), and
+`menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" } }`.
+
+### 2.4 The program
+
+What the page says to its program is the six messages of the protocol (Section 9.2):
+`pencere.call(method, params, done, progress)` asks and is answered once, `pencere.subscribe(topic,
+params, on_value)` asks to hear a topic, `pencere.cancel(id)` gives either up, `pencere.json` encodes
+and decodes JSON. A message the program cannot take yet waits its turn (`pencere.send`, the raw word,
+says whether it took the message), and the host holds the page to the limits of Section 5.
+
+## 3. Colours
+
+A colour is said in one of these ways, wherever one is taken:
+
+| Form                                                | Meaning                                                                                           |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `"accent"`, `"red"`, `"raised2"`, …                 | A **role** of the theme. The way to prefer: it follows the theme the pane wears.                  |
+| `"#rrggbb"`, `"#rrggbbaa"`                          | A **value**, sRGB, in either letter case; the last pair is the alpha.                             |
+| `{ light = "#…", dark = "#…" }`                     | A value for a light theme and, if the page wants one, another for a dark theme (`dark` optional). |
+| `{ colour, alpha }`, `pencere.alpha(colour, alpha)` | Any of the above with an opacity of `0` to `1` on top.                                            |
+
+The opacity is **multiplied** with the alpha of a value: `pencere.alpha("#80808080", 0.5)` is drawn at a
+quarter of full opacity.
+
+The roles are the nine of the theme and what is derived from them:
+
+- the theme's own: `background`, `foreground`, `dim`, `accent`, `cursor`, `success`, `error`, `info`,
+  `warning` — and `selection`, the ground of what the person selected, and `border`, the colour of
+  rules and borders. These have the **same names as in a page's `context`** (protocol, Sections 9.5
+  and 11.2);
+- the sixteen colours of the ANSI palette by xterm's names: `black`, `red`, `green`, `yellow`,
+  `blue`, `magenta`, `cyan`, `white`, and the same eight prefixed `bright-`;
+- the kit's three derived tones, below: `raised<n>` (`pencere.raised(n)`, in the interface
+  `raised(n)`), `quiet` and `shadow`.
+
+A name that is none of these is an error at the line of the script that wrote it.
+
+### 3.1 The derived tones (RECOMMENDED)
+
+The host resolves a role in its theme, and may choose the derived ones as it likes. A host SHOULD
+use these formulas, so that the same page looks alike on every host. `mix(a, b, t)` is the colour `t`
+of the way from `a` to `b`, each channel rounded to the nearest value (halves away from zero), the
+channels in sRGB.
+
+| Tone        | Meaning                                                                   | Formula                                                          |
+| ----------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `raised(n)` | A surface `n` steps above the background; a card is 1, a field on it is 2 | `mix(background, foreground, 0.04 × min(n, 8))`                  |
+| `quiet`     | Text a step quieter than `dim`: readable and not standing out             | `mix(dim, background, 1/3)`                                      |
+| `border`    | The hairline between things                                               | `mix(background, foreground, 1/5)` (the page's made-up `border`) |
+| `shadow`    | The colour a shadow is cast in                                            | black on a dark theme; the `foreground` on a light one           |
+
+`raised(n)` has an **upper bound**: a host MUST accept any `n` from 0 to 255 (the interface carries
+a byte, and so does the Lua name `raised<n>`) but treats an `n` above 8 as 8, and a page uses `1` to
+`4` in practice. Because a surface is lighter than the ground on a dark theme and darker on a light
+one, the formula uses the foreground as the end it moves toward. `border` here is the role the
+interface calls `border`: the page's `context` names the same colour with the same name.
+
+When the theme gives a role (`border` among them), the theme's colour is the role; the formulas are
+for the roles a host has to make up and for the tones that no theme gives.
+
+## 4. What a host gives a view at least
+
+The sandbox floors are those of the protocol, Section 8.8 (memory 64 MiB, a call 250 ms, the start 2 s,
+20 000 elements to a frame, a tree 128 deep, a line of text 64 KiB, a component 4 MiB, 32 messages to
+the program to a call, a message 1 MiB, and the limits on pictures). A view that stays within them
+opens on every host. The values of this repository's implementation are the defaults of
+`ModuleLimits` in `kit/sandbox/src/sandbox.rs`.
+
+## 5. Pictures
+
+[`README.md`](README.md) describes how a page names a picture and how the host draws it; the limits
+and the formats are those of the protocol, Section 8.8.

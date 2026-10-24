@@ -252,7 +252,7 @@ fn an_image_fills_what_is_inside_its_padding_and_border() {
         image("a.png", Fit::Cover)
             .size(60.0, 40.0)
             .p(5.0)
-            .border(1.0, Role::Line),
+            .border(1.0, Role::Border),
     );
     let (_, drawn) = lone(root, &mut host, 1.0);
     assert_eq!(drawn[0].rect, Rect::new(6.0, 6.0, 48.0, 28.0));
@@ -269,15 +269,17 @@ fn an_image_that_takes_its_size_from_the_image_keeps_the_border_beside_it_and_it
         image("a.png", Fit::Contain)
             .w(60.0)
             .p(5.0)
-            .border(1.0, Role::Line),
+            .border(1.0, Role::Border),
     );
     let (at, drawn) = lone(root, &mut host, 1.0);
     assert_eq!(at, Rect::new(0.0, 0.0, 60.0, 36.0));
     assert_eq!(drawn[0].rect, Rect::new(6.0, 6.0, 48.0, 24.0));
     // And with no side given, the image's own size, and the border and padding on top of it.
-    let root = div()
-        .items_start()
-        .child(image("a.png", Fit::Contain).p(5.0).border(1.0, Role::Line));
+    let root = div().items_start().child(
+        image("a.png", Fit::Contain)
+            .p(5.0)
+            .border(1.0, Role::Border),
+    );
     let (at, drawn) = lone(root, &mut host, 1.0);
     assert_eq!(at, Rect::new(0.0, 0.0, 52.0, 32.0));
     assert_eq!(drawn[0].rect, Rect::new(6.0, 6.0, 40.0, 20.0));

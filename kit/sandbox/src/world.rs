@@ -230,7 +230,7 @@ fn role_out(role: &wit::Role) -> Role {
         wit::Role::Warning => Role::Warning,
         wit::Role::Raised(steps) => Role::Raised(*steps),
         wit::Role::Quiet => Role::Quiet,
-        wit::Role::Line => Role::Line,
+        wit::Role::Border => Role::Border,
         wit::Role::Shadow => Role::Shadow,
         wit::Role::Selection => Role::Selection,
         wit::Role::Black => Role::Black,

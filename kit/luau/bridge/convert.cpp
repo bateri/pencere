@@ -201,7 +201,7 @@ const NamedRole kRoles[] = {
     {"info", PENCERE_VIEW_TYPES_ROLE_INFO},
     {"warning", PENCERE_VIEW_TYPES_ROLE_WARNING},
     {"quiet", PENCERE_VIEW_TYPES_ROLE_QUIET},
-    {"line", PENCERE_VIEW_TYPES_ROLE_LINE},
+    {"border", PENCERE_VIEW_TYPES_ROLE_BORDER},
     {"shadow", PENCERE_VIEW_TYPES_ROLE_SHADOW},
     {"selection", PENCERE_VIEW_TYPES_ROLE_SELECTION},
     // The theme's ANSI palette.

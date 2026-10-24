@@ -1312,7 +1312,7 @@ fn with_note(list: Element, note: &str) -> Element {
             .py(6.0)
             .rounded(6.0)
             .bg(Role::Raised(2))
-            .border(1.0, Role::Line)
+            .border(1.0, Role::Border)
             .text_size(12.5)
             .color(Role::Foreground)
             .child(text(note)),
