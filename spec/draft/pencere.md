@@ -794,7 +794,8 @@ answers.
 The entry of a bundle is the view's own file, and its media type is that of the kind
 (Section 6.3): an HTML document for a page, a component for `wasm`, a script for `lua`. The host does
 not decide the kind from the entry, and it does not guess. A page may have other files, which it names
-by their paths; the other kinds have the entry only, unless the kit says otherwise.
+by their paths; the other kinds have the entry only, unless the kit says otherwise, which it does
+for the images of the kinds the host draws itself (Section 8.8).
 
 ### 8.8 Views the host draws itself
 
@@ -860,6 +861,44 @@ setting for the lowest contrast of text) resolves the grounds in its theme, lays
 other, and holds the colour of the line to its contrast with the result. That is a rule of the
 host, not of the kit: it applies to a line whether its colour is a role or a value, and only to
 lines of text; lines, fills, borders and the values of a chart are drawn as the page said them.
+
+**Images.** A view of the kit shows pictures. An element of its page names a file of the view's own
+bundle by the path the manifest gives it (`icons/stop.svg`), and the host draws that file in the
+element's box. It is the one thing of its bundle besides its entry that such a view reaches, and the
+view does not reach it: the view's code has no file system and is handed no bytes, the host reads the
+file out of the bundle it holds and decodes it. There is no network, so an image is a file of the
+bundle and nothing else, and a path the manifest does not name is an image that is not there.
+
+- _Formats._ PNG, JPEG and SVG, told from the bytes and not from the name or the `type` of the file.
+  An SVG draws its shapes: no text in it is drawn and no font is loaded for it, and an `<image>`
+  inside it is never loaded, whether it names a path, a URL or carries its data. Nothing else is read
+  (not GIF or WebP, not a compressed SVG), and a PNG that is an animation shows its first picture.
+- _Limits._ No image is wider or taller than 4096 pixels (an SVG is drawn at most that size), a file
+  is at most 8 MiB as any file of a bundle is (Section 8.2), and the decoded pixels of a view, 4 bytes a
+  pixel, are at most 64 MiB at a time; a view names at most 1024 different paths, as many as a bundle
+  has files. A host MAY hold a view to less, and every host that
+  uses the kit holds it to these. An image that is past a limit, or that cannot be read, leaves its
+  box empty and gives the person who wrote the view a diagnostic with the reason; the view is not
+  closed for it and nothing is written to the screen the program shares with the shell.
+- _Size._ The element's size is the style's. A side the style does not say follows the picture's
+  proportions, and an element that says neither is the picture's own size in pixels, one point to a
+  pixel (for an SVG the width and height it says). The sizes are known only once the files are
+  decoded, which is not on the thread that draws: the page is laid out first as it is, with the
+  room of the pictures that are not known as the style gives it, and once more when they are. A page
+  at rest asks for nothing and so is drawn no more often than before.
+- _Sharp pictures._ A page is written in points. A host draws a picture at the pixels it comes to,
+  and a PNG or a JPEG has the pixels it has: to be sharp on a display with two pixels to the point it
+  is given a size in points and sent with twice the pixels (a 24-point icon is a 48-pixel file).
+  An SVG needs nothing of the kind: it is drawn at the size it comes to on the display, and drawn
+  again when that changes.
+- _Fit._ `contain`, the default, draws all of the picture as large as the box lets it be with its
+  proportions kept, in the middle of the box. `cover` fills the box with the proportions kept, and
+  what does not fit is cut off evenly on both sides.
+- _Tint._ A picture may be given a colour (a role or a value, as for any colour above): it is then a
+  shape, and every pixel of it is that colour, with the opacity the picture has at that pixel. It is
+  how an icon of one colour follows the theme. A tint is not a line of text, and the rule for the
+  readability of text does not apply to it. A picture may also be given an opacity of its own, `0`
+  to `1`.
 
 **Ending.** Section 10.2 runs as for any view: the view is not told and not waited for, it is stopped.
 A view that fails (a component traps, goes over a limit the host holds it to, or hands the host

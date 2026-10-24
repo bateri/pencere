@@ -16,6 +16,8 @@
 //! This crate knows no window, no renderer and no terminal: it depends on the engine and on the
 //! runtime, and moves out of the workspace with the engine.
 
+mod decode;
+mod images;
 mod luau;
 mod module;
 mod sandbox;
@@ -25,10 +27,13 @@ mod world;
 #[cfg(test)]
 mod guests_tests;
 #[cfg(test)]
+mod images_tests;
+#[cfg(test)]
 mod luau_containers_tests;
 #[cfg(test)]
 mod luau_tests;
 
+pub use images::{Arrived, Assets, Bitmap, Diagnostic, ImageLimits, Images};
 pub use luau::COMPONENT as LUAU_COMPONENT;
 pub use module::{Answer, Frame, Module, Runner, Update};
 pub use sandbox::{Fault, Limits, Program, Unbounded};

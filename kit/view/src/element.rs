@@ -1,7 +1,8 @@
 //! The page's elements and the chain that writes them: `div().row().gap(8.0).child(...)`.
 //!
-//! A page is a tree of three kinds of element — a **box** ([`div`]), a line of **text**
-//! ([`text`]) and a small **sparkline** ([`spark`]). Every value is in points. A box lays
+//! A page is a tree of four kinds of element — a **box** ([`div`]), a line of **text**
+//! ([`text`]), a small **sparkline** ([`spark`]) and an **image** ([`image`]). Every value is in
+//! points. A box lays
 //! its children out as flexbox or as a grid (the way a style sheet would), paints a fill, a
 //! border and a shadow, and sets the text of the boxes under it; a box is a column unless
 //! told otherwise.
@@ -17,6 +18,7 @@ pub enum Kind {
     Box,
     Text(String),
     Spark(Spark),
+    Image(Image),
 }
 
 /// The data of a sparkline: values over time, newest last, drawn as a line with the area
@@ -28,6 +30,31 @@ pub struct Spark {
     /// The value the top of the box stands for; the largest value (plus a little head room)
     /// when `None`.
     pub peak: Option<f32>,
+}
+
+/// How an image fills the box it is given.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Fit {
+    /// The whole image, as large as the box lets it be with its proportions kept; what the box
+    /// has left over stays empty.
+    #[default]
+    Contain,
+    /// The box filled, the proportions kept: what does not fit the box is cut off, evenly on
+    /// both sides.
+    Cover,
+}
+
+/// The data of an image: a file of the view's bundle, drawn into the element's box.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Image {
+    /// The path of the file in the view's bundle, as its manifest names it.
+    pub src: String,
+    pub fit: Fit,
+    /// Where there is one, the image gives its shape and not its colours: the colour is this one
+    /// and the image's opacity, pixel by pixel, is the amount of it.
+    pub tint: Option<Color>,
+    /// How much of the image shows, `0.0..=1.0`, on top of the image's own opacity.
+    pub opacity: f32,
 }
 
 /// What an element is to the pointer and the keyboard, apart from how it looks.
@@ -67,6 +94,18 @@ pub fn spark(values: &[f32], color: impl Into<Color>) -> Element {
         values: values.to_vec(),
         color: color.into(),
         peak: None,
+    }))
+}
+
+/// An image: the file of the view's bundle at `src`, in the box of the element (its size is the
+/// element's style; where one side is not said, the image's proportions give it, and where
+/// neither is, the image's own size in pixels, one point to a pixel).
+pub fn image(src: impl Into<String>, fit: Fit) -> Element {
+    Element::of(Kind::Image(Image {
+        src: src.into(),
+        fit,
+        tint: None,
+        opacity: 1.0,
     }))
 }
 
@@ -533,6 +572,26 @@ impl Element {
     #[must_use]
     pub fn truncate(self) -> Self {
         self.set(|s| s.truncate = true)
+    }
+
+    /// Paints an image in `color`: the colour of every pixel of it is this one, and what is kept of
+    /// the image is its opacity, so that a one-colour icon wears the colours of the theme. Has
+    /// no effect on anything but an image.
+    #[must_use]
+    pub fn tint(mut self, color: impl Into<Color>) -> Self {
+        if let Kind::Image(image) = &mut self.kind {
+            image.tint = Some(color.into());
+        }
+        self
+    }
+
+    /// How much of an image shows, `0.0` to `1.0`. Has no effect on anything but an image.
+    #[must_use]
+    pub fn opacity(mut self, opacity: f32) -> Self {
+        if let Kind::Image(image) = &mut self.kind {
+            image.opacity = opacity;
+        }
+        self
     }
 
     /// The largest value a sparkline's top stands for (the greatest value of the line, with

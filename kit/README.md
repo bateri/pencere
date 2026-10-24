@@ -18,6 +18,34 @@ measures text for the engine (`pencere_view::Measure`), resolves the colours of 
 theme (a role in the theme, a value in the form that goes with its brightness), keeps text readable
 against the grounds the draw list names under it, and turns the draw list into what it draws.
 
+## Images
+
+A page shows pictures with `image(src, fit)` (in Lua, `pencere.image { src = …, fit = …, tint = … }`):
+`src` is the path of a file of the view's own bundle, as its manifest names it, and nothing else is
+reachable (no network, no file system). PNG, JPEG and SVG; at most 4096 × 4096 pixels an image and
+64 MiB of decoded pixels a view; `contain` (all of it, centred) or `cover` (the box filled, the
+rest cut off); `tint` paints the image's opacity in a colour, so that an icon of one colour follows
+the theme. The size is the element's, and where it says a side only the image's proportions give the
+other; where it says neither the image's own size in pixels, a point to a pixel.
+
+**Give the size in points and send twice the pixels**: a 64-pixel PNG shown at 32 points is sharp
+on a display with two pixels to the point, and shown at its own size (64 points) it is blurry.
+An SVG is drawn at the size it comes to on the display and needs nothing of the kind.
+
+The sandbox crate does the decoding, so that every terminal takes the same formats and the same
+limits. A terminal gives it the files (`Assets`, a path to bytes: its store of the bundle), makes
+one `Images` for a view, and uses three of its calls:
+
+- `Measure::image` of the engine is `Images::size`: the size of an image in pixels, `None` while it
+  is not known. The first ask starts the decoding on a thread of its own; the layout goes on
+  without it.
+- `Paint::Image` of the draw list is drawn with `Images::bitmap(src, picture.full())`: premultiplied
+  RGBA with an `id` to key the texture by. An SVG is drawn at the size asked, again for every other.
+- The `wake` given to `Images::new` is called when something arrived. The terminal then calls
+  `Images::poll`: `relayout` says a size is known and the page is to be laid out again (once),
+  `redraw` that pixels are there, and `diagnostics` why an image was refused. Nothing is polled
+  and nothing woken at rest.
+
 ## Versions
 
 The kit's version is the one a view names in its `open` (specification Sections 5.4 and 5.5):

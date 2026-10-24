@@ -571,6 +571,11 @@ return { render = function()
         )
         :child(pencere.spark({ 1, 2, 3 }, "bright-green"))
         :child(pencere.spark({ 3, 2, 1 }, both))
+        :child(pencere.image { src = "icons/stop.svg" })
+        :child(pencere.image { src = "logo.png", fit = "cover", opacity = 0.5 }:size(48, 24):rounded(4))
+        :child(pencere.image { src = "icons/run.svg", tint = "error" }:w(16))
+        :child(pencere.image { src = "icons/run.svg", tint = both })
+        :child(pencere.image { src = "icons/run.svg", tint = pencere.alpha("accent", 0.5) })
 end }
 "##;
 

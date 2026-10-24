@@ -8,8 +8,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
+use pencere_view::wire::Kind;
 use pencere_view::{
-    Button, Color, Element, Event, Id, Input, Key, Mods, Point, Rgba, Source, Tone,
+    Button, Color, Element, Event, Fit, Id, Input, Key, Mods, Point, Rgba, Source, Tone, image,
 };
 use wasmtime::component::Component;
 
@@ -158,6 +159,22 @@ fn a_helper_given_the_wrong_argument_says_the_line_of_the_script_that_called_it(
         (
             "pencere.div():children(x)",
             "children takes a list of elements, not nil",
+        ),
+        (
+            "pencere.image(x)",
+            "pencere.image takes a table { src = ..., fit = ..., tint = ... }, not nil",
+        ),
+        (
+            "pencere.image { fit = 'cover' }",
+            "needs the path of a file of the bundle as `src`, not nil",
+        ),
+        (
+            "pencere.image { src = 'a.png', fit = 'stretch' }",
+            "`fit` is \"contain\" or \"cover\", not stretch",
+        ),
+        (
+            "pencere.image { src = 'a.png', opacity = 'half' }",
+            "`opacity` is a number from 0 to 1, not string",
         ),
     ] {
         let update = first(
@@ -348,6 +365,67 @@ fn a_script_gives_a_value_with_a_form_for_a_dark_theme_and_an_opacity_on_any_col
             Some(value(Rgba::rgb(1, 2, 3), Some(Rgba::rgb(4, 5, 6)), 0.75)),
             Some(Tone::Selection.alpha(0.5)),
         ]
+    );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_says_an_image_and_the_engine_reads_what_it_said() {
+    let update = first(
+        r##"return { render = function()
+            return pencere.div()
+                :child(pencere.image { src = "icons/stop.svg" })
+                :child(pencere.image { src = "logo.png", fit = "cover", opacity = 0.5 }:size(48, 24):rounded(4))
+                :child(pencere.image { src = "icons/run.svg", tint = "error" }:w(16))
+                :child(pencere.image { src = "icons/run.svg", tint = { light = "#203040", dark = "#e0d0c0" } })
+                :child(pencere.image { src = "icons/run.svg", tint = pencere.alpha("accent", 0.5) })
+        end }"##,
+        Limits::default(),
+    );
+    assert_eq!(update.closed, None);
+    let root = update.frame.expect("a page").root;
+    let nodes = root.fold();
+    let images: Vec<&pencere_view::wire::Node> = nodes
+        .iter()
+        .filter(|node| matches!(node.kind, Kind::Image(_)))
+        .collect();
+    let said = |node: &pencere_view::wire::Node| match &node.kind {
+        Kind::Image(image) => image.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(images.len(), 5);
+    // The same elements, as Rust says them.
+    let rust = |element: Element| match element.fold().remove(0).kind {
+        Kind::Image(image) => image,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(said(images[0]), rust(image("icons/stop.svg", Fit::Contain)));
+    assert_eq!(
+        said(images[1]),
+        rust(image("logo.png", Fit::Cover).opacity(0.5))
+    );
+    assert_eq!(
+        (images[1].style.width, images[1].style.height),
+        (
+            pencere_view::wire::Length::Px(48.0),
+            pencere_view::wire::Length::Px(24.0)
+        )
+    );
+    assert_eq!(images[1].style.radii, [4.0; 4]);
+    assert_eq!(
+        said(images[2]),
+        rust(image("icons/run.svg", Fit::Contain).tint(Tone::Error))
+    );
+    assert_eq!(
+        said(images[3]),
+        rust(
+            image("icons/run.svg", Fit::Contain)
+                .tint(Rgba::rgb(0x20, 0x30, 0x40).or_dark(Rgba::rgb(0xe0, 0xd0, 0xc0)))
+        )
+    );
+    assert_eq!(
+        said(images[4]),
+        rust(image("icons/run.svg", Fit::Contain).tint(Tone::Accent.alpha(0.5)))
     );
 }
 

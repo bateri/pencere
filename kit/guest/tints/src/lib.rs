@@ -1,13 +1,15 @@
 //! A page of every way a colour can be said, to see that what a Rust page says crosses the
 //! sandbox as the same colour a script says: the sixteen colours of the palette and the
 //! selection as roles, a value with and without a form for a dark theme, each with and without an
-//! opacity, in the places a colour goes (text, fill, border, shadow, a sparkline).
+//! opacity, in the places a colour goes (text, fill, border, shadow, a sparkline, the tint of an
+//! image); and of the images themselves (`image`), said the way a script says them.
 //!
 //! The test sets the page beside the script that says the same (`TINTS` in the sandbox's tests):
 //! the two trees have to be the same tree.
 
 use pencere_page::{
-    Color, Event, Frame, Layout, Page, Reply, Rgba, Size, Tone, div, export_page, spark, text,
+    Color, Event, Fit, Frame, Layout, Page, Reply, Rgba, Size, Tone, div, export_page, image,
+    spark, text,
 };
 
 struct Tints;
@@ -69,7 +71,21 @@ impl Page for Tints {
                     .shadow(0.0, 2.0, 4.0, seen),
             )
             .child(spark(&[1.0, 2.0, 3.0], Tone::BrightGreen))
-            .child(spark(&[3.0, 2.0, 1.0], both));
+            .child(spark(&[3.0, 2.0, 1.0], both))
+            .child(image("icons/stop.svg", Fit::Contain))
+            .child(
+                image("logo.png", Fit::Cover)
+                    .opacity(0.5)
+                    .size(48.0, 24.0)
+                    .rounded(4.0),
+            )
+            .child(
+                image("icons/run.svg", Fit::Contain)
+                    .tint(Tone::Error)
+                    .w(16.0),
+            )
+            .child(image("icons/run.svg", Fit::Contain).tint(both))
+            .child(image("icons/run.svg", Fit::Contain).tint(Tone::Accent.alpha(0.5)));
         Frame::still(root)
     }
 

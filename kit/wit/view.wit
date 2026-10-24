@@ -297,6 +297,31 @@ interface types {
         peak: option<f32>,
     }
 
+    /// How an image fills its box.
+    enum fit {
+        /// All of the image, as large as the box lets it be with its proportions kept.
+        contain,
+        /// The box filled, the proportions kept; what does not fit is cut off, evenly on both
+        /// sides.
+        cover,
+    }
+
+    /// A picture: a file of the bundle the page came in, drawn into the element's box. The
+    /// element's size is its style's; a side the style leaves out follows the image's
+    /// proportions, and an element that says neither is the image's own size in pixels, a
+    /// point to a pixel. The formats are PNG, JPEG and SVG, and the application holds them to
+    /// its limits; one it cannot read leaves the box empty.
+    record image {
+        /// The path of the file in the bundle, as its manifest names it.
+        src: string,
+        fit: fit,
+        /// A colour for a picture that is a shape: every pixel of it is this colour, with the
+        /// picture's opacity at that pixel.
+        tint: option<color>,
+        /// How much of the picture shows, `0.0..=1.0`.
+        opacity: f32,
+    }
+
     /// What an element is.
     variant content {
         /// A box that holds the elements after it.
@@ -304,6 +329,7 @@ interface types {
         /// One line of text.
         text(string),
         spark(spark),
+        image(image),
     }
 
     /// One element of the tree. The tree is a flat list in depth-first order: an element is

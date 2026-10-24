@@ -23,6 +23,16 @@ wasmtime = { version = "38", default-features = false, features = [
     "runtime", "cranelift", "component-model", "std", "gc", "gc-drc",
 ] }
 
+# The decoders of the images a page shows (`images`): PNG, JPEG and SVG, each a library in
+# Rust, linked by this crate alone, so that every terminal that shows these pages takes the same
+# formats and the same limits. All of them are MIT, Apache-2.0, BSD or Zlib (see the changelog).
+# The SVG renderer is built with neither text nor raster images nor compressed files: an
+# SVG draws shapes, and reads nothing of the machine it is drawn on.
+png = "0.18"
+zune-jpeg = { version = "=0.5.15", default-features = false, features = ["std"] }
+zune-core = { version = "0.5", default-features = false, features = ["std"] }
+resvg = { version = "=0.48.1", default-features = false }
+
 [dev-dependencies]
 # Modules written as text for the sandbox's tests (`.wat`), so that `make check` does not need
 # the toolchain that builds a real one.

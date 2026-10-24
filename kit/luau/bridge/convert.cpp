@@ -112,6 +112,7 @@ const char* const kJustify[] = {"start", "center", "end", "between"};
 const char* const kOverflow[] = {"visible", "hidden", "scroll"};
 const char* const kFamily[] = {"system", "terminal"};
 const char* const kAlign[] = {"start", "center", "end"};
+const char* const kFit[] = {"contain", "cover"};
 
 // --- Colours, lengths, tracks ---------------------------------------------------------------
 
@@ -473,8 +474,9 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
     const char* kind = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "box";
     bool is_text = strcmp(kind, "text") == 0;
     bool is_spark = strcmp(kind, "spark") == 0;
-    if (!is_text && !is_spark && strcmp(kind, "box") != 0)
-        luaL_error(L, "an element is a \"box\", a \"text\" or a \"spark\", not \"%s\"", kind);
+    bool is_image = strcmp(kind, "image") == 0;
+    if (!is_text && !is_spark && !is_image && strcmp(kind, "box") != 0)
+        luaL_error(L, "an element is a \"box\", a \"text\", a \"spark\" or an \"image\", not \"%s\"", kind);
     lua_pop(L, 1);
 
     if (is_text) {
@@ -509,6 +511,19 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         spark.peak = optional_number(L, element, "ceiling");
         nodes.ptr[at].content.tag = PENCERE_VIEW_TYPES_CONTENT_SPARK;
         nodes.ptr[at].content.val.spark = spark;
+    } else if (is_image) {
+        pencere_view_types_image_t image = {};
+        get(L, element, "src");
+        size_t length = 0;
+        const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
+        image.src = host_string(bytes, length);
+        lua_pop(L, 1);
+        int fit = word(L, element, "fit", kFit, 2, 0);
+        image.fit = (pencere_view_types_fit_t)fit;
+        image.tint = optional_color(L, element, "tint");
+        image.opacity = number(L, element, "opacity", 1.0f);
+        nodes.ptr[at].content.tag = PENCERE_VIEW_TYPES_CONTENT_IMAGE;
+        nodes.ptr[at].content.val.image = image;
     }
 
     get(L, element, "style");

@@ -9,7 +9,9 @@ properties (`div().row().gap(8.0).child(...)`), in points, with colours named fo
 (`Rgba`, with a form for a dark theme if it wants). The engine draws nothing and links to nothing of
 the terminal: the host measures the text it also draws, resolves the colours in its theme and turns
 the list into what it draws. Each line of text in the list names the fills under it (`Run::grounds`),
-unresolved, so that a host can keep the text readable against what it comes to. It depends on the
+unresolved, so that a host can keep the text readable against what it comes to. An element can be
+an image (`image(src, fit)`): the host says how large the file of that path is and draws the picture
+the list holds (`Paint::Image`), and the engine makes its room and says how it fills it. It depends on the
 layout crate (`taffy`) and nothing else.
 
 It is the engine of the kit; see [`kit/README.md`](../README.md) for the rest, and the specification

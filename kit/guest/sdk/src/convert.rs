@@ -5,7 +5,7 @@
 
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
-    Align, Button, Color, Cursor, Event, Family, Input, Key, Keyboard, MenuEntry, Mods, Point,
+    Align, Button, Color, Cursor, Event, Family, Fit, Input, Key, Keyboard, MenuEntry, Mods, Point,
     Reply, Rgba, Source, Tone, Track,
 };
 
@@ -195,6 +195,15 @@ fn node(node: Node) -> wit::Node {
                 values: spark.values,
                 color: color(spark.color),
                 peak: spark.peak,
+            }),
+            Kind::Image(image) => wit::Content::Image(wit::Image {
+                src: image.src,
+                fit: match image.fit {
+                    Fit::Contain => wit::Fit::Contain,
+                    Fit::Cover => wit::Fit::Cover,
+                },
+                tint: image.tint.map(color),
+                opacity: image.opacity,
             }),
         },
         style: style(node.style),

@@ -3,9 +3,10 @@
 //! what the page said ([`Color`]): the host resolves them in the pane's theme and turns the items
 //! into whatever its renderer draws.
 
-use crate::layout::{Content, Laid, Node, TextLine};
+use crate::element::Fit;
+use crate::layout::{Content, Laid, Node, Picture as Placed, TextLine};
 use crate::style::{Border, Shadow};
-use crate::{Align, Color, Font, Measure, Point, Rect};
+use crate::{Align, Color, Font, Measure, Point, Rect, Size};
 
 /// A box: an optional fill, border (drawn inside, over the fill) and soft shadow (never
 /// under the box), cut at `clip`. `radii` are top-left, top-right, bottom-right, bottom-left.
@@ -41,11 +42,54 @@ pub struct Run {
     pub clip: Rect,
 }
 
+/// An image: the file of the view's bundle at `src`, drawn into `rect`, the part of it `crop` says.
+///
+/// The host asks for the pixels of the image by its path and the size it is drawn at
+/// ([`Picture::full`]), and draws them as a textured, rounded rectangle: `crop` is what the
+/// rectangle shows of the image, `tint` and `opacity` how it is coloured, `radii` how it is
+/// rounded. It is cut at `clip`. A box whose image the host did not know when the page was laid
+/// out (it was still being decoded, or it is not an image) has a quad if it has a fill and no
+/// picture.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Picture {
+    /// The path of the image in the view's bundle.
+    pub src: String,
+    /// Where the image is drawn, pixels: the box it is in for `cover`; for `contain` the part of
+    /// the box the whole image takes, centred.
+    pub rect: Rect,
+    /// What `rect` shows of the image, as shares of it: `(0, 0, 1, 1)` is all of it, and `cover`
+    /// is the middle of it where the proportions of the box are not its own.
+    pub crop: Rect,
+    /// Where there is one, the image is a shape and this is its colour (unresolved: the host
+    /// resolves it in the pane's theme, as it does any colour): every pixel of the image is this
+    /// colour with the image's opacity at that pixel.
+    pub tint: Option<Color>,
+    /// How much of the image shows, `0.0..=1.0`, on top of its own opacity and the tint's.
+    pub opacity: f32,
+    /// The corners of `rect`, pixels: top-left, top-right, bottom-right, bottom-left. The corners
+    /// the element asked for, taken in where the room that is drawn is smaller than its box.
+    pub radii: [f32; 4],
+    pub clip: Rect,
+}
+
+impl Picture {
+    /// The size in pixels the **whole** image comes to when it is drawn as `rect` and `crop` say
+    /// (for `cover`, more than `rect`): what a host rasterises a vector image at, and rounds up
+    /// to whole pixels. The image is never smaller than a pixel.
+    pub fn full(&self) -> Size {
+        Size::new(
+            (self.rect.w / self.crop.w.max(f32::EPSILON)).max(1.0),
+            (self.rect.h / self.crop.h.max(f32::EPSILON)).max(1.0),
+        )
+    }
+}
+
 /// One thing the page draws.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Paint {
     Quad(Quad),
     Text(Run),
+    Image(Picture),
 }
 
 /// A page's draw list.
@@ -86,6 +130,11 @@ impl Laid {
                         list.items.push(Paint::Text(run));
                     }
                 }
+                Content::Image(image) => {
+                    if let Some(picture) = place_image(node, image) {
+                        list.items.push(Paint::Image(picture));
+                    }
+                }
                 Content::Spark(spark) => {
                     let clip = node.clip.intersect(node.rect);
                     paint_spark(
@@ -121,6 +170,64 @@ impl Laid {
         }
         grounds
     }
+}
+
+/// Where an image stands in its box, and what of it shows; nothing for an image the host did not
+/// know, or a box with no room left inside its padding and border.
+fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
+    let natural = image.natural?;
+    let [top, right, bottom, left] = image.inset;
+    let room = Rect::new(
+        node.rect.x + left,
+        node.rect.y + top,
+        node.rect.w - left - right,
+        node.rect.h - top - bottom,
+    );
+    if room.w <= 0.0 || room.h <= 0.0 {
+        return None;
+    }
+    let (rect, crop) = match image.fit {
+        Fit::Contain => {
+            let along = (room.w / natural.w).min(room.h / natural.h);
+            let (w, h) = (natural.w * along, natural.h * along);
+            (
+                Rect::new(
+                    room.x + (room.w - w) / 2.0,
+                    room.y + (room.h - h) / 2.0,
+                    w,
+                    h,
+                ),
+                Rect::new(0.0, 0.0, 1.0, 1.0),
+            )
+        }
+        Fit::Cover => {
+            let along = (room.w / natural.w).max(room.h / natural.h);
+            let (shown_w, shown_h) = (room.w / (natural.w * along), room.h / (natural.h * along));
+            (
+                room,
+                Rect::new(
+                    (1.0 - shown_w) / 2.0,
+                    (1.0 - shown_h) / 2.0,
+                    shown_w,
+                    shown_h,
+                ),
+            )
+        }
+    };
+    let most = rect.w.min(rect.h) / 2.0;
+    Some(Picture {
+        src: image.src.clone(),
+        rect,
+        crop,
+        tint: image.tint,
+        opacity: if image.opacity.is_finite() {
+            image.opacity.clamp(0.0, 1.0)
+        } else {
+            1.0
+        },
+        radii: node.radii.map(|radius| radius.clamp(0.0, most)),
+        clip: node.clip,
+    })
 }
 
 /// Where a line stands in its box, cut where it does not fit and is allowed to be cut.

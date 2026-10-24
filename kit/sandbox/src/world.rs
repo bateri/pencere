@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use pencere_view::wire::{
-    self, Direction, Display, Items, Justify, Kind, Length, Meta, Node, Overflow, Spark, Style,
-    TextStyle,
+    self, Direction, Display, Fit, Image, Items, Justify, Kind, Length, Meta, Node, Overflow,
+    Spark, Style, TextStyle,
 };
 use pencere_view::{
     Align, Border, Button, Color, Cursor, Element, Event, Extent, Family, Id, Input, Key, Keyboard,
@@ -439,6 +439,29 @@ fn kind_out(content: wit::Content, limits: &Limits) -> Result<Kind, Fault> {
                 values: spark.values.into_iter().map(pt).collect(),
                 color: color_out(&spark.color),
                 peak: spark.peak.map(pt),
+            })
+        }
+        wit::Content::Image(image) => {
+            if image.src.len() > limits.text {
+                return Err(Fault::Malformed(format!(
+                    "an image path of {} bytes (at most {})",
+                    image.src.len(),
+                    limits.text
+                )));
+            }
+            Kind::Image(Image {
+                src: image.src,
+                fit: match image.fit {
+                    wit::Fit::Contain => Fit::Contain,
+                    wit::Fit::Cover => Fit::Cover,
+                },
+                tint: image.tint.as_ref().map(color_out),
+                // Not a share of an image that is not one: all of it shows.
+                opacity: if image.opacity.is_finite() {
+                    image.opacity.clamp(0.0, 1.0)
+                } else {
+                    1.0
+                },
             })
         }
     })

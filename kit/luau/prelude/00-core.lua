@@ -4,7 +4,7 @@
 -- A script is Luau. What it can use besides the language is the base functions, `string`,
 -- `table`, `math` and `utf8`, and `pencere`, the table this prelude fills:
 --
---   elements   pencere.div(), pencere.text(), pencere.spark(), pencere.spacer()
+--   elements   pencere.div(), pencere.text(), pencere.spark(), pencere.image(), pencere.spacer()
 --   colours    a role of the theme ("accent", "red", "bright-red", "selection", "raised2", ...), a
 --              value ("#rrggbb", "#rrggbbaa", or { light = "#...", dark = "#..." } for a dark
 --              theme), and any of them with an opacity: pencere.alpha("accent", 0.5)
