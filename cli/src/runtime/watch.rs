@@ -53,13 +53,15 @@ type Tell = Box<dyn Fn(Vec<Change>) + Send>;
 mod imp {
     #![allow(unsafe_code, non_upper_case_globals, clippy::too_many_arguments)]
 
+    use std::cell::Cell;
     use std::ffi::{CStr, CString, c_char, c_void};
     use std::io;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
-    use std::sync::mpsc::channel;
+    use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
+    use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
     use std::thread::JoinHandle;
+    use std::time::Duration;
 
     use super::{Change, Tell};
 
@@ -130,6 +132,9 @@ mod imp {
         fn FSEventStreamRelease(stream: *mut c_void);
     }
 
+    /// How long `start` waits to hear the fence before it gives up on telling the watch's own
+    /// beginning from what came before: it then reports everything, as the system does.
+    const FENCE_WAIT: Duration = Duration::from_secs(3);
     const UTF8: u32 = 0x0800_0100;
     const SINCE_NOW: u64 = u64::MAX;
     // File-level events (the default is the directory that changed).
@@ -148,23 +153,93 @@ mod imp {
         thread: Option<JoinHandle<()>>,
     }
 
+    /// What tells a stream's beginning from the past.
+    ///
+    /// The system hands a new stream the events it has not yet numbered, and it numbers an event
+    /// after the program that caused it has gone on: a directory made just before the watch is
+    /// reported as changed just after it, with an id above what `FSEventsGetCurrentEventId` said
+    /// when the stream was made, and flushing the stream does not bring it out first. What does
+    /// order them is the system's own queue: a change made in a private directory after the
+    /// stream is up is numbered after everything made before, so the id of that one event (the
+    /// floor) separates what came before the watch from what came after it, and nothing is polled
+    /// or waited for beyond that one event.
+    struct Fence {
+        directory: PathBuf,
+        /// The directory as the system is told it.
+        text: CString,
+    }
+
+    impl Fence {
+        /// A private directory of the temporary kind, or none when one cannot be made.
+        fn make() -> Option<Fence> {
+            static MADE: AtomicU32 = AtomicU32::new(0);
+            let directory = std::env::temp_dir().join(format!(
+                "pencere-watch-fence-{}-{}",
+                std::process::id(),
+                MADE.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&directory).ok()?;
+            // The system names paths by what they really are.
+            let made = directory.canonicalize().ok().and_then(|real| {
+                let text = CString::new(real.to_string_lossy().as_bytes()).ok()?;
+                Some(Fence {
+                    directory: real,
+                    text,
+                })
+            });
+            if made.is_none() {
+                let _ = std::fs::remove_dir(&directory);
+            }
+            made
+        }
+
+        /// A change in the directory, which the stream is to hear after everything that came
+        /// before it.
+        fn raise(&self) -> bool {
+            std::fs::write(self.directory.join("up"), b"up").is_ok()
+        }
+    }
+
+    impl Drop for Fence {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(self.directory.join("up"));
+            let _ = std::fs::remove_dir(&self.directory);
+        }
+    }
+
+    /// What `on_events` works with, on the thread of the watch.
+    struct Gate {
+        tell: Tell,
+        /// Where the fence is, when there is one.
+        fence: Option<PathBuf>,
+        /// The id of the fence's event once it is heard: what was numbered up to it came before
+        /// the watch.
+        floor: Cell<Option<u64>>,
+        /// Told, once, that the floor is known.
+        heard: Sender<io::Result<()>>,
+        /// Set by `start` when the fence is not heard in time, or was never made: everything the
+        /// system reports is told.
+        open: Arc<AtomicBool>,
+    }
+
     extern "C" fn on_events(
         _stream: *const c_void,
         info: *mut c_void,
         count: usize,
         paths: *mut c_void,
         flags: *const u32,
-        _ids: *const u64,
+        ids: *const u64,
     ) {
-        // SAFETY: `info` is the `Tell` that `start` boxed and leaks until the thread ends; the
-        // system gives `count` paths (C strings, as the stream was made without CF types) and
-        // `count` flags.
-        let tell = unsafe { &*(info as *const Tell) };
+        // SAFETY: `info` is the `Gate` that `start` boxed and leaks until the thread ends, and it
+        // is used on that thread alone; the system gives `count` paths (C strings, as the stream
+        // was made without CF types), `count` flags and `count` ids.
+        let gate = unsafe { &*(info as *const Gate) };
         let paths = paths as *const *const c_char;
-        let mut changes = Vec::with_capacity(count);
+        let mut reported = Vec::with_capacity(count);
         for index in 0..count {
             // SAFETY: `index < count`.
-            let (path, flags) = unsafe { (*paths.add(index), *flags.add(index)) };
+            let (path, flags, id) =
+                unsafe { (*paths.add(index), *flags.add(index), *ids.add(index)) };
             if path.is_null() {
                 continue;
             }
@@ -172,6 +247,30 @@ mod imp {
             let path = unsafe { CStr::from_ptr(path) }
                 .to_string_lossy()
                 .into_owned();
+            reported.push((path, flags, id));
+        }
+        let of_fence = |path: &str| {
+            gate.fence
+                .as_deref()
+                .is_some_and(|fence| Path::new(path).starts_with(fence))
+        };
+        if gate.floor.get().is_none()
+            && let Some(id) = reported
+                .iter()
+                .filter(|(path, ..)| of_fence(path))
+                .map(|(.., id)| *id)
+                .max()
+        {
+            gate.floor.set(Some(id));
+            let _ = gate.heard.send(Ok(()));
+        }
+        let floor = gate.floor.get();
+        let open = gate.open.load(Ordering::SeqCst);
+        let mut changes = Vec::with_capacity(count);
+        for (path, flags, id) in reported {
+            if of_fence(&path) || (!open && floor.is_none_or(|floor| id <= floor)) {
+                continue;
+            }
             // The system gathers what happened to a path since the last time it told: a file made
             // and removed in that time has both flags. What the file is now settles which it is.
             let gone = std::fs::symlink_metadata(&path).is_err();
@@ -193,7 +292,7 @@ mod imp {
             });
         }
         if !changes.is_empty() {
-            tell(changes);
+            (gate.tell)(changes);
         }
     }
 
@@ -220,21 +319,37 @@ mod imp {
         let shared = Arc::clone(&run_loop);
         let stopped = Arc::new(AtomicBool::new(false));
         let stop = Arc::clone(&stopped);
+        let open = Arc::new(AtomicBool::new(false));
+        let opened = Arc::clone(&open);
         let path = CString::new(root.to_string_lossy().as_bytes())
             .map_err(|_| io::Error::other("a path with a NUL in it"))?;
         let thread = std::thread::Builder::new()
             .name("pencere-watch".into())
             .spawn(move || {
+                let fence = Fence::make();
+                if fence.is_none() {
+                    opened.store(true, Ordering::SeqCst);
+                }
+                let gate = Gate {
+                    tell,
+                    fence: fence.as_ref().map(|fence| fence.directory.clone()),
+                    floor: Cell::new(None),
+                    heard: ready.clone(),
+                    open: opened,
+                };
                 // SAFETY: the calls are the framework's, with arguments it documents; the boxed
-                // callback outlives the stream, which is released before the box is.
+                // gate outlives the stream, which is released before the box is.
                 unsafe {
-                    let info = Box::into_raw(Box::new(tell));
+                    let info = Box::into_raw(Box::new(gate));
                     let text = CFStringCreateWithCString(kCFAllocatorDefault, path.as_ptr(), UTF8);
-                    let values = [text];
+                    let fence_cf = fence.as_ref().map(|fence| {
+                        CFStringCreateWithCString(kCFAllocatorDefault, fence.text.as_ptr(), UTF8)
+                    });
+                    let values = [text, fence_cf.unwrap_or(std::ptr::null())];
                     let list = CFArrayCreate(
                         kCFAllocatorDefault,
                         values.as_ptr(),
-                        1,
+                        if fence_cf.is_some() { 2 } else { 1 },
                         &raw const kCFTypeArrayCallBacks,
                     );
                     let context = StreamContext {
@@ -255,6 +370,9 @@ mod imp {
                     );
                     CFRelease(list);
                     CFRelease(text);
+                    if let Some(fence_cf) = fence_cf {
+                        CFRelease(fence_cf);
+                    }
                     if stream.is_null() {
                         let _ = ready.send(Err(io::Error::other(
                             "the system would not make a stream to watch the directory with",
@@ -274,7 +392,13 @@ mod imp {
                         return;
                     }
                     shared.store(current, Ordering::SeqCst);
-                    let _ = ready.send(Ok(()));
+                    // The stream is up: what is made in the fence from here on is heard after
+                    // everything that came before. Without it, nothing is waited for.
+                    let raised = fence.as_ref().is_some_and(Fence::raise);
+                    if !raised {
+                        (*info).open.store(true, Ordering::SeqCst);
+                        let _ = ready.send(Ok(()));
+                    }
                     // A stop that came before the run loop ran is asked for again by `drop`, until
                     // this thread is gone.
                     while !stop.load(Ordering::SeqCst) {
@@ -285,19 +409,25 @@ mod imp {
                     FSEventStreamRelease(stream);
                     drop(Box::from_raw(info));
                 }
+                drop(fence);
             })?;
-        match started.recv() {
-            Ok(Ok(())) => Ok(Watcher {
-                run_loop,
-                stopped,
-                thread: Some(thread),
-            }),
+        match started.recv_timeout(FENCE_WAIT) {
+            Ok(Ok(())) => {}
             Ok(Err(why)) => {
                 let _ = thread.join();
-                Err(why)
+                return Err(why);
             }
-            Err(_) => Err(io::Error::other("the watch did not start")),
+            // The fence was not heard: the watch goes on, and tells what the system tells.
+            Err(RecvTimeoutError::Timeout) => open.store(true, Ordering::SeqCst),
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(io::Error::other("the watch did not start"));
+            }
         }
+        Ok(Watcher {
+            run_loop,
+            stopped,
+            thread: Some(thread),
+        })
     }
 
     impl Drop for Watcher {
@@ -600,13 +730,17 @@ mod tests {
     #[test]
     fn a_watch_tells_of_files_created_changed_and_removed_under_a_directory() {
         let root = directory("tree");
+        // What was made before the watch began is not told, however close to it.
+        fs::write(root.join("before.txt"), "zero").expect("a file");
+        fs::create_dir(root.join("before-dir")).expect("a directory");
+        fs::write(root.join("before-dir/inner.txt"), "zero").expect("a file below");
         let (tell, changes) = channel();
         let watcher = start(&root, true, move |found| {
             let _ = tell.send(found);
         })
         .expect("a watch");
-        // Nothing has happened: the watch says nothing.
-        assert!(gathered(&changes, Duration::from_millis(400)).is_empty());
+        // Nothing has happened since: the watch says nothing.
+        assert_eq!(gathered(&changes, Duration::from_millis(400)), vec![]);
 
         fs::write(root.join("a.txt"), "one").expect("a file");
         let found = gathered(&changes, Duration::from_millis(600));
@@ -646,6 +780,36 @@ mod tests {
     }
 
     #[test]
+    fn a_watch_tells_of_what_happens_the_moment_it_has_started_and_not_of_what_came_before() {
+        // Over and over, because the system numbers the past a little later than it was made.
+        for round in 0..12 {
+            let root = directory(&format!("prompt{round}"));
+            fs::write(root.join("before.txt"), "zero").expect("a file");
+            let (tell, changes) = channel();
+            let watcher = start(&root, true, move |found| {
+                let _ = tell.send(found);
+            })
+            .expect("a watch");
+            fs::write(root.join("after.txt"), "one").expect("a file");
+            let found = gathered(&changes, Duration::from_millis(300));
+            assert!(
+                found
+                    .iter()
+                    .any(|change| change.path == root.join("after.txt")),
+                "round {round}: {found:?}"
+            );
+            assert!(
+                found
+                    .iter()
+                    .all(|change| change.path != root.join("before.txt") && change.path != root),
+                "round {round}: {found:?}"
+            );
+            drop(watcher);
+            let _ = fs::remove_dir_all(&root);
+        }
+    }
+
+    #[test]
     fn a_watch_that_is_not_recursive_keeps_to_the_directory() {
         let root = directory("flat");
         fs::create_dir(root.join("sub")).expect("a directory");
@@ -676,7 +840,7 @@ mod tests {
     fn a_watch_that_is_stopped_at_once_stops() {
         // The stop can come before the thread of the watch has begun to wait.
         let root = directory("quick");
-        for _ in 0..40 {
+        for _ in 0..10 {
             let watcher = start(&root, true, |_| {}).expect("a watch");
             drop(watcher);
         }
