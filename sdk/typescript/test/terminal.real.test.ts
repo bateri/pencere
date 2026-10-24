@@ -151,7 +151,50 @@ modes.restore();
 console.log("PENCERE " + JSON.stringify({ heard, elapsed }));
 `;
 
+/**
+ * How long a read of the program's input waits once `stty` has set its modes and the queue has
+ * been read away, as `serve` has them: with `VTIME` at a second, a read of the empty queue on a
+ * descriptor that waits takes that second, one on a descriptor that does not returns at once
+ * (EAGAIN on Linux, nothing on macOS). Node reads its input in its event loop and counts on the
+ * second kind: a ⌃C empties the queue (Appendix B) between the moment the loop learns there are
+ * bytes and its read, and on a descriptor that waits the read never ends, nor does the program,
+ * whose SIGINT is never heard. What `script` writes when its input ends is read away first.
+ */
+const waits = `
+import { SttyTerminal, runStty } from ${JSON.stringify(`file://${terminal}`)};
+import { readSync } from "node:fs";
+void process.stdin;
+const modes = new SttyTerminal(runStty, 0);
+modes.enter();
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 600);
+modes.discardInput();
+runStty(["min", "0", "time", "10"]);
+const started = Date.now();
+try {
+  readSync(0, new Uint8Array(64), 0, 64, null);
+} catch {
+  // EAGAIN: the descriptor does not wait.
+}
+const elapsed = Date.now() - started;
+modes.restore();
+console.log("PENCERE " + JSON.stringify({ elapsed }));
+`;
+
 for (const { runtime, present } of runtimes) {
+  // Deno and Bun read their input in a way that does not count on the descriptor: theirs waits
+  // from the start, whatever `stty` does.
+  describe.skipIf(!supported || !present || runtime.name !== "node")(
+    `the program's input on a tty once its modes are set, on ${runtime.name}`,
+    () => {
+      it("is still read without waiting, so that a ⌃C that empties the queue cannot hold the program in a read", () => {
+        const seen = underATty<{ elapsed: number }>(runtime, waits);
+        expect(seen, "the child printed nothing: script or stty is not usable here").toBeDefined();
+        // A second when the read waits; at once, give or take a busy machine, when it does not.
+        expect(seen?.elapsed).toBeLessThan(500);
+      });
+    },
+  );
+
   describe.skipIf(!supported || !present)(`SttyTerminal on a tty, on ${runtime.name}`, () => {
     const seen =
       supported && present

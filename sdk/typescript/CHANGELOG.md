@@ -30,6 +30,13 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ### Fixed
 
+- **⌃C ends the program every time, on Node.** `stty` ran with the tty as its standard input,
+  and Node turns `O_NONBLOCK` off on a child's standard streams: the flag belongs to the open
+  file, so the program's own reads of its input began to wait. ⌃C flushes the tty's input
+  (Appendix B), and when it emptied the queue between the moment the event loop learned of bytes
+  and its read, the read waited for a byte that never came; the SIGINT was never heard, no `bye`
+  went out and the program had to be killed. `stty` now gets the tty as descriptor 3, which leaves
+  the flag alone.
 - A process that exits with its view up reads the host's last word before it leaves. The
   `exit` handler said `bye`, threw away what the tty held and restored the modes at once, so the
   host's `closed` landed in the shell as typed text; it now reads the tty itself, with no event

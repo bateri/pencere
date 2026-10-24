@@ -11,6 +11,16 @@
  * or, for a filter in a pipeline, on the terminal the program opened itself.
  * Only the way `stty` is run differs between runtimes ({@link runtime}).
  *
+ * **On Node, `stty` never gets the program's input as one of its standard streams.** Node reads
+ * the tty in its event loop and counts on the descriptor not waiting: a read that `poll` promised
+ * bytes for can find the queue emptied under it, because ⌃C flushes the tty's input (Appendix B,
+ * fact 4), and only a descriptor that does not wait turns that read into nothing instead of a wait
+ * for a byte that never comes. But Node turns `O_NONBLOCK` off on the standard streams it hands a
+ * child, and the flag is the open file's, which the child shares with the stream the program reads:
+ * after one `stty` with the tty as its stdin the program's own reads wait, and a ⌃C that empties
+ * the queue the loop was about to read leaves the program in that read, where its SIGINT is never
+ * heard. So `stty` gets the tty as descriptor 3, which a shell makes its stdin (see `sttyOn`).
+ *
  * This file imports nothing of the library, so that the tests of the tty can run it from source
  * under each runtime.
  */
@@ -99,6 +109,25 @@ const STTY_TIMEOUT = 2000;
  */
 const ON_CONTROLLING_TERMINAL = ['exec stty "$@" </dev/tty', "stty"] as const;
 
+/**
+ * `stty` on the tty that is the child's descriptor 3: how Node runs it, so that the descriptor
+ * the program reads its input on keeps the `O_NONBLOCK` Node gave it (the module's comment says
+ * why). Node changes the flag only on the child's standard streams; the shell's redirection makes
+ * descriptor 3 the stdin of `stty` with the flag as it is, and `stty` only asks the tty about its
+ * modes.
+ */
+const ON_DESCRIPTOR_3 = ['exec stty "$@" <&3', "stty"] as const;
+
+/** `stty` with `args` on the tty that is the program's descriptor `fd`, as Node runs it. */
+function sttyOnDescriptor(fd: number, args: readonly string[]): SttyResult {
+  const result = spawnSync("sh", ["-c", ...ON_DESCRIPTOR_3, ...args], {
+    stdio: ["ignore", "pipe", "ignore", fd],
+    encoding: "utf8",
+    timeout: STTY_TIMEOUT,
+  });
+  return { status: result.status, stdout: result.stdout ?? "" };
+}
+
 /** Runs `command` with `args`, and `stdin` as its stdin, and waits for it. */
 function run(command: string, args: readonly string[], stdin: "inherit" | "null"): SttyResult {
   if (runtime === "deno") {
@@ -123,20 +152,16 @@ function run(command: string, args: readonly string[], stdin: "inherit" | "null"
 
 /**
  * `stty` on the tty that is `stdin`: the program's own stdin (`inherit`), or a descriptor of a tty.
- * The descriptor is for a terminal the program opened itself (`/dev/tty`): Node passes it to
- * `stty` as it is; Deno and Bun, which cannot pass a descriptor as a stdin, name `/dev/tty`.
+ * The descriptor is for a terminal the program opened itself (`/dev/tty`). Node hands either to
+ * `stty` as descriptor 3, never as its stdin ({@link ON_DESCRIPTOR_3}): the program's stdin is
+ * descriptor 0. Deno and Bun read their input in a way that does not count on the descriptor not
+ * waiting; they let `stty` inherit the stdin, and for a descriptor, which they cannot pass to a
+ * child, name `/dev/tty`.
  */
 export function sttyOn(stdin: "inherit" | number): RunStty {
   return (args) => {
+    if (runtime === "node") return sttyOnDescriptor(stdin === "inherit" ? 0 : stdin, args);
     if (stdin === "inherit") return run("stty", args, "inherit");
-    if (runtime === "node") {
-      const result = spawnSync("stty", [...args], {
-        stdio: [stdin, "pipe", "ignore"],
-        encoding: "utf8",
-        timeout: STTY_TIMEOUT,
-      });
-      return { status: result.status, stdout: result.stdout ?? "" };
-    }
     return run("sh", ["-c", ...ON_CONTROLLING_TERMINAL, ...args], "null");
   };
 }
