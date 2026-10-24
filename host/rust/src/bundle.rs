@@ -260,7 +260,20 @@ fn is_media_type(text: &str) -> bool {
 }
 
 impl Manifest {
+    /// A manifest that follows the grammar and is within the host's limits: [`shape`](Self::shape)
+    /// and then [`within`](Self::within). The session asks the two apart, with its other checks
+    /// between them; this is for the tests that want both at once.
+    #[cfg(test)]
     pub(crate) fn check(raw: RawBundle, limits: BundleLimits) -> Result<Self, Refusal> {
+        let manifest = Self::shape(raw)?;
+        manifest.within(limits)?;
+        Ok(manifest)
+    }
+
+    /// A manifest that follows the grammar of §8.2, whatever its size: only
+    /// [`Refusal::Manifest`] comes of it, so that a session can refuse an `open` for what is
+    /// malformed in it before it refuses it for what is too big (§6.4 puts `manifest` first).
+    pub(crate) fn shape(raw: RawBundle) -> Result<Self, Refusal> {
         let mut files = Vec::with_capacity(raw.files.len().min(MAX_FILES + 1));
         let mut paths = std::collections::HashSet::new();
         for RawFile {
@@ -284,20 +297,32 @@ impl Manifest {
         if !paths.contains(&raw.entry) {
             return Err(Refusal::Manifest);
         }
-        let limits = limits.clamped();
-        let total = files
-            .iter()
-            .try_fold(0u64, |sum, f| sum.checked_add(f.size));
-        if files.len() > limits.files
-            || files.iter().any(|f| f.size > limits.file)
-            || total.is_none_or(|total| total > limits.total)
-        {
-            return Err(Refusal::Limit);
-        }
         Ok(Self {
             entry: raw.entry,
             files,
         })
+    }
+
+    /// Whether the manifest is within `limits` (lowered to the protocol's where they are
+    /// higher): [`Refusal::Limit`] when it is not.
+    ///
+    /// # Errors
+    ///
+    /// [`Refusal::Limit`] when it has more files, a larger file, or more bytes in all than the
+    /// limits allow.
+    pub(crate) fn within(&self, limits: BundleLimits) -> Result<(), Refusal> {
+        let limits = limits.clamped();
+        let total = self
+            .files
+            .iter()
+            .try_fold(0u64, |sum, f| sum.checked_add(f.size));
+        if self.files.len() > limits.files
+            || self.files.iter().any(|f| f.size > limits.file)
+            || total.is_none_or(|total| total > limits.total)
+        {
+            return Err(Refusal::Limit);
+        }
+        Ok(())
     }
 
     /// The path of the document.

@@ -57,9 +57,12 @@ impl Direction {
                 frame: 4096,
                 message: 16 * 1024 * 1024,
             },
+            // A message of a view is at most 1 MiB as the view said it, and the escapes of the
+            // wire (§4.5) make a character up to six times as long (a DEL is `\u007f`): six
+            // times the limit of a view's message is what always fits.
             Self::ToProgram => Limits {
                 frame: 511,
-                message: 1024 * 1024,
+                message: 6 * 1024 * 1024,
             },
         }
     }

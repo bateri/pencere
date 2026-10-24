@@ -31,6 +31,9 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
   - The `closed` of a view the host draws itself that failed carries `message`, the words it
     failed with (`NoView.message`, `ServeResult.message`, specification §8.8). `.lua` files are
     served as `text/x-lua`.
+  - A message the host writes into the program's input may be up to 6 MiB on the wire (`LIMITS`,
+    specification §4.6): the 1 MiB limit of a view's message is counted before the host escapes it,
+    and the escapes can make it six times as long.
 
 ### Added
 

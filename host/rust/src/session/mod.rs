@@ -34,7 +34,7 @@ mod page;
 use std::mem;
 use std::sync::Arc;
 
-use crate::bundle::{BundleLimits, Digest, Manifest, Received, Receiving, Refusal, Store};
+use crate::bundle::{BundleLimits, Digest, Manifest, Received, Receiving, Store};
 use crate::frame::{
     BodyDecoder, DecodeError, Direction, Event, Ids, Message, Outgoing, Split, StreamDecoder,
     encode,
@@ -44,7 +44,7 @@ use crate::message::{
     self, Bye, Dismiss, FEATURE_BUNDLE, FEATURE_DISMISS, Hello, HostInfo, OpenBody, Reason,
     SUPPORTED_VERSIONS, TokenProbe, ViewOffer,
 };
-use crate::sandbox::{self, Access, Consent, Grant};
+use crate::sandbox::{self, Access, AccessError, Consent, Grant};
 use crate::text;
 use crate::theme::Theme;
 use crate::token::{Entropy, Token};
@@ -364,7 +364,8 @@ pub struct Diagnostics {
     /// Messages of a page that the host handled itself (`context`, `close`, `link`,
     /// specification §9.4).
     pub read: u64,
-    /// Messages the session could not write (too large for the program's side).
+    /// Messages the session could not write: a frame cannot carry the text, or it is over the
+    /// limit toward the program. A message of a view within its own limit (§9.3) is never one.
     pub unwritable: u64,
 }
 
@@ -872,27 +873,18 @@ impl<S: Store, E: Entropy> Session<S, E> {
         self.ended = false;
         // No `hello` asked: every kind the host opens with every version of it, in the host's
         // order. The program that restarts a view chooses among them as it did from the first
-        // `welcome`.
-        let mut offered: Vec<ViewOffer> = Vec::new();
-        for offer in &self.config.views {
-            if self.offer_of(offer.kind).is_none()
-                || offered.iter().any(|known| known.kind == offer.kind.name())
-            {
-                continue;
-            }
-            let mut versions: Vec<String> = Vec::new();
-            for version in &offer.versions {
-                if !versions.contains(version) {
-                    versions.push(version.clone());
-                }
-            }
-            if !versions.is_empty() {
-                offered.push(ViewOffer {
-                    kind: offer.kind.name().to_owned(),
-                    versions,
-                });
-            }
-        }
+        // `welcome`. It is what a `hello` that listed all of them would be answered with, so it
+        // is `offer_for`'s answer to that list and the one rule of what a `welcome` offers.
+        let listed: Vec<ViewOffer> = self
+            .config
+            .views
+            .iter()
+            .map(|offer| ViewOffer {
+                kind: offer.kind.name().to_owned(),
+                versions: offer.versions.clone(),
+            })
+            .collect();
+        let offered = self.offer_for(&listed);
         let token = self.issue_token(true, offered.clone());
         let version = SUPPORTED_VERSIONS.last().copied().unwrap_or(1);
         let payload = message::welcome_offer(
@@ -969,16 +961,11 @@ impl<S: Store, E: Entropy> Session<S, E> {
             self.refuse(message.id, "manifest");
             return;
         };
-        let bundle = match Manifest::check(raw, self.config.limits) {
-            Ok(manifest) => manifest,
-            Err(Refusal::Manifest) => {
-                self.refuse(message.id, "manifest");
-                return;
-            }
-            Err(Refusal::Limit) => {
-                self.refuse(message.id, "limit");
-                return;
-            }
+        // What is malformed comes first, all of it, and then what is too big (§6.4 puts
+        // `manifest` before `limit`): an `open` that is both is refused as malformed.
+        let Ok(bundle) = Manifest::shape(raw) else {
+            self.refuse(message.id, "manifest");
+            return;
         };
         // A name that is not in the table of kinds is not one the `welcome` offered: it is
         // refused below, after the checks that do not need to know what it stands for.
@@ -993,22 +980,27 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 return;
             }
         }
-        // What a page asks to reach is read for a page only.
+        // What a page asks to reach is read for a page only. An `access` that lists more than a
+        // person could read is a limit, which is told after the shape of all of it is known.
+        let mut access_over = false;
         let access = match (kind, body.access) {
-            (Some(ViewKind::Web), Some(raw)) => {
-                let read = serde_json::from_str(raw.get())
-                    .ok()
-                    .and_then(|value| Access::from_value(&value).ok());
-                let Some(access) = read else {
+            (Some(ViewKind::Web), Some(raw)) => match Access::from_json(raw.get()) {
+                Ok(access) => Some(access),
+                Err(AccessError::Limit) => {
+                    access_over = true;
+                    None
+                }
+                Err(AccessError::Malformed) => {
                     self.refuse(message.id, "manifest");
                     return;
-                };
-                Some(access)
-            }
+                }
+            },
             _ => None,
         };
-        if kind.is_some_and(ViewKind::is_native)
-            && entry.is_some_and(|entry| entry.size > self.config.native_entry_limit)
+        if access_over
+            || bundle.within(self.config.limits).is_err()
+            || (kind.is_some_and(ViewKind::is_native)
+                && entry.is_some_and(|entry| entry.size > self.config.native_entry_limit))
         {
             self.refuse(message.id, "limit");
             return;
@@ -1178,11 +1170,15 @@ impl<S: Store, E: Entropy> Session<S, E> {
             }
         };
         let payload = &message.payload;
-        let passes = payload.len() <= MAX_VIEW_MESSAGE
+        // The same reader tells a message of the host's own from one of the six in a page's
+        // direction, and in a view's own that it is an object at all.
+        // The size is the one of the text before the wire escaped it (§9.3): a program writes
+        // ASCII, and is not held to less than a page that has no need to.
+        let passes = crate::json::unescaped_len(payload) <= MAX_VIEW_MESSAGE
             && if web {
                 page::to_page(payload)
             } else {
-                crate::json::is_object(payload)
+                page::is_object(payload)
             };
         if passes {
             self.actions.push(Action::ToView(payload.clone()));
@@ -1278,9 +1274,20 @@ impl<S: Store, E: Entropy> Session<S, E> {
         }
     }
 
-    /// Writes a message of the view to the program as a `msg`.
+    /// Writes a message of the view to the program as a `msg`: JSON text that has been read, so
+    /// that the whitespace between its tokens, which a frame has no byte for, can be dropped. It
+    /// is escaped (§4.5) after the size was counted, and the escapes make it up to six times
+    /// longer at most, which the program's limit for a message allows for.
     fn send_json(&mut self, text: &str) -> bool {
-        self.send("msg", None, &crate::json::escape(text))
+        self.send("msg", None, &crate::json::to_frame(text))
+    }
+
+    /// A view said a message over the size one may have (§9.3). Nothing could answer it, so a
+    /// view that waits for the answer would wait for ever: the view has gone over a limit it is
+    /// held to, which ends it as any failure of a view does (§8.8), and the program is told.
+    fn view_said_too_much(&mut self) {
+        self.ignored();
+        self.view_failed("a message of the view was over 1 MiB");
     }
 
     // ---- closing ---------------------------------------------------------

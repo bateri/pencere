@@ -692,8 +692,9 @@ fn the_question_to_the_person_names_the_program_and_refusing_it_leaves_the_page_
         r#"host: asked the person about origins=1 permissions=1 of program="Domain Desk" title="Show it": refused"#,
         "view: started from the bundle: entry index.html, 1 files",
         r#"view: title="Show it" program="Domain Desk""#,
-        // Nothing was allowed: the policy shuts the network, and the page is told so.
-        "view: policy default-src 'none'*connect-src 'none'",
+        // Nothing was allowed: the policy lets the page reach only its own bundle, and the page
+        // is told so.
+        "view: policy default-src 'none'*connect-src 'self'; img-src",
         "view: <- context mode=dark size=640x384 reduceMotion=false access=none",
         "view: -> call id=1 show",
         r#"view: <- response id=1 result={"shown":true}"#,

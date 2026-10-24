@@ -2,10 +2,10 @@
 //! view sends it, and the `context` it tells the page.
 //!
 //! A page and its program talk in the six messages of §9.2, which the host carries and does not
-//! read. The one thing it reads in a message is the name of its member, to tell its own
-//! messages — `context`, `close` and `link` — from the six: in the page's direction to handle
-//! them, in the program's to drop a message that is named like one of them. It never builds a
-//! tree of a message, whatever the message holds.
+//! read. It reads that a message is one complete JSON object, in both directions, and the name
+//! of its member, to tell its own messages — `context`, `close` and `link` — from the six: in
+//! the page's direction to handle them, in the program's to drop a message that is named like
+//! one of them (§9.3). It never builds a tree of a message, whatever the message holds.
 
 use serde::de::{Deserializer, IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
@@ -91,6 +91,13 @@ pub(super) fn to_page(text: &str) -> bool {
     read_members(text).is_some_and(|members| members.own().is_none())
 }
 
+/// Whether a message is a JSON object the host can read, whatever its members are: what a view
+/// the terminal draws itself may say in either direction. A text that only begins with `{` is
+/// not one.
+pub(super) fn is_object(text: &str) -> bool {
+    read_members(text).is_some()
+}
+
 /// The first `context` message, or a later one, as JSON text: `{"context":{…}}` in the order of
 /// specification §9.5. What the person allowed is `grant`; the member is left out when nothing
 /// was.
@@ -172,14 +179,21 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// message and is handled here: `context` is answered with the current one
     /// ([`Action::ToView`]), `close` ends the view (the program is told `closed` with reason
     /// `view`) and `link` asks the person ([`Action::OpenLink`]). Any other object is a message of
-    /// the six, passed to the program as a `msg`, unread. What is not an object, a message over
-    /// [`MAX_VIEW_MESSAGE`] bytes, and anything that arrives while no page is open, are dropped
-    /// and counted as ignored. A view the terminal draws itself is not a page: its messages are
+    /// the six, passed to the program as a `msg`, unread; the whitespace between its tokens is
+    /// left out, and the order the page sent its messages in is the order they are written in,
+    /// a `close` among them. What is not an object, and anything that arrives while no page is
+    /// open, is dropped and counted as ignored. A message over [`MAX_VIEW_MESSAGE`] bytes, as the
+    /// page sent it, ends the view as a failure (specification §9.3), since no one could answer
+    /// it. A view the terminal draws itself is not a page: its messages are
     /// [`module_message`](Self::module_message)'s.
     pub fn view_message(&mut self, text: &str) {
         let page = matches!(&self.phase, Phase::Live(live) if live.kind == super::ViewKind::Web);
-        if !page || text.len() > MAX_VIEW_MESSAGE {
+        if !page {
             self.ignored();
+            return;
+        }
+        if text.len() > MAX_VIEW_MESSAGE {
+            self.view_said_too_much();
             return;
         }
         let Some(members) = read_members(text) else {

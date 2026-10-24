@@ -36,10 +36,14 @@ export interface Limits {
   readonly message: number;
 }
 
-/** The limits of each direction. */
+/**
+ * The limits of each direction. A message of a view is at most 1 MiB as the view said it, and the
+ * escapes of the wire (§4.5) make a character up to six times as long, so six times that is what
+ * always fits toward the program.
+ */
 export const LIMITS: Readonly<Record<Direction, Limits>> = {
   "to-host": { frame: 4096, message: 16 * 1024 * 1024 },
-  "to-program": { frame: 511, message: 1024 * 1024 },
+  "to-program": { frame: 511, message: 6 * 1024 * 1024 },
 };
 
 /**

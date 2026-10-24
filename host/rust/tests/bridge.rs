@@ -485,15 +485,157 @@ fn the_pages_messages_are_passed_unread_and_the_host_s_own_are_read_by_name_only
     // It is longer than a frame: it went out in several, as one message.
     assert_eq!(wrote.len(), 1);
     assert_eq!(wrote[0].payload, big);
-    // Over the size one message may have, in either direction: dropped.
-    let over = format!(
-        r#"{{"pad":"{}"}}"#,
-        "a".repeat(pencere::session::MAX_VIEW_MESSAGE)
-    );
+}
+
+#[test]
+fn a_message_the_page_says_over_the_limit_ends_the_view_and_the_program_is_told() {
+    let mut rig = Rig::new();
+    rig.up_web(None);
+    // The limit is on the text the page sent, byte for byte: this is exactly at it.
+    let pad = "a".repeat(pencere::session::MAX_VIEW_MESSAGE - r#"{"pad":""}"#.len());
+    let at = format!(r#"{{"pad":"{pad}"}}"#);
+    assert_eq!(at.len(), pencere::session::MAX_VIEW_MESSAGE);
+    rig.page(&at);
+    let (wrote, acted) = rig.take();
+    assert!(acted.is_empty());
+    assert_eq!(wrote.len(), 1);
+    assert_eq!(wrote[0].payload, at);
+    // One byte more: nothing could answer it, so the view fails, as a view does that goes over a
+    // limit it is held to, and the program is told in the words of that failure.
+    let over = format!(r#"{{"pad":"{pad}a"}}"#);
     let ignored = rig.host.diagnostics().ignored;
     rig.page(&over);
-    assert!(rig.take().0.is_empty());
+    let (wrote, acted) = rig.take();
+    assert_eq!(acted, vec![Action::DestroyView]);
+    assert_eq!(wrote.len(), 1);
+    assert_eq!(wrote[0].kind, "closed");
+    assert_eq!(
+        serde_json::from_str::<Value>(&wrote[0].payload).unwrap(),
+        json!({"reason": "error", "code": "view", "message": "a message of the view was over 1 MiB"})
+    );
     assert_eq!(rig.host.diagnostics().ignored, ignored + 1);
+    assert_eq!(rig.host.state(), State::Idle);
+    // The program's own message over the size is dropped: anyone who can write the stream can
+    // send it, and ending the view for it would let them.
+    let mut rig = Rig::new();
+    rig.up_web(None);
+    rig.send("msg", None, None, &over);
+    let (wrote, acted) = rig.take();
+    assert!(wrote.is_empty() && acted.is_empty());
+    assert_eq!(rig.host.state(), State::Open);
+}
+
+#[test]
+fn the_programs_message_is_held_to_the_limit_on_its_text_and_not_on_the_escapes_it_had_to_write() {
+    // A program writes ASCII, so every `\u00e9` it writes is six bytes of the wire for the two of
+    // the character: the limit is on the text, as it is for a page.
+    let mut rig = Rig::new();
+    rig.up_web(None);
+    let push = |characters: usize| {
+        format!(
+            r#"{{"push":{{"id":1,"value":"{}"}}}}"#,
+            "\\u00e9".repeat(characters)
+        )
+    };
+    let within = push(500_000);
+    assert!(within.len() > pencere::session::MAX_VIEW_MESSAGE);
+    assert!(pencere::json::unescaped_len(&within) <= pencere::session::MAX_VIEW_MESSAGE);
+    rig.send("msg", None, None, &within);
+    assert_eq!(rig.take().1, vec![Action::ToView(within)]);
+    // Over it, by the text: dropped, and the view goes on.
+    let over = push(525_000);
+    assert!(pencere::json::unescaped_len(&over) > pencere::session::MAX_VIEW_MESSAGE);
+    rig.send("msg", None, None, &over);
+    let (wrote, acted) = rig.take();
+    assert!(wrote.is_empty() && acted.is_empty());
+    assert_eq!(rig.host.state(), State::Open);
+}
+
+#[test]
+fn what_the_page_said_within_the_limit_is_written_whatever_the_escapes_make_of_its_size() {
+    // The escapes of the wire make a message longer, up to six times when it is all DEL, and the
+    // program's limit allows for that: a message within the limit is always written.
+    let mut rig = Rig::new();
+    rig.up_web(None);
+    let all_del = format!(
+        r#"{{"call":{{"id":1,"method":"m","params":"{}"}}}}"#,
+        "\u{7f}".repeat(pencere::session::MAX_VIEW_MESSAGE - 45)
+    );
+    assert!(all_del.len() <= pencere::session::MAX_VIEW_MESSAGE);
+    for text in [
+        all_del,
+        // Two-byte, three-byte and four-byte characters, which grow three, two and three times.
+        format!(
+            r#"{{"call":{{"id":2,"method":"m","params":"{}"}}}}"#,
+            "\u{e9}".repeat(500_000)
+        ),
+        format!(
+            r#"{{"call":{{"id":3,"method":"m","params":"{}"}}}}"#,
+            "\u{1f600}".repeat(250_000)
+        ),
+    ] {
+        let unwritable = rig.host.diagnostics().unwritable;
+        rig.page(&text);
+        let (wrote, acted) = rig.take();
+        assert!(acted.is_empty());
+        assert_eq!(wrote.len(), 1);
+        assert!(pencere::json::is_frame_text(&wrote[0].payload));
+        assert_eq!(
+            serde_json::from_str::<Value>(&wrote[0].payload).unwrap(),
+            serde_json::from_str::<Value>(&text).unwrap()
+        );
+        assert_eq!(rig.host.diagnostics().unwritable, unwritable);
+    }
+    assert_eq!(rig.host.state(), State::Open);
+}
+
+#[test]
+fn whitespace_between_the_tokens_of_a_message_is_accepted_and_left_out() {
+    let mut rig = Rig::new();
+    rig.up_web(None);
+    for text in [
+        "{\n  \"call\": {\r\n\t\"id\": 1, \"method\" :\t\"list\"\n}\n}\n",
+        " {\"call\":{\"id\":1,\"method\":\"list\"}} ",
+    ] {
+        rig.page(text);
+        let (wrote, acted) = rig.take();
+        assert!(acted.is_empty());
+        assert_eq!(wrote.len(), 1, "{text:?}");
+        assert!(pencere::json::is_frame_text(&wrote[0].payload));
+        assert_eq!(
+            serde_json::from_str::<Value>(&wrote[0].payload).unwrap(),
+            json!({"call": {"id": 1, "method": "list"}})
+        );
+    }
+    // The host's own messages are read through the same whitespace.
+    rig.page("{\n\t\"close\"\n:\r\n{}\n}");
+    let (wrote, acted) = rig.take();
+    assert_eq!(acted, vec![Action::DestroyView]);
+    assert_eq!(wrote[0].payload, r#"{"reason":"view"}"#);
+}
+
+#[test]
+fn the_program_hears_the_pages_messages_in_the_order_the_page_sent_them_and_its_close_last() {
+    let mut rig = Rig::new();
+    rig.up_web(None);
+    let calls: Vec<String> = (1..=5)
+        .map(|n| format!(r#"{{"call":{{"id":{n},"method":"m{n}"}}}}"#))
+        .collect();
+    for call in &calls {
+        rig.host.view_message(call);
+    }
+    // A page that closes after its messages: the `closed` is behind every one of them.
+    rig.host.view_message(r#"{"close":{}}"#);
+    rig.host
+        .view_message(r#"{"call":{"id":6,"method":"late"}}"#);
+    let (wrote, acted) = rig.take();
+    let kinds: Vec<&str> = wrote.iter().map(|m| m.kind.as_str()).collect();
+    assert_eq!(kinds, ["msg", "msg", "msg", "msg", "msg", "closed"]);
+    for (written, sent) in wrote.iter().zip(&calls) {
+        assert_eq!(&written.payload, sent);
+    }
+    assert_eq!(wrote[5].payload, r#"{"reason":"view"}"#);
+    assert_eq!(acted, vec![Action::DestroyView]);
 }
 
 #[test]

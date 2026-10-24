@@ -21,7 +21,9 @@ use pencere::base64;
 use pencere::bundle::{Digest, Store, Verified};
 use pencere::frame::Message;
 use pencere::icon::{self, IconFormat};
-use pencere::sandbox::{self, Directive, Domain, Grant, Permission};
+use pencere::sandbox::{
+    self, Directive, Domain, Grant, MAX_ORIGINS, MAX_ORIGINS_PER_LIST, Permission,
+};
 use pencere::session::{Action, Config, MAX_LABEL_CHARS, Observed, Session, Size, State, ViewKind};
 use serde_json::{Value, json};
 
@@ -340,6 +342,13 @@ fn a_hostile_stream_cannot_open_a_view_or_use_up_a_token() {
 
 // ---- refusing an open ------------------------------------------------------------------------------
 
+/// `n` origins that are not the same.
+fn many_origins(n: usize) -> Vec<String> {
+    (0..n)
+        .map(|i| format!("https://o{i}.example.com"))
+        .collect()
+}
+
 #[test]
 fn what_cannot_be_answered_is_refused_with_a_code_in_the_order_of_the_specification() {
     // `manifest`: the payload is malformed.
@@ -403,6 +412,58 @@ fn what_cannot_be_answered_is_refused_with_a_code_in_the_order_of_the_specificat
         refused_with(|b| b["bundle"]["files"][1]["size"] = json!(9 * 1024 * 1024)),
         "limit"
     );
+    // So is the number of origins an `access` lists, in a list or in all of them, valid or not.
+    assert_eq!(
+        refused_with(|b| b["access"] = json!({"connect": many_origins(MAX_ORIGINS_PER_LIST + 1)})),
+        "limit"
+    );
+    assert_eq!(
+        refused_with(|b| b["access"] = json!({"resources": vec!["nope"; MAX_ORIGINS_PER_LIST + 1]})),
+        "limit"
+    );
+    assert_eq!(
+        refused_with(|b| {
+            b["access"] = json!({
+                "connect": many_origins(MAX_ORIGINS_PER_LIST),
+                "resources": many_origins(MAX_ORIGINS_PER_LIST),
+                "frames": many_origins(MAX_ORIGINS - 2 * MAX_ORIGINS_PER_LIST + 1),
+            });
+        }),
+        "limit"
+    );
+    // Malformed comes before too big, in every pair of the two the order of §6.4 names: the
+    // bundle's entry of the wrong type, an `access` of the wrong shape, or one with an entry
+    // that is not a string past a bound it has already gone over.
+    for open_that_is_both in [
+        (|b: &mut Value| {
+            b["bundle"]["files"][0]["type"] = json!("text/plain");
+            b["bundle"]["files"][1]["size"] = json!(9 * 1024 * 1024);
+        }) as fn(&mut Value),
+        |b| {
+            b["access"] = json!({"connect": "https://a.example"});
+            b["bundle"]["files"][1]["size"] = json!(9 * 1024 * 1024);
+        },
+        |b| {
+            b["access"] = json!({"permissions": 5});
+            b["bundle"]["files"][1]["size"] = json!(9 * 1024 * 1024);
+        },
+        |b| {
+            let mut connect: Vec<Value> = many_origins(MAX_ORIGINS_PER_LIST + 1)
+                .into_iter()
+                .map(Value::from)
+                .collect();
+            connect.push(json!(5));
+            b["access"] = json!({"connect": connect});
+        },
+        |b| {
+            b["access"] = json!({
+                "connect": many_origins(MAX_ORIGINS_PER_LIST + 1),
+                "permissions": "camera",
+            });
+        },
+    ] {
+        assert_eq!(refused_with(open_that_is_both), "manifest");
+    }
     // `unsupported`: a kind the table has not got, or the welcome did not list, and a version
     // of a kind that it listed which it did not.
     assert_eq!(refused_with(|b| b["view"] = json!("gopher")), "unsupported");

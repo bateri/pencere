@@ -42,6 +42,38 @@ All notable changes to the `pencere` crate are recorded here. The format follows
     it writes for a program that has said it ended. A program that reads up to it has read
     everything the host wrote before, so nothing the host had in flight when it learned of the
     `bye` is left in the tty's queue for whatever reads the tty next.
+- **An `access` is bounded and read without a tree** (specification §6.3). A list of origins has
+  at most `sandbox::MAX_ORIGINS_PER_LIST` (32) entries and the lists at most `MAX_ORIGINS` (64)
+  between them, counted as written whether or not an entry is an origin; an `open` over a bound is
+  refused with `limit`, which `Access::from_json` (new; `Access::from_value` stays) reports as
+  `AccessError::Limit`. `AccessError` is an enum now (`Malformed`, `Limit`), where it was a unit
+  struct. The text is read one entry at a time, a member the crate does not know is ignored, and
+  a fault of shape anywhere in it is `Malformed` even when the bound was gone over first.
+  `Csp`, `Grant::allow_domain` and `Grant::within` keep their origins in a set beside the list, so
+  they are linear in the number of origins.
+- **An `open` that is malformed and too big is refused as malformed** (§6.4 puts `manifest` before
+  `limit`): the entry's type, the shape of the `access` and the shape of the manifest are all
+  checked before the bundle's limits, the native entry limit and the bound of the `access`.
+- **`DEFAULT_POLICY` lets a page read its own bundle.** `connect-src` and `font-src` have `'self'`
+  (a page's `fetch('./data.json')` works without being allowed anything), and the policy names
+  `frame-src 'none'`, `object-src 'none'` and `base-uri 'self'`, so that what a person allows adds
+  those origins to it and changes nothing else (§12.1). The network is as closed as it was.
+- **View messages.** The 1 MiB limit (`session::MAX_VIEW_MESSAGE`) is counted on the text before
+  the escapes of the wire, not on the escaped form, in both directions (a page's text as posted, a
+  program's payload with each escape counted as the character it stands for,
+  `json::unescaped_len`), and the message limit toward the program is now 6 MiB (`Direction::ToProgram`, specification §4.6) so that a message within 1 MiB is always
+  written, whatever its escapes make of its size; `Diagnostics::unwritable` no longer counts it.
+  A page's message (`view_message`) or a component's (`module_message`) over the limit ends the
+  view as a failure of the view (`closed` with `reason` `error`, `code` `view`), where it was
+  dropped and the page waited for ever; the program's own message over the limit is still dropped.
+  JSON whitespace between tokens is accepted and left out when the message is written
+  (`json::to_frame`). A `msg` toward a view the terminal draws itself, and that view's own messages,
+  have to be complete JSON objects, not text that only begins with `{`: both directions use the
+  reader that tells a page's `context`, `close` and `link` apart. A page's messages and its
+  `close` reach the program in the order the page sent them (§9.3), as they did, now pinned by a
+  test.
+- `Session::offer_restart` builds the `welcome` of a restart with `offer_for`, so that a restart
+  and a `hello` that listed every kind are offered the same.
 
 ### Added
 
