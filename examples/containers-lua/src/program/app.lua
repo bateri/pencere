@@ -1,4 +1,5 @@
--- containers-lua: a made-up Docker host, as an app of one Lua file and a page.
+-- containers-lua: a made-up Docker host, as an app of one Lua file (src/program/) and a page
+-- (src/view/page.lua, which `serve` shows because it is told no other).
 --
 --   containers-lua            the view, with containers that are made up
 --   containers-lua --docker   the view, with the containers `docker` lists on this machine
@@ -212,7 +213,6 @@ local function topics()
 end
 
 local outcome = pencere.serve {
-	page = "page.lua",
 	title = "Containers",
 	icon = "assets/icon.png",
 	calls = calls(),

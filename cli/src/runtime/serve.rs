@@ -17,16 +17,55 @@ use pencere::{
 use super::convert::{from_json, to_json};
 use super::core::{Core, ServePlan, ServeRun, ViewSpec};
 use super::events::{CallEvent, Event, SubscribeEvent};
-use crate::files::{ASSETS, Files};
+use crate::files::{ASSETS, Files, VIEW};
 
 /// The version of the page API this runner shows views of (`lua` 1.0).
 const VERSION: &str = "1.0";
 
-/// What the page is called when `serve` is not told.
-const DEFAULT_PAGE: &str = "page.lua";
+/// The page of the kit and the web page of an app, where `pencere new` puts them: in `view/`.
+const PAGE: &str = "view/page.lua";
 
-/// The directory of a web view's files, when `serve` is not told which.
-const DEFAULT_WEB: &str = "web";
+/// The pages of the simple form, which has them beside `app.lua` and in `web/`.
+const SIMPLE_PAGE: &str = "page.lua";
+const SIMPLE_WEB: &str = "web";
+
+/// The script of the kit's page API the app has: that of `view/`, or in the simple form the one
+/// beside `app.lua`. The name `serve` is told when it is told none.
+fn default_page(files: &Files) -> String {
+    [PAGE, SIMPLE_PAGE]
+        .into_iter()
+        .find(|page| files.has(page))
+        .unwrap_or(PAGE)
+        .to_owned()
+}
+
+/// The directory of the web page the app has: `view/`, or in the simple form `web/`.
+fn default_web(files: &Files) -> String {
+    [VIEW, SIMPLE_WEB]
+        .into_iter()
+        .find(|dir| files.has(&format!("{dir}/index.html")))
+        .unwrap_or(VIEW)
+        .to_owned()
+}
+
+/// The views an app has when `serve` is not told which: the page of the kit if there is one, then
+/// the web page if there is one. What a terminal takes is the first of them it can show.
+pub fn offered(files: &Files, access: Option<pencere::Access>) -> Vec<ViewSpec> {
+    let mut specs = Vec::new();
+    if files.has(PAGE) || files.has(SIMPLE_PAGE) {
+        specs.push(ViewSpec::Lua {
+            page: default_page(files),
+            assets: ASSETS.to_owned(),
+        });
+    }
+    if files.has(&format!("{VIEW}/index.html")) || files.has(&format!("{SIMPLE_WEB}/index.html")) {
+        specs.push(ViewSpec::Web {
+            dir: default_web(files),
+            access,
+        });
+    }
+    specs
+}
 
 /// The numbers subscriptions are told apart by, across `serve`s.
 static SUBSCRIPTIONS: AtomicU64 = AtomicU64::new(1);
@@ -38,12 +77,17 @@ pub fn view_of(files: &Files, spec: &ViewSpec) -> Result<View, String> {
             let script = files
                 .read(page)
                 .map_err(|why| format!("the page {page:?} cannot be read: {why}"))?;
-            let mut list = vec![File::new(page.clone(), script)];
+            // The page is the entry of its bundle by the name it has in the directory of the page.
+            let entry = page
+                .strip_prefix(VIEW)
+                .and_then(|name| name.strip_prefix('/'))
+                .unwrap_or(page);
+            let mut list = vec![File::new(entry, script)];
             for path in files.under(assets).map_err(|why| why.to_string())? {
                 let bytes = files.read(&path).map_err(|why| format!("{path}: {why}"))?;
                 list.push(File::new(path, bytes));
             }
-            let bundle = Bundle::new(page, list).map_err(|why| why.to_string())?;
+            let bundle = Bundle::new(entry, list).map_err(|why| why.to_string())?;
             Ok(View::new(Kind::Lua, &[VERSION], bundle))
         }
         ViewSpec::Web { dir, access } => {
@@ -106,8 +150,16 @@ fn access_of(table: &Table) -> mlua::Result<pencere::Access> {
 
 /// The views `serve` was asked for. `views = { {kind = "lua", page = …}, {kind = "web", dir = …} }`
 /// names them in the order the app prefers them; short of that, `page` is a Lua view and `web` a
-/// web one (the Lua one first), and `access` is the web one's.
-pub fn specs_of(options: &Table) -> mlua::Result<Vec<ViewSpec>> {
+/// web one (the Lua one first), and `access` is the web one's. Told none of the three, `serve`
+/// shows what the app has: `view/page.lua` and `view/index.html` (`offered`). The paths are those
+/// of the packed app.
+pub fn specs_of(options: &Table, files: &Files) -> mlua::Result<Vec<ViewSpec>> {
+    let access = |table: &Table| -> mlua::Result<Option<pencere::Access>> {
+        table
+            .get::<Option<Table>>("access")?
+            .map(|table| access_of(&table))
+            .transpose()
+    };
     if let Some(list) = options.get::<Option<Table>>("views")? {
         for name in ["page", "web", "access"] {
             if options.get::<Value>(name)? != Value::Nil {
@@ -124,7 +176,7 @@ pub fn specs_of(options: &Table) -> mlua::Result<Vec<ViewSpec>> {
                 "lua" => ViewSpec::Lua {
                     page: entry
                         .get::<Option<String>>("page")?
-                        .unwrap_or_else(|| DEFAULT_PAGE.to_owned()),
+                        .unwrap_or_else(|| default_page(files)),
                     assets: entry
                         .get::<Option<String>>("assets")?
                         .unwrap_or_else(|| ASSETS.to_owned()),
@@ -132,11 +184,8 @@ pub fn specs_of(options: &Table) -> mlua::Result<Vec<ViewSpec>> {
                 "web" => ViewSpec::Web {
                     dir: entry
                         .get::<Option<String>>("dir")?
-                        .unwrap_or_else(|| DEFAULT_WEB.to_owned()),
-                    access: entry
-                        .get::<Option<Table>>("access")?
-                        .map(|table| access_of(&table))
-                        .transpose()?,
+                        .unwrap_or_else(|| default_web(files)),
+                    access: access(&entry)?,
                 },
                 other => {
                     return Err(super::fault(format!(
@@ -154,10 +203,20 @@ pub fn specs_of(options: &Table) -> mlua::Result<Vec<ViewSpec>> {
     }
     let page = options.get::<Option<String>>("page")?;
     let web = options.get::<Option<String>>("web")?;
+    if page.is_none() && web.is_none() {
+        let specs = offered(files, access(options)?);
+        if specs.is_empty() {
+            return Err(super::fault(format!(
+                "serve: the app has no view: {PAGE} is a page of the kit and {VIEW}/index.html a web \
+                 page (`page`, `web` or `views` name another)"
+            )));
+        }
+        return Ok(specs);
+    }
     let mut specs = Vec::new();
-    if page.is_some() || web.is_none() {
+    if let Some(page) = page {
         specs.push(ViewSpec::Lua {
-            page: page.unwrap_or_else(|| DEFAULT_PAGE.to_owned()),
+            page,
             assets: options
                 .get::<Option<String>>("assets")?
                 .unwrap_or_else(|| ASSETS.to_owned()),
@@ -166,10 +225,7 @@ pub fn specs_of(options: &Table) -> mlua::Result<Vec<ViewSpec>> {
     if let Some(dir) = web {
         specs.push(ViewSpec::Web {
             dir,
-            access: options
-                .get::<Option<Table>>("access")?
-                .map(|table| access_of(&table))
-                .transpose()?,
+            access: access(options)?,
         });
     }
     Ok(specs)
@@ -285,7 +341,7 @@ fn prepare(
     options: &Table,
 ) -> mlua::Result<(Options, Handlers, Handlers, Vec<ViewSpec>)> {
     let fail = |why: String| super::fault(why);
-    let specs = specs_of(options)?;
+    let specs = specs_of(options, &core.files)?;
     let mut serving = Options::new()
         .program(
             options

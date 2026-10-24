@@ -1,11 +1,12 @@
--- {{name}}: the program. It runs in the terminal pane, and page.lua is the view it shows there.
--- `pencere dev` runs it and runs it again when a file changes; `pencere build` makes one file of it.
+-- {{name}}: the program. It runs in the terminal pane and shows the view of src/view/ there:
+-- `serve` told no view shows what that directory has, here page.lua. Pictures are src/assets/,
+-- whose files the page and `icon =` name as "assets/…". `pencere dev` runs it and runs it again
+-- when a file changes; `pencere build` makes one file of it, dist/{{name}}.
 
 local pencere = require("pencere")
 local time = pencere.time
 
 local outcome = pencere.serve {
-	page = "page.lua",
 	title = "{{name}}",
 
 	-- What the view asks for, once: a function that answers, or raises `{ code =, message = }`.

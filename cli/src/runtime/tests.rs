@@ -290,6 +290,18 @@ fn the_check_of_a_build_finds_a_script_that_does_not_compile() {
     files.insert("page.lua".to_owned(), vec![b'x'; 9 * 1024 * 1024]);
     let why = super::check(&files).expect_err("a page over the limit");
     assert!(why.contains("page.lua"), "{why}");
+    // The page of an app with the layout is checked where it is, and so is a web page.
+    let mut files = BTreeMap::new();
+    files.insert("app.lua".to_owned(), b"".to_vec());
+    files.insert("view/page.lua".to_owned(), vec![b'x'; 9 * 1024 * 1024]);
+    let why = super::check(&files).expect_err("a page over the limit");
+    assert!(why.contains("view/page.lua"), "{why}");
+    let mut files = BTreeMap::new();
+    files.insert("app.lua".to_owned(), b"".to_vec());
+    files.insert("view/index.html".to_owned(), b"<p>".to_vec());
+    files.insert("view/app.js".to_owned(), vec![b'x'; 9 * 1024 * 1024]);
+    let why = super::check(&files).expect_err("a web page over the limit");
+    assert!(why.contains("view/"), "{why}");
 }
 
 #[test]
@@ -306,10 +318,84 @@ fn a_loop_with_nothing_to_wait_for_ends_instead_of_hanging() {
     assert!(started.elapsed() < Duration::from_secs(10));
 }
 
-fn specs_from(source: &str) -> mlua::Result<Vec<super::core::ViewSpec>> {
+/// An app of the files listed (each of one byte), as the packed app has them.
+fn app_with(paths: &[&str]) -> Files {
+    Files::packed(
+        paths
+            .iter()
+            .map(|path| ((*path).to_owned(), b"-".to_vec()))
+            .collect(),
+    )
+}
+
+fn specs_in(files: &Files, source: &str) -> mlua::Result<Vec<super::core::ViewSpec>> {
     let lua = mlua::Lua::new();
     let options: mlua::Table = lua.load(source).eval().expect("a table");
-    super::serve::specs_of(&options)
+    super::serve::specs_of(&options, files)
+}
+
+/// The simple form: the page beside `app.lua`.
+fn specs_from(source: &str) -> mlua::Result<Vec<super::core::ViewSpec>> {
+    specs_in(&app_with(&["app.lua", "page.lua"]), source)
+}
+
+#[test]
+fn serve_told_no_view_shows_the_ones_the_app_has() {
+    use super::core::ViewSpec;
+    let lua = |page: &str| ViewSpec::Lua {
+        page: page.into(),
+        assets: "assets".into(),
+    };
+    let web = |dir: &str| ViewSpec::Web {
+        dir: dir.into(),
+        access: None,
+    };
+    let laid_page = app_with(&["app.lua", "view/page.lua", "assets/a.svg"]);
+    assert_eq!(
+        specs_in(&laid_page, "return {}").expect("specs"),
+        [lua("view/page.lua")]
+    );
+    let laid_web = app_with(&["app.lua", "view/index.html", "view/app.js"]);
+    assert_eq!(
+        specs_in(&laid_web, "return {}").expect("specs"),
+        [web("view")]
+    );
+    // Both: the terminal's own kind first.
+    let both = app_with(&["app.lua", "view/page.lua", "view/index.html"]);
+    assert_eq!(
+        specs_in(&both, "return {}").expect("specs"),
+        [lua("view/page.lua"), web("view")]
+    );
+    // A view named without its place is where the app has it.
+    assert_eq!(
+        specs_in(
+            &both,
+            r#"return { views = { { kind = "web" }, { kind = "lua" } } }"#
+        )
+        .expect("specs"),
+        [web("view"), lua("view/page.lua")]
+    );
+    // The simple form's `web/` is found the same way.
+    let simple = app_with(&["app.lua", "web/index.html"]);
+    assert_eq!(specs_in(&simple, "return {}").expect("specs"), [web("web")]);
+    // `access` is the web page's, however it came to be offered.
+    let specs = specs_in(
+        &laid_web,
+        r#"return { access = { connect = { "https://api.example.com" } } }"#,
+    )
+    .expect("specs");
+    let [ViewSpec::Web { access, .. }] = specs.as_slice() else {
+        panic!("a web view: {specs:?}");
+    };
+    assert!(access.is_some());
+    // An app with no view says where one goes, and does not guess.
+    let why = specs_in(&app_with(&["app.lua"]), "return {}")
+        .expect_err("no view")
+        .to_string();
+    assert!(
+        why.contains("view/page.lua") && why.contains("view/index.html"),
+        "{why}"
+    );
 }
 
 #[test]
@@ -323,7 +409,7 @@ fn serve_names_its_views_in_the_order_the_app_prefers_them() {
         dir: dir.into(),
         access: None,
     };
-    // Nothing named: the page of the usual name.
+    // Nothing named: the page the app has.
     assert_eq!(specs_from("return {}").expect("specs"), [lua("page.lua")]);
     assert_eq!(
         specs_from(r#"return { page = "ui.lua" }"#).expect("specs"),

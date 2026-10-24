@@ -8,6 +8,17 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Changed
 
+- An app has one source layout: the program in `src/program/` (`app.lua` and its modules), the page
+  in `src/view/` (`page.lua` or `index.html`) and the pictures in `src/assets/`; builds go to
+  `dist/`, and nothing generated is under `src/`. `pencere new` makes every template so (Lua, Lua
+  with a web page, TypeScript, Rust). Once packed an app is `app.lua` and its modules at the top,
+  `view/` and `assets/`, and every path it writes is a path of that: `serve{}` told no view shows
+  what `view/` has, and `icon = "assets/icon.png"`. `pencere build` and `pencere dev` take
+  `--web DIR` (the page is packed from the directory a tool built it into, `dist/view`, instead of
+  `src/view/`) and `--name NAME` (the executable's name and the name in the app's own messages; the
+  directory's name by default), and `pencere build` writes `dist/<name>` unless `-o` says where
+  (the directory of the file is made). A directory with an `app.lua` in it is still an app, the
+  simple form, and is packed as it lies.
 - A program that `process.spawn` or `process.run` starts runs in a group of its own, and `kill`, a
   `timeout`, `max_output` and the end of the app signal the whole group. Before, a shell's
   pipeline kept the pipe open after the shell was ended, and `run` did not return. `max_output`

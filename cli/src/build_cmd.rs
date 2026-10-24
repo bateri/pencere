@@ -12,7 +12,7 @@ use std::process::{Command, ExitCode};
 
 use sha2::{Digest as _, Sha256};
 
-use crate::files::{self, Files, Meta};
+use crate::files::{self, Meta, Project};
 use crate::payload;
 
 /// The targets a runner is made for.
@@ -45,16 +45,6 @@ fn canonical(target: &str) -> Option<&'static str> {
         return Some(OWN);
     }
     TARGETS.iter().find(|known| **known == target).copied()
-}
-
-/// The name of an app made from a directory: that of the directory.
-fn name_of(dir: &Path) -> Result<String, String> {
-    let absolute = std::path::absolute(dir).map_err(|why| format!("{}: {why}", dir.display()))?;
-    let name = absolute
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .ok_or_else(|| format!("{} has no name to give the app", dir.display()))?;
-    Ok(name)
 }
 
 /// The directory where downloaded runners are kept.
@@ -145,35 +135,45 @@ fn download_from(base: &str, directory: &Path, target: &str) -> Result<Vec<u8>, 
     result
 }
 
-/// Makes the executable of the app in `dir` for `target` (this machine's when it is `None`) at
-/// `out`, with `runner` as the program (the runner of the target when it is `None`).
-pub fn build(
-    dir: &Path,
-    target: Option<&str>,
-    runner: Option<&Path>,
-    out: Option<&Path>,
-) -> Result<(PathBuf, usize, u64), String> {
-    let target = match target {
+/// What `build` is asked: the app in `dir`, and what it is built as.
+pub struct Request<'a> {
+    /// The directory of the app.
+    pub dir: &'a Path,
+    /// The directory a web page is built into, to pack the page from there instead of `src/view`.
+    pub web: Option<&'a Path>,
+    /// What the app is called: the executable's name and the name in the runner's own messages
+    /// (that of the directory when it is `None`).
+    pub name: Option<&'a str>,
+    /// The target to make it for (this machine's when it is `None`).
+    pub target: Option<&'a str>,
+    /// The program that is the runner (the runner of the target when it is `None`).
+    pub runner: Option<&'a Path>,
+    /// The executable to write (`dist/<name>` for an app with the layout, `<name>` in the simple
+    /// form, `-<target>` after the name for another target, when it is `None`).
+    pub out: Option<&'a Path>,
+}
+
+/// Makes the executable of the app in `request.dir`.
+pub fn build(request: &Request) -> Result<(PathBuf, usize, u64), String> {
+    let target = match request.target {
         None => OWN,
         Some(name) => canonical(name)
             .ok_or_else(|| format!("{name:?} is not a target; they are {}", TARGETS.join(", ")))?,
     };
-    if !dir.join("app.lua").is_file() {
-        return Err(format!(
-            "{} has no app.lua: an app is a directory with one (`pencere new` makes one)",
-            dir.display()
-        ));
-    }
-    let name = name_of(dir)?;
-    let source = Files::in_dir(dir);
+    let project = Project::find(request.dir, request.web)?;
+    let name = match request.name {
+        Some(name) => name.to_owned(),
+        None => project.name()?,
+    };
+    let source = project.files();
     let collected = source.collect().map_err(|why| why.to_string())?;
     // What would be refused when the app starts is told now: a script that does not compile, a
     // page the terminal would not take.
     crate::runtime::check(&collected)?;
-    let out = match out {
+    let out = match request.out {
         Some(out) => out.to_path_buf(),
-        None if target == OWN => PathBuf::from(&name),
-        None => PathBuf::from(format!("{name}-{target}")),
+        None if target == OWN => project.output(&name),
+        None => project.output(&format!("{name}-{target}")),
     };
     // `pencere build myapp`, run beside the directory `myapp`, would make the app's own directory
     // the file.
@@ -183,7 +183,10 @@ pub fn build(
             out.display()
         ));
     }
-    let bytes = match runner {
+    if let Some(parent) = out.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        fs::create_dir_all(parent).map_err(|why| format!("{}: {why}", parent.display()))?;
+    }
+    let bytes = match request.runner {
         Some(path) => fs::read(path).map_err(|why| format!("{}: {why}", path.display()))?,
         None if target == OWN => std::env::current_exe()
             .and_then(fs::read)
@@ -201,6 +204,8 @@ pub fn build(
 
 pub fn command(args: &[String]) -> ExitCode {
     let mut dir = None;
+    let mut web = None;
+    let mut name = None;
     let mut target = None;
     let mut runner = None;
     let mut out = None;
@@ -212,6 +217,14 @@ pub fn command(args: &[String]) -> ExitCode {
                 .ok_or_else(|| format!("{arg} needs {what}"))
         };
         match arg.as_str() {
+            "--web" => match value("a directory") {
+                Ok(v) => web = Some(PathBuf::from(v)),
+                Err(why) => return crate::usage(why),
+            },
+            "--name" => match value("a name") {
+                Ok(v) => name = Some(v),
+                Err(why) => return crate::usage(why),
+            },
             "--target" => match value("a target") {
                 Ok(v) => target = Some(v),
                 Err(why) => return crate::usage(why),
@@ -232,7 +245,15 @@ pub fn command(args: &[String]) -> ExitCode {
         }
     }
     let dir = dir.unwrap_or_else(|| PathBuf::from("."));
-    match build(&dir, target.as_deref(), runner.as_deref(), out.as_deref()) {
+    let request = Request {
+        dir: &dir,
+        web: web.as_deref(),
+        name: name.as_deref(),
+        target: target.as_deref(),
+        runner: runner.as_deref(),
+        out: out.as_deref(),
+    };
+    match build(&request) {
         Ok((out, count, _)) => {
             let size = fs::metadata(&out).map_or(0, |meta| meta.len());
             println!(

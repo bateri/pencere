@@ -11,7 +11,7 @@ use pencere::{Bundle, Kind, Options, View};
 use serde_json::json;
 
 /// The view, a page of the kit's page API, which the terminal draws in its own font and theme.
-const PAGE: &[u8] = include_bytes!("../page.lua");
+const PAGE: &[u8] = include_bytes!("../view/page.lua");
 const ICON: &[u8] = include_bytes!("../assets/icon.svg");
 
 fn main() -> Result<ExitCode, pencere::Error> {
