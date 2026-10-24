@@ -98,7 +98,7 @@ fn edges(edges: [f32; 4]) -> wit::Edges {
     }
 }
 
-fn style(style: Style) -> wit::Style {
+fn style(style: Style, lists: &mut Lists) -> wit::Style {
     wit::Style {
         display: match style.display {
             Display::Flex => wit::Display::Flex,
@@ -141,8 +141,8 @@ fn style(style: Style) -> wit::Style {
             Justify::End => wit::Justify::End,
             Justify::Between => wit::Justify::Between,
         }),
-        columns: style.columns.iter().map(track).collect(),
-        rows: style.rows.iter().map(track).collect(),
+        columns: lists.tracks(style.columns.iter().map(track)),
+        rows: lists.tracks(style.rows.iter().map(track)),
         column_span: style.column_span,
         overflow: match style.overflow {
             Overflow::Visible => wit::Overflow::Visible,
@@ -186,18 +186,57 @@ fn style(style: Style) -> wit::Style {
     }
 }
 
-fn node(node: Node) -> wit::Node {
+/// The lists a frame names the parts of: the words of its lines of text and the paths of its
+/// pictures, the values of its sparklines and the tracks of its grids. Each element appends what
+/// it has and keeps the part it took, so a frame says every byte of itself once.
+#[derive(Default)]
+struct Lists {
+    text: String,
+    numbers: Vec<f32>,
+    tracks: Vec<wit::Track>,
+}
+
+/// A part of a list that begins at `start` and has `len` items. A list of a module cannot pass
+/// the 4 GiB its memory addresses, so the numbers fit.
+fn part(start: usize, len: usize) -> wit::Slice {
+    wit::Slice {
+        start: u32::try_from(start).unwrap_or(u32::MAX),
+        len: u32::try_from(len).unwrap_or(u32::MAX),
+    }
+}
+
+impl Lists {
+    fn words(&mut self, words: &str) -> wit::Slice {
+        let start = self.text.len();
+        self.text.push_str(words);
+        part(start, words.len())
+    }
+
+    fn values(&mut self, values: &[f32]) -> wit::Slice {
+        let start = self.numbers.len();
+        self.numbers.extend_from_slice(values);
+        part(start, values.len())
+    }
+
+    fn tracks(&mut self, tracks: impl Iterator<Item = wit::Track>) -> wit::Slice {
+        let start = self.tracks.len();
+        self.tracks.extend(tracks);
+        part(start, self.tracks.len() - start)
+    }
+}
+
+fn node(node: Node, lists: &mut Lists) -> wit::Node {
     wit::Node {
         content: match node.kind {
             Kind::Box => wit::Content::Box,
-            Kind::Text(text) => wit::Content::Text(text),
+            Kind::Text(text) => wit::Content::Text(lists.words(&text)),
             Kind::Spark(spark) => wit::Content::Spark(wit::Spark {
-                values: spark.values,
+                values: lists.values(&spark.values),
                 color: color(spark.color),
                 peak: spark.peak,
             }),
             Kind::Image(image) => wit::Content::Image(wit::Image {
-                src: image.src,
+                src: lists.words(&image.src),
                 fit: match image.fit {
                     Fit::Contain => wit::Fit::Contain,
                     Fit::Cover => wit::Fit::Cover,
@@ -206,7 +245,7 @@ fn node(node: Node) -> wit::Node {
                 opacity: image.opacity,
             }),
         },
-        style: style(node.style),
+        style: style(node.style, lists),
         id: node.meta.id.map(|id| id.number()),
         pressable: node.meta.pressable,
         focusable: node.meta.focusable,
@@ -215,10 +254,20 @@ fn node(node: Node) -> wit::Node {
     }
 }
 
-/// The page, as the interface's list of nodes.
+/// The page, as the interface's list of nodes and the lists they name the parts of.
 pub fn to_wit_frame(frame: Frame) -> wit::Frame {
+    let mut lists = Lists::default();
+    let nodes = frame
+        .root
+        .fold()
+        .into_iter()
+        .map(|each| node(each, &mut lists))
+        .collect();
     wit::Frame {
-        nodes: frame.root.fold().into_iter().map(node).collect(),
+        nodes,
+        text: lists.text,
+        numbers: lists.numbers,
+        tracks: lists.tracks,
         animating: frame.animating,
         wake_at: frame.wake_at,
     }
@@ -229,12 +278,10 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
     wit::Reply {
         redraw: reply.redraw,
         close: reply.close,
-        menu: reply.menu.map(|menu| wit::Menu {
-            at: wit::Point {
-                x: menu.at.x,
-                y: menu.at.y,
-            },
-            entries: menu
+        menu: reply.menu.map(|menu| {
+            // The titles of the entries are one string, as the words of a frame are.
+            let mut lists = Lists::default();
+            let entries = menu
                 .entries
                 .into_iter()
                 .map(|entry| match entry {
@@ -244,12 +291,20 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
                         key,
                         enabled,
                     } => wit::MenuEntry::Item(wit::MenuItem {
-                        title,
+                        title: lists.words(&title),
                         key,
                         enabled,
                     }),
                 })
-                .collect(),
+                .collect();
+            wit::Menu {
+                at: wit::Point {
+                    x: menu.at.x,
+                    y: menu.at.y,
+                },
+                entries,
+                titles: lists.text,
+            }
         }),
         keyboard: reply.keyboard.map(|keyboard| match keyboard {
             Keyboard::Page => wit::Keyboard::Page,

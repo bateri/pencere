@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <unordered_map>
+#include <vector>
 
 #include "lualib.h"
 
@@ -28,6 +29,46 @@ void* xrealloc(void* old, size_t n) {
     void* p = realloc(old, n ? n : 1);
     if (!p) __builtin_trap();
     return p;
+}
+
+// --- The lists a frame names the parts of ----------------------------------------------------
+
+// What a frame says that is not of a fixed size (words, values, tracks) is in three lists, once
+// for the whole frame, and an element names the part it means (see `frame` in the interface): a
+// script's page is read into these as it is walked, and they are handed to the host as they are.
+struct Arenas {
+    std::string text;
+    std::vector<float> numbers;
+    std::vector<pencere_view_types_track_t> tracks;
+};
+
+// The part of a list that begins at `start` and has `len` items.
+pencere_view_types_slice_t part(size_t start, size_t len) {
+    pencere_view_types_slice_t out;
+    out.start = (uint32_t)start;
+    out.len = (uint32_t)len;
+    return out;
+}
+
+// The words in the list, as a part of it. Valid UTF-8 whatever the script gave (the host would
+// refuse a page that was not), and so are the ends of every part.
+pencere_view_types_slice_t add_words(Arenas& arenas, const char* bytes, size_t length) {
+    std::string clean = repaired(bytes, length);
+    size_t start = arenas.text.size();
+    arenas.text += clean;
+    return part(start, clean.size());
+}
+
+// The lists as the host takes them: malloc'ed (the generated `_free` functions release them), and
+// nothing at all for an empty one.
+view_string_t take_text(const std::string& text) {
+    view_string_t out = {nullptr, 0};
+    if (!text.empty()) {
+        out.ptr = (uint8_t*)xmalloc(text.size());
+        out.len = text.size();
+        memcpy(out.ptr, text.data(), text.size());
+    }
+    return out;
 }
 
 // --- Names ----------------------------------------------------------------------------------
@@ -336,9 +377,10 @@ pencere_view_types_length_t length_of(lua_State* L, int t, const char* name) {
     return out;
 }
 
-// The tracks at `name`: numbers are points, `{fr = n}`, `{min = n, fr = n}` and "auto".
-pencere_view_types_list_track_t tracks_of(lua_State* L, int t, const char* name) {
-    pencere_view_types_list_track_t out = {nullptr, 0};
+// The tracks at `name`, as a part of the frame's list: numbers are points, `{fr = n}`,
+// `{min = n, fr = n}` and "auto".
+pencere_view_types_slice_t tracks_of(lua_State* L, int t, const char* name, Arenas& arenas) {
+    pencere_view_types_slice_t out = part(0, 0);
     get(L, t, name);
     if (lua_isnil(L, -1)) {
         lua_pop(L, 1);
@@ -348,10 +390,7 @@ pencere_view_types_list_track_t tracks_of(lua_State* L, int t, const char* name)
     int list = lua_gettop(L);
     size_t count = (size_t)lua_objlen(L, list);
     if (count > kMaxList) luaL_error(L, "%s has more tracks than a grid may", name);
-    if (count) {
-        out.ptr = (pencere_view_types_track_t*)xmalloc(count * sizeof(pencere_view_types_track_t));
-        out.len = count;
-    }
+    size_t start = arenas.tracks.size();
     for (size_t at = 0; at < count; at++) {
         pencere_view_types_track_t track = {};
         lua_rawgeti(L, list, (int)at + 1);
@@ -378,10 +417,10 @@ pencere_view_types_list_track_t tracks_of(lua_State* L, int t, const char* name)
             luaL_error(L, "a track is points, {fr = n}, {min = n, fr = n} or \"auto\"");
         }
         lua_pop(L, 1);
-        out.ptr[at] = track;
+        arenas.tracks.push_back(track);
     }
     lua_pop(L, 1);
-    return out;
+    return part(start, count);
 }
 
 // Four numbers of the list at `name` (top, right, bottom, left, or the corners in order).
@@ -401,7 +440,7 @@ void four(lua_State* L, int t, const char* name, float out[4]) {
     lua_pop(L, 1);
 }
 
-void read_style(lua_State* L, int s, pencere_view_types_style_t& out) {
+void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& arenas) {
     out.display = (uint8_t)word(L, s, "display", kDisplay, 3, 0);
     out.direction = (uint8_t)word(L, s, "direction", kDirection, 2, PENCERE_VIEW_TYPES_DIRECTION_COLUMN);
     out.wrap = flag(L, s, "wrap");
@@ -434,8 +473,8 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out) {
     if (items >= 0) out.items = {true, (uint8_t)items};
     int justify = word(L, s, "justify", kJustify, 4, -1);
     if (justify >= 0) out.justify = {true, (uint8_t)justify};
-    out.columns = tracks_of(L, s, "columns");
-    out.rows = tracks_of(L, s, "rows");
+    out.columns = tracks_of(L, s, "columns", arenas);
+    out.rows = tracks_of(L, s, "rows", arenas);
     float span = number(L, s, "column_span", 0.0f);
     out.column_span = span < 0 ? 0 : (span > 65535 ? 65535 : (uint16_t)span);
     out.overflow = (uint8_t)word(L, s, "overflow", kOverflow, 3, 0);
@@ -490,6 +529,7 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out) {
 struct Flat {
     pencere_view_types_frame_t* frame;
     size_t cap;
+    Arenas arenas;
 };
 
 void flatten(lua_State* L, int element, Flat& flat, int depth) {
@@ -521,7 +561,7 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         size_t length = 0;
         const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
         nodes.ptr[at].content.tag = PENCERE_VIEW_TYPES_CONTENT_TEXT;
-        nodes.ptr[at].content.val.text = host_string(bytes, length);
+        nodes.ptr[at].content.val.text = add_words(flat.arenas, bytes, length);
         lua_pop(L, 1);
     } else if (is_spark) {
         pencere_view_types_spark_t spark = {};
@@ -530,15 +570,13 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
             int list = lua_gettop(L);
             size_t count = (size_t)lua_objlen(L, list);
             if (count > kMaxList * 4) luaL_error(L, "a sparkline has more values than it may");
-            if (count) {
-                spark.values.ptr = (float*)xmalloc(count * sizeof(float));
-                spark.values.len = count;
-            }
+            size_t start = flat.arenas.numbers.size();
             for (size_t i = 0; i < count; i++) {
                 lua_rawgeti(L, list, (int)i + 1);
-                spark.values.ptr[i] = (float)lua_tonumber(L, -1);
+                flat.arenas.numbers.push_back((float)lua_tonumber(L, -1));
                 lua_pop(L, 1);
             }
+            spark.values = part(start, count);
         }
         lua_pop(L, 1);
         spark.color.alpha = 1.0f;
@@ -558,7 +596,7 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         get(L, picture, "src");
         size_t length = 0;
         const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
-        image.src = host_string(bytes, length);
+        image.src = add_words(flat.arenas, bytes, length);
         lua_pop(L, 1);
         int fit = word(L, picture, "fit", kFit, 2, 0);
         image.fit = (pencere_view_types_fit_t)fit;
@@ -572,7 +610,7 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
     get(L, element, "style");
     if (lua_type(L, -1) == LUA_TTABLE) {
         pencere_view_types_style_t style = nodes.ptr[at].style;
-        read_style(L, lua_gettop(L), style);
+        read_style(L, lua_gettop(L), style, flat.arenas);
         nodes.ptr[at].style = style;
     }
     lua_pop(L, 1);
@@ -706,8 +744,22 @@ void forget_ids() { names().clear(); }
 
 int frame_call(lua_State* L) {
     auto* job = (FrameJob*)lua_touserdata(L, 2);
-    Flat flat = {job->out, 0};
+    Flat flat = {job->out, 0, {}};
     flatten(L, 1, flat, 1);
+    // The tree is read: the lists the nodes name the parts of go to the host with it.
+    job->out->text = take_text(flat.arenas.text);
+    if (!flat.arenas.numbers.empty()) {
+        size_t bytes = flat.arenas.numbers.size() * sizeof(float);
+        job->out->numbers.ptr = (float*)xmalloc(bytes);
+        job->out->numbers.len = flat.arenas.numbers.size();
+        memcpy(job->out->numbers.ptr, flat.arenas.numbers.data(), bytes);
+    }
+    if (!flat.arenas.tracks.empty()) {
+        size_t bytes = flat.arenas.tracks.size() * sizeof(pencere_view_types_track_t);
+        job->out->tracks.ptr = (pencere_view_types_track_t*)xmalloc(bytes);
+        job->out->tracks.len = flat.arenas.tracks.size();
+        memcpy(job->out->tracks.ptr, flat.arenas.tracks.data(), bytes);
+    }
     job->out->animating = job->animating;
     job->out->wake_at.is_some = job->has_wake_at;
     job->out->wake_at.val = job->wake_at;
@@ -856,6 +908,8 @@ int reply_call(lua_State* L) {
             out.menu.val.at.y = number(L, lua_gettop(L), "y", 0.0f);
         }
         lua_pop(L, 1);
+        // The titles of the entries are one string, as the words of a frame are.
+        Arenas titles;
         get(L, menu, "entries");
         if (lua_type(L, -1) == LUA_TTABLE) {
             int list = lua_gettop(L);
@@ -879,7 +933,7 @@ int reply_call(lua_State* L) {
                     get(L, entry_index, "title");
                     size_t length = 0;
                     const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
-                    entry.val.item.title = host_string(bytes, length);
+                    entry.val.item.title = add_words(titles, bytes, length);
                     lua_pop(L, 1);
                     get(L, entry_index, "key");
                     if (lua_type(L, -1) == LUA_TSTRING && lua_objlen(L, -1) > 0) {
@@ -902,6 +956,7 @@ int reply_call(lua_State* L) {
             }
         }
         lua_pop(L, 1);
+        out.menu.val.titles = take_text(titles.text);
     }
     lua_pop(L, 1);
     return 0;

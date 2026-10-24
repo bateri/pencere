@@ -865,6 +865,7 @@ version = "0.1.0"
 dependencies = [
  "containers-page",
  "pencere-view",
+ "pencere-wire",
  "png",
  "resvg",
  "wasmtime",

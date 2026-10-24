@@ -8,6 +8,26 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **A frame says what it says once.** The words of every line of text and the paths of pictures,
+  the values of sparklines and the tracks of grids are three lists of the frame, and a menu's
+  titles one string; an element (an entry) names the part it means (`slice`: a start and a
+  length). A module can no longer make the application copy one buffer for every element that
+  points at it: the lists are taken in once, as large as the module's memory, and what the
+  elements read of them is counted each time against `ModuleLimits::frame_bytes` (4 MiB). A part
+  past its list, one that begins or ends inside a character, or a frame past the limit is not a page.
+  The interface is still `pencere:view@1.0.0`, because it has not been published.
+- **`ModuleLimits::compile`.** Compiling a component is held to a time (20 s); a component that takes
+  longer is refused, in words, and its compiling ends on its own thread. A component written
+  against another version of the interface than this one's is refused with a sentence that names both
+  (`this view is written against `pencere:view@0.5.0`; this terminal opens `pencere:view@1.0.0``),
+  and no longer with the runtime's words.
+- **Images.** `ImageLimits::work_bytes` (the memory one image may be worked in: what a decoder
+  holds, the layers an SVG is drawn on), `sizes` (an SVG is drawn at a few sizes, each its own
+  raster, and a size past them is the nearest) and `idle` (how long pixels nothing asks for are
+  kept when their room is needed). A drawing that unfolds into more than a hundred thousand parts is
+  refused, and its parsed shapes are counted in the pixels of the view. A JPEG is held the way its
+  EXIF orientation says, as a web view shows it.
+
 - The package carries what it is built from and nothing of the repository around it: the interface
   it reads is its own copy (`wit/view.wit`, equal to the kit's `kit/wit/view.wit`, which `make check`
   keeps so), and the tests of `src/`, which read files of the repository, are left out.

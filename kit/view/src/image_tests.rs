@@ -259,6 +259,48 @@ fn an_image_fills_what_is_inside_its_padding_and_border() {
 }
 
 #[test]
+fn an_image_that_takes_its_size_from_the_image_keeps_the_border_beside_it_and_its_proportions() {
+    // The box is 60 across with 5 of padding and 1 of border on each side: what the picture has
+    // is 48, and its height is the half of that, 24, with the same padding and border around
+    // it. (The picture's room was measured against the whole side and the padding and border
+    // were then taken off it again, so the box came out too tall and the picture too small for it.)
+    let mut host = Images::with("a.png", 40.0, 20.0);
+    let root = div().items_start().child(
+        image("a.png", Fit::Contain)
+            .w(60.0)
+            .p(5.0)
+            .border(1.0, Role::Line),
+    );
+    let (at, drawn) = lone(root, &mut host, 1.0);
+    assert_eq!(at, Rect::new(0.0, 0.0, 60.0, 36.0));
+    assert_eq!(drawn[0].rect, Rect::new(6.0, 6.0, 48.0, 24.0));
+    // And with no side given, the image's own size, and the border and padding on top of it.
+    let root = div()
+        .items_start()
+        .child(image("a.png", Fit::Contain).p(5.0).border(1.0, Role::Line));
+    let (at, drawn) = lone(root, &mut host, 1.0);
+    assert_eq!(at, Rect::new(0.0, 0.0, 52.0, 32.0));
+    assert_eq!(drawn[0].rect, Rect::new(6.0, 6.0, 40.0, 20.0));
+}
+
+#[test]
+fn an_image_held_to_a_largest_or_smallest_side_keeps_its_proportions() {
+    let mut host = Images::with("a.png", 40.0, 20.0);
+    // Left to be as large as it is, but not wider than 30: not 30 by 20.
+    let capped = div()
+        .items_start()
+        .child(image("a.png", Fit::Contain).max_w(30.0));
+    let (at, _) = lone(capped, &mut host, 1.0);
+    assert_eq!((at.w, at.h), (30.0, 15.0));
+    // And not narrower than 60: not 60 by 20.
+    let raised = div()
+        .items_start()
+        .child(image("a.png", Fit::Contain).min_w(60.0));
+    let (at, _) = lone(raised, &mut host, 1.0);
+    assert_eq!((at.w, at.h), (60.0, 30.0));
+}
+
+#[test]
 fn the_tint_and_the_opacity_reach_the_draw_list_as_the_page_said_them() {
     let mut host = Images::with("a.svg", 16.0, 16.0);
     let ink = Rgba::rgb(1, 2, 3).or_dark(Rgba::rgb(250, 251, 252));

@@ -20,9 +20,13 @@ include = [
 
 [dependencies]
 # The page engine: the tree a module hands out is read into its elements, and what the module
-# is asked of the page laid out is answered from its layout. No other crate of this workspace,
-# no platform library (`make check`) — the sandbox moves with the engine.
+# is asked of the page laid out is answered from its layout. No crate of this workspace besides
+# this and the wire below, no platform library (`make check`) — the sandbox moves with the engine.
 pencere-view = { path = "../view", version = "0.1.0" }
+# The size of a message as the protocol counts it (`json::unescaped_len`): the terminal, the
+# program and this sandbox hold a message to its limit by one function. The wire is bytes and no
+# decisions, and the sandbox links to nothing else of the terminal's.
+pencere-wire = { path = "../../wire", version = "0.1.0" }
 # The WebAssembly runtime, linked by this crate alone (`make check`). The Cranelift compiler
 # needs a host that may make executable memory, which a terminal built on this crate asks of
 # the system.

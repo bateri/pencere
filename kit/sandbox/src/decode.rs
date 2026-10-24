@@ -2,9 +2,10 @@
 //!
 //! The bytes are not trusted: they are a file a program sent, and what is in them is whatever its
 //! author wrote. So the format is told from the bytes and not from a name, the size of an image is
-//! read from its header and approved **before** a pixel is made ([`Approve`]), and a decoder that
-//! fails — or gives up by panicking, which the caller catches — leaves the image refused and
-//! nothing else harmed.
+//! read from its header and approved **before** a pixel is made ([`Approve`]) — with the memory
+//! the decoder works in while it makes them, which is more than the pixels it gives — and a
+//! decoder that fails, or gives up by panicking (which the caller catches), leaves the image
+//! refused and nothing else harmed.
 //!
 //! Pixels come out as sRGB, eight bits a channel, **premultiplied** by the opacity: the form a
 //! renderer blends in and filters without a dark edge around what is see-through.
@@ -44,8 +45,15 @@ pub(crate) enum Failure {
     Broken(String),
     /// The image is wider or taller than an image may be.
     TooLarge { width: u32, height: u32, side: u32 },
-    /// The image would take the pixels of the view past what the view may hold.
+    /// The image would take the pixels of the view past what the view may hold, with what it
+    /// holds now: there may be room later.
     Budget { most: usize },
+    /// The image is by itself more than the view may hold: there never is room.
+    Whole { bytes: usize, most: usize },
+    /// Decoding or drawing the image would take more memory to work in than one image may.
+    Work { bytes: usize, most: usize },
+    /// The SVG is made of more than a drawing may be.
+    Complex { nodes: usize, most: usize },
     /// The view names more images than it may.
     Paths { most: usize },
 }
@@ -72,13 +80,30 @@ impl std::fmt::Display for Failure {
                 "would take the decoded images of the view past {} MiB",
                 most >> 20
             ),
+            Self::Whole { bytes, most } => write!(
+                f,
+                "is {} MiB of pixels, past the {} MiB a view may hold",
+                bytes >> 20,
+                most >> 20
+            ),
+            Self::Work { bytes, most } => write!(
+                f,
+                "would take {} MiB to work in, past the {} MiB one image may",
+                bytes >> 20,
+                most >> 20
+            ),
+            Self::Complex { nodes, most } => write!(
+                f,
+                "is a drawing of {nodes} parts, past the {most} a drawing may have"
+            ),
             Self::Paths { most } => write!(f, "is past the {most} images a view may name"),
         }
     }
 }
 
-/// What approves an image of a size, once its header says it, before any pixel is made.
-pub(crate) type Approve<'a> = &'a mut dyn FnMut(u32, u32) -> Result<(), Failure>;
+/// What approves an image of a size, once its header says it, before any pixel is made: its width
+/// and height, and the bytes the decoder will work in besides the pixels it gives.
+pub(crate) type Approve<'a> = &'a mut dyn FnMut(u32, u32, usize) -> Result<(), Failure>;
 
 /// An image's pixels, premultiplied RGBA, eight bits a channel.
 pub(crate) struct Raster {
@@ -139,10 +164,12 @@ fn png(bytes: &[u8], approve: Approve<'_>) -> Result<Raster, Failure> {
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = decoder.read_info().map_err(broken)?;
     let (width, height) = reader.info().size();
-    approve(width, height)?;
     let size = reader
         .output_buffer_size()
         .ok_or_else(|| Failure::Broken("the image is larger than memory".into()))?;
+    // The decoder works in a buffer of its own, as large as the image at eight bits a channel,
+    // beside the pixels it is turned into.
+    approve(width, height, size)?;
     let mut raw = vec![0_u8; size];
     let info = reader.next_frame(&mut raw).map_err(broken)?;
     let raw = raw.get(..info.buffer_size()).unwrap_or_default();
@@ -194,6 +221,14 @@ fn png(bytes: &[u8], approve: Approve<'_>) -> Result<Raster, Failure> {
     })
 }
 
+/// The bytes the JPEG decoder works in, a pixel at a time: its planes and the transforms it
+/// holds its blocks in (a progressive file holds all of them until the last scan), which is eight
+/// for every pixel of the image, and four more for the second copy of the pixels a file that is
+/// turned (see [`orient`]) needs.
+const fn jpeg_working(turns: bool) -> usize {
+    if turns { 12 } else { 8 }
+}
+
 fn jpeg(bytes: &[u8], approve: Approve<'_>) -> Result<Raster, Failure> {
     let options = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGBA);
     let mut decoder = JpegDecoder::new_with_options(ZCursor::new(bytes), options);
@@ -202,9 +237,14 @@ fn jpeg(bytes: &[u8], approve: Approve<'_>) -> Result<Raster, Failure> {
         .dimensions()
         .and_then(|(w, h)| Some((u32::try_from(w).ok()?, u32::try_from(h).ok()?)))
         .ok_or_else(|| Failure::Broken("no size in the header".into()))?;
-    approve(width, height)?;
+    // The way the file says it was held when it was taken: what a web view shows the file as.
+    let turn = decoder
+        .exif()
+        .map_or(Turn::Upright, |exif| orientation(exif));
     let size = pixel_bytes(width, height)
         .ok_or_else(|| Failure::Broken("the image is larger than memory".into()))?;
+    let working = size.saturating_mul(jpeg_working(turn != Turn::Upright)) / 4;
+    approve(width, height, working)?;
     if decoder.output_buffer_size() != Some(size) {
         return Err(Failure::Broken("not a colour model it can read".into()));
     }
@@ -216,17 +256,160 @@ fn jpeg(bytes: &[u8], approve: Approve<'_>) -> Result<Raster, Failure> {
             *alpha = u8::MAX;
         }
     }
-    Ok(Raster {
-        width,
-        height,
-        pixels,
+    Ok(orient(
+        Raster {
+            width,
+            height,
+            pixels,
+        },
+        turn,
+    ))
+}
+
+/// How a photograph is turned to be upright: the eight values of an EXIF orientation, 1 to 8.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Turn {
+    /// As it is.
+    Upright,
+    /// Mirrored left to right.
+    Mirrored,
+    /// Turned half a turn.
+    Half,
+    /// Mirrored top to bottom.
+    Flipped,
+    /// Mirrored along the diagonal from the top left corner.
+    Transposed,
+    /// A quarter turn clockwise.
+    Clockwise,
+    /// Mirrored along the diagonal from the top right corner.
+    Transversed,
+    /// A quarter turn anticlockwise.
+    Anticlockwise,
+}
+
+/// The orientation the EXIF block `tiff` (from its TIFF header on) says, `Upright` where it says
+/// none or the block is not one it understands: bytes from a file are never trusted to be whole.
+pub(crate) fn orientation(tiff: &[u8]) -> Turn {
+    read_orientation(tiff).unwrap_or(Turn::Upright)
+}
+
+fn read_orientation(tiff: &[u8]) -> Option<Turn> {
+    let little = match tiff.get(..4)? {
+        b"II*\0" => true,
+        b"MM\0*" => false,
+        _ => return None,
+    };
+    let short = |at: usize| -> Option<u16> {
+        let two: [u8; 2] = tiff.get(at..at.checked_add(2)?)?.try_into().ok()?;
+        Some(if little {
+            u16::from_le_bytes(two)
+        } else {
+            u16::from_be_bytes(two)
+        })
+    };
+    let long = |at: usize| -> Option<u32> {
+        let four: [u8; 4] = tiff.get(at..at.checked_add(4)?)?.try_into().ok()?;
+        Some(if little {
+            u32::from_le_bytes(four)
+        } else {
+            u32::from_be_bytes(four)
+        })
+    };
+    let ifd = usize::try_from(long(4)?).ok()?;
+    let entries = usize::from(short(ifd)?);
+    // A tag of the first directory: twelve bytes each, the value of a short in the last four.
+    (0..entries).find_map(|n| {
+        let entry = ifd.checked_add(2)?.checked_add(n.checked_mul(12)?)?;
+        if short(entry)? != 0x0112 {
+            return None;
+        }
+        Some(match short(entry.checked_add(8)?)? {
+            2 => Turn::Mirrored,
+            3 => Turn::Half,
+            4 => Turn::Flipped,
+            5 => Turn::Transposed,
+            6 => Turn::Clockwise,
+            7 => Turn::Transversed,
+            8 => Turn::Anticlockwise,
+            _ => Turn::Upright,
+        })
     })
+}
+
+/// The pixels turned so that the picture is upright, as a web view shows the same file. A turn
+/// of a quarter makes the width the height.
+pub(crate) fn orient(raster: Raster, turn: Turn) -> Raster {
+    if turn == Turn::Upright {
+        return raster;
+    }
+    let (w, h) = (raster.width as usize, raster.height as usize);
+    let across = matches!(
+        turn,
+        Turn::Transposed | Turn::Clockwise | Turn::Transversed | Turn::Anticlockwise
+    );
+    let (width, height) = if across { (h, w) } else { (w, h) };
+    let mut pixels = vec![0_u8; raster.pixels.len()];
+    for y in 0..h {
+        for x in 0..w {
+            // Where the pixel at (x, y) stands once turned.
+            let (to_x, to_y) = match turn {
+                Turn::Upright => (x, y),
+                Turn::Mirrored => (w - 1 - x, y),
+                Turn::Half => (w - 1 - x, h - 1 - y),
+                Turn::Flipped => (x, h - 1 - y),
+                Turn::Transposed => (y, x),
+                Turn::Clockwise => (h - 1 - y, x),
+                Turn::Transversed => (h - 1 - y, w - 1 - x),
+                Turn::Anticlockwise => (y, w - 1 - x),
+            };
+            let from = (y * w + x) * 4;
+            let to = (to_y * width + to_x) * 4;
+            if let (Some(source), Some(target)) = (
+                raster.pixels.get(from..from + 4),
+                pixels.get_mut(to..to + 4),
+            ) {
+                target.copy_from_slice(source);
+            }
+        }
+    }
+    Raster {
+        width: u32::try_from(width).unwrap_or(raster.width),
+        height: u32::try_from(height).unwrap_or(raster.height),
+        pixels,
+    }
 }
 
 /// A parsed SVG: shapes, with a size, that can be drawn at any other.
 pub(crate) struct Vector {
     tree: Tree,
+    weight: Weight,
 }
+
+/// What a parsed SVG comes to, which its file does not say: `use` unfolds a part as many times as
+/// it is named, and a drawing that names itself through ten levels of ten is a hundred million
+/// parts in a file of two kilobytes. The parser stops at a million; this is what a view holds.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Weight {
+    /// Shapes, groups and pictures, once unfolded.
+    pub(crate) parts: usize,
+    /// What the parsed drawing takes in memory, as nearly as can be said without asking the
+    /// allocator: a fixed share for each part and the points of every shape.
+    pub(crate) bytes: usize,
+    /// The most layers drawn into one over another at a time (a group with opacity, a mask, a
+    /// clip or a filter is drawn on a layer of its own, and the layers of the groups around it
+    /// are held while it is).
+    pub(crate) layers: usize,
+}
+
+/// The most parts a drawing may have once unfolded: far more than an illustration of the sizes a
+/// page shows has, and far less than what the parser stops at.
+const MOST_PARTS: usize = 100_000;
+
+/// What a part of a parsed drawing takes besides its points.
+const PART_BYTES: usize = 256;
+
+/// What a point and a verb of a shape take.
+const POINT_BYTES: usize = 9;
 
 /// The images an SVG names are never read: not a path, not a URL, not its own data.
 fn options() -> Options<'static> {
@@ -244,10 +427,62 @@ fn options() -> Options<'static> {
 /// to it with the proportions kept (what an SVG is drawn at is what the page says, not this).
 const MOST_NATURAL: f32 = 16_384.0;
 
+/// Counts what `tree` comes to. Without recursion: the parser allows a thousand levels.
+fn weigh(tree: &Tree) -> Weight {
+    use resvg::usvg::{Group, Node};
+    let mut weight = Weight::default();
+    // The groups still to be counted, and the layers held when they are drawn.
+    let mut open: Vec<(&Group, usize)> = vec![(tree.root(), 0)];
+    while let Some((group, layers)) = open.pop() {
+        for node in group.children() {
+            weight.parts += 1;
+            weight.bytes += PART_BYTES;
+            match node {
+                Node::Group(inner) => {
+                    let held = layers + usize::from(inner.should_isolate());
+                    weight.layers = weight.layers.max(held);
+                    open.push((inner, held));
+                    // What a group is cut or covered by is drawn on a layer too.
+                    if let Some(clip) = inner.clip_path() {
+                        open.push((clip.root(), held + 1));
+                    }
+                    if let Some(mask) = inner.mask() {
+                        open.push((mask.root(), held + 1));
+                    }
+                }
+                Node::Path(path) => {
+                    let data = path.data();
+                    weight.bytes += data.points().len() * POINT_BYTES + data.verbs().len();
+                }
+                Node::Image(_) | Node::Text(_) => {}
+            }
+        }
+        // A drawing that is already past what is allowed is not walked to the end.
+        if weight.parts > MOST_PARTS {
+            break;
+        }
+    }
+    // The root's layer is the surface itself; a layer is counted from the first group on.
+    weight.layers = weight.layers.max(1);
+    weight
+}
+
 impl Vector {
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, Failure> {
         let tree = Tree::from_data(bytes, &options()).map_err(broken)?;
-        Ok(Self { tree })
+        let weight = weigh(&tree);
+        if weight.parts > MOST_PARTS {
+            return Err(Failure::Complex {
+                nodes: weight.parts,
+                most: MOST_PARTS,
+            });
+        }
+        Ok(Self { tree, weight })
+    }
+
+    /// What the parsed drawing comes to.
+    pub(crate) fn weight(&self) -> Weight {
+        self.weight
     }
 
     /// The size the SVG says it has, one point to a pixel.
@@ -256,6 +491,14 @@ impl Vector {
         let (w, h) = (size.width(), size.height());
         let shrink = (MOST_NATURAL / w.max(h)).min(1.0);
         (w * shrink, h * shrink)
+    }
+
+    /// The bytes drawing at `width` by `height` works in besides the pixels it makes: a layer the
+    /// size of the surface for every one that is held at the same time.
+    pub(crate) fn working(&self, width: u32, height: u32) -> usize {
+        pixel_bytes(width, height)
+            .unwrap_or(usize::MAX)
+            .saturating_mul(self.weight.layers)
     }
 
     /// The SVG drawn on a `width` by `height` surface, so that it fills it.

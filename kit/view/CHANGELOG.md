@@ -8,6 +8,11 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **An image keeps its proportions and its border.** An image whose box takes its size from the
+  image has the border and the padding beside it (the picture's room was measured against the whole
+  side and had them taken off again), and one held only by a `min_w`/`max_w`/`min_h`/`max_h` keeps its
+  other side in proportion where it has no padding or border.
+
 - **Images.** `image(src, fit)` is an element that draws a file of the view's bundle (`Kind::Image`;
   `.tint(colour)` and `.opacity(x)` on it; `Fit::Contain` or `Fit::Cover`). The host says how large
   an image is (`Measure::image`, in pixels of the image, `None` while it is not known), the engine

@@ -24,10 +24,15 @@ pub trait Program: Send + Sync + 'static {
     /// room for it. When not, the module is told *full* and keeps the message, and the
     /// application calls it again (`Module::room`) once the program has read enough. From the
     /// module's thread.
+    ///
+    /// `bytes` is the size of the message as the protocol counts it, with its escapes undone
+    /// (`pencere_wire::json::unescaped_len`): what the application counts of the same message
+    /// when it takes it from [`crate::Update::sent`] is to be counted so, or the two never meet.
     fn may_say(&self, bytes: usize) -> bool;
 
     /// The module has taken a message of `bytes` the program said: the program may say more.
-    /// From the module's thread, after the page was told.
+    /// From the module's thread, after the page was told. `bytes` is counted as for
+    /// [`Program::may_say`], from the text the application gave [`crate::Module::message`].
     fn taken(&self, bytes: usize);
 
     /// The application's clock now, in the seconds the module is given as `now` for a frame, if
@@ -69,8 +74,17 @@ pub struct ModuleLimits {
     pub call: Duration,
     /// How long the module may take to start (its first code to run).
     pub start: Duration,
+    /// How long compiling the module may take. A component is code from a program, and what it
+    /// takes to compile is the author's to make long; past this the module is refused (the
+    /// compiling goes on, on a thread of its own, until it is done, and its result is dropped).
+    pub compile: Duration,
     /// Elements in one frame.
     pub nodes: usize,
+    /// Bytes in all that one frame (or one menu) says apart from its elements' fixed fields: the
+    /// words of its lines of text and pictures' paths, four bytes a value of a sparkline, what a
+    /// track takes. Counted each time an element names a part, so that parts that overlap are not
+    /// free.
+    pub frame_bytes: usize,
     /// Depth of the tree of one frame (the root is 1).
     pub depth: usize,
     /// Bytes of one line of text, of a title, of text for the pasteboard.
@@ -96,7 +110,9 @@ impl Default for ModuleLimits {
             memory: 64 << 20,
             call: Duration::from_millis(250),
             start: Duration::from_secs(2),
+            compile: Duration::from_secs(20),
             nodes: 20_000,
+            frame_bytes: 4 << 20,
             depth: 128,
             text: 64 << 10,
             tracks: 64,

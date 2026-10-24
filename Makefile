@@ -33,15 +33,15 @@ check:
 
 # The rules of the kit that are not the compiler's: what each crate may depend on, and that the
 # interpreter in the repository is the one its sources build. They are the layers of the kit:
-# the engine knows nothing of the wire or of a terminal, the sandbox knows the engine and the
-# runtime, and the page modules know the SDK and the engine.
+# the engine knows nothing of the wire or of a terminal, the sandbox knows the engine, the wire
+# (for the size of a message) and the runtime, and the page modules know the SDK and the engine.
 audit:
 	@fail=0; \
 	if [ "$$(cargo tree -p pencere-view -e normal --depth 1 --prefix none | tail -n +2 | sed 's/ .*//' | sort -u)" != "taffy" ]; then echo "audit: pencere-view depends on something besides the layout crate (taffy) — the page engine depends on its layout crate alone"; fail=1; fi; \
 	if cargo tree -p pencere-view -e normal --prefix none | tail -n +2 | grep -E "^(pencere-|containers-|objc2|dispatch2|block2|metal|wgpu|winit)"; then echo "audit: pencere-view links to a crate of this repository or a platform library"; fail=1; fi; \
 	if grep -rnE "objc2|dispatch2|block2|wgpu|winit|pencere_(wire|host|sandbox)" kit/view/src | grep -v ":[[:space:]]*//"; then echo "audit: a platform call or a crate of this repository is named in the source of pencere-view"; fail=1; fi; \
-	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(pencere-(wire|host)|containers-|objc2|dispatch2|block2|metal|wgpu|winit)"; then echo "audit: pencere-sandbox links to a crate of this repository past the page engine or to a platform library — the sandbox depends on the engine and the runtime alone"; fail=1; fi; \
-	if grep -rnE "objc2|dispatch2|block2|wgpu|winit|pencere_(wire|host)" kit/sandbox/src | grep -v ":[[:space:]]*//"; then echo "audit: a platform call or a crate of this repository is named in the source of pencere-sandbox"; fail=1; fi; \
+	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(pencere-host|containers-|objc2|dispatch2|block2|metal|wgpu|winit)"; then echo "audit: pencere-sandbox links to a crate of this repository past the page engine and the wire, or to a platform library — the sandbox depends on the engine, the wire (for the size of a message) and the runtime alone"; fail=1; fi; \
+	if grep -rnE "objc2|dispatch2|block2|wgpu|winit|pencere_host" kit/sandbox/src | grep -v ":[[:space:]]*//"; then echo "audit: a platform call or a crate of the terminal's is named in the source of pencere-sandbox"; fail=1; fi; \
 	if cargo tree --workspace -e normal -i wasmtime --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-sandbox "; then echo "audit: the WebAssembly runtime is linked by a crate other than pencere-sandbox — one door to it"; fail=1; fi; \
 	for decoder in png zune-jpeg resvg; do \
 		if cargo tree --workspace -e normal -i $$decoder --depth 1 --prefix none | tail -n +2 | grep -vE "^(pencere-sandbox|resvg|usvg|tiny-skia|image) "; then echo "audit: the $$decoder decoder is linked by a crate other than pencere-sandbox — the formats and limits of images are the sandbox's, the same in every terminal"; fail=1; fi; \

@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use pencere_view::{Element, Event, Input, Laid, Reply, Size};
+use pencere_wire::json::unescaped_len;
 
 use crate::sandbox::{Fault, ModuleLimits, Program};
 use crate::world::World;
@@ -304,11 +305,13 @@ impl Post<'_> {
     }
 }
 
-/// What the page was last asked for, and when. A page the module makes again by itself is made
-/// for the same viewport. What the person did is answered at the time of the last frame, the one
-/// the person saw; what the program said, at the time that has passed since — a program speaks on
-/// its own clock, long after any frame, and a page that tells the time by `now` (how long ago a
-/// reading came) is not handed the time of a frame long gone.
+/// What the page was last made for, and when. A page the module makes again by itself is made
+/// for the same viewport. What the person did is answered at the time the page was last made for,
+/// the one the person saw; what the program said, at the time that has passed since — a program
+/// speaks on its own clock, long after any frame, and a page that tells the time by `now` (how
+/// long ago a reading came) is not handed the time of a frame long gone. The page that was made
+/// for what the program said is made for a time, and what follows it is made for that time or a
+/// later one.
 #[derive(Clone, Copy)]
 struct Asked {
     size: Size,
@@ -368,9 +371,15 @@ fn serve<R: Runner>(
                     now,
                     reduce_motion,
                 } => {
+                    // What the page is made for again, by an event or by what its program said,
+                    // is a time that only rises: a page that tells how long ago something was
+                    // (by `now`) is not handed an earlier time than one it has already seen,
+                    // whichever of the application's frame and its own reading of the clock was
+                    // behind the other. The frame itself is made for the time it was asked for.
+                    let kept = last.map_or(*now, |before| before.now);
                     last = Some(Asked {
                         size: *size,
-                        now: *now,
+                        now: if now.is_finite() { now.max(kept) } else { kept },
                         reduce_motion: *reduce_motion,
                         at: Instant::now(),
                     });
@@ -428,7 +437,7 @@ fn serve<R: Runner>(
                     // Taken: the program may say more. After the page was told, and not for a
                     // page that failed on it (the view is over, and the application lets go
                     // of what it counted).
-                    program.taken(text.len());
+                    program.taken(unescaped_len(text));
                     post.say(runner.take_sent());
                     owed |= answered(reply, post);
                 }
@@ -441,7 +450,15 @@ fn serve<R: Runner>(
             }
         }
         if owed && let Some(asked) = last {
-            let frame = runner.render(asked.size, asked.since(program), asked.reduce_motion)?;
+            let now = asked.since(program);
+            let frame = runner.render(asked.size, now, asked.reduce_motion)?;
+            // The page was made for `now`: what it is made again for next (a hover, a key) is no
+            // earlier, and the time that passes from here is counted from here.
+            last = Some(Asked {
+                now,
+                at: Instant::now(),
+                ..asked
+            });
             post.say(runner.take_sent());
             post.put(Some(frame), None);
         }
@@ -646,16 +663,60 @@ mod tests {
         rig.module.message("redraw".into());
         assert_eq!(render_time(&rig, 2), 40.0);
 
-        // A clock that is behind the frame, or is not a number, is not taken for one: the page
-        // is never made for a time before the frame it follows, and a clock that says nothing
-        // sensible is as good as none.
+        // A clock that is behind the page's time, or is not a number, is not taken for one: the
+        // page is never made for a time before one it was made for already, and a clock that says
+        // nothing sensible is as good as none.
         *clock.0.lock().unwrap() = Some(0.5);
         rig.module.message("redraw".into());
-        assert_eq!(render_time(&rig, 3), 1.0);
+        assert_eq!(render_time(&rig, 3), 40.0);
         *clock.0.lock().unwrap() = Some(f64::NAN);
         rig.module.message("redraw".into());
         let by_the_system = render_time(&rig, 4);
-        assert!((1.0..30.0).contains(&by_the_system), "{by_the_system}");
+        assert!((40.0..70.0).contains(&by_the_system), "{by_the_system}");
+    }
+
+    #[test]
+    fn the_page_is_not_made_for_an_earlier_time_by_what_the_person_does_after_it_was_made_for_the_program_s()
+     {
+        let clock = Arc::new(Clocked(Mutex::new(Some(40.0))));
+        let rig = rig_for(clock, None, None, false);
+        rig.module.render(Size::new(10.0, 10.0), 1.0, false);
+        assert_eq!(render_time(&rig, 1), 1.0);
+        rig.module.message("redraw".into());
+        assert_eq!(render_time(&rig, 2), 40.0);
+        // A hover that changes the page is answered at the time the page now stands at, not at
+        // the time of the frame the person saw before the program spoke.
+        rig.module.event(Event::Text("a".into()));
+        assert_eq!(render_time(&rig, 3), 40.0);
+        // A frame the application asks for is made for the time it says, and what follows it is
+        // no earlier than the page has been.
+        rig.module.render(Size::new(10.0, 10.0), 2.0, false);
+        assert_eq!(render_time(&rig, 4), 2.0);
+        rig.module.event(Event::Text("b".into()));
+        assert_eq!(render_time(&rig, 5), 40.0);
+    }
+
+    #[test]
+    fn what_the_program_said_is_given_back_as_the_protocol_counts_it() {
+        struct Taken(Mutex<Vec<usize>>);
+        impl Program for Taken {
+            fn may_say(&self, _bytes: usize) -> bool {
+                true
+            }
+            fn taken(&self, bytes: usize) {
+                self.0.lock().unwrap().push(bytes);
+            }
+        }
+        let program = Arc::new(Taken(Mutex::new(Vec::new())));
+        let rig = rig_for(program.clone(), None, None, false);
+        // Fourteen bytes of text, ten once the escape is undone.
+        rig.module.message(r#"{"a":"\u00e9"}"#.into());
+        let began = std::time::Instant::now();
+        while program.0.lock().unwrap().is_empty() {
+            assert!(began.elapsed() < Duration::from_secs(5), "never taken");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(*program.0.lock().unwrap(), [10]);
     }
 
     #[test]
