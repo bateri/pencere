@@ -7,12 +7,12 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use pencere::base64;
-use pencere::bundle::{Digest, MemoryStore, Store, Verified};
-use pencere::frame::{Direction, Event, Ids, Message, Outgoing, Split, StreamDecoder, encode};
-use pencere::message::HostInfo;
-use pencere::session::{Action, Config, Offer, Session, Size, ViewKind, ViewStart};
-use pencere::theme::{Rgb, Theme};
+use pencere_host::base64;
+use pencere_host::bundle::{Digest, MemoryStore, Store, Verified};
+use pencere_host::frame::{Direction, Event, Ids, Message, Outgoing, Split, StreamDecoder, encode};
+use pencere_host::message::HostInfo;
+use pencere_host::session::{Action, Config, Offer, Session, Size, ViewKind, ViewStart};
+use pencere_host::theme::{Rgb, Theme};
 use serde_json::{Value, json};
 
 /// The directory of the draft's fixtures.
@@ -262,7 +262,7 @@ impl Rig {
 
     /// The program writes a message whose payload is `value`.
     pub fn json(&mut self, kind: &str, value: &Value) -> u32 {
-        let text = pencere::json::to_wire(value).unwrap();
+        let text = pencere_host::json::to_wire(value).unwrap();
         self.send(kind, None, None, &text)
     }
 

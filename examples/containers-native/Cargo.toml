@@ -1,0 +1,28 @@
+[package]
+name = "containers-native"
+description = "A made-up Docker host, and the smallest program that shows a view of its own: the container list as a WebAssembly component or a Lua script, drawn by the terminal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+# The wire a program speaks to its terminal (frames, the digests and base64 of a bundle, the
+# messages of the view): the protocol's own crate, so the frames are written by the code that
+# reads them.
+pencere-wire = { path = "../../wire" }
+# The containers of the example and the numbers a made-up host reports for them: one list, the
+# page's own, not a copy in the program.
+containers-page = { path = "../containers-page" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+
+[dev-dependencies]
+# The limit of a message toward the program, which the messages crate and the sandbox hold to.
+pencere-host = { path = "../../host/rust" }
+
+[lints]
+workspace = true

@@ -2,7 +2,7 @@
 
 A stand-in terminal for the authors of programs and for tests. It runs a program on
 a pty and plays the host of the views that program opens, with the
-[`pencere` crate](../rust) holding every rule of the conversation: who may open a
+[`pencere-host` crate](../rust) holding every rule of the conversation: who may open a
 view, what is refused, which files of a bundle are missing, what the page is told,
 what ends it. The page is a script, not a web view, so a program can be tried, and the
 SDK tested, without a terminal that hosts pencere.

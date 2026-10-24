@@ -67,7 +67,7 @@ pub fn from_object<T: for<'de> serde::Deserialize<'de>>(text: &str) -> Option<T>
 /// A `T` that is read from a JSON object and from nothing else. A struct that serde reads can
 /// also be read from an array of its fields in order (see [`is_object`]); this is for the
 /// members of a payload, where an array standing for an object is not one.
-pub(crate) struct Object<T>(pub T);
+pub struct Object<T>(pub T);
 
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for Object<T> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -133,7 +133,7 @@ mod tests {
         assert!(!is_object("\"{\""));
         #[derive(serde::Deserialize)]
         struct Pair {
-            #[allow(dead_code)]
+            #[allow(dead_code, reason = "read by serde, never by the test")]
             a: u32,
         }
         assert!(from_object::<Pair>(r#"{"a":1}"#).is_some());

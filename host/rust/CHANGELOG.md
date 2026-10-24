@@ -1,12 +1,25 @@
 # Changelog
 
-All notable changes to the `pencere` crate are recorded here. The format follows
+All notable changes to the `pencere-host` crate (published as `pencere` until its first release
+under this name) are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the crate follows
 [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
 ### Changed
+
+- **Breaking: the crate is `pencere-host`** (the library is `pencere_host`). The name `pencere` is
+  the program library's, the one a program's author adds to a project; nobody used the crate that
+  was published under it.
+- **The wire moved out to `pencere-wire`**, so that a program and a terminal share one copy of it:
+  `frame`, `json`, `base64`, `message` and the manifest, digests and verification of files of
+  `bundle`. They are re-exported, so `pencere_host::frame` is still where a terminal finds them. What
+  stays here is what a terminal decides: `session`, `sandbox`, `theme`, `icon`, `token` and the
+  `bundle::Store` it keeps files in. `Manifest::missing` and `Manifest::is_held` take a closure that
+  says whether a digest is held, instead of a store; `Manifest::check`, `RawBundle`, `RawFile`,
+  `message::probe_token`, `message::OpenBody` and `json::Object` are public, for the crate the
+  session lives in is no longer the one that defines them.
 
 - **Breaking: one protocol, with no MCP in it.** Every kind of view speaks the same six view
   messages (specification §9), and the host only carries them; a `web` page additionally exchanges

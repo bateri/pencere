@@ -12,7 +12,7 @@
 
 mod common;
 
-use pencere::frame::{
+use pencere_host::frame::{
     BodyDecoder, DecodeError, Direction, Event, Message, Outgoing, Split, StreamDecoder, encode,
 };
 use serde_json::Value;

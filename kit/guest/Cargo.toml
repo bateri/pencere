@@ -1,0 +1,52 @@
+# The page modules and the tools that build them: the SDK a page is written with (`pencere-page`),
+# the modules the sandbox's tests run (`containers`, `broken`, `chatty`) and the tools that make
+# the interpreter's component (`cbindgen`, `componentize`). Another workspace on purpose — these
+# are built for `wasm32-unknown-unknown` with the rustup `stable` toolchain (`make guest`), while
+# the terminal-side crates are built with the toolchain the repository pins; `make check` never
+# builds them, so it needs no WebAssembly toolchain.
+[workspace]
+resolver = "3"
+members = ["sdk", "containers", "broken", "chatty", "componentize", "cbindgen"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+publish = false
+
+# The same rules as the terminal-side crates (the SDK converts what a page hands out and what the
+# sandbox hands in; a panic in a page is a trap, so none is written on purpose).
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+
+[workspace.dependencies]
+# The page engine's builder language (`div().row().gap(8.0)`): the style language of a page is
+# the engine's own, not a copy of it.
+pencere-view = { path = "../view" }
+pencere-page = { path = "sdk" }
+# What a program and its view say to each other (`pencere_wire::messages`), written once for both.
+pencere-wire = { path = "../../wire" }
+# The container list the example module is the sandbox's form of.
+containers-page = { path = "../../examples/containers-page" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The bindings of the interface in `kit/wit`, and the tool that turns a module that uses them into
+# a component. Versions of the era of the runtime the sandbox links.
+wit-bindgen = { version = "=0.46.0", default-features = false, features = ["macros", "realloc"] }
+wit-component = "=0.239.0"
+# The generator of the C bindings (`cbindgen`), the same release as the macros.
+wit-bindgen-c = "=0.46.0"
+wit-bindgen-core = "=0.46.0"
+
+[profile.release]
+# Small and fast to compile for the runtime (its Cranelift compile time grows with the module);
+# a panic is a trap, not an unwinding (nothing could catch it in the sandbox anyway).
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"

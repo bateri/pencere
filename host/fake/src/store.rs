@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use pencere::bundle::{Digest, MemoryStore, Store, Verified};
+use pencere_host::bundle::{Digest, MemoryStore, Store, Verified};
 
 use crate::log;
 

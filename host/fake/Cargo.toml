@@ -9,7 +9,7 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-pencere = { path = "../rust" }
+pencere-host = { path = "../rust" }
 serde_json = "1"
 # The pty and the poll: what a terminal does and the crate, which does no I/O,
 # leaves to it.

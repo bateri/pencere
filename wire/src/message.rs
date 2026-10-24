@@ -193,7 +193,7 @@ fn string_or_none<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<S
 
 /// What reading the payload of an `open` for its token found.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum TokenProbe {
+pub enum TokenProbe {
     /// The payload is not JSON: the message is ignored.
     NotJson,
     /// The payload is JSON that has no string `token`.
@@ -278,7 +278,7 @@ impl<'de> Deserialize<'de> for TokenOnly {
 /// Reads the token out of an `open` payload before anything else in it is read
 /// (specification §6.4): a payload whose other members are huge or wrong costs
 /// nothing here, and one that is not JSON is told apart from one with no token.
-pub(crate) fn probe_token(payload: &str) -> TokenProbe {
+pub fn probe_token(payload: &str) -> TokenProbe {
     match serde_json::from_str::<TokenOnly>(payload) {
         Ok(TokenOnly(Some(token))) => TokenProbe::Token(token),
         Ok(TokenOnly(None)) => TokenProbe::NoToken,
@@ -289,7 +289,7 @@ pub(crate) fn probe_token(payload: &str) -> TokenProbe {
 
 /// The rest of an `open`, read once its token has been accepted.
 #[derive(Debug, Deserialize)]
-pub(crate) struct OpenBody {
+pub struct OpenBody {
     /// The kind of view the program opens, by name (specification §6.3). Absent, or not a
     /// string, it is a malformed payload.
     #[serde(default, deserialize_with = "string_or_none")]
@@ -301,33 +301,41 @@ pub(crate) struct OpenBody {
     /// What the program calls itself and its view (specification §7.3).
     #[serde(default, deserialize_with = "string_or_none")]
     pub program: Option<String>,
+    /// The title the program gives its view.
     #[serde(default, deserialize_with = "string_or_none")]
     pub title: Option<String>,
-    /// The icons of the program, as the program wrote them: the [`icon`](crate::icon) module
-    /// reads them, and whatever is wrong with them is no reason to refuse the view.
+    /// The icons of the program, as the program wrote them: a host reads them (the host crate's
+    /// `icon` module does) and whatever is wrong with them is no reason to refuse the view.
     #[serde(default)]
     pub icons: Option<Box<RawValue>>,
     /// What a page asks to reach, as the program wrote it: read only for a `web` view
     /// (specification §6.3).
     #[serde(default)]
     pub access: Option<Box<RawValue>>,
+    /// The manifest of the view's files, before it is checked.
     #[serde(default)]
     pub bundle: Option<RawBundle>,
 }
 
 /// A bundle manifest as it arrives, before it is checked.
 #[derive(Debug, Deserialize)]
-pub(crate) struct RawBundle {
+pub struct RawBundle {
+    /// The path of the document.
     pub entry: String,
+    /// The files, as the manifest lists them.
     pub files: Vec<RawFile>,
 }
 
 /// One file of a manifest as it arrives.
 #[derive(Debug, Deserialize)]
-pub(crate) struct RawFile {
+pub struct RawFile {
+    /// Where the view finds it.
     pub path: String,
+    /// Its digest, as the text the manifest gives.
     pub sha256: String,
+    /// Its length, as the manifest says.
     pub size: u64,
+    /// Its media type.
     #[serde(rename = "type")]
     pub media_type: String,
 }

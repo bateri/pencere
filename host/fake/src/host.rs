@@ -11,13 +11,13 @@
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
-use pencere::bundle::MemoryStore;
-use pencere::frame::{Direction, Event, Message, StreamDecoder};
-use pencere::icon::{Icon, IconTheme};
-use pencere::message::HostInfo;
-use pencere::sandbox::Grant;
-use pencere::session::{Action, Config, Observed, Session, Size, State, ViewStart};
-use pencere::theme::{Rgb, Theme};
+use pencere_host::bundle::MemoryStore;
+use pencere_host::frame::{Direction, Event, Message, StreamDecoder};
+use pencere_host::icon::{Icon, IconTheme};
+use pencere_host::message::HostInfo;
+use pencere_host::sandbox::Grant;
+use pencere_host::session::{Action, Config, Observed, Session, Size, State, ViewStart};
+use pencere_host::theme::{Rgb, Theme};
 use serde_json::Value;
 
 use crate::args::{Args, Ask, Then};

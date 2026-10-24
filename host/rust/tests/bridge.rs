@@ -14,10 +14,10 @@
 mod common;
 
 use common::{Rig, bridge_config, bye, dismiss, kit_config, started, web_config};
-use pencere::bundle::{Store, Verified};
-use pencere::sandbox::Grant;
-use pencere::session::{Action, Config, Size, State, ViewKind};
-use pencere::theme::{Rgb, Theme};
+use pencere_host::bundle::{Store, Verified};
+use pencere_host::sandbox::Grant;
+use pencere_host::session::{Action, Config, Size, State, ViewKind};
+use pencere_host::theme::{Rgb, Theme};
 use serde_json::{Value, json};
 
 /// A rig whose store already holds the files of the page, so that an `open` needs none.
@@ -254,13 +254,18 @@ fn a_context_is_for_a_page_and_for_a_page_that_runs() {
         .unwrap()
         .to_owned();
     let body = b"\0asm\x01\0\0\0";
-    let digest = pencere::bundle::Digest::of(body).to_string();
+    let digest = pencere_host::bundle::Digest::of(body).to_string();
     rig.json(
         "open",
         &json!({"token": token, "view": "wasm", "version": "0.5", "bundle": {"entry": "v.wasm",
             "files": [{"path": "v.wasm", "sha256": digest, "size": body.len(), "type": "application/wasm"}]}}),
     );
-    rig.send("file", None, Some(&digest), &pencere::base64::encode(body));
+    rig.send(
+        "file",
+        None,
+        Some(&digest),
+        &pencere_host::base64::encode(body),
+    );
     let (_, acted) = rig.take();
     let start = started(&acted).unwrap();
     assert_eq!(start.context, None);
@@ -396,7 +401,7 @@ fn a_page_cannot_have_more_questions_open_than_the_host_allows() {
     let mut rig = Rig::new();
     rig.up_web(None);
     let mut asked = Vec::new();
-    for n in 0..pencere::session::MAX_OPEN_LINKS {
+    for n in 0..pencere_host::session::MAX_OPEN_LINKS {
         rig.page(&json!({"link": {"url": format!("https://example.com/{n}")}}).to_string());
         let (_, acted) = rig.take();
         let [Action::OpenLink { link, .. }] = acted.as_slice() else {
@@ -478,7 +483,7 @@ fn the_pages_messages_are_passed_unread_and_the_host_s_own_are_read_by_name_only
     // A message whose body is a very large object is still no tree: it is passed as it is.
     let members: Vec<String> = (0..20_000).map(|n| format!(r#""m{n}":[{n}]"#)).collect();
     let big = format!("{{{}}}", members.join(","));
-    assert!(big.len() < pencere::session::MAX_VIEW_MESSAGE);
+    assert!(big.len() < pencere_host::session::MAX_VIEW_MESSAGE);
     rig.page(&big);
     let (wrote, acted) = rig.take();
     assert!(acted.is_empty());
@@ -488,7 +493,7 @@ fn the_pages_messages_are_passed_unread_and_the_host_s_own_are_read_by_name_only
     // Over the size one message may have, in either direction: dropped.
     let over = format!(
         r#"{{"pad":"{}"}}"#,
-        "a".repeat(pencere::session::MAX_VIEW_MESSAGE)
+        "a".repeat(pencere_host::session::MAX_VIEW_MESSAGE)
     );
     let ignored = rig.host.diagnostics().ignored;
     rig.page(&over);

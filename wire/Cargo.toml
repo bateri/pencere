@@ -1,0 +1,24 @@
+[package]
+name = "pencere-wire"
+description = "The wire of pencere that a program and a terminal share: frames, the payloads of the handshake, bundle manifests and digests, and the six messages of a program and its view"
+# Released on its own line, like the host crate that reads it and the program library that writes
+# it; the workspace's version is the unpublished crates'.
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["terminal", "pencere", "protocol"]
+categories = ["parser-implementations"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# `raw_value` lets a message be routed by the name of its member without building a tree of its
+# whole body, which a hostile stream could make many times larger than the text.
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.10"
+
+[lints]
+workspace = true

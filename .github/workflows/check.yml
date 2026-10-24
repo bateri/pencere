@@ -1,5 +1,5 @@
-# The gate on every push to main and every pull request: `make check`, on the two
-# systems the specification describes (Appendix B measures the tty of both).
+# The gate on every push to main and every pull request: `make check` and `make check-heavy`,
+# on the two systems the specification describes (Appendix B measures the tty of both).
 name: check
 
 on:
@@ -29,5 +29,9 @@ jobs:
         with:
           toolchain: 1.88.0
           components: clippy, rustfmt
+      # The page modules and the example program are built with rustup's stable toolchain and its
+      # WebAssembly target (`make guest`); the gate itself runs with the toolchain above.
+      - run: rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
       - run: npm ci
       - run: make check
+      - run: make check-heavy

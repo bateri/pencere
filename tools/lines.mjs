@@ -15,7 +15,7 @@ export const LINES = {
   "host-rust": {
     dir: "host/rust",
     kind: "cargo",
-    name: "pencere",
+    name: "pencere-host",
     entries: ["src/lib.rs"],
   },
 };

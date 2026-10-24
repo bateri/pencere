@@ -52,11 +52,16 @@ Early: nothing here is stable yet, and the shared release comes later. The repos
 - the specification and its fixtures, the one truth both libraries are tested from
   ([`spec/draft`](spec/draft/pencere.md));
 - a TypeScript SDK for programs that show a view ([`@pencere/sdk`](sdk/typescript));
-- a Rust library for terminals that host views, doing no I/O (crate `pencere`,
-  [`host/rust`](host/rust));
+- a Rust library for terminals that host views, doing no I/O (crate `pencere-host`,
+  [`host/rust`](host/rust)), and the part of the wire it shares with programs (crate
+  `pencere-wire`, [`wire`](wire));
+- the kit a terminal draws native views with: the page engine, the sandbox that runs a component
+  or a Lua script, the interpreter and the SDK a page is written with ([`kit`](kit));
 - a stand-in terminal that plays the host, for trying a program and for tests
   ([`host/fake`](host/fake));
-- an example program with a web view to try it all with ([`examples/containers`](examples/containers)).
+- an example program with a web view to try it all with ([`examples/containers`](examples/containers)),
+  and the same list as a native view of the terminal, as a WebAssembly component or a Lua script
+  ([`examples/containers-native`](examples/containers-native)).
 
 [bateri](https://github.com/bateri/bateri) will be the first host. The `@pencere/sdk` on npm is an
 earlier draft of this protocol; the one in this repository replaces it and is not released yet,

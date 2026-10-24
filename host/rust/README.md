@@ -1,9 +1,13 @@
-# pencere
+# pencere-host
 
 The host side of [pencere](https://github.com/bateri/pencere): what a terminal needs to let a
 program in one of its panes show a view in that pane, whatever the view is — a WebAssembly
 component or a Lua script the terminal runs and draws itself, or a web page in a sandboxed web
 view.
+
+The wire a program and a terminal share (frames, the payloads of the handshake, manifests and
+digests, the six view messages) is the [`pencere-wire`](../../wire) crate's and is re-exported here, so
+that a terminal depends on this crate alone.
 
 The crate does no I/O. A terminal feeds it the bodies of the APC sequences it parses from a
 pane's output and writes the replies the crate builds into that pane's input; it supplies the

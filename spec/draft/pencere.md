@@ -454,6 +454,18 @@ change of the wire is a new version with new fixtures.
 The versions of a kind (Section 5.5) are another thing and do not move with this one: they are the
 versions of the interface a view of that kind is written against.
 
+The versions of the kit views (`wasm` and `lua`, Section 5.5) follow one rule. A change that no
+existing view can notice is a new **minor** version, `1.1` after `1.0`: a new function in the
+component interface, a new element or a new colour role in the page API. A change to something a
+view already uses is a new **major** version, `2.0`: a type that gains a variant or a field (a new
+kind of element, a new role in the interface's colour type, a new member of a record), or a
+function that means something else. A host that adopts a new major version offers it together with
+the one before, as Section 5.4 asks of the protocol's own versions; a host that has stopped opening
+a version refuses an `open` for it as `unsupported` (Section 6.4), and SHOULD say why in words
+that name both sides ("this view is written against `pencere:view@0.5`; this terminal opens 1.x and
+2.x"). For `lua` the interpreter is the host's: a new element or a new role is an addition for a
+script, and what breaks a script is a function of the page API that means something else.
+
 A program MAY send `hello` again at any time; each answered `hello` gets a new
 token (Section 6.1).
 
@@ -464,11 +476,11 @@ from the files of a bundle. A **kind** of view is named by a string in a closed 
 document defines, and each kind has **versions**, which name the interface a view of that kind is
 written against:
 
-| Name   | The view                                                                                                                               | What its version names                                              |
-| ------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `lua`  | A script in the Lua language that the host runs, with an interpreter of its own, in the same sandbox as a component, and draws itself. | The Lua page API of the kit, the global `pencere`.                  |
-| `wasm` | A WebAssembly component that the host runs in a sandbox and draws itself.                                                              | The component interface of the kit, `pencere:view`.                 |
-| `web`  | A web page, shown in a web view of the host's.                                                                                         | The bridge of Section 9.4 between the page and its host: now `1.0`. |
+| Name   | The view                                                                                                                               | What its version names                                                                     |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `lua`  | A script in the Lua language that the host runs, with an interpreter of its own, in the same sandbox as a component, and draws itself. | The Lua page API of the kit, the global `pencere` (`pencere.version` is the major number). |
+| `wasm` | A WebAssembly component that the host runs in a sandbox and draws itself.                                                              | The component interface of the kit, `pencere:view` (`pencere:view@1.0.0` is `1.0`).        |
+| `web`  | A web page, shown in a web view of the host's.                                                                                         | The bridge of Section 9.4 between the page and its host: now `1.0`.                        |
 
 A version is a string of two numbers, `major.minor`, such as `0.5`:
 
@@ -478,9 +490,11 @@ number  = "0" / ( %x31-39 *8DIGIT )
 ```
 
 Versions are compared for equality and for nothing else; the order of a list is the preference of
-whoever wrote it. What a version means is the interface's: for the kit, `0.5` stands for the line of
-releases `0.5.x` of the interface, whose changes are compatible (the kit's own document says what
-that is); for `web`, a change that only adds an optional member to a message of Section 9.4 moves the
+whoever wrote it. What a version means is the interface's. For the kit, `wasm` `1.0` is the
+interface `pencere:view@1.0.0` and `lua` `1.0` is the page API whose `pencere.version` is `1`; the
+rule that moves the numbers is in Section 5.4, and a host that updates its kit offers the new major
+version and the one before. The examples in this document use made-up versions (`0.4`, `0.5`,
+`0.6`) so that they show several at once. For `web`, a change that only adds an optional member to a message of Section 9.4 moves the
 minor number, and one that renames or drops a member or a message moves the major. A host MAY open
 several versions of a kind — a host that updates its kit offers the one it now has and the one
 before — and the program chooses among those both speak (Section 5.2).
@@ -790,13 +804,20 @@ and theme, without a web view:
 - a **WebAssembly view** (`wasm`): the entry of its bundle, whose media type is `application/wasm`,
   is a WebAssembly component (the component model's binary format) that the host runs in a sandbox
   of its own. What the component is given and may ask of the host is the interface `pencere:view`
-  of the kit, which is not part of this document;
+  of the kit (`kit/wit/view.wit` in this repository), which is not part of this document;
 - a **Lua view** (`lua`): the entry of its bundle, whose media type is `text/x-lua`, is the text of
   a script in the Lua language (Luau). The host runs it in the same kind of sandbox, with an
   interpreter that is itself such a component; what the script is given and may ask of the host is
   the same interface, in the interpreter's terms, as the page API of the global `pencere`, and it is
-  not part of this document either. The script is source text: a host does not load compiled code
+  not part of this document either (the kit's sources are in this repository, in `kit/`). The script is source text: a host does not load compiled code
   from a program.
+
+The kit is what any terminal needs to show these views, and it is a part of this repository, under
+the same licence: the page engine (`pencere-view`: the elements, their layout and the draw list a
+terminal draws), the sandbox that runs a component or a script and hands out pages
+(`pencere-sandbox`), the interpreter for the scripts, and the SDK a page module is written with
+(`pencere-page`). A terminal that draws a draw list of its own makes the kit's views its own; the
+versions of the kit are those of Section 5.4.
 
 A host that shows such views offers `wasm`, `lua` or both in the `views` of its `welcome`
 (Section 5.2), when the program listed them at a version the host speaks and the host takes bundles,

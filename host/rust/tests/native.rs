@@ -13,8 +13,8 @@
 mod common;
 
 use common::{Rig, TOKENS, kit_config};
-use pencere::bundle::Digest;
-use pencere::session::{Action, Config, State, ViewKind, ViewStart};
+use pencere_host::bundle::Digest;
+use pencere_host::session::{Action, Config, State, ViewKind, ViewStart};
 use serde_json::{Value, json};
 
 /// What ends a view, played against the rig.
@@ -99,7 +99,7 @@ fn open(rig: &mut Rig, size: u64, extra: &Value) {
 /// The component's file, as the program sends it.
 fn file(rig: &mut Rig) {
     let digest = Digest::of(COMPONENT).to_string();
-    let payload = pencere::base64::encode(COMPONENT);
+    let payload = pencere_host::base64::encode(COMPONENT);
     rig.send("file", None, Some(&digest), &payload);
 }
 
@@ -204,8 +204,9 @@ fn an_access_in_the_open_of_a_component_is_not_read() {
 fn a_msg_of_the_program_reaches_the_view_as_it_is_and_is_not_read() {
     let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
     up(&mut rig, &json!({}));
-    let text = pencere::json::to_wire(&json!({ "push": { "id": 2, "value": [1.5, "caf\u{e9}"] } }))
-        .unwrap();
+    let text =
+        pencere_host::json::to_wire(&json!({ "push": { "id": 2, "value": [1.5, "caf\u{e9}"] } }))
+            .unwrap();
     rig.send("msg", None, None, &text);
     assert_eq!(rig.take().1, vec![Action::ToView(text)]);
     // Named like the host's own messages for a page, it is still the component's.
@@ -568,7 +569,7 @@ fn a_restart_offers_every_kind_the_host_opens_in_its_own_order_with_every_versio
     // A kind listed twice counts once, at its first place.
     config
         .views
-        .push(pencere::session::Offer::new(ViewKind::Web, &["9.9"]));
+        .push(pencere_host::session::Offer::new(ViewKind::Web, &["9.9"]));
     let mut rig = Rig::with(config);
     let token = rig.hello_with(&json!([{"kind": "wasm", "versions": ["0.5"]}]));
     assert_eq!(
@@ -631,7 +632,7 @@ fn script_up(rig: &mut Rig) -> ViewStart {
         "file",
         None,
         Some(&digest),
-        &pencere::base64::encode(SCRIPT),
+        &pencere_host::base64::encode(SCRIPT),
     );
     let (_, acted) = rig.take();
     let [Action::StartView(start)] = acted.as_slice() else {
@@ -660,7 +661,7 @@ fn a_view_that_is_a_script_starts_like_a_component_and_is_served_as_text() {
 fn a_script_gets_the_messages_of_a_component_and_nothing_it_says_is_written_once_it_is_over() {
     let mut rig = rig(&[ViewKind::Wasm, ViewKind::Lua, ViewKind::Web]);
     script_up(&mut rig);
-    let text = pencere::json::to_wire(&json!({ "push": { "id": 1, "value": 2 } })).unwrap();
+    let text = pencere_host::json::to_wire(&json!({ "push": { "id": 1, "value": 2 } })).unwrap();
     rig.send("msg", None, None, &text);
     assert_eq!(rig.take().1, vec![Action::ToView(text)]);
     let said = r#"{"call":{"id":1,"method":"list"}}"#;
@@ -739,7 +740,10 @@ fn the_words_a_view_failed_with_are_cut_and_cleaned_before_the_program_is_told_t
     let message = body["message"].as_str().unwrap();
     // No escape, no override, no newline; at most the most the protocol allows; blanks trimmed.
     assert!(message.starts_with("[31mscript:1: xxx"), "{message}");
-    assert_eq!(message.chars().count(), pencere::session::MAX_FAILURE_CHARS);
+    assert_eq!(
+        message.chars().count(),
+        pencere_host::session::MAX_FAILURE_CHARS
+    );
     // A view with nothing to say says nothing.
     let mut rig = self::rig(&[ViewKind::Lua]);
     script_up(&mut rig);
@@ -763,7 +767,7 @@ fn the_words_of_a_failure_told_when_no_view_is_up_are_not_left_for_another_close
         "file",
         None,
         Some(&digest),
-        &pencere::base64::encode(b"not the bytes"),
+        &pencere_host::base64::encode(b"not the bytes"),
     );
     let (wrote, _) = rig.take();
     let body: Value = serde_json::from_str(&wrote.last().unwrap().payload).unwrap();

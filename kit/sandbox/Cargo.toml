@@ -1,0 +1,37 @@
+[package]
+name = "pencere-sandbox"
+description = "The sandbox of pencere's native views: a WebAssembly component or a Lua script that runs with no file, network or clock, and is asked for a page to lay out and draw"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["terminal", "pencere", "wasm", "sandbox"]
+categories = ["wasm", "gui"]
+include = ["src/**", "luau/luau.wasm", "luau/inputs.sha256", "licenses/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE"]
+
+[dependencies]
+# The page engine: the tree a module hands out is read into its elements, and what the module
+# is asked of the page laid out is answered from its layout. No other crate of this workspace,
+# no platform library (`make check`) — the sandbox moves with the engine.
+pencere-view = { path = "../view", version = "0.1.0" }
+# The WebAssembly runtime, linked by this crate alone (`make check`). The Cranelift compiler
+# needs a host that may make executable memory, which a terminal built on this crate asks of
+# the system.
+wasmtime = { version = "38", default-features = false, features = [
+    "runtime", "cranelift", "component-model", "std", "gc", "gc-drc",
+] }
+
+[dev-dependencies]
+# Modules written as text for the sandbox's tests (`.wat`), so that `make check` does not need
+# the toolchain that builds a real one.
+wasmtime = { version = "38", default-features = false, features = [
+    "runtime", "cranelift", "component-model", "std", "gc", "gc-drc", "wat",
+] }
+# The page the tests compare a module's with: the container list, written once and run natively
+# here as the module runs in the sandbox.
+containers-page = { path = "../../examples/containers-page" }
+
+[lints]
+workspace = true

@@ -13,24 +13,22 @@
 //! never panics on it, allocates for what it has not seen, or buffers more than
 //! a limit of the specification allows.
 //!
-//! * [`frame`]: the APC strings of the wire, read ([`frame::BodyDecoder`] for
-//!   bodies a terminal's parser hands over, [`frame::StreamDecoder`] for raw
-//!   bytes) and written ([`frame::encode`], which refuses a byte a frame may
-//!   not carry).
-//! * [`message`]: the payloads the host reads and writes; [`json`] writes JSON as
-//!   printable ASCII.
+//! * [`frame`], [`message`], [`json`], [`base64`]: the wire, which a program shares with a
+//!   terminal and so is the `pencere-wire` crate's, re-exported here. The APC strings read
+//!   ([`frame::BodyDecoder`] for bodies a terminal's parser hands over,
+//!   [`frame::StreamDecoder`] for raw bytes) and written ([`frame::encode`]), and the payloads
+//!   of the handshake and of closing.
 //! * [`session`]: one pane's conversation with one program, as a state machine
 //!   that takes what the terminal learns and returns what the terminal does. It
 //!   carries the six messages of a program and its view between the two without reading
 //!   them, and speaks the bridge of a page.
-//! * [`bundle`]: manifests, verification of files and the [`bundle::Store`]
+//! * [`bundle`]: the manifests and digests of the wire, and the [`bundle::Store`]
 //!   the terminal supplies.
 //! * [`sandbox`]: what a page asks to reach, what the person is asked, and the
 //!   content security policy built from the answer.
 //! * [`theme`]: the terminal's look, as the roles a page is told.
 //! * [`icon`]: the icons a program gives for itself, as a terminal may draw them.
 //! * [`token`]: the single-use token and the source of bytes it is made from.
-//! * [`base64`]: the two forms of base64 the wire uses.
 //!
 //! The specification is `spec/draft/pencere.md`; its fixtures are the tests of
 //! this crate and of the TypeScript SDK.
@@ -38,14 +36,12 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-pub mod base64;
 pub mod bundle;
-pub mod frame;
 pub mod icon;
-pub mod json;
-pub mod message;
 pub mod sandbox;
 pub mod session;
 mod text;
 pub mod theme;
 pub mod token;
+
+pub use pencere_wire::{base64, frame, json, message};

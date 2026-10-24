@@ -1,6 +1,10 @@
 [workspace]
 resolver = "3"
-members = ["host/rust", "host/fake"]
+members = ["wire", "kit/view", "kit/sandbox", "examples/containers-page", "examples/containers-native", "host/rust", "host/fake"]
+
+# The page modules (`kit/guest/`) are built for another target with another toolchain and have
+# their own workspace and lockfile; this workspace never builds them.
+exclude = ["kit/guest"]
 
 [workspace.package]
 version = "0.0.0"
@@ -10,9 +14,33 @@ license = "Apache-2.0"
 repository = "https://github.com/bateri/pencere"
 
 # The host library parses bytes any program in the terminal can write: a
-# malformed frame must be refused, never crash the terminal that embeds it.
+# malformed frame must be refused, never crash the terminal that embeds it. The sandbox reads
+# what a module hands out and the engine what the sandbox reads: the same rule, with no `allow`
+# in them.
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 indexing_slicing = "deny"
+
+# A page module is compiled to machine code when its page opens, by the sandbox's code
+# generator; built without optimization (a debug build) that takes seconds and the page is
+# not there while it does, and the sandbox's tests open a page for each of their cases. The
+# generator and what feeds it are optimized in the development profile too — compiled once,
+# cached with the rest.
+[profile.dev.package.cranelift-codegen]
+opt-level = 2
+[profile.dev.package.cranelift-frontend]
+opt-level = 2
+[profile.dev.package.cranelift-entity]
+opt-level = 2
+[profile.dev.package.cranelift-bforest]
+opt-level = 2
+[profile.dev.package.regalloc2]
+opt-level = 2
+[profile.dev.package.wasmtime-internal-cranelift]
+opt-level = 2
+[profile.dev.package.wasmtime-environ]
+opt-level = 2
+[profile.dev.package.wasmparser]
+opt-level = 2

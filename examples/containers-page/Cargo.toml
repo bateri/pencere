@@ -1,0 +1,16 @@
+[package]
+name = "containers-page"
+description = "The container list the examples show: a page written with pencere-view, once, for the module that runs in a terminal's sandbox and for the program that makes up the containers it lists"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+# The page is written in the engine's own builder language and nothing else.
+pencere-view = { path = "../../kit/view" }
+
+[lints]
+workspace = true

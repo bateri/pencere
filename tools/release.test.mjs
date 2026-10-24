@@ -22,7 +22,7 @@ describe("the repository's lines", () => {
       expect(json(repo, line.dir, "package.json").name).toBe(line.name);
     }
     expect(text(repo, LINES["host-rust"].dir, "Cargo.toml")).toMatch(
-      /^\[package\]\nname = "pencere"$/m,
+      /^\[package\]\nname = "pencere-host"$/m,
     );
   });
 

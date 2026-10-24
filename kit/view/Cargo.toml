@@ -1,0 +1,22 @@
+[package]
+name = "pencere-view"
+description = "The page engine of pencere's native views: a tree of boxes and lines of text, laid out as flexbox and grid, that comes out as a draw list a terminal draws"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["terminal", "pencere", "layout", "ui"]
+categories = ["gui"]
+include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE"]
+
+[dependencies]
+# The layout: flexbox and grid in pixels. The engine's only dependency, so it takes to wherever a
+# page is shown as it is (`make check` fails when anything else is linked).
+taffy = { version = "0.10", default-features = false, features = [
+    "std", "taffy_tree", "flexbox", "grid", "content_size",
+] }
+
+[lints]
+workspace = true

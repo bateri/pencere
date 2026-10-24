@@ -376,6 +376,8 @@ impl Diagnostics {
             DecodeError::ChunkOrder => &mut self.chunk_order,
             DecodeError::Abandoned => &mut self.abandoned,
             DecodeError::MessageTooLong => &mut self.message_too_long,
+            // A drop the wire learns to name later is still a frame that did not follow it.
+            _ => &mut self.malformed,
         };
         *counter = counter.saturating_add(1);
     }
@@ -1030,7 +1032,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             self.refuse(message.id, "policy");
             return;
         }
-        let missing = bundle.missing(&self.store);
+        let missing = bundle.missing(|digest| self.store.contains(digest));
         let list: Vec<String> = missing.iter().map(ToString::to_string).collect();
         self.send("need", Some(message.id), &message::need(&list));
         let stage = if missing.is_empty() {
@@ -1089,7 +1091,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
 
     fn files_complete(&mut self) {
         let held = match &self.phase {
-            Phase::Opening(open) => open.bundle.is_held(&self.store),
+            Phase::Opening(open) => open.bundle.is_held(|digest| self.store.contains(digest)),
             _ => return,
         };
         // A store may drop an entry at any time (§8.5), including one just kept.

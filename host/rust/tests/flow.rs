@@ -17,12 +17,14 @@ use common::{
     APP, Held, INDEX, Rig, STYLE, TOKENS, bye, dismiss, host_info, open_web, started, web_bundle,
     web_config,
 };
-use pencere::base64;
-use pencere::bundle::{Digest, Store, Verified};
-use pencere::frame::Message;
-use pencere::icon::{self, IconFormat};
-use pencere::sandbox::{self, Directive, Domain, Grant, Permission};
-use pencere::session::{Action, Config, MAX_LABEL_CHARS, Observed, Session, Size, State, ViewKind};
+use pencere_host::base64;
+use pencere_host::bundle::{Digest, Store, Verified};
+use pencere_host::frame::Message;
+use pencere_host::icon::{self, IconFormat};
+use pencere_host::sandbox::{self, Directive, Domain, Grant, Permission};
+use pencere_host::session::{
+    Action, Config, MAX_LABEL_CHARS, Observed, Session, Size, State, ViewKind,
+};
 use serde_json::{Value, json};
 
 /// The code of the one `closed` among what the host wrote, which has to be a refusal.
@@ -63,7 +65,7 @@ fn closed_of(wrote: &[Message]) -> (Value, Option<u32>) {
 }
 
 /// A page whose `open` asks to reach an origin, up to the question to the person.
-fn asked_about(rig: &mut Rig, access: Value) -> pencere::sandbox::Consent {
+fn asked_about(rig: &mut Rig, access: Value) -> pencere_host::sandbox::Consent {
     let token = rig.hello();
     rig.json("open", &open_web(&token, Some(access), json!({})));
     rig.send_files();
@@ -177,7 +179,7 @@ fn a_welcome_offers_each_kind_at_the_versions_both_speak_in_the_programs_order()
         common::kit_config(&[(ViewKind::Wasm, &["0.4", "0.5"]), (ViewKind::Web, &["1.0"])]);
     config
         .views
-        .push(pencere::session::Offer::new(ViewKind::Lua, &[]));
+        .push(pencere_host::session::Offer::new(ViewKind::Lua, &[]));
     let mut rig = Rig::with(config);
     let welcome = rig.hello_with(&json!([
         {"kind": "wasm", "versions": ["0.6", "0.5", "0.5", "0.4"]},
@@ -879,21 +881,21 @@ fn a_store_that_forgets_between_the_need_and_the_end_fails_the_open_rather_than_
     let mut host = Session::new(web_config(), Forgetful::default(), move || {
         tokens.next().unwrap_or([9; 16])
     });
-    let mut ids = pencere::frame::Ids::new();
+    let mut ids = pencere_host::frame::Ids::new();
     let mut send =
         |host: &mut Session<Forgetful, _>, kind: &str, d: Option<&str>, payload: &str| {
             let mut bytes = Vec::new();
-            let message = pencere::frame::Outgoing {
+            let message = pencere_host::frame::Outgoing {
                 kind,
                 id: ids.next_id(),
                 re: None,
                 digest: d,
                 payload,
             };
-            pencere::frame::encode(
-                pencere::frame::Direction::ToHost,
+            pencere_host::frame::encode(
+                pencere_host::frame::Direction::ToHost,
                 &message,
-                pencere::frame::Split::Fill,
+                pencere_host::frame::Split::Fill,
                 &mut bytes,
             )
             .unwrap();
@@ -1233,7 +1235,7 @@ fn everything_the_host_writes_is_printable_ascii_even_when_the_host_is_named_wit
     let mut rig = Rig::with(config);
     let start = rig.up_web(None);
     // The context is JSON text for a web view; it keeps its letters as escapes, too.
-    assert!(pencere::json::is_frame_text(
+    assert!(pencere_host::json::is_frame_text(
         start.context.as_deref().unwrap()
     ));
     let context: Value = serde_json::from_str(start.context.as_deref().unwrap()).unwrap();
@@ -1242,7 +1244,7 @@ fn everything_the_host_writes_is_printable_ascii_even_when_the_host_is_named_wit
     let (wrote, _) = rig.take();
     for message in &wrote {
         assert!(
-            pencere::json::is_frame_text(&message.payload),
+            pencere_host::json::is_frame_text(&message.payload),
             "{message:?}"
         );
     }
@@ -1255,7 +1257,7 @@ fn everything_the_host_writes_is_printable_ascii_even_when_the_host_is_named_wit
     let token = rig.token.clone().unwrap();
     rig.send("bye", None, None, &bye(Some(&token)));
     for message in rig.take().0 {
-        assert!(pencere::json::is_frame_text(&message.payload));
+        assert!(pencere_host::json::is_frame_text(&message.payload));
     }
 }
 
@@ -1419,7 +1421,7 @@ fn a_session_survives_any_order_of_messages_and_only_ever_writes_frames_a_tty_ma
             rig.collect();
             for message in rig.wrote.drain(..) {
                 assert!(
-                    pencere::json::is_frame_text(&message.payload),
+                    pencere_host::json::is_frame_text(&message.payload),
                     "round {round}: {message:?}"
                 );
             }
