@@ -5,8 +5,10 @@ mod core;
 mod events;
 mod handoff;
 mod modules;
+mod pattern;
 mod process;
 mod serve;
+mod text;
 mod watch;
 
 use std::path::PathBuf;

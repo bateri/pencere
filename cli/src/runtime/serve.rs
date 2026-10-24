@@ -201,10 +201,53 @@ fn icon_of(files: &Files, path: &str) -> Result<Icon, String> {
         pencere_wire::base64::encode(&bytes)
     ));
     icon.mime_type = Some(mime.to_owned());
+    // A PNG says its size in its header, and a terminal picks the icon whose size it wants by it.
+    if let (Some(width), Some(height), "image/png") = (
+        bytes
+            .get(16..20)
+            .and_then(|part| <[u8; 4]>::try_from(part).ok()),
+        bytes
+            .get(20..24)
+            .and_then(|part| <[u8; 4]>::try_from(part).ok()),
+        mime,
+    ) {
+        icon.sizes = vec![format!(
+            "{}x{}",
+            u32::from_be_bytes(width),
+            u32::from_be_bytes(height)
+        )];
+    }
     Ok(icon)
 }
 
-/// `serve{ page =, web =, views =, assets =, access =, title =, program =, icon =, calls =, topics = }`,
+/// The icons of `icons = { { file = "assets/icon-32-dark.png", theme = "dark" }, … }`: a picture for
+/// each background and size, from files of the app.
+pub fn icons_of(files: &Files, list: &Table) -> mlua::Result<Vec<Icon>> {
+    let mut icons = Vec::new();
+    for entry in list.sequence_values::<Table>() {
+        let entry = entry?;
+        let Some(file) = entry.get::<Option<String>>("file")? else {
+            return Err(super::fault(
+                "serve: an icon of `icons` is { file = …, theme = … }",
+            ));
+        };
+        let mut icon = icon_of(files, &file).map_err(super::fault)?;
+        icon.theme = match entry.get::<Option<String>>("theme")?.as_deref() {
+            None => None,
+            Some("dark") => Some(pencere::IconTheme::Dark),
+            Some("light") => Some(pencere::IconTheme::Light),
+            Some(other) => {
+                return Err(super::fault(format!(
+                    "serve: an icon's theme is \"dark\" or \"light\", not {other:?}"
+                )));
+            }
+        };
+        icons.push(icon);
+    }
+    Ok(icons)
+}
+
+/// `serve{ page =, web =, views =, assets =, access =, title =, program =, icon =, icons =, calls =, topics = }`,
 /// from the prelude: starts the library's `serve` on a thread, and calls `done` with how it ended.
 pub fn start(core: &Rc<Core>, options: Table, done: Function) -> mlua::Result<()> {
     if core.serve.borrow().is_some() {
@@ -251,6 +294,11 @@ fn prepare(
     }
     if let Some(icon) = options.get::<Option<String>>("icon")? {
         serving = serving.icon(icon_of(&core.files, &icon).map_err(super::fault)?);
+    }
+    if let Some(list) = options.get::<Option<Table>>("icons")? {
+        for icon in icons_of(&core.files, &list)? {
+            serving = serving.icon(icon);
+        }
     }
     let mut calls = HashMap::new();
     if let Some(table) = options.get::<Option<Table>>("calls")? {

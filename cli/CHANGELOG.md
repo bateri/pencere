@@ -8,6 +8,15 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- For an app that edits files, such as an editor: `fs.create` (a new file, where nothing is: it does
+  not truncate a file or write through a link), `fs.rename`, `fs.writable`, `link` in `fs.list`;
+  `process.run` with `raw` (output that is not text, exactly as written) and `max_output`;
+  `json.null`; `os.hostname` and `os.username`; `text` (names in the order people read them, and a
+  text counted in UTF-16 units); `regex` (patterns a person types); `serve{ icons }` (an icon for
+  each background and size).
+- A Mac's runner is linked with room in its header for the segment `pencere build` adds. Without
+  it an app could be written over its first functions, and fail at the first call of one.
+
 - The command itself, and the runner a built app is: one executable that, with an app inside it,
   runs that app, and without one is `pencere`.
   - Apps are written in Luau (the dialect of the kit's page API) and run on the `pencere` program

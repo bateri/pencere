@@ -14,6 +14,14 @@ fn main() {
     let target = env::var("TARGET").unwrap_or_default();
     println!("cargo:rustc-env=PENCERE_TARGET={target}");
     println!("cargo:rerun-if-changed=build.rs");
+    // `pencere build` adds a segment to a copy of this program on a Mac, which is a new load
+    // command in the header. The linker leaves little room after the load commands, and `libsui`
+    // does not look: a header with less room than the segment needs is written over the first
+    // functions of the program, and the app built from it stops at its first call of one of them
+    // (a change of the dependencies that moved a few bytes was all it took). The room is asked for.
+    if target.contains("apple-darwin") {
+        println!("cargo:rustc-link-arg-bins=-Wl,-headerpad,0x4000");
+    }
 
     let (Some(manifest), Some(out)) = (env::var_os("CARGO_MANIFEST_DIR"), env::var_os("OUT_DIR"))
     else {

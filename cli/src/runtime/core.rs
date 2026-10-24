@@ -104,6 +104,8 @@ pub struct Stream {
     pub buffer: Vec<u8>,
     pub handler: Option<Function>,
     pub open: bool,
+    /// Given as it is read, in pieces, and not as lines: output that is not text.
+    pub raw: bool,
 }
 
 pub struct Child {
@@ -549,6 +551,13 @@ impl Core {
 
 /// The lines in a stream's buffer, taken out of it.
 fn split_lines(stream: &mut Stream, out: &mut Vec<(Function, Vec<u8>)>) {
+    if stream.raw {
+        let piece = std::mem::take(&mut stream.buffer);
+        if let (false, Some(handler)) = (piece.is_empty(), &stream.handler) {
+            out.push((handler.clone(), piece));
+        }
+        return;
+    }
     // A line that never ends is not kept for ever.
     const LONGEST: usize = 1 << 20;
     loop {

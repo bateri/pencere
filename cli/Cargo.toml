@@ -31,6 +31,7 @@ mlua = { version = "0.11", features = ["luau"] }
 # make the file of a Mac).
 libsui = "0.16"
 sha2 = "0.10"
+fancy-regex = { version = "0.20.0", default-features = false, features = ["std", "unicode", "variable-lookbehinds"] }
 
 [lints]
 workspace = true

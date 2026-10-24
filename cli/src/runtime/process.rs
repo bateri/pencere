@@ -23,6 +23,8 @@ fn nonblocking(fd: &OwnedFd) {
 /// `argv` is a list: no shell reads it, so nothing in it is a command to be taken apart. The
 /// environment is the app's, with `env` added to it. The process reads nothing from the terminal:
 /// what `input` holds (a string) is what it is given on its standard input, and then the end.
+/// With `raw = true` the output is not text: the handlers are given it as it is read, in pieces of
+/// whatever size, with no line ends taken out or put in (a list of names ended by NUL is one).
 pub fn spawn(core: &Core, options: Table) -> mlua::Result<ChildHandle> {
     let argv: Vec<String> = options
         .get::<Option<Vec<String>>>("argv")?
@@ -77,11 +79,13 @@ pub fn spawn(core: &Core, options: Table) -> mlua::Result<ChildHandle> {
     nonblocking(&stderr);
     let id = core.id();
     let pid = process.id();
+    let raw = options.get::<Option<bool>>("raw")?.unwrap_or(false);
     let stream = |fd: OwnedFd, handler: Option<Function>| Stream {
         fd,
         buffer: Vec::new(),
         handler,
         open: true,
+        raw,
     };
     core.children.borrow_mut().push(Child {
         id,

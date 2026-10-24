@@ -170,6 +170,8 @@ module.json = guard(native.json)
 module.hash = guard(native.hash)
 module.os = guard(native.os)
 module.io = guard(native.io)
+module.text = guard(native.text)
+module.regex = guard(native.regex)
 module.args = native.args
 module.name = native.name
 
@@ -207,7 +209,10 @@ module.process = {
 	-- run{ argv = {...} } (or run{"docker", "ps"}) waits for the program to end, and gives what it
 	-- said: { code =, signal =, ok =, timed_out =, stdout =, stderr = } as text; `timeout` (seconds)
 	-- ends it if it takes longer. Lines are also given to
-	-- `on_stdout` and `on_stderr` while it runs, if the options have them.
+	-- `on_stdout` and `on_stderr` while it runs, if the options have them. `raw = true` is for
+	-- output that is not text (names ended by NUL): `stdout` and `stderr` are then the bytes as the
+	-- program wrote them, no line ends taken out or put in. `max_output` (bytes, both streams
+	-- together) ends the program that says more, and `overflowed` says it did.
 	run = function(options)
 		if type(options) ~= "table" then
 			error("process.run takes a table: { argv = {...} } or the argv itself", 2)
@@ -221,9 +226,20 @@ module.process = {
 		end
 		local out, err = {}, {}
 		local timer, timed_out = nil, false
+		local child, size, overflowed = nil, 0, false
+		local limit = options.max_output
 		local function collect(into, forward)
 			return function(line)
+				if overflowed then
+					return
+				end
 				into[#into + 1] = line
+				size = size + #line
+				if limit and size > limit then
+					overflowed = true
+					child:kill("KILL")
+					return
+				end
 				if forward then
 					forward(line)
 				end
@@ -238,7 +254,7 @@ module.process = {
 				end
 				done(code, signal)
 			end
-			local child = spawn(spec)
+			child = spawn(spec)
 			-- `timeout` (seconds) ends it if it takes longer.
 			if options.timeout then
 				timer = native.after(options.timeout, function()
@@ -250,13 +266,15 @@ module.process = {
 		if timer then
 			timer:cancel()
 		end
+		local joint = options.raw and "" or "\n"
 		return {
 			code = code,
 			signal = signal,
 			timed_out = timed_out,
-			ok = code == 0,
-			stdout = table.concat(out, "\n"),
-			stderr = table.concat(err, "\n"),
+			overflowed = overflowed,
+			ok = code == 0 and not overflowed,
+			stdout = table.concat(out, joint),
+			stderr = table.concat(err, joint),
 		}
 	end,
 }
