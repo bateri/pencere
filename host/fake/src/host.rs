@@ -16,7 +16,9 @@ use pencere_host::frame::{Direction, Event, Message, StreamDecoder};
 use pencere_host::icon::{Icon, IconTheme};
 use pencere_host::message::HostInfo;
 use pencere_host::sandbox::Grant;
-use pencere_host::session::{Action, Config, Observed, Session, Size, State, ViewStart};
+use pencere_host::session::{
+    Action, Config, Observed, Offer, Session, Size, State, ViewKind, ViewStart,
+};
 use pencere_host::theme::{Rgb, Theme};
 use serde_json::Value;
 
@@ -45,6 +47,11 @@ const QUEUE_LIMIT: usize = 1 << 20;
 /// The most bytes of a payload the record reads. The crate reads a hostile stream
 /// with care; a line of the record is not worth a tree of sixteen mebibytes.
 const READ_LIMIT: usize = 64 * 1024;
+
+/// The version of the interface of a view the terminal draws itself (a WebAssembly component or a
+/// Lua script) that the stand-in speaks. It draws nothing: what a program is tried against is the
+/// conversation.
+const KIT_VERSION: &str = "1.0";
 
 /// A pixel is not a cell, but the view's container is told in pixels.
 const CELL_WIDTH: u32 = 8;
@@ -87,8 +94,13 @@ pub struct Host {
     links: Vec<String>,
     cancel_after: Option<u32>,
     view: Option<ScriptedView>,
+    /// The view that runs is one the terminal draws itself, and its messages are the module's.
+    native: bool,
     screen: Screen,
     on_alternate_screen: bool,
+    /// The program has left the alternate screen: what it writes next is written on the screen
+    /// it gave back, and the modes it leaves the tty in are the ones to look at.
+    left_screen: bool,
     modes: Option<Modes>,
     /// What the program's output holds, read once more for the record.
     heard: StreamDecoder,
@@ -121,7 +133,7 @@ impl Host {
             name: "pencere-fake-host".to_owned(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
         };
-        let config = Config::new(
+        let mut config = Config::new(
             host,
             theme,
             Size {
@@ -129,6 +141,12 @@ impl Host {
                 height: u32::from(size.rows) * CELL_HEIGHT,
             },
         );
+        // A terminal that draws views itself opens them as bundles like pages; the stand-in
+        // accepts the two kinds and plays their page as a script, with nothing drawn.
+        config
+            .views
+            .push(Offer::new(ViewKind::Wasm, &[KIT_VERSION]));
+        config.views.push(Offer::new(ViewKind::Lua, &[KIT_VERSION]));
         Ok(Self {
             session: Session::new(config, store, secure_bytes(urandom)),
             answering: args.answer,
@@ -142,8 +160,10 @@ impl Host {
             links: args.links.clone(),
             cancel_after: args.cancel_after,
             view: None,
+            native: false,
             screen: Screen::new(),
             on_alternate_screen: false,
+            left_screen: false,
             modes: None,
             heard: StreamDecoder::new(Direction::ToHost),
             said: StreamDecoder::new(Direction::ToProgram),
@@ -193,6 +213,7 @@ impl Host {
             let _ = out.write_all(bytes).and_then(|()| out.flush());
         }
         // The stream is cut where the terminal must act in step with it.
+        let was_left = self.left_screen;
         let mut start = 0;
         for (at, &byte) in bytes.iter().enumerate() {
             let Some(seen) = self.screen.advance(byte) else {
@@ -211,6 +232,7 @@ impl Host {
                 }
                 Seen::Alternate(on) => {
                     self.on_alternate_screen = on;
+                    self.left_screen = !on;
                     log::line(
                         "screen",
                         if on {
@@ -224,6 +246,25 @@ impl Host {
         }
         if let Some(rest) = bytes.get(start..) {
             self.segment(rest);
+        }
+        // What the program writes after it gave the screen back is written after it gave back
+        // the tty's modes too, if it gives them back at all (§4.9): so this is where to look.
+        let after = if start == 0 {
+            was_left && !bytes.is_empty()
+        } else {
+            bytes.len() > start
+        };
+        if self.left_screen && after {
+            match modes {
+                Some(m) => log::line(
+                    "host",
+                    format!(
+                        "sees the tty after the screen: canonical={} echo={}",
+                        m.canonical, m.echo
+                    ),
+                ),
+                None => log::line("host", "cannot read the tty's modes after the screen"),
+            }
         }
     }
 
@@ -364,6 +405,7 @@ impl Host {
 
     fn start_view(&mut self, start: &ViewStart) {
         self.views += 1;
+        self.native = start.kind.is_native();
         let manifest = self.session.bundle().cloned();
         if let Some(manifest) = manifest {
             log::line(
@@ -416,7 +458,13 @@ impl Host {
 
     fn react(&mut self, reaction: Reaction) {
         for message in &reaction.send {
-            self.session.view_message(message);
+            // The page of a web view talks through the bridge, the module of a view the terminal
+            // draws itself through the session's other door; the messages are the same six.
+            if self.native {
+                self.session.module_message(message);
+            } else {
+                self.session.view_message(message);
+            }
         }
         if reaction.done {
             self.calls_done();

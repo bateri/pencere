@@ -5,7 +5,9 @@ a pty and plays the host of the views that program opens, with the
 [`pencere-host` crate](../rust) holding every rule of the conversation: who may open a
 view, what is refused, which files of a bundle are missing, what the page is told,
 what ends it. The page is a script, not a web view, so a program can be tried, and the
-SDK tested, without a terminal that hosts pencere.
+libraries tested, without a terminal that hosts pencere. It opens the three kinds of view the
+protocol has: a page (`web`) and a component or a Lua script that a terminal draws itself (`wasm`
+and `lua`, at 1.0); it draws neither, and plays all three the same way.
 
 ```sh
 cargo run -p pencere-fake-host -- [options] -- <program> [args...]
@@ -30,6 +32,7 @@ host: the person presses ^C
 program: bye id=8 reason=signal
 view: destroyed
 screen: alternate screen off
+host: sees the tty after the screen: canonical=true echo=true
 ```
 
 `program:` is what the program wrote and how it ended, `host:` what the host decided
@@ -37,7 +40,9 @@ and wrote into the program's input (and the question it asks the person when a p
 asks to reach an origin or a capability, which names the program), `view:` what the
 scripted page received and sent (and the program's words for the view and for itself
 that the view starts with, which a terminal shows above it), `screen:` the alternate
-screen. Tokens never appear.
+screen. The modes of the tty are noted when the program asks (`sees the tty`) and again when it
+writes something after it gave the screen back, which is where a program that gives the tty back
+as it found it shows it has. Tokens never appear.
 
 The page is told its `context` first, as a page that has loaded is, and then sends
 what it was given on the command line: the topics it subscribes to (`--subscribe`),
@@ -60,4 +65,5 @@ between runs, and `--help` lists the rest.
 It is not a terminal emulator: it draws nothing, tracks only the alternate screen and
 answers only `CSI c`, and it keeps the pane's size as it was when the program started.
 The end-to-end tests in `tests/e2e.rs` run the small programs of `tests/programs`,
-written against the TypeScript SDK, against it.
+written against the TypeScript SDK, and the example written against the Rust library
+(`examples/containers-rust`), against it.

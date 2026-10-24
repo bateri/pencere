@@ -96,22 +96,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "containers-native"
-version = "0.0.0"
-dependencies = [
- "containers-page",
- "libc",
- "pencere-host",
- "pencere-wire",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "containers-page"
 version = "0.0.0"
 dependencies = [
  "pencere-view",
+]
+
+[[package]]
+name = "containers-rust"
+version = "0.0.0"
+dependencies = [
+ "containers-page",
+ "pencere",
+ "serde_json",
 ]
 
 [[package]]
@@ -521,6 +518,16 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "pencere"
+version = "0.2.0"
+dependencies = [
+ "libc",
+ "pencere-wire",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "pencere-fake-host"

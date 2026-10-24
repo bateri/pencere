@@ -1,7 +1,8 @@
 //! End to end, on a real pty: small programs written against the TypeScript SDK
 //! (`tests/programs`, which import it from its build, made by `npx tsc -b`, which the
-//! gate runs before these) against the stand-in host, which holds the `pencere` crate's
-//! rules and a scripted page.
+//! gate runs before these), and the example written against the Rust library
+//! (`examples/containers-rust`, built by cargo), against the stand-in host, which holds the
+//! `pencere-host` crate's rules and a scripted page.
 //!
 //! What is read here is the record the host writes to stderr, the bytes the program wrote
 //! to its tty, and how the processes ended. Nothing goes to a network, and every file
@@ -13,6 +14,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
+use std::sync::OnceLock;
 
 const FAKE_HOST: &str = env!("CARGO_BIN_EXE_pencere-fake-host");
 const TMP: &str = env!("CARGO_TARGET_TMPDIR");
@@ -1058,4 +1060,226 @@ fn the_containers_example_prints_its_containers_where_no_view_can_be_shown() {
             run.text()
         );
     }
+}
+
+// ---- the example written with the Rust library --------------------------------------------
+//
+// The same program in another language, held to the same scenarios: the handshake, the files the
+// terminal lacks, a call, a subscription, ⌃C, a terminal that is not a host, and the state the
+// tty is left in. The view is the Lua one, which every build carries: the stand-in opens the
+// three kinds of view the same way.
+
+/// The Rust example (`examples/containers-rust`), built by cargo next to the stand-in host. It is
+/// built here once, so that these tests run on the example as it is now whichever way they were
+/// started (`cargo test --workspace` has built it already, and this is then a look that finds
+/// nothing to do).
+fn rust_example() -> PathBuf {
+    static BUILT: OnceLock<PathBuf> = OnceLock::new();
+    BUILT
+        .get_or_init(|| {
+            let profile = Path::new(FAKE_HOST).parent().expect("a directory");
+            let target = profile.parent().expect("the target directory");
+            let mut build = Command::new(env!("CARGO"));
+            build
+                .args(["build", "--quiet", "-p", "containers-rust", "--target-dir"])
+                .arg(target);
+            if profile.file_name().is_some_and(|name| name == "release") {
+                build.arg("--release");
+            }
+            let status = build.status().expect("cargo runs");
+            assert!(status.success(), "the example does not build");
+            let binary = profile.join("containers-rust");
+            assert!(binary.is_file(), "{} is missing", binary.display());
+            binary
+        })
+        .clone()
+}
+
+fn run_rust_example(options: &[&str], arguments: &[&str]) -> Run {
+    let binary = rust_example();
+    let mut program = vec![binary.to_string_lossy().into_owned()];
+    program.extend(arguments.iter().map(|argument| (*argument).to_owned()));
+    let program: Vec<&str> = program.iter().map(String::as_str).collect();
+    run(options, &program)
+}
+
+#[test]
+fn the_rust_example_opens_answers_a_call_and_pushes_to_its_page() {
+    let run = run_rust_example(
+        &[
+            "--subscribe",
+            "stats",
+            "--call",
+            r#"upload={"seq":1,"data":"abc","last":true}"#,
+            "--call",
+            "nobody",
+            "--then",
+            "interrupt",
+        ],
+        &["--lua"],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        // The host looked at the tty before it answered (§6.2): the library had made it
+        // non-canonical with echo off.
+        "host: sees the tty: canonical=false echo=false",
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=lua@1.0",
+        // The answer to the question comes before the reply to `CSI c` (§5.2).
+        "host: answers CSI c",
+        "screen: alternate screen on",
+        r#"program: open id=2 view=lua version=1.0 title="Containers" bundle of 1 files"#,
+        "host: need id=2 re=2 missing=1",
+        "program: file",
+        "view: started from the bundle: entry containers.lua, 1 files",
+        "view: kind=lua version=1.0",
+        // What the strip above the view says: the program's words for the view and for itself.
+        r#"view: title="Containers" program="containers-rust""#,
+        // The program pushes the use of the running containers as soon as it is asked.
+        "view: -> subscribe id=1 stats",
+        "host: msg id=* subscribe=1 stats",
+        "program: msg id=* push=1",
+        r#"view: <- push id=1 value={"readings":[{"cpu":"#,
+        r#"view: -> call id=2 upload {"data":"abc","last":true,"seq":1}"#,
+        "host: msg id=* call=2 upload",
+        "program: msg id=* response=2 result",
+        r#"view: <- response id=2 result={"bytes":3}"#,
+        // A name nobody serves is answered at once, and does not hold the script.
+        "view: -> call id=3 nobody",
+        "view: <- response id=3 error code=not-found",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "view: destroyed",
+        // The host's last word for the view, and the one frame it writes for a program that has
+        // said it ended (§10.3).
+        "host: closed id=* re=* reason=program",
+        "screen: alternate screen off",
+        // What the program wrote after it gave the screen back was written after it gave back the
+        // tty's modes: the shell finds the tty as it left it (§4.9).
+        "host: sees the tty after the screen: canonical=true echo=true",
+        "program: exited with status 130",
+    ]);
+    assert_eq!(run.count("program: file"), 1, "{}", run.text());
+    // The files the view would fetch are the file on disk, whole.
+    let size = fs::metadata(root().join("kit/luau/examples/containers.lua"))
+        .expect("the script of the example")
+        .len();
+    let wanted = format!("view: fetched containers.lua text/x-lua {size} bytes");
+    assert!(
+        run.events.contains(&wanted),
+        "no {wanted:?}:\n{}",
+        run.text()
+    );
+    // What the program says once the terminal is the shell's again.
+    run.said_after_the_screen("containers-rust: the view sent 3 bytes");
+    assert!(
+        !run.text().contains("host: cannot read the tty's modes"),
+        "{}",
+        run.text()
+    );
+}
+
+#[test]
+fn the_rust_example_has_a_flood_of_readings_cancelled_and_ends_at_the_interrupt() {
+    // The program pushes as fast as the terminal takes them; the page cancels after three.
+    let run = run_rust_example(
+        &[
+            "--subscribe",
+            "stats",
+            "--cancel-after",
+            "3",
+            "--then",
+            "interrupt",
+        ],
+        &["--lua", "--flood"],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: -> subscribe id=1 stats",
+        "view: <- push id=1",
+        "view: <- push id=1",
+        "view: <- push id=1",
+        "view: -> cancel id=1",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "host: closed id=* re=* reason=program",
+        "screen: alternate screen off",
+        "host: sees the tty after the screen: canonical=true echo=true",
+        "program: exited with status 130",
+    ]);
+}
+
+#[test]
+fn the_rust_example_is_asked_for_its_view_again_by_a_host_that_starts_it_again() {
+    let run = run_rust_example(&["--subscribe", "stats", "--then", "restart"], &["--lua"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "host: welcome id=1 re=1 version=1 with a token features=bundle,dismiss views=lua@1.0",
+        "program: open id=2 view=lua",
+        "view: -> subscribe id=1 stats",
+        "host: starts the view again, as after a reconnection",
+        "host: welcome id=* version=1 with a token (restart)",
+        // The files are in the host's store already: the program opens again and sends none.
+        "program: open id=* view=lua",
+        "view: -> subscribe id=1 stats",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "host: closed id=* re=* reason=program",
+        "program: exited with status 130",
+    ]);
+    assert_eq!(run.count("program: open"), 2, "{}", run.text());
+}
+
+#[test]
+fn the_rust_example_ends_when_the_terminal_goes_away() {
+    let run = run_rust_example(&["--subscribe", "stats", "--then", "hangup"], &["--lua"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: -> subscribe id=1 stats",
+        "host: hangs up the terminal",
+    ]);
+    run.never("the time limit is up");
+    assert!(
+        run.events.iter().any(|event| event.starts_with("program: ")
+            && (event.contains("exited with status") || event.contains("killed by signal"))),
+        "{}",
+        run.text()
+    );
+}
+
+#[test]
+fn the_rust_example_prints_its_containers_where_no_view_can_be_shown() {
+    let run = run_rust_example(&["--no-host"], &["--lua"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        "host: does not host pencere: no answer",
+        "host: answers CSI c",
+        "program: exited with status 0",
+    ]);
+    run.never("welcome");
+    run.never("program: open");
+    for line in ["NAME", "IMAGE", "nginx", "redis"] {
+        assert!(
+            run.output_has(line).is_some(),
+            "the fallback did not print {line:?}:\n{}",
+            run.text()
+        );
+    }
+    // It never took the screen: there was nothing to put on it.
+    assert!(run.output_has("\x1b[?1049h").is_none());
+}
+
+#[test]
+fn the_rust_example_prints_its_containers_where_it_has_no_terminal_at_all() {
+    // Not a pane: its output is a pipe, and a pipe is no place to ask for a view.
+    let output = Command::new(rust_example())
+        .arg("--lua")
+        .stdin(Stdio::null())
+        .output()
+        .expect("the example starts");
+    assert!(output.status.success());
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("NAME") && text.contains("IMAGE"), "{text}");
+    assert!(!text.contains('\x1b'), "{text:?}");
 }

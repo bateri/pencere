@@ -1,0 +1,368 @@
+//! What the view asks of the program, and the handlers that answer it (specification §9).
+//!
+//! A handler runs on a thread of its own, so a call that takes a while neither keeps ⌃C from
+//! ending the program nor keeps the other calls waiting. What it has to say — its answer, how far
+//! it has got, the values of a subscription — goes to the event loop through a channel, and the
+//! loop is the one thread that writes to the terminal.
+
+use std::fmt;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::SyncSender;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
+
+use pencere_wire::json;
+use pencere_wire::messages::{MAX_BYTES, Message};
+use serde_json::Value;
+
+use crate::terminal::Pipe;
+
+/// An error a handler ends a call or a subscription with: the view gets `code` (a short name it
+/// can act on), and `message` if there is one (words for the person).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewError {
+    code: String,
+    message: Option<String>,
+}
+
+impl ViewError {
+    /// An error the view can act on by its `code`.
+    #[must_use]
+    pub fn new(code: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: None,
+        }
+    }
+
+    /// An error with words for the person as well.
+    #[must_use]
+    pub fn with_message(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: Some(message.into()),
+        }
+    }
+
+    /// The short name the view acts on.
+    #[must_use]
+    pub fn code(&self) -> &str {
+        &self.code
+    }
+
+    /// The words for the person, if there are some.
+    #[must_use]
+    pub fn message(&self) -> Option<&str> {
+        self.message.as_deref()
+    }
+}
+
+impl fmt::Display for ViewError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.message {
+            Some(message) => write!(f, "{}: {message}", self.code),
+            None => f.write_str(&self.code),
+        }
+    }
+}
+
+impl std::error::Error for ViewError {}
+
+/// A flag that is raised once, that a thread can wait on.
+#[derive(Debug, Default)]
+pub(crate) struct Flag {
+    set: AtomicBool,
+    lock: Mutex<()>,
+    raised: Condvar,
+}
+
+impl Flag {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn raise(&self) {
+        self.set.store(true, Ordering::SeqCst);
+        // Taking the lock is what makes a thread that is about to wait see the flag or be woken.
+        let _guard = self.lock.lock();
+        self.raised.notify_all();
+    }
+
+    pub(crate) fn is_raised(&self) -> bool {
+        self.set.load(Ordering::SeqCst)
+    }
+
+    /// Waits up to `duration` for the flag: whether it was raised.
+    pub(crate) fn wait(&self, duration: Duration) -> bool {
+        let Ok(guard) = self.lock.lock() else {
+            return self.is_raised();
+        };
+        if self.is_raised() {
+            return true;
+        }
+        let _ = self.raised.wait_timeout(guard, duration);
+        self.is_raised()
+    }
+}
+
+/// What a handler has for the event loop.
+pub(crate) enum Work {
+    /// A call is answered.
+    Answer {
+        id: u64,
+        result: Result<Value, ViewError>,
+    },
+    /// How far a call has got: the payload of the `msg`.
+    Progress { id: u64, payload: String },
+    /// The handler of a topic returned.
+    Started {
+        id: u64,
+        result: Result<(), ViewError>,
+    },
+    /// A value of a subscription: the payload of the `msg`.
+    Push { id: u64, payload: String },
+}
+
+/// The way from a handler's thread to the event loop: a channel with room for a few messages, so
+/// that a handler that says more than the terminal reads waits (see `Subscription::push`), and
+/// the pipe that wakes the loop.
+#[derive(Clone)]
+pub(crate) struct Outbox {
+    sender: SyncSender<Work>,
+    pipe: Arc<Pipe>,
+}
+
+impl Outbox {
+    pub(crate) fn new(sender: SyncSender<Work>, pipe: Arc<Pipe>) -> Self {
+        Self { sender, pipe }
+    }
+
+    /// Hands `work` to the loop; whether it was taken (the loop is gone when it was not).
+    pub(crate) fn send(&self, work: Work) -> bool {
+        let sent = self.sender.send(work).is_ok();
+        if sent {
+            self.pipe.wake();
+        }
+        sent
+    }
+}
+
+/// The text of a message of the six as the wire carries it.
+pub(crate) fn payload_of(message: &Message) -> String {
+    json::escape(&message.text())
+}
+
+/// A call of the view that a handler is answering.
+pub struct Call {
+    id: u64,
+    method: String,
+    flag: Arc<Flag>,
+    outbox: Outbox,
+}
+
+impl fmt::Debug for Call {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Call")
+            .field("id", &self.id)
+            .field("method", &self.method)
+            .field("cancelled", &self.is_cancelled())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Call {
+    pub(crate) fn new(id: u64, method: String, flag: Arc<Flag>, outbox: Outbox) -> Self {
+        Self {
+            id,
+            method,
+            flag,
+            outbox,
+        }
+    }
+
+    /// The method the view called.
+    #[must_use]
+    pub fn method(&self) -> &str {
+        &self.method
+    }
+
+    /// Whether the view gave the call up with a `cancel` (§9.2), or the view is over. A handler
+    /// that stops its work then need not answer: the answer would be ignored.
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.flag.is_raised()
+    }
+
+    /// Waits up to `duration`, or until the call is cancelled: whether it was.
+    pub fn sleep(&self, duration: Duration) -> bool {
+        self.flag.wait(duration)
+    }
+
+    /// Tells the view how far the call has got (§9.2). Ignored once the call is cancelled or
+    /// answered, and when a number is not finite.
+    pub fn progress(&self, done: f64, total: Option<f64>, note: Option<&str>) {
+        if self.is_cancelled() || !done.is_finite() || total.is_some_and(|t| !t.is_finite()) {
+            return;
+        }
+        let message = Message::progress(self.id, done, total, note.unwrap_or(""));
+        let payload = payload_of(&message);
+        if payload.len() <= MAX_BYTES {
+            self.outbox.send(Work::Progress {
+                id: self.id,
+                payload,
+            });
+        }
+    }
+}
+
+type Cleanup = Box<dyn FnOnce() + Send>;
+
+/// The state of a subscription that the loop and the handler's threads share.
+pub(crate) struct Feed {
+    id: u64,
+    topic: String,
+    flag: Flag,
+    outbox: Outbox,
+    cleanups: Mutex<Vec<Cleanup>>,
+}
+
+impl Feed {
+    pub(crate) fn new(id: u64, topic: String, outbox: Outbox) -> Self {
+        Self {
+            id,
+            topic,
+            flag: Flag::new(),
+            outbox,
+            cleanups: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The subscription is over: the view cancelled it, or the view is.
+    pub(crate) fn end(&self) {
+        self.flag.raise();
+        let cleanups = self
+            .cleanups
+            .lock()
+            .map(|mut list| std::mem::take(&mut *list))
+            .unwrap_or_default();
+        for cleanup in cleanups {
+            // What stops a feed is not the view's business when it fails.
+            let _ = catch_unwind(AssertUnwindSafe(cleanup));
+        }
+    }
+}
+
+/// A subscription of the view that a handler feeds. It can be cloned and sent to the threads
+/// that produce the values.
+#[derive(Clone)]
+pub struct Subscription {
+    feed: Arc<Feed>,
+}
+
+impl fmt::Debug for Subscription {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Subscription")
+            .field("id", &self.feed.id)
+            .field("topic", &self.feed.topic)
+            .field("cancelled", &self.is_cancelled())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Subscription {
+    pub(crate) fn new(feed: Arc<Feed>) -> Self {
+        Self { feed }
+    }
+
+    /// The topic the view subscribed to.
+    #[must_use]
+    pub fn topic(&self) -> &str {
+        &self.feed.topic
+    }
+
+    /// Pushes a value to the view; `false` when it was not sent: the subscription is over, the
+    /// view is, or the message would be over 1 MiB (§9.3). `Null` is pushed as `null`.
+    ///
+    /// It waits while the terminal is catching up with what was pushed before, which is what
+    /// keeps a thread that produces faster than the terminal reads from filling the memory.
+    pub fn push(&self, value: Value) -> bool {
+        if self.is_cancelled() {
+            return false;
+        }
+        let payload = payload_of(&Message::push(self.feed.id, value));
+        if payload.len() > MAX_BYTES {
+            return false;
+        }
+        self.feed.outbox.send(Work::Push {
+            id: self.feed.id,
+            payload,
+        })
+    }
+
+    /// Whether the view cancelled the subscription or is over.
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.feed.flag.is_raised()
+    }
+
+    /// Waits up to `duration`, or until the subscription ends: whether it has. A thread that
+    /// pushes once a second waits with this, and stops when it returns `true`.
+    pub fn sleep(&self, duration: Duration) -> bool {
+        self.feed.flag.wait(duration)
+    }
+
+    /// Runs `cleanup` once when the subscription ends — the view cancels it or is over — to stop
+    /// whatever feeds it. At once if it has ended already. It runs on the event loop's thread,
+    /// so it should return promptly (raise a flag, close a channel) and not wait for anything.
+    pub fn on_end(&self, cleanup: impl FnOnce() + Send + 'static) {
+        let cleanup: Cleanup = Box::new(cleanup);
+        // `end` raises the flag before it takes the list, so a cleanup that finds the flag down
+        // while it holds the lock is in the list `end` takes.
+        let cleanup = match self.feed.cleanups.lock() {
+            Ok(mut list) if !self.feed.flag.is_raised() => {
+                list.push(cleanup);
+                return;
+            }
+            _ => cleanup,
+        };
+        let _ = catch_unwind(AssertUnwindSafe(cleanup));
+    }
+}
+
+/// The text of a panic a handler died of.
+pub(crate) fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
+    if let Some(text) = panic.downcast_ref::<&str>() {
+        (*text).to_owned()
+    } else if let Some(text) = panic.downcast_ref::<String>() {
+        text.clone()
+    } else {
+        "the handler panicked".to_owned()
+    }
+}
+
+/// The handler of a call, as `serve` holds it.
+pub(crate) type CallFn = dyn Fn(Value, &Call) -> Result<Value, ViewError> + Send + Sync;
+
+/// The handler of a topic, as `serve` holds it.
+pub(crate) type TopicFn = dyn Fn(Value, &Subscription) -> Result<(), ViewError> + Send + Sync;
+
+/// Runs the handler of a call on this thread and hands the answer to the loop.
+pub(crate) fn run_call(handler: &CallFn, params: Value, call: &Call) {
+    let result = catch_unwind(AssertUnwindSafe(|| handler(params, call)))
+        .unwrap_or_else(|panic| Err(ViewError::with_message("internal", panic_text(&*panic))));
+    call.outbox.send(Work::Answer {
+        id: call.id,
+        result,
+    });
+}
+
+/// Runs the handler of a topic on this thread and hands its result to the loop.
+pub(crate) fn run_topic(handler: &TopicFn, params: Value, subscription: &Subscription) {
+    let result = catch_unwind(AssertUnwindSafe(|| handler(params, subscription)))
+        .unwrap_or_else(|panic| Err(ViewError::with_message("internal", panic_text(&*panic))));
+    subscription.feed.outbox.send(Work::Started {
+        id: subscription.feed.id,
+        result,
+    });
+}

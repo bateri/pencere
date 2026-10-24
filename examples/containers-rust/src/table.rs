@@ -1,4 +1,4 @@
-//! The list as text and as JSON: what `containers-native` prints where there is no view.
+//! The list as text and as JSON: what `containers-rust` prints where there is no view.
 
 use containers_page::{Containers, State, readings};
 use serde_json::json;

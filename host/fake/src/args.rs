@@ -11,7 +11,9 @@ usage: pencere-fake-host [options] -- <program> [args...]
 
 Runs <program> on a pty and plays the host of its views: it answers the
 program's capability query, hands out the token, takes the bundle and starts a
-view that is a script, not a web view. The script is a page: it is told the
+view that is a script, not a web view. It opens the three kinds of view: a page
+(`web` 1.0), and a component or a Lua script the terminal draws itself (`wasm`
+and `lua`, 1.0); the script plays all three the same way, and nothing is drawn. The script is a page: it is told the
 context first, then it sends the messages it was given, and logs what the program
 says back. What happens is written to stderr, one line each, in the order it
 happens (program:, host:, view:, screen:).

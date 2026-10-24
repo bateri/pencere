@@ -19,7 +19,7 @@ fmt:
 check:
 	@test -d node_modules || { echo "check: node_modules is missing, run 'make setup' first"; exit 1; }
 	node tools/check-spec.mjs
-	@for name in LICENSE NOTICE; do for dir in sdk/typescript host/rust wire kit/view kit/sandbox; do cmp -s $$name $$dir/$$name || { echo "check: $$dir/$$name is not the repository's $$name"; exit 1; }; done; done
+	@for name in LICENSE NOTICE; do for dir in sdk/typescript host/rust wire program kit/view kit/sandbox; do cmp -s $$name $$dir/$$name || { echo "check: $$dir/$$name is not the repository's $$name"; exit 1; }; done; done
 	@diff -r kit/luau/licenses kit/sandbox/licenses >/dev/null || { echo "check: kit/sandbox/licenses is not a copy of kit/luau/licenses (the crate carries the licences of what is built into its interpreter)"; exit 1; }
 	$(MAKE) --no-print-directory audit
 	npx tsc -b
@@ -65,12 +65,12 @@ guest:
 	@ls -l $(addprefix kit/guest/dist/,$(addsuffix .wasm,$(GUEST_MODULES)))
 	# The program carries the container list's module (`containers.wasm`, built just above) in its
 	# own file, so it is built after it.
-	cargo build --release -p containers-native
+	cargo build --release -p containers-rust
 	# A new file, not the old one written over: macOS kills a signed binary whose file changed
-	# under its cached signature (a containers-native still running in a pane, the next test's exec).
-	rm -f kit/guest/dist/containers-native
-	cp target/release/containers-native kit/guest/dist/containers-native
-	@ls -l kit/guest/dist/containers-native
+	# under its cached signature (a containers-rust still running in a pane, the next test's exec).
+	rm -f kit/guest/dist/containers-rust
+	cp target/release/containers-rust kit/guest/dist/containers-rust
+	@ls -l kit/guest/dist/containers-rust
 
 # The slow half of the gate: what runs a real module, the interpreter or a toolchain for
 # WebAssembly. It builds the modules first (`guest`), then runs every test `make check` leaves

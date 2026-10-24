@@ -1,0 +1,21 @@
+[package]
+name = "containers-rust"
+description = "A made-up Docker host, and the smallest program that shows a view of its own: the container list as a WebAssembly component or a Lua script, drawn by the terminal, written with the pencere library"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+# Everything a program does to show a view: the handshake, the terminal's modes, the signals, the
+# way out. This program is its calls and its subscription, and the list it makes up.
+pencere = { path = "../../program" }
+# The containers of the example and the numbers a made-up host reports for them: one list, the
+# page's own, not a copy in the program.
+containers-page = { path = "../containers-page" }
+serde_json = "1"
+
+[lints]
+workspace = true
