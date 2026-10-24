@@ -873,6 +873,8 @@ dependencies = [
  "mlua",
  "pencere",
  "pencere-wire",
+ "regex-automata",
+ "regex-syntax",
  "serde_json",
  "sha2",
 ]

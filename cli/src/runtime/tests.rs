@@ -634,6 +634,7 @@ fn a_pattern_found_by_a_person_is_a_regex_with_words_for_what_is_wrong() {
         print(word:find("reorder ORDER", 1))
         print(word:find("orders", 1))
         print(regex.new("é+", {}):find("aééb", 1))
+        print(regex.new("\\p{L}+É", { ignore_case = true }):find("1 abcé", 1))
         print(regex.new("^"):find("abc", 1))
         print(regex.new("(a)\\1"):find("xaa", 1))
         print(regex.escape("a.b*c"), regex.new(regex.escape("a.b")):find("a.b", 1))
@@ -644,7 +645,7 @@ fn a_pattern_found_by_a_person_is_a_regex_with_words_for_what_is_wrong() {
     assert_eq!(exit, Exit::Done(0), "{printed}");
     assert_eq!(
         printed,
-        "4\t8\nnil\tnil\n3\t8\n9\t13\nnil\tnil\n2\t5\n1\t0\n2\t3\na\\.b\\*c\t1\t3\nfalse\tregex.new: \n4\t8\n"
+        "4\t8\nnil\tnil\n3\t8\n9\t13\nnil\tnil\n2\t5\n3\t7\n1\t0\n2\t3\na\\.b\\*c\t1\t3\nfalse\tregex.new: \n4\t8\n"
     );
 }
 

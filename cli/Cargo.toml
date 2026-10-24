@@ -31,7 +31,12 @@ mlua = { version = "0.11", features = ["luau"] }
 # make the file of a Mac).
 libsui = "0.16"
 sha2 = "0.10"
-fancy-regex = { version = "0.20.0", default-features = false, features = ["std", "unicode", "variable-lookbehinds"] }
+# Patterns a person types in a search (`pencere.regex`). Of the Unicode tables only the ones a search
+# uses are in: case, letters and digits (`\p{L}`), and the word classes; the runner is copied into
+# every app, and the tables of scripts and ages are more than 100 KB of it.
+fancy-regex = { version = "0.20.0", default-features = false, features = ["std", "variable-lookbehinds"] }
+regex-syntax = { version = "0.8", default-features = false, features = ["unicode-case", "unicode-gencat", "unicode-perl"] }
+regex-automata = { version = "0.4", default-features = false, features = ["unicode-word-boundary"] }
 
 [lints]
 workspace = true
