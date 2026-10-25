@@ -429,6 +429,40 @@ describe("release.mjs publish", () => {
     expect(edits(w)).toEqual([]);
   });
 
+  it("in the workflow, refuses an environment with nobody to approve, and publishes nothing", () => {
+    const w = world();
+    ready(w, "crates");
+    const inWorkflow = { RELEASE_ENVIRONMENT: "release", GITHUB_REPOSITORY: "bateri/pencere" };
+    expect(w.runWith(inWorkflow, "publish", "crates").err).toContain(
+      "cannot ask GitHub about the environment release",
+    );
+    // What GitHub makes of an environment a job names that is not there: no rule.
+    w.state.gh.environment = { name: "release", protection_rules: [] };
+    expect(w.runWith(inWorkflow, "publish", "crates").err).toContain(
+      "the environment release has no required reviewers, so nobody approved this",
+    );
+    w.state.gh.environment = {
+      name: "release",
+      protection_rules: [{ type: "branch_policy" }, { type: "required_reviewers", reviewers: [] }],
+    };
+    expect(w.runWith(inWorkflow, "publish", "crates").status).toBe(1);
+    expect(published(w)).toEqual([]);
+    expect(edits(w)).toEqual([]);
+    expect(w.said("gh")).toContain("api repos/bateri/pencere/environments/release");
+
+    w.state.gh.environment = {
+      name: "release",
+      protection_rules: [
+        {
+          type: "required_reviewers",
+          reviewers: [{ type: "User", reviewer: { login: "kalaomer" } }],
+        },
+      ],
+    };
+    expect(w.runWith(inWorkflow, "publish", "crates").status).toBe(0);
+    expect(w.state.gh.releases["crates-v0.1.0"].draft).toBe(false);
+  });
+
   describe("of an npm line", () => {
     it("publishes the package with its provenance, and then makes the draft public but not the Latest", () => {
       const w = world();

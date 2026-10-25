@@ -224,7 +224,9 @@ None of these is a secret or a token: each says which workflow may publish what.
 - **GitHub**, the repository's **Settings → Environments**: an environment named `release`, with
   **Required reviewers** (the maintainers who approve a release) and, under **Deployment branches
   and tags**, `main` alone. The jobs that publish run in it, so nothing is published before one of
-  them approves.
+  them approves. GitHub makes an environment a job names that is not there, with no rule, and runs
+  the job at once; so each publishing job first asks GitHub for the environment's rules and stops,
+  publishing nothing, where it has no required reviewers.
 - **npm**, the settings of `@pencere/sdk`: **Publishing access** requires two-factor authentication
   and disallows tokens; the **trusted publisher** is GitHub Actions, organization `bateri`,
   repository `pencere`, workflow `release.yml`, environment `release`, with "Allow npm publish"
