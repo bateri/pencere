@@ -1,6 +1,6 @@
 {
   "name": "@pencere/sdk",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Show a view in the terminal pane your program runs in",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bateri/pencere/tree/main/sdk/typescript#readme",
