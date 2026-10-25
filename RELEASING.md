@@ -186,6 +186,12 @@ not on crates.io (the crate is `publish = false`); its release is the four execu
   `--version`; `codesign --verify` for the Mac one; and for the Linux ones the example app made with
   the executable and run against the stand-in terminal. The log says whether the Intel executable
   could be run on the Mac runner (through Rosetta) or was not.
+- **The command is released after the others.** `pencere new --lang ts` makes a project that
+  asks npm for `@pencere/sdk` (`cli/templates/ts/deno.json`), and `--lang rust` one that asks
+  crates.io for `pencere` (`cli/templates/rust/Cargo.toml.tmpl`), by the versions the command was
+  built with. A release of the command that needs a newer SDK or crates than the registries have
+  makes projects that do not build: release `sdk-typescript` and `crates` first, approve them, and
+  then the command. A Lua project needs nothing from either.
 - **`cli-v0.1.0` is not the command's.** That tag is the retired TypeScript `@pencere/cli`'s, so
   the command's first release is `0.2.0`, and a tag is never reused.
 
