@@ -17,7 +17,7 @@ The six crates, in the order they are published: `pencere-wire` (`wire`), `pence
 the command are for `aarch64-apple-darwin`, `x86_64-apple-darwin`, `aarch64-unknown-linux-musl` and
 `x86_64-unknown-linux-musl`, named `pencere-<version>-<target>`.
 
-Every step a machine can check is in `tools/release.mjs`, behind the `make` targets below. This
+Every step a machine can check is in `tools/release.mjs`, which the release workflow runs. This
 file is the order of the steps and the reasons for them.
 
 ## Versions and changelogs
@@ -34,11 +34,14 @@ file is the order of the steps and the reasons for them.
 
 ## One rhythm
 
-Every line is released with the same four verbs, from a clean `main`, and the line's kind decides
-only what each verb does. Nothing is public before the last one, which is the maintainer's.
+Every line is released the same way, and the line's kind decides only what is published. A
+release is a commit on `main` that moves a line's version; the release workflow
+(`.github/workflows/release.yml`) does the rest, and nothing is public before a maintainer approves
+it on GitHub.
 
-1. **`make release-prepare LINE=… VERSION=…`** moves the version and the changelog(s), for one
-   commit, `Release <name> <version>`: read the diff, then commit it.
+1. **`make release-prepare LINE=… VERSION=…`** moves the version and the changelog(s): read the
+   diff, commit it as `Release <name> <version>`, and push it to `main` (directly or through a pull
+   request).
    - npm: the version in `package.json` and `package-lock.json`.
    - crates: the version of all six crates, every `version = "…"` that sits beside a `path` to one
      of them (in every manifest of the repository, the command's and the page modules' included),
@@ -47,75 +50,75 @@ only what each verb does. Nothing is public before the last one, which is the ma
      Unreleased gets the line "Released with the other crates; no change of its own." (at least
      one crate must have something).
    - cli: the version in `cli/Cargo.toml` and `Cargo.lock`, and `cli/CHANGELOG.md`.
-2. **`make release LINE=…`** runs the gate (`make check`), then the release checks, then makes the
-   annotated tag with the changelog section as its message. Nothing is pushed.
-   - crates: it also dry-runs the publication of all six (see [The crates](#the-crates)).
-3. **`make publish LINE=…`** is one atomic push of `main` and the tag, and nothing else. The
-   release workflow (`.github/workflows/release.yml`) takes it from there:
-   - it checks that the tag names the version the manifests and the changelogs carry, on `main`,
-     and runs the gate on Linux;
-   - npm: it **stages** the package on npm through trusted publishing, which also signs where it
-     was built (provenance);
-   - cli: it builds the four executables, each on a native runner, tries each where its runner can
-     run it, and writes `SHA256SUMS` and an attestation of the build (provenance);
-   - crates: nothing is staged, for crates.io has no staging; it only runs the dry run again,
-     from the tag;
-   - every line: it writes the line's GitHub release as a **draft**, with the changelog section as
-     the notes (for the crates, the six sections under the crates' names) and, for the command,
-     the files. A draft is seen by maintainers only.
-4. **`make approve LINE=…`** is the maintainer's one act that makes the line public everywhere. It
-   first requires the tag's workflow run to be green and the draft to be there.
-   - npm: shows the staged version (who staged it, its shasum) and approves it; npm asks for the
-     second factor, so run it in a terminal. `npm stage` needs npm 11.15 or later and Node 22 ships
-     npm 10, so the target runs the npm the workflow uses through `npx`. The same can be done on
-     npmjs.com, under the package's **Staged Packages** tab. Then it publishes the draft.
-   - crates: `cargo publish`es the six, in order, from a clean checkout at the tag (so what is
-     published is what was tagged, not what the working tree has become). A crate that crates.io
-     already has is skipped, so a run that stopped half way is run again. It needs `cargo login`.
-     Then it publishes the draft.
-   - cli: downloads the draft's files, checks them against `SHA256SUMS` and with
-     `gh attestation verify`, then publishes the draft as the repository's **Latest** release. If
-     the retired packages are not deprecated yet it prints the commands that do (see [Packages
-     that are retired](#packages-that-are-retired)); it runs none.
+2. **The gate** (`check.yml`) runs on the push, as on every push to `main`. The release workflow
+   starts when it has finished green, and not before: the gate runs once for a commit, and a
+   release only asks whether it passed.
+3. **The release workflow** finds the lines whose version has no tag yet (`<line>-v<version>`). A
+   commit that moved no version ends here. For each line it finds:
+   - it checks the version and the changelogs (see [What the release checks
+     refuse](#what-the-release-checks-refuse));
+   - npm: it checks what `npm pack` would publish; crates: it dry-runs the package of each of the six
+     (see [The crates](#the-crates)); cli: it builds the four executables, each on a native runner,
+     tries each where its runner can run it, and writes `SHA256SUMS` and an attestation of the
+     build (provenance);
+   - once all of that is green, it makes the annotated tag, with the changelog section as its
+     message, pushes it, and writes the line's GitHub release as a **draft**, with the section as
+     its notes (for the crates, the six sections under the crates' names) and, for the command, the
+     files. A draft is seen by maintainers only.
+4. **A maintainer approves** each line in the `release` environment: the run waits with **Review
+   deployments** (GitHub notifies the reviewers, on the web and in its app). Approved, it publishes;
+   rejected, nothing is published and the draft stays.
+   - npm: `npm publish`, through trusted publishing, which also signs where the package was built
+     (provenance). A version npm has already is left.
+   - crates: `cargo publish`es the six, in order, from a clean checkout of the tag, with a token
+     crates.io gives the run alone for the workflow's identity. A crate that crates.io already has
+     is skipped.
+   - cli: after the SDK and the crates when they are in the same run, and only once the SDK and
+     the program library of its commit are on their registries (see [The command](#the-command)).
+     It downloads the draft's files and checks them against `SHA256SUMS` and with
+     `gh attestation verify`.
+   - every line: the draft is published, the command's as the repository's **Latest**. If the
+     retired packages are not deprecated yet the log prints the commands that do (see [Packages that
+     are retired](#packages-that-are-retired)); it runs none.
 
 Afterwards, check it: `npm view @pencere/sdk version`, `cargo info pencere@<version>` or
 `gh release view cli-v<version>`.
 
-If a check fails, nothing has left the machine: fix it, amend or add a commit, and run the step
-again. A tag that was made but not pushed can be deleted with `git tag -d <tag>`. A pushed tag is
-never moved; a broken release is followed by a new version. A job of the workflow that failed for
-a reason outside the repository is run again (`gh run rerun <run-id> --failed`): the draft is made
-again, and a release that is public is never touched.
+If a check fails before the tag, nothing has left the repository: fix it in a new commit and push.
+The version still has no tag, so the run after the gate's next green run releases it. A pushed tag is never moved; a
+broken release is followed by a new version. A release that stopped after its tag (a registry that
+failed, a job that died) is finished by starting the workflow by hand on `main` for that line
+(**Run workflow** in the Actions tab, or `gh workflow run release.yml -f line=<line>`): it asks for
+the gate's green run on that commit, takes the tag that is there, and goes on; a crate or a package
+that is published already is skipped, and a release that is public is never touched.
 
 **Latest.** Only a release of the command is marked Latest, so that the repository's front page
 offers what a visitor downloads. Every other line's release is made with `--latest=false`, as a
 draft and again when it is published.
 
 **Rehearsals.** `make rehearse LINE=…` runs the release checks of a prepared line on any branch,
-without those of the repository's state (the branch, a clean tree, `origin`, the tags): it changes
-nothing. `make dist` builds the four executables on this machine (Docker, and the Apple targets of
-rustup's toolchain) and tries them, into `dist/`: a rehearsal of what the workflow builds, not what
-is released. The workflow can also be started by hand, on any branch (`gh workflow run release.yml
--f line=cli`, or **Run workflow** in the Actions tab; `cli` or `crates`): it builds, tries and sums,
-uploads the files as workflow artifacts, and makes no release and no attestation.
+with the dry run of the crates: it changes nothing. `make dist` builds the four executables on this
+machine (Docker, and the Apple targets of rustup's toolchain) and tries them, into `dist/`. The
+workflow started by hand with **rehearse** checks and builds the line on any branch, keeps the
+command's files as workflow artifacts, and makes no tag, no release and no attestation.
 
-### Why the workflow builds the command
+### Why the workflow builds and publishes
 
-The command's executables used to be built on the maintainer's machine, because an executable that
-a workflow built was one that a pushed tag changed without a maintainer's decision. The decision is
-now `make approve`: the workflow only writes a draft, and nothing it built is public before the
-maintainer has verified it. What a workflow gives that one machine could not is the provenance (a
-signed statement of which commit and which workflow built each file) and a native runner for each
-system, with no emulation.
+The command's executables used to be built on the maintainer's machine, and every line was
+published from it, because what a workflow did was what a push did without a maintainer's decision.
+The decision is now the approval in the `release` environment: nothing the workflow made is public
+before a maintainer has approved it. What a workflow gives that one machine could not is the
+provenance (a signed statement of which commit and which workflow built each file), a native runner
+for each system with no emulation, a gate that runs once for a commit, and no token kept anywhere:
+npm and crates.io take the workflow's identity instead.
 
 ### What the release checks refuse
 
 - a version of `0.0.0`, one that is not after the line's last tag (for the crates: one that is
   before a crate's own), or a manifest that disagrees with the newest changelog section;
 - an `## [Unreleased]` section that still holds changes, or an empty release section;
-- a branch other than `main`, a working tree that is not clean, a `main` that has diverged from
-  `origin/main`;
-- a tag that already exists, here or on `origin`;
+- a commit whose gate is not green on `main` (the workflow starts after it, or asks for it);
+- a tag that is on another commit;
 - a package without its `LICENSE` and `NOTICE` (byte for byte the repository's), `README.md`,
   `CHANGELOG.md` or entry point, or one that carries tests (a `tests/` directory, a `…_tests.rs`
   module of `src/`), a build (`target/`) or installed packages (`node_modules/`). The npm package is
@@ -126,7 +129,7 @@ system, with no emulation.
   already has.
 
 `make check` compares the `LICENSE` and `NOTICE` copies at every run, so they cannot drift between
-releases. `make approve LINE=cli` refuses files that are not the four executables of the version for
+releases. Publishing the command refuses files that are not the four executables of the version for
 the system and processor their names say, or whose `SHA256SUMS` does not name exactly these four or
 has a wrong sum.
 
@@ -142,7 +145,7 @@ line in its changelog is for that.
 A crate is published after the crates it depends on, because its package asks for them by version
 and crates.io must have them: the wire first; then `pencere-host` and `pencere-view`; then
 `pencere-sandbox`, which depends on `pencere-view`; then `pencere-page` and `pencere`.
-`tools/lines.mjs` lists them in this order and `make approve` publishes in it, each after the
+`tools/lines.mjs` lists them in this order and the workflow publishes in it, each after the
 previous one is in the index (cargo waits for that).
 
 The version starts at `0.2.0`: `pencere` already has a `0.1.0` on crates.io, the host crate under
@@ -166,9 +169,10 @@ modules of the repository. The interface the sandbox and the page SDK implement 
 equal. After a change of the interface: `cp kit/wit/view.wit kit/sandbox/wit/view.wit && cp
 kit/wit/view.wit kit/guest/sdk/wit/view.wit`, and `make luau` for the interpreter.
 
-crates.io could take the publishing over from the maintainer's machine through its trusted
-publishing, behind a GitHub environment that requires a reviewer. Until then `make approve` is the
-only thing that runs `cargo publish`.
+The workflow publishes through crates.io's trusted publishing (see [Settings the workflow relies
+on](#settings-the-workflow-relies-on)). A crate can only be given a trusted publisher once it is on
+crates.io, so a crate that is new to this line is published the first time by a maintainer, with
+`cargo login` and `cargo publish -p <crate>` from a checkout of its tag, and by the workflow after.
 
 ## The command
 
@@ -190,8 +194,9 @@ not on crates.io (the crate is `publish = false`); its release is the four execu
   asks npm for `@pencere/sdk` (`cli/templates/ts/deno.json`), and `--lang rust` one that asks
   crates.io for `pencere` (`cli/templates/rust/Cargo.toml.tmpl`), by the versions the command was
   built with. A release of the command that needs a newer SDK or crates than the registries have
-  makes projects that do not build: release `sdk-typescript` and `crates` first, approve them, and
-  then the command. A Lua project needs nothing from either.
+  makes projects that do not build, so the workflow publishes the command after the SDK and the
+  crates of the same run, and refuses to publish it while the SDK or the program library at the
+  versions of its commit is not on its registry. A Lua project needs nothing from either.
 - **`cli-v0.1.0` is not the command's.** That tag is the retired TypeScript `@pencere/cli`'s, so
   the command's first release is `0.2.0`, and a tag is never reused.
 
@@ -200,8 +205,8 @@ not on crates.io (the crate is `publish = false`); its release is the four execu
 `@pencere/cli` and `create-pencere` ran and generated programs for an earlier draft of the protocol,
 and this repository no longer has them: a program now shows its view with `@pencere/sdk` directly,
 and the `pencere` command makes and builds apps. Any version of either that is on npm is deprecated
-once the command is released (`make approve LINE=cli` prints these two commands while they still
-have to be run). It is a manual step, done by a maintainer with 2FA, and nothing in this repository
+once the command is released (the log of the command's publication prints these two commands while
+they still have to be run). It is a manual step, done by a maintainer with 2FA, and nothing in this repository
 runs it:
 
 ```sh
@@ -212,14 +217,21 @@ npm deprecate "create-pencere@*" "Replaced by the pencere command (pencere new):
 `@*` is every version. `npm view @pencere/cli deprecated` and `npm view create-pencere deprecated`
 show the message afterwards.
 
-## npm settings the workflow relies on
+## Settings the workflow relies on
 
-On npmjs.com, in the settings of `@pencere/sdk`: **Publishing access** requires two-factor
-authentication and disallows bypass tokens; the **trusted publisher** is GitHub Actions,
-organization `bateri`, repository `pencere`, workflow `release.yml`, no environment, with "Allow npm
-publish" and "Allow npm dist-tag" left off, so the workflow can only stage and never make a version
-public by itself. npm stops a trusted publisher that has not published within two days of being
-made, and one that has stopped cannot be edited: it is deleted and made again.
+None of these is a secret or a token: each says which workflow may publish what.
+
+- **GitHub**, the repository's **Settings → Environments**: an environment named `release`, with
+  **Required reviewers** (the maintainers who approve a release) and, under **Deployment branches
+  and tags**, `main` alone. The jobs that publish run in it, so nothing is published before one of
+  them approves.
+- **npm**, the settings of `@pencere/sdk`: **Publishing access** requires two-factor authentication
+  and disallows tokens; the **trusted publisher** is GitHub Actions, organization `bateri`,
+  repository `pencere`, workflow `release.yml`, environment `release`, with "Allow npm publish"
+  on. npm stops a trusted publisher that has not published within two days of being made, and
+  one that has stopped cannot be edited: it is deleted and made again.
+- **crates.io**, the **Settings → Trusted Publishing** of each of the six crates: GitHub, owner
+  `bateri`, repository `pencere`, workflow `release.yml`, environment `release`.
 
 ## The specification
 
@@ -235,7 +247,8 @@ is settled:
 
 ## Who releases
 
-`make publish` and `make approve` make something happen under the project's name: only a maintainer
-runs them, and `make approve` is a decision of its own, taken once the workflow's work is there to be
-looked at. Everything before them (prepare, commit, `make release`, `make rehearse`, `make dist`)
-can be undone locally.
+A release makes something public under the project's name, so it waits for a maintainer: the
+approval in the `release` environment is the decision, taken once the workflow's work (the draft,
+its notes and files) is there to be looked at. Everything before it (prepare, the commit, `make
+rehearse`, `make dist`, the tag and the draft) is seen by maintainers only, and a draft that is
+rejected stays a draft.

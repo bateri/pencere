@@ -1,7 +1,7 @@
 // The release tooling's rules that no other check sees. This file: the table of lines against the
 // repository itself, `release.mjs prepare` (it moves a line's version(s) in the manifests and the
-// lockfiles, and dates the changelog(s)), the refusals of `check` that come before anything is asked
-// of git, and what the workflow reads (`notes`, `describe`). What needs a repository with an origin
+// lockfiles, and dates the changelog(s)), the refusals of `rehearse` that come before anything is
+// asked of git, and the release notes (`notes`). What needs a repository with an origin
 // and the world's answers (crates.io, GitHub, npm) is in `release.world.test.mjs`.
 
 import { execFileSync } from "node:child_process";
@@ -131,19 +131,21 @@ describe("the repository's lines", () => {
     expect(text(repo, "kit/guest/sdk/src/lib.rs")).toContain('path: "wit"');
   });
 
-  it("are the tags the release workflow runs for, and the verbs the Makefile has", () => {
+  it("are the lines the release workflow can be started for, and the verbs the Makefile has", () => {
     const workflow = text(repo, ".github/workflows/release.yml");
-    const tags = [...workflow.matchAll(/^\s+- "([^"]+-v\*)"$/gm)].map((match) => match[1]);
-    expect(tags.sort()).toEqual(
-      Object.keys(LINES)
-        .map((id) => `${id}-v*`)
-        .sort(),
-    );
+    const options = /^\s+options:\n((?:\s+- .+\n)+)/m.exec(workflow)[1];
+    const choices = [...options.matchAll(/- (\S+)/g)].map((match) => match[1]);
+    expect(choices.sort()).toEqual(Object.keys(LINES).sort());
+    // Each line has a job that publishes it, behind the environment a maintainer approves in.
+    expect(workflow.match(/^ {4}environment: release$/gm)?.length).toBe(Object.keys(LINES).length);
     const makefile = text(repo, "Makefile");
-    for (const verb of ["release-prepare", "release", "rehearse", "publish", "approve"]) {
+    for (const verb of ["release-prepare", "rehearse"]) {
       expect(makefile, verb).toMatch(new RegExp(`^${verb}:`, "m"));
     }
-    expect(makefile).not.toContain("publish-local");
+    // A release is published by the workflow alone.
+    for (const verb of ["release", "publish", "approve"]) {
+      expect(makefile, verb).not.toMatch(new RegExp(`^${verb}:`, "m"));
+    }
   });
 
   it("are the ones RELEASING.md names, with the commands it gives for the retired packages", () => {
@@ -289,7 +291,7 @@ describe("release.mjs prepare", () => {
     expect(crateVersion(root, "cli")).toBe("0.2.0");
     expect(text(root, "Cargo.lock")).toContain('name = "pencere-cli"\nversion = "0.2.0"');
     expect(text(root, "cli/CHANGELOG.md")).toMatch(/## \[0\.2\.0\] - \d{4}-\d{2}-\d{2}/);
-    expect(done.out).toContain('commit ("Release pencere 0.2.0"), then make release LINE=cli');
+    expect(done.out).toContain('commit ("Release pencere 0.2.0") and push to main');
     // No crate moved with it.
     expect(crateVersion(root, "wire")).toBe("0.1.0");
     expect(text(root, "program/Cargo.toml")).toContain('version = "0.1.0" }');
@@ -315,9 +317,9 @@ describe("release.mjs prepare", () => {
   });
 });
 
-describe("release.mjs check", () => {
+describe("release.mjs rehearse", () => {
   const refused = (root, id, said) => {
-    const done = release(root, "check", id);
+    const done = release(root, "rehearse", id);
     expect(done.status).toBe(1);
     expect(done.err).toContain(said);
   };
@@ -348,7 +350,7 @@ describe("release.mjs check", () => {
   it("refuses crates that are not at one version, and names them", () => {
     const root = fixture();
     refused(root, "crates", "crates are not at one version: pencere-wire 0.1.0");
-    expect(release(root, "check", "crates").err).toContain("pencere 0.2.0");
+    expect(release(root, "rehearse", "crates").err).toContain("pencere 0.2.0");
   });
 
   it("refuses a line whose changelog is not there", () => {
@@ -382,7 +384,7 @@ describe("release.mjs check", () => {
   it("knows the lines and refuses others", () => {
     const root = fixture();
     for (const old of ["wire", "view", "host-rust", "program", "page", "sandbox"]) {
-      const done = release(root, "check", old);
+      const done = release(root, "rehearse", old);
       expect(done.status, old).toBe(1);
       expect(done.err).toContain(
         `unknown line "${old}"; the lines are sdk-typescript, crates, cli`,
@@ -391,7 +393,7 @@ describe("release.mjs check", () => {
   });
 
   it("has no command to publish from here", () => {
-    for (const old of ["local", "publish-local"]) {
+    for (const old of ["local", "publish-local", "push", "approve", "check", "verify-tag"]) {
       const done = release(fixture(), old, "crates");
       expect(done.status).toBe(2);
       expect(done.err).toContain("commands are");
@@ -399,7 +401,7 @@ describe("release.mjs check", () => {
   });
 });
 
-describe("release.mjs notes and describe", () => {
+describe("release.mjs notes", () => {
   /** The crates released at 0.1.0, all with something to say but the ones named. */
   function released(silent = []) {
     const root = fixture({ programVersion: "0.1.0" });
@@ -434,42 +436,6 @@ describe("release.mjs notes and describe", () => {
     expect(done.out).not.toContain("## pencere-view");
     expect(done.out.trim().split("\n").at(-1)).toBe(
       "Released with no change of their own: `pencere-host`, `pencere-view`.",
-    );
-  });
-
-  it("describe a line for the workflow, from the manifests, with no tag", () => {
-    const root = released();
-    expect(release(root, "describe", "cli").out.trim().split("\n")).toEqual([
-      "line=cli",
-      "kind=binary",
-      "name=pencere-cli",
-      "dir=cli",
-      "version=0.1.0",
-      "tag=cli-v0.1.0",
-    ]);
-    expect(release(root, "describe", "crates").out.trim().split("\n")).toEqual([
-      "line=crates",
-      "kind=crates",
-      "name=the pencere crates",
-      "dir=wire",
-      "version=0.1.0",
-      "tag=crates-v0.1.0",
-    ]);
-    expect(release(root, "describe", "sdk-typescript").out).toContain("name=@pencere/sdk");
-  });
-
-  it("describe nothing of a line whose changelog lacks the section of the version", () => {
-    const done = release(fixture(), "describe", "cli");
-    expect(done.status).toBe(1);
-    expect(done.err).toContain('no "## [0.1.0] - YYYY-MM-DD" section');
-  });
-
-  it("verify-tag refuses a tag of no line, a name that is not a tag, and a tag of another version", () => {
-    const root = released();
-    expect(release(root, "verify-tag", "main").err).toContain('"main" is not a release tag');
-    expect(release(root, "verify-tag", "nothing-v1.0.0").err).toContain('unknown line "nothing"');
-    expect(release(root, "verify-tag", "cli-v0.5.0").err).toContain(
-      "names 0.5.0 but cli is at 0.1.0",
     );
   });
 });
