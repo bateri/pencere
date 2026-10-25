@@ -62,6 +62,54 @@ pub trait Measure {
     }
 }
 
+/// The lines `text` takes in `budget` pixels, broken where it has spaces (and at its line
+/// breaks): each line is as many words as fit, and a word longer than a line is broken where it
+/// must be. `width` is the width of a run of text set in one line. A budget of nothing gives
+/// each word a line of its own, which is how narrow the text can be.
+pub(crate) fn wrap_lines(
+    text: &str,
+    budget: f32,
+    width: &mut dyn FnMut(&str) -> f32,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    for paragraph in text.split('\n') {
+        let mut line = String::new();
+        for word in paragraph.split_whitespace() {
+            let joined = if line.is_empty() {
+                word.to_owned()
+            } else {
+                format!("{line} {word}")
+            };
+            if width(&joined) <= budget {
+                line = joined;
+                continue;
+            }
+            if !line.is_empty() {
+                lines.push(std::mem::take(&mut line));
+            }
+            // The word alone: on a line of its own, or broken where it must be.
+            let mut rest = word;
+            while width(rest) > budget {
+                let fits = rest
+                    .char_indices()
+                    .skip(1)
+                    .map(|(at, _)| at)
+                    .take_while(|&at| width(&rest[..at]) <= budget)
+                    .last();
+                let Some(at) = fits else {
+                    // Not even one character fits: it has the line to itself.
+                    break;
+                };
+                lines.push(rest[..at].to_owned());
+                rest = &rest[at..];
+            }
+            line = rest.to_owned();
+        }
+        lines.push(line);
+    }
+    lines
+}
+
 /// Where a line stands in the box it is given.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Align {

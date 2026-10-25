@@ -703,7 +703,8 @@ function Containers:toolbar()
 	-- and keeps the room (`FIELD`).
 	local search = div():row():items_center():gap(6):h(28):w(220):min_w(120):px(8):rounded(6)
 		:bg("raised1"):border(1, "border"):press(SEARCH)
-		:child(div():id(FIELD):text_field():grow(1):min_w(0):h(18))
+		-- What the host's field says while it is empty.
+		:child(div():id(FIELD):text_field():grow(1):min_w(0):h(18):child(text("Filter by name, image, port\u{2026}")))
 		:child(kbd("/", 10.5))
 	local counts = self:counts()
 	local function option(status, count, role)

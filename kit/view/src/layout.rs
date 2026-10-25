@@ -17,6 +17,7 @@ use crate::element::{Fit, Kind, Meta, Spark};
 use crate::style::{
     Border, Direction, Display, Items, Justify, Length, Overflow, Shadow, Style, TextStyle, Track,
 };
+use crate::text::wrap_lines;
 use crate::{Align, Color, Element, Family, Font, Id, Measure, Metrics, Point, Rect, Role, Size};
 
 /// The text a page is written in until a box says otherwise: the terminal's face at 12.5
@@ -29,7 +30,7 @@ const DEFAULT_TEXT: TextStyle = TextStyle {
     align: Some(Align::Start),
 };
 
-/// A line of text laid out.
+/// A line of text laid out (or, `wrap`, the lines its words take in its box).
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TextLine {
     pub text: String,
@@ -37,6 +38,7 @@ pub(crate) struct TextLine {
     pub color: Color,
     pub align: Align,
     pub truncate: bool,
+    pub wrap: bool,
 }
 
 /// An image laid out: what the host said of its size when the page was laid out, so that what
@@ -101,6 +103,8 @@ enum Leaf {
     Text {
         text: String,
         font: Font,
+        /// Its words go on in new lines where the box is too narrow for them.
+        wrap: bool,
     },
     /// An image, with its size in pixels where the host knew it, and what the box keeps for its
     /// padding and border across and down: a side that is given is the box's, and the picture
@@ -156,9 +160,40 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     let measured = tree.compute_layout_with_measure(
         root_id,
         space,
-        |known, _available, _node, leaf, _style| {
+        |known, available, _node, leaf, _style| {
             let natural = match leaf {
-                Some(Leaf::Text { text, font }) => *cache
+                Some(Leaf::Text {
+                    text,
+                    font,
+                    wrap: true,
+                }) => {
+                    // As wide as the box it is given, or as the room there is (none at all when
+                    // the layout asks how narrow it can be: the longest word), and as tall as the
+                    // lines it then takes.
+                    let budget = known.width.unwrap_or(match available.width {
+                        AvailableSpace::Definite(room) => room,
+                        AvailableSpace::MinContent => 0.0,
+                        AvailableSpace::MaxContent => f32::INFINITY,
+                    });
+                    let mut metrics = |run: &str| {
+                        *cache
+                            .entry((*font, run.to_owned()))
+                            .or_insert_with(|| measure.measure(font, run))
+                    };
+                    let line_height = metrics(text).height;
+                    let lines = wrap_lines(text, budget, &mut |run| metrics(run).width);
+                    let widest = lines
+                        .iter()
+                        .map(|line| metrics(line).width)
+                        .fold(0.0, f32::max);
+                    #[allow(clippy::cast_precision_loss)]
+                    let height = line_height * lines.len() as f32;
+                    Metrics {
+                        width: widest,
+                        height,
+                    }
+                }
+                Some(Leaf::Text { text, font, .. }) => *cache
                     .entry((*font, text.clone()))
                     .or_insert_with(|| measure.measure(font, text)),
                 Some(Leaf::Image { natural, inset }) => {
@@ -360,6 +395,7 @@ fn build(
             let leaf = Leaf::Text {
                 text: content.clone(),
                 font,
+                wrap: style.wrap,
             };
             if let Some(entry) = pending.get_mut(index) {
                 entry.content = Content::Text(TextLine {
@@ -368,6 +404,7 @@ fn build(
                     color,
                     align: text.align.unwrap_or(Align::Start),
                     truncate: style.truncate,
+                    wrap: style.wrap,
                 });
             }
             tree.new_leaf_with_context(taffy_style, leaf)
@@ -674,6 +711,53 @@ impl Laid {
             node.rect.w / s,
             node.rect.h / s,
         ))
+    }
+
+    /// What the text field the host puts over the page says while it is empty: the words of the
+    /// first text inside the element that stands for it (`div().text_field().child(text("Filter
+    /// by name…"))`). The page does not draw them; the host's field does.
+    pub fn text_field_hint(&self) -> Option<&str> {
+        let field = self
+            .nodes
+            .iter()
+            .position(|node| node.meta.text_field && !node.hidden)?;
+        self.nodes
+            .iter()
+            .enumerate()
+            .skip(field + 1)
+            .filter(|(index, _)| self.is_inside(*index, field))
+            .find_map(|(_, node)| match &node.content {
+                Content::Text(line) => Some(line.text.as_str()),
+                _ => None,
+            })
+    }
+
+    /// Whether the element at `index` is inside (or is) the one at `outer`.
+    pub(crate) fn is_inside(&self, index: usize, outer: usize) -> bool {
+        let mut at = Some(index);
+        while let Some(here) = at {
+            if here == outer {
+                return true;
+            }
+            at = self.nodes.get(here).and_then(|node| node.parent);
+        }
+        false
+    }
+
+    /// Whether the element at `index` is in the room of the host's text field, which the host
+    /// draws over: what is there is the field's, not the page's.
+    pub(crate) fn in_text_field(&self, index: usize) -> bool {
+        let mut at = Some(index);
+        while let Some(here) = at {
+            let Some(node) = self.nodes.get(here) else {
+                return false;
+            };
+            if node.meta.text_field {
+                return true;
+            }
+            at = node.parent;
+        }
+        false
     }
 
     /// `id` and the named elements that hold it, innermost first: where a key goes, from the
