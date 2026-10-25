@@ -4,6 +4,28 @@ The command that makes apps for [pencere](https://github.com/bateri/pencere): pr
 view in the pane of the terminal they run in. An app is a Lua program and a page, and `pencere
 build` makes one executable of it that runs anywhere its kind of machine does.
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bateri/pencere/main/cli/install.sh | sh
+```
+
+It puts the newest release of the command in `~/.local/bin` (no `sudo`) after checking the file
+against the `SHA256SUMS` of that release, and tells you if the directory is not on your `PATH`.
+`PENCERE_INSTALL=<dir>` installs elsewhere and `PENCERE_VERSION=<x.y.z>` a release other than the
+newest. The files are those of the releases `cli-v<version>` of the repository
+([releases](https://github.com/bateri/pencere/releases)), one for each of macOS and Linux on arm64
+and x86_64, named `pencere-<version>-<target>`.
+
+With Rust, `cargo install --git https://github.com/bateri/pencere pencere-cli --locked` builds it
+from the source (the program is called `pencere`).
+
+A file downloaded with a browser is quarantined by macOS, which will not run it:
+`xattr -d com.apple.quarantine <file>` lifts that. A file `curl` fetches, which is what the line
+above does, is not.
+
+## Use
+
 ```sh
 pencere new hello          # a project: src/program/, src/view/, src/assets/
 cd hello

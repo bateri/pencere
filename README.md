@@ -31,6 +31,11 @@ the program names a domain and the person allows it.
 
 The same program: a view, one call it answers, and one topic it feeds. Whichever you write it in,
 it is one file to hand to someone, and `pencere new <name> --lang lua|ts|rust` starts it for you.
+The `pencere` command is one line to install (macOS and Linux, [more in its README](cli/README.md#install)):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bateri/pencere/main/cli/install.sh | sh
+```
 
 **Lua**, run by the `pencere` command (`pencere build` makes one executable of it). The program is
 `src/program/app.lua`, the view `src/view/page.lua` and the pictures `src/assets/`:
