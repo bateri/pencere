@@ -28,7 +28,8 @@ fn nonblocking(fd: &OwnedFd) {
 /// With `raw = true` the output is not text: the handlers are given it as it is read, in pieces of
 /// whatever size, with no line ends taken out or put in (a list of names ended by NUL is one).
 ///
-/// The process runs in a group of its own, and what is sent to it (`kill`, the end of the app, the
+/// The process runs in a group of its own (with `session = true`, in a session of its own, without a
+/// controlling terminal), and what is sent to it (`kill`, the end of the app, the
 /// limits below) goes to the whole group: a program that is a pipeline, or that starts others, is
 /// ended whole, and its pipes close. `max_output` (bytes, the two streams together, line ends
 /// included) ends a program that says more: what it said up to then is given, nothing after, and
@@ -47,8 +48,23 @@ pub fn spawn(core: &Core, options: Table) -> mlua::Result<ChildHandle> {
         .args(rest)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .process_group(0);
+        .stderr(Stdio::piped());
+    // A session of its own has no controlling terminal: the program cannot open `/dev/tty`, which
+    // is where the terminal's answers to the app arrive. Its group is still its own, led by it, so
+    // everything below holds either way.
+    if options.get::<Option<bool>>("session")?.unwrap_or(false) {
+        // SAFETY: `setsid` only changes the session of the child, between fork and exec.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    } else {
+        command.process_group(0);
+    }
     if let Some(cwd) = options.get::<Option<String>>("cwd")? {
         command.current_dir(cwd);
     }

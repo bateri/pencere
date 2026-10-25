@@ -16,7 +16,9 @@ All notable changes to the `pencere` command are recorded here. The format follo
 filter = true }` shows the view on the controlling terminal, whatever the standard streams are
   (specification section 13), so that stdin and stdout stay the pipeline's. `close_view()` ends the
   view from the app's side, so that a program that has chosen something writes it with the pane
-  given back.
+  given back. `process.spawn` and `process.run` take `session = true` to start the program in a
+  session of its own, without a controlling terminal, for a command that must not reach the pane
+  (it still leads its group, which is what a kill or a limit signals).
 
 ### Changed
 
