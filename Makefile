@@ -1,4 +1,4 @@
-.PHONY: setup fmt check check-heavy audit guest luau dist release-prepare release publish publish-local approve
+.PHONY: setup fmt check check-heavy audit guest luau dist dist-linux dist-macos dist-sums release-prepare release rehearse publish approve
 
 # Installs the TypeScript half's dependencies from the lockfile. The only
 # target that reaches the network.
@@ -123,27 +123,45 @@ luau:
 
 # The executables of the `pencere` command, for the four targets (macOS on Apple silicon and Intel,
 # Linux musl on arm64 and x86_64), in dist/ with SHA256SUMS: what a release of the command carries,
-# and what `pencere build --target` fetches. The Linux ones are built in Docker (tools/linux), the
-# macOS ones here; each is run where this machine can run it, and the example app is made with it
-# and run against the stand-in terminal (tools/dist.sh is the how). Needs Docker and the Apple
-# targets of rustup's stable toolchain (`rustup target add x86_64-apple-darwin`).
+# and what `pencere build --target` fetches. `make dist` is the rehearsal of a release, on this
+# machine: the Linux ones are built in Docker (tools/linux), the macOS ones here; each is run where
+# this machine can run it, and the example app is made with it and run against the stand-in
+# terminal (tools/dist.sh is the how). It is not what is released: the release workflow builds the
+# files that are, one runner for each system, with `dist-linux`, `dist-macos` and `dist-sums`.
+# Needs Docker and the Apple targets of rustup's toolchain (`rustup target add x86_64-apple-darwin`).
 DIST_VERSION = $(shell sed -n 's/^version = "\(.*\)"/\1/p' cli/Cargo.toml | head -n 1)
 DIST_DOCKERFILE = tools/linux/Dockerfile
 DIST_RUST = $(shell sed -n 's/^FROM rust:\([0-9]*\.[0-9]*\)-.*/\1/p' $(DIST_DOCKERFILE))
+DIST_TOOLCHAIN ?= stable
+DIST_ENV = DIST_VERSION='$(DIST_VERSION)' DIST_TOOLCHAIN='$(DIST_TOOLCHAIN)' DIST_IMAGE=pencere-linux:$(DIST_RUST) \
+	DIST_DOCKERFILE='$(DIST_DOCKERFILE)'
 dist:
 	@local_rust=$$(rustc --version | sed -n 's/^rustc \([0-9]*\.[0-9]*\).*/\1/p'); \
 	if [ "$$local_rust" != "$(DIST_RUST)" ]; then \
 		echo "dist: local rustc $$local_rust, image rust:$(DIST_RUST) — bring the FROM line of $(DIST_DOCKERFILE) to the local version"; exit 1; fi
 	@if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then \
 		echo "SKIPPED: Docker is missing or the daemon does not answer — make dist could not run"; exit 78; fi
-	DIST_VERSION='$(DIST_VERSION)' DIST_TOOLCHAIN=stable DIST_IMAGE=pencere-linux:$(DIST_RUST) \
-		DIST_DOCKERFILE='$(DIST_DOCKERFILE)' tools/dist.sh
+	$(DIST_ENV) tools/dist.sh
 
-# Releasing a package (RELEASING.md). LINE is one of the lines in tools/lines.mjs:
-# sdk-typescript (@pencere/sdk), the crates wire, host-rust, view, sandbox, page and program, and
-# cli (the pencere command, whose executables `make dist` builds).
+# The parts of `dist` that the release workflow runs, each on the machine that suits it: one Linux
+# executable (ARCH=x86_64 or aarch64) in a container of that architecture, the two macOS ones
+# (DIST_TOOLCHAIN names the rustup toolchain; the workflow's is the one the gate runs with), and
+# SHA256SUMS once the four are in dist/.
+dist-linux:
+	@test -n "$(ARCH)" || { echo "usage: make dist-linux ARCH=<x86_64|aarch64>"; exit 2; }
+	$(DIST_ENV) tools/dist.sh linux $(ARCH)
+
+dist-macos:
+	$(DIST_ENV) tools/dist.sh macos
+
+dist-sums:
+	$(DIST_ENV) tools/dist.sh sums
+
+# Releasing a line (RELEASING.md). LINE is one of the lines in tools/lines.mjs: sdk-typescript
+# (@pencere/sdk), crates (the six crates, one version) or cli (the pencere command). The same four
+# verbs release every line.
 #
-# release-prepare sets the version and dates the changelog; nothing is committed.
+# release-prepare sets the version(s) and dates the changelog(s); nothing is committed.
 release-prepare:
 	@test -n "$(LINE)" -a -n "$(VERSION)" || { echo "usage: make release-prepare LINE=<line> VERSION=<x.y.z>"; exit 2; }
 	node tools/release.mjs prepare $(LINE) $(VERSION)
@@ -154,21 +172,21 @@ release:
 	$(MAKE) check
 	node tools/release.mjs tag $(LINE)
 
-# publish pushes main and the tag; the release workflow stages the package and a
-# maintainer approves it on npm with 2FA. For cli it pushes and makes the GitHub release with the
-# executables of dist/. Publishing: run on the maintainer's word.
+# rehearse runs the release checks of a prepared line on any branch, without those of the
+# repository's state (the branch, a clean tree, origin and its tags). It changes nothing.
+rehearse:
+	@test -n "$(LINE)" || { echo "usage: make rehearse LINE=<line>"; exit 2; }
+	node tools/release.mjs rehearse $(LINE)
+
+# publish pushes main and the tag, and nothing else; the release workflow takes it from there and
+# writes a draft. Publishing: run on the maintainer's word.
 publish:
 	@test -n "$(LINE)" || { echo "usage: make publish LINE=<line>"; exit 2; }
 	node tools/release.mjs push $(LINE)
 
-# publish-local publishes from this machine, then pushes: a line's first release,
-# before the registry knows the package and its trusted publisher.
-publish-local:
-	@test -n "$(LINE)" || { echo "usage: make publish-local LINE=<line>"; exit 2; }
-	node tools/release.mjs local $(LINE)
-
-# approve makes public the version the release workflow staged on npm, with 2FA.
-# Publishing: run on the maintainer's word.
+# approve makes the line public everywhere, once the workflow's run is green: the staged package
+# on npm (with 2FA), the crates on crates.io, or the verified files of the command; then its GitHub
+# release. Publishing: run on the maintainer's word.
 approve:
 	@test -n "$(LINE)" || { echo "usage: make approve LINE=<line>"; exit 2; }
 	node tools/release.mjs approve $(LINE)

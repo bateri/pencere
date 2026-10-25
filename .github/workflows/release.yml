@@ -1,23 +1,34 @@
-# A release tag (`<line>-v<version>`, made by `make release`) on main becomes a
-# release (RELEASING.md). The package of the npm line (@pencere/sdk) is staged on npm
-# with provenance, through trusted publishing; it becomes public only when a maintainer
-# approves it there with 2FA. The crates are published from the maintainer's machine, so
-# their tags only get their GitHub release here. The binary line (cli) is built on the
-# maintainer's machine too, and its GitHub release is made there with the files: a tag of
-# it is only verified here and put through the gate, and this workflow writes nothing.
+# A release tag (`<line>-v<version>`, made by `make release`, pushed by `make publish`) on main
+# becomes a draft (RELEASING.md). The workflow stages and builds; it makes nothing public. A
+# maintainer's `make approve` does that, once this run is green:
+#
+# - sdk-typescript: the package is staged on npm with provenance, through trusted publishing.
+# - crates: nothing is staged (crates.io has no staging); the package of each crate is tried again
+#   from the tag. `make approve` publishes them from a clean checkout of it.
+# - cli: the four executables are built, each on a runner of its system and architecture, tried
+#   where the runner can run them, summed, and attested (provenance).
+# - every line: the line's GitHub release is written as a draft, with the changelog section as its
+#   notes and, for the command, the files.
+#
+# The workflow can be started by hand for the command or the crates (`line`): it builds, tries and
+# sums, and keeps the files as workflow artifacts. It makes no release and no attestation.
 name: release
 
 on:
   push:
     tags:
       - "sdk-typescript-v*"
-      - "wire-v*"
-      - "host-rust-v*"
-      - "view-v*"
-      - "sandbox-v*"
-      - "page-v*"
-      - "program-v*"
+      - "crates-v*"
       - "cli-v*"
+  workflow_dispatch:
+    inputs:
+      line:
+        description: The line to build and try, with no release
+        type: choice
+        options:
+          - cli
+          - crates
+        required: true
 
 permissions: {}
 
@@ -44,15 +55,24 @@ jobs:
         with:
           toolchain: 1.88.0
           components: clippy, rustfmt
-      # The tag names the version the manifest and the changelog carry, on main.
+      # A tag names the version the manifests and the changelogs carry, on main. A run started by
+      # hand has no tag: the manifests say the version.
       - id: tag
-        run: node tools/release.mjs verify-tag "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+        env:
+          EVENT: ${{ github.event_name }}
+          LINE: ${{ inputs.line }}
+        run: |
+          if [ "$EVENT" = push ]; then
+            node tools/release.mjs verify-tag "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            node tools/release.mjs describe "$LINE" >> "$GITHUB_OUTPUT"
+          fi
       - run: npm ci
       - run: make check
 
   npm:
     needs: verify
-    if: needs.verify.outputs.kind == 'npm'
+    if: github.event_name == 'push' && needs.verify.outputs.kind == 'npm'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -72,34 +92,137 @@ jobs:
           LINE: ${{ needs.verify.outputs.line }}
           VERSION: ${{ needs.verify.outputs.version }}
         run: node tools/release.mjs registry "$LINE" "$VERSION" >> "$GITHUB_OUTPUT"
-      # Staging a package the registry does not know would publish a public
-      # placeholder, and its trusted publisher can only be set up once it exists.
+      # Staging a package the registry does not know would publish a public placeholder, and its
+      # trusted publisher can only be set up once it exists.
       - if: steps.registry.outputs.exists != 'true'
         env:
           NAME: ${{ needs.verify.outputs.name }}
         run: |
-          echo "::error::$NAME is not on npm yet: its first release is published by hand (RELEASING.md, A line's first release)."
+          echo "::error::$NAME is not on npm: a package is published once by hand, and then the workflow stages its releases."
           exit 1
       - if: steps.registry.outputs.published == 'true'
         env:
           NAME: ${{ needs.verify.outputs.name }}
           VERSION: ${{ needs.verify.outputs.version }}
-        run: echo "::notice::$NAME $VERSION is already on npm (published by hand); nothing to stage."
+        run: echo "::notice::$NAME $VERSION is already on npm; nothing to stage."
       - if: steps.registry.outputs.exists == 'true' && steps.registry.outputs.published != 'true'
         working-directory: ${{ needs.verify.outputs.dir }}
         run: npm stage publish
 
-  # The release of a package or a crate is written from its changelog. A binary's is made by
-  # `make publish` with the executables, which only the machine that built them has.
-  github-release:
-    needs: [verify, npm]
-    if: ${{ always() && needs.verify.result == 'success' && needs.verify.outputs.kind != 'binary' && (needs.npm.result == 'success' || needs.npm.result == 'skipped') }}
+  # The package of each crate, built from its own files (the gate has run in `verify`). Nothing is
+  # published: `make approve` does that.
+  crates:
+    needs: verify
+    if: needs.verify.outputs.kind == 'crates'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.88.0
+      - run: node tools/release.mjs package crates
+
+  # The command's executables, each on a runner of its own system and architecture (no emulation).
+  # The Linux ones are built in the image of tools/linux/Dockerfile, the macOS ones by one
+  # compiler for both targets, with the toolchain the gate runs with. Each is tried where its
+  # runner can run it (tools/dist.sh): the log of the macOS job says whether the Intel executable
+  # could be run.
+  build:
+    needs: verify
+    if: needs.verify.outputs.kind == 'binary'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos
+            os: macos-latest
+            make: dist-macos DIST_TOOLCHAIN=1.88
+          - name: linux-x86_64
+            os: ubuntu-24.04
+            make: dist-linux ARCH=x86_64
+          - name: linux-aarch64
+            os: ubuntu-24.04-arm
+            make: dist-linux ARCH=aarch64
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - if: matrix.name == 'macos'
+        run: rustup toolchain install 1.88 --profile minimal --target aarch64-apple-darwin --target x86_64-apple-darwin
+      - env:
+          DIST_NATIVE: "1"
+        run: make ${{ matrix.make }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-${{ matrix.name }}
+          path: dist/pencere-*
+          if-no-files-found: error
+
+  # The four executables together: SHA256SUMS, a check of all of it (the system and processor each
+  # name says, the sums), and for a tag the attestation of what was built here. The files are kept
+  # as a workflow artifact, for the draft and for a run started by hand.
+  files:
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: dist
+      - run: make dist-sums
+      - run: node tools/release.mjs dist cli dist
+      - if: github.event_name == 'push'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/pencere-*
+            dist/SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: dist/
+          if-no-files-found: error
+
+  # The line's GitHub release, as a draft: the changelog section for its notes, the files of the
+  # command. A job that is run again makes the draft again, and a release that is public is not
+  # touched. `make approve` publishes it.
+  draft:
+    needs: [verify, npm, crates, files]
+    if: ${{ always() && github.event_name == 'push' && needs.verify.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: node tools/release.mjs notes "${{ needs.verify.outputs.line }}" "${{ needs.verify.outputs.version }}" > notes.md
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - if: needs.verify.outputs.kind == 'binary'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: dist
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file notes.md
+          LINE: ${{ needs.verify.outputs.line }}
+        run: node tools/release.mjs draft "$LINE" dist
