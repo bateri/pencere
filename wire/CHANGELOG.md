@@ -6,6 +6,8 @@ All notable changes to the `pencere-wire` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
 ### Added
 
 - The crate itself, and its first release: the part of the host crate that reads and writes bytes

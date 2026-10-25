@@ -6,6 +6,8 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
 ### Added
 
 - The crate itself, as the program's side of pencere: everything a Rust program does to show a

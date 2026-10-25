@@ -7,6 +7,8 @@ under this name) are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
 ### Added
 
 - **`opens` in the `welcome`** (specification §5.2): a kind the program listed that the host opens, but at none of the versions the program speaks, is named with the versions the host does open, so that the program can say which would have served. `message::welcome_offer` takes it.

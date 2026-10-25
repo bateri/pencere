@@ -6,6 +6,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
 ### Added
 
 - The crate itself, and its first release (the pencere crates are released together at one version,
