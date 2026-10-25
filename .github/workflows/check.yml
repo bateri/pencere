@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request makes the run of the one before it moot. On main every commit keeps
+# its own run, so each has a result.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     strategy:
@@ -32,6 +38,15 @@ jobs:
       # The page modules and the example program are built with rustup's stable toolchain and its
       # WebAssembly target (`make guest`); the gate itself runs with the toolchain above.
       - run: rustup toolchain install stable --profile minimal --component clippy --target wasm32-unknown-unknown
+      # The dependencies compiled by an earlier run, for both workspaces (the page modules' is
+      # kit/guest). Only main saves, so a pull request reads main's and does not crowd it out.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: gate
+          workspaces: |
+            . -> target
+            kit/guest -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The runtimes the SDK runs on besides Node: the tty and end-to-end tests of the others run
       # when they are there, and say SKIPPED when they are not. The versions are the ones the tests
       # were written against.

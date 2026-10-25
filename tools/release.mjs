@@ -694,7 +694,11 @@ function releaseState(tagName) {
   }
 }
 
-/** The run of the release workflow for a tag must have finished, and well. */
+/**
+ * The run of the release workflow for a tag must have finished, and well. Several lines can be
+ * tagged on one commit, so the run is the one of this tag (a tag's run has the tag for its branch),
+ * not the newest of the commit.
+ */
 function requireGreenRun(tagName) {
   const sha = run("git", ["rev-list", "-n", "1", tagName]);
   const runs = JSON.parse(
@@ -705,6 +709,8 @@ function requireGreenRun(tagName) {
       "release.yml",
       "--event",
       "push",
+      "--branch",
+      tagName,
       "--commit",
       sha,
       "--limit",

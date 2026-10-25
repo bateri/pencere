@@ -6,6 +6,8 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
 ### Added
 
 - **`.luau` is `text/x-lua`** in a bundle made from a directory, as `.lua` is: the scripts a Lua
