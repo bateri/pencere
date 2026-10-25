@@ -6,6 +6,8 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
 ### Added
 
 - **The `pencere` command, released for the first time.** It makes apps for
