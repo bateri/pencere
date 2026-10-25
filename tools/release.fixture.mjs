@@ -1,6 +1,6 @@
 // What the tests of the release tooling run on: a copy of the repository's shape to release from,
-// `release.mjs` run as a process on it, and stand-ins for the world it asks (`cargo`, `gh`, `npm`,
-// `npx`), which answer from a state file and write what they were asked to a log. Nothing here
+// `release.mjs` run as a process on it, and stand-ins for the world it asks (`cargo`, `gh` and
+// `npm`), which answer from a state file and write what they were asked to a log. Nothing here
 // reaches the network, the user's configuration or anything outside a temporary directory.
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -172,7 +172,7 @@ export const git = (cwd, ...args) =>
   }).trim();
 
 /**
- * One program that stands in for `cargo`, `gh`, `npm` and `npx` (it is told which by the name it
+ * One program that stands in for `cargo`, `gh` and `npm` (it is told which by the name it
  * is run as). It answers from the state file (`FAKE_STATE`), keeps what it changes there, and
  * writes every call, with the directory it was made in, to `FAKE_LOG`.
  */
@@ -241,12 +241,19 @@ if (tool === "cargo") {
   } else if (a === "run") console.log(JSON.stringify(gh.runs));
   else if (a === "repo") console.log("bateri/pencere");
   else if (a === "attestation" && gh.badAttestation) fail("verification failed");
-} else if (tool === "npx") {
-  if (args[args.indexOf("stage") + 1] === "list") console.log(JSON.stringify(state.npm.staged));
 } else if (tool === "npm") {
-  if (args[0] === "view") {
+  if (args[0] === "view" && args[2] === "version") {
+    if (!state.npm.published.includes(args[1])) fail("npm error code E404");
+    console.log(args[1].slice(args[1].lastIndexOf("@") + 1));
+  } else if (args[0] === "view") {
     if (!(args[1] in state.npm.deprecated)) fail("npm error code E404");
     console.log(state.npm.deprecated[args[1]]);
+  } else if (args[0] === "pack") {
+    console.log(JSON.stringify([{ files: state.npm.files.map((p) => ({ path: p })) }]));
+  } else if (args[0] === "publish") {
+    if (state.npm.failPublish) fail("npm error code E403");
+    state.npm.published.push("@pencere/sdk@" + state.version);
+    save();
   }
 }
 `;
@@ -281,7 +288,7 @@ function worldTemplate() {
   git(root, "init", "-q", "--bare", "-b", "main", origin);
   git(root, "remote", "add", "origin", origin);
   git(root, "push", "-q", "origin", "main");
-  for (const tool of ["cargo", "gh", "npm", "npx"]) {
+  for (const tool of ["cargo", "gh", "npm"]) {
     write(bin, tool, FAKE);
     chmodSync(join(bin, tool), 0o755);
   }
@@ -314,8 +321,8 @@ const ASKS = {
 /**
  * A copy of the template: a git repository on `main` with its own `origin`, to commit to and
  * release from, and the stand-ins, which answer from `state`: the crates as cargo reports them,
- * what crates.io has, what npm has staged, and what GitHub holds (releases, runs of the workflow,
- * the files a draft carries). A run reads the state the stand-ins left.
+ * what crates.io has, what npm has and what its package carries, and what GitHub holds (releases,
+ * runs of the gate, the files a draft carries). A run reads the state the stand-ins left.
  */
 export function world() {
   const { root: from, origin: fromOrigin, bin } = worldTemplate();
@@ -356,7 +363,19 @@ export function world() {
         },
       ]),
     ),
-    npm: { staged: [], deprecated: {} },
+    npm: {
+      published: [],
+      deprecated: {},
+      // What `npm pack` says the package carries.
+      files: [
+        "LICENSE",
+        "NOTICE",
+        "README.md",
+        "CHANGELOG.md",
+        "package.json",
+        ...LINES["sdk-typescript"].entries,
+      ],
+    },
     gh: { auth: true, releases: {}, runs: [], assets: null },
   };
   const statePath = join(aux, "state.json");

@@ -1,133 +1,135 @@
-# A release tag (`<line>-v<version>`, made by `make release`, pushed by `make publish`) on main
-# becomes a draft (RELEASING.md). The workflow stages and builds; it makes nothing public. A
-# maintainer's `make approve` does that, once this run is green:
+# Releases what a commit on main has prepared (RELEASING.md). It runs when the gate (check.yml) has
+# finished green on a push to main, and when it is started by hand:
 #
-# - sdk-typescript: the package is staged on npm with provenance, through trusted publishing.
-# - crates: nothing is staged (crates.io has no staging); the package of each crate is tried again
-#   from the tag. `make approve` publishes them from a clean checkout of it.
-# - cli: the four executables are built, each on a runner of its system and architecture, tried
-#   where the runner can run them, summed, and attested (provenance).
-# - every line: the line's GitHub release is written as a draft, with the changelog section as its
-#   notes and, for the command, the files.
+# - plan: the lines whose version has no tag yet (`make release-prepare`, committed and pushed),
+#   each checked. A commit that prepared nothing ends here.
+# - the packages of each line are checked, and the command's four executables are built on a
+#   runner of their system and architecture, tried, summed and attested (provenance).
+# - each line is tagged (`<line>-v<version>`) and its GitHub release written as a draft, with the
+#   changelog section as its notes and, for the command, the files.
+# - publish: each line waits in the `release` environment for a maintainer to approve it, and is
+#   then published by its kind: npm and crates.io take the workflow's word for who it is (trusted
+#   publishing), the command's files are verified against their sums and attestations, and the
+#   draft is made public. The command is published after the SDK and the crates, and is the only
+#   Latest.
 #
-# The workflow can be started by hand for the command or the crates (`line`): it builds, tries and
-# sums, and keeps the files as workflow artifacts. It makes no release and no attestation.
+# Started by hand, it releases the line chosen on main's newest commit, if the gate is green on it:
+# a release that stopped half way (tagged on this commit, not yet public) is finished. With
+# `rehearse` it only checks and builds, on any branch, and keeps the command's files as workflow
+# artifacts: no tag, no release, no attestation.
 name: release
 
 on:
-  push:
-    tags:
-      - "sdk-typescript-v*"
-      - "crates-v*"
-      - "cli-v*"
+  workflow_run:
+    workflows: [check]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       line:
-        description: The line to build and try, with no release
+        description: The line to release
         type: choice
         options:
-          - cli
+          - sdk-typescript
           - crates
+          - cli
         required: true
+      rehearse:
+        description: Only check and build; tag and publish nothing
+        type: boolean
+        default: false
+
+# One release at a time, and none is cut short by the next.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions: {}
 
 jobs:
-  verify:
+  # A run of the gate on a pull request, or on a branch of a fork named main, is never a release.
+  plan:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
     outputs:
-      line: ${{ steps.tag.outputs.line }}
-      kind: ${{ steps.tag.outputs.kind }}
-      name: ${{ steps.tag.outputs.name }}
-      dir: ${{ steps.tag.outputs.dir }}
-      version: ${{ steps.tag.outputs.version }}
+      sha: ${{ steps.sha.outputs.sha }}
+      rehearse: ${{ steps.sha.outputs.rehearse }}
+      lines: ${{ steps.plan.outputs.lines }}
+      sdk-typescript: ${{ steps.plan.outputs.sdk-typescript }}
+      crates: ${{ steps.plan.outputs.crates }}
+      cli: ${{ steps.plan.outputs.cli }}
+    steps:
+      - id: sha
+        env:
+          EVENT: ${{ github.event_name }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          REHEARSE: ${{ inputs.rehearse == true }}
+        run: |
+          if [ "$EVENT" = workflow_run ]; then
+            echo "sha=$RUN_SHA" >> "$GITHUB_OUTPUT"
+            echo "rehearse=false" >> "$GITHUB_OUTPUT"
+          else
+            if [ "$REHEARSE" != true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+              echo "::error::a release is made from main; start it on main, or rehearse"
+              exit 1
+            fi
+            echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+            echo "rehearse=$REHEARSE" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.sha.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      # After the gate's run, this commit is green; started by hand, plan asks GitHub whether it is.
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINE: ${{ inputs.line }}
+          RELEASE_REHEARSE: ${{ steps.sha.outputs.rehearse }}
+          RELEASE_REQUIRE_CHECK: ${{ github.event_name == 'workflow_dispatch' }}
+        run: node tools/release.mjs plan "$LINE" >> "$GITHUB_OUTPUT"
+
+  # The package npm would publish: its files, built from a clean install.
+  npm:
+    needs: plan
+    if: needs.plan.outputs.sdk-typescript == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.plan.outputs.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
-        with:
-          toolchain: 1.88.0
-          components: clippy, rustfmt
-      # The gate's dependencies as main's check last compiled them, read and never written. Only
-      # this job reads a cache: what is released is built from nothing.
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          shared-key: gate
-          workspaces: |
-            . -> target
-            kit/guest -> target
-          save-if: false
-      # A tag names the version the manifests and the changelogs carry, on main. A run started by
-      # hand has no tag: the manifests say the version.
-      - id: tag
-        env:
-          EVENT: ${{ github.event_name }}
-          LINE: ${{ inputs.line }}
-        run: |
-          if [ "$EVENT" = push ]; then
-            node tools/release.mjs verify-tag "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
-          else
-            node tools/release.mjs describe "$LINE" >> "$GITHUB_OUTPUT"
-          fi
       - run: npm ci
-      - run: make check
+      - run: node tools/release.mjs package sdk-typescript
 
-  npm:
-    needs: verify
-    if: github.event_name == 'push' && needs.verify.outputs.kind == 'npm'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-          cache: npm
-          registry-url: https://registry.npmjs.org
-      # Staged publishing needs npm 11.15 or later; Node 22 ships npm 10.
-      - run: npm install --global npm@11.21.1
-      - run: npm ci
-      - id: registry
-        env:
-          LINE: ${{ needs.verify.outputs.line }}
-          VERSION: ${{ needs.verify.outputs.version }}
-        run: node tools/release.mjs registry "$LINE" "$VERSION" >> "$GITHUB_OUTPUT"
-      # Staging a package the registry does not know would publish a public placeholder, and its
-      # trusted publisher can only be set up once it exists.
-      - if: steps.registry.outputs.exists != 'true'
-        env:
-          NAME: ${{ needs.verify.outputs.name }}
-        run: |
-          echo "::error::$NAME is not on npm: a package is published once by hand, and then the workflow stages its releases."
-          exit 1
-      - if: steps.registry.outputs.published == 'true'
-        env:
-          NAME: ${{ needs.verify.outputs.name }}
-          VERSION: ${{ needs.verify.outputs.version }}
-        run: echo "::notice::$NAME $VERSION is already on npm; nothing to stage."
-      - if: steps.registry.outputs.exists == 'true' && steps.registry.outputs.published != 'true'
-        working-directory: ${{ needs.verify.outputs.dir }}
-        run: npm stage publish
-
-  # The package of each crate, built from its own files (the gate has run in `verify`). Nothing is
-  # published: `make approve` does that.
+  # The package of each crate, built from its own files against crates.io (its dry run).
   crates:
-    needs: verify
-    if: needs.verify.outputs.kind == 'crates'
+    needs: plan
+    if: needs.plan.outputs.crates == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -140,10 +142,10 @@ jobs:
   # The Linux ones are built in the image of tools/linux/Dockerfile, the macOS ones by one
   # compiler for both targets, with the toolchain the gate runs with. Each is tried where its
   # runner can run it (tools/dist.sh): the log of the macOS job says whether the Intel executable
-  # could be run.
+  # could be run. Nothing is taken from a cache: what is released is built from nothing.
   build:
-    needs: verify
-    if: needs.verify.outputs.kind == 'binary'
+    needs: plan
+    if: needs.plan.outputs.cli == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -162,6 +164,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -179,10 +183,10 @@ jobs:
           if-no-files-found: error
 
   # The four executables together: SHA256SUMS, a check of all of it (the system and processor each
-  # name says, the sums), and for a tag the attestation of what was built here. The files are kept
-  # as a workflow artifact, for the draft and for a run started by hand.
+  # name says, the sums), and for a release the attestation of what was built here. The files are
+  # kept as a workflow artifact, for the draft and for a rehearsal.
   files:
-    needs: [verify, build]
+    needs: [plan, build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -190,6 +194,8 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -200,7 +206,7 @@ jobs:
           path: dist
       - run: make dist-sums
       - run: node tools/release.mjs dist cli dist
-      - if: github.event_name == 'push'
+      - if: needs.plan.outputs.rehearse != 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -212,26 +218,121 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  # The line's GitHub release, as a draft: the changelog section for its notes, the files of the
-  # command. A job that is run again makes the draft again, and a release that is public is not
-  # touched. `make approve` publishes it.
+  # Each line's tag, once all of its checks and builds are green, and its GitHub release as a
+  # draft: the changelog section for its notes, the files of the command. A job that is run again
+  # leaves a tag that is on this commit and makes the draft again; a release that is public is not
+  # touched.
   draft:
-    needs: [verify, npm, crates, files]
-    if: ${{ always() && github.event_name == 'push' && needs.verify.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    needs: [plan, npm, crates, build, files]
+    if: >-
+      always() && needs.plan.result == 'success' && needs.plan.outputs.rehearse != 'true' &&
+      needs.plan.outputs.lines != '[]' &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-      - if: needs.verify.outputs.kind == 'binary'
+      - if: needs.plan.outputs.cli == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-files
           path: dist
       - env:
           GH_TOKEN: ${{ github.token }}
-          LINE: ${{ needs.verify.outputs.line }}
-        run: node tools/release.mjs draft "$LINE" dist
+          LINES: ${{ needs.plan.outputs.lines }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for line in $(echo "$LINES" | jq -r '.[]'); do
+            node tools/release.mjs tag "$line"
+            node tools/release.mjs draft "$line" dist
+          done
+
+  # From here, each line waits for a maintainer's approval in the `release` environment (Settings,
+  # Environments: its required reviewers), and nothing is public before it.
+  publish-sdk:
+    needs: [plan, draft]
+    if: needs.draft.result == 'success' && needs.plan.outputs.sdk-typescript == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10.
+      - run: npm install --global npm@11.21.1
+      - run: npm ci
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/release.mjs publish sdk-typescript
+
+  publish-crates:
+    needs: [plan, draft]
+    if: needs.draft.result == 'success' && needs.plan.outputs.crates == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.88.0
+      # A token crates.io gives for this run alone, in exchange for the workflow's identity.
+      - id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: node tools/release.mjs publish crates
+
+  # After the SDK and the crates, when they are released in the same run: the command's projects ask
+  # for them (publish refuses the command while either is not on its registry).
+  publish-cli:
+    needs: [plan, draft, publish-sdk, publish-crates]
+    if: >-
+      always() && needs.draft.result == 'success' && needs.plan.outputs.cli == 'true' &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      # `cargo info` asks crates.io whether the program library is there.
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: 1.88.0
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/release.mjs publish cli

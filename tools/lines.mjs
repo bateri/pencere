@@ -2,10 +2,11 @@
 // file(s) and its tags (`<line>-v<version>`). `release.mjs` is the one that reads this table.
 
 /**
- * The lines. A line is released with the same four verbs whatever it is (`make release-prepare`,
- * `release`, `publish`, `approve`); its `kind` decides what each does:
+ * The lines. A line is released the same way whatever it is (`make release-prepare`, pushed to
+ * main, then the release workflow and a maintainer's approval); its `kind` decides what is
+ * published:
  *
- * - `npm`: a package, staged by the release workflow and approved on npm. `dir` holds it.
+ * - `npm`: a package, published to npm by the release workflow. `dir` holds it.
  * - `crates`: crates published to crates.io, **one version for all of them**. `members` are the
  *   crates in the order they are published: a crate comes after every crate it depends on by path.
  *   Each member has a `dir`, a `name`, the `entries` a package of it is useless without, and a

@@ -1,4 +1,4 @@
-.PHONY: setup fmt check check-heavy audit guest luau dist dist-linux dist-macos dist-sums release-prepare release rehearse publish approve
+.PHONY: setup fmt check check-heavy audit guest luau dist dist-linux dist-macos dist-sums release-prepare rehearse
 
 # Installs the TypeScript half's dependencies from the lockfile. The only
 # target that reaches the network.
@@ -160,35 +160,16 @@ dist-sums:
 	$(DIST_ENV) tools/dist.sh sums
 
 # Releasing a line (RELEASING.md). LINE is one of the lines in tools/lines.mjs: sdk-typescript
-# (@pencere/sdk), crates (the six crates, one version) or cli (the pencere command). The same four
-# verbs release every line.
+# (@pencere/sdk), crates (the six crates, one version) or cli (the pencere command). A release is
+# the commit of release-prepare, pushed to main: the release workflow tags, builds and drafts it
+# once the gate is green, and publishes it when a maintainer approves.
 #
 # release-prepare sets the version(s) and dates the changelog(s); nothing is committed.
 release-prepare:
 	@test -n "$(LINE)" -a -n "$(VERSION)" || { echo "usage: make release-prepare LINE=<line> VERSION=<x.y.z>"; exit 2; }
 	node tools/release.mjs prepare $(LINE) $(VERSION)
 
-# release runs the gate and the release checks, then tags. Nothing is pushed.
-release:
-	@test -n "$(LINE)" || { echo "usage: make release LINE=<line>"; exit 2; }
-	$(MAKE) check
-	node tools/release.mjs tag $(LINE)
-
-# rehearse runs the release checks of a prepared line on any branch, without those of the
-# repository's state (the branch, a clean tree, origin and its tags). It changes nothing.
+# rehearse runs the checks of a release of the prepared line, on any branch. It changes nothing.
 rehearse:
 	@test -n "$(LINE)" || { echo "usage: make rehearse LINE=<line>"; exit 2; }
 	node tools/release.mjs rehearse $(LINE)
-
-# publish pushes main and the tag, and nothing else; the release workflow takes it from there and
-# writes a draft. Publishing: run on the maintainer's word.
-publish:
-	@test -n "$(LINE)" || { echo "usage: make publish LINE=<line>"; exit 2; }
-	node tools/release.mjs push $(LINE)
-
-# approve makes the line public everywhere, once the workflow's run is green: the staged package
-# on npm (with 2FA), the crates on crates.io, or the verified files of the command; then its GitHub
-# release. Publishing: run on the maintainer's word.
-approve:
-	@test -n "$(LINE)" || { echo "usage: make approve LINE=<line>"; exit 2; }
-	node tools/release.mjs approve $(LINE)

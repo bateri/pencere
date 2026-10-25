@@ -1,33 +1,33 @@
 // Releases a line of this repository: one script for every step that a machine can check, so that
 // a release is the same sequence every time (RELEASING.md is the procedure, this file the checks).
 //
-// The four verbs of a release, as `make` runs them:
+// On a maintainer's machine:
 //
-//   prepare <line> <version>   set the version(s) and move Unreleased into a dated section
-//   tag <line>                 the release checks (`check`), then the annotated tag; nothing is pushed
-//   push <line>                one atomic push of main and the tag, and nothing else
-//   approve <line>             make the line public everywhere (by its kind), then its GitHub release
+//   prepare <line> <version>   set the version(s) and move Unreleased into a dated section; the
+//                              commit of it, pushed to main, is what starts a release
+//   rehearse <line>            everything a release of the prepared line checks, without changing
+//                              anything, on any branch
 //
-// and what a machine can try before that, or in the release workflow:
+// In the release workflow (.github/workflows/release.yml), which runs after the gate is green on
+// main, or when it is started by hand:
 //
-//   check <line>               everything a release needs, without changing anything
-//   rehearse <line>            the same, but not the checks of the repository's state (branch, a clean
-//                              tree, origin, the remote tags): on any branch, after a commit
-//   package <line>             in the workflow: the checks of each crate's package and its dry run
+//   plan [<line>]              the lines whose version has no tag yet (or the one named, which may be
+//                              tagged on this commit already, to finish its release): the checks of
+//                              each, and what the workflow reads
+//   package <line>             the checks of each package of the line (for a crate, its dry run)
 //   dist <line> [dir]          a binary line: the files of the directory are this version's, and intact
-//   draft <line> [dir]         in the workflow: the line's GitHub release as a draft (with the files of
-//                              a binary line), made again if a draft is there, never over a public one
-//   verify-tag <tag>           in the workflow: the tag names the line's version on main; prints the
-//                              line, its kind, package, directory, version and tag
-//   describe <line>            the same output without a tag, for a run started by hand
-//   registry <line> <version>  in the workflow: is the npm package, and this version, published
+//   tag <line>                 the annotated tag of the line's version on this commit, pushed
+//   draft <line> [dir]         the line's GitHub release as a draft (with the files of a binary line),
+//                              made again if a draft is there, never over a public one
+//   publish <line>             once a maintainer has approved: the line on its registry (by its kind),
+//                              then its GitHub release made public
 //   notes <line> [<version>]   the changelog section(s) of a version, as the release notes
 //
-// A line is released by its kind (tools/lines.mjs): `npm` is staged by the workflow and approved
-// on npm, `crates` are published to crates.io by `approve` from a clean checkout of the tag, and
-// `binary` is built by the workflow, which attaches it to a draft that `approve` verifies and
-// publishes. Whatever the kind, the workflow writes the GitHub release as a draft and `approve`
-// publishes it; only a release of the binary line is ever the repository's Latest.
+// A line is published by its kind (tools/lines.mjs): `npm` with `npm publish`, `crates` to
+// crates.io in order from a checkout of the tag, and `binary` by verifying the files of its draft
+// (the sums and the attestations). npm and crates.io take the workflow's word for who it is
+// (trusted publishing): no token is kept anywhere. Only a release of the binary line is ever the
+// repository's Latest.
 //
 // It uses nothing but Node, git and the package managers already needed by the gate (and `gh`,
 // `cargo` and `npm` for the verbs that publish).
@@ -348,22 +348,20 @@ function prepare(name, version) {
   for (const file of moved)
     console.log(`${file}: the requirements of the crates moved to ${version}`);
   console.log(
-    `next: review, commit ("Release ${line.title} ${version}"), then make release LINE=${line.id}`,
+    `next: review, commit ("Release ${line.title} ${version}") and push to main: the release workflow takes it from there`,
   );
 }
 
 // ---- the release checks -------------------------------------------------------
 
 /**
- * Everything a release needs, without changing anything. `rehearse` leaves out what asks about the
- * repository's state (the branch, a clean tree, `origin` and its tags): the rest is the same, so
- * that a prepared line can be tried on any branch.
+ * What the line's version must be to be released: prepared (a dated section in every changelog,
+ * nothing left under Unreleased) and after the line's last tag. Asks nothing of anything but the
+ * files and the tags.
  */
-function check(name, { rehearse = false } = {}) {
-  const line = lineOf(name);
+function lineChecks(line) {
   const version = lineVersion(line);
   const tag = tagOf(line, version);
-
   if (version === "0.0.0") refuse(`${line.title} is at 0.0.0: run make release-prepare first`);
   for (const pkg of line.packages) {
     if (unreleased(pkg).body !== "") {
@@ -375,35 +373,31 @@ function check(name, { rehearse = false } = {}) {
     }
     releasedSection(pkg, version);
   }
-
-  if (!rehearse) {
-    if (run("git", ["branch", "--show-current"]) !== "main") refuse("not on main");
-    if (run("git", ["status", "--porcelain"]) !== "") refuse("the working tree is not clean");
-    run("git", ["fetch", "--quiet", "origin", "main", "--tags"]);
-    if (!succeeds("git", ["merge-base", "--is-ancestor", "origin/main", "HEAD"])) {
-      refuse("main has diverged from origin/main");
-    }
-  }
-  if (succeeds("git", ["rev-parse", "--verify", "--quiet", `refs/tags/${tag}`])) {
-    refuse(`the tag ${tag} exists`);
-  }
-  const last = taggedVersions(line).at(-1);
+  const last = taggedVersions(line)
+    .filter((v) => v !== version)
+    .at(-1);
   if (last !== undefined && compare(version, last) <= 0) {
     refuse(`${version} is not after ${last}, the line's last release`);
   }
-  if (!rehearse && run("git", ["ls-remote", "--tags", "origin", `refs/tags/${tag}`]) !== "") {
-    refuse(`the tag ${tag} exists on origin`);
-  }
+  return { version, tag };
+}
 
+const tagExists = (tag) =>
+  succeeds("git", ["rev-parse", "--verify", "--quiet", `refs/tags/${tag}`]);
+const tagIsHead = (tag) =>
+  run("git", ["rev-list", "-n", "1", tag]) === run("git", ["rev-parse", "HEAD"]);
+
+/** Everything a release of the line checks, on any branch: what `make rehearse` runs. */
+function rehearse(name) {
+  const line = lineOf(name);
+  const { version, tag } = lineChecks(line);
+  if (tagExists(tag)) refuse(`the tag ${tag} exists`);
   for (const pkg of line.packages) checkPackage(pkg, version);
-  console.log(
-    `${line.title} ${version} is ready to tag as ${tag}${rehearse ? " (a rehearsal: the state of the repository was not looked at)" : ""}`,
-  );
-  return { line, version, tag, notes: notesOf(line, version) };
+  console.log(`${line.title} ${version} is ready to be released as ${tag}`);
 }
 
 /** What a package must be to be released: its files, and for a crate its manifest and a dry run. */
-function checkPackage(pkg, version) {
+function checkPackage(pkg, version, { resuming = false } = {}) {
   for (const name of ["LICENSE", "NOTICE"]) {
     const copy = join(root, pkg.dir, name);
     if (
@@ -428,7 +422,7 @@ function checkPackage(pkg, version) {
   // A binary's directory is a crate that is not packaged: its tests are not shipped.
   const stray = pkg.kind === "binary" ? [] : files.filter(isStray);
   if (stray.length > 0) refuse(`the package carries tests or builds: ${stray.join(", ")}`);
-  if (pkg.kind === "cargo") dryRun(pkg, version);
+  if (pkg.kind === "cargo") dryRun(pkg, version, { resuming });
 }
 
 /** What a package must not carry: tests (also the modules of a crate's `src/`), builds and installs. */
@@ -532,11 +526,15 @@ function onRegistry(name, version) {
  * repository (`--config patch.crates-io.<crate>.path`): the package is still built from its own
  * extracted files, which is what the dry run is for.
  */
-function dryRun(pkg, version) {
+function dryRun(pkg, version, { resuming = false } = {}) {
   const crate = crateOf(pkg);
   const gaps = manifestGaps(crate);
   if (gaps.length > 0) refuse(`${pkg.dir}/Cargo.toml lacks: ${gaps.join(", ")}`);
-  if (onRegistry(pkg.name, version)) refuse(`crates.io has ${pkg.name} ${version} already`);
+  if (onRegistry(pkg.name, version)) {
+    // A release that stopped half way, tagged on this commit, published this crate already.
+    if (resuming) return;
+    refuse(`crates.io has ${pkg.name} ${version} already`);
+  }
   const patches = pathDependencies(crate).flatMap((dep) => {
     const sibling = LINES.crates.members.find((member) => member.name === dep.name);
     if (sibling === undefined) {
@@ -647,39 +645,93 @@ function dist(name, dir) {
 
 // ---- the verbs ---------------------------------------------------------------
 
+// ---- in the workflow: what to release, the tag, and the publication -----------------
+
+/**
+ * The lines to release on this commit, for the workflow to read from its output file: every line
+ * whose version has no tag yet, or the one line named (a run started by hand), which may be tagged
+ * on this commit already, so that a release that stopped half way is finished. Each is checked
+ * (`lineChecks`) before it is named. With `rehearse`, the line named is built and tried, and
+ * nothing is tagged or published.
+ */
+function plan(name) {
+  const rehearsing = process.env.RELEASE_REHEARSE === "true";
+  if (process.env.RELEASE_REQUIRE_CHECK === "true" && !rehearsing) {
+    requireGreenCheck(run("git", ["rev-parse", "HEAD"]));
+  }
+  const ids = name === undefined || name === "" ? Object.keys(LINES) : [lineOf(name).id];
+  const chosen = [];
+  for (const id of ids) {
+    const line = lineOf(id);
+    if (rehearsing) {
+      chosen.push(id);
+      continue;
+    }
+    // Every release has a tag: a line whose version has one, and is not named, is released already
+    // (and its changelog may have gone on to the next one's Unreleased).
+    if (ids.length > 1 && tagExists(tagOf(line, lineVersion(line)))) continue;
+    const { version, tag } = lineChecks(line);
+    if (tagExists(tag)) {
+      if (!tagIsHead(tag)) refuse(`${tag} is on another commit: a tag is never moved`);
+      if (releaseState(tag) === "public") refuse(`the GitHub release ${tag} is public already`);
+    }
+    console.error(`${line.title} ${version} is to be released as ${tag}`);
+    chosen.push(id);
+  }
+  if (chosen.length === 0) console.error("no line has a version without a tag: nothing to release");
+  // Read by the workflow from its output file.
+  console.log(`lines=${JSON.stringify(chosen)}`);
+  for (const id of Object.keys(LINES)) console.log(`${id}=${chosen.includes(id)}`);
+}
+
+/** The run of the gate (check.yml) for the commit, on main, must have finished, and well. */
+function requireGreenCheck(sha) {
+  const runs = JSON.parse(
+    run("gh", [
+      "run",
+      "list",
+      "--workflow",
+      "check.yml",
+      "--event",
+      "push",
+      "--branch",
+      "main",
+      "--commit",
+      sha,
+      "--limit",
+      "10",
+      "--json",
+      "databaseId,status,conclusion",
+    ]),
+  );
+  const [latest] = runs;
+  if (latest === undefined) refuse(`no run of the gate for ${sha.slice(0, 7)} on main`);
+  if (latest.status !== "completed") {
+    refuse(
+      `the gate's run ${latest.databaseId} for ${sha.slice(0, 7)} is ${latest.status}: wait for it`,
+    );
+  }
+  if (latest.conclusion !== "success") {
+    refuse(
+      `the gate's run ${latest.databaseId} for ${sha.slice(0, 7)} ended in ${latest.conclusion}`,
+    );
+  }
+}
+
+/** The annotated tag of the line's version on this commit, pushed; left as it is if it is there. */
 function tag(name) {
-  const { tag: tagName, notes, line, version } = check(name);
-  // Verbatim: the default cleanup would take the section's "### Added" lines for comments.
-  const message = `${line.title} ${version}\n\n${notes}\n`;
-  run("git", ["tag", "--annotate", "--cleanup=verbatim", tagName, "--message", message]);
-  console.log(`tagged ${tagName}; nothing is pushed. Next: make publish LINE=${line.id}`);
-}
-
-function currentTag(line) {
-  const version = lineVersion(line);
-  const tagName = tagOf(line, version);
-  if (!succeeds("git", ["rev-parse", "--verify", "--quiet", `refs/tags/${tagName}`])) {
-    refuse(`no tag ${tagName}: run make release LINE=${line.id} first`);
-  }
-  if (run("git", ["rev-list", "-n", "1", tagName]) !== run("git", ["rev-parse", "HEAD"])) {
-    refuse(`${tagName} is not on HEAD`);
-  }
-  return { version, tagName };
-}
-
-/** Pushes `main` and the tag, together or not at all; the workflow takes it from there. */
-function push(name) {
   const line = lineOf(name);
-  const { tagName } = currentTag(line);
-  run("git", ["push", "--atomic", "origin", "main", tagName], { stdio: "inherit" });
-  console.log(`pushed main and ${tagName}; the release workflow takes it from here`);
-}
-
-/** The version of the line's newest tag: what `approve` makes public, wherever HEAD has gone. */
-function newestRelease(line) {
-  const version = taggedVersions(line).at(-1);
-  if (version === undefined) refuse(`${line.id} has no tag: make release LINE=${line.id} first`);
-  return { version, tagName: tagOf(line, version) };
+  const { version, tag: tagName } = lineChecks(line);
+  if (tagExists(tagName)) {
+    if (!tagIsHead(tagName)) refuse(`${tagName} is on another commit: a tag is never moved`);
+    console.log(`${tagName} is on this commit already`);
+    return;
+  }
+  // Verbatim: the default cleanup would take the section's "### Added" lines for comments.
+  const message = `${line.title} ${version}\n\n${notesOf(line, version)}\n`;
+  run("git", ["tag", "--annotate", "--cleanup=verbatim", tagName, "--message", message]);
+  run("git", ["push", "--quiet", "origin", `refs/tags/${tagName}`], { stdio: "inherit" });
+  console.log(`tagged ${tagName} and pushed it`);
 }
 
 /** `isDraft` of the GitHub release of a tag, or null when there is none. */
@@ -694,64 +746,23 @@ function releaseState(tagName) {
   }
 }
 
+/** Is this version of the npm package on the registry? */
+const onNpm = (name, version) => succeeds("npm", ["view", `${name}@${version}`, "version"]);
+
 /**
- * The run of the release workflow for a tag must have finished, and well. Several lines can be
- * tagged on one commit, so the run is the one of this tag (a tag's run has the tag for its branch),
- * not the newest of the commit.
+ * The package on npm. The workflow is the package's trusted publisher, so npm takes its word for
+ * who it is and signs where it was built (provenance). A version that npm has is left: a job that
+ * is run again goes on to the GitHub release.
  */
-function requireGreenRun(tagName) {
-  const sha = run("git", ["rev-list", "-n", "1", tagName]);
-  const runs = JSON.parse(
-    run("gh", [
-      "run",
-      "list",
-      "--workflow",
-      "release.yml",
-      "--event",
-      "push",
-      "--branch",
-      tagName,
-      "--commit",
-      sha,
-      "--limit",
-      "10",
-      "--json",
-      "databaseId,status,conclusion",
-    ]),
-  );
-  const [latest] = runs;
-  if (latest === undefined) {
-    refuse(`no run of the release workflow for ${tagName} (${sha.slice(0, 7)}): has it started?`);
+function publishNpm(line, version) {
+  if (onNpm(line.name, version)) {
+    console.log(`${line.name} ${version} is on npm already`);
+    return;
   }
-  if (latest.status !== "completed") {
-    refuse(
-      `the release workflow's run ${latest.databaseId} for ${tagName} is ${latest.status}: wait for it`,
-    );
-  }
-  if (latest.conclusion !== "success") {
-    refuse(
-      `the release workflow's run ${latest.databaseId} for ${tagName} ended in ${latest.conclusion}: gh run view ${latest.databaseId}`,
-    );
-  }
-}
-
-/** `npm stage` needs npm 11.15 or later and Node 22 ships npm 10; the release workflow installs the same one. */
-const STAGE_NPM = ["--yes", "npm@11.21.1", "stage"];
-
-function approveStaged(line, version) {
-  const staged = JSON.parse(run("npx", [...STAGE_NPM, "list", line.name, "--json"])).filter(
-    (item) => item.version === version,
-  );
-  if (staged.length === 0) {
-    refuse(`npm holds no staged ${line.name} ${version}: has the release workflow staged it?`);
-  }
-  if (staged.length > 1) {
-    const ids = staged.map((item) => `${item.id} (${item.status})`).join(", ");
-    refuse(`npm holds more than one staged ${line.name} ${version}: ${ids}`);
-  }
-  // What is approved is shown first: who staged it and the shasum of what becomes public.
-  run("npx", [...STAGE_NPM, "view", staged[0].id], { stdio: "inherit" });
-  run("npx", [...STAGE_NPM, "approve", staged[0].id], { stdio: "inherit" });
+  run("npm", ["publish", "--provenance", "--access", "public"], {
+    cwd: join(root, line.dir),
+    stdio: "inherit",
+  });
 }
 
 /**
@@ -785,9 +796,28 @@ function publishCrates(line, version, tagName) {
   }
 }
 
+/**
+ * The command makes projects that ask npm for the SDK and crates.io for the program library
+ * (`pencere new --lang ts`, `--lang rust`): both must be released at the versions of this commit
+ * before the command is.
+ */
+function requireDependencies() {
+  const sdk = lineOf("sdk-typescript");
+  const sdkVersion = lineVersion(sdk);
+  if (!onNpm(sdk.name, sdkVersion)) {
+    refuse(`${sdk.name} ${sdkVersion} is not on npm: the command is released after it`);
+  }
+  const crates = lineOf("crates");
+  const cratesVersion = lineVersion(crates);
+  const program = crates.packages.at(-1).name;
+  if (!onRegistry(program, cratesVersion)) {
+    refuse(`${program} ${cratesVersion} is not on crates.io: the command is released after it`);
+  }
+}
+
 /** The files of the draft, checked as they were built (the sums) and by whom (the attestation). */
 function verifyDownloads(line, version, tagName) {
-  const dir = mkdtempSync(join(tmpdir(), "pencere-approve-"));
+  const dir = mkdtempSync(join(tmpdir(), "pencere-publish-files-"));
   try {
     run("gh", ["release", "download", tagName, "--dir", dir, "--pattern", "*"], {
       stdio: "inherit",
@@ -828,25 +858,26 @@ function deprecations(line) {
     .map(([name, message]) => `npm deprecate "${name}@*" ${JSON.stringify(message)}`);
 }
 
-/** Makes the line public everywhere, by its kind, and then its GitHub release. */
-function approve(name, requested) {
+/**
+ * Makes the line public everywhere, by its kind, and then its GitHub release: what the workflow
+ * does once a maintainer has approved it. The tag must be this commit's and its draft there.
+ */
+function publish(name) {
   const line = lineOf(name);
-  const { version, tagName } =
-    requested === undefined
-      ? newestRelease(line)
-      : { version: requested, tagName: tagOf(line, requested) };
-  if (!succeeds("git", ["rev-parse", "--verify", "--quiet", `refs/tags/${tagName}`])) {
-    refuse(`no tag ${tagName}: git fetch --tags, if it was made on another machine`);
-  }
-  if (!succeeds("gh", ["auth", "status"])) refuse("gh is missing or not logged in");
-  requireGreenRun(tagName);
+  const version = lineVersion(line);
+  const tagName = tagOf(line, version);
+  if (!tagExists(tagName)) refuse(`no tag ${tagName}: the workflow tags before it publishes`);
+  if (!tagIsHead(tagName)) refuse(`${tagName} is not on this commit`);
   const state = releaseState(tagName);
   if (state === "none") refuse(`${tagName} has no GitHub release: the workflow writes the draft`);
   if (state === "public") refuse(`the GitHub release ${tagName} is public already`);
 
-  if (line.kind === "npm") approveStaged(line, version);
+  if (line.kind === "npm") publishNpm(line, version);
   else if (line.kind === "crates") publishCrates(line, version, tagName);
-  else verifyDownloads(line, version, tagName);
+  else {
+    requireDependencies();
+    verifyDownloads(line, version, tagName);
+  }
 
   // Only the command is the repository's Latest; a draft carries no choice, so it is made here.
   const latest = line.kind === "binary" ? "--latest" : "--latest=false";
@@ -861,14 +892,15 @@ function approve(name, requested) {
 
 // ---- in the workflow --------------------------------------------------------
 
-/** The crates' dry run, as the release workflow runs it for a tag or by hand. */
-function packageCrates(name) {
+/** The checks of each package of the line, as the release workflow runs them before it tags. */
+function packageLine(name) {
   const line = lineOf(name);
-  if (line.kind !== "crates") refuse(`${line.id} is not crates: only crates have a package to try`);
   const version = lineVersion(line);
+  const tagName = tagOf(line, version);
+  const resuming = tagExists(tagName) && tagIsHead(tagName);
   for (const pkg of line.packages) {
-    checkPackage(pkg, version);
-    console.log(`${pkg.name} ${version}: its package builds from its own files`);
+    checkPackage(pkg, version, { resuming });
+    console.log(`${pkg.name} ${version}: its package is what a release of it carries`);
   }
 }
 
@@ -888,7 +920,7 @@ function draft(name, dir) {
   }
   // A job that is run again finds the draft of the first run: it is made again.
   if (state === "draft") run("gh", ["release", "delete", tagName, "--yes"]);
-  // Only the command is ever the repository's Latest, which `approve` decides; the others never are.
+  // Only the command is ever the repository's Latest, which `publish` decides; the others never are.
   const latest = line.kind === "binary" ? [] : ["--latest=false"];
   run(
     "gh",
@@ -911,55 +943,6 @@ function draft(name, dir) {
   );
 }
 
-/** What the workflow reads from the output file of the step: the line, the tag, its version. */
-function describeLine(line, version) {
-  const first = line.packages[0];
-  console.log(`line=${line.id}`);
-  console.log(`kind=${line.kind}`);
-  console.log(`name=${line.name ?? line.title}`);
-  console.log(`dir=${first.dir}`);
-  console.log(`version=${version}`);
-  console.log(`tag=${tagOf(line, version)}`);
-}
-
-function verifyTag(tagName) {
-  const match = /^(.+)-v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(tagName ?? "");
-  if (match === null) refuse(`"${tagName}" is not a release tag (<line>-v<version>)`);
-  const line = lineOf(match[1]);
-  const version = match[2];
-  if (lineVersion(line) !== version) {
-    refuse(
-      `${tagName} names ${version} but ${line.packages.map((p) => p.dir).join(", ")} is at ${lineVersion(line)}`,
-    );
-  }
-  for (const pkg of line.packages) releasedSection(pkg, version);
-  run("git", ["fetch", "--quiet", "origin", "main"]);
-  if (!succeeds("git", ["merge-base", "--is-ancestor", tagName, "origin/main"])) {
-    refuse(`${tagName} is not on main`);
-  }
-  describeLine(line, version);
-}
-
-/** The same output for a run started by hand: the manifests say the version, no tag does. */
-function describe(name) {
-  const line = lineOf(name);
-  const version = lineVersion(line);
-  for (const pkg of line.packages) releasedSection(pkg, version);
-  describeLine(line, version);
-}
-
-function registry(name, version) {
-  const line = lineOf(name);
-  if (line.kind !== "npm") {
-    refuse(`${line.id} is released as ${line.kind}, not staged on npm`);
-  }
-  const exists = succeeds("npm", ["view", line.name, "name"]);
-  const published = exists && succeeds("npm", ["view", `${line.name}@${version}`, "version"]);
-  // Read by the workflow from its output file.
-  console.log(`exists=${exists}`);
-  console.log(`published=${published}`);
-}
-
 function notes(name, version) {
   const line = lineOf(name);
   console.log(notesOf(line, version ?? lineVersion(line)));
@@ -967,17 +950,13 @@ function notes(name, version) {
 
 const COMMANDS = {
   prepare,
-  check: (name) => check(name),
-  rehearse: (name) => check(name, { rehearse: true }),
-  tag,
-  push,
-  approve,
-  package: packageCrates,
+  rehearse,
+  plan,
+  package: packageLine,
   dist,
+  tag,
   draft,
-  "verify-tag": verifyTag,
-  describe,
-  registry,
+  publish,
   notes,
 };
 

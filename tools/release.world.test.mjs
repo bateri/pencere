@@ -1,9 +1,8 @@
 // The release tooling against a repository with an origin and against stand-ins of the world it
 // asks (crates.io through `cargo`, GitHub through `gh`, npm through `npm` and `npx`, see
-// `release.fixture.mjs`): the checks of a release that need git, the verbs that tag, push and
-// approve, and what the workflow runs (`package`, `draft`, `dist`, `verify-tag`).
+// `release.fixture.mjs`): the checks of a release that need git, and what the release workflow runs
+// (`plan`, `package`, `dist`, `tag`, `draft`, `publish`).
 
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -47,13 +46,21 @@ const TAGS = {
   cli: "cli-v0.1.0",
 };
 
-/** A line that was tagged, whose workflow run is green and whose draft is there. */
-function ready(w, id, { draft = true, runs } = {}) {
+/** A line that the workflow tagged on this commit, and whose draft is there. */
+function ready(w, id, { draft = true } = {}) {
   w.git("tag", "-a", TAGS[id], "-m", "x");
   w.state.gh.releases[TAGS[id]] = { draft };
-  w.state.gh.runs = runs ?? [{ databaseId: 7, status: "completed", conclusion: "success" }];
   return TAGS[id];
 }
+
+/** What `plan` says, as the workflow reads it from its output file. */
+const outputs = (done) =>
+  Object.fromEntries(
+    done.out
+      .trim()
+      .split("\n")
+      .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+  );
 
 const real = (w) => realpathSync(w.root);
 const dryRuns = (w) => w.said("cargo").filter((said) => said.startsWith("publish --dry-run"));
@@ -66,10 +73,10 @@ const published = (w) =>
     );
 const edits = (w) => w.calls().filter((c) => c.tool === "gh" && c.args[1] === "edit");
 
-describe("release.mjs check of the crates", () => {
+describe("release.mjs rehearse of the crates", () => {
   it("dry-runs the publication of all six, each with the crates it asks for taken from the repository", () => {
     const w = world();
-    const done = w.run("check", "crates");
+    const done = w.run("rehearse", "crates");
     expect(done.err).toBe("");
     expect(done.status).toBe(0);
     const patch = (name, dir) =>
@@ -82,12 +89,12 @@ describe("release.mjs check of the crates", () => {
       `publish --dry-run -p pencere-page --manifest-path kit/guest/Cargo.toml ${patch("pencere-view", "kit/view")} ${patch("pencere-wire", "wire")}`,
       `publish --dry-run -p pencere ${patch("pencere-wire", "wire")}`,
     ]);
-    expect(done.out).toContain("the pencere crates 0.1.0 is ready to tag as crates-v0.1.0");
+    expect(done.out).toContain("the pencere crates 0.1.0 is ready to be released as crates-v0.1.0");
   });
 
   it("runs the cargo commands of the page SDK against the page modules' workspace", () => {
     const w = world();
-    w.run("check", "crates");
+    w.run("rehearse", "crates");
     const mentions = w.said("cargo").filter((said) => said.includes("kit/guest"));
     // Its file list, its manifest and its dry run; the other crates' commands name no other workspace.
     expect(mentions.length).toBe(3);
@@ -98,7 +105,7 @@ describe("release.mjs check of the crates", () => {
 
   it("asks crates.io from outside the repository, where cargo does not answer from the workspace", () => {
     const w = world();
-    w.run("check", "crates");
+    w.run("rehearse", "crates");
     const asked = w.calls().filter((call) => call.tool === "cargo" && call.args[0] === "info");
     expect(asked.map((call) => call.args[1])).toEqual(members.map((m) => `${m.name}@0.1.0`));
     for (const call of asked) expect(call.cwd.startsWith(real(w))).toBe(false);
@@ -107,7 +114,7 @@ describe("release.mjs check of the crates", () => {
   it("refuses a crate whose version crates.io has, and tags nothing", () => {
     const w = world();
     w.state.registry = ["pencere-view@0.1.0"];
-    const done = w.run("tag", "crates");
+    const done = w.run("rehearse", "crates");
     expect(done.status).toBe(1);
     expect(done.err).toContain("crates.io has pencere-view 0.1.0 already");
     expect(w.git("tag", "--list")).toBe("");
@@ -116,11 +123,11 @@ describe("release.mjs check of the crates", () => {
   it("refuses a crate whose manifest lacks what crates.io refuses for, and names what", () => {
     const w = world();
     w.state.crates["pencere-sandbox"].manifest = { description: "", keywords: [] };
-    const done = w.run("check", "crates");
+    const done = w.run("rehearse", "crates");
     expect(done.status).toBe(1);
     expect(done.err).toContain("kit/sandbox/Cargo.toml lacks: description, keywords (one to five)");
     w.state.crates["pencere-sandbox"].manifest = { publish: [] };
-    expect(w.run("check", "crates").err).toContain("lacks: publish (it is false)");
+    expect(w.run("rehearse", "crates").err).toContain("lacks: publish (it is false)");
   });
 
   it("refuses a crate that asks by path for a crate that no line publishes, and for one with no version", () => {
@@ -131,12 +138,12 @@ describe("release.mjs check of the crates", () => {
       path: "/x",
       kind: null,
     });
-    expect(w.run("check", "crates").err).toContain(
+    expect(w.run("rehearse", "crates").err).toContain(
       "pencere-host depends on left-pad by path, and no line of this repository publishes it",
     );
     w.state.crates["pencere-host"].dependencies.pop();
     w.state.crates["pencere-host"].dependencies[0].req = "*";
-    expect(w.run("check", "crates").err).toContain(
+    expect(w.run("rehearse", "crates").err).toContain(
       'pencere-host asks for pencere-wire by path with the version "*"',
     );
   });
@@ -149,7 +156,7 @@ describe("release.mjs check of the crates", () => {
       path: "/x",
       kind: "dev",
     });
-    const done = w.run("check", "crates");
+    const done = w.run("rehearse", "crates");
     expect(done.err).toBe("");
     expect(dryRuns(w)[1]).not.toContain("containers-page");
   });
@@ -158,7 +165,7 @@ describe("release.mjs check of the crates", () => {
     const w = world();
     const files = w.state.crates["pencere-sandbox"].files;
     w.state.crates["pencere-sandbox"].files = files.filter((file) => file !== "luau/luau.wasm");
-    expect(w.run("check", "crates").err).toContain(
+    expect(w.run("rehearse", "crates").err).toContain(
       "the package of pencere-sandbox lacks luau/luau.wasm",
     );
     w.state.crates["pencere-sandbox"].files = [
@@ -167,7 +174,7 @@ describe("release.mjs check of the crates", () => {
       "src/images_tests.rs",
       "node_modules/x/y.js",
     ];
-    expect(w.run("check", "crates").err).toContain(
+    expect(w.run("rehearse", "crates").err).toContain(
       "the package carries tests or builds: tests/session.rs, src/images_tests.rs, node_modules/x/y.js",
     );
   });
@@ -177,31 +184,31 @@ describe("release.mjs check of the crates", () => {
     write(w.root, "kit/view/LICENSE", "another licence\n");
     w.git("add", "-A");
     w.git("commit", "-q", "-m", "another licence");
-    expect(w.run("check", "crates").err).toContain(
+    expect(w.run("rehearse", "crates").err).toContain(
       "kit/view/LICENSE is not the repository's LICENSE",
     );
     rmSync(join(w.root, "wire/NOTICE"));
     w.git("add", "-A");
     w.git("commit", "-q", "-m", "no notice");
-    expect(w.run("check", "crates").err).toContain("wire/NOTICE is not the repository's NOTICE");
+    expect(w.run("rehearse", "crates").err).toContain("wire/NOTICE is not the repository's NOTICE");
   });
 
   it("says why a dry run that failed did", () => {
     const w = world();
     w.state.failDryRun = ["pencere-page"];
-    const done = w.run("check", "crates");
+    const done = w.run("rehearse", "crates");
     expect(done.status).toBe(1);
     expect(done.err).toContain("failed to verify package pencere-page");
   });
 });
 
-describe("release.mjs check of the command", () => {
+describe("release.mjs rehearse of the command", () => {
   it("checks the directory's files and nothing is built or asked for", () => {
     const w = world();
-    const done = w.run("check", "cli");
+    const done = w.run("rehearse", "cli");
     expect(done.err).toBe("");
     expect(done.status).toBe(0);
-    expect(done.out).toContain("pencere 0.1.0 is ready to tag as cli-v0.1.0");
+    expect(done.out).toContain("pencere 0.1.0 is ready to be released as cli-v0.1.0");
     expect(w.calls()).toEqual([]);
   });
 
@@ -209,11 +216,11 @@ describe("release.mjs check of the command", () => {
     const w = world();
     git(w.root, "rm", "-q", "cli/README.md");
     git(w.root, "commit", "-q", "-m", "no readme");
-    expect(w.run("check", "cli").err).toContain("cli lacks README.md");
+    expect(w.run("rehearse", "cli").err).toContain("cli lacks README.md");
     write(w.root, "cli/LICENSE", "another\n");
     git(w.root, "add", "-A");
     git(w.root, "commit", "-q", "-m", "another licence");
-    expect(w.run("check", "cli").err).toContain("cli/LICENSE is not the repository's LICENSE");
+    expect(w.run("rehearse", "cli").err).toContain("cli/LICENSE is not the repository's LICENSE");
   });
 
   it("does not hold the tests of the command's crate against it", () => {
@@ -222,48 +229,7 @@ describe("release.mjs check of the command", () => {
     write(w.root, "cli/src/other_tests.rs", "// a test\n");
     git(w.root, "add", "-A");
     git(w.root, "commit", "-q", "-m", "tests");
-    expect(w.run("check", "cli").status).toBe(0);
-  });
-});
-
-describe("release.mjs check of the repository's state", () => {
-  it("refuses a branch other than main", () => {
-    const w = world();
-    w.git("checkout", "-q", "-b", "other");
-    expect(w.run("check", "cli").err).toContain("not on main");
-  });
-
-  it("refuses a working tree that is not clean", () => {
-    const w = world();
-    write(w.root, "stray.txt", "x");
-    expect(w.run("check", "cli").err).toContain("the working tree is not clean");
-  });
-
-  it("refuses a main that has diverged from origin/main", () => {
-    const w = world();
-    const other = scratch();
-    execFileSync("git", ["clone", "-q", w.origin, other]);
-    git(other, "commit", "--allow-empty", "-q", "-m", "elsewhere");
-    git(other, "push", "-q", "origin", "main");
-    expect(w.run("check", "cli").err).toContain("main has diverged from origin/main");
-  });
-
-  it("refuses a tag that exists, and a version that is not after the line's last tag", () => {
-    const w = world();
-    w.git("tag", "cli-v0.1.0");
-    expect(w.run("check", "cli").err).toContain("the tag cli-v0.1.0 exists");
-    w.git("tag", "-d", "cli-v0.1.0");
-    w.git("tag", "cli-v0.2.0");
-    expect(w.run("check", "cli").err).toContain(
-      "0.1.0 is not after 0.2.0, the line's last release",
-    );
-  });
-
-  it("is not held up by the tags of other lines", () => {
-    const w = world();
-    w.git("tag", "crates-v0.5.0");
-    w.git("tag", "sdk-typescript-v0.5.0");
-    expect(w.run("check", "cli").status).toBe(0);
+    expect(w.run("rehearse", "cli").status).toBe(0);
   });
 });
 
@@ -275,11 +241,8 @@ describe("release.mjs rehearse", () => {
     const done = w.run("rehearse", "crates");
     expect(done.err).toBe("");
     expect(done.status).toBe(0);
-    expect(done.out).toContain("(a rehearsal: the state of the repository was not looked at)");
     expect(dryRuns(w).length).toBe(6);
     expect(w.git("tag", "--list")).toBe("");
-    // What the tag would have refused.
-    expect(w.run("tag", "crates").err).toContain("not on main");
   });
 
   it("still refuses what is wrong with the line itself", () => {
@@ -289,144 +252,216 @@ describe("release.mjs rehearse", () => {
     expect(done.status).toBe(1);
     expect(done.err).toContain("Unreleased is not empty");
   });
+
+  it("refuses a tag that exists, and a version that is not after the line's last tag", () => {
+    const w = world();
+    w.git("tag", "cli-v0.1.0");
+    expect(w.run("rehearse", "cli").err).toContain("the tag cli-v0.1.0 exists");
+    w.git("tag", "-d", "cli-v0.1.0");
+    w.git("tag", "cli-v0.2.0");
+    expect(w.run("rehearse", "cli").err).toContain(
+      "0.1.0 is not after 0.2.0, the line's last release",
+    );
+  });
+
+  it("is not held up by the tags of other lines", () => {
+    const w = world();
+    w.git("tag", "crates-v0.5.0");
+    w.git("tag", "sdk-typescript-v0.5.0");
+    expect(w.run("rehearse", "cli").status).toBe(0);
+  });
 });
 
-describe("release.mjs tag and push", () => {
-  it("makes the tag with the changelog sections for its message, and says to publish", () => {
+describe("release.mjs plan", () => {
+  it("names every line whose version has no tag, for the workflow to read", () => {
     const w = world();
-    const done = w.run("tag", "crates");
-    expect(done.err).toBe("");
+    const done = w.run("plan");
     expect(done.status).toBe(0);
-    expect(done.out).toContain(
-      "tagged crates-v0.1.0; nothing is pushed. Next: make publish LINE=crates",
-    );
-    const message = w.git("tag", "--list", "--format=%(contents)", "crates-v0.1.0");
-    expect(message).toContain("the pencere crates 0.1.0");
-    expect(message).toContain("## pencere-wire\n\n### Added\n\n- a change");
-    expect(w.git("ls-remote", "--tags", "origin")).toBe("");
+    expect(done.out.trim().split("\n")).toEqual([
+      'lines=["sdk-typescript","crates","cli"]',
+      "sdk-typescript=true",
+      "crates=true",
+      "cli=true",
+    ]);
+    expect(done.err).toContain("pencere 0.1.0 is to be released as cli-v0.1.0");
+    // Nothing is asked of the world, nothing is tagged.
+    expect(w.calls()).toEqual([]);
+    expect(w.git("tag", "--list")).toBe("");
   });
 
-  it("pushes main and the tag together, and does nothing else", () => {
+  it("leaves the lines whose version is tagged, whatever their changelogs have gone on to", () => {
     const w = world();
-    write(w.root, "README.md", "# changed\n");
-    w.git("add", "-A");
-    w.git("commit", "-q", "-m", "a change");
-    expect(w.run("tag", "cli").status).toBe(0);
-    w.forget();
-    const done = w.run("push", "cli");
+    w.git("tag", "cli-v0.1.0");
+    w.git("tag", "crates-v0.1.0");
+    write(w.root, "cli/CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- the next one\n");
+    const done = w.run("plan");
     expect(done.status).toBe(0);
-    expect(done.out).toContain("pushed main and cli-v0.1.0");
-    expect(git(w.origin, "tag", "--list")).toBe("cli-v0.1.0");
-    expect(git(w.origin, "rev-parse", "main")).toBe(w.git("rev-parse", "HEAD"));
-    // Not a release, not a registry, not a build.
-    expect(w.calls()).toEqual([]);
+    expect(outputs(done)).toEqual({
+      lines: '["sdk-typescript"]',
+      "sdk-typescript": "true",
+      crates: "false",
+      cli: "false",
+    });
   });
 
-  it.each(["crates", "sdk-typescript"])("pushes the tag of %s the same way", (id) => {
+  it("names nothing when every version is tagged", () => {
     const w = world();
-    w.git("tag", "-a", TAGS[id], "-m", "x");
-    w.forget();
-    expect(w.run("push", id).status).toBe(0);
-    expect(git(w.origin, "tag", "--list")).toBe(TAGS[id]);
-    expect(w.calls()).toEqual([]);
+    for (const tag of Object.values(TAGS)) w.git("tag", tag);
+    const done = w.run("plan");
+    expect(done.status).toBe(0);
+    expect(outputs(done).lines).toBe("[]");
+    expect(done.err).toContain("nothing to release");
   });
 
-  it("refuses to push without a tag, and when the tag is not on HEAD", () => {
+  it("refuses a version with no tag that was not prepared, and names nothing", () => {
     const w = world();
-    expect(w.run("push", "cli").err).toContain(
-      "no tag cli-v0.1.0: run make release LINE=cli first",
-    );
+    write(w.root, "sdk/typescript/CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- more\n");
+    const done = w.run("plan");
+    expect(done.status).toBe(1);
+    expect(done.err).toContain("sdk/typescript/CHANGELOG.md: Unreleased is not empty");
+    expect(done.out).toBe("");
+  });
+
+  it("names the line it is told to, and finishes one tagged on this commit whose release is a draft", () => {
+    const w = world();
+    expect(outputs(w.run("plan", "crates"))).toMatchObject({ lines: '["crates"]', cli: "false" });
+    ready(w, "cli");
+    expect(outputs(w.run("plan", "cli")).lines).toBe('["cli"]');
+    w.state.gh.releases["cli-v0.1.0"].draft = false;
+    expect(w.run("plan", "cli").err).toContain("the GitHub release cli-v0.1.0 is public already");
+  });
+
+  it("refuses to finish a release whose tag is on another commit", () => {
+    const w = world();
     w.git("tag", "-a", "cli-v0.1.0", "-m", "x");
     w.git("commit", "--allow-empty", "-q", "-m", "after the tag");
-    const done = w.run("push", "cli");
+    const done = w.run("plan", "cli");
     expect(done.status).toBe(1);
-    expect(done.err).toContain("cli-v0.1.0 is not on HEAD");
-    expect(git(w.origin, "tag", "--list")).toBe("");
-  });
-});
-
-describe("release.mjs approve", () => {
-  it("refuses a line with no tag, and when gh is not logged in", () => {
-    const w = world();
-    expect(w.run("approve", "crates").err).toContain("crates has no tag");
-    ready(w, "crates");
-    w.state.gh.auth = false;
-    expect(w.run("approve", "crates").err).toContain("gh is missing or not logged in");
+    expect(done.err).toContain("cli-v0.1.0 is on another commit: a tag is never moved");
   });
 
-  it("refuses while the workflow's run for the tag is not green, and asks for the tag's own commit", () => {
+  it("started by hand, asks for the gate's green run on main for this commit", () => {
     const w = world();
-    const tag = ready(w, "crates", { runs: [] });
-    expect(w.run("approve", "crates").err).toContain(
-      "no run of the release workflow for crates-v0.1.0",
+    const asking = { RELEASE_REQUIRE_CHECK: "true" };
+    const sha = w.git("rev-parse", "HEAD");
+    w.state.gh.runs = [];
+    expect(w.runWith(asking, "plan", "cli").err).toContain(
+      `no run of the gate for ${sha.slice(0, 7)} on main`,
     );
     w.state.gh.runs = [{ databaseId: 9, status: "in_progress", conclusion: "" }];
-    expect(w.run("approve", "crates").err).toContain(
-      "run 9 for crates-v0.1.0 is in_progress: wait for it",
-    );
+    expect(w.runWith(asking, "plan", "cli").err).toContain("run 9 for");
     w.state.gh.runs = [
       { databaseId: 10, status: "completed", conclusion: "failure" },
       { databaseId: 9, status: "completed", conclusion: "success" },
     ];
-    expect(w.run("approve", "crates").err).toContain("run 10 for crates-v0.1.0 ended in failure");
-    const sha = w.git("rev-list", "-n", "1", tag);
-    expect(w.said("gh").find((said) => said.startsWith("run list"))).toContain(
-      `--workflow release.yml --event push --branch ${tag} --commit ${sha}`,
+    const refused = w.runWith(asking, "plan", "cli");
+    expect(refused.err).toContain("ended in failure");
+    expect(refused.out).toBe("");
+    expect(w.said("gh").at(-1)).toContain(
+      `run list --workflow check.yml --event push --branch main --commit ${sha}`,
     );
-    // Nothing was published, and nothing was made public.
-    expect(published(w)).toEqual([]);
-    expect(edits(w)).toEqual([]);
+    w.state.gh.runs = [{ databaseId: 11, status: "completed", conclusion: "success" }];
+    expect(outputs(w.runWith(asking, "plan", "cli")).lines).toBe('["cli"]');
   });
 
-  it("refuses a tag whose draft is not there, and one that is public already", () => {
+  it("rehearsing, names the line whatever its tags, and asks nothing", () => {
     const w = world();
+    w.git("tag", "cli-v0.1.0");
+    const done = w.runWith(
+      { RELEASE_REHEARSE: "true", RELEASE_REQUIRE_CHECK: "true" },
+      "plan",
+      "cli",
+    );
+    expect(done.status).toBe(0);
+    expect(outputs(done).lines).toBe('["cli"]');
+    expect(w.calls()).toEqual([]);
+  });
+});
+
+describe("release.mjs tag", () => {
+  it("makes the tag with the changelog sections for its message, and pushes it alone", () => {
+    const w = world();
+    const done = w.run("tag", "crates");
+    expect(done.err).toBe("");
+    expect(done.status).toBe(0);
+    expect(done.out).toContain("tagged crates-v0.1.0 and pushed it");
+    const message = w.git("tag", "--list", "--format=%(contents)", "crates-v0.1.0");
+    expect(message).toContain("the pencere crates 0.1.0");
+    expect(message).toContain("## pencere-wire\n\n### Added\n\n- a change");
+    expect(git(w.origin, "tag", "--list")).toBe("crates-v0.1.0");
+    expect(git(w.origin, "rev-parse", "crates-v0.1.0^{commit}")).toBe(w.git("rev-parse", "HEAD"));
+    expect(w.calls()).toEqual([]);
+  });
+
+  it("leaves a tag that is on this commit, and refuses one on another", () => {
+    const w = world();
+    expect(w.run("tag", "cli").status).toBe(0);
+    const again = w.run("tag", "cli");
+    expect(again.status).toBe(0);
+    expect(again.out).toContain("cli-v0.1.0 is on this commit already");
+    w.git("commit", "--allow-empty", "-q", "-m", "after the tag");
+    expect(w.run("tag", "cli").err).toContain("cli-v0.1.0 is on another commit");
+  });
+
+  it("refuses a line that is not prepared, and tags nothing", () => {
+    const w = world();
+    write(w.root, "cli/CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- more\n");
+    expect(w.run("tag", "cli").status).toBe(1);
+    expect(w.git("tag", "--list")).toBe("");
+  });
+});
+
+describe("release.mjs publish", () => {
+  it("refuses a line with no tag, no draft, a release that is public, and a tag on another commit", () => {
+    const w = world();
+    expect(w.run("publish", "crates").err).toContain("no tag crates-v0.1.0");
     ready(w, "crates");
     delete w.state.gh.releases["crates-v0.1.0"];
-    expect(w.run("approve", "crates").err).toContain("crates-v0.1.0 has no GitHub release");
+    expect(w.run("publish", "crates").err).toContain("crates-v0.1.0 has no GitHub release");
     w.state.gh.releases["crates-v0.1.0"] = { draft: false };
-    expect(w.run("approve", "crates").err).toContain(
+    expect(w.run("publish", "crates").err).toContain(
       "the GitHub release crates-v0.1.0 is public already",
     );
+    w.state.gh.releases["crates-v0.1.0"] = { draft: true };
+    w.git("commit", "--allow-empty", "-q", "-m", "after the tag");
+    expect(w.run("publish", "crates").err).toContain("crates-v0.1.0 is not on this commit");
     expect(published(w)).toEqual([]);
     expect(edits(w)).toEqual([]);
   });
 
   describe("of an npm line", () => {
-    const staged = [{ id: "stg-1", version: "0.1.0", status: "staged" }];
-
-    it("shows what is staged, approves it, and then makes the draft public but not the Latest", () => {
+    it("publishes the package with its provenance, and then makes the draft public but not the Latest", () => {
       const w = world();
       ready(w, "sdk-typescript");
-      w.state.npm.staged = staged;
-      const done = w.run("approve", "sdk-typescript");
+      const done = w.run("publish", "sdk-typescript");
       expect(done.err).toBe("");
       expect(done.status).toBe(0);
-      const npm = "--yes npm@11.21.1 stage";
-      expect(w.said("npx")).toEqual([
-        `${npm} list @pencere/sdk --json`,
-        `${npm} view stg-1`,
-        `${npm} approve stg-1`,
+      const publishing = w.calls().filter((c) => c.tool === "npm" && c.args[0] === "publish");
+      expect(publishing.map((c) => c.args)).toEqual([
+        ["publish", "--provenance", "--access", "public"],
       ]);
+      expect(publishing[0].cwd).toBe(join(real(w), "sdk/typescript"));
+      expect(w.state.npm.published).toEqual(["@pencere/sdk@0.1.0"]);
       expect(edits(w).map((call) => call.args)).toEqual([
         ["release", "edit", "sdk-typescript-v0.1.0", "--draft=false", "--latest=false"],
       ]);
-      expect(w.state.gh.releases["sdk-typescript-v0.1.0"].draft).toBe(false);
       expect(done.out).not.toContain("npm deprecate");
     });
 
-    it("refuses when npm holds nothing staged of the version, or more than one, and the draft stays", () => {
+    it("keeps the draft when npm refuses, and leaves a version npm has the next time", () => {
       const w = world();
       ready(w, "sdk-typescript");
-      w.state.npm.staged = [{ id: "stg-0", version: "0.0.9", status: "staged" }];
-      expect(w.run("approve", "sdk-typescript").err).toContain(
-        "npm holds no staged @pencere/sdk 0.1.0",
-      );
-      w.state.npm.staged = [...staged, { id: "stg-2", version: "0.1.0", status: "staged" }];
-      expect(w.run("approve", "sdk-typescript").err).toContain(
-        "npm holds more than one staged @pencere/sdk 0.1.0",
-      );
-      expect(edits(w)).toEqual([]);
+      w.state.npm.failPublish = true;
+      expect(w.run("publish", "sdk-typescript").status).toBe(1);
       expect(w.state.gh.releases["sdk-typescript-v0.1.0"].draft).toBe(true);
+      w.forget();
+      w.state.npm.failPublish = false;
+      w.state.npm.published = ["@pencere/sdk@0.1.0"];
+      const done = w.run("publish", "sdk-typescript");
+      expect(done.status).toBe(0);
+      expect(done.out).toContain("@pencere/sdk 0.1.0 is on npm already");
+      expect(w.said("npm").some((said) => said.startsWith("publish"))).toBe(false);
+      expect(w.state.gh.releases["sdk-typescript-v0.1.0"].draft).toBe(false);
     });
   });
 
@@ -434,7 +469,7 @@ describe("release.mjs approve", () => {
     it("publishes the six in order from a checkout of the tag, and then makes the draft public but not the Latest", () => {
       const w = world();
       ready(w, "crates");
-      const done = w.run("approve", "crates");
+      const done = w.run("publish", "crates");
       expect(done.err).toBe("");
       expect(done.status).toBe(0);
       const calls = published(w);
@@ -446,7 +481,7 @@ describe("release.mjs approve", () => {
         ["publish", "-p", "pencere-page", "--manifest-path", "kit/guest/Cargo.toml"],
         ["publish", "-p", "pencere"],
       ]);
-      // Not from the working tree, which has gone on, but from a checkout of its own.
+      // Not from the working tree, but from a checkout of its own.
       for (const call of calls) {
         expect(call.cwd).not.toBe(real(w));
         expect(basename(call.cwd)).toMatch(/^pencere-publish-/);
@@ -463,7 +498,7 @@ describe("release.mjs approve", () => {
       const w = world();
       ready(w, "crates");
       w.state.registry = ["pencere-wire@0.1.0", "pencere-host@0.1.0"];
-      const done = w.run("approve", "crates");
+      const done = w.run("publish", "crates");
       expect(done.status).toBe(0);
       expect(done.out).toContain("pencere-wire 0.1.0 is on crates.io already");
       expect(published(w).map((call) => call.args[2])).toEqual([
@@ -478,7 +513,7 @@ describe("release.mjs approve", () => {
       const w = world();
       ready(w, "crates");
       w.state.failPublish = "pencere-sandbox";
-      const failed = w.run("approve", "crates");
+      const failed = w.run("publish", "crates");
       expect(failed.status).toBe(1);
       expect(failed.err).toContain("failed to publish pencere-sandbox");
       expect(published(w).map((call) => call.args[2])).toEqual([
@@ -493,13 +528,23 @@ describe("release.mjs approve", () => {
 
       w.forget();
       delete w.state.failPublish;
-      expect(w.run("approve", "crates").status).toBe(0);
+      expect(w.run("publish", "crates").status).toBe(0);
       expect(published(w).map((call) => call.args[2])).toEqual([
         "pencere-sandbox",
         "pencere-page",
         "pencere",
       ]);
       expect(w.state.gh.releases["crates-v0.1.0"].draft).toBe(false);
+    });
+
+    it("tries the packages of a release that stopped half way, leaving the crates it published", () => {
+      const w = world();
+      ready(w, "crates");
+      w.state.registry = ["pencere-wire@0.1.0"];
+      const done = w.run("package", "crates");
+      expect(done.err).toBe("");
+      expect(done.status).toBe(0);
+      expect(dryRuns(w).length).toBe(5);
     });
   });
 
@@ -510,13 +555,19 @@ describe("release.mjs approve", () => {
       w.state.gh.assets = assets;
       return assets;
     };
+    /** The command's draft, with the SDK and the program library of its commit released. */
+    const readyCommand = (w) => {
+      ready(w, "cli");
+      w.state.npm.published = ["@pencere/sdk@0.1.0"];
+      w.state.registry = ["pencere@0.1.0"];
+      return withAssets(w);
+    };
     const message = LINES.cli.retired["@pencere/cli"];
 
     it("checks the draft's files against the sums and their attestations, and makes it public as the Latest", () => {
       const w = world();
-      ready(w, "cli");
-      withAssets(w);
-      const done = w.run("approve", "cli");
+      readyCommand(w);
+      const done = w.run("publish", "cli");
       expect(done.err).toBe("");
       expect(done.status).toBe(0);
       const download = w.calls().find((call) => call.args[1] === "download");
@@ -540,12 +591,27 @@ describe("release.mjs approve", () => {
       expect(w.state.gh.releases["cli-v0.1.0"].draft).toBe(false);
     });
 
+    it("refuses while the SDK or the program library of its commit is not on its registry", () => {
+      const w = world();
+      readyCommand(w);
+      w.state.npm.published = [];
+      expect(w.run("publish", "cli").err).toContain(
+        "@pencere/sdk 0.1.0 is not on npm: the command is released after it",
+      );
+      w.state.npm.published = ["@pencere/sdk@0.1.0"];
+      w.state.registry = [];
+      expect(w.run("publish", "cli").err).toContain(
+        "pencere 0.1.0 is not on crates.io: the command is released after it",
+      );
+      expect(edits(w)).toEqual([]);
+      expect(w.state.gh.releases["cli-v0.1.0"].draft).toBe(true);
+    });
+
     it("prints the commands that deprecate the retired packages that are not, and runs none", () => {
       const w = world();
-      ready(w, "cli");
-      withAssets(w);
+      readyCommand(w);
       w.state.npm.deprecated = { "@pencere/cli": "", "create-pencere": "" };
-      const done = w.run("approve", "cli");
+      const done = w.run("publish", "cli");
       expect(done.out).toContain(`npm deprecate "@pencere/cli@*" ${JSON.stringify(message)}`);
       expect(done.out).toContain(
         'npm deprecate "create-pencere@*" "Replaced by the pencere command (pencere new):',
@@ -555,23 +621,21 @@ describe("release.mjs approve", () => {
 
     it("prints the command of the retired package that is not deprecated yet, and none for the rest", () => {
       const w = world();
-      ready(w, "cli");
-      withAssets(w);
+      readyCommand(w);
       // One is deprecated, the other npm does not know.
       w.state.npm.deprecated = { "@pencere/cli": message };
-      const done = w.run("approve", "cli");
+      const done = w.run("publish", "cli");
       expect(done.status).toBe(0);
       expect(done.out).not.toContain("npm deprecate");
     });
 
     it("refuses files that are not the ones the sums have, and the draft stays", () => {
       const w = world();
-      ready(w, "cli");
-      const assets = withAssets(w);
+      const assets = readyCommand(w);
       const changed = executable(systemOf(LINES.cli.targets[1]), processorOf(LINES.cli.targets[1]));
       changed[40] = 1;
       writeFileSync(join(assets, nameOf(LINES.cli.targets[1])), changed);
-      const done = w.run("approve", "cli");
+      const done = w.run("publish", "cli");
       expect(done.status).toBe(1);
       expect(done.err).toContain(`${nameOf(LINES.cli.targets[1])} is not the file that`);
       expect(edits(w)).toEqual([]);
@@ -580,9 +644,8 @@ describe("release.mjs approve", () => {
 
     it("refuses a draft that holds a file no release of the command carries", () => {
       const w = world();
-      ready(w, "cli");
-      writeFileSync(join(withAssets(w), "extra.txt"), "x");
-      const done = w.run("approve", "cli");
+      writeFileSync(join(readyCommand(w), "extra.txt"), "x");
+      const done = w.run("publish", "cli");
       expect(done.status).toBe(1);
       expect(done.err).toContain("extra.txt, which no release of pencere carries");
       expect(edits(w)).toEqual([]);
@@ -590,10 +653,9 @@ describe("release.mjs approve", () => {
 
     it("refuses files whose attestation does not verify, and the draft stays", () => {
       const w = world();
-      ready(w, "cli");
-      withAssets(w);
+      readyCommand(w);
       w.state.gh.badAttestation = true;
-      const done = w.run("approve", "cli");
+      const done = w.run("publish", "cli");
       expect(done.status).toBe(1);
       expect(done.err).toContain("verification failed");
       expect(edits(w)).toEqual([]);
@@ -700,49 +762,24 @@ describe("release.mjs draft", () => {
   });
 });
 
-describe("release.mjs package, verify-tag and registry", () => {
-  it("tries the package of each crate, as the workflow does for a tag", () => {
+describe("release.mjs package", () => {
+  it("tries the package of each crate, as the workflow does before it tags", () => {
     const w = world();
     const done = w.run("package", "crates");
     expect(done.err).toBe("");
     expect(done.status).toBe(0);
     expect(dryRuns(w).length).toBe(6);
-    for (const pkg of members) expect(done.out).toContain(`${pkg.name} 0.1.0: its package builds`);
-    expect(w.run("package", "sdk-typescript").err).toContain("sdk-typescript is not crates");
+    for (const pkg of members) {
+      expect(done.out).toContain(`${pkg.name} 0.1.0: its package is what a release of it carries`);
+    }
   });
 
-  it("verifies that a tag is on main and names the line, and says what the workflow reads", () => {
+  it("checks what npm would publish of the SDK", () => {
     const w = world();
-    w.git("tag", "-a", "crates-v0.1.0", "-m", "x");
-    const done = w.run("verify-tag", "crates-v0.1.0");
-    expect(done.err).toBe("");
-    expect(done.out.trim().split("\n")).toEqual([
-      "line=crates",
-      "kind=crates",
-      "name=the pencere crates",
-      "dir=wire",
-      "version=0.1.0",
-      "tag=crates-v0.1.0",
-    ]);
-  });
-
-  it("refuses a tag that is not on main", () => {
-    const w = world();
-    w.git("commit", "--allow-empty", "-q", "-m", "not pushed");
-    w.git("tag", "-a", "cli-v0.1.0", "-m", "x");
-    const done = w.run("verify-tag", "cli-v0.1.0");
-    expect(done.status).toBe(1);
-    expect(done.err).toContain("cli-v0.1.0 is not on main");
-  });
-
-  it("asks npm whether the package, and its version, are there; and only of an npm line", () => {
-    const w = world();
-    w.state.npm.deprecated = { "@pencere/sdk": "" };
-    expect(w.run("registry", "sdk-typescript", "0.1.0").out.trim().split("\n")).toEqual([
-      "exists=true",
-      "published=false",
-    ]);
-    expect(w.run("registry", "cli", "0.1.0").err).toContain("cli is released as binary");
+    expect(w.run("package", "sdk-typescript").status).toBe(0);
+    expect(w.said("npm")).toEqual(["pack --dry-run --json --ignore-scripts=false"]);
+    w.state.npm.files = w.state.npm.files.filter((file) => file !== "README.md");
+    expect(w.run("package", "sdk-typescript").err).toContain("the package lacks README.md");
   });
 });
 
