@@ -859,10 +859,42 @@ function deprecations(line) {
 }
 
 /**
+ * The environment the workflow publishes in (`RELEASE_ENVIRONMENT`, "release") must have someone
+ * who approves: GitHub makes an environment a job names and that is not there, with no rule, and
+ * runs the job at once, so a release would be public with nobody's word. A job outside the
+ * workflow (no `RELEASE_ENVIRONMENT`) is not asked.
+ */
+function requireReviewers() {
+  const environment = process.env.RELEASE_ENVIRONMENT;
+  if (environment === undefined || environment === "") return;
+  const repo =
+    process.env.GITHUB_REPOSITORY ||
+    run("gh", ["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
+  let rules;
+  try {
+    rules = JSON.parse(
+      run("gh", ["api", `repos/${repo}/environments/${environment}`]),
+    ).protection_rules;
+  } catch (error) {
+    refuse(`cannot ask GitHub about the environment ${environment}: ${lastSaid(error)}`);
+  }
+  const reviewers = (rules ?? [])
+    .filter((rule) => rule.type === "required_reviewers")
+    .flatMap((rule) => rule.reviewers ?? []);
+  if (reviewers.length === 0) {
+    refuse(
+      `the environment ${environment} has no required reviewers, so nobody approved this: add them in the repository's Settings, Environments, ${environment}, then run the workflow again (RELEASING.md)`,
+    );
+  }
+}
+
+/**
  * Makes the line public everywhere, by its kind, and then its GitHub release: what the workflow
- * does once a maintainer has approved it. The tag must be this commit's and its draft there.
+ * does once a maintainer has approved it. The tag must be this commit's and its draft there, and
+ * the environment it runs in one that asks for an approval.
  */
 function publish(name) {
+  requireReviewers();
   const line = lineOf(name);
   const version = lineVersion(line);
   const tagName = tagOf(line, version);

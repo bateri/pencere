@@ -238,6 +238,9 @@ if (tool === "cargo") {
     for (const file of fs.readdirSync(gh.assets)) {
       fs.copyFileSync(path.join(gh.assets, file), path.join(flag("--dir"), file));
     }
+  } else if (a === "api") {
+    if (gh.environment === undefined) fail("gh: Not Found (HTTP 404)");
+    console.log(JSON.stringify(gh.environment));
   } else if (a === "run") console.log(JSON.stringify(gh.runs));
   else if (a === "repo") console.log("bateri/pencere");
   else if (a === "attestation" && gh.badAttestation) fail("verification failed");
