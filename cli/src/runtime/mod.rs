@@ -225,7 +225,7 @@ fn start_and_wait(core: &Rc<Core>) -> Exit {
 pub fn check(files: &std::collections::BTreeMap<String, Vec<u8>>) -> Result<(), String> {
     let lua = Lua::new();
     for (path, bytes) in files {
-        if path.ends_with(".lua") {
+        if crate::files::is_page_script(path) {
             lua.load(bytes.as_slice())
                 .set_name(format!("@{path}"))
                 .into_function()

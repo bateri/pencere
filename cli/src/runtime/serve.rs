@@ -17,7 +17,7 @@ use pencere::{
 use super::convert::{from_json, to_json};
 use super::core::{Core, ServePlan, ServeRun, ViewSpec};
 use super::events::{CallEvent, Event, SubscribeEvent};
-use crate::files::{ASSETS, Files, VIEW};
+use crate::files::{ASSETS, Files, VIEW, is_page_script};
 
 /// The version of the page API this runner shows views of (`lua` 1.0).
 const VERSION: &str = "1.0";
@@ -83,6 +83,21 @@ pub fn view_of(files: &Files, spec: &ViewSpec) -> Result<View, String> {
                 .and_then(|name| name.strip_prefix('/'))
                 .unwrap_or(page);
             let mut list = vec![File::new(entry, script)];
+            // The other scripts of the page's directory are the ones the page may `require`, with
+            // the paths it writes them by: relative to `view/`, as the entry is.
+            for path in files.under(VIEW).map_err(|why| why.to_string())? {
+                let relative = path
+                    .strip_prefix(VIEW)
+                    .and_then(|rest| rest.strip_prefix('/'));
+                let Some(relative) = relative.filter(|relative| *relative != entry) else {
+                    continue;
+                };
+                if !is_page_script(relative) {
+                    continue;
+                }
+                let bytes = files.read(&path).map_err(|why| format!("{path}: {why}"))?;
+                list.push(File::new(relative, bytes));
+            }
             for path in files.under(assets).map_err(|why| why.to_string())? {
                 let bytes = files.read(&path).map_err(|why| format!("{path}: {why}"))?;
                 list.push(File::new(path, bytes));

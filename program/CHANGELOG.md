@@ -44,6 +44,8 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 - A `welcome` is read by what it lists, and a message of the view with an `id` above 2^53 - 1, or
   nested 128 levels deep or more, is ignored; an `id` written `1.0` or `1e3` is read as the whole
   number it is, and what the terminal writes nested that deep is not read either.
+- A file with the extension `.luau` is `text/x-lua` in a bundle, as `.lua` is: the scripts a Lua
+  view requires, by Luau's rules, are those of its bundle that are of that type.
 
 ### Changed
 

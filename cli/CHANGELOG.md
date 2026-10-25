@@ -28,6 +28,12 @@ All notable changes to the `pencere` command are recorded here. The format follo
     app in its own messages, `-o` says where it goes.
   - A built app runs by itself, and `app --log FILE` sends what it prints, and its errors, to a
     file, since the terminal is under the view while it is up.
+- **A page of the kit can be several files.** The page, `src/view/page.lua`, may `require` the
+  other `.lua` and `.luau` files of `src/view/` by Luau's own rules (`require("./screens/logs")`,
+  `require("../parts/table")`, a directory with an `init.luau`), and nothing outside the view: the
+  scripts go into the view's bundle with the paths the page writes them by, typed as scripts, in
+  `pencere dev` and in a built app alike. `pencere dev` shows the view again when one of them
+  changes, and `pencere build` refuses one that does not compile.
 - **How to get it.** One line installs the newest release in `~/.local/bin`
   (`curl -fsSL https://raw.githubusercontent.com/bateri/pencere/main/cli/install.sh | sh`: see the
   README), after checking the file against the `SHA256SUMS` of its release. Each release carries

@@ -65,6 +65,18 @@ describe("a bundle of files", () => {
     expect(bundle.manifest.files.map((f) => f.type)).toEqual(["application/wasm", "text/x-lua"]);
   });
 
+  it("types the scripts a Lua view requires as scripts, whichever of Luau's extensions they have", () => {
+    const bundle = bundleFromFiles(
+      [
+        { path: "view.lua", data: Buffer.from("return require('./parts')") },
+        { path: "parts/init.luau", data: Buffer.from("return {}") },
+      ],
+      { entry: "view.lua" },
+    );
+    expect(bundle.manifest.files.map((f) => f.type)).toEqual(["text/x-lua", "text/x-lua"]);
+    expect(mediaTypeOf("screens/logs.LUAU")).toBe("text/x-lua");
+  });
+
   it("keeps one entry for two files with the same bytes", () => {
     const same = Buffer.from("same");
     const bundle = bundleFromFiles([

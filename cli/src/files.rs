@@ -116,6 +116,11 @@ fn is_clean(path: &str) -> bool {
             .all(|part| !part.is_empty() && part != "." && part != "..")
 }
 
+/// Whether `path` is a script a page of the kit may `require`: Luau's two extensions for a module.
+pub fn is_page_script(path: &str) -> bool {
+    path.ends_with(".lua") || path.ends_with(".luau")
+}
+
 /// Whether the file at `path` (a packed path, clean) belongs to an app: the scripts, and every file
 /// in a directory of the app (its pictures, the web page of a view). Nothing hidden, and none of
 /// the directories a project keeps its tools' leavings in. A file beside `app.lua` that is not a

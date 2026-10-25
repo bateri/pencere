@@ -115,7 +115,7 @@ fn media_type_of(path: &str) -> &'static str {
         ".ttf" => "font/ttf",
         ".otf" => "font/otf",
         ".wasm" => "application/wasm",
-        ".lua" => "text/x-lua",
+        ".lua" | ".luau" => "text/x-lua",
         ".mp3" => "audio/mpeg",
         ".ogg" => "audio/ogg",
         ".wav" => "audio/wav",
@@ -330,6 +330,7 @@ mod tests {
         assert_eq!(media_type_of("a/b/app.JS"), "text/javascript");
         assert_eq!(media_type_of("view.wasm"), "application/wasm");
         assert_eq!(media_type_of("view.lua"), "text/x-lua");
+        assert_eq!(media_type_of("parts/init.luau"), "text/x-lua");
         assert_eq!(media_type_of("README"), "application/octet-stream");
         assert_eq!(media_type_of(".hidden"), "application/octet-stream");
     }

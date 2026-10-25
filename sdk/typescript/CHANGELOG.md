@@ -8,6 +8,8 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ### Added
 
+- **`.luau` is `text/x-lua`** in a bundle made from a directory, as `.lua` is: the scripts a Lua
+  view requires, by Luau's rules, are those of its bundle that are of that type.
 - **A host that opens a kind of the program's in other versions is told in words.** The `no-view` result with the reason `no-common-view` carries a `message` that names both sides, and `serve` writes it to standard error as `pencere: …` before the `fallback` runs (specification §5.2, §5.3). `WelcomeOffer.opens` is the host's list; `noVersionSentence` makes the sentence.
 - `Colors` of a page's `context` has `cursor`, `selection` and `ansi` (§9.5).
 - **Deno and Bun**, beside Node (20 and later): the same code on all three. What is Node's — the

@@ -30,9 +30,12 @@ pub enum Change {
     View(String),
 }
 
-/// What changed in a file at `path`, when `pages` are the scripts that are pages of the view.
+/// What changed in a file at `path`, when `pages` are the scripts that are pages of the view. The
+/// scripts in `view/` are the page's to `require`, as the pages are: a change to one shows the view
+/// again.
 pub fn classify(path: &str, pages: &[String]) -> Change {
-    if path.ends_with(".lua") && !pages.iter().any(|page| page == path) {
+    let of_the_view = pages.iter().any(|page| page == path) || path.starts_with("view/");
+    if path.ends_with(".lua") && !of_the_view {
         Change::Program(path.to_owned())
     } else {
         Change::View(path.to_owned())
@@ -329,6 +332,15 @@ mod tests {
         assert_eq!(
             classify("api/files.lua", &pages),
             Change::Program("api/files.lua".into())
+        );
+        // What the page requires is in `view/` too, and is the page's.
+        assert_eq!(
+            classify("view/screens/logs.lua", &pages),
+            Change::View("view/screens/logs.lua".into())
+        );
+        assert_eq!(
+            classify("view/parts/init.luau", &pages),
+            Change::View("view/parts/init.luau".into())
         );
     }
 }

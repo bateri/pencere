@@ -49,18 +49,27 @@ hello/
 Every path an app writes is a path of the packed app, which is the shape the three directories
 make once the app is built (and the shape `pencere dev` reads them in):
 
-| in the project          | in the app        | the app names it                                                        |
-| ----------------------- | ----------------- | ----------------------------------------------------------------------- |
-| `src/program/app.lua`   | `app.lua`         | the script that starts the app                                          |
-| `src/program/api/x.lua` | `api/x.lua`       | `require("api.x")`                                                      |
-| `src/view/page.lua`     | `view/page.lua`   | nothing: `serve` shows what `view/` has                                 |
-| `src/view/index.html`   | `view/index.html` | nothing: the same                                                       |
-| `src/assets/icon.png`   | `assets/icon.png` | `icon = "assets/icon.png"`, `b.image("assets/icon.png")`, `app.read(…)` |
+| in the project           | in the app           | the app names it                                                        |
+| ------------------------ | -------------------- | ----------------------------------------------------------------------- |
+| `src/program/app.lua`    | `app.lua`            | the script that starts the app                                          |
+| `src/program/api/x.lua`  | `api/x.lua`          | `require("api.x")`                                                      |
+| `src/view/page.lua`      | `view/page.lua`      | nothing: `serve` shows what `view/` has                                 |
+| `src/view/screens/x.lua` | `view/screens/x.lua` | `require("./screens/x")`, in the page                                   |
+| `src/view/index.html`    | `view/index.html`    | nothing: the same                                                       |
+| `src/assets/icon.png`    | `assets/icon.png`    | `icon = "assets/icon.png"`, `b.image("assets/icon.png")`, `app.read(…)` |
 
 A program does not name its view: `serve{}` shows what `view/` has, a page of the kit if there is a
 `page.lua` and a web page if there is an `index.html` (both: the page of the kit to a terminal that
 draws views itself, the web page to the others). `view/` and `assets/` are the page's and the
 pictures' at the top of the app, so a directory of `src/program/` cannot be called either.
+
+A page of the kit can be split into files. `page.lua` is the script; it may `require` the other
+`.lua` and `.luau` files of `src/view/`, by Luau's rules for requiring by string, with paths
+relative to the file that asks: `require("./screens/logs")` is `src/view/screens/logs.lua` (or
+`logs.luau`, or `logs/init.luau`), and `require("../parts/table")` goes up a directory. The view
+reaches nothing outside its own files: a path out of `view/`, an absolute path or a file that is not
+a script is an error in the page, with the path in it. Each file runs once. (That is the page's
+`require`; the program's own, `require("api.files")`, loads the modules of `src/program/`.)
 
 A page that a tool builds (a React page, say) is packed from where it is built, and not from
 `src/view/`: `pencere build --web dist/view`. The name of the app, which is the executable's and

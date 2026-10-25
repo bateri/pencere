@@ -1931,6 +1931,93 @@ fn an_app_made_by_new_and_built_is_a_program_that_shows_a_view() {
 }
 
 #[test]
+fn an_app_whose_page_is_several_files_sends_all_of_them_as_scripts_of_the_view() {
+    let directory = fresh("modules-lua");
+    let (status, said) = pencere(&directory, &["new", "split", "--lang", "lua"]);
+    assert!(status.success(), "pencere new: {said}");
+    let project = directory.join("split");
+    let view = project.join("src/view");
+    fs::create_dir_all(view.join("screens")).expect("a directory of the page");
+    fs::create_dir_all(view.join("parts")).expect("a directory of the page");
+    let logs = "return function() return pencere.div() end\n";
+    let parts = "return { title = \"split\" }\n";
+    fs::write(view.join("screens/logs.lua"), logs).expect("a script of the page");
+    fs::write(view.join("parts/init.luau"), parts).expect("a script of the page");
+    let page = fs::read_to_string(view.join("page.lua")).expect("the page");
+    fs::write(
+        view.join("page.lua"),
+        format!(
+            "local logs = require(\"./screens/logs\")\nlocal parts = require(\"./parts\")\n{page}"
+        ),
+    )
+    .expect("the page is written");
+    let (status, said) = pencere(&project, &["build"]);
+    assert!(status.success(), "pencere build: {said}");
+    let run = run(
+        &["--then", "interrupt"],
+        &[&project.join("dist/split").to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    // The page, the two scripts it requires and the picture of the template: the paths are the
+    // ones the page writes, relative to the page's own directory, and the scripts are typed as one.
+    run.in_order(&[
+        r#"program: open id=2 view=lua version=1.0 title="split" bundle of 4 files"#,
+        "view: kind=lua version=1.0",
+    ]);
+    for (path, text) in [("screens/logs.lua", logs), ("parts/init.luau", parts)] {
+        let wanted = format!("view: fetched {path} text/x-lua {} bytes", text.len());
+        assert!(
+            run.events.contains(&wanted),
+            "no {wanted:?}:\n{}",
+            run.text()
+        );
+    }
+}
+
+#[test]
+fn pencere_dev_shows_the_view_again_and_not_the_app_when_a_script_the_page_requires_changes() {
+    let directory = fresh("dev-lua-modules");
+    copy_dir(&root().join("examples/containers-lua"), &directory);
+    let module = directory.join("src/view/screens/logs.lua");
+    fs::create_dir_all(module.parent().expect("a directory")).expect("a directory of the page");
+    fs::write(&module, "return {}\n").expect("a script of the page");
+    let edited = module.clone();
+    let command = pencere_command().to_string_lossy().into_owned();
+    let run = run_editing(
+        &[
+            "--subscribe",
+            "stats",
+            "--on-view",
+            "2",
+            "--then",
+            "interrupt",
+        ],
+        &[&command, "dev", &directory.to_string_lossy()],
+        vec![(
+            "view: kind=lua version=1.0",
+            Box::new(move || {
+                fs::write(&edited, "return { edited = true }\n").expect("the script is written");
+            }),
+        )],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: open id=2 view=lua version=1.0",
+        "view: kind=lua version=1.0",
+        // The script of the page changed: the view is closed by the program and shown again.
+        "program: dismiss id=",
+        "view: destroyed",
+        "program: open id=* view=lua version=1.0",
+        "view: kind=lua version=1.0",
+        "host: the person presses ^C",
+        "program: exited with status 130",
+    ]);
+    // The program was not started again: the screen was taken once.
+    assert_eq!(run.count("program: open"), 2, "{}", run.text());
+    assert_eq!(run.count("answers CSI c"), 1, "{}", run.text());
+}
+
+#[test]
 fn a_page_that_does_not_compile_is_refused_when_the_app_is_built() {
     let directory = fresh("broken-lua");
     let (status, said) = pencere(&directory, &["new", "broken", "--lang", "lua"]);
