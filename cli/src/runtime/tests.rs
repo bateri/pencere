@@ -123,6 +123,30 @@ fn a_process_gives_its_lines_and_its_status() {
 }
 
 #[test]
+fn a_process_in_a_session_of_its_own_leads_it_and_is_ended_whole_with_what_it_started() {
+    // The program leads a session and its group; what it starts is in both, so a kill of the
+    // group reaches it (the shell's `sleep`) as it does for a group without a session.
+    let (exit, printed) = run(r#"
+        local pencere = require("pencere")
+        local out = {}
+        local child = pencere.process.spawn {
+            argv = { "sh", "-c", "ps -o pid=,pgid= -p $$; sleep 30 & wait" },
+            session = true,
+            on_stdout = function(line) out[#out + 1] = line end,
+            on_exit = function(code, signal) print("ended", code, signal) end,
+        }
+        pencere.time.sleep(0.4)
+        local pid, group = string.match(out[1] or "", "(%d+)%s+(%d+)")
+        print("leader", pid ~= nil and pid == group)
+        child:kill("TERM")
+        pencere.time.sleep(0.4)
+    "#);
+    assert_eq!(exit, Exit::Done(0));
+    assert!(printed.contains("leader\ttrue"), "{printed}");
+    assert!(printed.contains("ended\tnil\t15"), "{printed}");
+}
+
+#[test]
 fn run_waits_for_a_process_and_hands_back_what_it_said() {
     let (exit, printed) = run(r#"
         local pencere = require("pencere")

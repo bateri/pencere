@@ -9,6 +9,7 @@ mod modules;
 mod pattern;
 mod process;
 mod serve;
+mod stdin;
 mod text;
 mod watch;
 

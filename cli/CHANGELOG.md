@@ -49,6 +49,14 @@ All notable changes to the `pencere` command are recorded here. The format follo
   `text`, `regex`, `time`, `os`, `env`, `args`, `path`, `io.write`, `io.read_line` and `exit`.
   There is one thread and one loop for the terminal, the timers and the pipes of the programs an
   app starts; `process.run`, `time.sleep` and `serve` wait without holding it.
+- For an app that is a filter in a pipeline, such as a picker: `serve{ filter = true }` shows the
+  view on the controlling terminal whatever the standard streams are, so that stdin and stdout stay
+  the pipeline's; `io.read_stdin(on_data[, on_end])` reads standard input as it arrives, a piece at
+  a time and exactly as written, without holding the app (`:stop()`, `:active()`, `:wait()`);
+  `io.is_terminal("stdin" | "stdout" | "stderr")`; `close_view()` ends the view from the app's
+  side, so that what was chosen is written with the pane given back; and `process.spawn`/`run`
+  with `session = true` start a program with no controlling terminal, for a command that must not
+  reach the pane.
 - For an app that edits files, such as an editor: `fs.create` (a new file, where nothing is: it
   does not truncate a file or write through a link), `fs.rename`, `fs.writable`, `link` in
   `fs.list`; `process.run` with `raw` (output that is not text, exactly as written) and
