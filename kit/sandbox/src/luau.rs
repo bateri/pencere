@@ -17,10 +17,29 @@ use std::sync::{Arc, Mutex, PoisonError};
 use wasmtime::Engine;
 use wasmtime::component::Component;
 
+use crate::images::Assets;
 use crate::sandbox::Fault;
 
 /// The interpreter, as a component (`wit/view.wit`'s world `view`, importing `script`).
 pub const COMPONENT: &[u8] = include_bytes!("../luau/luau.wasm");
+
+/// A page that is a script: the entry, where it is in the bundle the view came in, and that
+/// bundle.
+///
+/// The script may load the other scripts of the bundle, and nothing else: `require` is Luau's
+/// require-by-string, from `path`, and what it finds is what `bundle` says is a script (a file the
+/// manifest types `text/x-lua`). The bytes it loads count against [`crate::ModuleLimits::component`],
+/// the entry's too.
+pub struct Script {
+    /// The path of the entry, as the manifest names it: what a `require` is relative to, and
+    /// what the errors of the entry say (`screens/logs.lua:12: ...`).
+    pub path: String,
+    /// The entry's text.
+    pub source: Vec<u8>,
+    /// The files of the bundle, as the host has them. `None` is a page with no bundle to look
+    /// in: nothing it requires is found.
+    pub bundle: Option<Arc<dyn Assets>>,
+}
 
 /// The interpreter compiled for this process's engines, once there has been a page that needed it.
 static COMPILED: Mutex<Option<Arc<[u8]>>> = Mutex::new(None);

@@ -9,17 +9,22 @@
 // through `script.source`.
 //
 // The script runs in Luau's sandbox, with the pure libraries only (`string`, `table`, `math`,
-// `utf8` and the base functions): no `io`, `os` or `debug`, no way to load bytecode, no
-// `require`. The module itself can reach nothing the page interface does not give it; the
-// calls the C library would make to the system are answered here (see the end of this file).
+// `utf8` and the base functions): no `io`, `os` or `debug`, no way to load bytecode. It has a
+// `require`, and the only thing `require` reaches is the other scripts of the bundle the script
+// came in (see "Loading the other scripts of the bundle"). The module itself can reach nothing the
+// page interface does not give it; the calls the C library would make to the system are answered
+// here (see the end of this file).
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
+#include <map>
 #include <string>
+#include <vector>
 
+#include "Luau/Require.h"
 #include "convert.h"
 #include "lua.h"
 #include "luacode.h"
@@ -178,6 +183,292 @@ int l_text_field(lua_State* state) {
     return 1;
 }
 
+// --- Loading the other scripts of the bundle -------------------------------------------------------
+//
+// `require` is Luau's own require-by-string (the `Luau.Require` library), pointed at the bundle the
+// script came in instead of at a file system: a path is `./` or `../` from the requiring script (an
+// `init` script stands for its directory, as Luau has it), and what it names is a script of the
+// bundle, `name.luau`, `name.lua` or `name/init.luau` or `name/init.lua`. Everything about the
+// bundle is the application's to say (`script.has-module`, `script.module`): the module has no
+// file system to look in, and a path that leaves the bundle's root, an absolute path, an alias
+// (there is no configuration file to define one) or a file that is not a script is an error that
+// names the path. Each script runs once, in a thread of its own with globals of its own like the
+// entry, and what it returns is kept: the next `require` of it is that value.
+
+// The path of the script the page is, in the bundle: what a path is relative to, and what the
+// entry's errors name.
+std::string entry_path;
+// What the application said about the scripts of the bundle, by path: asked once for each.
+std::map<std::string, bool> known;
+// The scripts whose first run has not ended, the outermost first (the entry, while it starts).
+std::vector<std::string> running;
+// Where a `require` is now: the components of a module's path, from the root of the bundle.
+std::vector<std::string> place;
+// The error that is on its way up came out of a script that was running, not out of the
+// `require` that is raising it: it has its own file and line already.
+bool carried = false;
+
+bool ends_with(const std::string& text, const char* suffix) {
+    size_t length = strlen(suffix);
+    return text.size() >= length && text.compare(text.size() - length, length, suffix) == 0;
+}
+
+constexpr const char* kSuffixes[] = {".luau", ".lua"};
+constexpr const char* kInitSuffixes[] = {"/init.luau", "/init.lua"};
+
+// The path of a script without what makes it a file: `a/b.luau` is the module `a/b`, and
+// `a/init.lua` is the module `a`, its directory.
+std::string module_of(std::string file) {
+    for (const char* suffix : kInitSuffixes) {
+        if (ends_with(file, suffix)) return file.substr(0, file.size() - strlen(suffix));
+    }
+    for (const char* suffix : kSuffixes) {
+        if (ends_with(file, suffix)) return file.substr(0, file.size() - strlen(suffix));
+    }
+    return file;
+}
+
+std::vector<std::string> split(const std::string& path) {
+    std::vector<std::string> parts;
+    size_t start = 0;
+    while (start <= path.size()) {
+        size_t end = path.find('/', start);
+        if (end == std::string::npos) end = path.size();
+        if (end > start) parts.push_back(path.substr(start, end - start));
+        start = end + 1;
+    }
+    return parts;
+}
+
+std::string joined(const std::vector<std::string>& parts) {
+    std::string out;
+    for (const std::string& part : parts) {
+        if (!out.empty()) out += '/';
+        out += part;
+    }
+    return out;
+}
+
+// Whether the bundle has a script at `path` (a path the manifest lists).
+bool has_script(const std::string& path) {
+    auto seen = known.find(path);
+    if (seen != known.end()) return seen->second;
+    // A name is a string a script made: the host reads valid UTF-8 only.
+    std::string text = bridge::repaired(path.data(), path.size());
+    view_string_t name;
+    name.ptr = (uint8_t*)text.data();
+    name.len = text.size();
+    bool has = pencere_view_script_has_module(&name);
+    known.emplace(path, has);
+    return has;
+}
+
+// The bytes of the script at `path`, or why not.
+bool script_text(const std::string& path, std::string& bytes, std::string& why) {
+    std::string text = bridge::repaired(path.data(), path.size());
+    view_string_t name;
+    name.ptr = (uint8_t*)text.data();
+    name.len = text.size();
+    view_list_u8_t given = {nullptr, 0};
+    view_string_t reason_given = {nullptr, 0};
+    if (pencere_view_script_module(&name, &given, &reason_given)) {
+        bytes.assign((const char*)given.ptr, given.len);
+        view_list_u8_free(&given);
+        return true;
+    }
+    why.assign((const char*)reason_given.ptr, reason_given.len);
+    view_string_free(&reason_given);
+    return false;
+}
+
+// The scripts a module path can be: `a/b` is `a/b.luau`, `a/b.lua`, `a/b/init.luau` or
+// `a/b/init.lua`, and is a module when exactly one of them is there. (`init` is no module by
+// a file of its own name: `a/init` is the directory `a/init/`'s.)
+struct Candidates {
+    int count;
+    std::string file;
+};
+
+Candidates candidates(const std::vector<std::string>& parts) {
+    Candidates found = {0, ""};
+    if (parts.empty()) return found;
+    std::string base = joined(parts);
+    auto look = [&](const std::string& file) {
+        if (!has_script(file)) return;
+        found.count++;
+        found.file = file;
+    };
+    if (parts.back() != "init") {
+        for (const char* suffix : kSuffixes) look(base + suffix);
+    }
+    for (const char* suffix : kInitSuffixes) look(base + suffix);
+    return found;
+}
+
+luarequire_WriteResult write_text(const std::string& text, char* buffer, size_t size, size_t* written) {
+    size_t needed = text.size() + 1;
+    *written = needed;
+    if (size < needed) return WRITE_BUFFER_TOO_SMALL;
+    memcpy(buffer, text.c_str(), needed);
+    return WRITE_SUCCESS;
+}
+
+// Only what this module loaded can require: a chunk named `@path` is a script of the bundle.
+bool require_allowed(lua_State*, void*, const char* chunkname) { return chunkname[0] == '@'; }
+
+luarequire_NavigateResult require_reset(lua_State*, void*, const char* chunkname) {
+    place = split(module_of(chunkname + 1));
+    return NAVIGATE_SUCCESS;
+}
+
+// There are no aliases: no configuration file to define one.
+luarequire_NavigateResult require_jump(lua_State*, void*, const char*) { return NAVIGATE_NOT_FOUND; }
+
+luarequire_ConfigStatus require_config_status(lua_State*, void*) { return CONFIG_ABSENT; }
+
+luarequire_WriteResult require_alias(lua_State*, void*, const char*, char*, size_t, size_t*) { return WRITE_FAILURE; }
+
+// The bundle's root has no parent: a path that leaves it ends here, and is an error that says so.
+luarequire_NavigateResult require_parent(lua_State*, void*) {
+    if (place.empty()) return NAVIGATE_NOT_FOUND;
+    place.pop_back();
+    return NAVIGATE_SUCCESS;
+}
+
+// Any name can be a directory, whether the bundle has one or not: whether it is a module is
+// asked when the path ends (`require_present`).
+luarequire_NavigateResult require_child(lua_State*, void*, const char* name) {
+    if (strcmp(name, ".config") == 0) return NAVIGATE_NOT_FOUND;
+    place.push_back(name);
+    return candidates(place).count > 1 ? NAVIGATE_AMBIGUOUS : NAVIGATE_SUCCESS;
+}
+
+bool require_present(lua_State* state, void*) {
+    if (candidates(place).count == 1) return true;
+    // The path that was asked for is the one argument of the `require` that is running.
+    std::string wanted = lua_isstring(state, 1) ? lua_tostring(state, 1) : "?";
+    std::string base = joined(place);
+    std::string message = "error requiring module \"" + wanted + "\": ";
+    if (place.empty()) {
+        message += "that is the root of the bundle, not a script";
+    } else {
+        message += "the bundle has no script at \"" + base + "\" (it looked for " + base + ".luau, " + base +
+                   ".lua, " + base + "/init.luau and " + base + "/init.lua)";
+    }
+    lua_pushlstring(state, message.data(), message.size());
+    lua_error(state);
+}
+
+luarequire_WriteResult require_chunkname(lua_State*, void*, char* buffer, size_t size, size_t* written) {
+    return write_text("@" + candidates(place).file, buffer, size, written);
+}
+
+luarequire_WriteResult require_loadname(lua_State*, void*, char* buffer, size_t size, size_t* written) {
+    return write_text(candidates(place).file, buffer, size, written);
+}
+
+// Two paths that name the same script are one entry in the cache.
+luarequire_WriteResult require_cache_key(lua_State*, void*, char* buffer, size_t size, size_t* written) {
+    return write_text(candidates(place).file, buffer, size, written);
+}
+
+// Why the script at `file` cannot be loaded now; empty when it can.
+std::string refusal(const std::string& file) {
+    for (size_t at = 0; at < running.size(); at++) {
+        if (running[at] != file) continue;
+        std::string chain;
+        for (size_t next = at; next < running.size(); next++) chain += running[next] + " -> ";
+        return "require cycle: " + chain + file;
+    }
+    // The entry has run: it is the page, and not a module another script can have.
+    if (file == entry_path) return "\"" + file + "\" is the script of the page, and is not a module to require";
+    return "";
+}
+
+// Runs the script at `file` in a thread of its own, once, and leaves what it returns.
+int require_load(lua_State* state, void*, const char*, const char* chunkname, const char* loadname) {
+    // The thread comes from the main state, so that it does not inherit the requirer's globals.
+    lua_State* main = lua_mainthread(state);
+    lua_State* thread = lua_newthread(main);
+    lua_xmove(main, state, 1);
+    luaL_sandboxthread(thread);
+
+    std::string file = loadname;
+    std::string error = refusal(file);
+    bool ran = false;
+    int status = LUA_OK;
+    if (error.empty()) {
+        std::string source;
+        if (script_text(file, source, error)) {
+            if (load(thread, chunkname, source.data(), source.size(), error)) {
+                ran = true;
+                running.push_back(file);
+                status = lua_resume(thread, state, 0);
+                running.pop_back();
+            } else {
+                // A syntax error says its file and its line.
+                carried = true;
+            }
+        }
+    }
+    if (!ran) {
+        lua_pushlstring(state, error.data(), error.size());
+        lua_error(state);
+    }
+    if (status == LUA_YIELD) {
+        error = file + ": a script that is required cannot wait";
+        lua_pushlstring(state, error.data(), error.size());
+        lua_error(state);
+    }
+    if (status != LUA_OK) {
+        // It has its file and line: the error goes up as it is.
+        carried = true;
+        lua_xmove(thread, state, 1);
+        lua_error(state);
+    }
+    if (lua_gettop(thread) != 1) {
+        error = file + ": a script that is required returns exactly one value";
+        lua_pushlstring(state, error.data(), error.size());
+        lua_error(state);
+    }
+    lua_xmove(thread, state, 1);
+    lua_remove(state, -2);
+    return 1;
+}
+
+void require_configuration(luarequire_Configuration* config) {
+    config->is_require_allowed = require_allowed;
+    config->reset = require_reset;
+    config->jump_to_alias = require_jump;
+    config->to_parent = require_parent;
+    config->to_child = require_child;
+    config->is_module_present = require_present;
+    config->get_chunkname = require_chunkname;
+    config->get_loadname = require_loadname;
+    config->get_cache_key = require_cache_key;
+    config->get_config_status = require_config_status;
+    config->get_alias = require_alias;
+    config->load = require_load;
+}
+
+// `require` as a script sees it: the library's, with the place of the call added to what it says
+// where the error is its own (a path that is wrong), and not a script's that was running.
+int l_require(lua_State* state) {
+    lua_settop(state, 1);
+    lua_pushvalue(state, lua_upvalueindex(1));
+    lua_insert(state, 1);
+    carried = false;
+    if (lua_pcall(state, 1, 1, 0) != LUA_OK) {
+        if (!carried && lua_type(state, -1) == LUA_TSTRING) {
+            luaL_where(state, 1);
+            lua_insert(state, -2);
+            lua_concat(state, 2);
+        }
+        lua_error(state);
+    }
+    return 1;
+}
+
 // --- Starting ------------------------------------------------------------------------------------
 
 void open_libraries(lua_State* state) {
@@ -228,6 +519,9 @@ bool start() {
     }
     open_libraries(L);
     host_functions(L);
+    luarequire_pushrequire(L, require_configuration, nullptr);
+    lua_pushcclosurek(L, l_require, "require", 1, nullptr);
+    lua_setglobal(L, "require");
     for (const auto& chunk : kPrelude) {
         std::string error;
         std::string name = std::string("=") + chunk.name;
@@ -245,16 +539,25 @@ bool start() {
     lua_pop(L, 1);
     luaL_sandboxthread(thread);
 
+    view_string_t path = {nullptr, 0};
+    pencere_view_script_path(&path);
+    entry_path.assign((const char*)path.ptr, path.len);
+    view_string_free(&path);
     view_list_u8_t source = {nullptr, 0};
     pencere_view_script_source(&source);
     std::string error;
-    bool loaded = load(thread, "=script", (const char*)source.ptr, source.len, error);
+    // Named by its path in the bundle, as every script is: that is what an error says.
+    std::string chunkname = "@" + entry_path;
+    bool loaded = load(thread, chunkname.c_str(), (const char*)source.ptr, source.len, error);
     view_list_u8_free(&source);
     if (!loaded) {
         fail(error);
         return false;
     }
-    if (lua_pcall(thread, 0, 1, 0) != 0) {
+    running.push_back(entry_path);
+    int status = lua_pcall(thread, 0, 1, 0);
+    running.pop_back();
+    if (status != 0) {
         fail(reason(thread));
         return false;
     }

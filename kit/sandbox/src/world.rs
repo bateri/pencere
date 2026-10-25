@@ -12,10 +12,13 @@ use pencere_view::{
     Align, Border, Button, Color, Cursor, Element, Event, Extent, Family, Id, Input, Key, Keyboard,
     Laid, Menu, MenuEntry, Mods, Point, Rect, Reply, Rgba, Role, Shadow, Size, Source, Track,
 };
+use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
 use wasmtime::Store;
 use wasmtime::component::{Component, HasSelf, Linker};
 
+use crate::images::Assets;
+use crate::luau::Script;
 use crate::module::{Frame, Runner};
 use crate::sandbox::{self, Fault, Host, ModuleLimits, Program};
 
@@ -66,8 +69,51 @@ impl pencere::view::diagnostics::Host for Host {
 }
 
 impl pencere::view::script::Host for Host {
+    fn path(&mut self) -> String {
+        self.script
+            .as_ref()
+            .map_or_else(String::new, |script| script.path.clone())
+    }
+
     fn source(&mut self) -> Vec<u8> {
-        self.script.to_vec()
+        self.script
+            .as_ref()
+            .map_or_else(Vec::new, |script| script.source.clone())
+    }
+
+    fn has_module(&mut self, path: String) -> bool {
+        self.bundle_script(&path).is_some()
+    }
+
+    fn module(&mut self, path: String) -> Result<Vec<u8>, String> {
+        let Some(bundle) = self.bundle_script(&path) else {
+            return Err(format!(
+                "{path:?} is not a script of the bundle (a file the manifest types {LUA_MEDIA_TYPE})"
+            ));
+        };
+        let Some(bytes) = bundle.read(&path) else {
+            return Err(format!("{path:?} cannot be read from the bundle"));
+        };
+        let total = self.given.saturating_add(bytes.len());
+        if total > self.most {
+            return Err(format!(
+                "the scripts of the page are held to {} bytes together, and {path:?} would make them {total}",
+                self.most
+            ));
+        }
+        self.given = total;
+        Ok(bytes.to_vec())
+    }
+}
+
+impl Host {
+    /// The bundle, if `path` is a script of it: a path the manifest could list, typed as Lua.
+    /// A module's `require` is text a script wrote, so nothing but the manifest's word on a
+    /// well-formed path is taken for a script.
+    fn bundle_script(&self, path: &str) -> Option<Arc<dyn Assets>> {
+        let bundle = self.script.as_ref()?.bundle.as_ref()?;
+        let typed = is_path(path) && bundle.media_type(path).as_deref() == Some(LUA_MEDIA_TYPE);
+        typed.then(|| Arc::clone(bundle))
     }
 }
 
@@ -755,31 +801,35 @@ impl World {
         }
         let engine = sandbox::engine()?;
         let component = compile(&engine, bytes, limits.compile)?;
-        Self::start(
-            engine.clone(),
-            &component,
-            limits,
-            program,
-            Arc::from(&[][..]),
+        Self::start(engine.clone(), &component, limits, program, None).map_err(
+            |fault| match fault {
+                // A component that does not start because it speaks another version of the
+                // interface is told so, in words, and not in the runtime's.
+                Fault::Load(raw) => {
+                    Fault::Load(other_interface(&engine, &component).unwrap_or(raw))
+                }
+                other => other,
+            },
         )
-        .map_err(|fault| match fault {
-            // A component that does not start because it speaks another version of the
-            // interface is told so, in words, and not in the runtime's.
-            Fault::Load(raw) => Fault::Load(other_interface(&engine, &component).unwrap_or(raw)),
-            other => other,
-        })
     }
 
     /// Starts the interpreter on `script`: the component of [`crate::luau`] (compiled once for
     /// the process, so that the next page of a script starts at once) and the script it runs.
     pub(crate) fn load_script(
-        script: Vec<u8>,
+        script: Script,
         limits: ModuleLimits,
         program: Arc<dyn Program>,
     ) -> Result<Self, Fault> {
+        if script.source.len() > limits.component {
+            return Err(Fault::Load(format!(
+                "the script is {} bytes; the most that is run is {}",
+                script.source.len(),
+                limits.component
+            )));
+        }
         let engine = sandbox::engine()?;
         let component = crate::luau::component(&engine)?;
-        let mut world = Self::start(engine, &component, limits, program, script.into())?;
+        let mut world = Self::start(engine, &component, limits, program, Some(script))?;
         // The interpreter starts the script when it is first called. Call it now, under the time
         // a module has to start in: a script that does not start (it has an error, or it never
         // finishes) is found out here, and its first page is not charged for its start.
@@ -795,7 +845,7 @@ impl World {
         component: &Component,
         limits: ModuleLimits,
         program: Arc<dyn Program>,
-        script: Arc<[u8]>,
+        script: Option<Script>,
     ) -> Result<Self, Fault> {
         let mut linker = Linker::<Host>::new(&engine);
         View::add_to_linker::<Host, HasSelf<Host>>(&mut linker, |host| host)

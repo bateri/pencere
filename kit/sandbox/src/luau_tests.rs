@@ -15,7 +15,10 @@ use pencere_view::{
 use wasmtime::component::Component;
 
 use crate::guests_tests::{Open, Rough, SIZE};
-use crate::{Fault, Module, ModuleLimits, Program, Unbounded, Update};
+use crate::{Fault, Module, ModuleLimits, Program, Script, Unbounded, Update};
+
+/// Where the scripts of the tests that are given no bundle are, in their bundle.
+pub(crate) const ENTRY: &str = "script.lua";
 
 pub(crate) fn open_script(script: &str, limits: ModuleLimits) -> Open {
     open_script_for(script, limits, Arc::new(Unbounded))
@@ -28,7 +31,12 @@ pub(crate) fn open_script_for(
 ) -> Open {
     let (told, woken) = channel();
     let told = std::sync::Mutex::new(told);
-    let module = Module::from_script(script.as_bytes().to_vec(), limits, program, move || {
+    let script = Script {
+        path: ENTRY.to_owned(),
+        source: script.as_bytes().to_vec(),
+        bundle: None,
+    };
+    let module = Module::from_script(script, limits, program, move || {
         let _ = told.lock().unwrap().send(());
     });
     Open {
@@ -48,7 +56,7 @@ fn first(script: &str, limits: ModuleLimits) -> Update {
 }
 
 /// The words of the text elements of a page, in order.
-fn words(root: &Element) -> Vec<String> {
+pub(crate) fn words(root: &Element) -> Vec<String> {
     root.fold()
         .into_iter()
         .filter_map(|node| match node.kind {
@@ -59,14 +67,14 @@ fn words(root: &Element) -> Vec<String> {
 }
 
 /// Takes until what has been seen so far (not only the last taking) says `done`, or `within`.
-fn until_seen(page: &mut Open, within: Duration, done: impl Fn(&Update) -> bool) {
+pub(crate) fn until_seen(page: &mut Open, within: Duration, done: impl Fn(&Update) -> bool) {
     let deadline = Instant::now() + within;
     while !done(&page.seen) && Instant::now() < deadline {
         page.take(Duration::from_millis(100));
     }
 }
 
-fn failed(update: &Update) -> String {
+pub(crate) fn failed(update: &Update) -> String {
     match &update.closed {
         Some(Fault::Failed(why)) => why.clone(),
         other => panic!("expected a script's failure, got {other:?}"),
@@ -135,7 +143,7 @@ fn a_syntax_error_closes_the_page_and_says_the_line() {
         ModuleLimits::default(),
     );
     let why = failed(&update);
-    assert!(why.starts_with("script:2:"), "{why}");
+    assert!(why.starts_with("script.lua:2:"), "{why}");
     assert!(update.frame.is_none());
 }
 
@@ -144,7 +152,7 @@ fn a_syntax_error_closes_the_page_and_says_the_line() {
 fn an_error_while_the_script_starts_says_the_line() {
     let update = first("local t = nil\n\nreturn t.page", ModuleLimits::default());
     let why = failed(&update);
-    assert!(why.starts_with("script:3:"), "{why}");
+    assert!(why.starts_with("script.lua:3:"), "{why}");
 }
 
 #[test]
@@ -186,7 +194,7 @@ fn a_helper_given_the_wrong_argument_says_the_line_of_the_script_that_called_it(
             ModuleLimits::default(),
         );
         let why = failed(&update);
-        assert!(why.starts_with("script:3:"), "{why}");
+        assert!(why.starts_with("script.lua:3:"), "{why}");
         assert!(why.contains(says), "{why}");
     }
 }
@@ -199,7 +207,7 @@ fn an_error_in_render_says_the_line_and_the_frame_is_not_read() {
         ModuleLimits::default(),
     );
     let why = failed(&update);
-    assert!(why.starts_with("script:3:"), "{why}");
+    assert!(why.starts_with("script.lua:3:"), "{why}");
     assert!(
         update.frame.is_none(),
         "a page from a call that failed is not read"
@@ -219,7 +227,7 @@ fn an_error_in_a_handler_closes_the_page_with_its_line() {
         .event(Event::Input(Input::Move(Point::new(1.0, 1.0))));
     let update = page.until(Duration::from_secs(5), |u| u.closed.is_some());
     let why = failed(&update);
-    assert!(why.starts_with("script:4: no move"), "{why}");
+    assert!(why.starts_with("script.lua:4: no move"), "{why}");
 }
 
 #[test]
@@ -237,7 +245,7 @@ fn an_error_the_script_catches_is_not_an_error() {
     );
     assert_eq!(update.closed, None);
     let text = words(&update.frame.expect("a page").root).join("");
-    assert!(text.starts_with("false inner | script:3:"), "{text}");
+    assert!(text.starts_with("false inner | script.lua:3:"), "{text}");
 }
 
 #[test]
@@ -538,10 +546,11 @@ fn a_script_can_reach_nothing_of_the_system() {
     );
     assert_eq!(update.closed, None, "{:?}", update.closed);
     let frame = update.frame.expect("a page");
-    // Only the pure libraries are there, and none of their ways to reach out of the sandbox.
+    // Only the pure libraries are there, and none of their ways to reach out of the sandbox; and
+    // `require`, which reaches the scripts of the bundle and nothing else (`luau_require_tests`).
     assert_eq!(
         words(&frame.root),
-        ["utf8 string table math", "math.randomseed"]
+        ["require utf8 string table math", "math.randomseed"]
     );
 }
 

@@ -24,14 +24,14 @@ SDK=/opt/wasi-sdk
 
 mkdir -p "$WORK/build" "$WORK/objects"
 
-# --- Luau: the virtual machine and the compiler --------------------------------------------------
+# --- Luau: the virtual machine, the compiler and the library of require-by-string ----------------
 cmake -S "$SOURCE" -B "$WORK/build" -G Ninja \
 	-DCMAKE_TOOLCHAIN_FILE=$SDK/share/cmake/wasi-sdk-p1.cmake -DWASI_SDK_PREFIX=$SDK \
 	-DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_CLI=OFF -DLUAU_BUILD_TESTS=OFF \
 	-DCMAKE_C_FLAGS="$EH" -DCMAKE_CXX_FLAGS="$EH $QUIET" \
 	-DCMAKE_C_FLAGS_RELEASE="-Os -DNDEBUG" -DCMAKE_CXX_FLAGS_RELEASE="-Os -DNDEBUG" >"$WORK/configure.log" 2>&1 \
 	|| { cat "$WORK/configure.log"; exit 1; }
-cmake --build "$WORK/build" --target Luau.VM Luau.Compiler >"$WORK/build.log" 2>&1 \
+cmake --build "$WORK/build" --target Luau.VM Luau.Compiler Luau.Require >"$WORK/build.log" 2>&1 \
 	|| { cat "$WORK/build.log"; exit 1; }
 
 # --- The preludes, as C ----------------------------------------------------------------------------
@@ -57,7 +57,7 @@ cmake --build "$WORK/build" --target Luau.VM Luau.Compiler >"$WORK/build.log" 2>
 } >"$WORK/prelude.inc"
 
 # --- The bridge and the bindings, linked with Luau -------------------------------------------------
-INCLUDES="-I$SOURCE/VM/include -I$SOURCE/Compiler/include -I$BINDINGS -I$WORK -I$HERE/bridge"
+INCLUDES="-I$SOURCE/VM/include -I$SOURCE/Compiler/include -I$SOURCE/Require/include -I$BINDINGS -I$WORK -I$HERE/bridge"
 $SDK/bin/clang --target=wasm32-wasip1 -Os -c "$BINDINGS/view.c" -I"$BINDINGS" -o "$WORK/objects/view.o"
 for file in bridge convert; do
 	$SDK/bin/clang++ --target=wasm32-wasip1 $EH -Os -std=c++17 -Wall -Wextra $INCLUDES \
@@ -67,6 +67,7 @@ done
 # start of memory (a trap) and not over what the module keeps.
 $SDK/bin/clang++ --target=wasm32-wasip1 $EH -Wno-unused-command-line-argument -Os -mexec-model=reactor \
 	"$WORK/objects/bridge.o" "$WORK/objects/convert.o" "$WORK/objects/view.o" "$BINDINGS/view_component_type.o" \
+	"$WORK/build/libLuau.Require.a" "$WORK/build/libLuau.Config.a" \
 	"$WORK/build/libLuau.Compiler.a" "$WORK/build/libLuau.Ast.a" "$WORK/build/libLuau.Bytecode.a" \
 	"$WORK/build/libLuau.VM.a" "$WORK/build/libLuau.Common.a" \
 	-lunwind -Wl,--stack-first -Wl,-z,stack-size=1048576 -Wl,--strip-debug \

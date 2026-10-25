@@ -21,6 +21,7 @@ use std::time::Instant;
 use pencere_view::{Element, Event, Input, Laid, Reply, Size};
 use pencere_wire::json::unescaped_len;
 
+use crate::luau::Script;
 use crate::sandbox::{Fault, ModuleLimits, Program};
 use crate::world::World;
 
@@ -170,7 +171,7 @@ impl Module {
     /// Starts the interpreter on `script` (a page that is a script, not a component) under
     /// `limits`, for `program`: the same sandbox, the same terms.
     pub fn from_script(
-        script: Vec<u8>,
+        script: Script,
         limits: ModuleLimits,
         program: Arc<dyn Program>,
         wake: impl Fn() + Send + Sync + 'static,

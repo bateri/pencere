@@ -39,8 +39,8 @@ use crate::decode::{self, Failure, Format, Raster, Vector};
 /// The files of the view's bundle, as the host has them: the one door the images have to them.
 pub trait Assets: Send + Sync + 'static {
     /// The bytes of the file at `path`, as the manifest of the bundle names it, or `None` where the
-    /// bundle has no such file. Called on the images' worker thread, never the one that draws; it
-    /// may take the time reading a file does.
+    /// bundle has no such file. Called on the images' worker thread, or on a script's own (the
+    /// scripts it requires), never the one that draws; it may take the time reading a file does.
     ///
     /// **`path` is text a page wrote, and is not to be trusted**: it can be `../../secrets`, an
     /// absolute path, a name with a NUL in it or any other string a script can make. A host
@@ -50,6 +50,14 @@ pub trait Assets: Send + Sync + 'static {
     /// path of the manifest is within the limits of a bundle was settled when the bundle was
     /// taken in, and the images hold what they read to their own besides ([`ImageLimits`]).
     fn read(&self, path: &str) -> Option<Arc<[u8]>>;
+
+    /// The media type the manifest gives the file at `path` (`type/subtype`, lower case, as it
+    /// is listed), or `None` where the bundle has no such file. What a script may load of the
+    /// bundle is decided by it: a file typed `text/x-lua` is a script, whatever the file is
+    /// called. Answered from the manifest and not by reading the file, since a script asks for
+    /// it of every path it might require; the caution about `path` in [`Assets::read`] is the
+    /// same.
+    fn media_type(&self, path: &str) -> Option<String>;
 }
 
 /// What the images of one view are held to.

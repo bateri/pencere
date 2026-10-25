@@ -19,7 +19,7 @@ use pencere_view::{
 };
 
 use crate::guests_tests::{Open, Rough, SIZE};
-use crate::{Module, ModuleLimits, Program, Unbounded, Update};
+use crate::{Module, ModuleLimits, Program, Script, Unbounded, Update};
 
 const SCRIPT: &str = include_str!("../../luau/examples/containers.lua");
 
@@ -101,7 +101,11 @@ fn open_script(program: Arc<dyn Program>) -> Scripted {
         now: AtomicU64::new(0.0_f64.to_bits()),
     });
     let module = Module::from_script(
-        SCRIPT.as_bytes().to_vec(),
+        Script {
+            path: "containers.lua".to_owned(),
+            source: SCRIPT.as_bytes().to_vec(),
+            bundle: None,
+        },
         roomy(),
         clock.clone(),
         move || {

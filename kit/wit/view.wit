@@ -555,11 +555,27 @@ interface diagnostics {
     fail: func(message: string);
 }
 
-/// What a module that is a language's interpreter is given to run: the program's own text.
+/// What a module that is a language's interpreter is given to run: the program's own text, and
+/// the other scripts of the bundle it came in.
 interface script {
+    /// The path of the script in its bundle, as the bundle's manifest names it. The same every
+    /// time it is asked. A script that loads another one finds it from here.
+    path: func() -> string;
+
     /// The bytes of the script the application runs this module for, as the program sent them.
     /// The same every time it is asked.
     source: func() -> list<u8>;
+
+    /// Whether the bundle has a script at `path`: a file the manifest types `text/x-lua`, with
+    /// the path written as the manifest writes it. False for what is not in the bundle, what is
+    /// of another type and any string that is not a path a manifest lists; never an error.
+    has-module: func(path: string) -> bool;
+
+    /// The bytes of the script at `path` (see `has-module`), as the program sent them, or why
+    /// they are not given, in words for the person who wrote the script. A bundle can have more
+    /// script than the application runs: what the module has been given in all, `source`
+    /// included, is held to a limit, and past it this says so.
+    module: func(path: string) -> result<list<u8>, string>;
 }
 
 /// What the module is: a page.

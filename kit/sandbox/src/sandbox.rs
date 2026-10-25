@@ -14,6 +14,7 @@ use std::time::Duration;
 use pencere_view::Laid;
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
 
+use crate::luau::Script;
 use crate::watchdog;
 
 /// The program that opened the page, as far as the page's speed goes: what it can take of what
@@ -95,7 +96,8 @@ pub struct ModuleLimits {
     pub values: usize,
     /// Entries of a menu.
     pub menu: usize,
-    /// Bytes of the component itself: a larger one is not compiled.
+    /// Bytes of the component itself: a larger one is not compiled. For a script, bytes of the
+    /// scripts together: the entry, and every script it requires, once each.
     pub component: usize,
     /// Messages to the program one call may send: a work limit, as the bytes of one are. How
     /// many the program can take is not this (see [`Program`]).
@@ -251,8 +253,13 @@ pub(crate) struct Host {
     pub(crate) program: Arc<dyn Program>,
     /// What the module said when it could not go on (`diagnostics.fail`), the first time it did.
     pub(crate) failed: Option<String>,
-    /// The script a module that is an interpreter runs (`script.source`).
-    pub(crate) script: Arc<[u8]>,
+    /// The script a module that is an interpreter runs (`script.source`), where it is in its
+    /// bundle (`script.path`) and the bundle's other scripts (`script.module`).
+    pub(crate) script: Option<Script>,
+    /// Bytes of script given to the module so far, the entry's included.
+    pub(crate) given: usize,
+    /// The most bytes of script the module may be given in all.
+    pub(crate) most: usize,
 }
 
 impl Host {
@@ -265,7 +272,9 @@ impl Host {
             overflowed: false,
             program,
             failed: None,
-            script: Arc::from(&[][..]),
+            script: None,
+            given: 0,
+            most: limits.component,
         }
     }
 }
@@ -287,9 +296,10 @@ pub(crate) fn store(
     engine: &Engine,
     limits: &ModuleLimits,
     program: Arc<dyn Program>,
-    script: Arc<[u8]>,
+    script: Option<Script>,
 ) -> Store<Host> {
     let mut host = Host::new(limits, program);
+    host.given = script.as_ref().map_or(0, |script| script.source.len());
     host.script = script;
     let mut store = Store::new(engine, host);
     store.limiter(|host| &mut host.limiter);
@@ -369,7 +379,7 @@ mod tests {
         );
         let component =
             Component::new(&engine, source).map_err(|why| Fault::Load(format!("{why:#}")))?;
-        let mut store = store(&engine, limits, Arc::new(Unbounded), Arc::from(&[][..]));
+        let mut store = store(&engine, limits, Arc::new(Unbounded), None);
         let linker = Linker::<Host>::new(&engine);
         let instance = call(&mut store, limits.start, |store| {
             linker.instantiate(store, &component)
@@ -432,7 +442,7 @@ mod tests {
         )
         .expect("a component");
         let limits = quick();
-        let mut store = store(&engine, &limits, Arc::new(Unbounded), Arc::from(&[][..]));
+        let mut store = store(&engine, &limits, Arc::new(Unbounded), None);
         let linker = Linker::<Host>::new(&engine);
         let why = linker
             .instantiate(&mut store, &component)

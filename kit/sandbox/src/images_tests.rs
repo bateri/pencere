@@ -49,6 +49,12 @@ impl Assets for Bundle {
         self.reads.lock().unwrap().push(path.to_owned());
         self.files.get(path).cloned()
     }
+
+    fn media_type(&self, path: &str) -> Option<String> {
+        self.files
+            .contains_key(path)
+            .then(|| "application/octet-stream".to_owned())
+    }
 }
 
 struct Rig {

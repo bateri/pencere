@@ -10,8 +10,9 @@
 //!
 //! A page can also be a **script**: the logic is then text in the Lua language (Luau) that an
 //! interpreter, itself such a module (`LUAU_COMPONENT`), runs under the same terms and hands the
-//! same kind of page out of. A module or a script that stops says why — a script's error comes
-//! with its line — and that is what the page's program is told.
+//! same kind of page out of. A script may `require` the other scripts of its bundle, and nothing
+//! else ([`Script`]). A module or a script that stops says why — a script's error comes with its
+//! file and its line — and that is what the page's program is told.
 //!
 //! This crate knows no window, no renderer and no terminal: it depends on the engine and on the
 //! runtime, and moves out of the workspace with the engine.
@@ -31,9 +32,11 @@ mod images_tests;
 #[cfg(test)]
 mod luau_containers_tests;
 #[cfg(test)]
+mod luau_require_tests;
+#[cfg(test)]
 mod luau_tests;
 
 pub use images::{Arrival, Assets, Bitmap, Diagnostic, ImageLimits, Images};
-pub use luau::COMPONENT as LUAU_COMPONENT;
+pub use luau::{COMPONENT as LUAU_COMPONENT, Script};
 pub use module::{Answer, Frame, Module, Runner, Update};
 pub use sandbox::{Fault, ModuleLimits, Program, Unbounded};
