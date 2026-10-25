@@ -32,8 +32,7 @@ the program names a domain and the person allows it.
 
 The same program: a view, one call it answers, and one topic it feeds. Whichever you write it in,
 it is one file to hand to someone, and `pencere new <name> --lang lua|ts|rust` starts it for you.
-The `pencere` command is one line to install once its first release is out (macOS and Linux; until
-then `cargo install --git https://github.com/bateri/pencere pencere-cli --locked`, [more in its
+The `pencere` command installs with one line, on macOS and Linux ([more in its
 README](cli/README.md#install)):
 
 ```sh
@@ -101,7 +100,7 @@ let outcome = pencere::serve(
 
 ## Status
 
-Early: nothing here is stable yet, and the shared release comes later. The repository holds
+Early: everything is `0.x`, and a minor release may still break. The repository holds
 
 - the specification and its fixtures, the one truth both libraries are tested from
   ([`spec/draft`](spec/draft/pencere.md));
@@ -121,9 +120,9 @@ Early: nothing here is stable yet, and the shared release comes later. The repos
   ([`examples/containers-rust`](examples/containers-rust), written with the program library), and
   the same as a Lua app of one script and a page ([`examples/containers-lua`](examples/containers-lua)).
 
-[bateri](https://github.com/bateri/bateri) is the first host. The `@pencere/sdk` on npm is an
-earlier draft of this protocol; the one in this repository replaces it and is not released yet,
-and neither are the crates and the command. How a package is released is in [RELEASING.md](RELEASING.md).
+[bateri](https://github.com/bateri/bateri) is the first host. The SDK is on npm, the crates on
+crates.io and the command on the GitHub releases; how they are released is in
+[RELEASING.md](RELEASING.md).
 
 ## License
 
