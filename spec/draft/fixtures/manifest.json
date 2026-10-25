@@ -101,6 +101,22 @@
       "errors": []
     },
     {
+      "file": "to-host/open-lua-modules.frame",
+      "direction": "to-host",
+      "note": "open for a view that is a Lua script of three files: an entry and two it may require, in directories of the bundle, each of type text/x-lua",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "open",
+          "id": 2,
+          "control": {},
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"lua\",\"version\":\"0.5\",\"program\":\"demopen\",\"title\":\"Containers\",\"bundle\":{\"entry\":\"view.lua\",\"files\":[{\"path\":\"view.lua\",\"sha256\":\"73903e55851bb02507f4f680d5981271ab01bd93e8b95645b558f04220f27ba1\",\"size\":91,\"type\":\"text/x-lua\"},{\"path\":\"parts/init.luau\",\"sha256\":\"24a9fedcc8d580f117627acce70ca45ce8505cb199190d3af6f421fd9c4ca8d8\",\"size\":32,\"type\":\"text/x-lua\"},{\"path\":\"screens/logs.lua\",\"sha256\":\"52e2cfadfa1fcb40e4323d436653d2acfb47c2528a5cd6672770c46ec4311e12\",\"size\":82,\"type\":\"text/x-lua\"}]}}"
+        }
+      ],
+      "errors": []
+    },
+    {
       "file": "to-host/open-icons.frame",
       "direction": "to-host",
       "note": "open with an icon for the program: a data URI of a PNG",

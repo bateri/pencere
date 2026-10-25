@@ -62,6 +62,21 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   `{ light = "#…", dark = "#…" }`, with an opacity as before: `pencere.alpha(colour, 0.5)`). The
   interface is `pencere:view@1.0.0`.
 - `pencere.json` of the Lua page API reads and writes arrays and objects nested up to 127 levels; at 128 it is neither (specification §4.5).
+- **`require` in a script.** A script may load the other scripts of its bundle, and nothing else:
+  Luau's own require-by-string (`require("./screens/logs")`, `require("../parts/table")`, directories
+  with an `init` script, `@self`), relative to the path of the script that asks, over the files the
+  bundle's manifest types `text/x-lua`. A path that leaves the bundle's root, an absolute path, an
+  alias (there is no configuration file), a file that is not a script and a name the bundle has
+  nothing at are errors that name the path, at the line of the `require`. Each script runs once per
+  page, in a thread with globals of its own, and a cycle is an error that names the chain. An error
+  in a required script (a syntax error too) says that script's own file and line; the entry's says
+  its path too (`page.lua:12:`). The bytes of the scripts a page loads, the
+  entry's included, are held together to `ModuleLimits::component` (4 MiB); a script that is
+  alone over it is not started. For this the interface `pencere:view@1.0.0` has
+  `script.path`, `script.has-module` and `script.module` beside `script.source`, `Module::from_script`
+  takes a `Script` (the entry, its path in the bundle and the bundle) and `Assets` has
+  `media_type`, which says what the manifest typed a file. The interpreter carries Luau's
+  `Require` and `Config` libraries (about 190 KB more).
 - A helper of the Lua page API that is given the wrong argument (`pencere.text` of a value that is
   not a string or a number, `pencere.spark` of a non-list, `children` of a non-list) raises the
   error at the line of the script that called it, not at a line of the prelude.

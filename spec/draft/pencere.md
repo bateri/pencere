@@ -1244,6 +1244,12 @@ the host draws itself, in the terminal's font and theme, without a web view:
   minor version of `lua` that raises Luau (Section 5.4). A host SHOULD run the kit's own interpreter
   component (`kit/sandbox/luau/luau.wasm`) rather than another Luau, so that a script means one thing
   on every host. The script is source text: a host does not load compiled code from a program.
+  The entry is the script, and it MAY `require` the other files of its bundle whose media type is
+  `text/x-lua`, by the rules of Luau for requiring by string, relative to the entry's path in the
+  bundle (`kit/SPEC.md`, Section 2.5): `require` reaches nothing outside the bundle, so a path that
+  leaves its root, an absolute path, an alias, a file of another media type and a file the bundle does
+  not have are errors of the script, and no file of the host is read. The text of the scripts a view
+  loads, the entry's included, is held to the same limit as the entry alone (the table below).
 
 What these views may ask of the host, and what the host does with it, is the rule of the kit: the
 interface of `kit/wit/view.wit`, the page API of `kit/SPEC.md` and the sandbox floors below. The
@@ -1272,6 +1278,14 @@ capability, if one is added, is an extension of the kit.
 <ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"lua","version":"0.5","program":"demopen","title":"Containers","bundle":{"entry":"view.lua","files":[{"path":"view.lua","sha256":"7d06ba2f8d1d231826e549de62e88f14c83997c82437df8b44597470da66d081","size":34,"type":"text/x-lua"}]}}<ESC>\
 ```
 
+A script of several files lists each of them in its bundle, with the entry as `entry`; the files other
+than the entry are the ones the entry may `require`, and they are of the type `text/x-lua` like it
+(a file of another type is not a script, whatever it is called):
+
+```frame fixtures/to-host/open-lua-modules.frame
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"lua","version":"0.5","program":"demopen","title":"Containers","bundle":{"entry":"view.lua","files":[{"path":"view.lua","sha256":"73903e55851bb02507f4f680d5981271ab01bd93e8b95645b558f04220f27ba1","size":91,"type":"text/x-lua"},{"path":"parts/init.luau","sha256":"24a9fedcc8d580f117627acce70ca45ce8505cb199190d3af6f421fd9c4ca8d8","size":32,"type":"text/x-lua"},{"path":"screens/logs.lua","sha256":"52e2cfadfa1fcb40e4323d436653d2acfb47c2528a5cd6672770c46ec4311e12","size":82,"type":"text/x-lua"}]}}<ESC>\
+```
+
 The host asks for the files as for any bundle (Sections 8.3 and 8.4) and starts the view when it
 holds them. It MAY refuse an entry over a size of its own choosing with `limit` (Section 8.2), so
 a program must be ready for that.
@@ -1280,23 +1294,23 @@ a program must be ready for that.
 stays within these opens on every host, so a host MUST give a view at least the following, and MAY
 give it more:
 
-| Limit                                                                    | At least               |
-| ------------------------------------------------------------------------ | ---------------------- |
-| Memory of the module (and its tables)                                    | 64 MiB                 |
-| One call (a frame, a settle, an event) before it is cut off              | 250 ms                 |
-| The start of the module (its first code to run)                          | 2 s                    |
-| Compiling a component                                                    | 20 s                   |
-| The component itself, or the script                                      | 4 MiB                  |
-| Elements in one frame                                                    | 20 000                 |
-| Depth of the tree of one frame (the root is 1)                           | 128                    |
-| Bytes of one line of text, of a title, of text for the pasteboard        | 64 KiB                 |
-| Bytes a frame says apart from its elements' fixed fields (words, paths…) | 4 MiB                  |
-| Tracks of a grid's columns or rows                                       | 64                     |
-| Values of a sparkline                                                    | 4096                   |
-| Entries of a menu                                                        | 256                    |
-| Messages to the program that one call may send                           | 32                     |
-| Bytes of one message to the program                                      | 1 MiB (Section 9.3)    |
-| Pictures: the sides, the file, the decoded pixels, the paths named       | as listed under Images |
+| Limit                                                                                    | At least               |
+| ---------------------------------------------------------------------------------------- | ---------------------- |
+| Memory of the module (and its tables)                                                    | 64 MiB                 |
+| One call (a frame, a settle, an event) before it is cut off                              | 250 ms                 |
+| The start of the module (its first code to run)                                          | 2 s                    |
+| Compiling a component                                                                    | 20 s                   |
+| The component itself, or the scripts of a view together (the entry and what it requires) | 4 MiB                  |
+| Elements in one frame                                                                    | 20 000                 |
+| Depth of the tree of one frame (the root is 1)                                           | 128                    |
+| Bytes of one line of text, of a title, of text for the pasteboard                        | 64 KiB                 |
+| Bytes a frame says apart from its elements' fixed fields (words, paths…)                 | 4 MiB                  |
+| Tracks of a grid's columns or rows                                                       | 64                     |
+| Values of a sparkline                                                                    | 4096                   |
+| Entries of a menu                                                                        | 256                    |
+| Messages to the program that one call may send                                           | 32                     |
+| Bytes of one message to the program                                                      | 1 MiB (Section 9.3)    |
+| Pictures: the sides, the file, the decoded pixels, the paths named                       | as listed under Images |
 
 A view that goes over a limit it is held to is closed as one that fails (below).
 

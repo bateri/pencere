@@ -6,6 +6,11 @@ network, no clock and no environment, held to a memory limit and a time for ever
 answers with the page to draw — a tree `pencere-view` lays out and paints in the terminal's own
 font and theme.
 
+A script may `require` the other scripts of its bundle (Luau's require-by-string, from the path of
+the script that asks, over the files the bundle's manifest types `text/x-lua`) and nothing else:
+`Script` is the entry, its path in the bundle and the bundle (`Assets`), which is all the door a
+script has to anything.
+
 A module or a script that traps, goes past a limit or hands out something that is not a page is
 closed, and the terminal is told why. The interpreter for scripts (Luau, with the bridge to the
 page interface) is a component of its own, kept in this crate as `luau/luau.wasm`; `make luau`

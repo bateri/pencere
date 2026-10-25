@@ -27,8 +27,8 @@ on every host.
 ## 2. The Lua page API
 
 A script is Luau. What it can use besides the language is the base functions, `string`, `table`,
-`math`, `utf8`, and `pencere`, the table the prelude fills. It has no files, no network, no clock
-but the one `render` is handed, and no randomness.
+`math`, `utf8`, `require` (Section 2.5), and `pencere`, the table the prelude fills. It has no files
+of the system's, no network, no clock but the one `render` is handed, and no randomness.
 
 A script **returns the page**, a table of the functions the host calls:
 
@@ -96,6 +96,32 @@ params, on_value)` asks to hear a topic, `pencere.cancel(id)` gives either up, `
 and decodes JSON (arrays and objects nested up to 127 levels, the outermost counting as the first: protocol, Section 4.5). A message the program cannot take yet waits its turn (`pencere.send`, the raw word,
 says whether it took the message), and the host holds the page to the limits of Section 5.
 
+### 2.5 The other scripts of the bundle
+
+The entry of the bundle is the script, and it may split itself over the other files of its bundle
+whose media type is `text/x-lua` with `require`, by Luau's own rules for requiring by string, so
+that the editors and the language server of Luau read the paths as they are meant:
+
+- A path starts with `./` or `../` and is relative to the requiring script's own path in the bundle
+  (`require("./screens/logs")` in `app/main.lua` is `app/screens/logs`; the script's path is the
+  `path` its manifest names). It has no extension: `name` is the script `name.luau` or `name.lua`,
+  or the script `name/init.luau` or `name/init.lua`, and it is one of them, or an error. An `init`
+  script is the module of its directory; within it `./` is relative to the directory's parent, and
+  `@self/` is the directory itself (`require("@self/child")`).
+- The bundle is the whole world. A path that goes out of the root of the bundle with `../`, an
+  absolute path, a path with no `./` or `../`, an alias other than `@self` (there is no
+  configuration file to define one), a file that is in the bundle but is not typed `text/x-lua`,
+  and a name the bundle has nothing at are all errors, raised at the line of the `require`, that
+  say the path. `require` reads no file of the system.
+- A script runs once per page, in a thread with globals of its own like the entry's, when it is
+  first required, and what it returns (exactly one value) is what every `require` of it returns.
+  A script that requires itself through others is an error that names the chain
+  (`require cycle: a.lua -> b.lua -> a.lua`). The entry is not a module: it cannot be required.
+- An error in a required script, a syntax error included, says the script's own path and line
+  (`screens/logs.lua:12: ...`); the entry's say its path as well.
+- The text of the scripts a page loads, the entry's too, is held to the size of a script together
+  (the floor of Section 4: 4 MiB): a `require` past it is an error that says so.
+
 ## 3. Colours
 
 A colour is said in one of these ways, wherever one is taken:
@@ -148,8 +174,9 @@ page's `context`. Where the theme gives none, the host makes it up as the protoc
 ## 4. What a host gives a view at least
 
 The sandbox floors are those of the protocol, Section 9.8 (memory 64 MiB, a call 250 ms, the start 2 s,
-20 000 elements to a frame, a tree 128 deep, a line of text 64 KiB, a component 4 MiB, 32 messages to
-the program to a call, a message 1 MiB, and the limits on pictures). A view that stays within them
+20 000 elements to a frame, a tree 128 deep, a line of text 64 KiB, a component 4 MiB (or the entry of
+a script and the scripts it requires, together), 32 messages to the program to a call, a message
+1 MiB, and the limits on pictures). A view that stays within them
 opens on every host. The values of this repository's implementation are the defaults of
 `ModuleLimits` in `kit/sandbox/src/sandbox.rs`.
 
