@@ -27,7 +27,9 @@ check:
 	cargo fmt --all -- --check
 	cargo fmt --manifest-path kit/guest/Cargo.toml --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
-	cargo test --workspace --all-targets
+	# The tests' standard input is no terminal, as on a runner: a test of an app with no terminal
+	# would otherwise ask the terminal make runs in for a view, and one that answers changes it.
+	cargo test --workspace --all-targets </dev/null
 	npx prettier --check .
 	npx vitest run --passWithNoTests
 
@@ -87,7 +89,7 @@ guest:
 # interpreter, with the scripts of the example), and lints the page modules for the target they
 # run on. Needs rustup with the wasm32 target (see `guest`); `luau` (Docker) is not part of it.
 check-heavy: guest
-	cargo test --workspace --all-targets -- --ignored
+	cargo test --workspace --all-targets -- --ignored </dev/null
 	$(GUEST_CARGO) clippy --manifest-path kit/guest/Cargo.toml --all-targets --target wasm32-unknown-unknown -- -D warnings
 
 # The interpreter of the scripting language (`kit/sandbox/luau/luau.wasm`): Luau, the bridge that
