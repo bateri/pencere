@@ -228,6 +228,25 @@ pub fn natives(lua: &Lua, core: &Rc<Core>) -> mlua::Result<Table> {
     )?;
     let hold = Rc::clone(core);
     native.set(
+        "close_view",
+        lua.create_function(move |_, ()| {
+            if hold.serve.borrow().is_none() {
+                return Ok(false);
+            }
+            // As the app's end closes it (`wait_for_view`): the terminal's own `dismiss`, or, from a
+            // terminal that does not list it, what ⌃C does, a `bye`.
+            if hold.control.close() == pencere::CloseResult::Unsupported {
+                // SAFETY: a signal to this process, which the library's handler for it turns into a
+                // `bye`.
+                unsafe {
+                    libc::kill(libc::getpid(), libc::SIGINT);
+                }
+            }
+            Ok(true)
+        })?,
+    )?;
+    let hold = Rc::clone(core);
+    native.set(
         "serve",
         lua.create_function(move |_, (options, done): (Table, Function)| {
             super::serve::start(&hold, options, done)

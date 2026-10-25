@@ -14,7 +14,9 @@ All notable changes to the `pencere` command are recorded here. The format follo
   pipe has no reader), `:active()` and `:wait()` (waits until the input has ended or was stopped).
   `io.is_terminal("stdin" | "stdout" | "stderr")` says whether a stream is a terminal. `serve{
 filter = true }` shows the view on the controlling terminal, whatever the standard streams are
-  (specification section 13), so that stdin and stdout stay the pipeline's.
+  (specification section 13), so that stdin and stdout stay the pipeline's. `close_view()` ends the
+  view from the app's side, so that a program that has chosen something writes it with the pane
+  given back.
 
 ### Changed
 

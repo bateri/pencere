@@ -352,6 +352,14 @@ function module.serve(options)
 	return outcome
 end
 
+-- close_view() ends the view the app is showing from the app's side, as the app's end does: the terminal
+-- takes the view down and gives the pane back, and the `serve` that showed it returns (`ended` is
+-- "program", or "signal" from a terminal that cannot be asked to). The app goes on, with the pane its
+-- own again: an app that has chosen something for the pipeline it is in writes it after this. Whether
+-- there was a view to close. Ask for it after the answer of the call that decided it has gone
+-- (`time.after(0, ...)`), or the page's own answer is lost with the view.
+module.close_view = guarded(native.close_view)
+
 -- handoff{ "zsh", "-l" } (or { argv =, cwd =, env = }) gives the terminal to a program, and takes it
 -- back when it ends: the view is closed and the terminal given back, the program runs with it in the
 -- foreground, as a shell runs a command, and then the same `serve` shows its view again. Gives

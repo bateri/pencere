@@ -76,6 +76,7 @@ pencere.serve {                            -- shows src/view/: page.lua, a page 
 | `process.spawn{ argv, cwd, env, input, raw, max_output, on_stdout, on_stderr, on_exit }`                  | starts a program (no shell reads `argv`) in a group of its own, so that what is sent to it reaches everything it started; its output comes a line at a time; `max_output` (bytes, line ends included) ends a program that says more, and `on_exit(code, signal, overflowed)` says it did; `child:kill(signal)`, `child.pid`                                                                                                                                                                 |
 | `process.run{ argv, timeout, raw, max_output }`                                                           | waits for it and gives `{ code, signal, ok, timed_out, overflowed, stdout, stderr }`; the app's other work goes on meanwhile. `timeout` and `max_output` end the program and whatever it started (a shell's pipeline too). `raw` is for output that is not text (a list ended by NUL): it comes exactly as written                                                                                                                                                                          |
 | `handoff{ argv }`                                                                                         | gives the terminal to a program and takes it back when it ends; see below                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `close_view()`                                                                                            | ends the view the app is showing, from the app's side, as the app's end does; `serve` then returns (`ended` is `"program"`). See below                                                                                                                                                                                                                                                                                                                                                      |
 | `fs`                                                                                                      | `read`, `write`, `append`, `create` (only where nothing is: never truncates, never writes through a link), `rename`, `list` (with `link`), `stat`, `exists`, `writable`, `mkdir`, `remove`, `cwd`, and `watch(dir, fn)`                                                                                                                                                                                                                                                                     |
 | `json`                                                                                                    | `encode`, `decode`, `object()` (an empty table that is sent as `{}`), `null` (sent as `null`)                                                                                                                                                                                                                                                                                                                                                                                               |
 | `hash.sha256(data)`                                                                                       | 64 hex digits                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -134,21 +135,30 @@ terminals (a pipeline and a program started by another program look alike from i
 
 ```lua
 local pencere = require("pencere")
-local chunks = {}
+local chunks, done = {}, false
 pencere.io.read_stdin(function(bytes)           -- as it arrives: pieces of up to 64 KiB, exactly as written
   chunks[#chunks + 1] = bytes                   -- the view is up and answering while the data comes
-end, function()
-  chunks.done = true                            -- the input has ended
-end)
-local outcome = pencere.serve { filter = true, calls = { rows = function() return #chunks end } }
-pencere.io.write(table.concat(chunks))          -- the pipeline's data goes on only now
-pencere.exit(0)
+end, function() done = true end)                -- the input has ended
+local keep
+pencere.serve { filter = true, calls = {        -- the view on the controlling terminal
+  rows = function() return { size = #chunks, done = done } end,
+  choose = function()                           -- the person has chosen
+    keep = true
+    pencere.time.after(0, pencere.close_view)   -- after this call's answer has gone
+  end,
+} }
+if keep then pencere.io.write(table.concat(chunks)) end   -- the pipeline's data goes on only now
+pencere.exit(keep and 0 or 1)
 ```
 
 `io.read_stdin` reads one piece in a turn of the loop, so the app's calls, timers and processes are not
 held back by a slow writer or starved by a fast one. The function is called for each piece in order and
 should not wait. `reading:wait()` waits for the end of the input, for a program that shows no view;
 `reading:stop()` ends the reading early and tells the writer the pipe has no reader, as `head` does.
+`pencere.close_view()` ends the view when the program has what it came for: the terminal takes it
+down and gives the pane back, the `serve` that showed it returns, and the program writes its result
+to stdout with the pane its own again. Ask for it after the answer of the call that decided it has
+gone (`time.after(0, pencere.close_view)`), or the page loses its answer with the view.
 `io.write` writes to stdout exactly what it is given and waits until it is taken, so a full pipe slows
 the program down; a program whose reader has gone is told by the error of `io.write`. The runner reads `--log FILE` and
 `--` before the app's own arguments; everything else on the command line is the app's.

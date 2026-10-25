@@ -1137,6 +1137,107 @@ fn a_filter_whose_view_closes_with_nothing_chosen_writes_nothing_and_fails(on: &
 }
 on_node_and_deno!(a_filter_whose_view_closes_with_nothing_chosen_writes_nothing_and_fails);
 
+// ---- a filter written in Lua, made one file by `pencere build` -----------------------------
+
+/// A Lua filter: it reads its pipeline as it arrives (`io.read_stdin`), shows its view on the
+/// controlling terminal (`serve{ filter = true }`), and, once the page has chosen, closes the view
+/// (`close_view`) and writes the chosen lines on stdout.
+const LUA_FILTER: &str = r#"
+local pencere = require("pencere")
+local buffer, ended = "", false
+pencere.io.read_stdin(function(bytes) buffer = buffer .. bytes end, function() ended = true end)
+local chosen
+pencere.serve {
+	filter = true,
+	calls = {
+		rows = function() return { text = buffer, ended = ended } end,
+		choose = function(params)
+			while not ended do pencere.time.sleep(0.01) end
+			chosen = params.rows
+			pencere.time.after(0.02, pencere.close_view)
+			return { chosen = #chosen }
+		end,
+	},
+}
+if chosen == nil then pencere.exit(1) end
+local lines = {}
+for line in string.gmatch(buffer, "[^\n]+") do lines[#lines + 1] = line end
+local out = {}
+for _, at in ipairs(chosen) do out[#out + 1] = lines[at + 1] .. "\n" end
+pencere.io.write(table.concat(out))
+pencere.exit(0)
+"#;
+
+/// The Lua filter, built into one file, in the middle of a pipeline: three rows in from `printf`,
+/// its stdout to `out`, and its status after it.
+fn lua_pipeline(name: &str, options: &[&str]) -> (Run, String, String) {
+    let dir = fresh(name);
+    let source = dir.join("app");
+    fs::create_dir_all(&source).expect("a directory");
+    fs::write(source.join("app.lua"), LUA_FILTER).expect("an app");
+    fs::write(
+        source.join("page.lua"),
+        "return { render = function() return {} end }\n",
+    )
+    .expect("a page");
+    let app = dir.join("filter");
+    let (status, said) = pencere(&dir, &["build", "app", "-o", &app.to_string_lossy()]);
+    assert!(status.success(), "pencere build: {said}");
+    let out = dir.join("out.txt");
+    let code = dir.join("status");
+    let script = format!(
+        r#"printf 'web\napi\ndb\n' | {} > {}; echo $? > {}"#,
+        quoted(&app.to_string_lossy()),
+        quoted(&out.to_string_lossy()),
+        quoted(&code.to_string_lossy()),
+    );
+    let run = run(options, &["sh", "-c", &script]);
+    let out = fs::read_to_string(&out).expect("the pipeline wrote its output");
+    let code = fs::read_to_string(&code).expect("the pipeline wrote its status");
+    (run, out, code.trim().to_owned())
+}
+
+#[test]
+fn a_lua_filter_shows_its_view_on_the_terminal_and_writes_what_was_chosen_to_the_pipe() {
+    let (run, out, status) = lua_pipeline(
+        "lua-filter-chosen",
+        &["--call", "rows", "--call", r#"choose={"rows":[2,0]}"#],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        "host: sees the tty: canonical=false echo=false",
+        "screen: alternate screen on",
+        "program: open id=2 view=lua version=1.0",
+        "view: -> call id=1 rows",
+        "view: -> call id=2 choose",
+        // The program answers the call before it closes the view, so the view hears that the
+        // rows were taken.
+        r#"view: <- response id=2 result={"chosen":2}"#,
+        "program: dismiss",
+        "host: closed id=* reason=program",
+        "screen: alternate screen off",
+    ]);
+    // The terminal had the protocol; the pipe has the data and nothing else.
+    assert_eq!(out, "db\nweb\n");
+    assert_eq!(status, "0");
+}
+
+#[test]
+fn a_lua_filter_whose_view_is_closed_by_the_person_writes_nothing() {
+    let (run, out, status) =
+        lua_pipeline("lua-filter-nothing", &["--call", "rows", "--then", "close"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "screen: alternate screen on",
+        "host: the person closes the view",
+        "host: closed id=* reason=user",
+        "screen: alternate screen off",
+    ]);
+    assert_eq!(out, "");
+    assert_eq!(status, "1");
+}
+
 // ---- the example, on each runtime and as one executable ------------------------------------
 
 /// The size of a file the page would fetch: the files of the view, and the module that is the

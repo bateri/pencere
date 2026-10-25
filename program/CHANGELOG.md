@@ -6,6 +6,13 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Terminal::controlling()` works on macOS.** `poll` answers `POLLNVAL` for `/dev/tty` there, which
+  the loop read as a hang-up, so a filter in a pipeline found no terminal to show its view on. The
+  terminal is now opened by the name the kernel gives the process's controlling terminal
+  (`/dev/ttys004`), which `poll` can wait on; it is the same terminal, with the same modes.
+
 ### Added
 
 - **A terminal that opens a kind of the program's in other versions is told in words.** `NoView::message` of `NoViewReason::NoCommonView` carries the sentence that names both sides (`this program is written for wasm 2.0; this terminal opens wasm 1.0`), and `serve` prints it to standard error as `pencere: …` before the fallback runs (specification §5.2, §5.3).
