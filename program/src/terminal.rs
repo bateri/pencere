@@ -26,7 +26,7 @@
 use std::cell::UnsafeCell;
 use std::io;
 use std::mem::MaybeUninit;
-use std::os::fd::{FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::sync::Once;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
@@ -81,22 +81,18 @@ impl Terminal {
     ///
     /// When the process has no controlling terminal.
     pub fn controlling() -> io::Result<Self> {
-        // SAFETY: opens a path we name; the descriptor is ours and nothing else holds it.
-        let fd = unsafe {
-            libc::open(
-                c"/dev/tty".as_ptr(),
-                libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC,
-            )
+        let fd = open_tty(c"/dev/tty")?;
+        // macOS cannot `poll` /dev/tty (it answers POLLNVAL, which the loop would read as a hang-up),
+        // but it can poll the device that /dev/tty stands for: that is opened, by its own name, when
+        // it can be found. The two are the same terminal, with the same modes.
+        let fd = match device_name() {
+            Some(name) => open_tty(&name).unwrap_or(fd),
+            None => fd,
         };
-        if fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: `open` returned a descriptor that nothing else owns.
-        let owned = unsafe { OwnedFd::from_raw_fd(fd) };
         Ok(Self {
-            input: fd,
-            output: fd,
-            _owned: Some(owned),
+            input: fd.as_raw_fd(),
+            output: fd.as_raw_fd(),
+            _owned: Some(fd),
         })
     }
 
@@ -124,6 +120,66 @@ impl Terminal {
         // SAFETY: isatty takes a descriptor and touches nothing else.
         unsafe { libc::isatty(self.input) == 1 && libc::isatty(self.output) == 1 }
     }
+}
+
+/// Opens a terminal to read and write, without making it the process's controlling terminal.
+fn open_tty(path: &std::ffi::CStr) -> io::Result<OwnedFd> {
+    // SAFETY: opens a path we name; the descriptor is ours and nothing else holds it.
+    let fd = unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `open` returned a descriptor that nothing else owns.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+/// The device the process's controlling terminal is (`/dev/ttys004`), by the name the kernel gives
+/// it: what `/dev/tty` stands for, which macOS can open but not `poll`.
+#[cfg(target_os = "macos")]
+fn device_name() -> Option<std::ffi::CString> {
+    // SAFETY: `proc_bsdinfo` is plain data; the call fills it, for this process, or fails.
+    let device = unsafe {
+        let mut info: libc::proc_bsdinfo = std::mem::zeroed();
+        let size = libc::c_int::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).ok()?;
+        let got = libc::proc_pidinfo(
+            libc::getpid(),
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&raw mut info).cast(),
+            size,
+        );
+        if got != size || info.e_tdev == u32::MAX {
+            return None;
+        }
+        info.e_tdev
+    };
+    // SAFETY: `devname` gives a name in a buffer of its own, which is copied at once; it is called
+    // here and nowhere else.
+    let name = unsafe {
+        let name = libc::devname(libc::dev_t::try_from(device).ok()?, libc::S_IFCHR);
+        if name.is_null() {
+            return None;
+        }
+        std::ffi::CStr::from_ptr(name).to_bytes().to_vec()
+    };
+    // A device without a name is shown as `#C:` and numbers: that is no path.
+    if name.is_empty() || name.starts_with(b"#") {
+        return None;
+    }
+    let mut path = b"/dev/".to_vec();
+    path.extend_from_slice(&name);
+    std::ffi::CString::new(path).ok()
+}
+
+/// Other systems poll /dev/tty as it is.
+#[cfg(not(target_os = "macos"))]
+fn device_name() -> Option<std::ffi::CString> {
+    None
 }
 
 // ---- what the handlers and the hooks share --------------------------------------------

@@ -134,3 +134,127 @@ pencere.time.sleep(30)
     wait_for("the program the app started is gone", || !exists(sleeping));
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// Builds the app in `dir/app` (whose `app.lua` is `source`) into `dir/<name>`.
+fn built(dir: &std::path::Path, name: &str, source: &str) -> std::path::PathBuf {
+    let _ = fs::remove_dir_all(dir);
+    fs::create_dir_all(dir.join("app")).expect("a directory");
+    fs::write(dir.join("app/app.lua"), source).expect("an app");
+    let built = Command::new(env!("CARGO_BIN_EXE_pencere"))
+        .arg("build")
+        .arg(dir.join("app"))
+        .arg("-o")
+        .arg(dir.join(name))
+        .output()
+        .expect("the runner builds");
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    dir.join(name)
+}
+
+#[test]
+fn an_app_reads_its_standard_input_as_it_arrives_while_its_other_work_goes_on() {
+    use std::io::Write as _;
+    use std::process::Stdio;
+    let dir = std::env::temp_dir().join(format!("pencere-stdin-test-{}", std::process::id()));
+    let app = built(
+        &dir,
+        "reader",
+        r#"local pencere = require("pencere")
+local seen, pieces, ticks = 0, 0, 0
+local ticker = pencere.time.every(0.02, function() ticks += 1 end)
+local reading = pencere.io.read_stdin(function(bytes)
+	seen += #bytes
+	pieces += 1
+end, function()
+	ticker:cancel()
+end)
+reading:wait()
+pencere.io.write(string.format("%d %s %s\n", seen, pieces > 1 and "pieces" or "piece", ticks > 0 and "ticked" or "still"))
+"#,
+    );
+    let mut reader = Command::new(&app)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("the app runs");
+    let mut input = reader.stdin.take().expect("its input");
+    // More than one piece, and a pause in the middle: the app's timer runs in it.
+    let big = vec![b'x'; 150_000];
+    input.write_all(&big).expect("written");
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    input.write_all(b"\xff\x00end\n").expect("written");
+    drop(input);
+    let output = reader.wait_with_output().expect("it ends");
+    let said = String::from_utf8_lossy(&output.stdout).into_owned();
+    let _ = fs::remove_dir_all(&dir);
+    assert!(output.status.success(), "{said}");
+    assert_eq!(said, "150006 pieces ticked\n");
+}
+
+#[test]
+fn stopping_the_reading_tells_what_writes_the_input_that_it_has_no_reader() {
+    use std::io::Write as _;
+    use std::process::Stdio;
+    let dir = std::env::temp_dir().join(format!("pencere-stdin-stop-{}", std::process::id()));
+    let app = built(
+        &dir,
+        "stopper",
+        r#"local pencere = require("pencere")
+local reading
+reading = pencere.io.read_stdin(function(bytes)
+	reading:stop()
+end, function() pencere.io.write("ended\n") end)
+reading:wait()
+pencere.io.write("stopped " .. tostring(reading:active()) .. "\n")
+"#,
+    );
+    let mut reader = Command::new(&app)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("the app runs");
+    let mut input = reader.stdin.take().expect("its input");
+    // The writer keeps writing until the pipe has no reader: it is told, and does not wait for ever.
+    let block = vec![b'y'; 64 * 1024];
+    let mut told = false;
+    for _ in 0..2000 {
+        if input.write_all(&block).is_err() {
+            told = true;
+            break;
+        }
+    }
+    let output = reader.wait_with_output().expect("it ends");
+    let said = String::from_utf8_lossy(&output.stdout).into_owned();
+    let _ = fs::remove_dir_all(&dir);
+    assert!(told, "the writer was never told the pipe has no reader");
+    assert_eq!(said, "stopped false\n");
+}
+
+#[test]
+fn an_app_can_tell_whether_its_streams_are_terminals() {
+    use std::process::Stdio;
+    let dir = std::env::temp_dir().join(format!("pencere-tty-test-{}", std::process::id()));
+    let app = built(
+        &dir,
+        "asker",
+        r#"local pencere = require("pencere")
+local io = pencere.io
+io.write(string.format("%s %s %s\n", tostring(io.is_terminal("stdin")), tostring(io.is_terminal("stdout")), tostring(io.is_terminal("stderr"))))
+local ok, why = pcall(io.is_terminal, "stdlog")
+io.write(tostring(ok) .. "\n")
+"#,
+    );
+    let output = Command::new(&app)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("the app runs");
+    let said = String::from_utf8_lossy(&output.stdout).into_owned();
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(said, "false false false\nfalse\n");
+}

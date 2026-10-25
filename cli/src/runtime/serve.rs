@@ -310,7 +310,7 @@ pub fn icons_of(files: &Files, list: &Table) -> mlua::Result<Vec<Icon>> {
     Ok(icons)
 }
 
-/// `serve{ page =, web =, views =, assets =, access =, title =, program =, icon =, icons =, calls =, topics = }`,
+/// `serve{ page =, web =, views =, assets =, access =, title =, program =, icon =, icons =, filter =, calls =, topics = }`,
 /// from the prelude: starts the library's `serve` on a thread, and calls `done` with how it ended.
 pub fn start(core: &Rc<Core>, options: Table, done: Function) -> mlua::Result<()> {
     if core.serve.borrow().is_some() {
@@ -351,6 +351,14 @@ fn prepare(
         .control(core.control.clone());
     for view in views_of(&core.files, &specs).map_err(fail)? {
         serving = serving.view(view);
+    }
+    // A filter in a pipeline: its standard streams are its data, so the view is shown on the
+    // controlling terminal (specification section 13). Where there is none, the view cannot be
+    // shown, which `serve` says as it does for a program that has no terminal at all.
+    if options.get::<Option<bool>>("filter")?.unwrap_or(false)
+        && let Ok(terminal) = pencere::Terminal::controlling()
+    {
+        serving = serving.terminal(terminal);
     }
     if let Some(title) = options.get::<Option<String>>("title")? {
         serving = serving.title(title);

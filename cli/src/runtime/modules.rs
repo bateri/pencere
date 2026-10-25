@@ -213,11 +213,37 @@ pub fn natives(lua: &Lua, core: &Rc<Core>) -> mlua::Result<Table> {
         lua.create_function(move |_, spec: Table| super::handoff::handoff(&hold, spec))?,
     )?;
 
-    // ---- processes and the view ------------------------------------------------------
+    // ---- processes, standard input and the view -------------------------------------
+    let hold = Rc::clone(core);
+    native.set(
+        "read_stdin",
+        lua.create_function(move |_, (on_data, on_end): (Function, Option<Function>)| {
+            super::stdin::start(&hold, on_data, on_end)
+        })?,
+    )?;
     let hold = Rc::clone(core);
     native.set(
         "spawn",
         lua.create_function(move |_, options: Table| super::process::spawn(&hold, options))?,
+    )?;
+    let hold = Rc::clone(core);
+    native.set(
+        "close_view",
+        lua.create_function(move |_, ()| {
+            if hold.serve.borrow().is_none() {
+                return Ok(false);
+            }
+            // As the app's end closes it (`wait_for_view`): the terminal's own `dismiss`, or, from a
+            // terminal that does not list it, what ⌃C does, a `bye`.
+            if hold.control.close() == pencere::CloseResult::Unsupported {
+                // SAFETY: a signal to this process, which the library's handler for it turns into a
+                // `bye`.
+                unsafe {
+                    libc::kill(libc::getpid(), libc::SIGINT);
+                }
+            }
+            Ok(true)
+        })?,
     )?;
     let hold = Rc::clone(core);
     native.set(
@@ -671,6 +697,24 @@ fn terminal(lua: &Lua) -> mlua::Result<Table> {
             out.write_all(&text.as_bytes())
                 .and_then(|()| out.flush())
                 .map_err(|why| fail("io.ewrite", "stderr", &why))
+        })?,
+    )?;
+    // io.is_terminal(stream) -> whether "stdin", "stdout" or "stderr" is a terminal.
+    table.set(
+        "is_terminal",
+        lua.create_function(|_, stream: String| {
+            let fd = match stream.as_str() {
+                "stdin" => libc::STDIN_FILENO,
+                "stdout" => libc::STDOUT_FILENO,
+                "stderr" => libc::STDERR_FILENO,
+                other => {
+                    return Err(super::fault(format!(
+                        "io.is_terminal: a stream is \"stdin\", \"stdout\" or \"stderr\", not {other:?}"
+                    )));
+                }
+            };
+            // SAFETY: asks whether a descriptor of the process is a terminal.
+            Ok(unsafe { libc::isatty(fd) } == 1)
         })?,
     )?;
     // io.read_line([prompt]) -> the line without its end, or nil at the end of the input.
