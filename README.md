@@ -13,7 +13,8 @@ protocol, and it is the same for every kind of view.
 There are two families of views:
 
 - **views the terminal draws itself**, with the pencere kit, in its own font and theme: a
-  WebAssembly component (`wasm`) or a Lua script (`lua`);
+  WebAssembly component (`wasm`) or a Lua script (`lua`), which may `require` the other scripts of
+  its bundle;
 - **a web page** (`web`): HTML and JavaScript, built with whatever builds to the web, in the
   terminal's web view. It takes the terminal's colours and font from a message the terminal sends
   it.
@@ -31,7 +32,9 @@ the program names a domain and the person allows it.
 
 The same program: a view, one call it answers, and one topic it feeds. Whichever you write it in,
 it is one file to hand to someone, and `pencere new <name> --lang lua|ts|rust` starts it for you.
-The `pencere` command is one line to install (macOS and Linux, [more in its README](cli/README.md#install)):
+The `pencere` command is one line to install once its first release is out (macOS and Linux; until
+then `cargo install --git https://github.com/bateri/pencere pencere-cli --locked`, [more in its
+README](cli/README.md#install)):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/bateri/pencere/main/cli/install.sh | sh
@@ -118,7 +121,7 @@ Early: nothing here is stable yet, and the shared release comes later. The repos
   ([`examples/containers-rust`](examples/containers-rust), written with the program library), and
   the same as a Lua app of one script and a page ([`examples/containers-lua`](examples/containers-lua)).
 
-[bateri](https://github.com/bateri/bateri) will be the first host. The `@pencere/sdk` on npm is an
+[bateri](https://github.com/bateri/bateri) is the first host. The `@pencere/sdk` on npm is an
 earlier draft of this protocol; the one in this repository replaces it and is not released yet,
 and neither are the crates and the command. How a package is released is in [RELEASING.md](RELEASING.md).
 
