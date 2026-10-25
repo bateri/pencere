@@ -736,21 +736,36 @@ fn compile(
     bytes: &[u8],
     within: std::time::Duration,
 ) -> Result<Component, Fault> {
-    let (done, result) = std::sync::mpsc::channel();
     let (engine, bytes) = (engine.clone(), bytes.to_vec());
-    std::thread::Builder::new()
-        .name("view-compile".into())
-        .spawn(move || {
-            let _ = done.send(Component::new(&engine, &bytes).map_err(|why| format!("{why:#}")));
-        })
-        .map_err(|_| Fault::Load("could not start a thread to compile the component".into()))?;
-    match result.recv_timeout(within) {
-        Ok(Ok(component)) => Ok(component),
-        Ok(Err(why)) => Err(Fault::Load(why)),
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(Fault::Load(format!(
+    let compiled = waited_for(within, move || {
+        Component::new(&engine, &bytes).map_err(|why| format!("{why:#}"))
+    })?;
+    match compiled {
+        Some(Ok(component)) => Ok(component),
+        Some(Err(why)) => Err(Fault::Load(why)),
+        None => Err(Fault::Load(format!(
             "compiling the component took longer than the {} seconds it is given",
             within.as_secs_f64()
         ))),
+    }
+}
+
+/// What `work` gives, on a thread of its own, if it gives it within `within`; nothing if it does
+/// not.
+fn waited_for<T: Send + 'static>(
+    within: std::time::Duration,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<Option<T>, Fault> {
+    let (done, result) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("view-compile".into())
+        .spawn(move || {
+            let _ = done.send(work());
+        })
+        .map_err(|_| Fault::Load("could not start a thread to compile the component".into()))?;
+    match result.recv_timeout(within) {
+        Ok(given) => Ok(Some(given)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(None),
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
             Err(Fault::Load("the compiler gave up on the component".into()))
         }
@@ -1577,16 +1592,15 @@ mod tests {
 
     #[test]
     fn compiling_is_held_to_the_time_it_is_given() {
-        let limits = ModuleLimits {
-            compile: std::time::Duration::ZERO,
-            ..ModuleLimits::default()
-        };
-        let refused = World::load(b"(component)", limits, Arc::new(Unbounded));
-        assert!(
-            matches!(&refused, Err(Fault::Load(why)) if why.contains("took longer")),
-            "{:?}",
-            refused.err()
-        );
+        // A compiler that is still at work when the time is up is not waited for; one that is
+        // done within it is. (The real compiler of a small component can be done before a wait of
+        // no time at all has begun, so the time is told apart with work that takes its own.)
+        let slow = waited_for(std::time::Duration::from_millis(10), || {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        });
+        assert!(matches!(slow, Ok(None)), "{slow:?}");
+        let quick = waited_for(std::time::Duration::from_secs(5), || 7);
+        assert!(matches!(quick, Ok(Some(7))), "{quick:?}");
     }
 
     #[test]
