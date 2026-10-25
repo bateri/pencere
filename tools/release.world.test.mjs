@@ -371,7 +371,7 @@ describe("release.mjs approve", () => {
     expect(w.run("approve", "crates").err).toContain("run 10 for crates-v0.1.0 ended in failure");
     const sha = w.git("rev-list", "-n", "1", tag);
     expect(w.said("gh").find((said) => said.startsWith("run list"))).toContain(
-      `--workflow release.yml --event push --commit ${sha}`,
+      `--workflow release.yml --event push --branch ${tag} --commit ${sha}`,
     );
     // Nothing was published, and nothing was made public.
     expect(published(w)).toEqual([]);
