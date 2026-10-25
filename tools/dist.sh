@@ -72,7 +72,10 @@ linux() {
     echo "==> $target, in a $platform container"
     docker build -q --platform "$platform" -t "$image" -f "$DIST_DOCKERFILE" tools/linux >/dev/null
     # Each architecture has a target directory of its own: the build scripts of one cannot run in
-    # the other. The stand-in terminal is built with the command, to try it against.
+    # the other. The stand-in terminal is built with the command, to try it against. The directory
+    # is made here, before the container: one the container makes is root's, and on a Linux machine
+    # this user then cannot write beside it (the check below, a later run).
+    mkdir -p "target/dist-$arch"
     docker run --rm --platform "$platform" \
         -v "$PWD":/w -v pencere-linux-cargo:/usr/local/cargo/registry \
         -e CARGO_TARGET_DIR="/w/target/dist-$arch" \
