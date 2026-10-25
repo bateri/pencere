@@ -551,7 +551,16 @@ impl Containers {
             .bg(Role::Raised(1))
             .border(1.0, Role::Border)
             .press(SEARCH)
-            .child(div().id(FIELD).text_field().grow(1.0).min_w(0.0).h(18.0))
+            .child(
+                div()
+                    .id(FIELD)
+                    .text_field()
+                    .grow(1.0)
+                    .min_w(0.0)
+                    .h(18.0)
+                    // What the host's field says while it is empty.
+                    .child(text("Filter by name, image, port\u{2026}")),
+            )
             .child(kbd("/", 10.5));
         let counts = self.counts();
         let option = |status: Status, count: usize, role: Option<Role>| {

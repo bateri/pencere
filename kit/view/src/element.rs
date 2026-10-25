@@ -184,7 +184,10 @@ impl Element {
 
     /// The box is the room of a text field the host puts over the page — the page does not
     /// draw text that is typed into, a field of the host's does (the host asks where it
-    /// stands: [`crate::Laid::text_field`]). Named too: see [`Element::id`].
+    /// stands: [`crate::Laid::text_field`]). Named too: see [`Element::id`]. A text inside it is
+    /// what the field says while it is empty (`div().text_field().child(text("Filter by
+    /// name…"))`): the host's field shows it ([`crate::Laid::text_field_hint`]), the page does not
+    /// draw it.
     #[must_use]
     pub fn text_field(mut self) -> Self {
         self.meta.text_field = true;
@@ -202,7 +205,9 @@ impl Element {
         })
     }
 
-    /// A row (or column) that is too long for its box goes on in a new line.
+    /// A row (or column) that is too long for its box goes on in a new line. On a text: its
+    /// words go on in new lines where its box is too narrow for them (and at its line breaks),
+    /// and the box is as tall as the lines.
     #[must_use]
     pub fn wrap(self) -> Self {
         self.set(|s| s.wrap = true)

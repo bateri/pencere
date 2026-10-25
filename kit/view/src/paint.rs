@@ -6,6 +6,7 @@
 use crate::element::Fit;
 use crate::layout::{Content, Laid, Node, Placed, TextLine};
 use crate::style::{Border, Shadow};
+use crate::text::wrap_lines;
 use crate::{Align, Color, Font, Measure, Point, Rect, Size};
 
 /// A box: an optional fill, border (drawn inside, over the fill) and soft shadow (never
@@ -124,8 +125,11 @@ impl Laid {
             }
             match &node.content {
                 Content::None => {}
+                // The words in the room of the host's field are what it says while it is empty:
+                // the host's field draws them (`Laid::text_field_hint`).
+                Content::Text(_) if self.in_text_field(index) => {}
                 Content::Text(line) => {
-                    if let Some(mut run) = place_text(node, line, measure) {
+                    for mut run in place_text(node, line, measure) {
                         run.grounds = self.grounds_under(index);
                         list.items.push(Paint::Text(run));
                     }
@@ -230,42 +234,69 @@ fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
     })
 }
 
-/// Where a line stands in its box, cut where it does not fit and is allowed to be cut.
-fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Option<Run> {
+/// Where a line stands in its box, cut where it does not fit and is allowed to be cut; or, for
+/// text that wraps, its lines one under the other, in the middle of the box as one line is.
+fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Vec<Run> {
     if line.text.is_empty() {
-        return None;
+        return Vec::new();
     }
     let whole = measure.measure(&line.font, &line.text);
     if whole.width <= 0.0 {
         // The host draws no words (no proportional text): nothing to place.
-        return None;
+        return Vec::new();
     }
     let box_width = node.rect.w;
-    let (text, width) = if line.truncate && whole.width > box_width + 1.0 {
-        cut(&line.text, &line.font, box_width, measure)?
+    let lines: Vec<(String, f32)> = if line.wrap {
+        let mut width = |run: &str| measure.measure(&line.font, run).width;
+        wrap_lines(&line.text, box_width + 1.0, &mut width)
+            .into_iter()
+            .map(|text| {
+                let width = width(&text);
+                (text, width)
+            })
+            .collect()
+    } else if line.truncate && whole.width > box_width + 1.0 {
+        match cut(&line.text, &line.font, box_width, measure) {
+            Some(cut) => vec![cut],
+            None => return Vec::new(),
+        }
     } else {
-        (line.text.clone(), whole.width)
+        vec![(line.text.clone(), whole.width)]
     };
-    let x = match line.align {
-        Align::Start => node.rect.x,
-        Align::Center => node.rect.x + (box_width - width) / 2.0,
-        Align::End => node.rect.right() - width,
-    };
-    let y = node.rect.y + (node.rect.h - whole.height) / 2.0;
+    #[allow(clippy::cast_precision_loss)]
+    let total = whole.height * lines.len() as f32;
+    // One line stands in the middle of its box, whatever its height; lines that do not all fit
+    // start at the top, so that the first is the one seen.
+    let room = (node.rect.h - total) / 2.0;
+    let top = node.rect.y + if line.wrap { room.max(0.0) } else { room };
     // A line that may be cut stays in its box; the rest is the boxes around it.
     let clip = if line.truncate {
         node.clip.intersect(node.rect)
     } else {
         node.clip
     };
-    Some(Run {
-        origin: Point::new(x, y),
-        text,
-        font: line.font,
-        color: line.color,
-        grounds: Vec::new(),
-        clip,
-    })
+    lines
+        .into_iter()
+        .enumerate()
+        .filter(|(_, (text, _))| !text.is_empty())
+        .map(|(index, (text, width))| {
+            let x = match line.align {
+                Align::Start => node.rect.x,
+                Align::Center => node.rect.x + (box_width - width) / 2.0,
+                Align::End => node.rect.right() - width,
+            };
+            #[allow(clippy::cast_precision_loss)]
+            let y = top + whole.height * index as f32;
+            Run {
+                origin: Point::new(x, y),
+                text,
+                font: line.font,
+                color: line.color,
+                grounds: Vec::new(),
+                clip,
+            }
+        })
+        .collect()
 }
 
 /// The longest start of `text` that fits `budget` pixels with a "…" after it; `None` when not

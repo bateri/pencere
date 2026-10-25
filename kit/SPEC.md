@@ -44,13 +44,13 @@ A script **returns the page**, a table of the functions the host calls:
 
 An element is a plain table that a chain of builder methods fills. Lengths are points.
 
-| Constructor                      | Element                                                               |
-| -------------------------------- | --------------------------------------------------------------------- |
-| `pencere.div()`                  | A box: a column of its children until told otherwise.                 |
-| `pencere.text(string \| number)` | One line of text, in the font, size and colour of the boxes it is in. |
-| `pencere.spark(values, color)`   | A sparkline of numbers, newest last; `:peak(value)` is its largest.   |
-| `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 9.8).   |
-| `pencere.spacer()`               | A box that takes the room left over.                                  |
+| Constructor                      | Element                                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `pencere.div()`                  | A box: a column of its children until told otherwise.                                                              |
+| `pencere.text(string \| number)` | One line of text, in the font, size and colour of the boxes it is in; with `wrap`, as many lines as its box needs. |
+| `pencere.spark(values, color)`   | A sparkline of numbers, newest last; `:peak(value)` is its largest.                                                |
+| `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 9.8).                                                |
+| `pencere.spacer()`               | A box that takes the room left over.                                                                               |
 
 The builders return the element. Layout: `row`, `col`, `wrap`, `grid(columns)`, `grid_rows(rows)`,
 `span`, `hidden`, `items_start|center|end|stretch`, `justify_start|center|end|between`, `gap`,
@@ -62,6 +62,12 @@ The builders return the element. Layout: `row`, `col`, `wrap`, `grid(columns)`, 
 `fit("contain" | "cover")`, `tint(color)`, `opacity(0..1)`. Names and answers: `id`, `press(id)`,
 `focusable`, `text_field`. Children: `child`, `children`. A grid track is a number (points),
 `pencere.fr(n)`, `pencere.range(least, n)` or `"auto"`.
+
+A text is one line: what does not fit runs past its box, or, with `truncate`, ends in "…". `wrap` on
+a text puts its words in new lines where its box is too narrow for them (and at its line breaks),
+and its box is as tall as the lines; in a row it gives its room away down to its longest word. A
+text inside a `text_field` element is what the host's field says while it is empty
+(`div():text_field():child(text("Filter images"))`): the host draws it, the page does not.
 
 ### 2.2 What a page remembers, and asks of the layout
 

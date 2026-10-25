@@ -6,6 +6,18 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- **Text that wraps.** `wrap()` on a text puts its words in new lines where its box is too narrow
+  for them, and at its line breaks; a word longer than the box is broken where it must be. The box
+  is as tall as the lines, and in a row it gives its room away down to the longest word. Each line
+  is measured by the host, as a line always is, so the lines break where the host's font says.
+  Without `wrap` a text is one line, as before.
+- **What the host's text field says while it is empty.** A text inside the element that is the room
+  of the host's field (`div().text_field().child(text("Filter images"))`) is its hint:
+  `Laid::text_field_hint` says it, and the page does not draw it. A host that shows a hint shows
+  the page's, not one of its own.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

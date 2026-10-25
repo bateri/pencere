@@ -208,6 +208,94 @@ fn a_line_that_may_be_cut_gives_its_room_away_before_the_others() {
 }
 
 #[test]
+fn text_that_wraps_goes_on_in_new_lines_at_its_spaces_and_its_box_is_as_tall_as_they_are() {
+    // 6.25 px a character, 15.625 px a line: a 100 px box fits 16 characters.
+    let root = div()
+        .w(100.0)
+        .child(text("zero running · six cpu · 11.7GiB").wrap());
+    let laid = layout(root, Size::new(100.0, 200.0), 1.0, &mut Fixed);
+    let boxes: Vec<Rect> = laid.rects().collect();
+    // Taffy rounds the boxes to whole pixels.
+    assert_eq!(boxes[1].h, (15.625_f32 * 3.0).round(), "three lines");
+    let list = laid.paint(&mut Fixed);
+    let runs = runs(&list);
+    let lines: Vec<&str> = runs.iter().map(|run| run.text.as_str()).collect();
+    assert_eq!(lines, ["zero running ·", "six cpu ·", "11.7GiB"]);
+    assert_eq!(
+        runs[1].origin.y - runs[0].origin.y,
+        15.625,
+        "one line under the other"
+    );
+    assert_eq!(runs[2].origin.y - runs[1].origin.y, 15.625);
+    assert!(runs.iter().all(|run| run.origin.x == 0.0));
+}
+
+#[test]
+fn text_that_wraps_breaks_a_word_longer_than_its_box_and_keeps_its_line_breaks() {
+    let root = div().w(25.0).child(text("abcdefghij\nab").wrap());
+    let list = paint(root, 25.0, 200.0, 1.0);
+    let lines: Vec<String> = runs(&list).iter().map(|run| run.text.clone()).collect();
+    assert_eq!(lines, ["abcd", "efgh", "ij", "ab"]);
+}
+
+#[test]
+fn text_that_wraps_is_one_line_where_it_fits_and_stands_where_it_is_aligned() {
+    let root = div()
+        .w(100.0)
+        .child(text("abcd").wrap().align(Align::End))
+        .child(text("abcd efgh ijkl mnop qrst").wrap().align(Align::Center));
+    let laid = layout(root, Size::new(100.0, 200.0), 1.0, &mut Fixed);
+    let boxes: Vec<Rect> = laid.rects().collect();
+    assert_eq!(boxes[1].h, 15.625_f32.round(), "one line");
+    let list = laid.paint(&mut Fixed);
+    let runs = runs(&list);
+    assert_eq!(runs[0].origin.x, 75.0);
+    // "abcd efgh ijkl" is 14 characters, 87.5 px, and "mnop qrst" 9, 56.25 px.
+    assert_eq!(runs[1].text, "abcd efgh ijkl");
+    assert_eq!(runs[1].origin.x, 6.25);
+    assert_eq!(runs[2].origin.x, 21.875);
+}
+
+#[test]
+fn text_that_wraps_in_a_row_gives_room_down_to_its_longest_word() {
+    let root = div()
+        .row()
+        .items_start()
+        .w(100.0)
+        .child(text("aaaa bb cc").wrap())
+        .child(div().w(80.0).no_shrink());
+    let boxes = rects(root, 100.0, 100.0, 1.0);
+    assert_eq!(boxes[1].w, 25.0, "the longest word");
+    assert_eq!(boxes[1].h, (15.625_f32 * 3.0).round(), "aaaa / bb / cc");
+}
+
+#[test]
+fn the_text_in_the_room_of_the_hosts_field_is_its_hint_and_the_page_does_not_draw_it() {
+    let root = div().row().child(text("before")).child(
+        div()
+            .text_field()
+            .w(120.0)
+            .h(18.0)
+            .child(text("Filter images")),
+    );
+    let laid = layout(root, Size::new(200.0, 20.0), 1.0, &mut Fixed);
+    assert_eq!(laid.text_field_hint(), Some("Filter images"));
+    let list = laid.paint(&mut Fixed);
+    let drawn: Vec<&str> = runs(&list).iter().map(|run| run.text.as_str()).collect();
+    assert_eq!(drawn, ["before"]);
+}
+
+#[test]
+fn a_field_with_no_text_in_its_room_has_no_hint() {
+    let root = div()
+        .child(text("outside"))
+        .child(div().text_field().w(120.0).h(18.0));
+    let laid = layout(root, Size::new(200.0, 40.0), 1.0, &mut Fixed);
+    assert_eq!(laid.text_field_hint(), None);
+    assert!(laid.text_field().is_some());
+}
+
+#[test]
 fn nothing_of_a_line_is_drawn_where_not_even_the_ellipsis_fits() {
     let root = div()
         .row()

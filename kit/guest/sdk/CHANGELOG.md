@@ -6,6 +6,12 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- A page module can wrap a text (`text(...).wrap()`) and give the host's field its hint (a text
+  inside the `text_field()` element), as `pencere-view` describes. The terminal's engine lays the
+  page out, so a terminal with this release of it is what draws them.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added
