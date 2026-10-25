@@ -278,7 +278,7 @@ function worldTemplate() {
   git(root, "init", "-q", "-b", "main");
   git(root, "add", "-A");
   git(root, "commit", "-q", "-m", "fixture");
-  git(root, "init", "-q", "--bare", origin);
+  git(root, "init", "-q", "--bare", "-b", "main", origin);
   git(root, "remote", "add", "origin", origin);
   git(root, "push", "-q", "origin", "main");
   for (const tool of ["cargo", "gh", "npm", "npx"]) {
