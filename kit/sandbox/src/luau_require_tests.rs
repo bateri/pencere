@@ -692,6 +692,39 @@ fn the_scripts_a_page_loads_are_held_to_the_size_of_a_script_together() {
     );
 }
 
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_chain_of_scripts_that_requires_deeper_than_the_interpreter_goes_is_an_error() {
+    // Each script requires the next, and every one of them runs inside the one before it.
+    let depth = 400;
+    let texts: Vec<String> = (0..depth)
+        .map(|n| {
+            if n + 1 < depth {
+                format!("return require('./m{}')", n + 1)
+            } else {
+                "return {}".to_owned()
+            }
+        })
+        .collect();
+    let names: Vec<String> = (0..depth).map(|n| format!("m{n}.lua")).collect();
+    let mut files: Vec<File> = vec![(
+        "page.lua",
+        LUA,
+        "require('./m0')\nreturn { render = function() return pencere.div() end }",
+    )];
+    for (name, text) in names.iter().zip(&texts) {
+        files.push((name.as_str(), LUA, text.as_str()));
+    }
+    let update = first_of("page.lua", &files, ModuleLimits::default());
+    // Not a page, and not a hang: the interpreter says so.
+    assert!(update.frame.is_none(), "{:?}", update.frame);
+    assert!(
+        matches!(&update.closed, Some(Fault::Failed(why)) if why.contains("C stack overflow")),
+        "{:?}",
+        update.closed
+    );
+}
+
 // --- The door: what the sandbox gives a script that asks, without an interpreter -----------------
 
 fn host_with(files: &[File], entry: &str) -> (Host, Arc<Files>) {

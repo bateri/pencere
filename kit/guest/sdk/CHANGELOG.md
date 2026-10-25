@@ -16,5 +16,8 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
   page engine (`pencere-view`) and the messages of the wire (`pencere-wire`), re-exported. The
   package carries a copy of the interface it implements (`wit/view.wit`, `pencere:view@1.0.0`), so
   that building it reads nothing outside the crate.
+- The copy of the interface it carries has the `script` functions a Lua interpreter is given to
+  load the other scripts of its bundle (`path`, `has-module`, `module`); an ordinary page module that asks
+  is given no script and no module, and the interface stays `pencere:view@1.0.0`.
 - `to_wit_frame` and `to_wit_reply` write the interface's lists: the words, values and tracks of a
   frame (and the titles of a menu) once each, and the elements name their parts.
