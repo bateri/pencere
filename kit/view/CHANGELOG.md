@@ -6,17 +6,23 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
-### Changed
-
-- **Breaking: the role `Role::Line` is `Role::Border`**, the name a page of kind `web` has for the colour of rules and borders (specification §11.2).
-
 ### Added
 
-- **An image keeps its proportions and its border.** An image whose box takes its size from the
-  image has the border and the padding beside it (the picture's room was measured against the whole
-  side and had them taken off again), and one held only by a `min_w`/`max_w`/`min_h`/`max_h` keeps its
-  other side in proportion where it has no padding or border.
-
+- The crate itself, and its first release (the pencere crates are released together at one version,
+  which began at 0.2.0: there is no 0.1.0 of this one). It is the page engine of the terminal that
+  wrote it first: elements and their style, layout, the draw list, what a page remembers between
+  frames, and the flat list a sandboxed page hands out (`wire`). The container list that served as
+  its worked page and gauge is the example `containers-page`, no longer part of the engine.
+- **Colours.** A `Role` names a colour of the theme: its nine roles, the colour of rules and borders
+  (`Role::Border`, specification §11.2), `Selection` and the sixteen ANSI colours (`Black` …
+  `BrightWhite`, in the order of the palette: `Role::ANSI`, `Role::ansi_index`). A `Color` is a
+  `Source` (a role, or an `Rgba` value with an optional form for a dark theme) and an opacity:
+  `Color { source, alpha }` (`Color::role()` gives the role). `Rgba::parse` reads `#rrggbb` and
+  `#rrggbbaa`. The engine resolves none of it: the host takes the role from its theme and the form
+  of a value that goes with its brightness (`Source::value`).
+- **`Run::grounds`.** Each line of text in the draw list names the fills under it, nearest first,
+  up to the first opaque one (`Color::is_opaque`), unresolved: what a host needs to hold the text
+  to its lowest contrast.
 - **Images.** `image(src, fit)` is an element that draws a file of the view's bundle (`Kind::Image`;
   `.tint(colour)` and `.opacity(x)` on it; `Fit::Contain` or `Fit::Cover`). The host says how large
   an image is (`Measure::image`, in pixels of the image, `None` while it is not known), the engine
@@ -24,18 +30,6 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   and the draw list holds `Paint::Image(Picture)`: where it is drawn, the share of the image it
   shows (`crop`, which is how `cover` cuts), the unresolved tint, the opacity and the corners.
   `Picture::full()` is the size the whole image comes to, which is what a vector image is drawn at.
-
-- **Colours.** `Role` gains the theme's sixteen ANSI colours (`Black` … `BrightWhite`, in the order
-  of the palette: `Role::ANSI`, `Role::ansi_index`) and `Selection`. A `Color` is now a `Source`
-  (a role, or an `Rgba` value with an optional form for a dark theme) and an opacity; it is
-  `Color { source, alpha }` where it was `Color { tone, alpha }` (`Color::role()` gives the role).
-  `Rgba::parse` reads `#rrggbb` and `#rrggbbaa`. The engine resolves none of it: the host takes the
-  role from its theme and the form of a value that goes with its brightness (`Source::value`).
-- **`Run::grounds`.** Each line of text in the draw list names the fills under it, nearest first,
-  up to the first opaque one (`Color::is_opaque`), unresolved: what a host needs to hold the text
-  to its lowest contrast.
-
-- The crate itself, taken from the page engine of the terminal that wrote it first: elements and
-  their style, layout, the draw list, what a page remembers between frames, the flat list a
-  sandboxed page hands out (`wire`). The container list that served as its worked page and gauge is
-  the example `containers-page`, no longer part of the engine.
+  An image whose box takes its size from the image has the border and the padding beside it, and
+  one held only by a `min_w`/`max_w`/`min_h`/`max_h` keeps its other side in proportion where it has
+  no padding or border.

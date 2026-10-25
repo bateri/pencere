@@ -23,9 +23,10 @@ under this name) are recorded here. The format follows
 - **Breaking: `Config::bundle` is gone and the `welcome` no longer lists `bundle` in `features`.** Every view arrives as a bundle, so there was nothing to ask; `features` is `["dismiss"]`.
 - **A message nested 128 levels deep or more is dropped** in either direction (§4.5, §9.3), as is one that is not a complete JSON object; a `hello`, `open`, `bye` or `dismiss` that deep is not read either.
 - **The default policy of a page has `form-action 'none'`** (§12.1): a form could otherwise submit the page to any address.
-- **Breaking: the crate is `pencere-host`** (the library is `pencere_host`). The name `pencere` is
-  the program library's, the one a program's author adds to a project; nobody used the crate that
-  was published under it.
+- **Breaking: the crate is `pencere-host`** (the library is `pencere_host`), and this is its first
+  release under that name, at the version the pencere crates share. The name `pencere` is the
+  program library's, the one a program's author adds to a project; nobody used the crate that was
+  published under it (0.1.0, below).
 - **The wire moved out to `pencere-wire`**, so that a program and a terminal share one copy of it:
   `frame`, `json`, `base64`, `message` and the manifest, digests and verification of files of
   `bundle`. They are re-exported, so `pencere_host::frame` is still where a terminal finds them. What
