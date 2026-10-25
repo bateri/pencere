@@ -6,6 +6,16 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+### Added
+
+- An app can be a filter in a pipeline. `io.read_stdin(on_data[, on_end])` reads standard input as
+  it arrives, a piece at a time and exactly as written, without holding the app: the view and the
+  other work go on while the data comes. It gives a reading with `:stop()` (the writer is told the
+  pipe has no reader), `:active()` and `:wait()` (waits until the input has ended or was stopped).
+  `io.is_terminal("stdin" | "stdout" | "stderr")` says whether a stream is a terminal. `serve{
+filter = true }` shows the view on the controlling terminal, whatever the standard streams are
+  (specification section 13), so that stdin and stdout stay the pipeline's.
+
 ### Changed
 
 - An app has one source layout: the program in `src/program/` (`app.lua` and its modules), the page

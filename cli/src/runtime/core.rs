@@ -196,6 +196,8 @@ pub struct Core {
     timers: RefCell<Vec<Timer>>,
     next_id: Cell<u64>,
     pub children: RefCell<Vec<Child>>,
+    /// The reading of standard input, while there is one.
+    pub stdin: RefCell<Option<super::stdin::Stdin>>,
     pub serve: RefCell<Option<ServeRun>>,
     pub sub_ends: RefCell<HashMap<u64, Vec<Function>>>,
     /// The directories being watched, by number: what to call, and the watch itself.
@@ -238,6 +240,7 @@ impl Core {
             timers: RefCell::new(Vec::new()),
             next_id: Cell::new(1),
             children: RefCell::new(Vec::new()),
+            stdin: RefCell::new(None),
             serve: RefCell::new(None),
             sub_ends: RefCell::new(HashMap::new()),
             watches: RefCell::new(HashMap::new()),
@@ -376,6 +379,7 @@ impl Core {
     pub fn is_waiting(&self) -> bool {
         !self.timers.borrow().is_empty()
             || !self.children.borrow().is_empty()
+            || self.stdin.borrow().is_some()
             || !self.watches.borrow().is_empty()
             || self.serve.borrow().is_some()
     }
@@ -403,6 +407,15 @@ impl Core {
             if (!child.stdout.open && !child.stderr.open) || child.killed_at.is_some() {
                 reaping = true;
             }
+        }
+        // Standard input is the last descriptor, after the processes' pipes.
+        let reading = super::stdin::watched(self);
+        if let Some(fd) = reading {
+            fds.push(libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            });
         }
         let mut timeout = wait;
         if let Some(due) = self.next_timer() {
@@ -433,6 +446,10 @@ impl Core {
             if pollfd.revents != 0 {
                 self.read_child(*id, *is_err);
             }
+        }
+        // A hang-up (the writer is gone) is read as well: the read says the input has ended.
+        if reading.is_some() && fds.last().is_some_and(|pollfd| pollfd.revents != 0) {
+            super::stdin::read(self);
         }
         self.reap();
         if self.exit().is_none() {
@@ -650,6 +667,7 @@ impl Core {
         let watches: Vec<_> = self.watches.borrow_mut().drain().collect();
         drop(watches);
         *self.serve.borrow_mut() = None;
+        *self.stdin.borrow_mut() = None;
         self.sub_ends.borrow_mut().clear();
         *self.task.borrow_mut() = None;
         for child in self.children.borrow_mut().iter_mut() {

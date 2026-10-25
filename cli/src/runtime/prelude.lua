@@ -170,6 +170,54 @@ module.json = guard(native.json)
 module.hash = guard(native.hash)
 module.os = guard(native.os)
 module.io = guard(native.io)
+
+-- io.read_stdin(on_data[, on_end]) reads standard input as it arrives, without holding the app:
+-- `on_data(bytes)` is given each piece (up to 64 KiB, exactly as written: no line is cut, no end is
+-- taken off) in order, and `on_end()` once, when the input ends. It gives a reading with `:stop()`
+-- (no more is read, `on_end` is not called, and what writes the input is told it has no reader),
+-- `:active()` and `:wait()`, which waits until the input has ended or was stopped while the app's
+-- other work goes on. One reading at a time.
+do
+	local start = guarded(native.read_stdin)
+	module.io.read_stdin = function(on_data, on_end)
+		if type(on_data) ~= "function" then
+			error("io.read_stdin takes a function that is given each piece of the input", 2)
+		end
+		local over, waiting = false, {}
+		local function ended()
+			over = true
+			local list = waiting
+			waiting = {}
+			for _, done in ipairs(list) do
+				done()
+			end
+		end
+		local reading = start(on_data, function()
+			if on_end then
+				on_end()
+			end
+			ended()
+		end)
+		return {
+			stop = function()
+				local was = reading:stop()
+				ended()
+				return was
+			end,
+			active = function()
+				return reading:active()
+			end,
+			wait = function()
+				if over then
+					return
+				end
+				suspend(function(done)
+					waiting[#waiting + 1] = done
+				end)
+			end,
+		}
+	end
+end
 module.text = guard(native.text)
 module.regex = guard(native.regex)
 module.args = native.args
