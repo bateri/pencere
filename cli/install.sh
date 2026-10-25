@@ -85,28 +85,38 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/$BINARY-install.XXXXXX") || fail "cannot make a
 trap 'rm -rf "$tmp"' EXIT
 trap 'exit 1' HUP INT TERM
 
-# The newest release of this command: the repository holds the releases of several lines, so the
-# newest of all (what GitHub calls Latest) is not it. A draft and a pre-release do not count, and
-# the tags that are not `<prefix>x.y.z` are other lines'. The listing is read without jq: each
-# release has one `tag_name`, and the `draft` and `prerelease` that follow it before the next.
+# The newest release of this command that has the file for this machine: the repository holds the
+# releases of several lines, so the newest of all (what GitHub calls Latest) is not it. A draft
+# and a pre-release do not count, the tags that are not `<prefix>x.y.z` are other lines', and a
+# release without `<binary>-<version>-<target>` among its files is not one to install here (the
+# tag `cli-v0.1.0` was another package's, before this command was released). The listing is read
+# without jq: each release has one `tag_name`, and the `draft`, `prerelease` and file `name`s that
+# follow it before the next.
 newest() {
-    tr ',' '\n' <"$1" | awk -v prefix="$TAG_PREFIX" '
+    tr ',' '\n' <"$1" | awk -v prefix="$TAG_PREFIX" -v binary="$BINARY" -v target="$target" '
         function flush() {
-            if (tag != "" && !draft && !pre && index(tag, prefix) == 1) {
-                version = substr(tag, length(prefix) + 1)
-                if (version ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) print version
-            }
+            if (tag != "" && !draft && !pre && has && version ~ /^[0-9]+\.[0-9]+\.[0-9]+$/)
+                print version
         }
         /"tag_name"[ \t]*:[ \t]*"/ {
             flush()
             tag = $0
             sub(/.*"tag_name"[ \t]*:[ \t]*"/, "", tag)
             sub(/".*/, "", tag)
+            version = index(tag, prefix) == 1 ? substr(tag, length(prefix) + 1) : ""
+            want = binary "-" version "-" target
             draft = 0
             pre = 0
+            has = 0
         }
         /"draft"[ \t]*:[ \t]*true/ { draft = 1 }
         /"prerelease"[ \t]*:[ \t]*true/ { pre = 1 }
+        /"name"[ \t]*:[ \t]*"/ {
+            name = $0
+            sub(/.*"name"[ \t]*:[ \t]*"/, "", name)
+            sub(/".*/, "", name)
+            if (version != "" && name == want) has = 1
+        }
         END { flush() }
     ' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1
 }
@@ -117,7 +127,7 @@ if [ -z "$version" ]; then
     fetch "$LISTING" "$tmp/releases.json" ||
         fail "cannot list the releases of $REPO: is there a network, and has GitHub not answered too many times?"
     version=$(newest "$tmp/releases.json")
-    [ -n "$version" ] || fail "$REPO has no release of $BINARY"
+    [ -n "$version" ] || fail "$REPO has no release of $BINARY for $target yet (https://github.com/$REPO/releases)"
 fi
 case $version in
     *[!0-9.]* | .* | *.) fail "'$version' is not a version (x.y.z)" ;;
