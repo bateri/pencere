@@ -829,7 +829,7 @@ dependencies = [
 
 [[package]]
 name = "pencere"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libc",
  "pencere-wire",
@@ -839,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "pencere-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "libc",
  "libsui",
@@ -862,7 +862,7 @@ dependencies = [
 
 [[package]]
 name = "pencere-host"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pencere-wire",
  "serde",
@@ -871,7 +871,7 @@ dependencies = [
 
 [[package]]
 name = "pencere-sandbox"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "containers-page",
  "pencere-view",
@@ -885,14 +885,14 @@ dependencies = [
 
 [[package]]
 name = "pencere-view"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "taffy",
 ]
 
 [[package]]
 name = "pencere-wire"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",

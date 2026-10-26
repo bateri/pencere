@@ -6,6 +6,8 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-26
+
 ### Added
 
 - An element's `motion` and `tip` cross the interface.

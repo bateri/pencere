@@ -6,6 +6,8 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-26
+
 ### Fixed
 
 - A program whose terminal goes away (an ssh connection that drops) is no longer ended by the
