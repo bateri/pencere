@@ -3,7 +3,7 @@
 //! the end-to-end tests of the stand-in terminal; the TypeScript project is checked for the paths
 //! its tasks name (Deno asks the registry for the SDK, which these tests do not); the Rust project
 //! is compiled here, against the libraries of this repository instead of the registry's (it asks
-//! for `pencere = "0.2"`).
+//! for `pencere = "0.3"`).
 
 // A test fails by panicking, and the helpers here are the test's.
 #![allow(clippy::expect_used, clippy::panic)]

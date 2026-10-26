@@ -6,6 +6,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-26
+
 ### Added
 
 - The interface says an element's `motion` and `tip` (both on a node), held to sane values (a move

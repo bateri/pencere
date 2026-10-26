@@ -3,7 +3,7 @@ name = "pencere"
 description = "Show a view in the pane of the terminal your program runs in: the program's side of pencere, with the terminal modes, the handshake and the way out already done"
 # The crate's own version line, apart from the workspace's. The name was the host crate's until it
 # became `pencere-host`; the version is the next after the last one published under it.
-version = "0.2.0"
+version = "0.3.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -15,7 +15,7 @@ include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTI
 
 [dependencies]
 # The wire both ends share: frames, the digests and base64 of a bundle, the six view messages.
-pencere-wire = { path = "../wire", version = "0.2.0" }
+pencere-wire = { path = "../wire", version = "0.3.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The tty, the signals and the poll: what a program that owns a terminal does, and no runtime

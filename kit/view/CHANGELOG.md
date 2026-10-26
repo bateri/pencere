@@ -6,6 +6,8 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-26
+
 ### Fixed
 
 - A box inside another's padding stands in its middle on a page drawn at a scale that is not a
