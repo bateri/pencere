@@ -6,6 +6,13 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+### Fixed
+
+- An app whose terminal goes away (an ssh connection that drops) is no longer killed by the
+  hangup's `SIGHUP` after its view is over, before the code after `pencere.serve` has run: the
+  signal that came a moment after the tty failed found its default action. Once the terminal has
+  hung up, `SIGHUP` stays ignored (the `pencere` crate's fix, which the runner is built with).
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

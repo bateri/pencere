@@ -44,6 +44,8 @@
 //! * the **signals**: ⌃C, `SIGTERM`, `SIGHUP` and ⌃\ end the view with a `bye`, wait up to half a
 //!   second for the terminal's `closed`, throw away what is left unread and give the terminal
 //!   back; ⌃Z gives the terminal back, stops the program, and takes it again when it continues;
+//!   once the terminal has hung up, `SIGHUP` stays ignored after `serve` returns, so that the
+//!   kernel's signal for the same hangup does not end the program before what it does next;
 //! * the **alternate screen**, entered before the `open` and left on the way out;
 //! * the **writes**: one thread writes, a few bytes at a time while the tty has room, so a
 //!   terminal that is not reading cannot keep the program from reading or from leaving.
