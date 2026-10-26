@@ -20,6 +20,9 @@ and x86_64, named `pencere-<version>-<target>`.
 With Rust, `cargo install --git https://github.com/bateri/pencere pencere-cli --locked` builds it
 from the source (the program is called `pencere`).
 
+`pencere upgrade` replaces the command with the newest release later (`--check` only looks), checked
+the same way; one that Cargo installed is replaced by Cargo (`cargo install … --force`).
+
 A file downloaded with a browser is quarantined by macOS, which will not run it:
 `xattr -d com.apple.quarantine <file>` lifts that. A file `curl` fetches, which is what the line
 above does, is not.

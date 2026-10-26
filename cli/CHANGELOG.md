@@ -8,6 +8,12 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`pencere upgrade`.** Replaces the command with the newest release of it, as `install.sh` would
+  install it: the release's file for this machine, checked against the release's `SHA256SUMS`, put
+  in the place of the running file in one rename. `--check` only says whether there is a newer one,
+  `--version X.Y.Z` takes that one (an older one too). A command Cargo installed is left to Cargo,
+  with the line that replaces it.
+
 - **`pencere dev` and `pencere build` for a program in Rust.** In a Cargo package, `pencere dev`
   builds the program with Cargo and runs it in the pane: a change to the page or a picture shows
   the view again without ending it (the `pencere` library reads them from the project), and a

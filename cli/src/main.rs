@@ -12,6 +12,7 @@ mod macho;
 mod new;
 mod payload;
 mod runtime;
+mod upgrade;
 
 use std::process::ExitCode;
 
@@ -32,6 +33,10 @@ usage:
                                              make one executable of the app in dir; a Cargo
                                              package is built by Cargo (--release, --target passed
                                              on) and its program copied to dist/
+  pencere upgrade [--check] [--version X.Y.Z]
+                                             replace this command with the newest release of it
+                                             (or X.Y.Z), checked against the release's SHA256SUMS;
+                                             --check only says whether there is a newer one
   pencere --version
 
 An app is a directory with the program in src/program/ (app.lua and its modules), the page in
@@ -66,6 +71,7 @@ fn command(args: Vec<String>) -> ExitCode {
         "new" => new::command(&rest),
         "dev" => dev::command(&rest),
         "build" => build_cmd::command(&rest),
+        "upgrade" => upgrade::command(&rest),
         "--version" | "-V" | "version" => {
             println!("pencere {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS

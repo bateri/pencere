@@ -65,7 +65,7 @@ fn cache() -> Result<PathBuf, String> {
     })
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
         .map(|byte| format!("{byte:02x}"))
@@ -74,7 +74,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 /// The text at a URL (a file: URL too), with `curl`: the runner has no network client in it, and
 /// a download is a thing the person asked for with `--target`.
-fn fetch(url: &str, to: &Path) -> Result<(), String> {
+pub fn fetch(url: &str, to: &Path) -> Result<(), String> {
     let status = Command::new("curl")
         .args(["--fail", "--silent", "--show-error", "--location", "--retry", "2", "--output"])
         .arg(to)
