@@ -13,7 +13,7 @@ use taffy::style::{
 };
 use taffy::{NodeId, TaffyTree};
 
-use crate::element::{Fit, Kind, Meta, Spark};
+use crate::element::{FieldKind, Fit, Kind, Meta, Spark};
 use crate::style::{
     Border, Direction, Display, Items, Justify, Length, Overflow, Shadow, Style, TextStyle, Track,
 };
@@ -26,6 +26,9 @@ const DEFAULT_TEXT: TextStyle = TextStyle {
     family: Some(Family::Terminal),
     size: Some(12.5),
     weight: Some(400),
+    italic: Some(false),
+    underline: Some(false),
+    strike: Some(false),
     color: Some(Role::Foreground.solid()),
     align: Some(Align::Start),
 };
@@ -39,6 +42,8 @@ pub(crate) struct TextLine {
     pub align: Align,
     pub truncate: bool,
     pub wrap: bool,
+    pub underline: bool,
+    pub strike: bool,
 }
 
 /// An image laid out: what the host said of its size when the page was laid out, so that what
@@ -48,7 +53,6 @@ pub(crate) struct Placed {
     pub src: String,
     pub fit: Fit,
     pub tint: Option<Color>,
-    pub opacity: f32,
     /// The size of the image itself, pixels (a point to a pixel, times the scale); `None` while
     /// the host did not know it.
     pub natural: Option<Size>,
@@ -81,11 +85,13 @@ pub(crate) struct Node {
     pub border: Option<Border>,
     pub radii: [f32; 4],
     pub shadow: Option<Shadow>,
+    /// How much of what it draws shows: its own opacity times those of the boxes that hold it.
+    pub opacity: f32,
     /// The element that holds this one (its place in the paint order).
     pub parent: Option<usize>,
     pub meta: Meta,
-    /// For a box that scrolls: how tall its content is and how tall the box is, pixels.
-    pub extent: Option<(f32, f32)>,
+    /// For a box that scrolls: how large its content is and how large the box is, pixels.
+    pub extent: Option<(Size, Size)>,
 }
 
 /// A page laid out: every element's box, in the order they are painted.
@@ -124,9 +130,12 @@ struct Pending {
     overflow: Overflow,
     /// Pixels.
     scroll: (f32, f32),
-    /// The room inside the box below its content, pixels.
+    /// The room inside the box below and to the right of its content, pixels.
     pad_bottom: f32,
+    pad_right: f32,
     hidden: bool,
+    /// Its own opacity, `0.0..=1.0`.
+    opacity: f32,
     content: Content,
     fill: Option<Color>,
     border: Option<Border>,
@@ -226,18 +235,19 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     let mut nodes: Vec<Node> = Vec::with_capacity(pending.len());
     // Where each element's children are measured from, and the clip they inherit.
     let mut origins: Vec<(f32, f32, Rect, bool)> = Vec::with_capacity(pending.len());
-    // How far down each box's children reach, where the box does not scroll them: the length
-    // of what a scrolling box holds.
-    let mut reach: Vec<f32> = Vec::with_capacity(pending.len());
-    // What each box scrolls its children by, and the room it keeps below them, pixels.
-    let mut inside: Vec<(f32, f32)> = Vec::with_capacity(pending.len());
+    // How far down and across each box's children reach, where the box does not scroll them:
+    // the size of what a scrolling box holds.
+    let mut reach: Vec<(f32, f32)> = Vec::with_capacity(pending.len());
+    // What each box scrolls its children by (across, down), and the room it keeps to the right
+    // of and below them, pixels.
+    let mut inside: Vec<[f32; 4]> = Vec::with_capacity(pending.len());
     for entry in pending {
         let Ok(laid) = tree.layout(entry.id) else {
             // A node Taffy does not know: nothing of it (cannot happen — its own ids).
             nodes.push(empty(page));
             origins.push((0.0, 0.0, page, true));
-            reach.push(0.0);
-            inside.push((0.0, 0.0));
+            reach.push((0.0, 0.0));
+            inside.push([0.0; 4]);
             continue;
         };
         let (ox, oy, outer_clip, outer_hidden) = entry
@@ -263,13 +273,23 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             hidden,
         ));
         if let Some(parent) = entry.parent {
-            let held = rect.bottom() + inside.get(parent).map_or(0.0, |inside| inside.0);
+            let scrolled = inside.get(parent).copied().unwrap_or([0.0; 4]);
+            let held = (rect.right() + scrolled[0], rect.bottom() + scrolled[1]);
             if let Some(reach) = reach.get_mut(parent) {
-                *reach = reach.max(held);
+                *reach = (reach.0.max(held.0), reach.1.max(held.1));
             }
         }
-        reach.push(0.0);
-        inside.push((entry.scroll.1, entry.pad_bottom));
+        reach.push((0.0, 0.0));
+        inside.push([
+            entry.scroll.0,
+            entry.scroll.1,
+            entry.pad_right,
+            entry.pad_bottom,
+        ]);
+        let held_opacity = entry
+            .parent
+            .and_then(|parent| nodes.get(parent))
+            .map_or(1.0, |parent| parent.opacity);
         nodes.push(Node {
             rect,
             clip: outer_clip,
@@ -279,15 +299,20 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             border: entry.border,
             radii: entry.radii,
             shadow: entry.shadow,
+            opacity: entry.opacity * held_opacity,
             parent: entry.parent,
             meta: entry.meta,
-            extent: (entry.overflow == Overflow::Scroll).then_some((0.0, rect.h)),
+            extent: (entry.overflow == Overflow::Scroll)
+                .then_some((Size::new(0.0, 0.0), Size::new(rect.w, rect.h))),
         });
     }
     // `nodes`, `reach` and `inside` get one entry for every element: they are the same length.
     for ((node, reach), inside) in nodes.iter_mut().zip(&reach).zip(&inside) {
         if let Some((content, _)) = &mut node.extent {
-            *content = (reach - node.rect.y).max(0.0) + inside.1;
+            *content = Size::new(
+                (reach.0 - node.rect.x).max(0.0) + inside[2],
+                (reach.1 - node.rect.y).max(0.0) + inside[3],
+            );
         }
     }
     Laid {
@@ -333,6 +358,7 @@ fn empty(page: Rect) -> Node {
         border: None,
         radii: [0.0; 4],
         shadow: None,
+        opacity: 1.0,
         parent: None,
         meta: Meta::default(),
         extent: None,
@@ -361,6 +387,7 @@ fn build(
         family: text.family.unwrap_or(Family::Terminal),
         size: text.size.unwrap_or(12.5) * scale,
         weight: text.weight.unwrap_or(400),
+        italic: text.italic.unwrap_or(false),
     };
     let color = text.color.unwrap_or(Role::Foreground.solid());
 
@@ -373,7 +400,12 @@ fn build(
         overflow: style.overflow,
         scroll: (px(style.scroll.0), px(style.scroll.1)),
         pad_bottom: px(style.padding[2]),
+        pad_right: px(style.padding[1]),
         hidden: style.display == Display::None,
+        opacity: style
+            .opacity
+            .filter(|opacity| opacity.is_finite())
+            .map_or(1.0, |opacity| opacity.clamp(0.0, 1.0)),
         content: Content::None,
         fill: style.fill,
         border: style.border.map(|b| Border {
@@ -405,6 +437,8 @@ fn build(
                     align: text.align.unwrap_or(Align::Start),
                     truncate: style.truncate,
                     wrap: style.wrap,
+                    underline: text.underline.unwrap_or(false),
+                    strike: text.strike.unwrap_or(false),
                 });
             }
             tree.new_leaf_with_context(taffy_style, leaf)
@@ -445,7 +479,6 @@ fn build(
                     src: image.src,
                     fit: image.fit,
                     tint: image.tint,
-                    opacity: image.opacity,
                     natural,
                     inset: [top, right, bottom, left].map(|edge| edge * scale + border),
                 });
@@ -679,12 +712,13 @@ impl Laid {
             .and_then(|node| node.meta.id)
     }
 
-    /// How tall the content of the scrolling box named `id` is and how tall the box is.
+    /// How large the content of the scrolling box named `id` is and how large the box is.
     pub fn scroll_extent(&self, id: Id) -> Option<Extent> {
         let (content, view) = self.named(id)?.extent?;
+        let s = self.scale;
         Some(Extent {
-            content: content / self.scale,
-            view: view / self.scale,
+            content: Size::new(content.w / s, content.h / s),
+            view: Size::new(view.w / s, view.h / s),
         })
     }
 
@@ -697,30 +731,126 @@ impl Laid {
             .collect()
     }
 
-    /// The box of the element that stands for a text field of the host's
-    /// ([`crate::Element::text_field`]), points: where the host puts it.
-    pub fn text_field(&self) -> Option<Rect> {
-        let node = self
-            .nodes
-            .iter()
-            .find(|node| node.meta.text_field && !node.hidden)?;
+    /// The text fields the host puts over the page ([`crate::Element::field`]), in the order they
+    /// are written: each named, of its kind, where it stands (points), what it says while it is
+    /// empty, and what it is to a screen reader. An element that says it is a field and has no
+    /// name, or is hidden, is not one.
+    pub fn fields(&self) -> Vec<Field> {
         let s = self.scale;
-        Some(Rect::new(
-            node.rect.x / s,
-            node.rect.y / s,
-            node.rect.w / s,
-            node.rect.h / s,
-        ))
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| !node.hidden)
+            .filter_map(|(index, node)| {
+                let (Some(id), Some(kind)) = (node.meta.id, node.meta.field) else {
+                    return None;
+                };
+                Some(Field {
+                    id,
+                    kind,
+                    rect: Rect::new(
+                        node.rect.x / s,
+                        node.rect.y / s,
+                        node.rect.w / s,
+                        node.rect.h / s,
+                    ),
+                    hint: self.hint_of(index).map(str::to_owned),
+                    label: node.meta.label.clone(),
+                })
+            })
+            .collect()
     }
 
-    /// What the text field the host puts over the page says while it is empty: the words of the
-    /// first text inside the element that stands for it (`div().text_field().child(text("Filter
-    /// by name…"))`). The page does not draw them; the host's field does.
-    pub fn text_field_hint(&self) -> Option<&str> {
-        let field = self
-            .nodes
-            .iter()
-            .position(|node| node.meta.text_field && !node.hidden)?;
+    /// What the page is to a screen reader, in the order it is written: each element that answers
+    /// the pointer is a button, said by its label or else by the words inside it (which are not
+    /// said again apart); each text field is a field, said by its label or else by its hint; each
+    /// line of text that is in neither is said as it is, and so is an element that is neither but
+    /// has a label (an icon that says what it shows), whose words inside are not said again. What
+    /// is hidden, has no room or is cut off altogether by the boxes around it is not there.
+    /// Boxes are points.
+    pub fn accessible(&self) -> Vec<Accessible> {
+        let s = self.scale;
+        let points = |rect: Rect| Rect::new(rect.x / s, rect.y / s, rect.w / s, rect.h / s);
+        let shown = |node: &Node| {
+            !node.hidden && node.rect.w > 0.0 && node.rect.h > 0.0 && {
+                let seen = Self::shown(node);
+                seen.w > 0.0 && seen.h > 0.0
+            }
+        };
+        let mut items = Vec::new();
+        // The element whose words are said for it (a button, a field, a labelled box): what is
+        // inside it is not said apart.
+        let mut said_by: Option<usize> = None;
+        for (index, node) in self.nodes.iter().enumerate() {
+            if said_by.is_some_and(|outer| self.is_inside(index, outer)) {
+                continue;
+            }
+            said_by = None;
+            if !shown(node) {
+                continue;
+            }
+            let field = node.meta.field.filter(|_| node.meta.id.is_some());
+            let role = if let Some(kind) = field {
+                Some(AccessibleRole::Field(kind))
+            } else if node.meta.pressable {
+                Some(AccessibleRole::Button)
+            } else if node.meta.label.is_some() {
+                Some(AccessibleRole::Text)
+            } else {
+                None
+            };
+            if let Some(role) = role {
+                said_by = Some(index);
+                let words = node.meta.label.clone().unwrap_or_else(|| match role {
+                    AccessibleRole::Field(_) => self.hint_of(index).unwrap_or_default().to_owned(),
+                    _ => self.words_in(index),
+                });
+                items.push(Accessible {
+                    role,
+                    id: node.meta.id,
+                    rect: points(node.rect),
+                    words,
+                });
+                continue;
+            }
+            if let Content::Text(line) = &node.content
+                && !line.text.is_empty()
+            {
+                items.push(Accessible {
+                    role: AccessibleRole::Text,
+                    id: node.meta.id,
+                    rect: points(node.rect),
+                    words: line.text.clone(),
+                });
+            }
+        }
+        items
+    }
+
+    /// The words of the lines of text inside the element at `outer`, in order, a space between.
+    fn words_in(&self, outer: usize) -> String {
+        let mut words: Vec<&str> = Vec::new();
+        for (index, node) in self.nodes.iter().enumerate().skip(outer) {
+            if !self.is_inside(index, outer) {
+                if index > outer {
+                    break;
+                }
+                continue;
+            }
+            if let Content::Text(line) = &node.content
+                && !node.hidden
+                && !line.text.is_empty()
+            {
+                words.push(&line.text);
+            }
+        }
+        words.join(" ")
+    }
+
+    /// What the field at `index` says while it is empty: the words of the first text inside it
+    /// (`div().text_field(id).child(text("Filter by name…"))`). The page does not draw them; the
+    /// host's field does.
+    fn hint_of(&self, field: usize) -> Option<&str> {
         self.nodes
             .iter()
             .enumerate()
@@ -744,15 +874,15 @@ impl Laid {
         false
     }
 
-    /// Whether the element at `index` is in the room of the host's text field, which the host
-    /// draws over: what is there is the field's, not the page's.
+    /// Whether the element at `index` is in the room of a text field of the host's, which the
+    /// host draws over: what is there is the field's, not the page's.
     pub(crate) fn in_text_field(&self, index: usize) -> bool {
         let mut at = Some(index);
         while let Some(here) = at {
             let Some(node) = self.nodes.get(here) else {
                 return false;
             };
-            if node.meta.text_field {
+            if node.meta.field.is_some() && node.meta.id.is_some() {
                 return true;
             }
             at = node.parent;
@@ -789,14 +919,12 @@ pub trait Queries {
     fn ids_at(&self, at: Point) -> Vec<Id>;
     /// The element under `at` that answers the pointer: the topmost.
     fn hit(&self, at: Point) -> Option<Id>;
-    /// How tall the content of the scrolling box named `id` is and how tall the box is.
+    /// How large the content of the scrolling box named `id` is and how large the box is.
     fn scroll_extent(&self, id: Id) -> Option<Extent>;
     /// The elements the keyboard can be on, in the order they are written.
     fn focus_order(&self) -> Vec<Id>;
     /// `id` and the named elements that hold it, innermost first.
     fn path_of(&self, id: Id) -> Vec<Id>;
-    /// The box of the text field the host puts over the page, points.
-    fn text_field(&self) -> Option<Rect>;
 }
 
 impl Queries for Laid {
@@ -818,21 +946,60 @@ impl Queries for Laid {
     fn path_of(&self, id: Id) -> Vec<Id> {
         Laid::path_of(self, id)
     }
-    fn text_field(&self) -> Option<Rect> {
-        Laid::text_field(self)
-    }
 }
 
-/// The length of what a scrolling box holds against the box's own, points.
+/// The size of what a scrolling box holds against the box's own, points.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Extent {
-    pub content: f32,
-    pub view: f32,
+    pub content: Size,
+    pub view: Size,
 }
 
 impl Extent {
-    /// The furthest the content can be scrolled: 0 when it fits.
+    /// The furthest the content can be scrolled down: 0 when it fits.
     pub fn max_offset(self) -> f32 {
-        (self.content - self.view).max(0.0)
+        (self.content.h - self.view.h).max(0.0)
     }
+
+    /// The furthest it can be scrolled across: 0 when it fits.
+    pub fn max_offset_x(self) -> f32 {
+        (self.content.w - self.view.w).max(0.0)
+    }
+}
+
+/// What an element is to a screen reader ([`Laid::accessible`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AccessibleRole {
+    /// It answers the pointer: pressing it does what it says.
+    Button,
+    /// A text field of the host's, of its kind.
+    Field(FieldKind),
+    /// Words to read.
+    Text,
+}
+
+/// One thing a screen reader says of the page ([`Laid::accessible`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Accessible {
+    pub role: AccessibleRole,
+    /// The element's name, where it has one (a button's is what a press on it names).
+    pub id: Option<Id>,
+    /// Where it stands, points.
+    pub rect: Rect,
+    /// What is said.
+    pub words: String,
+}
+
+/// A text field the host puts over the page ([`Laid::fields`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Field {
+    /// Its name: the id of the element that is its room.
+    pub id: Id,
+    pub kind: FieldKind,
+    /// Where it stands, points.
+    pub rect: Rect,
+    /// What it says while it is empty: the first text inside its room.
+    pub hint: Option<String>,
+    /// What it is to a screen reader, where the page said ([`crate::Element::label`]).
+    pub label: Option<String>,
 }

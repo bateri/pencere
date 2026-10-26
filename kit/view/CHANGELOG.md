@@ -13,10 +13,34 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   is as tall as the lines, and in a row it gives its room away down to the longest word. Each line
   is measured by the host, as a line always is, so the lines break where the host's font says.
   Without `wrap` a text is one line, as before.
-- **What the host's text field says while it is empty.** A text inside the element that is the room
-  of the host's field (`div().text_field().child(text("Filter images"))`) is its hint:
-  `Laid::text_field_hint` says it, and the page does not draw it. A host that shows a hint shows
-  the page's, not one of its own.
+- **A colour taken toward another.** `Color::toward(other, amount)` mixes a colour part of the way
+  toward another (`Color::mix`, a `Mix`), in sRGB, before its opacity: a highlight that comes in on
+  its ground, a word that brightens. `Color::resolve` is how every host resolves a colour, mix and
+  opacity included; `Color::faded` multiplies the opacity.
+- **An element's opacity.** `opacity(0..1)` on any element fades it and everything inside it: each
+  thing it draws (fills, borders, shadows, words, pictures, sparklines, and the grounds a line is
+  read against) is that much fainter, and nothing of an element at nothing is drawn.
+- **Italic, and lines under and through words.** `italic()`, `underline()` and `strike()` are
+  inherited like the rest of the text's style: `Font::italic`, `Run::underline`, `Run::strike`.
+- **As many text fields as a page names.** `field(id, FieldKind)` (or `text_field(id)`, one line)
+  makes an element the room of a host's field named `id`, of a kind: `Line`, `Lines` or `Secret`.
+  `Laid::fields` lists them with where each stands, its kind, its hint (the first text inside it,
+  which the page does not draw) and its label. A host that shows a hint shows the page's.
+- **Labels.** `label(words)` says what an element is for a person who does not see it; the host
+  gives it to the system's screen reader (`Meta::label`).
+- **Scrolling across.** `Extent` is the content's and the box's `Size` (`max_offset` down,
+  `max_offset_x` across), `Input::Scroll` has a `dx`, and `Ui::scroll_by(laid, at, dx, dy)` moves
+  the innermost box with room each way (`Ui::scroll_offset_x`, `Ui::set_scroll_x`).
+- **More of what the person did.** A press says its `count` (2: the second of a double click); the
+  keys `Backspace`, `Delete` and `Function(1..=20)`; `Event::Focus` when the person clicks into a
+  field; `Cursor` has the resize, not-allowed, grab, grabbing and crosshair shapes.
+
+### Changed
+
+- A text field is named: `Event::Text { field, text }` says which field, `Keyboard::Field(id)` sends
+  the keyboard to one, and `Reply::fill` puts texts in fields. `Laid::text_field` and
+  `Laid::text_field_hint` are `Laid::fields`, and `Queries` no longer has `text_field`.
+- An image's opacity is its element's (`Element::opacity` on any element); `Image::opacity` is gone.
 
 ## [0.2.0] - 2026-10-25
 

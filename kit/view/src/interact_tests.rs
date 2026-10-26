@@ -100,14 +100,14 @@ fn points_are_points_at_any_scale() {
 fn a_scrolling_box_reports_its_content_and_its_own_length() {
     let laid = page(10, 0.0, 2.0);
     let extent = laid.scroll_extent(LIST).expect("the list scrolls");
-    assert_eq!(extent.view, 80.0);
-    assert_eq!(extent.content, 200.0, "ten rows of twenty");
+    assert_eq!(extent.view.h, 80.0);
+    assert_eq!(extent.content.h, 200.0, "ten rows of twenty");
     assert_eq!(extent.max_offset(), 120.0);
     // The same content seen after a scroll is the same length.
     let moved = page(10, 50.0, 2.0)
         .scroll_extent(LIST)
         .expect("the list scrolls");
-    assert_eq!(moved.content, 200.0);
+    assert_eq!(moved.content.h, 200.0);
     // A list that fits has nothing to scroll.
     assert_eq!(
         page(2, 0.0, 1.0)
@@ -123,22 +123,22 @@ fn a_scrolling_box_reports_its_content_and_its_own_length() {
 fn the_wheel_moves_the_list_under_the_pointer_and_stops_at_its_ends() {
     let mut ui = Ui::default();
     let laid = page(10, 0.0, 1.0);
-    assert!(ui.scroll_by(&laid, at(50.0, 60.0), 30.0));
+    assert!(ui.scroll_by(&laid, at(50.0, 60.0), 0.0, 30.0));
     assert_eq!(ui.scroll_offset(LIST), 30.0);
-    assert!(ui.scroll_by(&laid, at(50.0, 60.0), 500.0));
+    assert!(ui.scroll_by(&laid, at(50.0, 60.0), 0.0, 500.0));
     assert_eq!(ui.scroll_offset(LIST), 120.0, "the end of the list");
     assert!(
-        !ui.scroll_by(&laid, at(50.0, 60.0), 10.0),
+        !ui.scroll_by(&laid, at(50.0, 60.0), 0.0, 10.0),
         "nothing moved past the end"
     );
-    assert!(ui.scroll_by(&laid, at(50.0, 60.0), -500.0));
+    assert!(ui.scroll_by(&laid, at(50.0, 60.0), 0.0, -500.0));
     assert_eq!(ui.scroll_offset(LIST), 0.0);
     assert!(
-        !ui.scroll_by(&laid, at(50.0, 60.0), -10.0),
+        !ui.scroll_by(&laid, at(50.0, 60.0), 0.0, -10.0),
         "nothing moved before the start"
     );
     // Over the header the list is not under the pointer.
-    assert!(!ui.scroll_by(&laid, at(50.0, 5.0), 30.0));
+    assert!(!ui.scroll_by(&laid, at(50.0, 5.0), 0.0, 30.0));
     assert_eq!(ui.scroll_offset(LIST), 0.0);
 }
 
@@ -250,4 +250,28 @@ fn a_hidden_element_and_what_is_in_it_answers_nothing() {
     let laid = layout(root, Size::new(100.0, 100.0), 1.0, &mut Fixed);
     assert_eq!(laid.hit(at(5.0, 5.0)), None);
     assert!(laid.ids_at(at(5.0, 5.0)).is_empty());
+}
+
+#[test]
+fn a_box_wider_than_its_room_scrolls_across_as_well_as_down() {
+    const WIDE: Id = Id::new(77);
+    let root = div().size(100.0, 50.0).child(
+        div()
+            .id(WIDE)
+            .size(100.0, 50.0)
+            .scroll_y(0.0)
+            .child(div().w(300.0).h(200.0).no_shrink()),
+    );
+    let laid = layout(root, Size::new(200.0, 100.0), 2.0, &mut Fixed);
+    let extent = laid.scroll_extent(WIDE).expect("it scrolls");
+    assert_eq!((extent.content.w, extent.content.h), (300.0, 200.0));
+    assert_eq!((extent.max_offset_x(), extent.max_offset()), (200.0, 150.0));
+    let mut ui = Ui::default();
+    assert!(ui.scroll_by(&laid, at(50.0, 25.0), 40.0, 10.0));
+    assert_eq!(
+        (ui.scroll_offset_x(WIDE), ui.scroll_offset(WIDE)),
+        (40.0, 10.0)
+    );
+    assert!(ui.scroll_by(&laid, at(50.0, 25.0), 1000.0, 0.0));
+    assert_eq!(ui.scroll_offset_x(WIDE), 200.0, "the right end");
 }

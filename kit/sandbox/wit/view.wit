@@ -56,10 +56,11 @@ interface types {
         len: u32,
     }
 
-    /// How tall the content of a scrolling box is against how tall the box is, points.
+    /// How large the content of a scrolling box is against how large the box is, points: it can
+    /// be scrolled down by `content.h - view.h` and across by `content.w - view.w`.
     record extent {
-        content: f32,
-        view: f32,
+        content: size,
+        view: size,
     }
 
     /// What a colour is called: the nine roles of the theme, its ANSI palette and its selection,
@@ -125,8 +126,20 @@ interface types {
     }
 
     /// A colour with an opacity, `0.0..=1.0`, on top of the value's own.
+    /// How far a colour is taken toward another: `amount` of the way from its own source to
+    /// `toward` (`0.0` is the colour, `1.0` is `toward`), channel by channel in sRGB, the opacity
+    /// of a value included. A highlight that comes in is the ground taken toward its colour, a
+    /// word that brightens is `dim` taken toward `foreground`.
+    record mix {
+        toward: source,
+        amount: f32,
+    }
+
+    /// A colour: its source, taken toward another where `mix` says so, with an opacity,
+    /// `0.0..=1.0`, on top of what that comes to.
     record color {
         source: source,
+        mix: option<mix>,
         alpha: f32,
     }
 
@@ -249,6 +262,12 @@ interface types {
         family: option<family>,
         size: option<f32>,
         weight: option<u16>,
+        /// The face's italic (or oblique) form, where it has one.
+        italic: option<bool>,
+        /// A line under the words, as a link has.
+        underline: option<bool>,
+        /// A line through the words, as a thing that was given up has.
+        strike: option<bool>,
         color: option<color>,
         align: option<align>,
     }
@@ -291,6 +310,10 @@ interface types {
         border: option<border>,
         radii: corners,
         shadow: option<shadow>,
+        /// How much of the element shows, `0.0..=1.0`, with everything inside it: each thing it
+        /// draws is that much fainter (where the things inside overlap, they show through each
+        /// other). A panel that fades in, a part that is not to be used now.
+        opacity: f32,
         text: text-style,
         /// A line that does not fit ends in "..." and gives its room away first.
         truncate: bool,
@@ -325,10 +348,8 @@ interface types {
         src: slice,
         fit: fit,
         /// A colour for a picture that is a shape: every pixel of it is this colour, with the
-        /// picture's opacity at that pixel.
+        /// picture's opacity at that pixel. How much of it shows is the element's `opacity`.
         tint: option<color>,
-        /// How much of the picture shows, `0.0..=1.0`.
-        opacity: f32,
     }
 
     /// What an element is.
@@ -341,6 +362,16 @@ interface types {
         image(image),
     }
 
+    /// What a text field the application puts over the page takes.
+    enum field-kind {
+        /// One line: enter is a key for the page.
+        line,
+        /// Lines: enter breaks the line, and the field scrolls the lines it has no room for.
+        lines,
+        /// One line whose characters are not shown (a password), and which is never copied.
+        secret,
+    }
+
     /// One element of the tree. The tree is a flat list in depth-first order: an element is
     /// followed by its children, each followed by its own.
     record node {
@@ -351,8 +382,15 @@ interface types {
         pressable: bool,
         /// The keyboard can be on it.
         focusable: bool,
-        /// The box is the room of a text field the application puts over the page.
-        text-field: bool,
+        /// The box is the room of a text field the application puts over the page, of this
+        /// kind. The field is named by the element's `id`, and an element with no id is not a
+        /// field; a page has as many as it names. The first text inside the element is what the
+        /// field says while it is empty: the application draws it, the page does not.
+        field: option<field-kind>,
+        /// What the element is in words, for a person who does not see it (a screen reader says
+        /// it): a part of the frame's `text`. A button that is an icon alone says what it does;
+        /// an element with none is read by the words inside it.
+        label: option<slice>,
         /// How many elements that follow are this one's children (not grandchildren).
         children: u32,
     }
@@ -397,7 +435,7 @@ interface types {
         command: bool,
     }
 
-    /// A key the page reads. Letters and symbols come as `character`.
+    /// A key the page reads. Letters, symbols and the space bar come as `character`.
     variant key {
         up,
         down,
@@ -410,6 +448,12 @@ interface types {
         enter,
         escape,
         tab,
+        /// The key that deletes the character before the caret (⌫).
+        backspace,
+        /// The key that deletes the character after it (⌦, fn-⌫ on a Mac's keyboard).
+        delete,
+        /// A function key, F1 to F20.
+        function(u8),
         character(char),
     }
 
@@ -417,6 +461,9 @@ interface types {
         at: point,
         button: button,
         mods: mods,
+        /// Which press of a quick run of them this is, from 1: `2` is the second of a double
+        /// click, as the system counts them (its own time and distance between the two).
+        count: u32,
     }
 
     record release {
@@ -424,10 +471,18 @@ interface types {
         button: button,
     }
 
-    /// The wheel or the trackpad: `dy` points the content moves up by.
+    /// The wheel or the trackpad: the points the content moves left by (`dx`) and up by (`dy`).
     record scroll {
         at: point,
+        dx: f32,
         dy: f32,
+    }
+
+    /// The text a field of the application's holds.
+    record field-text {
+        /// The field: the id of the element that is its room.
+        field: id,
+        text: string,
     }
 
     record key-press {
@@ -443,8 +498,13 @@ interface types {
         release(release),
         scroll(scroll),
         key(key-press),
-        /// The text of the application's text field changed.
-        text(string),
+        /// The text of one of the application's fields changed: the person typed, pasted or
+        /// deleted. Not said for a text the page itself put in (`reply.fill`).
+        text(field-text),
+        /// The keyboard went to a field the person clicked into (its id), or back to the page
+        /// (none) when the field let it go of itself. Not said when it moved where the page's
+        /// own reply sent it.
+        focus(option<id>),
         /// The person picked the entry with this index of the menu the page asked for.
         menu-pick(u32),
     }
@@ -456,14 +516,26 @@ interface types {
         pointer,
         /// Over the room of a text field.
         text,
+        /// Over an edge that is dragged left and right (a column's, a divider's).
+        resize-horizontal,
+        /// Over an edge that is dragged up and down.
+        resize-vertical,
+        /// Over something that cannot be used now.
+        not-allowed,
+        /// Over something that can be picked up and moved.
+        grab,
+        /// While it is being moved.
+        grabbing,
+        /// Where a point is picked.
+        crosshair,
     }
 
     /// Where the keyboard goes.
-    enum keyboard {
+    variant keyboard {
         /// The page's own keys.
         page,
-        /// The text field the application put over the page.
-        field,
+        /// The field named by this id.
+        field(id),
     }
 
     record menu-item {
@@ -495,6 +567,11 @@ interface types {
         close: bool,
         menu: option<menu>,
         keyboard: option<keyboard>,
+        /// Texts for fields to hold from now on, in place of what they hold: a field the page
+        /// empties after it took what was typed, or fills with what is to be edited. A field
+        /// the page does not name keeps what the person typed; a name that is not a field of
+        /// the page as last laid out is passed over.
+        fill: list<field-text>,
         /// Text for the pasteboard.
         copy: option<string>,
         /// The pointer's shape after this event.
@@ -519,8 +596,6 @@ interface layout {
     focus-order: func() -> list<id>;
     /// `id` and the named elements that hold it, innermost first.
     path-of: func(id: id) -> list<id>;
-    /// The box of the text field the application puts over the page.
-    text-field: func() -> option<rect>;
 }
 
 /// What the module can say to the program that opened the page, if one did.

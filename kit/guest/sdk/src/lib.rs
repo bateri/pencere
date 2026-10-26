@@ -56,9 +56,9 @@ use bindings::pencere::view::program as to_program;
 
 pub use pencere_view::wire;
 pub use pencere_view::{
-    Align, Border, Button, Color, Cursor, Element, Event, Extent, Fades, Family, Fit, Id, Image,
-    Input, Key, Keyboard, Menu, MenuEntry, Mods, Point, Queries, Rect, Reply, Rgba, Role, Rows,
-    Shadow, Size, Source, Track, Ui, div, image, spacer, spark, text,
+    Align, Border, Button, Color, Cursor, Element, Event, Extent, Fades, Family, Field, FieldKind,
+    Fit, Id, Image, Input, Key, Keyboard, Menu, MenuEntry, Mix, Mods, Point, Queries, Rect, Reply,
+    Rgba, Role, Rows, Shadow, Size, Source, Track, Ui, div, image, spacer, spark, text,
 };
 pub use pencere_wire::messages;
 
@@ -114,8 +114,8 @@ impl Queries for Layout {
 
     fn scroll_extent(&self, id: Id) -> Option<Extent> {
         host::scroll_extent(id.number()).map(|e| Extent {
-            content: e.content,
-            view: e.view,
+            content: Size::new(e.content.w, e.content.h),
+            view: Size::new(e.view.w, e.view.h),
         })
     }
 
@@ -128,10 +128,6 @@ impl Queries for Layout {
             .into_iter()
             .map(Id::new)
             .collect()
-    }
-
-    fn text_field(&self) -> Option<Rect> {
-        host::text_field().map(|r| Rect::new(r.x, r.y, r.w, r.h))
     }
 }
 

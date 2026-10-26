@@ -7,7 +7,9 @@
 --   elements   pencere.div(), pencere.text(), pencere.spark(), pencere.image(), pencere.spacer()
 --   colours    a role of the theme ("accent", "red", "bright-red", "selection", "raised2", ...), a
 --              value ("#rrggbb", "#rrggbbaa", or { light = "#...", dark = "#..." } for a dark
---              theme), and any of them with an opacity: pencere.alpha("accent", 0.5)
+--              theme), any of them taken part of the way toward another:
+--              pencere.mix("dim", "foreground", 0.5), and any of those with an opacity:
+--              pencere.alpha("accent", 0.5)
 --   pages      the script returns { render = ..., handle = ..., settle = ..., message = ..., room = ... }
 --   memory     pencere.Ui, pencere.Fades, pencere.Rows (what a page remembers between frames)
 --   layout     pencere.layout (what is where on the page as it was last laid out)
@@ -34,16 +36,30 @@ local host = {
 	scroll_extent = pencere.scroll_extent,
 	focus_order = pencere.focus_order,
 	path_of = pencere.path_of,
-	text_field = pencere.text_field,
 }
 pencere.send, pencere.hit, pencere.ids_at, pencere.bounds = nil, nil, nil, nil
-pencere.scroll_extent, pencere.focus_order, pencere.path_of, pencere.text_field = nil, nil, nil, nil
+pencere.scroll_extent, pencere.focus_order, pencere.path_of = nil, nil, nil
 pencere.host = host
 
 -- A colour with an opacity. Everywhere a colour is taken, a role's name, a "#rrggbb" value and a
--- { light =, dark = } table do too; `colour` is any of the three.
+-- { light =, dark = } table do too; `colour` is any of the three, or one `pencere.mix` made (whose
+-- opacity this multiplies).
 function pencere.alpha(colour, alpha)
+	if type(colour) == "table" and colour.toward ~= nil then
+		return { colour[1], (colour[2] or 1) * alpha, toward = colour.toward, amount = colour.amount }
+	end
 	return { colour, alpha }
+end
+
+-- `colour` taken `amount` of the way toward `toward` (0: as it is, 1: `toward`), channel by
+-- channel in sRGB: a ground a highlight comes in on, `dim` words that brighten to `foreground`.
+-- Both are a role's name, a value or a { light =, dark = } table; the result takes an opacity
+-- (`pencere.alpha`) like any colour.
+function pencere.mix(colour, toward, amount)
+	if type(amount) ~= "number" then
+		error("pencere.mix takes a colour, the colour it goes toward and how far, 0 to 1", 2)
+	end
+	return { colour, 1, toward = toward, amount = amount }
 end
 
 -- The ground raised by `steps` levels ("raised1" is a card on the pane).
@@ -77,11 +93,13 @@ function layout.bounds(id)
 	return host.bounds(id)
 end
 
--- How far the scrolling box named `id` reaches: { content =, view = }, with `max_offset`.
+-- How far the scrolling box named `id` reaches: { content =, view = } down and { content_w =,
+-- view_w = } across, with how far each way it can be scrolled, `max_offset` and `max_offset_x`.
 function layout.scroll_extent(id)
 	local extent = host.scroll_extent(id)
 	if extent then
 		extent.max_offset = math.max(extent.content - extent.view, 0)
+		extent.max_offset_x = math.max(extent.content_w - extent.view_w, 0)
 	end
 	return extent
 end
@@ -94,6 +112,3 @@ function layout.path_of(id)
 	return host.path_of(id)
 end
 
-function layout.text_field()
-	return host.text_field()
-end

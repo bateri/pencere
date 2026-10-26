@@ -16,8 +16,10 @@ pub struct Ui {
     hover: Option<Id>,
     pressed: Option<Id>,
     focus: Option<Id>,
-    /// How far each scrolling box is scrolled, points.
+    /// How far each scrolling box is scrolled down, points.
     scroll: HashMap<Id, f32>,
+    /// And across.
+    scroll_x: HashMap<Id, f32>,
     /// The highlights coming and going.
     pub fades: Fades,
 }
@@ -90,22 +92,46 @@ impl Ui {
         self.scroll.insert(id, offset.max(0.0));
     }
 
-    /// The wheel turned over `at` by `dy` points (positive: down the page). The innermost
-    /// scrolling box under the pointer that has room to go that way moves; one already at its
-    /// end passes the turn on to the box around it. Returns whether anything moved.
-    pub fn scroll_by(&mut self, laid: &dyn Queries, at: Point, dy: f32) -> bool {
-        for id in laid.ids_at(at) {
-            let Some(extent) = laid.scroll_extent(id) else {
+    /// How far the scrolling box named `id` is scrolled across, points.
+    pub fn scroll_offset_x(&self, id: Id) -> f32 {
+        self.scroll_x.get(&id).copied().unwrap_or(0.0)
+    }
+
+    /// Sets how far the box named `id` is scrolled across, as [`Ui::set_scroll`] does down.
+    pub fn set_scroll_x(&mut self, id: Id, offset: f32) {
+        self.scroll_x.insert(id, offset.max(0.0));
+    }
+
+    /// The wheel turned over `at` by `dx` and `dy` points (positive: across and down the page).
+    /// For each way, the innermost scrolling box under the pointer that has room to go that way
+    /// moves; one already at its end passes the turn on to the box around it. Returns whether
+    /// anything moved.
+    pub fn scroll_by(&mut self, laid: &dyn Queries, at: Point, dx: f32, dy: f32) -> bool {
+        let under = laid.ids_at(at);
+        let mut moved = false;
+        for (delta, across) in [(dx, true), (dy, false)] {
+            if delta == 0.0 {
                 continue;
-            };
-            let was = self.scroll_offset(id);
-            let to = (was + dy).clamp(0.0, extent.max_offset());
-            if to != was {
-                self.scroll.insert(id, to);
-                return true;
+            }
+            for id in &under {
+                let Some(extent) = laid.scroll_extent(*id) else {
+                    continue;
+                };
+                let (offsets, reach) = if across {
+                    (&mut self.scroll_x, extent.max_offset_x())
+                } else {
+                    (&mut self.scroll, extent.max_offset())
+                };
+                let was = offsets.get(id).copied().unwrap_or(0.0);
+                let to = (was + delta).clamp(0.0, reach);
+                if to != was {
+                    offsets.insert(*id, to);
+                    moved = true;
+                    break;
+                }
             }
         }
-        false
+        moved
     }
 
     /// Brings every scrolled box back within its reach on the page `laid` — a list that got
@@ -118,6 +144,15 @@ impl Ui {
                 return *offset > 0.0;
             };
             let to = offset.clamp(0.0, extent.max_offset());
+            moved |= to != *offset;
+            *offset = to;
+            to > 0.0
+        });
+        self.scroll_x.retain(|id, offset| {
+            let Some(extent) = laid.scroll_extent(*id) else {
+                return *offset > 0.0;
+            };
+            let to = offset.clamp(0.0, extent.max_offset_x());
             moved |= to != *offset;
             *offset = to;
             to > 0.0

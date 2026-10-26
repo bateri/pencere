@@ -2,8 +2,8 @@
 //! and what the draw list holds. The host's measuring is a fixed-width stand-in.
 
 use crate::{
-    Align, Color, DrawList, Family, Font, Measure, Metrics, Paint, Rect, Rgba, Role, Size, Source,
-    Track, div, layout, spacer, spark, text,
+    Align, Color, DrawList, Family, FieldKind, Font, Id, Measure, Metrics, Paint, Rect, Rgba, Role,
+    Size, Source, Track, div, layout, spacer, spark, text,
 };
 
 /// Every character is `0.5 × size` wide and the line `1.25 × size` tall: round numbers.
@@ -273,13 +273,15 @@ fn text_that_wraps_in_a_row_gives_room_down_to_its_longest_word() {
 fn the_text_in_the_room_of_the_hosts_field_is_its_hint_and_the_page_does_not_draw_it() {
     let root = div().row().child(text("before")).child(
         div()
-            .text_field()
+            .text_field(Id::new(1))
             .w(120.0)
             .h(18.0)
             .child(text("Filter images")),
     );
     let laid = layout(root, Size::new(200.0, 20.0), 1.0, &mut Fixed);
-    assert_eq!(laid.text_field_hint(), Some("Filter images"));
+    let fields = laid.fields();
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].hint.as_deref(), Some("Filter images"));
     let list = laid.paint(&mut Fixed);
     let drawn: Vec<&str> = runs(&list).iter().map(|run| run.text.as_str()).collect();
     assert_eq!(drawn, ["before"]);
@@ -289,10 +291,49 @@ fn the_text_in_the_room_of_the_hosts_field_is_its_hint_and_the_page_does_not_dra
 fn a_field_with_no_text_in_its_room_has_no_hint() {
     let root = div()
         .child(text("outside"))
-        .child(div().text_field().w(120.0).h(18.0));
+        .child(div().text_field(Id::new(1)).w(120.0).h(18.0));
     let laid = layout(root, Size::new(200.0, 40.0), 1.0, &mut Fixed);
-    assert_eq!(laid.text_field_hint(), None);
-    assert!(laid.text_field().is_some());
+    let fields = laid.fields();
+    assert_eq!(fields.len(), 1);
+    assert_eq!(fields[0].hint, None);
+}
+
+#[test]
+fn a_page_has_as_many_fields_as_it_names_each_of_its_kind_and_where_it_stands() {
+    let root = div()
+        .gap(4.0)
+        .child(
+            div()
+                .field(Id::new(1), FieldKind::Line)
+                .h(18.0)
+                .child(text("Name")),
+        )
+        .child(
+            div()
+                .field(Id::new(2), FieldKind::Secret)
+                .label("Password")
+                .h(18.0),
+        )
+        .child(div().field(Id::new(3), FieldKind::Lines).h(60.0).hidden())
+        .child(div().h(18.0).child(text("not a field")));
+    let laid = layout(root, Size::new(200.0, 200.0), 2.0, &mut Fixed);
+    let fields = laid.fields();
+    assert_eq!(fields.len(), 2, "a hidden field is not one");
+    assert_eq!(
+        (fields[0].id, fields[0].kind),
+        (Id::new(1), FieldKind::Line)
+    );
+    assert_eq!(fields[0].hint.as_deref(), Some("Name"));
+    assert_eq!(
+        (fields[1].id, fields[1].kind),
+        (Id::new(2), FieldKind::Secret)
+    );
+    assert_eq!(fields[1].label.as_deref(), Some("Password"));
+    assert_eq!(
+        fields[1].rect,
+        Rect::new(0.0, 22.0, 100.0, 18.0),
+        "in points"
+    );
 }
 
 #[test]
@@ -590,4 +631,148 @@ fn both_forms_of_a_value_reach_the_draw_list_unresolved() {
     assert_eq!(run.color, ink);
     assert_eq!(run.grounds, vec![ground]);
     assert_eq!(quads(&list)[0].fill, Some(ground));
+}
+
+#[test]
+fn a_colour_taken_toward_another_is_mixed_in_srgb_before_its_opacity() {
+    let value = |source: Source| match source {
+        Source::Role(Role::Dim) => [0.2, 0.2, 0.2, 1.0],
+        Source::Role(Role::Foreground) => [1.0, 1.0, 1.0, 1.0],
+        _ => [0.0, 0.0, 0.0, 0.0],
+    };
+    let half = Role::Dim.alpha(0.5).toward(Role::Foreground, 0.25);
+    let [r, g, b, a] = half.resolve(value);
+    assert!((r - 0.4).abs() < 1e-6 && (g - 0.4).abs() < 1e-6 && (b - 0.4).abs() < 1e-6);
+    assert!((a - 0.5).abs() < 1e-6, "the alpha is on top of the mix");
+    assert_eq!(
+        Role::Dim.solid().resolve(value),
+        [0.2, 0.2, 0.2, 1.0],
+        "no mix, as it is"
+    );
+    assert_eq!(
+        Role::Dim
+            .solid()
+            .toward(Role::Foreground, 7.0)
+            .resolve(value),
+        [1.0, 1.0, 1.0, 1.0],
+        "the amount is held to 0..1"
+    );
+    // A value that is see-through makes the mix see-through too, and not opaque.
+    let glass = Rgba::new(0, 0, 0, 0).solid();
+    assert!(!Role::Dim.solid().toward(glass, 0.5).is_opaque());
+    assert!(Role::Dim.solid().toward(Role::Foreground, 0.5).is_opaque());
+}
+
+#[test]
+fn an_elements_opacity_fades_all_it_draws_and_all_inside_it() {
+    let root = div().child(
+        div()
+            .opacity(0.5)
+            .bg(Role::Background)
+            .border(1.0, Role::Border)
+            .child(
+                div()
+                    .opacity(0.5)
+                    .bg(Role::Accent)
+                    .h(20.0)
+                    .child(text("half of a half")),
+            ),
+    );
+    let laid = layout(root, Size::new(200.0, 100.0), 1.0, &mut Fixed);
+    let list = laid.paint(&mut Fixed);
+    let quads = quads(&list);
+    assert_eq!(quads[0].fill.map(|fill| fill.alpha), Some(0.5));
+    assert_eq!(quads[0].border.map(|border| border.color.alpha), Some(0.5));
+    assert_eq!(
+        quads[1].fill.map(|fill| fill.alpha),
+        Some(0.25),
+        "its own times the box's"
+    );
+    let run = runs(&list)[0];
+    assert_eq!(run.color.alpha, 0.25);
+    assert_eq!(
+        run.grounds
+            .iter()
+            .map(|ground| ground.alpha)
+            .collect::<Vec<_>>(),
+        [0.25, 0.5],
+        "what it is read against is as faint as it is drawn"
+    );
+    // Nothing at all shows of a box at nothing, nor of what is inside it.
+    let gone = div().opacity(0.0).bg(Role::Accent).child(text("gone"));
+    let list =
+        layout(div().child(gone), Size::new(200.0, 100.0), 1.0, &mut Fixed).paint(&mut Fixed);
+    assert!(list.items.is_empty());
+}
+
+#[test]
+fn italic_and_the_lines_under_and_through_the_words_are_inherited() {
+    let root = div()
+        .italic()
+        .underline()
+        .child(text("both"))
+        .child(div().strike().child(text("all three")));
+    let laid = layout(root, Size::new(200.0, 100.0), 1.0, &mut Fixed);
+    let list = laid.paint(&mut Fixed);
+    let runs = runs(&list);
+    assert!(runs[0].font.italic && runs[0].underline && !runs[0].strike);
+    assert!(runs[1].font.italic && runs[1].underline && runs[1].strike);
+    let plain = layout(
+        div().child(text("plain")),
+        Size::new(100.0, 20.0),
+        1.0,
+        &mut Fixed,
+    )
+    .paint(&mut Fixed);
+    let plain = &crate::tests::runs(&plain)[0];
+    assert!(!plain.font.italic && !plain.underline && !plain.strike);
+}
+
+#[test]
+fn a_page_is_read_as_its_buttons_fields_and_words_each_said_once() {
+    use crate::{AccessibleRole, Element};
+    let row = |name: &str, label: Option<&str>| {
+        let button: Element = div().row().press(Id::named(name)).h(20.0);
+        let button = match label {
+            Some(label) => button.label(label),
+            None => button,
+        };
+        button.child(text(name)).child(text("more"))
+    };
+    let root = div()
+        .gap(2.0)
+        .child(text("Containers"))
+        .child(row("restart", Some("Restart the container")))
+        .child(row("stop", None))
+        .child(
+            div()
+                .text_field(Id::named("filter"))
+                .h(18.0)
+                .child(text("Filter by name")),
+        )
+        .child(div().label("Running").size(8.0, 8.0))
+        .child(text("hidden").hidden())
+        .child(text("after"));
+    let laid = layout(root, Size::new(400.0, 400.0), 2.0, &mut Fixed);
+    let items = laid.accessible();
+    let read: Vec<(AccessibleRole, String)> = items
+        .iter()
+        .map(|item| (item.role, item.words.clone()))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            (AccessibleRole::Text, "Containers".to_owned()),
+            (AccessibleRole::Button, "Restart the container".to_owned()),
+            (AccessibleRole::Button, "stop more".to_owned()),
+            (
+                AccessibleRole::Field(FieldKind::Line),
+                "Filter by name".to_owned()
+            ),
+            (AccessibleRole::Text, "Running".to_owned()),
+            (AccessibleRole::Text, "after".to_owned()),
+        ]
+    );
+    assert_eq!(items[1].id, Some(Id::named("restart")));
+    assert_eq!(items[1].rect.h, 20.0, "in points");
 }

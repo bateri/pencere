@@ -51,22 +51,35 @@ pub struct Image {
     pub src: String,
     pub fit: Fit,
     /// Where there is one, the image gives its shape and not its colours: the colour is this one
-    /// and the image's opacity, pixel by pixel, is the amount of it.
+    /// and the image's opacity, pixel by pixel, is the amount of it. How much of it shows is the
+    /// element's opacity ([`Element::opacity`]).
     pub tint: Option<Color>,
-    /// How much of the image shows, `0.0..=1.0`, on top of the image's own opacity.
-    pub opacity: f32,
 }
 
-/// What an element is to the pointer and the keyboard, apart from how it looks.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+/// What a text field the host puts over the page takes ([`Element::field`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FieldKind {
+    /// One line: enter is a key for the page.
+    #[default]
+    Line,
+    /// Lines: enter breaks the line, and the field scrolls the lines it has no room for.
+    Lines,
+    /// One line whose characters are not shown (a password), and which is never copied.
+    Secret,
+}
+
+/// What an element is to the pointer, the keyboard and a screen reader, apart from how it looks.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Meta {
     pub id: Option<Id>,
     /// The pointer can hover it and press it (it answers a click).
     pub pressable: bool,
     /// The keyboard can be on it.
     pub focusable: bool,
-    /// The host puts a text field of its own over this box ([`Element::text_field`]).
-    pub text_field: bool,
+    /// The host puts a text field of its own, of this kind, over this box ([`Element::field`]).
+    pub field: Option<FieldKind>,
+    /// What the element is in words, for a person who does not see it ([`Element::label`]).
+    pub label: Option<String>,
 }
 
 /// One element of a page, and the elements inside it.
@@ -105,7 +118,6 @@ pub fn image(src: impl Into<String>, fit: Fit) -> Element {
         src: src.into(),
         fit,
         tint: None,
-        opacity: 1.0,
     }))
 }
 
@@ -182,15 +194,30 @@ impl Element {
         self
     }
 
-    /// The box is the room of a text field the host puts over the page — the page does not
-    /// draw text that is typed into, a field of the host's does (the host asks where it
-    /// stands: [`crate::Laid::text_field`]). Named too: see [`Element::id`]. A text inside it is
-    /// what the field says while it is empty (`div().text_field().child(text("Filter by
-    /// name…"))`): the host's field shows it ([`crate::Laid::text_field_hint`]), the page does not
-    /// draw it.
+    /// The box is the room of a text field the host puts over the page, named `id` — the page
+    /// does not draw text that is typed into, a field of the host's does (the host asks where
+    /// each stands: [`crate::Laid::fields`]). A page has as many as it names. A text inside it is
+    /// what the field says while it is empty (`div().field(id, FieldKind::Line).child(text("Filter
+    /// by name…"))`): the host's field shows it, the page does not draw it.
     #[must_use]
-    pub fn text_field(mut self) -> Self {
-        self.meta.text_field = true;
+    pub fn field(mut self, id: Id, kind: FieldKind) -> Self {
+        self.meta.id = Some(id);
+        self.meta.field = Some(kind);
+        self
+    }
+
+    /// A one-line field named `id` ([`Element::field`]).
+    #[must_use]
+    pub fn text_field(self, id: Id) -> Self {
+        self.field(id, FieldKind::Line)
+    }
+
+    /// What the element is in words, for a person who does not see it: a screen reader says it.
+    /// A button that is an icon alone says what it does; an element with none is read by the
+    /// words inside it.
+    #[must_use]
+    pub fn label(mut self, words: impl Into<String>) -> Self {
+        self.meta.label = Some(words.into());
         self
     }
 
@@ -573,6 +600,24 @@ impl Element {
         self.set(|s| s.text.align = Some(align))
     }
 
+    /// The face's italic form for the text.
+    #[must_use]
+    pub fn italic(self) -> Self {
+        self.set(|s| s.text.italic = Some(true))
+    }
+
+    /// A line under the words (as a link has).
+    #[must_use]
+    pub fn underline(self) -> Self {
+        self.set(|s| s.text.underline = Some(true))
+    }
+
+    /// A line through the words (as a thing that was given up has).
+    #[must_use]
+    pub fn strike(self) -> Self {
+        self.set(|s| s.text.strike = Some(true))
+    }
+
     /// A line of text that does not fit ends in "…" and is the first to give its room away.
     #[must_use]
     pub fn truncate(self) -> Self {
@@ -590,13 +635,12 @@ impl Element {
         self
     }
 
-    /// How much of an image shows, `0.0` to `1.0`. Has no effect on anything but an image.
+    /// How much of the element shows with everything inside it, `0.0` to `1.0`: each thing it
+    /// draws is that much fainter (where the things inside overlap, they show through each
+    /// other). A panel that fades in, a part that is not to be used now.
     #[must_use]
-    pub fn opacity(mut self, opacity: f32) -> Self {
-        if let Kind::Image(image) = &mut self.kind {
-            image.opacity = opacity;
-        }
-        self
+    pub fn opacity(self, opacity: f32) -> Self {
+        self.set(|s| s.opacity = Some(opacity))
     }
 
     /// The largest value a sparkline's top stands for (the greatest value of the line, with

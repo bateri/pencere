@@ -5,9 +5,10 @@
 //! whether anything it shows changed (so a frame is worth drawing), and the few things only the
 //! host can do: pop up a menu, move the keyboard into a text field, copy, close the page.
 
-use crate::Point;
+use crate::{Id, Point};
 
-/// A key the page reads. Letters and symbols come as [`Key::Character`] — the character the key makes.
+/// A key the page reads. Letters, symbols and the space bar come as [`Key::Character`] — the
+/// character the key makes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
     Up,
@@ -21,6 +22,12 @@ pub enum Key {
     Enter,
     Escape,
     Tab,
+    /// Deletes the character before the caret (⌫).
+    Backspace,
+    /// Deletes the character after it (⌦, fn-⌫ on a Mac's keyboard).
+    Delete,
+    /// A function key, F1 to F20.
+    Function(u8),
     Character(char),
 }
 
@@ -59,15 +66,19 @@ pub enum Input {
         at: Point,
         button: Button,
         mods: Mods,
+        /// Which press of a quick run of them this is, from 1: `2` is the second of a double
+        /// click, as the system counts them.
+        count: u32,
     },
     Release {
         at: Point,
         button: Button,
     },
-    /// The wheel or the trackpad: `dy` points the content moves *up* by (positive scrolls
-    /// down the page).
+    /// The wheel or the trackpad: `dx` points the content moves *left* by and `dy` points it
+    /// moves *up* by (positive scrolls across and down the page).
     Scroll {
         at: Point,
+        dx: f32,
         dy: f32,
     },
     Key {
@@ -82,8 +93,15 @@ pub enum Input {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     Input(Input),
-    /// The host's text field holds this.
-    Text(String),
+    /// The host's field named `field` holds this now: the person typed, pasted or deleted (not
+    /// said for a text the page put in itself, [`Reply::fill`]).
+    Text {
+        field: Id,
+        text: String,
+    },
+    /// The keyboard went to the field the person clicked into, or back to the page (`None`)
+    /// when the field let it go of itself; not said when it went where the page sent it.
+    Focus(Option<Id>),
     /// The person picked the entry with this index of the menu the page asked for.
     MenuPick(usize),
 }
@@ -97,6 +115,18 @@ pub enum Cursor {
     Pointer,
     /// Over the room of a text field the host has put over the page.
     Text,
+    /// Over an edge that is dragged left and right (a column's, a divider's).
+    ResizeHorizontal,
+    /// Over an edge that is dragged up and down.
+    ResizeVertical,
+    /// Over something that cannot be used now.
+    NotAllowed,
+    /// Over something that can be picked up and moved.
+    Grab,
+    /// While it is being moved.
+    Grabbing,
+    /// Where a point is picked.
+    Crosshair,
 }
 
 /// Where the keyboard goes.
@@ -104,9 +134,9 @@ pub enum Cursor {
 pub enum Keyboard {
     /// The page's own keys.
     Page,
-    /// The text field the host put over the page (the room of an element that said it is one):
-    /// the page asks for the keyboard to type into it.
-    Field,
+    /// The text field named by this id, which the host put over the page (the room of an
+    /// element that said it is one): the page asks for the keyboard to type into it.
+    Field(Id),
 }
 
 /// One line of a menu the host pops up for the page.
@@ -142,6 +172,10 @@ pub struct Reply {
     pub menu: Option<Menu>,
     /// The keyboard goes somewhere else than where it was.
     pub keyboard: Option<Keyboard>,
+    /// Texts for fields to hold from now on, in place of what they hold (a field emptied after
+    /// what was typed was taken, one filled with what is to be edited): by the field's id. A
+    /// field the page does not name keeps what the person typed.
+    pub fill: Vec<(Id, String)>,
     /// Text for the pasteboard.
     pub copy: Option<String>,
     /// The pointer's shape after this input.

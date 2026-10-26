@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 
 use pencere_view::wire::Kind;
 use pencere_view::{
-    Button, Color, Element, Event, Fit, Id, Input, Key, Mods, Point, Rgba, Role, Source, image,
+    Button, Color, Cursor, Element, Event, FieldKind, Fit, Id, Input, Key, Keyboard, Mix, Mods,
+    Point, Rgba, Role, Source, image,
 };
 use wasmtime::component::Component;
 
@@ -181,7 +182,7 @@ fn a_helper_given_the_wrong_argument_says_the_line_of_the_script_that_called_it(
             "fit is \"contain\" or \"cover\", not stretch",
         ),
         (
-            "pencere.image('a.png'):opacity('half')",
+            "pencere.div():opacity('half')",
             "opacity is a number from 0 to 1, not string",
         ),
         (
@@ -363,6 +364,7 @@ fn a_script_gives_a_value_with_a_form_for_a_dark_theme_and_an_opacity_on_any_col
     );
     let value = |light: Rgba, dark: Option<Rgba>, alpha: f32| Color {
         source: Source::Rgba { light, dark },
+        mix: None,
         alpha,
     };
     assert_eq!(
@@ -412,10 +414,8 @@ fn a_script_says_an_image_and_the_engine_reads_what_it_said() {
         other => panic!("{other:?}"),
     };
     assert_eq!(said(images[0]), rust(image("icons/stop.svg", Fit::Contain)));
-    assert_eq!(
-        said(images[1]),
-        rust(image("logo.png", Fit::Cover).opacity(0.5))
-    );
+    assert_eq!(said(images[1]), rust(image("logo.png", Fit::Cover)));
+    assert_eq!(images[1].style.opacity, Some(0.5), "the element's opacity");
     assert_eq!(
         (images[1].style.width, images[1].style.height),
         (
@@ -866,6 +866,7 @@ fn the_example_page_counts_clicks() {
             at,
             button: Button::Left,
             mods: Mods::default(),
+            count: 1,
         },
         Input::Release {
             at,
@@ -942,4 +943,178 @@ fn what_an_event_asks_past_a_calls_share_goes_out_in_the_frames_after_it() {
         page.seen.sent
     );
     assert!(page.seen.closed.is_none());
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_mixes_colours_fades_elements_names_fields_and_sets_its_words_apart() {
+    let update = first(
+        r##"return { render = function()
+            return pencere.div()
+                :child(pencere.text("brighter"):color(pencere.mix("dim", "foreground", 0.25)))
+                :child(pencere.div():bg(pencere.alpha(pencere.mix("raised1", { light = "#102030" }, 0.5), 0.5)))
+                :child(pencere.div():opacity(0.4):italic():underline():strike():child(pencere.text("set apart")))
+                :child(pencere.div():text_field("name"):child(pencere.text("Your name")))
+                :child(pencere.div():text_field("password", "secret"):label("Password"))
+                :child(pencere.div():id("notes"):text_field(nil, "lines"))
+                :child(pencere.div():press("restart"):label("Restart"):scroll_x(12))
+        end }"##,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None);
+    let nodes = update.frame.expect("a page").root.fold();
+    assert_eq!(
+        nodes[1].style.text.color,
+        Some(Color {
+            source: Source::Role(Role::Dim),
+            mix: Some(Mix {
+                toward: Source::Role(Role::Foreground),
+                amount: 0.25
+            }),
+            alpha: 1.0
+        })
+    );
+    assert_eq!(
+        nodes[2].style.fill,
+        Some(Color {
+            source: Source::Role(Role::Raised(1)),
+            mix: Some(Mix {
+                toward: Source::Rgba {
+                    light: Rgba::rgb(0x10, 0x20, 0x30),
+                    dark: None
+                },
+                amount: 0.5
+            }),
+            alpha: 0.5
+        }),
+        "an opacity on a mix keeps the mix"
+    );
+    let apart = &nodes[3].style;
+    assert_eq!(apart.opacity, Some(0.4));
+    assert_eq!(
+        (apart.text.italic, apart.text.underline, apart.text.strike),
+        (Some(true), Some(true), Some(true))
+    );
+    let field = |at: usize| {
+        (
+            nodes[at].meta.id,
+            nodes[at].meta.field,
+            nodes[at].meta.label.clone(),
+        )
+    };
+    assert_eq!(
+        field(5),
+        (Some(Id::named("name")), Some(FieldKind::Line), None)
+    );
+    assert_eq!(
+        field(7),
+        (
+            Some(Id::named("password")),
+            Some(FieldKind::Secret),
+            Some("Password".to_owned())
+        )
+    );
+    assert_eq!(
+        field(8),
+        (Some(Id::named("notes")), Some(FieldKind::Lines), None)
+    );
+    assert_eq!(nodes[9].meta.label.as_deref(), Some("Restart"));
+    assert_eq!(nodes[9].style.scroll, (12.0, 0.0));
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
+    let mut page = open_script(
+        r##"
+        local said = "nothing"
+        return {
+            render = function() return pencere.div():child(pencere.text(said)) end,
+            handle = function(e)
+                if e.type == "press" then
+                    said = "press " .. e.count
+                    return { redraw = true, cursor = "resize_horizontal", keyboard = { field = "name" } }
+                elseif e.type == "scroll" then
+                    said = "scroll " .. e.dx .. " " .. e.dy
+                    return { redraw = true, cursor = "not_allowed", keyboard = "page" }
+                elseif e.type == "key" then
+                    said = "key " .. e.key
+                    return { redraw = true, cursor = "grab" }
+                elseif e.type == "text" then
+                    said = "text " .. e.field .. " " .. e.text
+                    return { redraw = true, fill = { name = "" } }
+                elseif e.type == "focus" then
+                    said = "focus " .. tostring(e.field)
+                    return true
+                end
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    let at = Point::new(1.0, 1.0);
+    let events = [
+        Event::Input(Input::Press {
+            at,
+            button: Button::Left,
+            mods: Mods::default(),
+            count: 2,
+        }),
+        Event::Input(Input::Scroll {
+            at,
+            dx: 3.0,
+            dy: -4.0,
+        }),
+        Event::Input(Input::Key {
+            key: Key::Backspace,
+            mods: Mods::default(),
+        }),
+        Event::Input(Input::Key {
+            key: Key::Function(5),
+            mods: Mods::default(),
+        }),
+        Event::Text {
+            field: Id::named("name"),
+            text: "ada".into(),
+        },
+        Event::Focus(Some(Id::named("name"))),
+        Event::Focus(None),
+    ];
+    let mut heard = Vec::new();
+    for event in events {
+        page.module.event(event);
+        page.module.render(SIZE, 0.0, false);
+        let before = page.seen.replies.len();
+        until_seen(&mut page, Duration::from_secs(10), |seen| {
+            seen.replies.len() > before
+        });
+        page.take(Duration::from_millis(200));
+        heard.push(words(&page.seen.frame.clone().expect("a page").root).join(" "));
+    }
+    assert_eq!(
+        heard,
+        [
+            "press 2",
+            "scroll 3 -4",
+            "key backspace",
+            "key f5",
+            "text name ada",
+            "focus name",
+            "focus nil"
+        ]
+    );
+    let replies: Vec<_> = page.seen.replies.iter().map(|a| a.reply.clone()).collect();
+    assert_eq!(replies[0].cursor, Cursor::ResizeHorizontal);
+    assert_eq!(
+        replies[0].keyboard,
+        Some(Keyboard::Field(Id::named("name")))
+    );
+    assert_eq!(replies[1].cursor, Cursor::NotAllowed);
+    assert_eq!(replies[1].keyboard, Some(Keyboard::Page));
+    assert_eq!(replies[2].cursor, Cursor::Grab);
+    assert_eq!(replies[4].fill, [(Id::named("name"), String::new())]);
 }

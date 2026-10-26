@@ -91,6 +91,7 @@ impl Role {
     pub const fn alpha(self, alpha: f32) -> Color {
         Color {
             source: Source::Role(self),
+            mix: None,
             alpha,
         }
     }
@@ -166,6 +167,7 @@ impl Rgba {
                 light: self,
                 dark: None,
             },
+            mix: None,
             alpha: 1.0,
         }
     }
@@ -177,6 +179,7 @@ impl Rgba {
                 light: self,
                 dark: Some(dark),
             },
+            mix: None,
             alpha: 1.0,
         }
     }
@@ -206,17 +209,70 @@ impl Source {
     }
 }
 
-/// A colour with an opacity: what the page said, a role or a value, and how much of it shows
-/// on top of that (`0.0` transparent, `1.0` solid; a value's own opacity, `Rgba::a`, goes with
-/// it).
+/// How far a colour is taken toward another: `amount` of the way from its own source to `toward`
+/// (`0.0` is the colour, `1.0` is `toward`), channel by channel in sRGB, a value's own opacity
+/// included.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mix {
+    pub toward: Source,
+    pub amount: f32,
+}
+
+/// A colour with an opacity: what the page said, a role or a value, taken toward another where
+/// `mix` says so, and how much of that shows on top (`0.0` transparent, `1.0` solid; a value's own
+/// opacity, `Rgba::a`, goes with it).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Color {
     pub source: Source,
+    pub mix: Option<Mix>,
     /// `0.0` transparent, `1.0` solid.
     pub alpha: f32,
 }
 
 impl Color {
+    /// This colour taken `amount` of the way toward `toward` (`0.0`: as it is, `1.0`: `toward`);
+    /// a highlight that comes in is its ground taken toward the highlight's colour. A colour
+    /// already taken toward another is taken toward this one instead.
+    #[must_use]
+    pub fn toward(self, toward: impl Into<Color>, amount: f32) -> Self {
+        Self {
+            mix: Some(Mix {
+                toward: toward.into().source,
+                amount: if amount.is_finite() {
+                    amount.clamp(0.0, 1.0)
+                } else {
+                    0.0
+                },
+            }),
+            ..self
+        }
+    }
+
+    /// The same colour with `opacity` more of it gone: its alpha times `opacity`.
+    #[must_use]
+    pub fn faded(self, opacity: f32) -> Self {
+        Self {
+            alpha: self.alpha * opacity,
+            ..self
+        }
+    }
+
+    /// What the colour comes to, sRGB with its opacity, each `0.0..=1.0`: `value` says what a
+    /// source is (a role in the host's theme, a value's form for it), the mix is made in sRGB,
+    /// channel by channel and the opacity with them, and `alpha` multiplies the opacity. Every
+    /// host resolves a colour the same way by asking this.
+    pub fn resolve(&self, mut value: impl FnMut(Source) -> [f32; 4]) -> [f32; 4] {
+        let mut out = value(self.source);
+        if let Some(mix) = self.mix {
+            let toward = value(mix.toward);
+            let t = mix.amount.clamp(0.0, 1.0);
+            for (channel, other) in out.iter_mut().zip(toward) {
+                *channel += (other - *channel) * t;
+            }
+        }
+        out[3] *= self.alpha.clamp(0.0, 1.0);
+        out
+    }
     /// The role, when the colour is one.
     pub const fn role(&self) -> Option<Role> {
         match self.source {
@@ -229,11 +285,11 @@ impl Color {
     /// role, or a value whose every form is solid. (A role is taken for solid at its full
     /// opacity: the engine cannot know a theme that gave a role a translucent value.)
     pub fn is_opaque(&self) -> bool {
-        let solid = match self.source {
+        let solid = |source: Source| match source {
             Source::Role(_) => true,
             Source::Rgba { light, dark } => light.a == 255 && dark.is_none_or(|dark| dark.a == 255),
         };
-        solid && self.alpha >= 1.0
+        solid(self.source) && self.mix.is_none_or(|mix| solid(mix.toward)) && self.alpha >= 1.0
     }
 }
 

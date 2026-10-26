@@ -113,6 +113,12 @@ pub struct TextStyle {
     /// Points.
     pub size: Option<f32>,
     pub weight: Option<u16>,
+    /// The face's italic (or oblique) form, where it has one.
+    pub italic: Option<bool>,
+    /// A line under the words.
+    pub underline: Option<bool>,
+    /// A line through the words.
+    pub strike: Option<bool>,
     pub color: Option<Color>,
     pub align: Option<Align>,
 }
@@ -124,6 +130,9 @@ impl TextStyle {
             family: self.family.or(outer.family),
             size: self.size.or(outer.size),
             weight: self.weight.or(outer.weight),
+            italic: self.italic.or(outer.italic),
+            underline: self.underline.or(outer.underline),
+            strike: self.strike.or(outer.strike),
             color: self.color.or(outer.color),
             align: self.align.or(outer.align),
         }
@@ -168,6 +177,9 @@ pub struct Style {
     /// Top-left, top-right, bottom-right, bottom-left; points.
     pub radii: [f32; 4],
     pub shadow: Option<Shadow>,
+    /// How much of the element shows with everything inside it, `0.0..=1.0`: each thing it draws
+    /// is that much fainter. `None` is all of it.
+    pub opacity: Option<f32>,
     pub text: TextStyle,
     /// A line that does not fit ends in "…" and gives its room away first.
     pub truncate: bool,

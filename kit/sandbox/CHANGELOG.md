@@ -6,6 +6,18 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+### Changed
+
+- The interface (`pencere:view@1.0.0`, a draft until a host other than this repository's runs it)
+  says what `pencere-view` added: a colour's `mix`, an element's `opacity` (an image's is its
+  element's), `italic`, `underline` and `strike`, named fields of three kinds (`field` and `label`
+  on a node, `text` and `focus` events with the field, `keyboard.field(id)`, `reply.fill`), a
+  press's `count`, a scroll's `dx`, an extent across as well as down, the keys `backspace`,
+  `delete` and `function`, and six more shapes of the pointer. `layout.text-field` is gone: a
+  field's box is `bounds` of its name. The interpreter (`luau.wasm`) is built from it, and its page
+  API has `pencere.mix`, `opacity` on any element, `italic`, `underline`, `strike`, `label`,
+  `text_field(id, kind)`, `scroll_x`, and `Ui:scroll_by(laid, at, dx, dy)`.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

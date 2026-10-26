@@ -56,43 +56,62 @@ The builders return the element. Layout: `row`, `col`, `wrap`, `grid(columns)`, 
 `span`, `hidden`, `items_start|center|end|stretch`, `justify_start|center|end|between`, `gap`,
 `gap_x`, `gap_y`, `grow`, `no_shrink`, `w`, `h`, `size`, `w_pct`, `w_full`, `h_full`, `size_full`,
 `min_w`, `min_h`, `max_w`, `p`, `px`, `py`, `pt|pr|pb|pl`, `mt|mr|mb|ml`, `absolute`, `inset`, `clip`,
-`scroll_y(offset)`. Looks: `bg`, `border(width, color)`, `rounded`, `rounded_corners`,
-`shadow(dx, dy, blur, color)`. Text, which the elements inside inherit: `text_size`, `weight`,
-`color`, `family("system" | "terminal")`, `align("start" | "center" | "end")`, `truncate`. Images:
-`fit("contain" | "cover")`, `tint(color)`, `opacity(0..1)`. Names and answers: `id`, `press(id)`,
-`focusable`, `text_field`. Children: `child`, `children`. A grid track is a number (points),
+`scroll_y(offset)`, `scroll_x(offset)`. Looks: `bg`, `border(width, color)`, `rounded`,
+`rounded_corners`, `shadow(dx, dy, blur, color)`, `opacity(0..1)` (the element with all inside it:
+each thing it draws is that much fainter). Text, which the elements inside inherit: `text_size`,
+`weight`, `color`, `family("system" | "terminal")`, `align("start" | "center" | "end")`, `italic`,
+`underline`, `strike`, `truncate`. Images: `fit("contain" | "cover")`, `tint(color)`. Names and
+answers: `id`, `press(id)`, `focusable`, `text_field(id, "line" | "lines" | "secret")`,
+`label(words)`. Children: `child`, `children`. A grid track is a number (points),
 `pencere.fr(n)`, `pencere.range(least, n)` or `"auto"`.
 
 A text is one line: what does not fit runs past its box, or, with `truncate`, ends in "…". `wrap` on
 a text puts its words in new lines where its box is too narrow for them (and at its line breaks),
 and its box is as tall as the lines; in a row it gives its room away down to its longest word. A
 text inside a `text_field` element is what the host's field says while it is empty
-(`div():text_field():child(text("Filter images"))`): the host draws it, the page does not.
+(`div():text_field("filter"):child(text("Filter images"))`): the host draws it, the page does not.
+
+A **text field** is a field of the host's own, put over the room of the element that says it is one,
+and named by that element's id (`text_field(id)`, or the element's own id): a page has as many as it
+names, and an element that says it is a field and has no name is not one. `"line"` (the default) is
+one line, whose enter is a key for the page; `"lines"` breaks the line at enter and scrolls; `"secret"`
+is one line whose characters are not shown and are never copied. The page is told what a field holds
+when the person changes it (`text`), sends the keyboard to one (`keyboard = { field = name }`), and puts
+a text in one (`fill`).
+
+A **label** is what an element is in words, for a person who does not see it: a host that offers its
+system's screen reader says the label of an element that has one, and the words inside one that has
+none. A button that is an icon alone needs one.
 
 ### 2.2 What a page remembers, and asks of the layout
 
 `pencere.Ui`, `pencere.Fades` and `pencere.Rows` keep what a page needs between frames (pointer and
-keyboard state, eased levels, the heights of a long list). `pencere.layout` answers what is where on
-the page as it was last laid out: `hit`, `ids_at`, `bounds`, `scroll_extent`, `focus_order`,
-`path_of`, `text_field`. They are defined by the prelude.
+keyboard state, how far each box is scrolled down and across, eased levels, the heights of a long
+list). `pencere.layout` answers what is where on the page as it was last laid out: `hit`, `ids_at`,
+`bounds` (a field's too, by its name), `scroll_extent` (`content` and `view` down, `content_w` and
+`view_w` across, with `max_offset` and `max_offset_x`), `focus_order`, `path_of`. They are defined
+by the prelude.
 
 ### 2.3 Events and replies
 
 `handle` is given `{ type = ..., ... }` in the page's points:
 
-| `type`             | Members                                                                                                                                                |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `move`, `leave`    | `x`, `y` (`leave` has none)                                                                                                                            |
-| `press`, `release` | `x`, `y`, `button` (`"left"` or `"right"`), `mods`                                                                                                     |
-| `scroll`           | `x`, `y`, `dy`: the points the content moves up by                                                                                                     |
-| `key`              | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, or the character), `mods` |
-| `text`             | `text`: the text of the host's field                                                                                                                   |
-| `menu`             | `index` (from 1) of the entry picked from the menu the page asked for                                                                                  |
+| `type`             | Members                                                                                                                                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `move`, `leave`    | `x`, `y` (`leave` has none)                                                                                                                                                                          |
+| `press`, `release` | `x`, `y`, `button` (`"left"` or `"right"`), and for `press` `mods` and `count` (2 for the second of a double click, as the system counts them)                                                       |
+| `scroll`           | `x`, `y`, `dx`, `dy`: the points the content moves left and up by                                                                                                                                    |
+| `key`              | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"delete"`, `"f1"` to `"f20"`, or the character), `mods` |
+| `text`             | `field` (its name) and `text`: what a field holds now, after the person changed it (not after the page's own `fill`)                                                                                 |
+| `focus`            | `field`: the field the person clicked into, or nil when the keyboard went back to the page of itself (not said when it went where the page sent it)                                                  |
+| `menu`             | `index` (from 1) of the entry picked from the menu the page asked for                                                                                                                                |
 
 `mods` is `{ shift =, control =, alt =, command = }`. A reply is `nil` (nothing changed), `true` or
 `false` (a frame is worth drawing or not), or a table: `redraw`, `close`, `copy` (text for the
-pasteboard), `cursor` (`"arrow"`, `"pointer"` or `"text"`), `keyboard` (`"page"` or `"field"`), and
-`menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" } }`.
+pasteboard), `cursor` (`"arrow"`, `"pointer"`, `"text"`, `"resize_horizontal"`, `"resize_vertical"`,
+`"not_allowed"`, `"grab"`, `"grabbing"` or `"crosshair"`), `keyboard` (`"page"` or `{ field = name }`),
+`fill` (`{ [name] = text }`: what fields are to hold from now on; a name that is not a field of the
+page is passed over), and `menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" } }`.
 
 ### 2.4 The program
 
@@ -137,10 +156,13 @@ A colour is said in one of these ways, wherever one is taken:
 | `"accent"`, `"red"`, `"raised2"`, …                 | A **role** of the theme. The way to prefer: it follows the theme the pane wears.                  |
 | `"#rrggbb"`, `"#rrggbbaa"`                          | A **value**, sRGB, in either letter case; the last pair is the alpha.                             |
 | `{ light = "#…", dark = "#…" }`                     | A value for a light theme and, if the page wants one, another for a dark theme (`dark` optional). |
+| `pencere.mix(colour, toward, amount)`               | Any of the first three taken `amount` (`0` to `1`) of the way toward another of them.             |
 | `{ colour, alpha }`, `pencere.alpha(colour, alpha)` | Any of the above with an opacity of `0` to `1` on top.                                            |
 
 The opacity is **multiplied** with the alpha of a value: `pencere.alpha("#80808080", 0.5)` is drawn at a
-quarter of full opacity.
+quarter of full opacity. A mix is made in sRGB, channel by channel, a value's alpha with them, and then
+the opacity is put on it; a host MUST resolve it so (`Color::resolve` in the engine does). It is how a
+highlight comes in on its ground and how a word brightens: `pencere.mix("dim", "foreground", level)`.
 
 The roles are those of the theme and three tones derived from them:
 
@@ -185,6 +207,21 @@ a script and the scripts it requires, together), 32 messages to the program to a
 1 MiB, and the limits on pictures). A view that stays within them
 opens on every host. The values of this repository's implementation are the defaults of
 `ModuleLimits` in `kit/sandbox/src/sandbox.rs`.
+
+Besides drawing what the engine lays out, a host:
+
+- puts one field of its own over each text field of the page (`Laid::fields`), of its kind, saying
+  its hint while it is empty, and tells the page what the person types into it, where the person
+  clicks into one, and takes the texts a reply fills them with;
+- draws a run's `underline` and `strike` where its font puts those lines, in the run's colour, and
+  sets an `italic` run in its face's italic;
+- takes the pointer's shape a reply asks for, and tells a press's `count` and a scroll across;
+- may draw a point of the page larger than a point of its screen, the page given fewer points for
+  the same room: a terminal draws a page as large as its own text is to the kit's (12.5 points), so a
+  page's words are the size of the terminal's and grow and shrink with them (`Laid::accessible` and the
+  fields are in the page's points; the host places them);
+- tells its system's screen reader what the page is: the pressable elements as buttons, the fields as
+  fields, and the words of the rest, each by its `label` where it has one.
 
 ## 5. Pictures
 
