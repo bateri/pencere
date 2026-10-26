@@ -7,24 +7,15 @@
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use pencere::{Bundle, Kind, Options, View};
+use pencere::Options;
 use serde_json::json;
 
-/// The view, a page of the kit's page API, which the terminal draws in its own font and theme.
-const PAGE: &[u8] = include_bytes!("../view/page.lua");
-const ICON: &[u8] = include_bytes!("../assets/icon.svg");
-
 fn main() -> Result<ExitCode, pencere::Error> {
-    let bundle = Bundle::new(
-        "page.lua",
-        [
-            pencere::File::new("page.lua", PAGE),
-            pencere::File::new("assets/icon.svg", ICON),
-        ],
-    )?;
     let outcome = pencere::serve(
         Options::new()
-            .view(View::new(Kind::Lua, &["1.0"], bundle))
+            // The view: src/view/page.lua and the scripts it requires, with the pictures of
+            // src/assets/, a page of the kit the terminal draws in its own font and theme.
+            .app(pencere::app!())
             .program("{{name}}")
             .title("{{name}}")
             .call("hello", |params, _call| {

@@ -10,3 +10,7 @@ path = "src/program/main.rs"
 [dependencies]
 pencere = "0.3"
 serde_json = "1"
+
+# The build script carries src/view/ and src/assets/ into the binary (`pencere::build::app`).
+[build-dependencies]
+pencere = "0.3"

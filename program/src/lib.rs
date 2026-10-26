@@ -63,6 +63,7 @@
 #[doc = include_str!("../README.md")]
 struct ReadmeExamples;
 
+mod app;
 mod bundle;
 mod control;
 mod handlers;
@@ -82,6 +83,7 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::Value;
 
+pub use app::{App, DEV_VARIABLE, build};
 pub use bundle::{Bundle, BundleError, File};
 pub use control::{CloseResult, ReopenResult, ViewControl};
 pub use handlers::{Call, Subscription, ViewError};
@@ -97,6 +99,7 @@ type Fallback = Box<dyn FnOnce(&NoView) + Send>;
 /// What `serve` is asked.
 pub struct Options {
     views: Vec<View>,
+    app: Option<App>,
     program: Option<String>,
     title: Option<String>,
     icons: Vec<Icon>,
@@ -139,6 +142,7 @@ impl Options {
     pub fn new() -> Self {
         Self {
             views: Vec::new(),
+            app: None,
             program: None,
             title: None,
             icons: Vec::new(),
@@ -160,6 +164,16 @@ impl Options {
     #[must_use]
     pub fn view(mut self, view: View) -> Self {
         self.views.push(view);
+        self
+    }
+
+    /// The views of the app's files ([`App::views`]): its page of the kit, then its web page, after
+    /// the views [`Options::view`] adds. Under `pencere dev`, where the app is the project's files
+    /// on the disk, the view is shown again whenever one of them changes, without ending the
+    /// program (with the [`ViewControl`] of [`Options::control`], or one of its own).
+    #[must_use]
+    pub fn app(mut self, app: App) -> Self {
+        self.app = Some(app);
         self
     }
 
@@ -505,10 +519,23 @@ pub enum NoViewReason {
 /// [`Error::Bundle`]), when another `serve` has the terminal ([`Error::Busy`]), or when the
 /// terminal fails in a way that is not the end of the view ([`Error::Io`]).
 pub fn serve(mut options: Options) -> Result<Outcome, Error> {
+    let app = options.app.take();
+    if let Some(app) = &app {
+        options.views.extend(app.views()?);
+    }
     options.check()?;
+    // An app read from the disk is watched while the view is up, and shown again when it changes.
+    let watching = match &app {
+        Some(app) if app.source_dir().is_some() => {
+            let control = options.control.get_or_insert_with(ViewControl::new).clone();
+            Some(app::watch(app.clone(), control))
+        }
+        _ => None,
+    };
     let terminal = options.terminal.take().unwrap_or_else(Terminal::standard);
     let fallback = options.fallback.take();
     let outcome = session::run(&options, &terminal);
+    drop(watching);
     drop(terminal);
     let outcome = outcome?;
     if let Outcome::NoView(no_view) = &outcome

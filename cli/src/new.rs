@@ -76,6 +76,7 @@ const RUST: Template = &[
         "Cargo.toml",
         include_str!("../templates/rust/Cargo.toml.tmpl"),
     ),
+    ("build.rs", include_str!("../templates/rust/build.rs")),
     (
         "src/program/main.rs",
         include_str!("../templates/rust/src/program/main.rs"),

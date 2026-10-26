@@ -202,6 +202,64 @@ pub fn build(request: &Request) -> Result<(PathBuf, usize, u64), String> {
     Ok((out, count, size))
 }
 
+/// Makes the program of the Cargo package in `request.dir` with Cargo, as `cargo build --release`
+/// (`--target` passed on), and copies it where an app's executable goes: `dist/<name>`, or
+/// `dist/<name>-<target>` for another target. The page and the pictures are in it already, carried
+/// by its build script; Cargo compiles, and so needs the toolchain of the target.
+pub fn build_cargo(request: &Request) -> Result<PathBuf, String> {
+    if request.web.is_some() || request.runner.is_some() {
+        return Err(
+            "--web and --runner are for a Lua app; a Rust program is built by Cargo, with its view in src/view/"
+                .to_owned(),
+        );
+    }
+    let root = request
+        .dir
+        .canonicalize()
+        .map_err(|why| format!("{}: {why}", request.dir.display()))?;
+    let name = match request.name {
+        Some(name) => name.to_owned(),
+        None => root
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("the directory has no name to call the program by: --name names it")?
+            .to_owned(),
+    };
+    let mut extra = vec!["--release"];
+    if let Some(target) = request.target {
+        extra.extend(["--target", target]);
+    }
+    let program = crate::dev_cargo::build(&root, &name, &extra).map_err(|why| match request.target {
+        Some(target) if !target_installed(target) => format!(
+            "{why}: the toolchain has no {target} (`rustup target add {target}`; a target of another \
+             system needs its linker too, which `cargo zigbuild` brings)"
+        ),
+        _ => why,
+    })?;
+    let out = match (request.out, request.target) {
+        (Some(out), _) => out.to_path_buf(),
+        (None, None) => root.join("dist").join(&name),
+        (None, Some(target)) => root.join("dist").join(format!("{name}-{target}")),
+    };
+    if let Some(parent) = out.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        fs::create_dir_all(parent).map_err(|why| format!("{}: {why}", parent.display()))?;
+    }
+    fs::copy(&program, &out).map_err(|why| format!("{}: {why}", out.display()))?;
+    Ok(out)
+}
+
+/// Whether rustup says the toolchain has `target` (taken to be so where there is no rustup to ask).
+fn target_installed(target: &str) -> bool {
+    Command::new("rustup")
+        .args(["target", "list", "--installed"])
+        .output()
+        .map_or(true, |output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .any(|line| line.trim() == target)
+        })
+}
+
 pub fn command(args: &[String]) -> ExitCode {
     let mut dir = None;
     let mut web = None;
@@ -253,6 +311,23 @@ pub fn command(args: &[String]) -> ExitCode {
         runner: runner.as_deref(),
         out: out.as_deref(),
     };
+    if crate::dev_cargo::is_project(&dir) {
+        return match build_cargo(&request) {
+            Ok(out) => {
+                let size = fs::metadata(&out).map_or(0, |meta| meta.len());
+                println!(
+                    "pencere: built {} ({:.1} MiB)",
+                    out.display(),
+                    size as f64 / (1024.0 * 1024.0)
+                );
+                ExitCode::SUCCESS
+            }
+            Err(why) => {
+                eprintln!("pencere: {why}");
+                ExitCode::from(1)
+            }
+        };
+    }
     match build(&request) {
         Ok((out, count, _)) => {
             let size = fs::metadata(&out).map_or(0, |meta| meta.len());

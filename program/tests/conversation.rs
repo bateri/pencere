@@ -1016,6 +1016,40 @@ fn a_reopening_may_bring_other_files_and_other_kinds() {
 }
 
 #[test]
+fn an_app_read_from_the_disk_is_shown_again_when_a_file_of_its_view_changes() {
+    let _one = one_at_a_time();
+    let root = std::env::temp_dir().join(format!("pencere-app-reload-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("view")).expect("a directory");
+    std::fs::write(root.join("view/index.html"), "<p>first</p>").expect("a file");
+    let mut pane = Pane::new();
+    let terminal = pane.terminal();
+    let app = pencere::App::dir(&root);
+    let handle = std::thread::spawn(move || {
+        pencere::serve(Options::new().app(app).program("test").terminal(terminal))
+    });
+    shown(&mut pane);
+    // A save of the page: the view is closed and the new files are opened, the program running on.
+    std::fs::write(root.join("view/index.html"), "<p>second</p>").expect("a file");
+    let dismiss = pane.expect("dismiss");
+    pane.send("closed", Some(dismiss.id), &json!({ "reason": "program" }));
+    let hello = pane.expect("hello");
+    pane.welcome(hello.id, TOKEN_2, &web_views());
+    let open = pane.expect("open");
+    let body: Value = serde_json::from_str(&open.payload).expect("JSON");
+    assert_eq!(
+        body["bundle"]["files"][0]["sha256"],
+        digest_of(b"<p>second</p>")
+    );
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    interrupt();
+    let bye = pane.expect("bye");
+    pane.send("closed", Some(bye.id), &json!({ "reason": "program" }));
+    finished(handle);
+    std::fs::remove_dir_all(root).expect("removed");
+}
+
+#[test]
 fn a_terminal_without_dismiss_keeps_the_view_and_is_told_nothing() {
     let _one = one_at_a_time();
     let mut pane = Pane::new();

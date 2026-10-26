@@ -6,6 +6,7 @@
 mod app;
 mod build_cmd;
 mod dev;
+mod dev_cargo;
 mod files;
 mod macho;
 mod new;
@@ -23,10 +24,14 @@ usage:
                                              make a project to start from (--page: the view of a
                                              Lua project is a page of the kit, or a web page)
   pencere dev [dir] [--web DIR] [--name NAME] [--log FILE]
-                                             run the Lua app in dir (default .) in this pane, and
-                                             run it again when its files change
+                                             run the app in dir (default .) in this pane, and run
+                                             it again when its files change; a Cargo package (a
+                                             program in Rust) is built with Cargo, and its view is
+                                             shown again without ending it
   pencere build [dir] [--web DIR] [--name NAME] [--target T] [--runner FILE] [-o FILE]
-                                             make one executable of the Lua app in dir
+                                             make one executable of the app in dir; a Cargo
+                                             package is built by Cargo (--release, --target passed
+                                             on) and its program copied to dist/
   pencere --version
 
 An app is a directory with the program in src/program/ (app.lua and its modules), the page in

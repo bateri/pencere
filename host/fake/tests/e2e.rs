@@ -2335,6 +2335,133 @@ fn pencere_dev_shows_the_view_again_when_the_page_changes_and_runs_the_app_again
 }
 
 #[test]
+#[ignore = "heavy: builds a Rust program made by `pencere new --lang rust`, twice"]
+fn pencere_dev_shows_a_rust_programs_view_again_when_its_page_changes_and_builds_it_again_when_its_source_does()
+ {
+    // Outside the repository: cargo would take a project under it for a member of its workspace.
+    let directory = std::env::temp_dir().join(format!("pencere-dev-rust-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&directory);
+    fs::create_dir_all(&directory).expect("a directory");
+    let (status, said) = pencere(&directory, &["new", "rusty", "--lang", "rust"]);
+    assert!(status.success(), "pencere new: {said}");
+    let project = directory.join("rusty");
+    // The registry does not have this checkout's library: the project is built against it.
+    let manifest = project.join("Cargo.toml");
+    let mut text = fs::read_to_string(&manifest).expect("a manifest");
+    text.push_str(&format!(
+        "\n[patch.crates-io]\npencere = {{ path = {:?} }}\npencere-wire = {{ path = {:?} }}\n",
+        root().join("program"),
+        root().join("wire")
+    ));
+    fs::write(&manifest, text).expect("a manifest is written");
+    // Built once beforehand, so that what `pencere dev` builds is the program and not its
+    // dependencies, within the fake host's time.
+    let warmed = Command::new(env!("CARGO"))
+        .args(["build", "--quiet", "--offline"])
+        .current_dir(&project)
+        .env("CARGO_NET_OFFLINE", "true")
+        .status()
+        .expect("cargo runs");
+    assert!(warmed.success(), "the project builds");
+    let page = project.join("src/view/page.lua");
+    let main = project.join("src/program/main.rs");
+    let command = pencere_command().to_string_lossy().into_owned();
+    let run = run_editing(
+        &["--limit", "240", "--on-view", "3", "--then", "interrupt"],
+        &[&command, "dev", &project.to_string_lossy()],
+        vec![
+            (
+                "view: kind=lua version=1.0",
+                Box::new(move || {
+                    let mut text = fs::read_to_string(&page).expect("the page");
+                    text.push_str("\n-- edited\n");
+                    fs::write(&page, text).expect("the page is written");
+                }),
+            ),
+            (
+                "program: dismiss id=",
+                Box::new(move || {
+                    // Once the page has been shown again: the program's source is changed.
+                    std::thread::sleep(Duration::from_millis(1500));
+                    let mut text = fs::read_to_string(&main).expect("the program");
+                    text.push_str("\n// edited\n");
+                    fs::write(&main, text).expect("the program is written");
+                }),
+            ),
+        ],
+    );
+    let _ = fs::remove_dir_all(&directory);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: hello id=1",
+        "program: open id=2 view=lua version=1.0",
+        "view: kind=lua version=1.0",
+        // The page changed: the program closes its view and shows it again, of the new file.
+        "program: dismiss id=",
+        "view: destroyed",
+        "host: closed id=* re=* reason=program",
+        "program: hello id=",
+        "program: open id=* view=lua version=1.0",
+        "view: kind=lua version=1.0",
+        // The source changed: the program is stopped, built and run again.
+        "program: bye id=* reason=signal",
+        "program: hello id=1",
+        "program: open id=2 view=lua version=1.0",
+        "view: kind=lua version=1.0",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+    ]);
+}
+
+#[test]
+#[ignore = "heavy: builds a Rust program made by `pencere new --lang rust`"]
+fn pencere_build_makes_a_rust_program_that_carries_its_page_and_shows_it() {
+    let directory = std::env::temp_dir().join(format!("pencere-build-rust-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&directory);
+    fs::create_dir_all(&directory).expect("a directory");
+    let (status, said) = pencere(&directory, &["new", "rusty", "--lang", "rust"]);
+    assert!(status.success(), "pencere new: {said}");
+    let project = directory.join("rusty");
+    let manifest = project.join("Cargo.toml");
+    let mut text = fs::read_to_string(&manifest).expect("a manifest");
+    text.push_str(&format!(
+        "\n[patch.crates-io]\npencere = {{ path = {:?} }}\npencere-wire = {{ path = {:?} }}\n",
+        root().join("program"),
+        root().join("wire")
+    ));
+    fs::write(&manifest, text).expect("a manifest is written");
+    let built = Command::new(pencere_command())
+        .arg("build")
+        .current_dir(&project)
+        .env("CARGO_NET_OFFLINE", "true")
+        .output()
+        .expect("pencere runs");
+    assert!(
+        built.status.success(),
+        "pencere build: {}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let program = project.join("dist/rusty");
+    // The project's files are not needed any more: the page is in the program.
+    let carried = directory.join("rusty-alone");
+    fs::copy(&program, &carried).expect("copied");
+    fs::remove_dir_all(&project).expect("removed");
+    let run = run(
+        &["--call", r#"hello={"name":"rust"}"#, "--then", "interrupt"],
+        &[&carried.to_string_lossy()],
+    );
+    let _ = fs::remove_dir_all(&directory);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: open id=2 view=lua version=1.0",
+        "view: kind=lua version=1.0",
+        r#"view: <- response id=* result={"message":"Hello, rust!"}"#,
+        "host: the person presses ^C",
+        "program: exited with status 130",
+    ]);
+}
+
+#[test]
 fn an_app_with_a_web_page_made_by_new_opens_a_web_view_and_its_calls_and_pushes_work() {
     let directory = fresh("new-web");
     let (status, said) = pencere(&directory, &["new", "webby", "--page", "web"]);

@@ -80,6 +80,14 @@ first kind the terminal will open, at the first of the versions the terminal spe
 program carries; `Bundle::from_dir` and `Bundle::new` build a page's. A view with a bundle for each
 version is `View::per_version`.
 
+A program laid out as `pencere new --lang rust` lays it out keeps its page in `src/view/` and its
+pictures in `src/assets/`, and does not list them: its build script carries both into the binary
+(`pencere::build::app()` in `build.rs`), and `Options::app(pencere::app!())` offers what they are,
+by the rules of a Lua app: the page of the kit (`view/page.lua`, with the scripts it `require`s and
+the pictures) if there is one, then the web page (`view/index.html`) if there is one. Under
+`pencere dev` the program is told where the project is (`PENCERE_DEV_APP`) and reads them from
+there instead, and the view is shown again, without ending the program, whenever one changes.
+
 ## Calls and subscriptions
 
 A handler runs on a thread of its own, so a call that takes a while neither keeps ⌃C from ending

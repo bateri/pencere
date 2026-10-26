@@ -43,7 +43,7 @@ pub fn classify(path: &str, pages: &[String]) -> Change {
 }
 
 /// The files of a directory and when each last changed.
-type Stamps = BTreeMap<String, (SystemTime, u64)>;
+pub type Stamps = BTreeMap<String, (SystemTime, u64)>;
 
 fn stamps(files: &Files) -> Stamps {
     let mut stamps = BTreeMap::new();
@@ -152,7 +152,7 @@ fn follow(
     }
 }
 
-fn append(log: &Path, line: &str) {
+pub fn append(log: &Path, line: &str) {
     use std::io::Write as _;
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
@@ -191,6 +191,13 @@ pub fn command(args: &[String]) -> ExitCode {
         }
     }
     let root = dir.unwrap_or_else(|| PathBuf::from("."));
+    // A program in Rust: Cargo builds it, and the `pencere` library shows its view again.
+    if crate::dev_cargo::is_project(&root) {
+        if web.is_some() {
+            return crate::usage("--web is for a Lua app; a Rust program's view is in src/view/");
+        }
+        return crate::dev_cargo::command(&root, name, log);
+    }
     let project = match Project::find(&root, web.as_deref()) {
         Ok(project) => Arc::new(project),
         Err(why) => {

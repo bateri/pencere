@@ -6,6 +6,19 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+### Added
+
+- **`pencere dev` and `pencere build` for a program in Rust.** In a Cargo package, `pencere dev`
+  builds the program with Cargo and runs it in the pane: a change to the page or a picture shows
+  the view again without ending it (the `pencere` library reads them from the project), and a
+  change to anything else builds and runs it again; the program's standard error goes to the log.
+  `pencere build` builds it with `cargo build --release` (`--target` passed on, with what to install
+  when the toolchain lacks it) and copies it to `dist/<name>`.
+- `pencere new --lang rust` makes a project whose build script carries `src/view/` and
+  `src/assets/` into the program (`pencere::app!()`), so the page can be split into files as a Lua
+  app's is. It needs the `pencere` crate that has `App`: the release that ships this command sets
+  the version of the crate in the template to it.
+
 ## [0.2.2] - 2026-10-26
 
 ### Fixed
