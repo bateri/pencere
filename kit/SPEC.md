@@ -74,10 +74,18 @@ text inside a `text_field` element is what the host's field says while it is emp
 A **text field** is a field of the host's own, put over the room of the element that says it is one,
 and named by that element's id (`text_field(id)`, or the element's own id): a page has as many as it
 names, and an element that says it is a field and has no name is not one. `"line"` (the default) is
-one line, whose enter is a key for the page; `"lines"` breaks the line at enter and scrolls; `"secret"`
-is one line whose characters are not shown and are never copied. The page is told what a field holds
-when the person changes it (`text`), sends the keyboard to one (`keyboard = { field = name }`), and puts
-a text in one (`fill`).
+one line; `"lines"` breaks the line at enter and scrolls; `"secret"` is one line whose characters are
+not shown and are never copied. The page is told what a field holds when the person changes it
+(`text`), sends the keyboard to one (`keyboard = { field = name }`), and puts a text in one (`fill`).
+
+While a field has the keyboard, the keys that do not edit its text are the page's, as `key` events,
+and the field keeps the keyboard unless the reply sends it elsewhere: escape and tab in every field,
+and in a line (`"line"`, `"secret"`) besides: enter, up and down with whatever modifier (in one line
+they would only take the caret to an end), page up and page down, the function keys, and a chord
+of command or control with a key the field has no use for. The characters, left and right, delete,
+home and end, and the field's own editing chords (select all, copy, cut, paste, undo; copy with
+nothing selected is not one) stay the field's. So a list with a filter above it takes its
+commands while the person types: the arrows move in the list, enter chooses, ⌘K opens a palette.
 
 A **label** is what an element is in words, for a person who does not see it: a host that offers its
 system's screen reader says the label of an element that has one, and the words inside one that has
