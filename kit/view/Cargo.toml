@@ -18,7 +18,7 @@ include = [
 [dependencies]
 # The layout: flexbox and grid in pixels. The engine's only dependency, so it takes to wherever a
 # page is shown as it is (`make check` fails when anything else is linked).
-taffy = { version = "0.10", default-features = false, features = [
+taffy = { version = "0.15", default-features = false, features = [
     "std", "taffy_tree", "flexbox", "grid", "content_size",
 ] }
 

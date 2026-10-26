@@ -74,6 +74,8 @@ mod image_tests;
 #[cfg(test)]
 mod interact_tests;
 #[cfg(test)]
+mod margins_tests;
+#[cfg(test)]
 mod motion_tests;
 #[cfg(test)]
 mod overlay_tests;
