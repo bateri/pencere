@@ -3,7 +3,7 @@ name = "pencere-wire"
 description = "The wire of pencere that a program and a terminal share: frames, the payloads of the handshake, bundle manifests and digests, and the six messages of a program and its view"
 # Released on its own line, like the host crate that reads it and the program library that writes
 # it; the workspace's version is the unpublished crates'.
-version = "0.3.0"
+version = "0.3.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

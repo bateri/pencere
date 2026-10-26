@@ -3,7 +3,7 @@ name = "pencere-page"
 description = "Write the page of a pencere view as a WebAssembly component: the SDK of the kit, in the style language of the page engine and with the six messages of a program and its view"
 # The crate's own version line, apart from the page modules' workspace: it is released on its own
 # (RELEASING.md), and the modules that workspace builds to try it are never published.
-version = "0.3.0"
+version = "0.3.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -7,6 +7,13 @@ under this name) are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-26
+
+### Fixed
+
+- 0.3.0 never reached crates.io: it was tagged and drafted, and the release workflow then skipped
+  its publishing. This is the same code, released.
+
 ## [0.3.0] - 2026-10-26
 
 Released with the other crates; no change of its own.
