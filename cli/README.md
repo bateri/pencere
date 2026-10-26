@@ -34,6 +34,12 @@ pencere build              # dist/hello, one file
 pencere build --target x86_64-unknown-linux-musl     # the same app for a Linux machine
 ```
 
+The same two commands work on a program written in Rust (`pencere new hello --lang rust`, a Cargo
+package): `pencere dev` builds it with Cargo and runs it in the pane, shows the view again without
+ending the program when the page or a picture changes, and builds and runs it again when anything
+else does; `pencere build` builds it with `cargo build --release` and copies it to `dist/`. The page
+is the same page of the kit, in `src/view/`, carried into the program by its build script.
+
 ## Where things go
 
 ```
@@ -224,9 +230,10 @@ run it with `--log FILE` to read them in a file. `pencere dev` does that by itse
 - **Another target without its toolchain.** `--target` fetches the same version's runner of that
   target from the release (`curl`, checked against the release's `SHA256SUMS`, kept in the cache),
   and `--runner FILE` uses one you have.
-- **Other languages need nothing of this.** The protocol is bytes; the TypeScript SDK
+- **Other languages need nothing of this to run.** The protocol is bytes; the TypeScript SDK
   (`@pencere/sdk`, `deno compile`) and the Rust library (`pencere`) are the same program in other
-  words, and `pencere new --lang ts|rust` starts one.
+  words, and `pencere new --lang ts|rust` starts one. For a Rust program `dev` and `build` are a
+  convenience over Cargo, which does the compiling: the runner is not in it.
 
 The specification is [here](https://github.com/bateri/pencere/blob/main/spec/draft/pencere.md).
 Apache-2.0.

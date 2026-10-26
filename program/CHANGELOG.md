@@ -6,6 +6,15 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **An app's files, carried and reloaded.** `pencere::build::app()`, called from `build.rs`,
+  carries `src/view/` and `src/assets/` into the binary; `pencere::app!()` is them, an `App`, and
+  `Options::app` offers its views by the rules of a Lua app (the page of the kit, then the web
+  page). `App::dir` reads them from a directory instead. Under `pencere dev`, which sets
+  `PENCERE_DEV_APP`, the app is read from the project and the view is shown again whenever one of
+  its files changes, without ending the program.
+
 ## [0.3.0] - 2026-10-26
 
 ### Fixed
