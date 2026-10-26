@@ -396,7 +396,7 @@ fn build(
     let color = text.color.unwrap_or(Role::Foreground.solid());
 
     let index = pending.len();
-    let px = |points: f32| points * scale;
+    let px = |points: f32| snap(points, scale);
     pending.push(Pending {
         id: NodeId::new(0),
         parent,
@@ -510,18 +510,27 @@ fn build(
     (index, id)
 }
 
+/// `points` as whole pixels. A page's lengths are points and a pixel is not a whole number of
+/// them where the page is drawn larger than its points (a terminal's zoom); a length that is a
+/// fraction of a pixel is rounded on its own, so that a box's padding is as many pixels on each
+/// side and the boxes inside it stand in its middle, instead of the edges each being rounded
+/// where the fractions add up to (two pixels above, three below).
+fn snap(points: f32, scale: f32) -> f32 {
+    (points * scale).round()
+}
+
 fn dimension(length: Length, scale: f32) -> Dimension {
     match length {
         Length::Auto => Dimension::auto(),
-        Length::Px(points) => Dimension::length(points * scale),
+        Length::Px(points) => Dimension::length(snap(points, scale)),
         Length::Percent(percent) => Dimension::percent(percent / 100.0),
     }
 }
 
 fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
-    let px = |points: f32| points * scale;
-    let edge = |points: f32| LengthPercentage::length(points * scale);
-    let margin = |points: f32| LengthPercentageAuto::length(points * scale);
+    let px = |points: f32| snap(points, scale);
+    let edge = |points: f32| LengthPercentage::length(snap(points, scale));
+    let margin = |points: f32| LengthPercentageAuto::length(snap(points, scale));
     let inset = |value: Option<f32>| value.map_or_else(LengthPercentageAuto::auto, margin);
     let [top, right, bottom, left] = style.padding;
     let [m_top, m_right, m_bottom, m_left] = style.margin;

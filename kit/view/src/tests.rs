@@ -776,3 +776,36 @@ fn a_page_is_read_as_its_buttons_fields_and_words_each_said_once() {
     assert_eq!(items[1].id, Some(Id::named("restart")));
     assert_eq!(items[1].rect.h, 20.0, "in points");
 }
+
+#[test]
+fn a_box_inside_padding_stands_in_its_middle_at_a_scale_that_is_not_whole() {
+    // A segmented control's thumb: two points of padding round a box 24 tall, the page drawn at
+    // 2.2 pixels to a point (a terminal's zoom). Each padding is as many pixels, not 4 above and
+    // 5 below as edges rounded where 4.4 and 52.8 add up to.
+    let thumb = Id::new(9);
+    let page = div().child(
+        div()
+            .p(2.0)
+            .border(1.0, Role::Border)
+            .child(div().id(thumb).h(24.0).w(40.0)),
+    );
+    for top in [0.0, 3.0, 7.0] {
+        let laid = layout(
+            div().pt(top).child(page.clone()),
+            Size::new(400.0, 200.0),
+            2.2,
+            &mut Fixed,
+        );
+        let outer = laid.nodes[2].rect;
+        let inner = laid.bounds(thumb).unwrap();
+        let s = 2.2;
+        let (above, below) = (
+            inner.y * s - outer.y,
+            outer.bottom() - (inner.y + inner.h) * s,
+        );
+        assert!(
+            (above - below).abs() < 0.01,
+            "{above} above, {below} below at {top}"
+        );
+    }
+}
