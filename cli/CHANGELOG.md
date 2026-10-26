@@ -6,6 +6,13 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-26
+
+### Fixed
+
+- 0.2.1 was never published: the release workflow stopped before it, because the crates it is
+  released after were not published. This is the same command, built with the crates 0.3.1.
+
 ## [0.2.1] - 2026-10-26
 
 ### Fixed
