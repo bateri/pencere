@@ -146,6 +146,17 @@ describe("the repository's lines", () => {
     for (const job of publishing) {
       expect(job, job.split(":")[0]).toMatch(/^ {4}if: >-\n {6}always\(\) && /m);
     }
+    // crates.io refuses trusted publishing to a run that another run's end started: the release
+    // is started by the push, and runs the gate itself before anything is tagged.
+    expect(workflow).not.toMatch(/^ {2}workflow_run:/m);
+    expect(workflow).toMatch(/^on:\n {2}push:\n {4}branches: \[main\]$/m);
+    const gate = jobs.find((job) => job.startsWith("gate:"));
+    expect(gate).toMatch(/^ {4}uses: \.\/\.github\/workflows\/check\.yml$/m);
+    expect(text(repo, ".github/workflows/check.yml")).toMatch(/^ {2}workflow_call:$/m);
+    for (const name of ["npm", "crates", "build", "draft"]) {
+      const job = jobs.find((each) => each.startsWith(`${name}:`));
+      expect(job, name).toMatch(/^ {4}needs: \[plan, gate\b/m);
+    }
     const makefile = text(repo, "Makefile");
     for (const verb of ["release-prepare", "rehearse"]) {
       expect(makefile, verb).toMatch(new RegExp(`^${verb}:`, "m"));

@@ -23,10 +23,10 @@ The specification is dated by hand (see [The specification](#the-specification))
 1. `make release-prepare LINE=<line> VERSION=<x.y.z>` sets the version in the manifests and
    lockfiles and dates the changelog(s). Commit it as `Release <line> <version>` and push it to
    `main`, directly or through a pull request.
-2. The gate (`check.yml`) runs on the push. When it is green, the release workflow
-   (`release.yml`) starts.
-3. The workflow finds each line whose version has no tag yet; a commit that moved no version ends
-   here. For each one it checks the version and changelog, checks the package (`npm pack`,
+2. The release workflow (`release.yml`) runs on the push. It finds each line whose version has no
+   tag yet; a commit that moved no version ends here.
+3. It runs the gate (`check.yml`) on that commit itself, and only when the gate is green goes on.
+   For each line it checks the version and changelog, checks the package (`npm pack`,
    `cargo publish --dry-run`) or builds the four executables with their `SHA256SUMS` and
    provenance, then pushes the tag and writes a **draft** GitHub release.
 4. The run waits in the `release` environment. GitHub notifies the reviewers; one of them opens
@@ -37,10 +37,16 @@ The specification is dated by hand (see [The specification](#the-specification))
 Check it afterwards: `npm view @pencere/sdk version`, `cargo info pencere@<version>`,
 `gh release view cli-v<version>`.
 
+The workflow is started by the push, not by the end of the gate's own run (`workflow_run`):
+crates.io refuses trusted publishing to a run started that way. A test of the release tools holds
+the workflow to it.
+
 **If something fails.** Before the tag, nothing is public: fix it and push again. A tag is never
 moved; a broken release is followed by a new version. A release that stopped after its tag is
 finished by running the workflow by hand on `main` (**Run workflow**, or
-`gh workflow run release.yml -f line=<line>`); what is published already is skipped.
+`gh workflow run release.yml -f line=<line>`), one line at a time; what is published already is
+skipped. If `main` has gone on since the tag, the run finishes the release from the tag's commit:
+it runs the gate there, and checks, builds and publishes what was tagged.
 
 **Trying it.** `make rehearse LINE=<line>` runs the checks of a prepared line on any branch.
 `make dist` builds the four executables locally. **Run workflow** with **rehearse** builds on any
@@ -50,7 +56,7 @@ branch and publishes nothing.
 
 - a version that is not after the last tag, or manifests that disagree with the changelog;
 - a non-empty `## [Unreleased]`, or an empty release section;
-- a commit whose gate is not green, or a tag on another commit;
+- a commit whose gate is not green, or a tag on a commit that is not one of `main`'s;
 - a package missing `LICENSE`, `NOTICE`, `README.md` or `CHANGELOG.md`, or one that carries tests
   or build output; a crate missing crates.io metadata;
 - command files that are not exactly the four executables of this version with correct sums.
@@ -97,8 +103,11 @@ None of these is a secret.
   would otherwise create it empty and publish without asking.
 - **npm**, `@pencere/sdk`: trusted publisher GitHub Actions, `bateri/pencere`, `release.yml`,
   environment `release`; tokens disallowed.
-- **crates.io**, each of the six crates: trusted publisher GitHub, `bateri/pencere`, `release.yml`,
-  environment `release`.
+- **crates.io**, each of the six crates (`pencere-wire`, `pencere-host`, `pencere-view`,
+  `pencere-sandbox`, `pencere-page`, `pencere`): trusted publisher GitHub, `bateri/pencere`,
+  `release.yml`, environment `release`. A crate without it is refused with `403 … The provided
+access token is not valid for crate …` when its turn comes, after the ones before it went out;
+  run the workflow again for the line once it is set.
 
 ## The specification
 

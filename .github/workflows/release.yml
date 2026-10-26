@@ -1,8 +1,11 @@
-# Releases what a commit on main has prepared (RELEASING.md). It runs when the gate (check.yml) has
-# finished green on a push to main, and when it is started by hand:
+# Releases what a commit on main has prepared (RELEASING.md). It runs on every push to main, and
+# when it is started by hand. It is started by the push itself, not by the gate's run finishing
+# (`workflow_run`): crates.io refuses trusted publishing to a run started that way.
 #
 # - plan: the lines whose version has no tag yet (`make release-prepare`, committed and pushed),
 #   each checked. A commit that prepared nothing ends here.
+# - gate: the gate (check.yml) on the commit to release, called here so that nothing is tagged
+#   before it is green.
 # - the packages of each line are checked, and the command's four executables are built on a
 #   runner of their system and architecture, tried, summed and attested (provenance).
 # - each line is tagged (`<line>-v<version>`) and its GitHub release written as a draft, with the
@@ -13,16 +16,14 @@
 #   draft is made public. The command is published after the SDK and the crates, and is the only
 #   Latest.
 #
-# Started by hand, it releases the line chosen on main's newest commit, if the gate is green on it:
-# a release that stopped half way (tagged on this commit, not yet public) is finished. With
+# Started by hand, it releases the line chosen on main's newest commit: a release that stopped half
+# way (tagged, not yet public) is finished, from the commit of its tag when main has gone on. With
 # `rehearse` it only checks and builds, on any branch, and keeps the command's files as workflow
 # artifacts: no tag, no release, no attestation.
 name: release
 
 on:
-  workflow_run:
-    workflows: [check]
-    types: [completed]
+  push:
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -47,19 +48,16 @@ concurrency:
 permissions: {}
 
 jobs:
-  # A run of the gate on a pull request, or on a branch of a fork named main, is never a release.
+  # A push to the main branch of a fork is never a release.
   plan:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+    if: github.event_name == 'workflow_dispatch' || !github.event.repository.fork
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read
     outputs:
-      sha: ${{ steps.sha.outputs.sha }}
+      # The commit started on, or the one plan names to finish a release from.
+      sha: ${{ steps.plan.outputs.sha || steps.sha.outputs.sha }}
       rehearse: ${{ steps.sha.outputs.rehearse }}
       lines: ${{ steps.plan.outputs.lines }}
       sdk-typescript: ${{ steps.plan.outputs.sdk-typescript }}
@@ -69,11 +67,10 @@ jobs:
       - id: sha
         env:
           EVENT: ${{ github.event_name }}
-          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
           REHEARSE: ${{ inputs.rehearse == true }}
         run: |
-          if [ "$EVENT" = workflow_run ]; then
-            echo "sha=$RUN_SHA" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = push ]; then
+            echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
             echo "rehearse=false" >> "$GITHUB_OUTPUT"
           else
             if [ "$REHEARSE" != true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
@@ -90,19 +87,32 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-      # After the gate's run, this commit is green; started by hand, plan asks GitHub whether it is.
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
           LINE: ${{ inputs.line }}
           RELEASE_REHEARSE: ${{ steps.sha.outputs.rehearse }}
-          RELEASE_REQUIRE_CHECK: ${{ github.event_name == 'workflow_dispatch' }}
         run: node tools/release.mjs plan "$LINE" >> "$GITHUB_OUTPUT"
+
+  # The gate, on the commit to release, whenever there is one (a rehearsal is not one).
+  gate:
+    needs: plan
+    if: needs.plan.outputs.lines != '[]' && needs.plan.outputs.rehearse != 'true'
+    uses: ./.github/workflows/check.yml
+    with:
+      ref: ${{ needs.plan.outputs.sha }}
+    permissions:
+      contents: read
+
+  # From here each job asks for the gate, which a rehearsal skips: with `always()`, as GitHub skips
+  # a job after any skipped job in its chain otherwise.
 
   # The package npm would publish: its files, built from a clean install.
   npm:
-    needs: plan
-    if: needs.plan.outputs.sdk-typescript == 'true'
+    needs: [plan, gate]
+    if: >-
+      always() && needs.plan.outputs.sdk-typescript == 'true' &&
+      (needs.gate.result == 'success' || needs.plan.outputs.rehearse == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -120,8 +130,10 @@ jobs:
 
   # The package of each crate, built from its own files against crates.io (its dry run).
   crates:
-    needs: plan
-    if: needs.plan.outputs.crates == 'true'
+    needs: [plan, gate]
+    if: >-
+      always() && needs.plan.outputs.crates == 'true' &&
+      (needs.gate.result == 'success' || needs.plan.outputs.rehearse == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -144,8 +156,10 @@ jobs:
   # runner can run it (tools/dist.sh): the log of the macOS job says whether the Intel executable
   # could be run. Nothing is taken from a cache: what is released is built from nothing.
   build:
-    needs: plan
-    if: needs.plan.outputs.cli == 'true'
+    needs: [plan, gate]
+    if: >-
+      always() && needs.plan.outputs.cli == 'true' &&
+      (needs.gate.result == 'success' || needs.plan.outputs.rehearse == 'true')
     strategy:
       fail-fast: false
       matrix:
@@ -187,6 +201,7 @@ jobs:
   # kept as a workflow artifact, for the draft and for a rehearsal.
   files:
     needs: [plan, build]
+    if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -223,9 +238,10 @@ jobs:
   # leaves a tag that is on this commit and makes the draft again; a release that is public is not
   # touched.
   draft:
-    needs: [plan, npm, crates, build, files]
+    needs: [plan, gate, npm, crates, build, files]
     if: >-
       always() && needs.plan.result == 'success' && needs.plan.outputs.rehearse != 'true' &&
+      needs.gate.result == 'success' &&
       needs.plan.outputs.lines != '[]' &&
       !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
