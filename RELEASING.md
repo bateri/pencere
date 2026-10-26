@@ -80,7 +80,13 @@ projects with are on npm and crates.io, so that `pencere new` never makes a proj
 build.
 
 `cli-v0.1.0` belongs to the retired `@pencere/cli`; the command started at `0.2.0`. That package
-and `create-pencere` are deprecated on npm.
+and `create-pencere` are deprecated on npm, by hand (npm asks for the second factor); the log of the
+command's publication prints these while they are not:
+
+```sh
+npm deprecate "@pencere/cli@*" "Replaced by the pencere command (pencere new, pencere build): install it from the GitHub releases of bateri/pencere. A TypeScript program uses @pencere/sdk."
+npm deprecate "create-pencere@*" "Replaced by the pencere command (pencere new): install it from the GitHub releases of bateri/pencere. A TypeScript program uses @pencere/sdk."
+```
 
 ## Settings the workflow relies on
 
