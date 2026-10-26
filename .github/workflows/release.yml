@@ -257,9 +257,16 @@ jobs:
 
   # From here, each line waits for a maintainer's approval in the `release` environment (Settings,
   # Environments: its required reviewers), and nothing is public before it.
+  #
+  # Each publishing job says `always()`: without it GitHub puts `success()` in front of its `if`, and
+  # that is false when any job before it in the chain was skipped, as the jobs of a line that is not
+  # released in this run are (crates 0.3.0 was drafted and then skipped because the SDK's `npm` job
+  # was). Failure and cancellation are still refused.
   publish-sdk:
     needs: [plan, draft]
-    if: needs.draft.result == 'success' && needs.plan.outputs.sdk-typescript == 'true'
+    if: >-
+      always() && needs.draft.result == 'success' && needs.plan.outputs.sdk-typescript == 'true' &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -286,7 +293,9 @@ jobs:
 
   publish-crates:
     needs: [plan, draft]
-    if: needs.draft.result == 'success' && needs.plan.outputs.crates == 'true'
+    if: >-
+      always() && needs.draft.result == 'success' && needs.plan.outputs.crates == 'true' &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     environment: release
     permissions:
