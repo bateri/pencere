@@ -6,6 +6,10 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+### Changed
+
+- The runner shows the views of version `2.0` of the kit's page API (`lua` `2.0`).
+
 ### Added
 
 - **`pencere dev` and `pencere build` for a program in Rust.** In a Cargo package, `pencere dev`

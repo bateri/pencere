@@ -24,7 +24,7 @@
 /// (`page.room`); it does not ask again and again, and it is not closed for being fast. What the
 /// program says to the page is held to what the page has taken (the program's own `write` slows
 /// down), so a page is never handed more than it can read.
-package pencere:view@1.0.0;
+package pencere:view@2.0.0;
 
 interface types {
     /// A name for an element, so that what is kept about it between frames (a scroll position,
@@ -247,6 +247,34 @@ interface types {
         color: color,
     }
 
+    /// A fill that runs from `start` to `end` along a line at `angle` degrees, as a style sheet's
+    /// `linear-gradient`: `180` from the top down, `90` from the left to the right. It is drawn
+    /// over the box's `fill`, and a line of text on it is read against its colour half way along.
+    record gradient {
+        angle: f32,
+        start: color,
+        end: color,
+    }
+
+    /// The side of an element an overlay stands on.
+    enum side {
+        below,
+        above,
+        right,
+        left,
+    }
+
+    /// Where an overlay stands: beside the element named `to`, on `side` of it (on the other where
+    /// the page has not the room on that one), `gap` points away, lined up with the start, the
+    /// middle or the end of the element along that side, and moved along it to stay on the page.
+    /// Where no element of that name is on the page, it stands where its `inset` puts it.
+    record anchor {
+        to: id,
+        side: side,
+        align: align,
+        gap: f32,
+    }
+
     /// A soft shadow: the box's silhouette moved by `(dx, dy)` and blurred over `blur`, never
     /// drawn under the box itself.
     record shadow {
@@ -280,6 +308,13 @@ interface types {
         wrap: bool,
         /// Taken out of the flow and placed by `inset` against the parent's box.
         absolute: bool,
+        /// Taken out of the flow and out of every box that holds it: placed by `inset` against the
+        /// page (or beside the element `anchor` names), drawn over everything else, cut by nothing
+        /// that holds it, and the first the pointer finds. It is as faint as what holds it, hidden
+        /// with it, and its keys go out through it.
+        overlay: bool,
+        /// For an overlay: the element it stands beside.
+        anchor: option<anchor>,
         inset: inset,
         width: length,
         height: length,
@@ -307,6 +342,7 @@ interface types {
         scroll-x: f32,
         scroll-y: f32,
         fill: option<color>,
+        gradient: option<gradient>,
         border: option<border>,
         radii: corners,
         shadow: option<shadow>,
@@ -352,14 +388,134 @@ interface types {
         tint: option<color>,
     }
 
+    /// A part of a text of many looks: its words, and what it changes of the element's look (what
+    /// it leaves out is the element's). The size is the element's for every part.
+    record span {
+        /// A part of the frame's `text`.
+        text: slice,
+        color: option<color>,
+        weight: option<u16>,
+        italic: option<bool>,
+        underline: option<bool>,
+        strike: option<bool>,
+        family: option<family>,
+        /// A ground behind the words of this part alone.
+        background: option<color>,
+        /// The part is a link of this name: it answers the pointer as a pressed element does, and
+        /// a screen reader says it is a link.
+        link: option<id>,
+    }
+
+    record quad-to {
+        control: point,
+        to: point,
+    }
+
+    record cubic-to {
+        a: point,
+        b: point,
+        to: point,
+    }
+
+    /// A step of a path, in the points of the canvas's box from its top-left corner.
+    variant segment {
+        /// A new part of the path starts here; nothing is drawn.
+        move-to(point),
+        /// A straight line.
+        line-to(point),
+        /// A curve bent toward `control` (a quadratic Bézier).
+        quad-to(quad-to),
+        /// A curve leaving toward `a` and arriving from `b` (a cubic Bézier).
+        cubic-to(cubic-to),
+        /// A straight line back to where the part began.
+        close,
+    }
+
+    /// The line along a path: `width` points, round where it turns and ends.
+    record stroke {
+        width: f32,
+        color: color,
+    }
+
+    /// A path of a canvas: its steps (a part of the frame's `segments`), the colour inside it (where
+    /// a line out of a point crosses the path an odd number of times) and the line along it.
+    record path {
+        segments: slice,
+        fill: option<color>,
+        stroke: option<stroke>,
+    }
+
     /// What an element is.
     variant content {
         /// A box that holds the elements after it.
         box,
         /// One line of text: a part of the frame's `text`.
         text(slice),
+        /// A text of many looks: its parts, a part of the frame's `spans`, as one paragraph that
+        /// runs from line to line where it wraps.
+        rich(slice),
         spark(spark),
         image(image),
+        /// Paths drawn in the box: a part of the frame's `paths`. It has no size of its own.
+        canvas(slice),
+    }
+
+    /// What an element is to a screen reader, where its look says it and its answers do not. (A
+    /// text field is one by `node.field`; an element that answers the pointer and says nothing is
+    /// a button.)
+    variant accessible-role {
+        button,
+        text,
+        link,
+        /// Checked or not (`state.checked`).
+        checkbox,
+        /// On or off (`state.checked`).
+        switch,
+        /// One of a set of which one is chosen (`state.checked`).
+        radio,
+        /// A tab; the one in front is `state.selected`.
+        tab,
+        /// An entry of a menu, or of a list that is picked from.
+        menu-item,
+        /// The title of what follows, of a level from 1 down.
+        heading(u8),
+        /// A picture, said by its label.
+        image,
+        /// How far something has come (`state.value`).
+        progress,
+        /// A value set by moving something along a line (`state.value`).
+        slider,
+    }
+
+    /// Where an element stands, to a screen reader.
+    record state {
+        /// On or off; none for what is neither.
+        checked: option<bool>,
+        /// The one chosen of several.
+        selected: bool,
+        /// Open or shut; none for what does not open.
+        expanded: option<bool>,
+        /// It cannot be used now: it does not answer the pointer, nor take the keyboard.
+        disabled: bool,
+        /// The value it shows, in words: a part of the frame's `text`.
+        value: option<slice>,
+    }
+
+    /// Keys that do a command: one key, with the modifiers held down with it.
+    record shortcut {
+        key: key,
+        mods: mods,
+    }
+
+    /// Something the page can be told to do: the application lists it (by `title`, a part of the
+    /// frame's `text`) where a person looks for what can be done, and tells the page `id` when it
+    /// is asked for there or by its keys (`event.command`), in place of the key. One that is not
+    /// `enabled` is listed and cannot be done.
+    record command {
+        id: id,
+        title: slice,
+        keys: option<shortcut>,
+        enabled: bool,
     }
 
     /// What a text field the application puts over the page takes.
@@ -448,6 +604,19 @@ interface types {
         label: option<slice>,
         motion: option<motion>,
         tip: option<tip>,
+        /// What it is to a screen reader, where its look says it.
+        role: option<accessible-role>,
+        state: state,
+        /// What the page can be told to do while the keyboard is on this element or inside it:
+        /// a part of the frame's `commands`. The commands of the outermost element can be done
+        /// whatever has the keyboard; where two say the same keys, the nearer the keyboard is done.
+        commands: slice,
+        /// The keyboard is on this element (the first that says so).
+        focused: bool,
+        /// It can be picked up and moved (it answers the pointer as a pressed element does).
+        draggable: bool,
+        /// What is moved can be put down on it.
+        drop-target: bool,
         /// How many elements that follow are this one's children (not grandchildren).
         children: u32,
     }
@@ -469,6 +638,14 @@ interface types {
         numbers: list<f32>,
         /// The columns and rows of every grid.
         tracks: list<track>,
+        /// The parts of every text of many looks.
+        spans: list<span>,
+        /// The paths of every canvas.
+        paths: list<path>,
+        /// The steps of every path.
+        segments: list<segment>,
+        /// The commands of every element.
+        commands: list<command>,
         /// The page is still moving: the application asks for the next frame itself until this
         /// says no, so a page at rest costs no frames.
         animating: bool,
@@ -482,6 +659,8 @@ interface types {
     enum button {
         left,
         right,
+        /// The wheel pressed down, or the third button.
+        middle,
     }
 
     record mods {
@@ -547,6 +726,13 @@ interface types {
         mods: mods,
     }
 
+    /// Files dropped on the page from outside it: where, and their paths, as the system the
+    /// application runs on writes them.
+    record dropped-files {
+        at: point,
+        paths: list<string>,
+    }
+
     /// One thing the person did, in the page's points (its top-left corner is the origin).
     variant event {
         pointer-move(point),
@@ -564,6 +750,15 @@ interface types {
         focus(option<id>),
         /// The person picked the entry with this index of the menu the page asked for.
         menu-pick(u32),
+        /// A key the page was told of went up.
+        key-up(key-press),
+        /// The modifiers held changed, with no other key.
+        mods(mods),
+        /// The person asked for the command of this name, from the application's list of them or
+        /// by its keys (the key is not told as well).
+        command(id),
+        /// Files were dropped on the page.
+        files(dropped-files),
     }
 
     /// The shape the pointer takes over the page.
@@ -653,6 +848,10 @@ interface layout {
     focus-order: func() -> list<id>;
     /// `id` and the named elements that hold it, innermost first.
     path-of: func(id: id) -> list<id>;
+    /// The element under `at` that can be picked up and moved: the topmost.
+    drag-source: func(at: point) -> option<id>;
+    /// The element under `at` that what is dragged can be put down on: the topmost.
+    drop-target: func(at: point) -> option<id>;
 }
 
 /// What the module can say to the program that opened the page, if one did.

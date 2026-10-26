@@ -14,15 +14,17 @@
 --       something changed and the page should be rendered again.
 --   handle(event) -> reply         (optional)
 --       The person did something. `event` is { type = "move" | "leave" | "press" | "release" |
---       "scroll" | "key" | "text" | "focus" | "menu", ... } in the page's points: move/press/
---       release/scroll have x and y (press and release a button, "left" or "right"; press its
---       `count`, 2 for the second of a double click; press and key mods = { shift =, control =,
---       alt =, command = }; scroll dx and dy, the points the content moves left and up by), key
---       has `key` ("up", "down", "left", "right", "page_up", "page_down", "home", "end",
+--       "scroll" | "key" | "key_up" | "mods" | "text" | "focus" | "menu" | "command" | "files",
+--       ... } in the page's points: move/press/release/scroll/files have x and y (press and
+--       release a button, "left", "right" or "middle"; press its `count`, 2 for the second of a
+--       double click; press, key, key_up and mods have mods = { shift =, control =, alt =,
+--       command = }; scroll dx and dy, the points the content moves left and up by), key and
+--       key_up have `key` ("up", "down", "left", "right", "page_up", "page_down", "home", "end",
 --       "enter", "escape", "tab", "backspace", "delete", "f1" to "f20", or the character), text
 --       has the `field` (its name) and the `text` it holds, focus the `field` the person clicked
 --       into (nil: the keyboard is the page's again), menu has the `index` (from 1) picked of
---       the menu the page asked for.
+--       the menu the page asked for, command the `id` of the command asked for (its keys are
+--       not told as a key), files the `paths` of the files dropped on the page.
 --   message(message) -> reply      (optional)
 --       The program said something that is not an answer to a call the page made or a push of a
 --       subscription it made (those go to the functions given to `pencere.call` and

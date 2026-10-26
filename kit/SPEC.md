@@ -1,6 +1,6 @@
 # The pencere kit: the page API, colours and sandbox floors
 
-Version `1.0` of the kinds `lua` and `wasm` ([the protocol](../spec/draft/pencere.md), Sections 5.5
+Version `2.0` of the kinds `lua` and `wasm` ([the protocol](../spec/draft/pencere.md), Sections 5.5
 and 9.8). This document is normative for what the protocol leaves to the kit: with the interface
 [`wit/view.wit`](wit/view.wit) for `wasm` views, and with the prelude [`luau/prelude`](luau/prelude)
 for `lua` views. The key words are those of Section 2 of the protocol. A statement here that the
@@ -13,16 +13,22 @@ page as any other.
 
 ## 1. Versions
 
-| Kind   | The version `1.0` is                                                           | Source of truth               |
+| Kind   | The version `2.0` is                                                           | Source of truth               |
 | ------ | ------------------------------------------------------------------------------ | ----------------------------- |
-| `wasm` | the component interface `pencere:view@1.0.0`                                   | `wit/view.wit`                |
-| `lua`  | the page API whose `pencere.version` is `1`, in Luau `0.740` (`kit/luau/pins`) | `luau/prelude`, this document |
+| `wasm` | the component interface `pencere:view@2.0.0`                                   | `wit/view.wit`                |
+| `lua`  | the page API whose `pencere.version` is `2`, in Luau `0.740` (`kit/luau/pins`) | `luau/prelude`, this document |
 
-The two kinds are numbered apart (protocol, Section 5.4). `lua` `1.x` is bound to the release of
+The two kinds are numbered apart (protocol, Section 5.4). `lua` `2.x` is bound to the release of
 Luau that the kit pins: a script that needs syntax or a library function a later Luau added is not a
-`lua` `1.x` script, and such a Luau arrives with a new minor version of `lua`. A host SHOULD run the
+`lua` `2.x` script, and such a Luau arrives with a new minor version of `lua`. A host SHOULD run the
 kit's own interpreter, the component `kit/sandbox/luau/luau.wasm`, so that a script means one thing
 on every host.
+
+`2.0` is `1.0` and these, each a change to what a view or a host already used (so a major version):
+overlays and anchors, texts of many looks, canvases, commands and their keys, dragging and dropping,
+what an element is to a screen reader and its state, fills from one colour to another, a middle
+button, keys that go up, the modifiers alone and files dropped on the page (Sections 2.1 to 2.3 and
+4). The kit's own sandbox opens `2.0` and no longer `1.0`.
 
 ## 2. The Lua page API
 
@@ -50,20 +56,25 @@ An element is a plain table that a chain of builder methods fills. Lengths are p
 | `pencere.text(string \| number)` | One line of text, in the font, size and colour of the boxes it is in; with `wrap`, as many lines as its box needs. |
 | `pencere.spark(values, color)`   | A sparkline of numbers, newest last; `:peak(value)` is its largest.                                                |
 | `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 9.8).                                                |
+| `pencere.rich(parts)`            | A text of many looks: its parts (`pencere.span(words)`, or a string) one after the other, as one paragraph.        |
+| `pencere.canvas(paths)`          | A box with paths drawn in it (`pencere.path()`), in its own points. It has no size of its own.                     |
 | `pencere.spacer()`               | A box that takes the room left over.                                                                               |
 
 The builders return the element. Layout: `row`, `col`, `wrap`, `grid(columns)`, `grid_rows(rows)`,
 `span`, `hidden`, `items_start|center|end|stretch`, `justify_start|center|end|between`, `gap`,
 `gap_x`, `gap_y`, `grow`, `no_shrink`, `w`, `h`, `size`, `w_pct`, `w_full`, `h_full`, `size_full`,
-`min_w`, `min_h`, `max_w`, `p`, `px`, `py`, `pt|pr|pb|pl`, `mt|mr|mb|ml`, `absolute`, `inset`, `clip`,
-`scroll_y(offset)`, `scroll_x(offset)`. Looks: `bg`, `border(width, color)`, `rounded`,
-`rounded_corners`, `shadow(dx, dy, blur, color)`, `opacity(0..1)` (the element with all inside it:
-each thing it draws is that much fainter). Text, which the elements inside inherit: `text_size`,
-`weight`, `color`, `family("system" | "terminal")`, `align("start" | "center" | "end")`, `italic`,
-`underline`, `strike`, `truncate`. Images: `fit("contain" | "cover")`, `tint(color)`. Names and
-answers: `id`, `press(id)`, `focusable`, `text_field(id, "line" | "lines" | "secret")`,
-`label(words)`, `tip(words, keys)`. Motion: `motion({...})`. Children: `child`, `children`. A grid track is a number (points),
-`pencere.fr(n)`, `pencere.range(least, n)` or `"auto"`.
+`min_w`, `min_h`, `max_w`, `max_h`, `p`, `px`, `py`, `pt|pr|pb|pl`, `mt|mr|mb|ml`, `absolute`, `inset`,
+`overlay`, `anchor(id, side, { gap =, align = })`, `clip`, `scroll_y(offset)`, `scroll_x(offset)`.
+Looks: `bg`, `bg_gradient(angle, from, to)`, `border(width, color)`, `rounded`, `rounded_corners`,
+`shadow(dx, dy, blur, color)`, `opacity(0..1)` (the element with all inside it: each thing it draws
+is that much fainter). Text, which the elements inside inherit: `text_size`, `weight`, `color`,
+`family("system" | "terminal")`, `align("start" | "center" | "end")`, `italic`, `underline`, `strike`,
+`truncate`. Images: `fit("contain" | "cover")`, `tint(color)`. Names and answers: `id`, `press(id)`,
+`focusable`, `focused`, `text_field(id, "line" | "lines" | "secret")`, `label(words)`, `tip(words,
+keys)`, `command(id, title, keys, enabled)`, `draggable(id)`, `drop_target(id)`. To a screen reader:
+`role(name, level)`, `checked(on)`, `selected(chosen)`, `expanded(open)`, `disabled(off)`,
+`value(words)`. Motion: `motion({...})`. Children: `child`, `children`. A grid track is a number
+(points), `pencere.fr(n)`, `pencere.range(least, n)` or `"auto"`.
 
 A text is one line: what does not fit runs past its box, or, with `truncate`, ends in "…". `wrap` on
 a text puts its words in new lines where its box is too narrow for them (and at its line breaks),
@@ -86,6 +97,63 @@ none. A button that is an icon alone needs one.
 A **tip** is what the host says of an element while the pointer rests on it, with the keys that do
 the same where there are some (`tip("Containers", "1")`): a tooltip of the host's own.
 
+An **overlay** (`overlay()`) is taken out of the flow and out of every box that holds it: it is placed
+by its `inset` against the page (`inset(0, 0, 0, 0)` is the whole page, the ground of a dialog), drawn
+after everything else (so over it), cut by no box that holds it, and found by the pointer before what
+is under it. What it is written inside still holds it for the rest: it is as faint as that is, hidden
+with it, and the path a key takes goes out through it (`layout.path_of`). `anchor(id, side, options)`
+makes an element an overlay **beside the element named `id`**, on `side` of it (`"below"`, the
+default, `"above"`, `"right"` or `"left"`), `options.gap` points away, its start, middle or end lined
+up with the element's (`options.align`: `"start"`, the default, `"center"` or `"end"`). Where the page
+has not the room for it on that side and has it on the other, it goes on the other; along the side it
+is moved as far as it takes to stay on the page. Where no element of that name is on the page, it
+stands where its `inset` puts it. A menu that drops from a button is
+`div():anchor("sort", "below", { gap = 4 }):child(...)`.
+
+A **text of many looks** (`pencere.rich`) is one paragraph made of parts. A part
+(`pencere.span(words)`) says only what it changes of the element's look: `color`, `weight` (`bold`),
+`italic`, `underline`, `strike`, `family`, a ground behind its words alone (`bg`), and `link(id)`,
+which makes it answer the pointer by that name (`layout.hit` says it, a screen reader says a link)
+and underlines it. The size is the element's for every part. Where the element `wrap`s, the parts run
+on from line to line as the words of one text do, and a word made of two parts with nothing between
+them (`**bold**,`) is not broken between them; where it does not, it is one line for each line break,
+cut with "…" where it may be (`truncate`).
+
+A **canvas** (`pencere.canvas(paths)`) is a box with paths drawn in it, in its own points from its
+top-left corner. A path (`pencere.path()`) is steps — `move_to(x, y)`, `line_to(x, y)`,
+`quad_to(cx, cy, x, y)`, `cubic_to(ax, ay, bx, by, x, y)`, `close()`, and `rect(x, y, w, h)`,
+`arc(cx, cy, r, from, to)` (degrees clockwise from the top: a ring that fills), `circle(cx, cy, r)`
+made of them — with a colour inside it (`fill`: where a line out of a point crosses the path an odd
+number of times) and a line along it (`stroke(width, color)`, round where it turns and ends). The
+canvas has no size of its own; its style gives it one.
+
+A **command** (`command(id, title, keys, enabled)`) is something the page can be told to do: the host
+lists it by its `title` where a person looks for what can be done (its command palette, its menus),
+and tells the page `{ type = "command", id = id }` when it is asked for there or by its `keys`, in
+place of the key. The keys are written as a person writes them: modifiers (`cmd`, `ctrl`, `alt`,
+`shift`) and a key (one character, or the name of a key the page reads) joined by `+`
+(`"cmd+shift+k"`, `"ctrl+enter"`, `"f5"`); `pencere.keys(words)` reads them. A command can be done
+while the keyboard is on its element or inside it: the page says which element has the keyboard with
+`focused()` (the element its `Ui` says has the focus). The commands of the page's outermost box can be
+done whatever has the keyboard. Where two say the same keys, the one nearer the keyboard is done; one
+that is not `enabled` is listed and its keys do nothing (they are a key for the page).
+
+An element that can be **dragged** (`draggable(id)`) answers the pointer as a pressed one does; a
+**drop target** (`drop_target(id)`) is where what is dragged can be put down. The page's `Ui` keeps the
+drag (Section 2.2): what the page draws of it while it goes (an overlay at the pointer, the target
+marked) is the page's.
+
+An element says what it is to a **screen reader** where its look says it and its answers do not:
+`role("checkbox" | "switch" | "radio" | "tab" | "menu_item" | "link" | "heading" | "image" |
+"progress" | "slider" | "button" | "text", level)` (a heading's level is 1 to 6), and where it stands:
+`checked(on)` (a checkbox, a switch, a radio), `selected(chosen)` (the tab in front, the row picked),
+`expanded(open)`, `disabled(off)` (it does not answer the pointer, nor take the keyboard) and
+`value(words)` (a progress's `"40%"`). A text field is one by `text_field`, not by a role.
+
+A **fill from one colour to another** (`bg_gradient(angle, from, to)`) runs along a line at `angle`
+degrees as a style sheet's `linear-gradient` does (`180` from the top down, `90` from the left to the
+right), over the box's `bg`; a line of text on it is read against its colour half way along.
+
 A **motion** says how a change of an element moves instead of jumping, as a style sheet's
 `transition` and a motion library's layout animation do: `seconds` (0.2), `ease` (`"out"`, the
 default, `"linear"`, `"in-out"`, `"spring"`), and which of `color`, `opacity`, `size` (a width or
@@ -104,8 +172,15 @@ keyboard state, how far each box is scrolled down and across, eased levels, the 
 list). A fade takes a highlight's 0.12 s, or its own time (`fades:to(id, level, seconds)`), and is read
 along a curve where one is given (`fades:level(id, "out")`; `pencere.ease(t, ease)` is the curve). `pencere.layout` answers what is where on the page as it was last laid out: `hit`, `ids_at`,
 `bounds` (a field's too, by its name), `scroll_extent` (`content` and `view` down, `content_w` and
-`view_w` across, with `max_offset` and `max_offset_x`), `focus_order`, `path_of`. They are defined
-by the prelude.
+`view_w` across, with `max_offset` and `max_offset_x`), `focus_order`, `path_of`, `drag_source` and
+`drop_target` (the topmost element at a point that can be dragged, and that what is dragged can be put
+down on). They are defined by the prelude.
+
+`Ui` keeps a drag: `press` on an element that can be dragged begins one, `point` makes it a drag once
+the pointer has moved `pencere.DRAG_START` (4) points and follows it, `dragging()` is
+`{ source =, at =, target = }` while it goes (`target`, the drop target under the pointer, is never the
+element dragged), `release` puts it down (it is no click) and `take_drop()` then gives
+`{ source =, target =, at = }` once, and `cancel_drag()` gives it up (the escape key).
 
 ### 2.3 Events and replies
 
@@ -114,12 +189,16 @@ by the prelude.
 | `type`             | Members                                                                                                                                                                                              |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `move`, `leave`    | `x`, `y` (`leave` has none)                                                                                                                                                                          |
-| `press`, `release` | `x`, `y`, `button` (`"left"` or `"right"`), and for `press` `mods` and `count` (2 for the second of a double click, as the system counts them)                                                       |
+| `press`, `release` | `x`, `y`, `button` (`"left"`, `"right"` or `"middle"`), and for `press` `mods` and `count` (2 for the second of a double click, as the system counts them)                                           |
 | `scroll`           | `x`, `y`, `dx`, `dy`: the points the content moves left and up by                                                                                                                                    |
 | `key`              | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"delete"`, `"f1"` to `"f20"`, or the character), `mods` |
 | `text`             | `field` (its name) and `text`: what a field holds now, after the person changed it (not after the page's own `fill`)                                                                                 |
 | `focus`            | `field`: the field the person clicked into, or nil when the keyboard went back to the page of itself (not said when it went where the page sent it)                                                  |
 | `menu`             | `index` (from 1) of the entry picked from the menu the page asked for                                                                                                                                |
+| `key_up`           | `key` and `mods`, as `key`: a key the page was told of went up                                                                                                                                       |
+| `mods`             | `mods`: the modifiers held changed, with no other key                                                                                                                                                |
+| `command`          | `id`: the command asked for, from the host's list or by its keys (the key is not told as well)                                                                                                       |
+| `files`            | `x`, `y`, `paths`: files dropped on the page from outside it, their paths as the host's system writes them                                                                                           |
 
 `mods` is `{ shift =, control =, alt =, command = }`. A reply is `nil` (nothing changed), `true` or
 `false` (a frame is worth drawing or not), or a table: `redraw`, `close`, `copy` (text for the
@@ -219,7 +298,8 @@ page's `context`. Where the theme gives none, the host makes it up as the protoc
 The sandbox floors are those of the protocol, Section 9.8 (memory 64 MiB, a call 250 ms, the start 2 s,
 20 000 elements to a frame, a tree 128 deep, a line of text 64 KiB, a component 4 MiB (or the entry of
 a script and the scripts it requires, together), 32 messages to the program to a call, a message
-1 MiB, and the limits on pictures). A view that stays within them
+1 MiB, 4096 values to a sparkline or steps to a path, 1024 parts to a text, paths to a canvas or
+commands to an element, and the limits on pictures). A view that stays within them
 opens on every host. The values of this repository's implementation are the defaults of
 `ModuleLimits` in `kit/sandbox/src/sandbox.rs`.
 
@@ -238,8 +318,23 @@ Besides drawing what the engine lays out, a host:
 - moves the elements that say a `motion` between the frames of the page, lays the page out again
   at each frame while one moves (`Motions`), and says an element's `tip` while the pointer rests
   on it (`Laid::tips`);
-- tells its system's screen reader what the page is: the pressable elements as buttons, the fields as
-  fields, and the words of the rest, each by its `label` where it has one.
+- tells its system's screen reader what the page is: each element as what it says it is (its `role`),
+  the other pressable elements as buttons, the fields as fields, the links of a text as links, and the
+  words of the rest, each by its `label` where it has one, with its state (checked, selected,
+  expanded, of no use, its value) (`Laid::accessible`);
+- draws a box's fill from one colour to another as a style sheet's `linear-gradient` of that angle
+  draws it, over its plain fill and under its border, and a canvas's paths as `pencere_sandbox`'s
+  `draw_figure` draws them (the one rasteriser, so that a figure is the same on every host), in the
+  colours of its theme;
+- lists the commands that can be done now (`Laid::commands`: those of the element the page says has
+  the keyboard and of the boxes around it) where a person looks for what can be done, and tells the
+  page the one asked for there; and, before it tells the page a key, looks for the command those keys
+  do (`Laid::command_for`) and tells the page that command in place of the key;
+- keeps telling the page where the pointer is, and the release, wherever the pointer goes while a
+  button pressed on the page is held (it does not tell a `leave` then), so that a drag that leaves the
+  page and comes back, or ends outside it, is followed to its end;
+- tells the page the middle button, the keys that go up after it was told they went down, the
+  modifiers when they alone change, and the files dropped on the page from outside it.
 
 ## 5. Pictures
 

@@ -247,7 +247,7 @@ impl Page for ContainerList {
             }
             Event::Input(input) => self.list.input(input, layout),
             Event::Text { text, .. } => self.list.set_query(&text),
-            Event::Focus(_) => Reply::none(),
+            Event::Focus(_) | Event::Command(_) | Event::Files { .. } => Reply::none(),
             Event::MenuPick(index) => self.list.pick(index),
         }
     }

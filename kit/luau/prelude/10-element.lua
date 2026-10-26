@@ -1,7 +1,8 @@
 -- The page API, part 2: elements and the chain that writes them,
 -- `pencere.div():row():gap(8):child(pencere.text("hello"))`.
 --
--- An element is a table: { kind = "box" | "text" | "spark" | "image", style = {...}, meta = {...}, kids = {...} }.
+-- An element is a table: { kind = "box" | "text" | "rich" | "spark" | "image" | "canvas",
+-- style = {...}, meta = {...}, kids = {...} }.
 -- The host reads it, so the field names are the interface's (`pencere:view` `style`, `node`).
 
 local Element = {}
@@ -107,6 +108,172 @@ end
 -- A box that takes the room left over: what pushes the elements after it to the end.
 function pencere.spacer()
 	return make("box"):grow(1)
+end
+
+-- --- Text of many looks -----------------------------------------------------------------------
+
+-- A part of a text of many looks: its words, and what it changes of the element's look (what it
+-- leaves out is the element's, as for the words of `pencere.text`). The size is the element's.
+--
+--   pencere.rich({ pencere.span("run "), pencere.span("make"):family("terminal"):bg("raised2") })
+local Span = {}
+Span.__index = Span
+pencere.Span = Span
+
+function pencere.span(words)
+	local kind = type(words)
+	if kind ~= "string" and kind ~= "number" then
+		refuse("pencere.span takes a string or a number, not " .. kind)
+	end
+	-- What the part changes lives in a table of its own: its names are the methods' too.
+	return setmetatable({ text = tostring(words), look = {} }, Span)
+end
+
+function Span:color(color) self.look.color = color return self end
+function Span:weight(weight) self.look.weight = weight return self end
+function Span:bold() self.look.weight = 700 return self end
+function Span:italic() self.look.italic = true return self end
+function Span:underline() self.look.underline = true return self end
+function Span:strike() self.look.strike = true return self end
+-- "system" or "terminal".
+function Span:family(family) self.look.family = family return self end
+-- A ground behind the words of this part alone: a highlight, the box of a piece of code.
+function Span:bg(color) self.look.background = color return self end
+
+-- The part is a link named `id`: it answers the pointer as a pressed element does (`layout.hit`
+-- says its name), a screen reader says it is a link, and it is underlined unless it says not.
+function Span:link(id)
+	self.look.link = id
+	if self.look.underline == nil then
+		self.look.underline = true
+	end
+	return self
+end
+
+-- A text of many looks: its parts one after the other, as one paragraph that runs from line to
+-- line where it `wrap`s (a word made of two parts is not broken between them).
+function pencere.rich(spans)
+	if type(spans) ~= "table" then
+		refuse("pencere.rich takes a list of parts (pencere.span), not " .. type(spans))
+	end
+	local element = make("rich")
+	local parts = {}
+	for index, part in ipairs(spans) do
+		if type(part) == "string" then
+			part = pencere.span(part)
+		elseif getmetatable(part) ~= Span then
+			refuse("part " .. index .. " of pencere.rich is not a pencere.span or a string")
+		end
+		-- The host reads a part by the interface's names, in a plain table.
+		local look = part.look
+		parts[index] = {
+			text = part.text,
+			color = look.color,
+			weight = look.weight,
+			italic = look.italic,
+			underline = look.underline,
+			strike = look.strike,
+			family = look.family,
+			background = look.background,
+			link = look.link,
+		}
+	end
+	element.spans = parts
+	return element
+end
+
+-- --- Drawing in lines and shapes --------------------------------------------------------------
+
+-- A path of a canvas, in the points of the canvas's box from its top-left corner:
+--
+--   pencere.path():move_to(0, 10):line_to(20, 4):stroke(1.5, "accent")
+--   pencere.path():arc(12, 12, 9, 0, 270):stroke(3, "accent")       -- a ring three quarters full
+--   pencere.path():rect(0, 0, 8, 20):fill("raised3")
+local Path = {}
+Path.__index = Path
+pencere.Path = Path
+
+function pencere.path()
+	-- How it is drawn lives in a table of its own: `fill` and `stroke` are the methods' names too.
+	return setmetatable({ segments = {}, paint = {} }, Path)
+end
+
+local function step(path, ...)
+	local segments = path.segments
+	segments[#segments + 1] = { ... }
+	return path
+end
+
+function Path:move_to(x, y) return step(self, "move", x, y) end
+function Path:line_to(x, y) return step(self, "line", x, y) end
+function Path:quad_to(cx, cy, x, y) return step(self, "quad", cx, cy, x, y) end
+function Path:cubic_to(ax, ay, bx, by, x, y) return step(self, "cubic", ax, ay, bx, by, x, y) end
+function Path:close() return step(self, "close") end
+
+function Path:rect(x, y, w, h)
+	return self:move_to(x, y):line_to(x + w, y):line_to(x + w, y + h):line_to(x, y + h):close()
+end
+
+-- An arc of the circle about (cx, cy) of radius r, from the angle `start` to `finish`, in degrees
+-- clockwise from the top (0 to 360 is the whole circle, from twelve o'clock round). It starts a
+-- new part of the path where it starts.
+function Path:arc(cx, cy, r, start, finish)
+	local sweep = math.clamp(finish - start, -360, 360)
+	if sweep == 0 or sweep ~= sweep then
+		return self
+	end
+	local function at(degrees)
+		local radians = math.rad(degrees - 90)
+		return cx + r * math.cos(radians), cy + r * math.sin(radians)
+	end
+	local function tangent(degrees)
+		local radians = math.rad(degrees - 90)
+		return -math.sin(radians), math.cos(radians)
+	end
+	self:move_to(at(start))
+	-- Each piece is at most a quarter turn, as the cubic curve that follows a circle best.
+	local pieces = math.clamp(math.ceil(math.abs(sweep) / 90), 1, 4)
+	local each = sweep / pieces
+	local handle = 4 / 3 * math.tan(math.rad(each) / 4) * r
+	for piece = 0, pieces - 1 do
+		local from = start + each * piece
+		local to = from + each
+		local x0, y0 = at(from)
+		local x3, y3 = at(to)
+		local tx0, ty0 = tangent(from)
+		local tx3, ty3 = tangent(to)
+		self:cubic_to(x0 + tx0 * handle, y0 + ty0 * handle, x3 - tx3 * handle, y3 - ty3 * handle, x3, y3)
+	end
+	return self
+end
+
+function Path:circle(cx, cy, r)
+	return self:arc(cx, cy, r, 0, 360):close()
+end
+
+-- The colour inside the path; and the line along it, `width` points, round where it turns and ends.
+function Path:fill(color) self.paint.fill = color return self end
+
+function Path:stroke(width, color)
+	self.paint.stroke = { width = width, color = color }
+	return self
+end
+
+-- A box with paths drawn in it. It has no size of its own: `:size(w, h)` gives it one.
+function pencere.canvas(paths)
+	if type(paths) ~= "table" then
+		refuse("pencere.canvas takes a list of paths (pencere.path), not " .. type(paths))
+	end
+	local plain = {}
+	for index, path in ipairs(paths) do
+		if getmetatable(path) ~= Path then
+			refuse("path " .. index .. " of pencere.canvas is not a pencere.path")
+		end
+		plain[index] = { segments = path.segments, fill = path.paint.fill, stroke = path.paint.stroke }
+	end
+	local element = make("canvas")
+	element.paths = plain
+	return element
 end
 
 -- --- Children ---------------------------------------------------------------------------------
@@ -242,6 +409,122 @@ function Element:tip(words, keys)
 	return self
 end
 
+local ROLES = {
+	button = true, text = true, link = true, checkbox = true, switch = true, radio = true,
+	tab = true, menu_item = true, heading = true, image = true, progress = true, slider = true,
+}
+
+-- What the element is to a screen reader, where its look says it and its answers do not:
+-- "checkbox", "switch", "radio", "tab", "menu_item", "link", "heading" (with its level, 1 to 6),
+-- "image", "progress", "slider", "button", "text".
+function Element:role(role, level)
+	if not ROLES[role] then
+		error("a role is one of button, text, link, checkbox, switch, radio, tab, menu_item, "
+			.. "heading, image, progress, slider; not " .. tostring(role), 2)
+	end
+	self.meta.role = role
+	self.meta.level = level
+	return self
+end
+
+-- On or off: a checkbox, a switch, a toggle button.
+function Element:checked(on) self.meta.checked = on == true return self end
+-- The one chosen of several: the tab in front, the row picked.
+function Element:selected(chosen) self.meta.selected = chosen ~= false return self end
+-- Open or shut: a group that opens, the button of a menu.
+function Element:expanded(open) self.meta.expanded = open == true return self end
+-- Of no use now: it does not answer the pointer, nor take the keyboard; a screen reader says so.
+function Element:disabled(disabled) self.meta.disabled = disabled ~= false return self end
+
+-- The value the element shows, in words, for a screen reader: "40%".
+function Element:value(words)
+	if type(words) ~= "string" and type(words) ~= "number" then
+		error("value takes the words, not " .. type(words), 2)
+	end
+	self.meta.value = tostring(words)
+	return self
+end
+
+local MODIFIERS = {
+	cmd = "command", command = "command", super = "command", meta = "command",
+	ctrl = "control", control = "control",
+	alt = "alt", option = "alt", opt = "alt",
+	shift = "shift",
+}
+
+-- Keys as a person writes them, "cmd+shift+k", "ctrl+enter", "f5", as { key =, mods = }.
+function pencere.keys(words)
+	if type(words) ~= "string" then
+		error("keys are written as words: \"cmd+k\", not " .. type(words), 2)
+	end
+	local parts = string.split(words, "+")
+	local mods = { shift = false, control = false, alt = false, command = false }
+	for index = 1, #parts - 1 do
+		local held = MODIFIERS[string.lower(parts[index])]
+		if not held then
+			error("\"" .. parts[index] .. "\" is not a modifier (cmd, ctrl, alt or shift)", 2)
+		end
+		mods[held] = true
+	end
+	local key = parts[#parts] or ""
+	if utf8.len(key) ~= 1 then
+		key = string.lower(key)
+		if key == "space" then
+			key = " "
+		elseif key == "return" then
+			key = "enter"
+		elseif key == "esc" then
+			key = "escape"
+		end
+	end
+	return { key = key, mods = mods }
+end
+
+-- Something the page can be told to do while the keyboard is on this element or inside it (on the
+-- page's outermost box: always), which the host lists and does by its keys; the page is told
+-- { type = "command", id = id }. `keys` is written as a person writes them ("cmd+k"), or nil;
+-- `enabled` is false for one that cannot be done now.
+function Element:command(id, title, keys, enabled)
+	if id == nil then
+		error("a command is named: command(id, title, keys)", 2)
+	end
+	if type(title) ~= "string" then
+		error("a command has a title, the words a person reads for it", 2)
+	end
+	local commands = self.meta.commands
+	if not commands then
+		commands = {}
+		self.meta.commands = commands
+	end
+	commands[#commands + 1] = {
+		id = id,
+		title = title,
+		keys = keys and pencere.keys(keys) or nil,
+		enabled = enabled ~= false,
+	}
+	return self
+end
+
+-- The keyboard is on this element: its commands and those of the boxes around it can be done.
+function Element:focused(focused)
+	self.meta.focused = focused ~= false
+	return self
+end
+
+-- Names the element and makes it something that can be picked up and moved (`Ui:dragging`).
+function Element:draggable(id)
+	self.meta.id = id
+	self.meta.draggable = true
+	return self
+end
+
+-- Names the element and makes it a place what is dragged can be put down on.
+function Element:drop_target(id)
+	self.meta.id = id
+	self.meta.drop_target = true
+	return self
+end
+
 -- --- Layout: the box --------------------------------------------------------------------------
 
 function Element:row()
@@ -324,6 +607,7 @@ end
 function Element:min_w(points) self.style.min_width = points return self end
 function Element:min_h(points) self.style.min_height = points return self end
 function Element:max_w(points) self.style.max_width = points return self end
+function Element:max_h(points) self.style.max_height = points return self end
 
 -- Padding and margin are four numbers in the order top, right, bottom, left.
 local function edges(style, name)
@@ -373,6 +657,37 @@ function Element:inset(top, right, bottom, left)
 	return self
 end
 
+-- Takes the box out of the flow and out of every box around it: placed against the page by
+-- `inset` (`:inset(0, 0, 0, 0)` is the whole page, the ground of a dialog) or beside an element
+-- (`:anchor`), drawn over everything else, cut by nothing that holds it, and the first the pointer
+-- finds. It is as faint as what holds it and hidden with it, and its keys go out through it.
+function Element:overlay()
+	self.style.overlay = true
+	return self
+end
+
+local SIDES = { below = true, above = true, right = true, left = true }
+local ALIGNS = { start = true, center = true, ["end"] = true }
+
+-- An overlay beside the element named `to`, on `side` of it ("below", "above", "right" or
+-- "left"; the other where the page has not the room), `options.gap` points away, lined up with
+-- its "start", "center" or "end" (`options.align`), and kept on the page.
+function Element:anchor(to, side, options)
+	side = side or "below"
+	if not SIDES[side] then
+		error('an overlay stands "below", "above", "right" or "left" of its element, not ' .. tostring(side), 2)
+	end
+	options = options or {}
+	local align = options.align or "start"
+	if not ALIGNS[align] then
+		error('an overlay lines up with the "start", "center" or "end" of its element, not ' .. tostring(align), 2)
+	end
+	local style = self.style
+	style.overlay = true
+	style.anchor = { to = to, side = side, align = align, gap = options.gap or 0 }
+	return self
+end
+
 -- Nothing is drawn outside the box.
 function Element:clip()
 	self.style.overflow = "hidden"
@@ -398,6 +713,16 @@ end
 -- --- Looks ------------------------------------------------------------------------------------
 
 function Element:bg(color) self.style.fill = color return self end
+
+-- A fill that runs from `from` to `to` along a line at `angle` degrees, as a style sheet's
+-- linear-gradient: 180 from the top down, 90 from the left to the right.
+function Element:bg_gradient(angle, from, to)
+	if type(angle) ~= "number" then
+		error("bg_gradient takes an angle in degrees, then two colours", 2)
+	end
+	self.style.gradient = { angle = angle, from = from, to = to }
+	return self
+end
 
 function Element:border(width, color)
 	self.style.border = { width = width, color = color }

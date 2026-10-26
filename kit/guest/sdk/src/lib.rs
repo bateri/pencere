@@ -56,9 +56,11 @@ use bindings::pencere::view::program as to_program;
 
 pub use pencere_view::wire;
 pub use pencere_view::{
-    Align, Border, Button, Color, Cursor, Element, Event, Extent, Fades, Family, Field, FieldKind,
-    Fit, Id, Image, Input, Key, Keyboard, Menu, MenuEntry, Mix, Mods, Point, Queries, Rect, Reply,
-    Rgba, Role, Rows, Shadow, Size, Source, Track, Ui, div, image, spacer, spark, text,
+    AccessibleRole, Align, Anchor, Border, Button, Color, Command, Cursor, Drag, Dropped, Element,
+    Event, Extent, Fades, Family, Field, FieldKind, Fit, Gradient, Id, Image, Input, Key, Keyboard,
+    Menu, MenuEntry, Mix, Mods, Path, Point, Queries, Rect, Reply, Rgba, Role, Rows, Segment,
+    Shadow, Shortcut, Side, Size, Source, Span, State, Stroke, Track, Ui, canvas, div, image, path,
+    rich, spacer, span, spark, text,
 };
 pub use pencere_wire::messages;
 
@@ -128,6 +130,14 @@ impl Queries for Layout {
             .into_iter()
             .map(Id::new)
             .collect()
+    }
+
+    fn drag_source(&self, at: Point) -> Option<Id> {
+        host::drag_source(point_in(at)).map(Id::new)
+    }
+
+    fn drop_target(&self, at: Point) -> Option<Id> {
+        host::drop_target(point_in(at)).map(Id::new)
     }
 }
 

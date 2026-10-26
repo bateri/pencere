@@ -1,24 +1,30 @@
 //! The page's elements and the chain that writes them: `div().row().gap(8.0).child(...)`.
 //!
-//! A page is a tree of four kinds of element — a **box** ([`div`]), a line of **text**
-//! ([`text`]), a small **sparkline** ([`spark`]) and an **image** ([`image`]). Every value is in
-//! points. A box lays
+//! A page is a tree of six kinds of element — a **box** ([`div`]), a line of **text**
+//! ([`text`]), a text of many looks ([`crate::rich`]), a small **sparkline** ([`spark`]), an
+//! **image** ([`image`]) and a **canvas** of paths ([`canvas`]). Every value is in points. A box
+//! lays
 //! its children out as flexbox or as a grid (the way a style sheet would), paints a fill, a
 //! border and a shadow, and sets the text of the boxes under it; a box is a column unless
 //! told otherwise.
 
 use crate::style::{
-    Border, Direction, Display, Items, Justify, Length, Overflow, Shadow, Style, Track,
+    Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
+    Style, Track,
 };
-use crate::{Align, Color, Family, Id, Motion, Tip};
+use crate::{AccessibleRole, Align, Color, Command, Family, Id, Motion, Path, Span, Tip};
 
 /// What an element is.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
     Box,
     Text(String),
+    /// A text of many looks: its parts, in order.
+    Rich(Vec<Span>),
     Spark(Spark),
     Image(Image),
+    /// Paths drawn in the box, in its points.
+    Canvas(Vec<Path>),
 }
 
 /// The data of a sparkline: values over time, newest last, drawn as a line with the area
@@ -68,6 +74,22 @@ pub enum FieldKind {
     Secret,
 }
 
+/// Where an element stands, to a screen reader, besides what it is: whether it is checked, chosen,
+/// open or of no use now, and the value it shows.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct State {
+    /// A checkbox, a switch, a toggle or a radio button: on or off. `None` for what is neither.
+    pub checked: Option<bool>,
+    /// The one chosen of several: the tab in front, the row picked.
+    pub selected: bool,
+    /// Something that opens (a group, a menu's button): open or shut. `None` for what does not.
+    pub expanded: Option<bool>,
+    /// It cannot be used now: it does not answer the pointer, and a screen reader says so.
+    pub disabled: bool,
+    /// The value it shows, in words: a progress's `"40%"`, a slider's `"12 px"`.
+    pub value: Option<String>,
+}
+
 /// What an element is to the pointer, the keyboard and a screen reader, apart from how it looks.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Meta {
@@ -84,6 +106,18 @@ pub struct Meta {
     pub motion: Option<Motion>,
     /// What the host says of the element while the pointer rests on it ([`Element::tip`]).
     pub tip: Option<Tip>,
+    /// What it is to a screen reader, where the page says ([`Element::role`]).
+    pub role: Option<AccessibleRole>,
+    /// Where it stands, to a screen reader ([`State`]).
+    pub state: State,
+    /// What the page can be told to do while the keyboard is on it or inside it.
+    pub commands: Vec<Command>,
+    /// The keyboard is on it: its commands, and those of the boxes around it, can be done.
+    pub focused: bool,
+    /// It can be picked up and moved: pressed and dragged, it is what is moved ([`crate::Ui`]).
+    pub draggable: bool,
+    /// What is moved can be put down on it.
+    pub drop_target: bool,
 }
 
 /// One element of a page, and the elements inside it.
@@ -128,6 +162,19 @@ pub fn image(src: impl Into<String>, fit: Fit) -> Element {
 /// A box that takes the room left over: what pushes the elements after it to the end.
 pub fn spacer() -> Element {
     div().grow(1.0)
+}
+
+/// A text of many looks: `spans` one after the other, as one paragraph that runs from line to line
+/// where it `wrap`s. What a part does not say is the element's (its colour, weight, face, and
+/// whether its words are underlined or struck), as for [`text`].
+pub fn rich(spans: impl IntoIterator<Item = Span>) -> Element {
+    Element::of(Kind::Rich(spans.into_iter().collect()))
+}
+
+/// A box with `paths` drawn in it, in its points (its top-left corner is the origin). It has no
+/// size of its own: its style gives it one.
+pub fn canvas(paths: impl IntoIterator<Item = Path>) -> Element {
+    Element::of(Kind::Canvas(paths.into_iter().collect()))
 }
 
 impl Element {
@@ -244,6 +291,87 @@ impl Element {
             words: words.into(),
             keys,
         });
+        self
+    }
+
+    /// What the element is to a screen reader, where its look says it and its answers do not: a
+    /// checkbox, a switch, a tab, a link, a heading. (A text field is one by [`Element::field`],
+    /// and is not made one here.)
+    #[must_use]
+    pub fn role(mut self, role: AccessibleRole) -> Self {
+        if !matches!(role, AccessibleRole::Field(_)) {
+            self.meta.role = Some(role);
+        }
+        self
+    }
+
+    /// On or off: a checkbox, a switch, a toggle button.
+    #[must_use]
+    pub fn checked(mut self, on: bool) -> Self {
+        self.meta.state.checked = Some(on);
+        self
+    }
+
+    /// The one chosen of several: the tab in front, the row picked.
+    #[must_use]
+    pub fn selected(mut self, chosen: bool) -> Self {
+        self.meta.state.selected = chosen;
+        self
+    }
+
+    /// Open or shut: a group that opens, the button of a menu.
+    #[must_use]
+    pub fn expanded(mut self, open: bool) -> Self {
+        self.meta.state.expanded = Some(open);
+        self
+    }
+
+    /// Of no use now: it does not answer the pointer (the element under it does), and a screen
+    /// reader says it cannot be used.
+    #[must_use]
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.meta.state.disabled = disabled;
+        self
+    }
+
+    /// The value the element shows, in words, for a screen reader: `"40%"`.
+    #[must_use]
+    pub fn value(mut self, words: impl Into<String>) -> Self {
+        self.meta.state.value = Some(words.into());
+        self
+    }
+
+    /// Something the page can be told to do while the keyboard is on this element or inside it
+    /// (or always, on the page's outermost box): the host lists it and does it by its keys.
+    #[must_use]
+    pub fn command(mut self, command: Command) -> Self {
+        self.meta.commands.push(command);
+        self
+    }
+
+    /// The keyboard is on this element: what the page's [`crate::Ui`] says has the focus. Its
+    /// commands and those of the boxes around it are the ones that can be done.
+    #[must_use]
+    pub fn focused(mut self, focused: bool) -> Self {
+        self.meta.focused = focused;
+        self
+    }
+
+    /// Names the element and makes it something that can be picked up and moved: pressed and
+    /// dragged, it is what [`crate::Ui::dragging`] says is on its way. It answers the pointer as a
+    /// pressed element does.
+    #[must_use]
+    pub fn draggable(mut self, id: Id) -> Self {
+        self.meta.id = Some(id);
+        self.meta.draggable = true;
+        self
+    }
+
+    /// Names the element and makes it a place what is dragged can be put down on.
+    #[must_use]
+    pub fn drop_target(mut self, id: Id) -> Self {
+        self.meta.id = Some(id);
+        self.meta.drop_target = true;
         self
     }
 
@@ -446,6 +574,12 @@ impl Element {
         self.set(|s| s.max_width = Length::Px(points))
     }
 
+    /// The greatest height, points.
+    #[must_use]
+    pub fn max_h(self, points: f32) -> Self {
+        self.set(|s| s.max_height = Length::Px(points))
+    }
+
     /// Room inside the box on all four sides, points.
     #[must_use]
     pub fn p(self, points: f32) -> Self {
@@ -534,6 +668,55 @@ impl Element {
         self.set(|s| s.inset = [top, right, bottom, left])
     }
 
+    /// Takes the box out of the flow and out of every box around it: it is placed against the
+    /// page by `inset` (`inset(Some(0.0), Some(0.0), Some(0.0), Some(0.0))` is the whole page, the
+    /// ground of a dialog), or beside an element ([`Element::anchor`]), and it is drawn over
+    /// everything else, cut by nothing that holds it, and the first the pointer finds. A menu that
+    /// drops from a button, a dialog, a toast. What it is inside still holds it for the rest: it is
+    /// as faint as that is, hidden with it, and its keys go out through it.
+    #[must_use]
+    pub fn overlay(self) -> Self {
+        self.set(|s| s.overlay = true)
+    }
+
+    /// An overlay beside the element named `to`, on `side` of it, its start edge lined up with the
+    /// element's ([`Element::anchor_align`], [`Element::anchor_gap`]); where the page has not the
+    /// room for it there, it goes on the other side, and it is moved along that side to stay on
+    /// the page. Where `to` is not on the page, it stands where its `inset` puts it.
+    #[must_use]
+    pub fn anchor(self, to: Id, side: Side) -> Self {
+        self.set(|s| {
+            s.overlay = true;
+            s.anchor = Some(Anchor {
+                to,
+                side,
+                align: Align::Start,
+                gap: 0.0,
+            });
+        })
+    }
+
+    /// How far an anchored overlay stands from its element, points.
+    #[must_use]
+    pub fn anchor_gap(self, points: f32) -> Self {
+        self.set(|s| {
+            if let Some(anchor) = &mut s.anchor {
+                anchor.gap = points;
+            }
+        })
+    }
+
+    /// What an anchored overlay lines up with along the side of its element: its start (the
+    /// left, or the top), its middle, or its end.
+    #[must_use]
+    pub fn anchor_align(self, align: Align) -> Self {
+        self.set(|s| {
+            if let Some(anchor) = &mut s.anchor {
+                anchor.align = align;
+            }
+        })
+    }
+
     /// Nothing is drawn outside the box.
     #[must_use]
     pub fn clip(self) -> Self {
@@ -550,6 +733,15 @@ impl Element {
         })
     }
 
+    /// The same, across: the content moves left behind the box by `offset` points.
+    #[must_use]
+    pub fn scroll_x(self, offset: f32) -> Self {
+        self.set(|s| {
+            s.overflow = Overflow::Scroll;
+            s.scroll.0 = offset;
+        })
+    }
+
     // --- Looks -------------------------------------------------------------------------
 
     /// The fill.
@@ -557,6 +749,20 @@ impl Element {
     pub fn bg(self, color: impl Into<Color>) -> Self {
         let color = color.into();
         self.set(|s| s.fill = Some(color))
+    }
+
+    /// A fill that runs from `from` to `to` along a line at `angle` degrees, as a style sheet's
+    /// `linear-gradient`: `180` from the top down, `90` from the left to the right.
+    #[must_use]
+    pub fn bg_gradient(self, angle: f32, from: impl Into<Color>, to: impl Into<Color>) -> Self {
+        let (from, to) = (from.into(), to.into());
+        self.set(|s| {
+            s.gradient = Some(Gradient {
+                angle: if angle.is_finite() { angle } else { 180.0 },
+                from,
+                to,
+            });
+        })
     }
 
     /// A border of `width` points inside the box, over the fill.

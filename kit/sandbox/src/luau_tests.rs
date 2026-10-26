@@ -1160,3 +1160,254 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
     assert_eq!(replies[2].cursor, Cursor::Grab);
     assert_eq!(replies[4].fill, [(Id::named("name"), String::new())]);
 }
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the_engine_does() {
+    use pencere_view::{
+        AccessibleRole, Align, Command, Family, Shortcut, Side, rich, span, wire::Length,
+    };
+    let update = first(
+        r##"return { render = function()
+            return pencere.div()
+                :command("quit", "Quit", "cmd+q")
+                :child(pencere.rich({
+                    "run ",
+                    pencere.span("make"):family("terminal"):bg("raised2"):bold(),
+                    pencere.span(" docs"):link("docs"):color("accent"),
+                }):wrap())
+                :child(pencere.canvas({
+                    pencere.path():rect(0, 0, 4, 8):fill("raised3"),
+                    pencere.path():arc(10, 10, 8, 0, 180):stroke(2, "accent"),
+                }):size(20, 20))
+                :child(pencere.div():id("menu"):anchor("button", "above", { gap = 4, align = "end" }))
+                :child(pencere.div():overlay():inset(0, 0, 0, 0):bg_gradient(90, "accent", "background"))
+                :child(pencere.div():press("group"):role("switch"):checked(true):max_h(30))
+                :child(pencere.text("Title"):role("heading", 9))
+                :child(pencere.div():role("progress"):value(40):disabled())
+                :child(pencere.div()
+                    :focused()
+                    :command("find", "Find", "cmd+shift+f", false)
+                    :command("go", "Go", "ctrl+page_down")
+                    :draggable("card"))
+                :child(pencere.div():drop_target("done"):selected(true):expanded(false))
+        end }"##,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None, "{:?}", update.closed);
+    let nodes = update.frame.expect("a page").root.fold();
+    let root = &nodes[0].meta;
+    assert_eq!(
+        root.commands,
+        vec![Command::new(Id::named("quit"), "Quit").keys(Shortcut::parse("cmd+q").unwrap())]
+    );
+    let expected = rich([
+        span("run "),
+        span("make")
+            .family(Family::Terminal)
+            .bg(Role::Raised(2))
+            .bold(),
+        span(" docs").link(Id::named("docs")).color(Role::Accent),
+    ]);
+    let Kind::Rich(said) = &nodes[1].kind else {
+        panic!("a text of many looks: {:?}", nodes[1].kind);
+    };
+    let Kind::Rich(rust) = expected.fold().remove(0).kind else {
+        panic!("rich");
+    };
+    assert_eq!(said, &rust);
+    assert!(nodes[1].style.wrap);
+    let Kind::Canvas(paths) = &nodes[2].kind else {
+        panic!("a canvas: {:?}", nodes[2].kind);
+    };
+    assert_eq!(paths.len(), 2);
+    assert_eq!(paths[0].fill, Some(Role::Raised(3).solid()));
+    assert_eq!(paths[0].segments.len(), 5);
+    // Half a turn: a move and two quarter curves, ending at six o'clock.
+    assert_eq!(paths[1].segments.len(), 3);
+    let pencere_view::Segment::Cubic { to, .. } = paths[1].segments[2] else {
+        panic!("a curve");
+    };
+    assert!(
+        (to.x - 10.0).abs() < 1e-3 && (to.y - 18.0).abs() < 1e-3,
+        "{to:?}"
+    );
+    assert_eq!(paths[1].stroke.map(|stroke| stroke.width), Some(2.0));
+    let anchor = nodes[3].style.anchor.expect("an anchor");
+    assert!(nodes[3].style.overlay);
+    assert_eq!(
+        (anchor.to, anchor.side, anchor.align, anchor.gap),
+        (Id::named("button"), Side::Above, Align::End, 4.0)
+    );
+    assert!(nodes[4].style.overlay);
+    assert_eq!(nodes[4].style.inset, [Some(0.0); 4]);
+    let gradient = nodes[4].style.gradient.expect("a gradient");
+    assert_eq!(
+        (gradient.angle, gradient.from, gradient.to),
+        (90.0, Role::Accent.solid(), Role::Background.solid())
+    );
+    assert_eq!(nodes[5].meta.role, Some(AccessibleRole::Switch));
+    assert_eq!(nodes[5].meta.state.checked, Some(true));
+    assert_eq!(nodes[5].style.max_height, Length::Px(30.0));
+    assert_eq!(nodes[6].meta.role, Some(AccessibleRole::Heading(6)));
+    assert_eq!(nodes[7].meta.state.value.as_deref(), Some("40"));
+    assert!(nodes[7].meta.state.disabled);
+    let focused = &nodes[8].meta;
+    assert!(focused.focused && focused.draggable);
+    assert_eq!(focused.id, Some(Id::named("card")));
+    assert_eq!(
+        focused.commands,
+        vec![
+            Command::new(Id::named("find"), "Find")
+                .keys(Shortcut::parse("cmd+shift+f").unwrap())
+                .enabled(false),
+            Command::new(Id::named("go"), "Go").keys(Shortcut::parse("ctrl+page_down").unwrap()),
+        ]
+    );
+    assert!(nodes[9].meta.drop_target);
+    assert!(nodes[9].meta.state.selected);
+    assert_eq!(nodes[9].meta.state.expanded, Some(false));
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_drags_and_is_told_commands_keys_that_go_up_modifiers_and_dropped_files() {
+    let mut page = open_script(
+        r##"
+        local ui = pencere.Ui.new()
+        local said = "nothing"
+        return {
+            render = function()
+                return pencere.div():row()
+                    :command("find", "Find", "cmd+f")
+                    :child(pencere.div():drop_target("todo"):size(50, 100)
+                        :child(pencere.div():draggable("card"):size(40, 20)))
+                    :child(pencere.div():drop_target("done"):size(50, 100))
+                    :child(pencere.text(said))
+            end,
+            handle = function(event)
+                local laid = pencere.layout
+                local at = event.x and { x = event.x, y = event.y }
+                if event.type == "move" then
+                    ui:point(laid, at)
+                    local drag = ui:dragging()
+                    if drag then
+                        said = "dragging " .. drag.source .. " over " .. tostring(drag.target)
+                    end
+                elseif event.type == "press" then
+                    ui:press(laid, at)
+                elseif event.type == "release" then
+                    ui:release(laid, at)
+                    local dropped = ui:take_drop()
+                    if dropped then
+                        said = "dropped " .. dropped.source .. " on " .. tostring(dropped.target)
+                    else
+                        said = "released " .. event.button
+                    end
+                elseif event.type == "command" then
+                    said = "command " .. event.id
+                elseif event.type == "key_up" then
+                    said = "up " .. event.key
+                elseif event.type == "mods" then
+                    said = "mods alt " .. tostring(event.mods.alt)
+                elseif event.type == "files" then
+                    said = "files " .. #event.paths .. " " .. event.paths[1] .. " at " .. event.x
+                end
+                return true
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    let update = page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    assert_eq!(update.closed, None, "{:?}", update.closed);
+    let frame = update.frame.expect("a page");
+    let laid = Arc::new(pencere_view::layout(
+        frame.root.clone(),
+        SIZE,
+        1.0,
+        &mut Rough,
+    ));
+    page.module.lay_out(Arc::clone(&laid));
+    let told = |event: Event, page: &mut Open| -> String {
+        page.module.event(event);
+        page.module.render(SIZE, 0.0, false);
+        let replies = page.seen.replies.len();
+        until_seen(page, Duration::from_secs(10), |seen| {
+            seen.replies.len() > replies
+        });
+        page.take(Duration::from_millis(200));
+        let frame = page.seen.frame.clone().expect("a page");
+        words(&frame.root).last().cloned().unwrap_or_default()
+    };
+    let press = |x: f32, y: f32| {
+        Event::Input(Input::Press {
+            at: Point::new(x, y),
+            button: Button::Left,
+            mods: Mods::default(),
+            count: 1,
+        })
+    };
+    told(press(5.0, 5.0), &mut page);
+    assert_eq!(
+        told(Event::Input(Input::Move(Point::new(60.0, 10.0))), &mut page),
+        "dragging card over done"
+    );
+    assert_eq!(
+        told(
+            Event::Input(Input::Release {
+                at: Point::new(60.0, 10.0),
+                button: Button::Left
+            }),
+            &mut page
+        ),
+        "dropped card on done"
+    );
+    assert_eq!(
+        told(
+            Event::Input(Input::Release {
+                at: Point::new(1.0, 1.0),
+                button: Button::Middle
+            }),
+            &mut page
+        ),
+        "released middle"
+    );
+    assert_eq!(
+        told(Event::Command(Id::named("find")), &mut page),
+        "command find"
+    );
+    assert_eq!(
+        told(
+            Event::Input(Input::KeyUp {
+                key: Key::Character('a'),
+                mods: Mods::default()
+            }),
+            &mut page
+        ),
+        "up a"
+    );
+    assert_eq!(
+        told(
+            Event::Input(Input::Mods(Mods {
+                alt: true,
+                ..Mods::default()
+            })),
+            &mut page
+        ),
+        "mods alt true"
+    );
+    assert_eq!(
+        told(
+            Event::Files {
+                at: Point::new(7.0, 3.0),
+                paths: vec!["/tmp/a.png".into(), "/tmp/b.png".into()]
+            },
+            &mut page
+        ),
+        "files 2 /tmp/a.png at 7"
+    );
+}

@@ -31,14 +31,17 @@
 //! is not.
 
 mod color;
+mod command;
 mod element;
 mod fades;
+mod figure;
 mod geometry;
 mod id;
 mod input;
 mod layout;
 mod motion;
 mod paint;
+mod rich;
 mod rows;
 mod style;
 mod text;
@@ -46,24 +49,35 @@ mod ui;
 pub mod wire;
 
 pub use color::{Color, Mix, Rgba, Role, Source};
-pub use element::{Element, FieldKind, Fit, Image, div, image, spacer, spark, text};
+pub use command::{Command, Shortcut};
+pub use element::{
+    Element, FieldKind, Fit, Image, State, canvas, div, image, rich, spacer, spark, text,
+};
 pub use fades::{FADE_SECONDS, Fades};
+pub use figure::{Path, Segment, Stroke, path};
 pub use geometry::{Point, Rect, Size};
 pub use id::Id;
 pub use input::{Button, Cursor, Event, Input, Key, Keyboard, Menu, MenuEntry, Mods, Reply};
 pub use layout::{Accessible, AccessibleRole, Extent, Field, Laid, Queries, layout};
 pub use motion::{Ease, Motion, Motions, Shift, Tip};
-pub use paint::{DrawList, Paint, Picture, Quad, Run};
+pub use paint::{DrawList, Figure, Paint, Picture, Quad, Run};
+pub use rich::{Span, span};
 pub use rows::Rows;
-pub use style::{Border, Shadow, Track};
+pub use style::{Anchor, Border, Gradient, Shadow, Side, Track};
 pub use text::{Align, Family, Font, Measure, Metrics};
-pub use ui::Ui;
+pub use ui::{Drag, Dropped, Ui};
 
+#[cfg(test)]
+mod commands_tests;
 #[cfg(test)]
 mod image_tests;
 #[cfg(test)]
 mod interact_tests;
 #[cfg(test)]
 mod motion_tests;
+#[cfg(test)]
+mod overlay_tests;
+#[cfg(test)]
+mod rich_tests;
 #[cfg(test)]
 mod tests;

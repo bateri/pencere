@@ -570,7 +570,7 @@ written against:
 | Name   | The view                                                                                                                               | What its version names                                                                     |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `lua`  | A script in the Lua language that the host runs, with an interpreter of its own, in the same sandbox as a component, and draws itself. | The Lua page API of the kit, the global `pencere` (`pencere.version` is the major number). |
-| `wasm` | A WebAssembly component that the host runs in a sandbox and draws itself.                                                              | The component interface of the kit, `pencere:view` (`pencere:view@1.0.0` is `1.0`).        |
+| `wasm` | A WebAssembly component that the host runs in a sandbox and draws itself.                                                              | The component interface of the kit, `pencere:view` (`pencere:view@2.0.0` is `2.0`).        |
 | `web`  | A web page, shown in a web view of the host's.                                                                                         | The bridge of Section 9.4 between the page and its host: now `1.0`.                        |
 
 A version is a string of two numbers, `major.minor`, such as `0.5`:
@@ -581,8 +581,8 @@ number  = "0" / ( %x31-39 *8DIGIT )
 ```
 
 Versions are compared for equality and for nothing else; the order of a list is the preference of
-whoever wrote it. What a version means is the interface's. For the kit, `wasm` `1.0` is the
-interface `pencere:view@1.0.0` and `lua` `1.0` is the page API whose `pencere.version` is `1`; the
+whoever wrote it. What a version means is the interface's. For the kit, `wasm` `2.0` is the
+interface `pencere:view@2.0.0` and `lua` `2.0` is the page API whose `pencere.version` is `2`; the
 rule that moves the numbers is in Section 5.4, and a host that updates its kit offers the new major
 version and the one before. The examples in this document use made-up versions (`0.4`, `0.5`,
 `0.6`) so that they show several at once. For `web`, a change that only adds an optional member to a message of Section 9.4 moves the
@@ -1239,8 +1239,8 @@ the host draws itself, in the terminal's font and theme, without a web view:
   not part of this document either: `kit/SPEC.md` in this repository describes the page API (the
   elements, the colour strings, the functions), and the prelude it is written in (`kit/luau/prelude`)
   is normative with it for `lua` views. The language is **Luau at the release the kit pins**
-  (`0.740` for `lua` `1.x`, `kit/luau/pins`) with the library the interpreter exposes: a script
-  that uses syntax a later Luau added is not a `lua` `1.x` script, and such syntax arrives with a
+  (`0.740` for `lua` `2.x`, `kit/luau/pins`) with the library the interpreter exposes: a script
+  that uses syntax a later Luau added is not a `lua` `2.x` script, and such syntax arrives with a
   minor version of `lua` that raises Luau (Section 5.4). A host SHOULD run the kit's own interpreter
   component (`kit/sandbox/luau/luau.wasm`) rather than another Luau, so that a script means one thing
   on every host. The script is source text: a host does not load compiled code from a program.
@@ -1306,7 +1306,8 @@ give it more:
 | Bytes of one line of text, of a title, of text for the pasteboard                        | 64 KiB                 |
 | Bytes a frame says apart from its elements' fixed fields (words, paths…)                 | 4 MiB                  |
 | Tracks of a grid's columns or rows                                                       | 64                     |
-| Values of a sparkline                                                                    | 4096                   |
+| Values of a sparkline, steps of a path of a canvas                                       | 4096                   |
+| Parts of a text of many looks, paths of a canvas, commands of an element                 | 1024                   |
 | Entries of a menu                                                                        | 256                    |
 | Messages to the program that one call may send                                           | 32                     |
 | Bytes of one message to the program                                                      | 1 MiB (Section 9.3)    |

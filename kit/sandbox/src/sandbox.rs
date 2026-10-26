@@ -92,8 +92,10 @@ pub struct ModuleLimits {
     pub text: usize,
     /// Tracks of a grid's columns or rows.
     pub tracks: usize,
-    /// Values of a sparkline.
+    /// Values of a sparkline, steps of a path.
     pub values: usize,
+    /// Parts of a text of many looks, paths of a canvas, commands of an element.
+    pub parts: usize,
     /// Entries of a menu.
     pub menu: usize,
     /// Bytes of the component itself: a larger one is not compiled. For a script, bytes of the
@@ -119,6 +121,7 @@ impl Default for ModuleLimits {
             text: 64 << 10,
             tracks: 64,
             values: 4096,
+            parts: 1024,
             menu: 256,
             component: 4 << 20,
             messages: 32,

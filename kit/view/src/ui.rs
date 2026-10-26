@@ -1,5 +1,5 @@
-//! What a page remembers between builds: what the pointer is over and has pressed, where the
-//! keyboard is, how far each list is scrolled, how far each highlight has faded.
+//! What a page remembers between builds: what the pointer is over and has pressed, what is being
+//! dragged, where the keyboard is, how far each list is scrolled, how far each highlight has faded.
 //!
 //! The elements are made afresh for every frame, so none of this can be in them; it is kept by
 //! [`Id`] and the page reads it when it builds. Every method that takes the pointer or the
@@ -10,11 +10,42 @@ use std::collections::HashMap;
 
 use crate::{Fades, Id, Point, Queries};
 
+/// How far the pointer moves with a button held on something that can be dragged before it is
+/// dragged, points: less is a click with an unsteady hand.
+pub const DRAG_START: f32 = 4.0;
+
+/// Something being dragged: what it is, where the pointer is now, and what it would be put down on
+/// there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Drag {
+    pub source: Id,
+    /// Where the button went down.
+    pub from: Point,
+    /// Where the pointer is.
+    pub at: Point,
+    /// The drop target under the pointer, if there is one and it is not the thing dragged.
+    pub target: Option<Id>,
+    /// The pointer has moved far enough for it to be a drag ([`DRAG_START`]); until then it may
+    /// still be a click.
+    pub moving: bool,
+}
+
+/// Something that was dragged and let go: what, on what (nothing, where it was let go over no drop
+/// target), and where.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Dropped {
+    pub source: Id,
+    pub target: Option<Id>,
+    pub at: Point,
+}
+
 /// The remembered state of a page.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Ui {
     hover: Option<Id>,
     pressed: Option<Id>,
+    drag: Option<Drag>,
+    dropped: Option<Dropped>,
     focus: Option<Id>,
     /// How far each scrolling box is scrolled down, points.
     scroll: HashMap<Id, f32>,
@@ -43,18 +74,40 @@ impl Ui {
     // --- The pointer ---------------------------------------------------------------------
 
     /// The pointer is at `at` (`None`: it left the page). Returns whether the element it is
-    /// over changed.
+    /// over changed, or — while something is dragged — whether the drag moved.
     pub fn point(&mut self, laid: &dyn Queries, at: Option<Point>) -> bool {
+        let mut changed = false;
+        if let (Some(drag), Some(at)) = (&mut self.drag, at) {
+            let (dx, dy) = (at.x - drag.from.x, at.y - drag.from.y);
+            if !drag.moving && dx * dx + dy * dy >= DRAG_START * DRAG_START {
+                drag.moving = true;
+                changed = true;
+            }
+            if drag.moving {
+                let target = laid.drop_target(at).filter(|target| *target != drag.source);
+                changed |= drag.at != at || drag.target != target;
+                drag.at = at;
+                drag.target = target;
+            }
+        }
         let over = at.and_then(|at| laid.hit(at));
-        std::mem::replace(&mut self.hover, over) != over
+        changed | (std::mem::replace(&mut self.hover, over) != over)
     }
 
-    /// A button went down at `at`: the element under it is the pressed one, and the keyboard
-    /// moves to the nearest element around it that takes it (`focusable`). Returns the element
-    /// pressed.
+    /// A button went down at `at`: the element under it is the pressed one (and, where it can be
+    /// picked up, perhaps the one dragged), and the keyboard moves to the nearest element around it
+    /// that takes it (`focusable`). Returns the element pressed.
     pub fn press(&mut self, laid: &dyn Queries, at: Point) -> Option<Id> {
         let hit = laid.hit(at);
         self.pressed = hit;
+        self.dropped = None;
+        self.drag = laid.drag_source(at).map(|source| Drag {
+            source,
+            from: at,
+            at,
+            target: None,
+            moving: false,
+        });
         let under = laid.ids_at(at);
         if let Some(focus) = under.into_iter().find(|id| self.takes_focus(laid, *id)) {
             self.focus = Some(focus);
@@ -62,11 +115,47 @@ impl Ui {
         hit
     }
 
-    /// The button came up at `at`. A click is a release over the element the press was on:
-    /// returns it.
+    /// The button came up at `at`. A click is a release over the element the press was on, when
+    /// it was not dragged: returns it. What was dragged is put down ([`Ui::take_drop`]).
     pub fn release(&mut self, laid: &dyn Queries, at: Point) -> Option<Id> {
+        if let Some(drag) = self.drag.take()
+            && drag.moving
+        {
+            self.pressed = None;
+            self.dropped = Some(Dropped {
+                source: drag.source,
+                target: laid.drop_target(at).filter(|target| *target != drag.source),
+                at,
+            });
+            return None;
+        }
         let pressed = self.pressed.take()?;
         (laid.hit(at) == Some(pressed)).then_some(pressed)
+    }
+
+    // --- Dragging ------------------------------------------------------------------------
+
+    /// What is being dragged, once the pointer has moved far enough for it to be a drag: the page
+    /// draws it where the pointer is (an overlay at `at` is the usual way) and marks the target.
+    pub fn dragging(&self) -> Option<Drag> {
+        self.drag.filter(|drag| drag.moving)
+    }
+
+    /// What was dragged and let go since the last ask: the page moves it where it went. Asked
+    /// once, it is no longer kept.
+    pub fn take_drop(&mut self) -> Option<Dropped> {
+        self.dropped.take()
+    }
+
+    /// Gives up the drag under way, if there is one (the escape key): nothing is dropped, and the
+    /// release that follows is no click. Returns whether there was one.
+    pub fn cancel_drag(&mut self) -> bool {
+        let was = self.dragging().is_some();
+        if was {
+            self.drag = None;
+            self.pressed = None;
+        }
+        was
     }
 
     // --- The wheel -----------------------------------------------------------------------
