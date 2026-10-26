@@ -6,6 +6,15 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A program whose terminal goes away (an ssh connection that drops) is no longer ended by the
+  hangup's `SIGHUP` after its view is over. The program learns of the hangup from the tty, `serve`
+  returns, and the kernel's signal for the same hangup came a moment later to the default action
+  that the terminal's handlers had been put back to, so the program died before what it does after
+  its view (a draft of what was not saved). Once the terminal has hung up, `SIGHUP` stays ignored:
+  the program knows from `serve` that its terminal went away.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

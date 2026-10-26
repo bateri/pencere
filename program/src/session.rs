@@ -543,6 +543,7 @@ impl Session<'_> {
 
     /// The terminal is gone: nobody reads what the program writes and nobody writes to it.
     fn terminal_gone(&mut self) {
+        self.taken.hung_up();
         match std::mem::replace(&mut self.phase, Phase::Over) {
             Phase::Over => {}
             Phase::Asking { .. } | Phase::Draining { .. } => {

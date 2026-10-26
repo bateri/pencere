@@ -1238,6 +1238,56 @@ fn a_lua_filter_whose_view_is_closed_by_the_person_writes_nothing() {
     assert_eq!(status, "1");
 }
 
+/// A Lua app that goes on after its view: once `serve` is over it waits a little, as an app that
+/// saves what was not saved does, and then writes the file named in its source.
+const LUA_AFTER_THE_VIEW: &str = r#"
+local pencere = require("pencere")
+pencere.serve {
+	calls = { hello = function() return { hello = true } end },
+}
+pencere.time.sleep(0.2)
+pencere.fs.write(AFTER, "the app ended on its own\n")
+pencere.exit(0)
+"#;
+
+#[test]
+fn a_lua_app_whose_terminal_goes_away_still_does_what_it_does_after_its_view() {
+    // The hangup reaches the program twice: the tty fails, and the kernel sends `SIGHUP`. The
+    // program learns it from the tty first and its view ends; the signal, a moment later, must not
+    // end the program before it has done what comes after the view.
+    let dir = fresh("lua-after-hangup");
+    let source = dir.join("app");
+    fs::create_dir_all(&source).expect("a directory");
+    let after = dir.join("after.txt");
+    let app_source = LUA_AFTER_THE_VIEW.replace("AFTER", &format!("{:?}", after.to_string_lossy()));
+    fs::write(source.join("app.lua"), app_source).expect("an app");
+    fs::write(
+        source.join("page.lua"),
+        "return { render = function() return {} end }\n",
+    )
+    .expect("a page");
+    let app = dir.join("after");
+    let (status, said) = pencere(&dir, &["build", "app", "-o", &app.to_string_lossy()]);
+    assert!(status.success(), "pencere build: {said}");
+    let run = run(
+        &["--call", "hello", "--then", "hangup"],
+        &[&app.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: <- response id=1 result=",
+        "host: hangs up the terminal",
+        "program: exited with status 0",
+    ]);
+    run.never("killed by signal");
+    assert_eq!(
+        fs::read_to_string(&after).unwrap_or_default(),
+        "the app ended on its own\n",
+        "{}",
+        run.text()
+    );
+}
+
 // ---- the example, on each runtime and as one executable ------------------------------------
 
 /// The size of a file the page would fetch: the files of the view, and the module that is the

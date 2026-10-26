@@ -453,6 +453,8 @@ pub(crate) struct Taken {
     input: RawFd,
     previous: Vec<(libc::c_int, libc::sigaction)>,
     given_back: bool,
+    /// The terminal went away: its `SIGHUP` may still be on its way.
+    hung_up: bool,
 }
 
 impl Taken {
@@ -466,6 +468,7 @@ impl Taken {
             input: terminal.input(),
             previous: Vec::new(),
             given_back: false,
+            hung_up: false,
         };
         // From here a failure drops `taken`, which undoes what was done.
         let mut saved: libc::termios;
@@ -539,11 +542,30 @@ impl Taken {
         }
     }
 
+    /// The terminal is gone: the program learned it from the tty, and the kernel's `SIGHUP` for
+    /// the same hangup may come a moment later. The view has ended for it already, so when the
+    /// terminal is given back that signal is ignored rather than left to end the program before
+    /// it has done what it does after its view (a draft of what was not saved).
+    pub(crate) fn hung_up(&mut self) {
+        self.hung_up = true;
+    }
+
+    /// Ignores `SIGHUP` from here on.
+    fn ignore_hangup() {
+        // SAFETY: an action of no handler, for a signal of the process's own.
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = libc::SIG_IGN;
+            libc::sigemptyset(&mut action.sa_mask);
+            libc::sigaction(libc::SIGHUP, &action, std::ptr::null_mut());
+        }
+    }
+
     /// Gives the terminal back — what the terminal queued and was not read is thrown away if
     /// `discard`, the alternate screen is left, the modes are put back — and only then stops
     /// listening for the signals: a parent that forwards the ⌃C the tty sent (`npm run`) sends a
     /// second one a moment later, and without a handler its default action would end the
-    /// process between the writes above.
+    /// process between the writes above. After a hangup `SIGHUP` stays ignored ([`Self::hung_up`]).
     pub(crate) fn give_back(&mut self, discard: bool) {
         if self.given_back {
             return;
@@ -554,6 +576,12 @@ impl Taken {
         }
         restore();
         WAKE_FD.store(-1, Ordering::SeqCst);
+        // Ignored before the old actions are put back, so that there is no moment between them
+        // when the hangup's signal would find its default action.
+        if self.hung_up {
+            Self::ignore_hangup();
+            self.previous.retain(|(signal, _)| *signal != libc::SIGHUP);
+        }
         self.restore_handlers();
         IN_USE.store(false, Ordering::SeqCst);
     }
