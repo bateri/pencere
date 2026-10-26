@@ -9,8 +9,9 @@ use pencere_view::wire::{
     Overflow, Spark, Style, TextStyle,
 };
 use pencere_view::{
-    Align, Border, Button, Color, Cursor, Element, Event, Extent, Family, Id, Input, Key, Keyboard,
-    Laid, Menu, MenuEntry, Mix, Mods, Point, Rect, Reply, Rgba, Role, Shadow, Size, Source, Track,
+    Align, Border, Button, Color, Cursor, Ease, Element, Event, Extent, Family, Id, Input, Key,
+    Keyboard, Laid, Menu, MenuEntry, Mix, Mods, Motion, Point, Rect, Reply, Rgba, Role, Shadow,
+    Shift, Size, Source, Tip, Track,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -649,6 +650,47 @@ fn kind_out(
     })
 }
 
+/// The longest a move may take, seconds: a page asks for a change to be seen, not for the
+/// application to keep drawing it.
+const MOTION_SECONDS: f32 = 2.0;
+
+/// A time of a move, held to what a move may take (one that is not a number is none).
+fn seconds_out(seconds: f32) -> f32 {
+    if seconds.is_finite() {
+        seconds.clamp(0.0, MOTION_SECONDS)
+    } else {
+        0.0
+    }
+}
+
+fn shift_out(shift: wit::Shift) -> Shift {
+    let finite = |value: f32| if value.is_finite() { value } else { 0.0 };
+    Shift {
+        opacity: finite(shift.opacity).clamp(0.0, 1.0),
+        dx: finite(shift.dx),
+        dy: finite(shift.dy),
+        seconds: seconds_out(shift.seconds),
+    }
+}
+
+fn motion_out(motion: wit::Motion) -> Motion {
+    Motion {
+        seconds: seconds_out(motion.seconds),
+        ease: match motion.ease {
+            wit::Ease::Linear => Ease::Linear,
+            wit::Ease::Out => Ease::Out,
+            wit::Ease::InOut => Ease::InOut,
+            wit::Ease::Spring => Ease::Spring,
+        },
+        color: motion.color,
+        opacity: motion.opacity,
+        size: motion.size,
+        place: motion.place,
+        enter: motion.enter.map(shift_out),
+        exit: motion.exit.map(shift_out),
+    }
+}
+
 fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> Result<Node, Fault> {
     Ok(Node {
         style: style_out(&node.style, limits, lists)?,
@@ -666,6 +708,21 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
                 .label
                 .as_ref()
                 .map(|part| lists.words(part, limits.text, "a label").map(str::to_owned))
+                .transpose()?,
+            motion: node.motion.map(motion_out),
+            tip: node
+                .tip
+                .as_ref()
+                .map(|tip| -> Result<Tip, Fault> {
+                    Ok(Tip {
+                        words: lists.words(&tip.words, limits.text, "a tip")?.to_owned(),
+                        keys: tip
+                            .keys
+                            .as_ref()
+                            .map(|keys| lists.words(keys, limits.text, "a tip").map(str::to_owned))
+                            .transpose()?,
+                    })
+                })
                 .transpose()?,
         },
         children: node.children,
@@ -1099,6 +1156,8 @@ mod tests {
             focusable: false,
             field: None,
             label: None,
+            motion: None,
+            tip: None,
             children,
         }
     }

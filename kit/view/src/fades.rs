@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use crate::Id;
+use crate::{Ease, Id};
 
 /// How long a highlight takes to come to full strength or to go, seconds. Short enough that a
 /// pointer crossing rows leaves a trail and not a smear.
@@ -33,17 +33,40 @@ pub struct Fades {
 struct Fade {
     level: f32,
     target: f32,
+    /// How long it takes from one end to the other, seconds.
+    seconds: f32,
 }
 
 impl Fades {
     /// Sets where `id`'s level goes (`0.0..=1.0`). A level not known yet starts at 0 and comes
     /// up; a change of nothing changes nothing.
     pub fn to(&mut self, id: Id, target: f32) {
+        self.to_over(id, target, FADE_SECONDS);
+    }
+
+    /// As [`Fades::to`], over `seconds` from one end to the other instead of a highlight's time:
+    /// a panel that comes in, a part that settles.
+    pub fn to_over(&mut self, id: Id, target: f32, seconds: f32) {
         let target = target.clamp(0.0, 1.0);
+        let seconds = if seconds.is_finite() {
+            seconds.max(0.001)
+        } else {
+            FADE_SECONDS
+        };
         match self.levels.get_mut(&id) {
-            Some(fade) => fade.target = target,
+            Some(fade) => {
+                fade.target = target;
+                fade.seconds = seconds;
+            }
             None if target > 0.0 => {
-                self.levels.insert(id, Fade { level: 0.0, target });
+                self.levels.insert(
+                    id,
+                    Fade {
+                        level: 0.0,
+                        target,
+                        seconds,
+                    },
+                );
             }
             None => {}
         }
@@ -58,6 +81,7 @@ impl Fades {
                 Fade {
                     level,
                     target: level,
+                    seconds: FADE_SECONDS,
                 },
             );
         } else {
@@ -68,6 +92,11 @@ impl Fades {
     /// `id`'s level now: 0 for one that is not known.
     pub fn level(&self, id: Id) -> f32 {
         self.levels.get(&id).map_or(0.0, |fade| fade.level)
+    }
+
+    /// `id`'s level now along the curve `ease`: [`Ease::Out`] comes up fast and settles.
+    pub fn level_eased(&self, id: Id, ease: Ease) -> f32 {
+        ease.at(self.level(id))
     }
 
     /// Whether anything is on the way to its target.
@@ -87,12 +116,12 @@ impl Fades {
         let dt = self
             .last
             .map_or(0.0, |last| (now - last).clamp(0.0, STEP_MAX));
-        let step = if reduce_motion {
-            1.0
-        } else {
-            dt as f32 / FADE_SECONDS
-        };
         for fade in self.levels.values_mut() {
+            let step = if reduce_motion {
+                1.0
+            } else {
+                dt as f32 / fade.seconds
+            };
             if fade.level < fade.target {
                 fade.level = (fade.level + step).min(fade.target);
             } else if fade.level > fade.target {
@@ -170,6 +199,23 @@ mod tests {
         // An hour later: one step is capped, the fade has not finished in it.
         assert!(fades.advance(3700.0, false));
         assert!(fades.level(ROW) < 1.0);
+    }
+
+    #[test]
+    fn a_fade_given_its_own_time_takes_it() {
+        let mut fades = Fades::default();
+        fades.to_over(ROW, 1.0, 0.5);
+        let mut now = 0.0;
+        let mut frames = 0;
+        while fades.advance(now, false) {
+            now += 1.0 / 60.0;
+            frames += 1;
+        }
+        assert!(
+            (29..=32).contains(&frames),
+            "{frames} frames for half a second"
+        );
+        assert_eq!(fades.level_eased(ROW, Ease::Out), 1.0);
     }
 
     #[test]

@@ -569,6 +569,43 @@ struct Flat {
     Arenas arenas;
 };
 
+static_assert(PENCERE_VIEW_TYPES_EASE_LINEAR == 0 && PENCERE_VIEW_TYPES_EASE_OUT == 1 &&
+                  PENCERE_VIEW_TYPES_EASE_IN_OUT == 2 && PENCERE_VIEW_TYPES_EASE_SPRING == 3,
+              "the eases are in the order of `kEases`");
+
+// Where an element comes in from or goes to: `{ opacity =, dx =, dy =, seconds = }`, absent in
+// `t[name]` when it is not a table.
+pencere_view_types_option_shift_t optional_shift(lua_State* L, int t, const char* name) {
+    pencere_view_types_option_shift_t out = {};
+    get(L, t, name);
+    if (lua_type(L, -1) == LUA_TTABLE) {
+        int shift = lua_gettop(L);
+        out.is_some = true;
+        out.val.opacity = number(L, shift, "opacity", 0.0f);
+        out.val.dx = number(L, shift, "dx", 0.0f);
+        out.val.dy = number(L, shift, "dy", 0.0f);
+        out.val.seconds = number(L, shift, "seconds", 0.2f);
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
+// How an element moves: `{ seconds =, ease =, color =, opacity =, size =, place =, enter =,
+// exit = }` at `index`.
+pencere_view_types_motion_t motion_at(lua_State* L, int index) {
+    static const char* const kEases[] = {"linear", "out", "in-out", "spring"};
+    pencere_view_types_motion_t motion = {};
+    motion.seconds = number(L, index, "seconds", 0.2f);
+    motion.ease = (pencere_view_types_ease_t)word(L, index, "ease", kEases, 4, PENCERE_VIEW_TYPES_EASE_OUT);
+    motion.color = flag(L, index, "color");
+    motion.opacity = flag(L, index, "opacity");
+    motion.size = flag(L, index, "size");
+    motion.place = flag(L, index, "place");
+    motion.enter = optional_shift(L, index, "enter");
+    motion.exit = optional_shift(L, index, "exit");
+    return motion;
+}
+
 void flatten(lua_State* L, int element, Flat& flat, int depth) {
     if (depth > kMaxDepth) luaL_error(L, "the page is nested more than %d boxes deep", kMaxDepth);
     luaL_checkstack(L, 32, "the page is nested too deep");
@@ -672,6 +709,32 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
             const char* bytes = lua_tolstring(L, -1, &length);
             nodes.ptr[at].label.is_some = true;
             nodes.ptr[at].label.val = add_words(flat.arenas, bytes, length);
+        }
+        lua_pop(L, 1);
+        get(L, meta, "motion");
+        if (lua_type(L, -1) == LUA_TTABLE) {
+            nodes.ptr[at].motion.is_some = true;
+            nodes.ptr[at].motion.val = motion_at(L, lua_gettop(L));
+        }
+        lua_pop(L, 1);
+        get(L, meta, "tip");
+        if (lua_type(L, -1) == LUA_TTABLE) {
+            int tip = lua_gettop(L);
+            get(L, tip, "words");
+            if (lua_type(L, -1) == LUA_TSTRING) {
+                size_t length = 0;
+                const char* bytes = lua_tolstring(L, -1, &length);
+                nodes.ptr[at].tip.is_some = true;
+                nodes.ptr[at].tip.val.words = add_words(flat.arenas, bytes, length);
+                get(L, tip, "keys");
+                if (lua_type(L, -1) == LUA_TSTRING) {
+                    bytes = lua_tolstring(L, -1, &length);
+                    nodes.ptr[at].tip.val.keys.is_some = true;
+                    nodes.ptr[at].tip.val.keys.val = add_words(flat.arenas, bytes, length);
+                }
+                lua_pop(L, 1);
+            }
+            lua_pop(L, 1);
         }
         lua_pop(L, 1);
     }

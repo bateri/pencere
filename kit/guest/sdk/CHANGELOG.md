@@ -8,6 +8,8 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Added
 
+- An element's `motion` and `tip` cross the interface.
+
 - A page module can wrap a text (`text(...).wrap()`) and give the host's field its hint (a text
   inside the `text_field()` element), as `pencere-view` describes. The terminal's engine lays the
   page out, so a terminal with this release of it is what draws them.
