@@ -15,6 +15,13 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   `PENCERE_DEV_APP`, the app is read from the project and the view is shown again whenever one of
   its files changes, without ending the program.
 
+## [0.3.1] - 2026-10-26
+
+### Fixed
+
+- 0.3.0 never reached crates.io: it was tagged and drafted, and the release workflow then skipped
+  its publishing. This is the same code, released.
+
 ## [0.3.0] - 2026-10-26
 
 ### Fixed

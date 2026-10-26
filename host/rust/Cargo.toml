@@ -3,7 +3,7 @@ name = "pencere-host"
 description = "Host side of pencere, a program's view in its terminal pane: sessions, the rules a terminal follows and the policy it asks the person about, without I/O"
 # The crate's own version line, apart from the workspace's: it is released on its own
 # (RELEASING.md), and the stand-in host that shares the workspace is never published.
-version = "0.3.0"
+version = "0.3.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -18,7 +18,7 @@ include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTI
 [dependencies]
 # The wire both ends share: frames, payloads, manifests and digests, the six view messages.
 # The host re-exports its modules, so a terminal depends on this crate alone.
-pencere-wire = { path = "../../wire", version = "0.3.0" }
+pencere-wire = { path = "../../wire", version = "0.3.1" }
 serde = { version = "1", features = ["derive"] }
 # `raw_value` lets a message of the program or its view be routed by the name of its member
 # without building a tree of its whole body, which a hostile stream could make many times

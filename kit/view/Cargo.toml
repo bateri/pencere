@@ -1,7 +1,7 @@
 [package]
 name = "pencere-view"
 description = "The page engine of pencere's native views: a tree of boxes and lines of text, laid out as flexbox and grid, that comes out as a draw list a terminal draws"
-version = "0.3.0"
+version = "0.3.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -138,6 +138,14 @@ describe("the repository's lines", () => {
     expect(choices.sort()).toEqual(Object.keys(LINES).sort());
     // Each line has a job that publishes it, behind the environment a maintainer approves in.
     expect(workflow.match(/^ {4}environment: release$/gm)?.length).toBe(Object.keys(LINES).length);
+    // A line released alone leaves the jobs of the others skipped, and a job whose `if` has no
+    // `always()` is skipped after any skipped job in its chain: each publishing job says it.
+    const jobs = workflow.split(/^ {2}(?=[a-z-]+:$)/m).slice(1);
+    const publishing = jobs.filter((job) => /^ {4}environment: release$/m.test(job));
+    expect(publishing).toHaveLength(Object.keys(LINES).length);
+    for (const job of publishing) {
+      expect(job, job.split(":")[0]).toMatch(/^ {4}if: >-\n {6}always\(\) && /m);
+    }
     const makefile = text(repo, "Makefile");
     for (const verb of ["release-prepare", "rehearse"]) {
       expect(makefile, verb).toMatch(new RegExp(`^${verb}:`, "m"));
