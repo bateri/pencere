@@ -6,6 +6,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+### Added
+
+- `Module::wait_for_frame(within)`: waits, at most `within`, for a page the host has not taken.
+  For a resized pane, so the page laid out for the old size is not drawn for a frame.
+
 ### Changed
 
 - The interface (`pencere:view@1.0.0`, a draft until a host other than this repository's runs it)
