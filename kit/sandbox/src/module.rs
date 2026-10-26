@@ -238,7 +238,8 @@ impl Module {
             .waiting
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let made_for = |waiting: &Waiting| waiting.frame.is_some() && waiting.frame_size == Some(size);
+        let made_for =
+            |waiting: &Waiting| waiting.frame.is_some() && waiting.frame_size == Some(size);
         let (waiting, _) = self
             .mailbox
             .arrived
