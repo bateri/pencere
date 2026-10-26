@@ -47,6 +47,14 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   `Button` and the `Queries` trait have the members above: a host or a page that matches them all
   or builds them whole is written again for them.
 
+### Fixed
+
+- **Negative margins in a row.** An element with margins below nothing (a line seven points wide to
+  the pointer that gives three back on each side) takes the room it is left with from its row, as
+  in a style sheet. The layout crate is taffy 0.15 (was 0.10), whose sizing of a box from its
+  content counted such an element at its width times its margins, and pushed what came after it
+  past the page.
+
 ## [0.3.1] - 2026-10-26
 
 ### Fixed

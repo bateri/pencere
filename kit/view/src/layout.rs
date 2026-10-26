@@ -11,7 +11,7 @@ use taffy::style::{
     MaxTrackSizingFunction, MinTrackSizingFunction, Overflow as TOverflow, Position,
     Style as TStyle,
 };
-use taffy::{NodeId, TaffyTree};
+use taffy::{NodeId, TaffyTree, compute_leaf_layout};
 
 use crate::element::{FieldKind, Fit, Kind, Meta, Spark, State};
 use crate::rich::{Look, RichLine, cut_line, lay_lines};
@@ -234,93 +234,99 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         width: AvailableSpace::Definite(viewport.w),
         height: AvailableSpace::Definite(viewport.h),
     };
-    let measured = tree.compute_layout_with_measure(
-        root_id,
-        space,
-        |known, available, _node, leaf, _style| {
-            let natural = match leaf {
-                Some(Leaf::Text {
-                    text,
-                    font,
-                    wrap: true,
-                }) => {
-                    // As wide as the box it is given, or as the room there is (none at all when
-                    // the layout asks how narrow it can be: the longest word), and as tall as the
-                    // lines it then takes.
-                    let budget = known.width.unwrap_or(match available.width {
-                        AvailableSpace::Definite(room) => room,
-                        AvailableSpace::MinContent => 0.0,
-                        AvailableSpace::MaxContent => f32::INFINITY,
-                    });
-                    let mut metrics = |run: &str| {
-                        *cache
-                            .entry((*font, run.to_owned()))
-                            .or_insert_with(|| measure.measure(font, run))
-                    };
-                    let line_height = metrics(text).height;
-                    let lines = wrap_lines(text, budget, &mut |run| metrics(run).width);
-                    let widest = lines
-                        .iter()
-                        .map(|line| metrics(line).width)
-                        .fold(0.0, f32::max);
-                    #[allow(clippy::cast_precision_loss)]
-                    let height = line_height * lines.len() as f32;
-                    Metrics {
-                        width: widest,
-                        height,
-                    }
-                }
-                Some(Leaf::Text { text, font, .. }) => *cache
-                    .entry((*font, text.clone()))
-                    .or_insert_with(|| measure.measure(font, text)),
-                Some(Leaf::Rich { spans, looks, wrap }) => {
-                    let budget = if *wrap {
-                        known.width.unwrap_or(match available.width {
+    let measured = tree.compute_layout_with_measure(root_id, space, |input, _node, leaf, style| {
+        // taffy places a leaf (its padding, border and the sizes its style gives) around the room
+        // its content measures, which is all that is the engine's to say. No style of the kit's
+        // is a `calc()`, so there is none to resolve.
+        compute_leaf_layout(
+            input,
+            style,
+            |_, _| 0.0,
+            |known, available| {
+                let natural = match leaf {
+                    Some(Leaf::Text {
+                        text,
+                        font,
+                        wrap: true,
+                    }) => {
+                        // As wide as the box it is given, or as the room there is (none at all when
+                        // the layout asks how narrow it can be: the longest word), and as tall as the
+                        // lines it then takes.
+                        let budget = known.width.unwrap_or(match available.width {
                             AvailableSpace::Definite(room) => room,
                             AvailableSpace::MinContent => 0.0,
                             AvailableSpace::MaxContent => f32::INFINITY,
-                        })
-                    } else {
-                        f32::INFINITY
-                    };
-                    let mut width = |font: &Font, run: &str| {
-                        cache
-                            .entry((*font, run.to_owned()))
-                            .or_insert_with(|| measure.measure(font, run))
-                            .width
-                    };
-                    let lines = lay_lines(spans, looks, budget, *wrap, &mut width);
-                    let widest = lines.iter().map(|line| line.width).fold(0.0, f32::max);
-                    let line_height = rich_line_height(spans, looks, &mut |font, run| {
-                        *cache
-                            .entry((*font, run.to_owned()))
-                            .or_insert_with(|| measure.measure(font, run))
-                    });
-                    #[allow(clippy::cast_precision_loss)]
-                    let height = line_height * lines.len() as f32;
-                    Metrics {
-                        width: widest,
-                        height,
+                        });
+                        let mut metrics = |run: &str| {
+                            *cache
+                                .entry((*font, run.to_owned()))
+                                .or_insert_with(|| measure.measure(font, run))
+                        };
+                        let line_height = metrics(text).height;
+                        let lines = wrap_lines(text, budget, &mut |run| metrics(run).width);
+                        let widest = lines
+                            .iter()
+                            .map(|line| metrics(line).width)
+                            .fold(0.0, f32::max);
+                        #[allow(clippy::cast_precision_loss)]
+                        let height = line_height * lines.len() as f32;
+                        Metrics {
+                            width: widest,
+                            height,
+                        }
                     }
+                    Some(Leaf::Text { text, font, .. }) => *cache
+                        .entry((*font, text.clone()))
+                        .or_insert_with(|| measure.measure(font, text)),
+                    Some(Leaf::Rich { spans, looks, wrap }) => {
+                        let budget = if *wrap {
+                            known.width.unwrap_or(match available.width {
+                                AvailableSpace::Definite(room) => room,
+                                AvailableSpace::MinContent => 0.0,
+                                AvailableSpace::MaxContent => f32::INFINITY,
+                            })
+                        } else {
+                            f32::INFINITY
+                        };
+                        let mut width = |font: &Font, run: &str| {
+                            cache
+                                .entry((*font, run.to_owned()))
+                                .or_insert_with(|| measure.measure(font, run))
+                                .width
+                        };
+                        let lines = lay_lines(spans, looks, budget, *wrap, &mut width);
+                        let widest = lines.iter().map(|line| line.width).fold(0.0, f32::max);
+                        let line_height = rich_line_height(spans, looks, &mut |font, run| {
+                            *cache
+                                .entry((*font, run.to_owned()))
+                                .or_insert_with(|| measure.measure(font, run))
+                        });
+                        #[allow(clippy::cast_precision_loss)]
+                        let height = line_height * lines.len() as f32;
+                        Metrics {
+                            width: widest,
+                            height,
+                        }
+                    }
+                    Some(Leaf::Image { natural, inset }) => {
+                        // The sides given are the box's; the room measured is the picture's, inside
+                        // the padding and the border that the box adds to it.
+                        let (width, height) = image_room(
+                            known.width.map(|side| (side - inset.0).max(0.0)),
+                            known.height.map(|side| (side - inset.1).max(0.0)),
+                            *natural,
+                        );
+                        return TSize { width, height };
+                    }
+                    None => Metrics::default(),
+                };
+                TSize {
+                    width: known.width.unwrap_or(natural.width),
+                    height: known.height.unwrap_or(natural.height),
                 }
-                Some(Leaf::Image { natural, inset }) => {
-                    // The sides given are the box's; the room measured is the picture's, inside
-                    // the padding and the border that the box adds to it.
-                    let (width, height) = image_room(
-                        known.width.map(|side| (side - inset.0).max(0.0)),
-                        known.height.map(|side| (side - inset.1).max(0.0)),
-                        *natural,
-                    );
-                    return TSize { width, height };
-                }
-                None => Metrics::default(),
-            };
-            TSize {
-                width: known.width.unwrap_or(natural.width),
-                height: known.height.unwrap_or(natural.height),
-            }
-        },
-    );
+            },
+        )
+    });
     if measured.is_err() {
         return Laid {
             nodes: Vec::new(),
@@ -864,6 +870,15 @@ fn dimension(length: Length, scale: f32) -> Dimension {
     }
 }
 
+/// A least or a most size, which taffy takes as a length, a share or nothing (`auto`).
+fn bound(length: Length, scale: f32) -> LengthPercentageAuto {
+    match length {
+        Length::Auto => LengthPercentageAuto::auto(),
+        Length::Px(points) => LengthPercentageAuto::length(snap(points, scale)),
+        Length::Percent(percent) => LengthPercentageAuto::percent(percent / 100.0),
+    }
+}
+
 fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
     let px = |points: f32| snap(points, scale);
     let edge = |points: f32| LengthPercentage::length(snap(points, scale));
@@ -873,13 +888,13 @@ fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
     let [m_top, m_right, m_bottom, m_left] = style.margin;
     let [i_top, i_right, i_bottom, i_left] = style.inset;
     let mut min_size = TSize {
-        width: dimension(style.min_width, scale),
-        height: dimension(style.min_height, scale),
+        width: bound(style.min_width, scale),
+        height: bound(style.min_height, scale),
     };
     // A line that may be cut gives its room away down to nothing, as a style sheet's
     // `min-width: 0` on an ellipsis would.
     if is_text && style.truncate && style.min_width == Length::Auto {
-        min_size.width = Dimension::length(0.0);
+        min_size.width = LengthPercentageAuto::length(0.0);
     }
     let overflow = match style.overflow {
         Overflow::Visible => TOverflow::Visible,
@@ -918,8 +933,8 @@ fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
         },
         min_size,
         max_size: TSize {
-            width: dimension(style.max_width, scale),
-            height: dimension(style.max_height, scale),
+            width: bound(style.max_width, scale),
+            height: bound(style.max_height, scale),
         },
         margin: TRect {
             top: margin(m_top),
@@ -939,18 +954,21 @@ fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
         },
         flex_grow: style.grow,
         flex_shrink: style.shrink.unwrap_or(1.0),
-        align_items: style.items.map(|items| match items {
-            Items::Start => AlignItems::FlexStart,
-            Items::Center => AlignItems::Center,
-            Items::End => AlignItems::FlexEnd,
-            Items::Stretch => AlignItems::Stretch,
+        // Not said is the box's `normal`: stretched across, packed from the start along.
+        align_items: style.items.map_or(AlignItems::NORMAL, |items| match items {
+            Items::Start => AlignItems::FLEX_START,
+            Items::Center => AlignItems::CENTER,
+            Items::End => AlignItems::FLEX_END,
+            Items::Stretch => AlignItems::STRETCH,
         }),
-        justify_content: style.justify.map(|justify| match justify {
-            Justify::Start => JustifyContent::FlexStart,
-            Justify::Center => JustifyContent::Center,
-            Justify::End => JustifyContent::FlexEnd,
-            Justify::Between => JustifyContent::SpaceBetween,
-        }),
+        justify_content: style
+            .justify
+            .map_or(JustifyContent::NORMAL, |justify| match justify {
+                Justify::Start => JustifyContent::FLEX_START,
+                Justify::Center => JustifyContent::CENTER,
+                Justify::End => JustifyContent::FLEX_END,
+                Justify::Between => JustifyContent::SPACE_BETWEEN,
+            }),
         grid_template_columns: style.columns.iter().map(|t| track(*t, px)).collect(),
         grid_template_rows: style.rows.iter().map(|t| track(*t, px)).collect(),
         grid_column: Line {
