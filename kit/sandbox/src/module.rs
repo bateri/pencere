@@ -15,8 +15,8 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use pencere_view::{Element, Event, Input, Laid, Reply, Size};
 use pencere_wire::json::unescaped_len;
@@ -91,6 +91,8 @@ pub struct Answer {
 #[derive(Default)]
 struct Mailbox {
     waiting: Mutex<Waiting>,
+    /// Told when a page or the module's end is put out ([`Module::wait_for_frame`]).
+    arrived: Condvar,
     /// The application has been woken and has not taken what is waiting yet.
     woken: AtomicBool,
 }
@@ -221,6 +223,27 @@ impl Module {
         let _ = self.commands.send(Command::Settle);
     }
 
+    /// Waits until a page the application has not taken is put out, the module is gone, or
+    /// `within` has passed; whether a page is waiting then. For the one moment a host had better
+    /// wait a little than draw a page made for another size: the pane was resized, and a page laid
+    /// out for the size it was would be drawn for a frame before the one for its new size comes.
+    /// The wait is held to `within`, so a page that is slow costs that and no more.
+    pub fn wait_for_frame(&self, within: Duration) -> bool {
+        let waiting = self
+            .mailbox
+            .waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (waiting, _) = self
+            .mailbox
+            .arrived
+            .wait_timeout_while(waiting, within, |waiting| {
+                waiting.frame.is_none() && waiting.closed.is_none()
+            })
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        waiting.frame.is_some()
+    }
+
     /// Takes what the module has put out since the last taking. Never waits.
     pub fn poll(&self) -> Update {
         // Before the taking, so that what is posted while it happens wakes the application again.
@@ -271,6 +294,7 @@ impl Post<'_> {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(frame) = frame {
                 waiting.frame = Some(frame);
+                self.mailbox.arrived.notify_all();
             }
             if let Some(answer) = answer {
                 waiting.replies.push(answer);
@@ -295,6 +319,7 @@ impl Post<'_> {
 
     fn close(&self, fault: Fault) {
         self.mailbox.close_without_wake(fault);
+        self.mailbox.arrived.notify_all();
         self.wake();
     }
 
@@ -744,6 +769,22 @@ mod tests {
 
     fn move_to(x: f32) -> Event {
         Event::Input(Input::Move(Point::new(x, 1.0)))
+    }
+
+    #[test]
+    fn a_host_can_wait_a_little_for_the_page_it_asked_for_and_no_longer_than_it_said() {
+        let (hold, gate) = mpsc::channel();
+        let rig = rig(Some(gate), None, false);
+        rig.module.render(Size::new(10.0, 10.0), 0.0, false);
+        // Held: the page does not come, and the wait ends when it said.
+        let began = std::time::Instant::now();
+        assert!(!rig.module.wait_for_frame(Duration::from_millis(20)));
+        assert!(began.elapsed() >= Duration::from_millis(20));
+        // Let go: the wait ends with the page, and a page taken is not waiting any more.
+        hold.send(()).unwrap();
+        assert!(rig.module.wait_for_frame(Duration::from_secs(5)));
+        assert!(rig.module.poll().frame.is_some());
+        assert!(!rig.module.wait_for_frame(Duration::from_millis(5)));
     }
 
     #[test]
