@@ -100,6 +100,8 @@ struct Mailbox {
 #[derive(Default)]
 struct Waiting {
     frame: Option<Frame>,
+    /// The size the waiting page was made for.
+    frame_size: Option<Size>,
     replies: Vec<Answer>,
     sent: Vec<String>,
     closed: Option<Fault>,
@@ -223,25 +225,28 @@ impl Module {
         let _ = self.commands.send(Command::Settle);
     }
 
-    /// Waits until a page the application has not taken is put out, the module is gone, or
-    /// `within` has passed; whether a page is waiting then. For the one moment a host had better
-    /// wait a little than draw a page made for another size: the pane was resized, and a page laid
-    /// out for the size it was would be drawn for a frame before the one for its new size comes.
-    /// The wait is held to `within`, so a page that is slow costs that and no more.
-    pub fn wait_for_frame(&self, within: Duration) -> bool {
+    /// Waits until a page made for `size` that the application has not taken is put out, the
+    /// module is gone, or `within` has passed; whether such a page is waiting then. For the one
+    /// moment a host had better wait a little than draw a page made for another size: the pane
+    /// was resized, and a page laid out for the size it was would be drawn for a frame before the
+    /// one for its new size comes. A page made for the size it was (one the module made again for
+    /// a hover just before) does not end the wait. The wait is held to `within`, so a page that is
+    /// slow costs that and no more.
+    pub fn wait_for_frame(&self, size: Size, within: Duration) -> bool {
         let waiting = self
             .mailbox
             .waiting
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let made_for = |waiting: &Waiting| waiting.frame.is_some() && waiting.frame_size == Some(size);
         let (waiting, _) = self
             .mailbox
             .arrived
             .wait_timeout_while(waiting, within, |waiting| {
-                waiting.frame.is_none() && waiting.closed.is_none()
+                !made_for(waiting) && waiting.closed.is_none()
             })
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        waiting.frame.is_some()
+        made_for(&waiting)
     }
 
     /// Takes what the module has put out since the last taking. Never waits.
@@ -285,15 +290,16 @@ struct Post<'a> {
 }
 
 impl Post<'_> {
-    fn put(&self, frame: Option<Frame>, answer: Option<Answer>) {
+    fn put(&self, frame: Option<(Frame, Size)>, answer: Option<Answer>) {
         {
             let mut waiting = self
                 .mailbox
                 .waiting
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(frame) = frame {
+            if let Some((frame, size)) = frame {
                 waiting.frame = Some(frame);
+                waiting.frame_size = Some(size);
                 self.mailbox.arrived.notify_all();
             }
             if let Some(answer) = answer {
@@ -412,7 +418,7 @@ fn serve<R: Runner>(
                     settled = 0;
                     let frame = runner.render(*size, *now, *reduce_motion)?;
                     post.say(runner.take_sent());
-                    post.put(Some(frame), None);
+                    post.put(Some((frame, *size)), None);
                 }
                 Command::Settle if later.iter().any(|c| matches!(c, Command::Settle)) => {}
                 Command::Settle => {
@@ -422,7 +428,7 @@ fn serve<R: Runner>(
                     {
                         settled += 1;
                         let frame = runner.render(asked.size, asked.now, asked.reduce_motion)?;
-                        post.put(Some(frame), None);
+                        post.put(Some((frame, asked.size)), None);
                     }
                     post.say(runner.take_sent());
                 }
@@ -441,7 +447,7 @@ fn serve<R: Runner>(
                             let frame =
                                 runner.render(asked.size, asked.now, asked.reduce_motion)?;
                             post.say(runner.take_sent());
-                            Some(frame)
+                            Some((frame, asked.size))
                         }
                         _ => None,
                     };
@@ -486,7 +492,7 @@ fn serve<R: Runner>(
                 ..asked
             });
             post.say(runner.take_sent());
-            post.put(Some(frame), None);
+            post.put(Some((frame, asked.size)), None);
         }
     }
 }
@@ -772,19 +778,31 @@ mod tests {
     }
 
     #[test]
-    fn a_host_can_wait_a_little_for_the_page_it_asked_for_and_no_longer_than_it_said() {
+    fn a_host_can_wait_a_little_for_the_page_of_the_size_it_asked_for_and_no_longer() {
+        let small = Size::new(10.0, 10.0);
+        let large = Size::new(20.0, 10.0);
         let (hold, gate) = mpsc::channel();
         let rig = rig(Some(gate), None, false);
-        rig.module.render(Size::new(10.0, 10.0), 0.0, false);
+        rig.module.render(small, 0.0, false);
         // Held: the page does not come, and the wait ends when it said.
         let began = std::time::Instant::now();
-        assert!(!rig.module.wait_for_frame(Duration::from_millis(20)));
+        assert!(!rig.module.wait_for_frame(small, Duration::from_millis(20)));
         assert!(began.elapsed() >= Duration::from_millis(20));
         // Let go: the wait ends with the page, and a page taken is not waiting any more.
         hold.send(()).unwrap();
-        assert!(rig.module.wait_for_frame(Duration::from_secs(5)));
+        assert!(rig.module.wait_for_frame(small, Duration::from_secs(5)));
         assert!(rig.module.poll().frame.is_some());
-        assert!(!rig.module.wait_for_frame(Duration::from_millis(5)));
+        assert!(!rig.module.wait_for_frame(small, Duration::from_millis(5)));
+        // A page made again for the size it was is not the one a resized pane waits for.
+        rig.module.message("redraw".into());
+        let began = std::time::Instant::now();
+        while rig.log().iter().filter(|l| l.starts_with("render")).count() < 2 {
+            assert!(began.elapsed() < Duration::from_secs(5), "never made again");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(!rig.module.wait_for_frame(large, Duration::from_millis(20)));
+        rig.module.render(large, 1.0, false);
+        assert!(rig.module.wait_for_frame(large, Duration::from_secs(5)));
     }
 
     #[test]

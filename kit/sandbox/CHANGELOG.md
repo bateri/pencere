@@ -8,8 +8,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
-- `Module::wait_for_frame(within)`: waits, at most `within`, for a page the host has not taken.
-  For a resized pane, so the page laid out for the old size is not drawn for a frame.
+- `Module::wait_for_frame(size, within)`: waits, at most `within`, for a page made for `size`
+  that the host has not taken. For a resized pane, so the page laid out for the old size is not
+  drawn for a frame; a page made again for the old size meanwhile does not end the wait.
 
 ### Changed
 
