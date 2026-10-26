@@ -62,7 +62,7 @@ each thing it draws is that much fainter). Text, which the elements inside inher
 `weight`, `color`, `family("system" | "terminal")`, `align("start" | "center" | "end")`, `italic`,
 `underline`, `strike`, `truncate`. Images: `fit("contain" | "cover")`, `tint(color)`. Names and
 answers: `id`, `press(id)`, `focusable`, `text_field(id, "line" | "lines" | "secret")`,
-`label(words)`. Children: `child`, `children`. A grid track is a number (points),
+`label(words)`, `tip(words, keys)`. Motion: `motion({...})`. Children: `child`, `children`. A grid track is a number (points),
 `pencere.fr(n)`, `pencere.range(least, n)` or `"auto"`.
 
 A text is one line: what does not fit runs past its box, or, with `truncate`, ends in "…". `wrap` on
@@ -83,11 +83,26 @@ A **label** is what an element is in words, for a person who does not see it: a 
 system's screen reader says the label of an element that has one, and the words inside one that has
 none. A button that is an icon alone needs one.
 
+A **tip** is what the host says of an element while the pointer rests on it, with the keys that do
+the same where there are some (`tip("Containers", "1")`): a tooltip of the host's own.
+
+A **motion** says how a change of an element moves instead of jumping, as a style sheet's
+`transition` and a motion library's layout animation do: `seconds` (0.2), `ease` (`"out"`, the
+default, `"linear"`, `"in-out"`, `"spring"`), and which of `color`, `opacity`, `size` (a width or
+height in points) and `place` (moved among the others, it slides there) follow a change; `enter` and
+`exit` (`{ opacity, dx, dy, seconds }`) say how it comes in when it appears and how it goes when it is
+gone. The host does the moving, frame by frame, and does not ask the page for the frames in between;
+the element is followed by its id, so one with no id does not move. Nothing moves under Reduce Motion,
+on the frame the page changes size, or for what scrolling brings into view or takes out of it. A row
+of a list is `motion({ place = true, enter = { dy = 6 }, exit = { dy = -3, seconds = 0.14 } })`; a
+hover is `bg(hovered and "raised2" or nil):motion({ seconds = 0.12, color = true })`.
+
 ### 2.2 What a page remembers, and asks of the layout
 
 `pencere.Ui`, `pencere.Fades` and `pencere.Rows` keep what a page needs between frames (pointer and
 keyboard state, how far each box is scrolled down and across, eased levels, the heights of a long
-list). `pencere.layout` answers what is where on the page as it was last laid out: `hit`, `ids_at`,
+list). A fade takes a highlight's 0.12 s, or its own time (`fades:to(id, level, seconds)`), and is read
+along a curve where one is given (`fades:level(id, "out")`; `pencere.ease(t, ease)` is the curve). `pencere.layout` answers what is where on the page as it was last laid out: `hit`, `ids_at`,
 `bounds` (a field's too, by its name), `scroll_extent` (`content` and `view` down, `content_w` and
 `view_w` across, with `max_offset` and `max_offset_x`), `focus_order`, `path_of`. They are defined
 by the prelude.
@@ -220,6 +235,9 @@ Besides drawing what the engine lays out, a host:
   the same room: a terminal draws a page as large as its own text is to the kit's (12.5 points), so a
   page's words are the size of the terminal's and grow and shrink with them (`Laid::accessible` and the
   fields are in the page's points; the host places them);
+- moves the elements that say a `motion` between the frames of the page, lays the page out again
+  at each frame while one moves (`Motions`), and says an element's `tip` while the pointer rests
+  on it (`Laid::tips`);
 - tells its system's screen reader what the page is: the pressable elements as buttons, the fields as
   fields, and the words of the rest, each by its `label` where it has one.
 

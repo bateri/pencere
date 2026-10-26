@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 
 use pencere_view::wire::Kind;
 use pencere_view::{
-    Button, Color, Cursor, Element, Event, FieldKind, Fit, Id, Input, Key, Keyboard, Mix, Mods,
-    Point, Rgba, Role, Source, image,
+    Button, Color, Cursor, Ease, Element, Event, FieldKind, Fit, Id, Input, Key, Keyboard, Mix,
+    Mods, Motion, Point, Rgba, Role, Shift, Source, Tip, image,
 };
 use wasmtime::component::Component;
 
@@ -943,6 +943,48 @@ fn what_an_event_asks_past_a_calls_share_goes_out_in_the_frames_after_it() {
         page.seen.sent
     );
     assert!(page.seen.closed.is_none());
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_says_how_an_element_moves_and_what_its_tip_says() {
+    let update = first(
+        r##"return { render = function()
+            return pencere.div()
+                :child(pencere.div():id("row"):motion({
+                    seconds = 0.35, ease = "spring", color = true, place = true,
+                    enter = { opacity = 0, dy = 6, seconds = 0.28 }, exit = { dy = -3 },
+                }))
+                :child(pencere.div():press("sec:containers"):tip("Containers", "1"))
+                :child(pencere.div():id("plain"):motion({ size = true }):tip("Only words"))
+        end }"##,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None);
+    let nodes = update.frame.expect("a page").root.fold();
+    assert_eq!(
+        nodes[1].meta.motion,
+        Some(
+            Motion::new(0.35)
+                .ease(Ease::Spring)
+                .color()
+                .place()
+                .enter(Shift::fade(0.28).by(0.0, 6.0))
+                .exit(Shift::fade(0.35).by(0.0, -3.0))
+        )
+    );
+    assert_eq!(
+        nodes[2].meta.tip,
+        Some(Tip {
+            words: "Containers".into(),
+            keys: Some("1".into())
+        })
+    );
+    assert_eq!(nodes[3].meta.motion, Some(Motion::new(0.2).size()));
+    assert_eq!(
+        nodes[3].meta.tip.as_ref().map(|tip| tip.keys.clone()),
+        Some(None)
+    );
 }
 
 #[test]

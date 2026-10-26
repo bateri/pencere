@@ -372,6 +372,61 @@ interface types {
         secret,
     }
 
+    /// How a move goes over its time.
+    enum ease {
+        /// At one pace from start to end.
+        linear,
+        /// Fast at first, settling at the end (`cubic-bezier(0.2, 0, 0, 1)`): what most changes
+        /// are.
+        out,
+        /// Slow at both ends (`cubic-bezier(0.4, 0, 0.2, 1)`).
+        in-out,
+        /// As a spring that does not bounce: quick, and long in coming to rest.
+        spring,
+    }
+
+    /// Where an element comes in from or goes to, as a difference from where it is: this opacity
+    /// of its own, moved this far (points), over this time (seconds).
+    record shift {
+        opacity: f32,
+        dx: f32,
+        dy: f32,
+        seconds: f32,
+    }
+
+    /// How a change of an element moves instead of jumping, as a style sheet's `transition` and a
+    /// motion library's layout animation: the application does the moving, frame by frame, and
+    /// does not ask the page for the frames in between. The element is followed by its `id` from
+    /// one frame to the next; one with no id does not move. Nothing moves under Reduce Motion, on
+    /// the frame the page changes size, or for what scrolling brings into view or takes out of it.
+    record motion {
+        /// How long a change takes, seconds.
+        seconds: f32,
+        ease: ease,
+        /// The colours of its fill, border, shadow and words follow a change.
+        color: bool,
+        /// Its opacity follows a change.
+        opacity: bool,
+        /// A width or height given in points follows a change (one that is not snaps).
+        size: bool,
+        /// Moved among the others, it slides from where it was to where it is.
+        place: bool,
+        /// How it comes in when it appears on a page that was there before it.
+        enter: option<shift>,
+        /// How it goes when it is no longer on the page: the application keeps drawing it as it
+        /// was, while it goes, and it cannot be pressed meanwhile.
+        exit: option<shift>,
+    }
+
+    /// What the application says of an element while the pointer rests on it: the tooltip of a
+    /// button that is an icon alone, with the keys that do the same.
+    record tip {
+        /// A part of the frame's `text`.
+        words: slice,
+        /// The keys, as the page writes them: a part of the frame's `text`.
+        keys: option<slice>,
+    }
+
     /// One element of the tree. The tree is a flat list in depth-first order: an element is
     /// followed by its children, each followed by its own.
     record node {
@@ -391,6 +446,8 @@ interface types {
         /// it): a part of the frame's `text`. A button that is an icon alone says what it does;
         /// an element with none is read by the words inside it.
         label: option<slice>,
+        motion: option<motion>,
+        tip: option<tip>,
         /// How many elements that follow are this one's children (not grandchildren).
         children: u32,
     }

@@ -183,6 +183,65 @@ function Element:label(words)
 	return self
 end
 
+local EASES = { linear = true, out = true, ["in-out"] = true, spring = true }
+
+-- How a change of this element moves instead of jumping; the host does the moving, frame by
+-- frame, without asking the page again. `motion` is a table:
+--   seconds   how long a change takes (0.2)
+--   ease      "out" (the default: fast, then settling), "linear", "in-out" or "spring"
+--   color     the colours of its fill, border, shadow and words follow a change
+--   opacity   its opacity follows a change
+--   size      a width or height given in points follows a change
+--   place     moved among the others, it slides from where it was to where it is
+--   enter     how it comes in when it appears: { opacity =, dx =, dy =, seconds = }
+--   exit      how it goes when it is no longer on the page, the same
+-- The element is followed by its id, so one with no id does not move. Nothing moves under Reduce
+-- Motion, on the frame the page changes size, or for what scrolling brings in or takes out.
+function Element:motion(motion)
+	if type(motion) ~= "table" then
+		error("motion takes a table, not " .. type(motion), 2)
+	end
+	local seconds = motion.seconds or 0.2
+	if motion.ease ~= nil and not EASES[motion.ease] then
+		error('an ease is "out", "linear", "in-out" or "spring", not ' .. tostring(motion.ease), 2)
+	end
+	local function shift(given)
+		if given == nil then
+			return nil
+		end
+		return {
+			opacity = given.opacity or 0,
+			dx = given.dx or 0,
+			dy = given.dy or 0,
+			seconds = given.seconds or seconds,
+		}
+	end
+	self.meta.motion = {
+		seconds = seconds,
+		ease = motion.ease,
+		color = motion.color == true,
+		opacity = motion.opacity == true,
+		size = motion.size == true,
+		place = motion.place == true,
+		enter = shift(motion.enter),
+		exit = shift(motion.exit),
+	}
+	return self
+end
+
+-- What the host says of this element while the pointer rests on it, and the keys that do the same
+-- (`"1"`, `"⌘K"`): the tooltip of a button that is an icon alone, the key of a section.
+function Element:tip(words, keys)
+	if type(words) ~= "string" then
+		error("tip takes the words, not " .. type(words), 2)
+	end
+	if keys ~= nil and type(keys) ~= "string" then
+		error("the keys of a tip are words, not " .. type(keys), 2)
+	end
+	self.meta.tip = { words = words, keys = keys }
+	return self
+end
+
 -- --- Layout: the box --------------------------------------------------------------------------
 
 function Element:row()

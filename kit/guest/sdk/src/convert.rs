@@ -5,8 +5,8 @@
 
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
-    Align, Button, Color, Cursor, Event, Family, FieldKind, Fit, Id, Input, Key, Keyboard,
-    MenuEntry, Mods, Point, Reply, Rgba, Role, Source, Track,
+    Align, Button, Color, Cursor, Ease, Event, Family, FieldKind, Fit, Id, Input, Key, Keyboard,
+    MenuEntry, Mods, Point, Reply, Rgba, Role, Shift, Source, Track,
 };
 
 use crate::Frame;
@@ -265,7 +265,35 @@ fn node(node: Node, lists: &mut Lists) -> wit::Node {
             FieldKind::Secret => wit::FieldKind::Secret,
         }),
         label: node.meta.label.as_deref().map(|label| lists.words(label)),
+        motion: node.meta.motion.map(|motion| wit::Motion {
+            seconds: motion.seconds,
+            ease: match motion.ease {
+                Ease::Linear => wit::Ease::Linear,
+                Ease::Out => wit::Ease::Out,
+                Ease::InOut => wit::Ease::InOut,
+                Ease::Spring => wit::Ease::Spring,
+            },
+            color: motion.color,
+            opacity: motion.opacity,
+            size: motion.size,
+            place: motion.place,
+            enter: motion.enter.map(shift),
+            exit: motion.exit.map(shift),
+        }),
+        tip: node.meta.tip.as_ref().map(|tip| wit::Tip {
+            words: lists.words(&tip.words),
+            keys: tip.keys.as_deref().map(|keys| lists.words(keys)),
+        }),
         children: node.children,
+    }
+}
+
+fn shift(shift: Shift) -> wit::Shift {
+    wit::Shift {
+        opacity: shift.opacity,
+        dx: shift.dx,
+        dy: shift.dy,
+        seconds: shift.seconds,
     }
 }
 

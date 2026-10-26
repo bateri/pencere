@@ -8,6 +8,10 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- The interface says an element's `motion` and `tip` (both on a node), held to sane values (a move
+  of at most two seconds; what is not a number is none). The Lua prelude writes them
+  (`motion({...})`, `tip(words, keys)`), gives a fade its own time (`fades:to(id, level, seconds)`)
+  and curve (`fades:level(id, ease)`, `pencere.ease(t, ease)`).
 - `Module::wait_for_frame(size, within)`: waits, at most `within`, for a page made for `size`
   that the host has not taken. For a resized pane, so the page laid out for the old size is not
   drawn for a frame; a page made again for the old size meanwhile does not end the wait.

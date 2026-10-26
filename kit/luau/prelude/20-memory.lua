@@ -9,6 +9,44 @@ local f32 = pencere.f32
 
 -- --- Highlights that come and go ---------------------------------------------------------------
 
+-- The cubic Bézier curve of a style sheet's `cubic-bezier(x1, y1, x2, y2)` at `x`.
+local function bezier(x1, y1, x2, y2, x)
+	local function curve(a, b, s)
+		local u = 1 - s
+		return 3 * u * u * s * a + 3 * u * s * s * b + s * s * s
+	end
+	local low, high = 0, 1
+	for _ = 1, 24 do
+		local middle = (low + high) / 2
+		if curve(x1, x2, middle) < x then
+			low = middle
+		else
+			high = middle
+		end
+	end
+	return curve(y1, y2, (low + high) / 2)
+end
+
+-- How far a move is at `t` of its time (0 to 1), along `ease`: "linear", "out" (fast at first,
+-- settling: what most changes are), "in-out" or "spring" (quick, long in coming to rest). The
+-- same curves the host moves an element's `motion` along.
+function pencere.ease(t, ease)
+	t = math.clamp(t, 0, 1)
+	if ease == "linear" then
+		return t
+	elseif ease == "out" or ease == nil then
+		return bezier(0.2, 0, 0, 1, t)
+	elseif ease == "in-out" then
+		return bezier(0.4, 0, 0.2, 1, t)
+	elseif ease == "spring" then
+		if t >= 1 then
+			return 1
+		end
+		return 1 - (1 + 10 * t) * math.exp(-10 * t)
+	end
+	error('an ease is "out", "linear", "in-out" or "spring", not ' .. tostring(ease), 2)
+end
+
 -- A highlight takes this long to come to full strength or to go, seconds. The levels are single
 -- precision, as the engine's own are: a highlight that comes up and goes in equal steps comes
 -- to exactly 0 and is forgotten, where doubles would leave a level of 1e-17 that is drawn.
@@ -26,14 +64,16 @@ function Fades.new()
 	return setmetatable({ levels = {}, last = nil }, Fades)
 end
 
--- Sets where `id`'s level goes (0 to 1). A level not known yet starts at 0 and comes up.
-function Fades:to(id, target)
+-- Sets where `id`'s level goes (0 to 1), over `seconds` from one end to the other (a highlight's
+-- 0.12 when nil). A level not known yet starts at 0 and comes up.
+function Fades:to(id, target, seconds)
 	target = math.clamp(target, 0, 1)
+	seconds = seconds and f32(math.max(seconds, 0.001)) or FADE_SECONDS
 	local fade = self.levels[id]
 	if fade then
-		fade.target = target
+		fade.target, fade.seconds = target, seconds
 	elseif target > 0 then
-		self.levels[id] = { level = 0, target = target }
+		self.levels[id] = { level = 0, target = target, seconds = seconds }
 	end
 end
 
@@ -41,15 +81,21 @@ end
 function Fades:snap(id, level)
 	level = math.clamp(level, 0, 1)
 	if level > 0 then
-		self.levels[id] = { level = level, target = level }
+		self.levels[id] = { level = level, target = level, seconds = FADE_SECONDS }
 	else
 		self.levels[id] = nil
 	end
 end
 
-function Fades:level(id)
+-- `id`'s level now, 0 for one that is not known; along the curve `ease` where one is given
+-- (`pencere.ease`): "out" comes up fast and settles.
+function Fades:level(id, ease)
 	local fade = self.levels[id]
-	return fade and fade.level or 0
+	local level = fade and fade.level or 0
+	if ease then
+		return pencere.ease(level, ease)
+	end
+	return level
 end
 
 -- Whether anything is on the way to its target.
@@ -79,8 +125,8 @@ function Fades:advance(now, reduce_motion)
 	if self.last then
 		dt = math.clamp(now - self.last, 0, STEP_MAX)
 	end
-	local step = reduce_motion and 1 or f32(f32(dt) / FADE_SECONDS)
 	for _, fade in pairs(levels) do
+		local step = reduce_motion and 1 or f32(f32(dt) / (fade.seconds or FADE_SECONDS))
 		if fade.level < fade.target then
 			fade.level = math.min(f32(fade.level + step), fade.target)
 		elseif fade.level > fade.target then

@@ -92,6 +92,8 @@ pub(crate) struct Node {
     pub meta: Meta,
     /// For a box that scrolls: how large its content is and how large the box is, pixels.
     pub extent: Option<(Size, Size)>,
+    /// How far the box moves its children up and left, pixels.
+    pub scroll: (f32, f32),
 }
 
 /// A page laid out: every element's box, in the order they are painted.
@@ -304,6 +306,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             meta: entry.meta,
             extent: (entry.overflow == Overflow::Scroll)
                 .then_some((Size::new(0.0, 0.0), Size::new(rect.w, rect.h))),
+            scroll: entry.scroll,
         });
     }
     // `nodes`, `reach` and `inside` get one entry for every element: they are the same length.
@@ -362,6 +365,7 @@ fn empty(page: Rect) -> Node {
         parent: None,
         meta: Meta::default(),
         extent: None,
+        scroll: (0.0, 0.0),
     }
 }
 
@@ -756,6 +760,27 @@ impl Laid {
                     ),
                     hint: self.hint_of(index).map(str::to_owned),
                     label: node.meta.label.clone(),
+                })
+            })
+            .collect()
+    }
+
+    /// The elements that say something while the pointer rests on them ([`crate::Element::tip`]),
+    /// with the part of each that is seen, in points; the innermost last, so a host that looks
+    /// for the tip under the pointer takes the last that holds it.
+    pub fn tips(&self) -> Vec<(Rect, crate::Tip)> {
+        let s = self.scale;
+        self.nodes
+            .iter()
+            .filter(|node| !node.hidden)
+            .filter_map(|node| {
+                let tip = node.meta.tip.clone()?;
+                let seen = Self::shown(node);
+                (seen.w > 0.0 && seen.h > 0.0).then(|| {
+                    (
+                        Rect::new(seen.x / s, seen.y / s, seen.w / s, seen.h / s),
+                        tip,
+                    )
                 })
             })
             .collect()

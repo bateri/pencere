@@ -37,6 +37,7 @@ mod geometry;
 mod id;
 mod input;
 mod layout;
+mod motion;
 mod paint;
 mod rows;
 mod style;
@@ -51,6 +52,7 @@ pub use geometry::{Point, Rect, Size};
 pub use id::Id;
 pub use input::{Button, Cursor, Event, Input, Key, Keyboard, Menu, MenuEntry, Mods, Reply};
 pub use layout::{Accessible, AccessibleRole, Extent, Field, Laid, Queries, layout};
+pub use motion::{Ease, Motion, Motions, Shift, Tip};
 pub use paint::{DrawList, Paint, Picture, Quad, Run};
 pub use rows::Rows;
 pub use style::{Border, Shadow, Track};
@@ -61,5 +63,7 @@ pub use ui::Ui;
 mod image_tests;
 #[cfg(test)]
 mod interact_tests;
+#[cfg(test)]
+mod motion_tests;
 #[cfg(test)]
 mod tests;

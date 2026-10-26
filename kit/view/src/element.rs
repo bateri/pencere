@@ -10,7 +10,7 @@
 use crate::style::{
     Border, Direction, Display, Items, Justify, Length, Overflow, Shadow, Style, Track,
 };
-use crate::{Align, Color, Family, Id};
+use crate::{Align, Color, Family, Id, Motion, Tip};
 
 /// What an element is.
 #[derive(Clone, Debug, PartialEq)]
@@ -80,6 +80,10 @@ pub struct Meta {
     pub field: Option<FieldKind>,
     /// What the element is in words, for a person who does not see it ([`Element::label`]).
     pub label: Option<String>,
+    /// How a change of the element moves instead of jumping ([`Element::motion`]).
+    pub motion: Option<Motion>,
+    /// What the host says of the element while the pointer rests on it ([`Element::tip`]).
+    pub tip: Option<Tip>,
 }
 
 /// One element of a page, and the elements inside it.
@@ -218,6 +222,28 @@ impl Element {
     #[must_use]
     pub fn label(mut self, words: impl Into<String>) -> Self {
         self.meta.label = Some(words.into());
+        self
+    }
+
+    /// How a change of this element moves instead of jumping: its colours, its opacity, its size
+    /// and its place, how it comes in and how it goes ([`Motion`]). The host does the moving,
+    /// frame by frame, without the page; the element is followed by its id, and one with no id
+    /// does not move.
+    #[must_use]
+    pub fn motion(mut self, motion: Motion) -> Self {
+        self.meta.motion = Some(motion);
+        self
+    }
+
+    /// What the host says of this element while the pointer rests on it, with the keys that do
+    /// the same where there are some (`"Containers"`, `"1"`): the tooltip of a button that is an
+    /// icon alone, the key of a section.
+    #[must_use]
+    pub fn tip(mut self, words: impl Into<String>, keys: Option<String>) -> Self {
+        self.meta.tip = Some(Tip {
+            words: words.into(),
+            keys,
+        });
         self
     }
 

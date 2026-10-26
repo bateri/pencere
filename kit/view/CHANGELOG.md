@@ -8,6 +8,17 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **Motion.** `motion(Motion)` on an element says how a change of it moves instead of jumping: its
+  colours, opacity, a size in points, its place among the others, and how it comes in and goes
+  out (`Shift`), over a time along an `Ease` (`Out`, `Linear`, `InOut`, `Spring`). The host lays the
+  page out with `Motions::layout`, which keeps by id where each element was, and again at each
+  frame while `Motions::moving()`; an element that is gone is drawn while it goes, and cannot be
+  pressed. Nothing moves under Reduce Motion, on a resize, or for what scrolling brings in or out.
+- **Tips.** `tip(words, keys)` on an element is what the host says while the pointer rests on it;
+  `Laid::tips()` lists them.
+- **A fade's own time and curve.** `Fades::to_over(id, level, seconds)` and
+  `Fades::level_eased(id, ease)`.
+
 - **Text that wraps.** `wrap()` on a text puts its words in new lines where its box is too narrow
   for them, and at its line breaks; a word longer than the box is broken where it must be. The box
   is as tall as the lines, and in a row it gives its room away down to the longest word. Each line
