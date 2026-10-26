@@ -111,6 +111,15 @@ pub struct Bitmap {
 }
 
 impl Bitmap {
+    pub(crate) fn new(id: u64, width: u32, height: u32, pixels: Vec<u8>) -> Self {
+        Self {
+            id,
+            width,
+            height,
+            pixels: Arc::new(pixels),
+        }
+    }
+
     /// The pixels, `4 * width * height` bytes.
     pub fn pixels(&self) -> &[u8] {
         &self.pixels

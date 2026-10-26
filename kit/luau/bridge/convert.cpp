@@ -40,7 +40,22 @@ struct Arenas {
     std::string text;
     std::vector<float> numbers;
     std::vector<pencere_view_types_track_t> tracks;
+    std::vector<pencere_view_types_span_t> spans;
+    std::vector<pencere_view_types_path_t> paths;
+    std::vector<pencere_view_types_segment_t> segments;
+    std::vector<pencere_view_types_command_t> commands;
 };
+
+// A list for the host: a malloc'ed copy of `items` (the generated `_free` functions release it),
+// and nothing at all for an empty one.
+template <typename List, typename Item>
+void take_list(List& out, const std::vector<Item>& items) {
+    if (items.empty()) return;
+    size_t bytes = items.size() * sizeof(Item);
+    out.ptr = (Item*)xmalloc(bytes);
+    out.len = items.size();
+    memcpy(out.ptr, items.data(), bytes);
+}
 
 // The part of a list that begins at `start` and has `len` items.
 pencere_view_types_slice_t part(size_t start, size_t len) {
@@ -166,6 +181,7 @@ const char* const kOverflow[] = {"visible", "hidden", "scroll"};
 const char* const kFamily[] = {"system", "terminal"};
 const char* const kAlign[] = {"start", "center", "end"};
 const char* const kFit[] = {"contain", "cover"};
+const char* const kSide[] = {"below", "above", "right", "left"};
 
 // A word of the tables above is the place of the constant it names, so the places are held to the
 // interface here: an enum that is reordered or grows in the middle stops the build and does not
@@ -191,6 +207,9 @@ static_assert(PENCERE_VIEW_TYPES_ALIGN_START == 0 && PENCERE_VIEW_TYPES_ALIGN_CE
               "kAlign is the order of align");
 static_assert(PENCERE_VIEW_TYPES_FIT_CONTAIN == 0 && PENCERE_VIEW_TYPES_FIT_COVER == 1,
               "kFit is the order of fit");
+static_assert(PENCERE_VIEW_TYPES_SIDE_BELOW == 0 && PENCERE_VIEW_TYPES_SIDE_ABOVE == 1 &&
+                  PENCERE_VIEW_TYPES_SIDE_RIGHT == 2 && PENCERE_VIEW_TYPES_SIDE_LEFT == 3,
+              "kSide is the order of side");
 
 // --- Colours, lengths, tracks ---------------------------------------------------------------
 
@@ -478,6 +497,21 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& ar
     out.direction = (uint8_t)word(L, s, "direction", kDirection, 2, PENCERE_VIEW_TYPES_DIRECTION_COLUMN);
     out.wrap = flag(L, s, "wrap");
     out.absolute = flag(L, s, "absolute");
+    out.overlay = flag(L, s, "overlay");
+    // Beside an element: { to = name, side = "below", align = "start", gap = n }.
+    get(L, s, "anchor");
+    if (lua_type(L, -1) == LUA_TTABLE) {
+        int anchor = lua_gettop(L);
+        out.anchor.is_some = true;
+        get(L, anchor, "to");
+        if (lua_isnil(L, -1)) luaL_error(L, "an anchor names the element it is beside: anchor(id, side)");
+        out.anchor.val.to = id_of(L, lua_gettop(L));
+        lua_pop(L, 1);
+        out.anchor.val.side = (uint8_t)word(L, anchor, "side", kSide, 4, 0);
+        out.anchor.val.align = (uint8_t)word(L, anchor, "align", kAlign, 3, 0);
+        out.anchor.val.gap = number(L, anchor, "gap", 0.0f);
+    }
+    lua_pop(L, 1);
     get(L, s, "inset");
     if (lua_type(L, -1) == LUA_TTABLE) {
         int inset = lua_gettop(L);
@@ -514,6 +548,20 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& ar
     out.scroll_x = number(L, s, "scroll_x", 0.0f);
     out.scroll_y = number(L, s, "scroll_y", 0.0f);
     out.fill = optional_color(L, s, "fill");
+    // A fill from one colour to another: { angle = degrees, from = colour, to = colour }.
+    get(L, s, "gradient");
+    if (lua_type(L, -1) == LUA_TTABLE) {
+        int gradient = lua_gettop(L);
+        out.gradient.is_some = true;
+        out.gradient.val.angle = number(L, gradient, "angle", 180.0f);
+        lua_rawgetfield(L, gradient, "from");
+        out.gradient.val.start = color_at(L, lua_gettop(L));
+        lua_pop(L, 1);
+        lua_rawgetfield(L, gradient, "to");
+        out.gradient.val.end = color_at(L, lua_gettop(L));
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
     get(L, s, "border");
     if (lua_type(L, -1) == LUA_TTABLE) {
         int border = lua_gettop(L);
@@ -606,6 +654,251 @@ pencere_view_types_motion_t motion_at(lua_State* L, int index) {
     return motion;
 }
 
+// The words a string at `name` of the table `t` holds, as a part of the frame's text; nothing for
+// what is not a string.
+pencere_view_types_slice_t words_at(lua_State* L, int t, const char* name, Arenas& arenas) {
+    get(L, t, name);
+    size_t length = 0;
+    const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
+    pencere_view_types_slice_t out = add_words(arenas, bytes, length);
+    lua_pop(L, 1);
+    return out;
+}
+
+// The parts of a text of many looks at `list`: tables of `text` and what each changes.
+pencere_view_types_slice_t spans_at(lua_State* L, int list, Arenas& arenas) {
+    size_t count = (size_t)lua_objlen(L, list);
+    if (count > kMaxList) luaL_error(L, "a text has more parts than it may");
+    std::vector<pencere_view_types_span_t> made;
+    made.reserve(count);
+    for (size_t at = 0; at < count; at++) {
+        lua_rawgeti(L, list, (int)at + 1);
+        if (lua_type(L, -1) != LUA_TTABLE) luaL_error(L, "a part of a text is made by pencere.span");
+        int span = lua_gettop(L);
+        pencere_view_types_span_t out = {};
+        out.text = words_at(L, span, "text", arenas);
+        out.color = optional_color(L, span, "color");
+        view_option_f32_t weight = optional_number(L, span, "weight");
+        if (weight.is_some) {
+            out.weight.is_some = true;
+            out.weight.val = weight.val < 0 ? 0 : (weight.val > 65535 ? 65535 : (uint16_t)weight.val);
+        }
+        out.italic = optional_flag(L, span, "italic");
+        out.underline = optional_flag(L, span, "underline");
+        out.strike = optional_flag(L, span, "strike");
+        int family = word(L, span, "family", kFamily, 2, -1);
+        if (family >= 0) out.family = {true, (uint8_t)family};
+        out.background = optional_color(L, span, "background");
+        get(L, span, "link");
+        if (!lua_isnil(L, -1)) {
+            out.link.is_some = true;
+            out.link.val = id_of(L, lua_gettop(L));
+        }
+        lua_pop(L, 1);
+        made.push_back(out);
+        lua_pop(L, 1);
+    }
+    size_t start = arenas.spans.size();
+    arenas.spans.insert(arenas.spans.end(), made.begin(), made.end());
+    return part(start, count);
+}
+
+// The point at the places `from` and `from + 1` of the step at `step`.
+pencere_view_types_point_t point_at(lua_State* L, int step, int from) {
+    pencere_view_types_point_t out = {};
+    lua_rawgeti(L, step, from);
+    out.x = (float)lua_tonumber(L, -1);
+    lua_pop(L, 1);
+    lua_rawgeti(L, step, from + 1);
+    out.y = (float)lua_tonumber(L, -1);
+    lua_pop(L, 1);
+    return out;
+}
+
+// The paths of a canvas at `list`: each `{ segments = { {"move", x, y}, {"line", x, y},
+// {"quad", cx, cy, x, y}, {"cubic", ax, ay, bx, by, x, y}, {"close"} }, fill =, stroke = }`.
+pencere_view_types_slice_t paths_at(lua_State* L, int list, Arenas& arenas) {
+    static const char* const kSteps[] = {"move", "line", "quad", "cubic", "close"};
+    size_t count = (size_t)lua_objlen(L, list);
+    if (count > kMaxList) luaL_error(L, "a canvas has more paths than it may");
+    std::vector<pencere_view_types_path_t> made;
+    made.reserve(count);
+    for (size_t at = 0; at < count; at++) {
+        lua_rawgeti(L, list, (int)at + 1);
+        if (lua_type(L, -1) != LUA_TTABLE) luaL_error(L, "a path of a canvas is made by pencere.path");
+        int path = lua_gettop(L);
+        pencere_view_types_path_t out = {};
+        get(L, path, "segments");
+        if (lua_type(L, -1) == LUA_TTABLE) {
+            int steps = lua_gettop(L);
+            size_t many = (size_t)lua_objlen(L, steps);
+            if (many > kMaxList * 4) luaL_error(L, "a path has more steps than it may");
+            size_t start = arenas.segments.size();
+            for (size_t k = 0; k < many; k++) {
+                lua_rawgeti(L, steps, (int)k + 1);
+                int step = lua_gettop(L);
+                if (lua_type(L, step) != LUA_TTABLE) luaL_error(L, "a step of a path is a table");
+                lua_rawgeti(L, step, 1);
+                const char* name = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "";
+                int kind = -1;
+                for (int w = 0; w < 5; w++) {
+                    if (strcmp(name, kSteps[w]) == 0) kind = w;
+                }
+                lua_pop(L, 1);
+                pencere_view_types_segment_t segment = {};
+                switch (kind) {
+                    case 0:
+                        segment.tag = PENCERE_VIEW_TYPES_SEGMENT_MOVE_TO;
+                        segment.val.move_to = point_at(L, step, 2);
+                        break;
+                    case 1:
+                        segment.tag = PENCERE_VIEW_TYPES_SEGMENT_LINE_TO;
+                        segment.val.line_to = point_at(L, step, 2);
+                        break;
+                    case 2:
+                        segment.tag = PENCERE_VIEW_TYPES_SEGMENT_QUAD_TO;
+                        segment.val.quad_to.control = point_at(L, step, 2);
+                        segment.val.quad_to.to = point_at(L, step, 4);
+                        break;
+                    case 3:
+                        segment.tag = PENCERE_VIEW_TYPES_SEGMENT_CUBIC_TO;
+                        segment.val.cubic_to.a = point_at(L, step, 2);
+                        segment.val.cubic_to.b = point_at(L, step, 4);
+                        segment.val.cubic_to.to = point_at(L, step, 6);
+                        break;
+                    case 4:
+                        segment.tag = PENCERE_VIEW_TYPES_SEGMENT_CLOSE;
+                        break;
+                    default:
+                        luaL_error(L, "a step of a path is \"move\", \"line\", \"quad\", \"cubic\" or \"close\", not \"%s\"", name);
+                }
+                arenas.segments.push_back(segment);
+                lua_pop(L, 1);
+            }
+            out.segments = part(start, many);
+        }
+        lua_pop(L, 1);
+        out.fill = optional_color(L, path, "fill");
+        get(L, path, "stroke");
+        if (lua_type(L, -1) == LUA_TTABLE) {
+            int stroke = lua_gettop(L);
+            out.stroke.is_some = true;
+            out.stroke.val.width = number(L, stroke, "width", 1.0f);
+            lua_rawgetfield(L, stroke, "color");
+            out.stroke.val.color = color_at(L, lua_gettop(L));
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+        made.push_back(out);
+        lua_pop(L, 1);
+    }
+    size_t start = arenas.paths.size();
+    arenas.paths.insert(arenas.paths.end(), made.begin(), made.end());
+    return part(start, count);
+}
+
+// The names of the keys the page reads, in the order of the interface's `key` (the character and
+// the function keys apart).
+const char* const kKeys[] = {"up",  "down",  "left",   "right", "page_up",   "page_down", "home",
+                             "end", "enter", "escape", "tab",   "backspace", "delete"};
+static_assert(PENCERE_VIEW_TYPES_KEY_UP == 0 && PENCERE_VIEW_TYPES_KEY_DELETE == 12 &&
+                  PENCERE_VIEW_TYPES_KEY_FUNCTION == 13 && PENCERE_VIEW_TYPES_KEY_CHARACTER == 14,
+              "kKeys is the order of key");
+
+// The first character of `bytes` (valid UTF-8), as a code point.
+uint32_t first_character(const std::string& one) {
+    uint32_t cp = (unsigned char)one[0];
+    size_t extra = cp >= 0xF0 ? 3 : cp >= 0xE0 ? 2 : cp >= 0xC0 ? 1 : 0;
+    cp = extra == 0 ? cp : (cp & (0x3F >> extra));
+    for (size_t k = 1; k <= extra && k < one.size(); k++) cp = (cp << 6) | ((unsigned char)one[k] & 0x3F);
+    return cp;
+}
+
+// A key by its name: one of `kKeys`, "f1" to "f20", or one character.
+pencere_view_types_key_t key_named(lua_State* L, const char* name, size_t length) {
+    pencere_view_types_key_t key = {};
+    for (int at = 0; at < 13; at++) {
+        if (strcmp(name, kKeys[at]) == 0) {
+            key.tag = (uint8_t)at;
+            return key;
+        }
+    }
+    if (name[0] == 'f' && length >= 2 && length <= 3) {
+        int number = atoi(name + 1);
+        if (number >= 1 && number <= 20) {
+            key.tag = PENCERE_VIEW_TYPES_KEY_FUNCTION;
+            key.val.function = (uint8_t)number;
+            return key;
+        }
+    }
+    std::string one = repaired(name, length);
+    // One character, of however many bytes.
+    if (!one.empty()) {
+        uint32_t cp = first_character(one);
+        size_t first = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+        if (first == one.size()) {
+            key.tag = PENCERE_VIEW_TYPES_KEY_CHARACTER;
+            key.val.character = cp;
+            return key;
+        }
+    }
+    luaL_error(L, "\"%s\" is not a key", name);
+}
+
+// The commands of an element at `list`: `{ id =, title =, keys = { key =, mods = {...} }, enabled = }`.
+pencere_view_types_slice_t commands_at(lua_State* L, int list, Arenas& arenas) {
+    size_t count = (size_t)lua_objlen(L, list);
+    if (count > kMaxList) luaL_error(L, "an element has more commands than it may");
+    std::vector<pencere_view_types_command_t> made;
+    made.reserve(count);
+    for (size_t at = 0; at < count; at++) {
+        lua_rawgeti(L, list, (int)at + 1);
+        if (lua_type(L, -1) != LUA_TTABLE) luaL_error(L, "a command is made by :command(id, title, keys)");
+        int command = lua_gettop(L);
+        pencere_view_types_command_t out = {};
+        get(L, command, "id");
+        if (lua_isnil(L, -1)) luaL_error(L, "a command is named: :command(id, title, keys)");
+        out.id = id_of(L, lua_gettop(L));
+        lua_pop(L, 1);
+        out.title = words_at(L, command, "title", arenas);
+        get(L, command, "enabled");
+        out.enabled = lua_isnil(L, -1) ? true : lua_toboolean(L, -1) != 0;
+        lua_pop(L, 1);
+        get(L, command, "keys");
+        if (lua_type(L, -1) == LUA_TTABLE) {
+            int keys = lua_gettop(L);
+            get(L, keys, "key");
+            size_t length = 0;
+            const char* name = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
+            out.keys.is_some = true;
+            out.keys.val.key = key_named(L, name, length);
+            lua_pop(L, 1);
+            get(L, keys, "mods");
+            if (lua_type(L, -1) == LUA_TTABLE) {
+                int mods = lua_gettop(L);
+                out.keys.val.mods.shift = flag(L, mods, "shift");
+                out.keys.val.mods.control = flag(L, mods, "control");
+                out.keys.val.mods.alt = flag(L, mods, "alt");
+                out.keys.val.mods.command = flag(L, mods, "command");
+            }
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+        made.push_back(out);
+        lua_pop(L, 1);
+    }
+    size_t start = arenas.commands.size();
+    arenas.commands.insert(arenas.commands.end(), made.begin(), made.end());
+    return part(start, count);
+}
+
+// What an element is to a screen reader, by its word, and the level of a heading.
+const char* const kAccessibleRoles[] = {"button", "text", "link", "checkbox", "switch", "radio",
+                                "tab",    "menu_item", "heading", "image", "progress", "slider"};
+static_assert(PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_BUTTON == 0 && PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_MENU_ITEM == 7 &&
+                  PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_HEADING == 8 && PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_SLIDER == 11,
+              "kAccessibleRoles is the order of accessible-role");
+
 void flatten(lua_State* L, int element, Flat& flat, int depth) {
     if (depth > kMaxDepth) luaL_error(L, "the page is nested more than %d boxes deep", kMaxDepth);
     luaL_checkstack(L, 32, "the page is nested too deep");
@@ -627,9 +920,28 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
     bool is_text = strcmp(kind, "text") == 0;
     bool is_spark = strcmp(kind, "spark") == 0;
     bool is_image = strcmp(kind, "image") == 0;
-    if (!is_text && !is_spark && !is_image && strcmp(kind, "box") != 0)
-        luaL_error(L, "an element is a \"box\", a \"text\", a \"spark\" or an \"image\", not \"%s\"", kind);
+    bool is_rich = strcmp(kind, "rich") == 0;
+    bool is_canvas = strcmp(kind, "canvas") == 0;
+    if (!is_text && !is_spark && !is_image && !is_rich && !is_canvas && strcmp(kind, "box") != 0)
+        luaL_error(L,
+                   "an element is a \"box\", a \"text\", a \"rich\" text, a \"spark\", an \"image\" or a "
+                   "\"canvas\", not \"%s\"",
+                   kind);
     lua_pop(L, 1);
+
+    if (is_rich) {
+        get(L, element, "spans");
+        if (lua_type(L, -1) != LUA_TTABLE) luaL_error(L, "a text of many looks is made by pencere.rich");
+        nodes.ptr[at].content.tag = PENCERE_VIEW_TYPES_CONTENT_RICH;
+        nodes.ptr[at].content.val.rich = spans_at(L, lua_gettop(L), flat.arenas);
+        lua_pop(L, 1);
+    } else if (is_canvas) {
+        get(L, element, "paths");
+        if (lua_type(L, -1) != LUA_TTABLE) luaL_error(L, "a canvas is made by pencere.canvas");
+        nodes.ptr[at].content.tag = PENCERE_VIEW_TYPES_CONTENT_CANVAS;
+        nodes.ptr[at].content.val.canvas = paths_at(L, lua_gettop(L), flat.arenas);
+        lua_pop(L, 1);
+    }
 
     if (is_text) {
         get(L, element, "text");
@@ -737,6 +1049,33 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
             lua_pop(L, 1);
         }
         lua_pop(L, 1);
+        int role = word(L, meta, "role", kAccessibleRoles, 12, -1);
+        if (role >= 0) {
+            nodes.ptr[at].role.is_some = true;
+            nodes.ptr[at].role.val.tag = (uint8_t)role;
+            if (role == PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_HEADING) {
+                float level = number(L, meta, "level", 1.0f);
+                nodes.ptr[at].role.val.val.heading = level < 1 ? 1 : (level > 6 ? 6 : (uint8_t)level);
+            }
+        }
+        nodes.ptr[at].state.checked = optional_flag(L, meta, "checked");
+        nodes.ptr[at].state.selected = flag(L, meta, "selected");
+        nodes.ptr[at].state.expanded = optional_flag(L, meta, "expanded");
+        nodes.ptr[at].state.disabled = flag(L, meta, "disabled");
+        get(L, meta, "value");
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            size_t length = 0;
+            const char* bytes = lua_tolstring(L, -1, &length);
+            nodes.ptr[at].state.value.is_some = true;
+            nodes.ptr[at].state.value.val = add_words(flat.arenas, bytes, length);
+        }
+        lua_pop(L, 1);
+        get(L, meta, "commands");
+        if (lua_type(L, -1) == LUA_TTABLE) nodes.ptr[at].commands = commands_at(L, lua_gettop(L), flat.arenas);
+        lua_pop(L, 1);
+        nodes.ptr[at].focused = flag(L, meta, "focused");
+        nodes.ptr[at].draggable = flag(L, meta, "draggable");
+        nodes.ptr[at].drop_target = flag(L, meta, "drop_target");
     }
     lua_pop(L, 1);
 
@@ -870,6 +1209,10 @@ int frame_call(lua_State* L) {
         job->out->tracks.len = flat.arenas.tracks.size();
         memcpy(job->out->tracks.ptr, flat.arenas.tracks.data(), bytes);
     }
+    take_list(job->out->spans, flat.arenas.spans);
+    take_list(job->out->paths, flat.arenas.paths);
+    take_list(job->out->segments, flat.arenas.segments);
+    take_list(job->out->commands, flat.arenas.commands);
     job->out->animating = job->animating;
     job->out->wake_at.is_some = job->has_wake_at;
     job->out->wake_at.val = job->wake_at;
@@ -902,7 +1245,29 @@ void set_mods(lua_State* L, const pencere_view_types_mods_t& mods) {
 }
 
 const char* button_name(pencere_view_types_button_t button) {
-    return button == PENCERE_VIEW_TYPES_BUTTON_RIGHT ? "right" : "left";
+    switch (button) {
+        case PENCERE_VIEW_TYPES_BUTTON_RIGHT:
+            return "right";
+        case PENCERE_VIEW_TYPES_BUTTON_MIDDLE:
+            return "middle";
+        default:
+            return "left";
+    }
+}
+
+void push_character(lua_State* L, uint32_t cp);
+
+// The name of a key the page reads, as the script is told it.
+void push_key(lua_State* L, const pencere_view_types_key_t& key) {
+    if (key.tag == PENCERE_VIEW_TYPES_KEY_CHARACTER) {
+        push_character(L, key.val.character);
+    } else if (key.tag == PENCERE_VIEW_TYPES_KEY_FUNCTION) {
+        char name[8];
+        snprintf(name, sizeof name, "f%u", (unsigned)key.val.function);
+        lua_pushstring(L, name);
+    } else {
+        lua_pushstring(L, key.tag < 13 ? kKeys[key.tag] : "unknown");
+    }
 }
 
 void push_character(lua_State* L, uint32_t cp) {
@@ -959,22 +1324,38 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_number(L, "dx", event.val.scroll.dx);
             set_number(L, "dy", event.val.scroll.dy);
             break;
-        case PENCERE_VIEW_TYPES_EVENT_KEY: {
-            static const char* const keys[] = {"up",   "down", "left",  "right",  "page_up",   "page_down", "home",
-                                               "end",  "enter", "escape", "tab", "backspace", "delete"};
+        case PENCERE_VIEW_TYPES_EVENT_KEY:
             set_word(L, "type", "key");
-            const auto& key = event.val.key.key;
-            if (key.tag == PENCERE_VIEW_TYPES_KEY_CHARACTER) {
-                push_character(L, key.val.character);
-            } else if (key.tag == PENCERE_VIEW_TYPES_KEY_FUNCTION) {
-                char name[8];
-                snprintf(name, sizeof name, "f%u", (unsigned)key.val.function);
-                lua_pushstring(L, name);
-            } else {
-                lua_pushstring(L, key.tag < 13 ? keys[key.tag] : "unknown");
-            }
+            push_key(L, event.val.key.key);
             lua_setfield(L, -2, "key");
             set_mods(L, event.val.key.mods);
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_KEY_UP:
+            set_word(L, "type", "key_up");
+            push_key(L, event.val.key_up.key);
+            lua_setfield(L, -2, "key");
+            set_mods(L, event.val.key_up.mods);
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_MODS:
+            set_word(L, "type", "mods");
+            set_mods(L, event.val.mods);
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_COMMAND:
+            set_word(L, "type", "command");
+            push_id(L, event.val.command);
+            lua_setfield(L, -2, "id");
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_FILES: {
+            set_word(L, "type", "files");
+            set_number(L, "x", event.val.files.at.x);
+            set_number(L, "y", event.val.files.at.y);
+            const auto& paths = event.val.files.paths;
+            lua_createtable(L, (int)paths.len, 0);
+            for (size_t at = 0; at < paths.len; at++) {
+                lua_pushlstring(L, (const char*)paths.ptr[at].ptr, paths.ptr[at].len);
+                lua_rawseti(L, -2, (int)at + 1);
+            }
+            lua_setfield(L, -2, "paths");
             break;
         }
         case PENCERE_VIEW_TYPES_EVENT_TEXT:
@@ -1110,11 +1491,7 @@ int reply_call(lua_State* L) {
                     if (lua_type(L, -1) == LUA_TSTRING && lua_objlen(L, -1) > 0) {
                         std::string one = repaired(lua_tostring(L, -1), lua_objlen(L, -1));
                         // The first character of the key.
-                        uint32_t cp = (unsigned char)one[0];
-                        size_t extra = cp >= 0xF0 ? 3 : cp >= 0xE0 ? 2 : cp >= 0xC0 ? 1 : 0;
-                        cp = extra == 0 ? cp : (cp & (0x3F >> extra));
-                        for (size_t k = 1; k <= extra && k < one.size(); k++) cp = (cp << 6) | ((unsigned char)one[k] & 0x3F);
-                        entry.val.item.key = {true, cp};
+                        entry.val.item.key = {true, first_character(one)};
                     }
                     lua_pop(L, 1);
                     get(L, entry_index, "enabled");

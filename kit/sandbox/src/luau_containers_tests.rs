@@ -438,7 +438,7 @@ impl Pair {
                 self.query.clone_from(&words);
                 self.native.set_query(&words)
             }
-            Event::Focus(_) => Reply::none(),
+            Event::Focus(_) | Event::Command(_) | Event::Files { .. } => Reply::none(),
             Event::MenuPick(index) => self.native.pick(index),
         };
         assert_same_reply(what, &lua, &native);

@@ -9,9 +9,10 @@ use pencere_view::wire::{
     Overflow, Spark, Style, TextStyle,
 };
 use pencere_view::{
-    Align, Border, Button, Color, Cursor, Ease, Element, Event, Extent, Family, Id, Input, Key,
-    Keyboard, Laid, Menu, MenuEntry, Mix, Mods, Motion, Point, Rect, Reply, Rgba, Role, Shadow,
-    Shift, Size, Source, Tip, Track,
+    AccessibleRole, Align, Anchor, Border, Button, Color, Command, Cursor, Ease, Element, Event,
+    Extent, Family, Gradient, Id, Input, Key, Keyboard, Laid, Menu, MenuEntry, Mix, Mods, Motion,
+    Path, Point, Rect, Reply, Rgba, Role, Segment, Shadow, Shift, Shortcut, Side, Size, Source,
+    Span, State, Stroke, Tip, Track,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -176,6 +177,16 @@ impl pencere::view::layout::Host for Host {
             laid.path_of(Id::new(id)).into_iter().map(id_out).collect()
         })
     }
+
+    fn drag_source(&mut self, at: wit::Point) -> Option<u64> {
+        let laid = self.laid()?;
+        laid.drag_source(Point::new(at.x, at.y)).map(id_out)
+    }
+
+    fn drop_target(&mut self, at: wit::Point) -> Option<u64> {
+        let laid = self.laid()?;
+        laid.drop_target(Point::new(at.x, at.y)).map(id_out)
+    }
 }
 
 fn id_out(id: Id) -> u64 {
@@ -192,6 +203,7 @@ fn button_in(button: Button) -> wit::Button {
     match button {
         Button::Left => wit::Button::Left,
         Button::Right => wit::Button::Right,
+        Button::Middle => wit::Button::Middle,
     }
 }
 
@@ -256,8 +268,18 @@ fn event_in(event: Event) -> wit::Event {
             field: id_out(field),
             text,
         }),
+        Event::Input(Input::KeyUp { key, mods }) => wit::Event::KeyUp(wit::KeyPress {
+            key: key_in(key),
+            mods: mods_in(mods),
+        }),
+        Event::Input(Input::Mods(mods)) => wit::Event::Mods(mods_in(mods)),
         Event::Focus(field) => wit::Event::Focus(field.map(id_out)),
         Event::MenuPick(index) => wit::Event::MenuPick(u32::try_from(index).unwrap_or(u32::MAX)),
+        Event::Command(id) => wit::Event::Command(id_out(id)),
+        Event::Files { at, paths } => wit::Event::Files(wit::DroppedFiles {
+            at: point_in(at),
+            paths,
+        }),
     }
 }
 
@@ -382,6 +404,10 @@ struct Lists<'a> {
     text: &'a str,
     numbers: &'a [f32],
     tracks: &'a [wit::Track],
+    spans: &'a [wit::Span],
+    paths: &'a [wit::Path],
+    segments: &'a [wit::Segment],
+    commands: &'a [wit::Command],
     /// Bytes of parts read so far.
     read: usize,
     /// The most bytes a frame may say.
@@ -390,28 +416,73 @@ struct Lists<'a> {
 
 impl<'a> Lists<'a> {
     /// The lists of a frame, if they are no larger together than a frame may be.
-    fn new(
-        text: &'a str,
-        numbers: &'a [f32],
-        tracks: &'a [wit::Track],
-        most: usize,
-    ) -> Result<Self, Fault> {
-        let held = text
+    fn new(frame: &'a wit::Frame, most: usize) -> Result<Self, Fault> {
+        let lists = Self {
+            text: &frame.text,
+            numbers: &frame.numbers,
+            tracks: &frame.tracks,
+            spans: &frame.spans,
+            paths: &frame.paths,
+            segments: &frame.segments,
+            commands: &frame.commands,
+            read: 0,
+            most,
+        };
+        let held = lists
+            .text
             .len()
-            .saturating_add(numbers.len().saturating_mul(size_of::<f32>()))
-            .saturating_add(tracks.len().saturating_mul(size_of::<Track>()));
+            .saturating_add(size_of_val(lists.numbers))
+            .saturating_add(lists.tracks.len().saturating_mul(size_of::<Track>()))
+            .saturating_add(size_of_val(lists.spans))
+            .saturating_add(size_of_val(lists.paths))
+            .saturating_add(size_of_val(lists.segments))
+            .saturating_add(size_of_val(lists.commands));
         if held > most {
             return Err(Fault::Malformed(format!(
                 "a page that says {held} bytes (at most {most})"
             )));
         }
+        Ok(lists)
+    }
+
+    /// The lists a menu says its titles in: its titles alone.
+    fn titles(text: &'a str, most: usize) -> Result<Self, Fault> {
+        if text.len() > most {
+            return Err(Fault::Malformed(format!(
+                "a menu that says {} bytes (at most {most})",
+                text.len()
+            )));
+        }
         Ok(Self {
             text,
-            numbers,
-            tracks,
+            numbers: &[],
+            tracks: &[],
+            spans: &[],
+            paths: &[],
+            segments: &[],
+            commands: &[],
             read: 0,
             most,
         })
+    }
+
+    /// The items `part` names of `list`, no more than `most`, each counted at its size.
+    fn items<T>(
+        &mut self,
+        list: &'a [T],
+        part: &wit::Slice,
+        most: usize,
+        what: &str,
+    ) -> Result<&'a [T], Fault> {
+        let range = Self::within(part, list.len(), what)?;
+        if range.len() > most {
+            return Err(Fault::Malformed(format!(
+                "{what} of {} items (at most {most})",
+                range.len()
+            )));
+        }
+        self.charge(range.len().saturating_mul(size_of::<T>()))?;
+        Ok(list.get(range).unwrap_or_default())
     }
 
     /// Where `part` stands in a list of `held` items, if it is within it.
@@ -539,6 +610,25 @@ fn text_style_out(text: &wit::TextStyle) -> TextStyle {
     }
 }
 
+fn side_out(side: wit::Side) -> Side {
+    match side {
+        wit::Side::Below => Side::Below,
+        wit::Side::Above => Side::Above,
+        wit::Side::Right => Side::Right,
+        wit::Side::Left => Side::Left,
+    }
+}
+
+/// An angle of a gradient from the module, in degrees: one that is not a number is the default of
+/// a style sheet (from the top down).
+fn angle_out(angle: f32) -> f32 {
+    if angle.is_finite() {
+        angle.rem_euclid(360.0)
+    } else {
+        180.0
+    }
+}
+
 fn style_out(
     style: &wit::Style,
     limits: &ModuleLimits,
@@ -556,6 +646,13 @@ fn style_out(
         },
         wrap: style.wrap,
         absolute: style.absolute,
+        overlay: style.overlay,
+        anchor: style.anchor.map(|anchor| Anchor {
+            to: Id::new(anchor.to),
+            side: side_out(anchor.side),
+            align: align_out(anchor.align),
+            gap: pt(anchor.gap),
+        }),
         inset: [
             opt_pt(style.inset.top),
             opt_pt(style.inset.right),
@@ -599,6 +696,11 @@ fn style_out(
         },
         scroll: (pt(style.scroll_x), pt(style.scroll_y)),
         fill: style.fill.as_ref().map(color_out),
+        gradient: style.gradient.as_ref().map(|gradient| Gradient {
+            angle: angle_out(gradient.angle),
+            from: color_out(&gradient.start),
+            to: color_out(&gradient.end),
+        }),
         border: style.border.as_ref().map(|border| Border {
             width: share(border.width),
             color: color_out(&border.color),
@@ -647,7 +749,141 @@ fn kind_out(
             },
             tint: image.tint.as_ref().map(color_out),
         }),
+        wit::Content::Rich(part) => {
+            let spans = lists.items(lists.spans, part, limits.parts, "a text of many looks")?;
+            let mut out = Vec::with_capacity(spans.len());
+            for span in spans {
+                out.push(span_out(span, limits, lists)?);
+            }
+            Kind::Rich(out)
+        }
+        wit::Content::Canvas(part) => {
+            let paths = lists.items(lists.paths, part, limits.parts, "a canvas")?;
+            let mut out = Vec::with_capacity(paths.len());
+            for path in paths {
+                let segments =
+                    lists.items(lists.segments, &path.segments, limits.values, "a path")?;
+                out.push(Path {
+                    segments: segments.iter().map(segment_out).collect(),
+                    fill: path.fill.as_ref().map(color_out),
+                    stroke: path.stroke.as_ref().map(|stroke| Stroke {
+                        width: share(stroke.width),
+                        color: color_out(&stroke.color),
+                    }),
+                });
+            }
+            Kind::Canvas(out)
+        }
     })
+}
+
+fn span_out(span: &wit::Span, limits: &ModuleLimits, lists: &mut Lists<'_>) -> Result<Span, Fault> {
+    Ok(Span {
+        text: lists
+            .words(&span.text, limits.text, "a part of a text")?
+            .to_owned(),
+        color: span.color.as_ref().map(color_out),
+        // Weights in fifties, as an element's are: each opens a font on the application's thread.
+        weight: span
+            .weight
+            .map(|weight| (weight.clamp(100, 900) + 25) / 50 * 50),
+        italic: span.italic,
+        underline: span.underline,
+        strike: span.strike,
+        family: span.family.map(family_out),
+        background: span.background.as_ref().map(color_out),
+        link: span.link.map(Id::new),
+    })
+}
+
+fn segment_out(segment: &wit::Segment) -> Segment {
+    let at = |point: &wit::Point| Point::new(pt(point.x), pt(point.y));
+    match segment {
+        wit::Segment::MoveTo(point) => Segment::Move(at(point)),
+        wit::Segment::LineTo(point) => Segment::Line(at(point)),
+        wit::Segment::QuadTo(quad) => Segment::Quad {
+            control: at(&quad.control),
+            to: at(&quad.to),
+        },
+        wit::Segment::CubicTo(cubic) => Segment::Cubic {
+            a: at(&cubic.a),
+            b: at(&cubic.b),
+            to: at(&cubic.to),
+        },
+        wit::Segment::Close => Segment::Close,
+    }
+}
+
+fn accessible_role_out(role: wit::AccessibleRole) -> AccessibleRole {
+    match role {
+        wit::AccessibleRole::Button => AccessibleRole::Button,
+        wit::AccessibleRole::Text => AccessibleRole::Text,
+        wit::AccessibleRole::Link => AccessibleRole::Link,
+        wit::AccessibleRole::Checkbox => AccessibleRole::Checkbox,
+        wit::AccessibleRole::Switch => AccessibleRole::Switch,
+        wit::AccessibleRole::Radio => AccessibleRole::Radio,
+        wit::AccessibleRole::Tab => AccessibleRole::Tab,
+        wit::AccessibleRole::MenuItem => AccessibleRole::MenuItem,
+        // A heading is of a level from 1 to 6, as a style sheet's.
+        wit::AccessibleRole::Heading(level) => AccessibleRole::Heading(level.clamp(1, 6)),
+        wit::AccessibleRole::Image => AccessibleRole::Image,
+        wit::AccessibleRole::Progress => AccessibleRole::Progress,
+        wit::AccessibleRole::Slider => AccessibleRole::Slider,
+    }
+}
+
+fn key_out(key: wit::Key) -> Key {
+    match key {
+        wit::Key::Up => Key::Up,
+        wit::Key::Down => Key::Down,
+        wit::Key::Left => Key::Left,
+        wit::Key::Right => Key::Right,
+        wit::Key::PageUp => Key::PageUp,
+        wit::Key::PageDown => Key::PageDown,
+        wit::Key::Home => Key::Home,
+        wit::Key::End => Key::End,
+        wit::Key::Enter => Key::Enter,
+        wit::Key::Escape => Key::Escape,
+        wit::Key::Tab => Key::Tab,
+        wit::Key::Backspace => Key::Backspace,
+        wit::Key::Delete => Key::Delete,
+        // A function key past the twentieth is no key a keyboard has: the twentieth.
+        wit::Key::Function(n) => Key::Function(n.clamp(1, 20)),
+        wit::Key::Character(c) => Key::Character(c),
+    }
+}
+
+fn commands_out(
+    part: &wit::Slice,
+    limits: &ModuleLimits,
+    lists: &mut Lists<'_>,
+) -> Result<Vec<Command>, Fault> {
+    let commands = lists.items(
+        lists.commands,
+        part,
+        limits.parts,
+        "the commands of an element",
+    )?;
+    let mut out = Vec::with_capacity(commands.len());
+    for command in commands {
+        out.push(Command {
+            id: Id::new(command.id),
+            title: lists
+                .words(&command.title, limits.text, "a command's title")?
+                .to_owned(),
+            keys: command.keys.map(|keys| Shortcut {
+                key: key_out(keys.key),
+                mods: Mods {
+                    shift: keys.mods.shift,
+                    control: keys.mods.control,
+                    alt: keys.mods.alt,
+                    command: keys.mods.command,
+                },
+            }),
+            enabled: command.enabled,
+        });
+    }
+    Ok(out)
 }
 
 /// The longest a move may take, seconds: a page asks for a change to be seen, not for the
@@ -724,6 +960,23 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
                     })
                 })
                 .transpose()?,
+            role: node.role.map(accessible_role_out),
+            state: State {
+                checked: node.state.checked,
+                selected: node.state.selected,
+                expanded: node.state.expanded,
+                disabled: node.state.disabled,
+                value: node
+                    .state
+                    .value
+                    .as_ref()
+                    .map(|part| lists.words(part, limits.text, "a value").map(str::to_owned))
+                    .transpose()?,
+            },
+            commands: commands_out(&node.commands, limits, lists)?,
+            focused: node.focused,
+            draggable: node.draggable,
+            drop_target: node.drop_target,
         },
         children: node.children,
     })
@@ -738,12 +991,7 @@ fn frame_out(frame: wit::Frame, limits: &ModuleLimits) -> Result<Frame, Fault> {
             limits.nodes
         )));
     }
-    let mut lists = Lists::new(
-        &frame.text,
-        &frame.numbers,
-        &frame.tracks,
-        limits.frame_bytes,
-    )?;
+    let mut lists = Lists::new(&frame, limits.frame_bytes)?;
     let nodes = frame
         .nodes
         .iter()
@@ -780,7 +1028,7 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
                     limits.menu
                 )));
             }
-            let mut titles = Lists::new(&menu.titles, &[], &[], limits.frame_bytes)?;
+            let mut titles = Lists::titles(&menu.titles, limits.frame_bytes)?;
             let mut entries = Vec::with_capacity(menu.entries.len());
             for entry in &menu.entries {
                 entries.push(match entry {
@@ -841,7 +1089,7 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
 // --- Compiling and the version of the interface -------------------------------------------
 
 /// The interface this crate speaks: the package of `wit/view.wit`.
-const INTERFACE: &str = "pencere:view@1.0.0";
+const INTERFACE: &str = "pencere:view@2.0.0";
 
 /// Compiles `bytes`, if that is done within `within`.
 ///
@@ -1097,6 +1345,8 @@ mod tests {
             direction: wit::Direction::Column,
             wrap: false,
             absolute: false,
+            overlay: false,
+            anchor: None,
             inset: wit::Inset {
                 top: None,
                 right: None,
@@ -1124,6 +1374,7 @@ mod tests {
             scroll_x: 0.0,
             scroll_y: 0.0,
             fill: None,
+            gradient: None,
             border: None,
             radii: wit::Corners {
                 top_left: 0.0,
@@ -1158,6 +1409,18 @@ mod tests {
             label: None,
             motion: None,
             tip: None,
+            role: None,
+            state: wit::State {
+                checked: None,
+                selected: false,
+                expanded: None,
+                disabled: false,
+                value: None,
+            },
+            commands: nothing(),
+            focused: false,
+            draggable: false,
+            drop_target: false,
             children,
         }
     }
@@ -1173,6 +1436,10 @@ mod tests {
         text: String,
         numbers: Vec<f32>,
         tracks: Vec<wit::Track>,
+        spans: Vec<wit::Span>,
+        paths: Vec<wit::Path>,
+        segments: Vec<wit::Segment>,
+        commands: Vec<wit::Command>,
     }
 
     impl Lists {
@@ -1209,6 +1476,10 @@ mod tests {
                 text: self.text,
                 numbers: self.numbers,
                 tracks: self.tracks,
+                spans: self.spans,
+                paths: self.paths,
+                segments: self.segments,
+                commands: self.commands,
                 animating: false,
                 wake_at: None,
             }
@@ -1589,6 +1860,238 @@ mod tests {
             event_in(Event::MenuPick(usize::MAX)),
             wit::Event::MenuPick(u32::MAX)
         ));
+        assert!(matches!(
+            event_in(Event::Input(Input::Release {
+                at,
+                button: Button::Middle,
+            })),
+            wit::Event::Release(wit::Release {
+                button: wit::Button::Middle,
+                ..
+            })
+        ));
+        assert!(matches!(
+            event_in(Event::Input(Input::KeyUp {
+                key: Key::Character('a'),
+                mods: Mods::default()
+            })),
+            wit::Event::KeyUp(wit::KeyPress {
+                key: wit::Key::Character('a'),
+                ..
+            })
+        ));
+        assert!(matches!(
+            event_in(Event::Input(Input::Mods(Mods {
+                alt: true,
+                ..Mods::default()
+            }))),
+            wit::Event::Mods(wit::Mods { alt: true, .. })
+        ));
+        assert!(matches!(
+            event_in(Event::Command(Id::new(9))),
+            wit::Event::Command(9)
+        ));
+        assert!(matches!(
+            event_in(Event::Files { at, paths: vec!["/tmp/a b.png".into()] }),
+            wit::Event::Files(wit::DroppedFiles { paths, .. }) if paths == ["/tmp/a b.png"]
+        ));
+    }
+
+    fn accent() -> wit::Color {
+        wit::Color {
+            mix: None,
+            source: wit::Source::Role(wit::Role::Accent),
+            alpha: 1.0,
+        }
+    }
+
+    #[test]
+    fn texts_of_many_looks_canvases_commands_and_what_a_page_says_of_itself_are_read() {
+        let mut lists = Lists::default();
+        let one = lists.words("run ");
+        let two = lists.words("make");
+        let start = lists.spans.len() as u32;
+        lists.spans.push(wit::Span {
+            text: one,
+            color: None,
+            weight: None,
+            italic: None,
+            underline: None,
+            strike: None,
+            family: None,
+            background: None,
+            link: None,
+        });
+        lists.spans.push(wit::Span {
+            text: two,
+            color: Some(accent()),
+            weight: Some(1000),
+            italic: Some(true),
+            underline: None,
+            strike: None,
+            family: Some(wit::Family::Terminal),
+            background: None,
+            link: Some(5),
+        });
+        let rich = node(wit::Content::Rich(wit::Slice { start, len: 2 }), 0);
+
+        lists.segments.extend([
+            wit::Segment::MoveTo(wit::Point { x: 0.0, y: 0.0 }),
+            wit::Segment::LineTo(wit::Point {
+                x: f32::NAN,
+                y: 4.0,
+            }),
+            wit::Segment::Close,
+        ]);
+        lists.paths.push(wit::Path {
+            segments: wit::Slice { start: 0, len: 3 },
+            fill: None,
+            stroke: Some(wit::Stroke {
+                width: -2.0,
+                color: accent(),
+            }),
+        });
+        let mut canvas = node(wit::Content::Canvas(wit::Slice { start: 0, len: 1 }), 0);
+        canvas.style.overlay = true;
+        canvas.style.anchor = Some(wit::Anchor {
+            to: 3,
+            side: wit::Side::Above,
+            align: wit::Align::End,
+            gap: 4.0,
+        });
+        canvas.style.gradient = Some(wit::Gradient {
+            angle: f32::NAN,
+            start: accent(),
+            end: accent(),
+        });
+
+        let title = lists.words("Find");
+        lists.commands.push(wit::Command {
+            id: 11,
+            title,
+            keys: Some(wit::Shortcut {
+                key: wit::Key::Function(99),
+                mods: wit::Mods {
+                    shift: false,
+                    control: false,
+                    alt: false,
+                    command: true,
+                },
+            }),
+            enabled: false,
+        });
+        let mut root = container(2);
+        root.commands = wit::Slice { start: 0, len: 1 };
+        root.focused = true;
+        root.draggable = true;
+        root.drop_target = true;
+        root.role = Some(wit::AccessibleRole::Heading(9));
+        let value = lists.words("40%");
+        root.state.value = Some(value);
+        root.state.checked = Some(true);
+
+        let made = frame_out(
+            lists.frame(vec![root, rich, canvas]),
+            &ModuleLimits::default(),
+        )
+        .expect("a page");
+        let nodes = made.root.fold();
+        let meta = &nodes[0].meta;
+        assert_eq!(meta.role, Some(AccessibleRole::Heading(6)));
+        assert_eq!(meta.state.value.as_deref(), Some("40%"));
+        assert_eq!(meta.state.checked, Some(true));
+        assert!(meta.focused && meta.draggable && meta.drop_target);
+        assert_eq!(meta.commands.len(), 1);
+        let command = &meta.commands[0];
+        assert_eq!((command.id, command.title.as_str()), (Id::new(11), "Find"));
+        assert!(!command.enabled);
+        let keys = command.keys.expect("keys");
+        assert_eq!(keys.key, Key::Function(20));
+        assert!(keys.mods.command);
+
+        let Kind::Rich(spans) = &nodes[1].kind else {
+            panic!("a text of many looks");
+        };
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].text, "run ");
+        assert_eq!(spans[1].text, "make");
+        assert_eq!(spans[1].weight, Some(900));
+        assert_eq!(spans[1].link, Some(Id::new(5)));
+        assert_eq!(spans[1].family, Some(Family::Terminal));
+
+        let Kind::Canvas(paths) = &nodes[2].kind else {
+            panic!("a canvas");
+        };
+        assert_eq!(
+            paths[0].segments,
+            vec![
+                Segment::Move(Point::new(0.0, 0.0)),
+                Segment::Line(Point::new(0.0, 4.0)),
+                Segment::Close
+            ]
+        );
+        assert_eq!(paths[0].stroke.map(|stroke| stroke.width), Some(0.0));
+        let style = &nodes[2].style;
+        assert!(style.overlay);
+        let anchor = style.anchor.expect("an anchor");
+        assert_eq!(
+            (anchor.to, anchor.side, anchor.align, anchor.gap),
+            (Id::new(3), Side::Above, Align::End, 4.0)
+        );
+        assert_eq!(style.gradient.map(|gradient| gradient.angle), Some(180.0));
+    }
+
+    #[test]
+    fn a_text_of_more_parts_or_a_path_of_more_steps_than_the_limits_is_not_a_page() {
+        let limits = ModuleLimits {
+            parts: 2,
+            values: 2,
+            ..ModuleLimits::default()
+        };
+        let mut lists = Lists::default();
+        for _ in 0..3 {
+            let words = lists.words("a");
+            lists.spans.push(wit::Span {
+                text: words,
+                color: None,
+                weight: None,
+                italic: None,
+                underline: None,
+                strike: None,
+                family: None,
+                background: None,
+                link: None,
+            });
+        }
+        let rich = node(wit::Content::Rich(wit::Slice { start: 0, len: 3 }), 0);
+        assert!(matches!(
+            frame_out(lists.frame(vec![rich]), &limits),
+            Err(Fault::Malformed(why)) if why.contains("a text of many looks of 3 items")
+        ));
+
+        let mut lists = Lists::default();
+        lists.segments.extend([
+            wit::Segment::Close,
+            wit::Segment::Close,
+            wit::Segment::Close,
+        ]);
+        lists.paths.push(wit::Path {
+            segments: wit::Slice { start: 0, len: 3 },
+            fill: None,
+            stroke: None,
+        });
+        let canvas = node(wit::Content::Canvas(wit::Slice { start: 0, len: 1 }), 0);
+        assert!(matches!(
+            frame_out(lists.frame(vec![canvas]), &limits),
+            Err(Fault::Malformed(why)) if why.contains("a path of 3 items")
+        ));
+
+        // A part past the end of its list is no part.
+        let canvas = node(wit::Content::Canvas(wit::Slice { start: 0, len: 1 }), 0);
+        assert!(matches!(
+            frame_out(frame(vec![canvas]), &limits),
+            Err(Fault::Malformed(_))
+        ));
     }
 
     #[test]
@@ -1768,18 +2271,21 @@ mod tests {
     #[test]
     fn a_module_of_another_version_of_the_interface_is_refused_in_words_that_name_both() {
         // A component that has an instance by the name the page interface had before.
-        let old =
-            b"(component (instance $page) (export \"pencere:view/page@0.5.0\" (instance $page)))";
-        let refused = World::load(old, ModuleLimits::default(), Arc::new(Unbounded));
-        match refused.err() {
-            Some(Fault::Load(why)) => {
-                assert!(
-                    why.contains("written against `pencere:view@0.5.0`"),
-                    "{why}"
-                );
-                assert!(why.contains("opens `pencere:view@1.0.0`"), "{why}");
+        for version in ["0.5.0", "1.0.0"] {
+            let old = format!(
+                "(component (instance $page) (export \"pencere:view/page@{version}\" (instance $page)))"
+            );
+            let refused = World::load(old.as_bytes(), ModuleLimits::default(), Arc::new(Unbounded));
+            match refused.err() {
+                Some(Fault::Load(why)) => {
+                    assert!(
+                        why.contains(&format!("written against `pencere:view@{version}`")),
+                        "{why}"
+                    );
+                    assert!(why.contains("opens `pencere:view@2.0.0`"), "{why}");
+                }
+                other => panic!("{other:?}"),
             }
-            other => panic!("{other:?}"),
         }
         // The interface this crate speaks is the package of its own `wit/view.wit`.
         let wit = include_str!("../wit/view.wit");

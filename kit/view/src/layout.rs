@@ -2,7 +2,7 @@
 //! the host measures the lines of text, and what comes back is every element's box in the
 //! page's pixels, ready to be painted ([`Laid::paint`]).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use taffy::geometry::{Line, Point as TPoint, Rect as TRect, Size as TSize};
 use taffy::style::{
@@ -13,12 +13,17 @@ use taffy::style::{
 };
 use taffy::{NodeId, TaffyTree};
 
-use crate::element::{FieldKind, Fit, Kind, Meta, Spark};
+use crate::element::{FieldKind, Fit, Kind, Meta, Spark, State};
+use crate::rich::{Look, RichLine, cut_line, lay_lines};
 use crate::style::{
-    Border, Direction, Display, Items, Justify, Length, Overflow, Shadow, Style, TextStyle, Track,
+    Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
+    Style, TextStyle, Track,
 };
 use crate::text::wrap_lines;
-use crate::{Align, Color, Element, Family, Font, Id, Measure, Metrics, Point, Rect, Role, Size};
+use crate::{
+    Align, Color, Command, Element, Family, Font, Id, Key, Measure, Metrics, Mods, Path, Point,
+    Rect, Role, Size, Span,
+};
 
 /// The text a page is written in until a box says otherwise: the terminal's face at 12.5
 /// points, regular, in the foreground, at the start of its box.
@@ -61,13 +66,28 @@ pub(crate) struct Placed {
     pub inset: [f32; 4],
 }
 
+/// A text of many looks laid out: its parts, the look each comes to over the element's, and the
+/// lines they take in the element's box (pieces placed against its left edge, pixels).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Rich {
+    /// The element's own look: what a part does not say.
+    pub base: TextLine,
+    pub spans: Vec<Span>,
+    pub looks: Vec<Look>,
+    /// The height of each line, pixels.
+    pub line_height: f32,
+    pub lines: Vec<RichLine>,
+}
+
 /// What a laid-out element draws besides its box.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Content {
     None,
     Text(TextLine),
+    Rich(Rich),
     Spark(Spark),
     Image(Placed),
+    Canvas(Vec<Path>),
 }
 
 /// An element after layout: its box on the page, in pixels, and how it is drawn.
@@ -81,6 +101,7 @@ pub(crate) struct Node {
     pub hidden: bool,
     pub content: Content,
     pub fill: Option<Color>,
+    pub gradient: Option<Gradient>,
     /// In pixels.
     pub border: Option<Border>,
     pub radii: [f32; 4],
@@ -94,6 +115,8 @@ pub(crate) struct Node {
     pub extent: Option<(Size, Size)>,
     /// How far the box moves its children up and left, pixels.
     pub scroll: (f32, f32),
+    /// It is an overlay: placed against the page and drawn over the rest ([`Element::overlay`]).
+    pub overlay: bool,
 }
 
 /// A page laid out: every element's box, in the order they are painted.
@@ -112,6 +135,12 @@ enum Leaf {
         text: String,
         font: Font,
         /// Its words go on in new lines where the box is too narrow for them.
+        wrap: bool,
+    },
+    /// A text of many looks: its parts, the fonts they are in, and whether it wraps.
+    Rich {
+        spans: Vec<Span>,
+        looks: Vec<Look>,
         wrap: bool,
     },
     /// An image, with its size in pixels where the host knew it, and what the box keeps for its
@@ -140,9 +169,21 @@ struct Pending {
     opacity: f32,
     content: Content,
     fill: Option<Color>,
+    gradient: Option<Gradient>,
     border: Option<Border>,
     radii: [f32; 4],
     shadow: Option<Shadow>,
+    /// It is an overlay: a child of the page's box in the layout, whatever holds it.
+    overlay: bool,
+    anchor: Option<Anchor>,
+}
+
+/// An overlay met on the walk down, laid out after the rest as a child of the page: the element,
+/// the text it inherits where it is written, and the element that holds it there.
+struct Lifted {
+    element: Element,
+    text: TextStyle,
+    parent: usize,
 }
 
 /// Lays `root` out on a page of `viewport` pixels. A page is written in points: `scale` is
@@ -153,15 +194,40 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     root.style.height = Length::Px(viewport.h / scale);
     let mut tree: TaffyTree<Leaf> = TaffyTree::new();
     let mut pending = Vec::new();
+    let mut lifted = VecDeque::new();
     let (_, root_id) = build(
         &mut tree,
         &mut pending,
+        &mut lifted,
         root,
         None,
         DEFAULT_TEXT,
         scale,
         measure,
     );
+    // The overlays, after everything else (so drawn over it), each a child of the page's box: its
+    // insets are the page's. An overlay inside an overlay is lifted in its turn.
+    while let Some(Lifted {
+        element,
+        text,
+        parent,
+    }) = lifted.pop_front()
+    {
+        let (index, id) = build(
+            &mut tree,
+            &mut pending,
+            &mut lifted,
+            element,
+            Some(parent),
+            text,
+            scale,
+            measure,
+        );
+        if let Some(entry) = pending.get_mut(index) {
+            entry.overlay = true;
+        }
+        let _ = tree.add_child(root_id, id);
+    }
 
     let mut cache: HashMap<(Font, String), Metrics> = HashMap::new();
     let space = TSize {
@@ -207,6 +273,36 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                 Some(Leaf::Text { text, font, .. }) => *cache
                     .entry((*font, text.clone()))
                     .or_insert_with(|| measure.measure(font, text)),
+                Some(Leaf::Rich { spans, looks, wrap }) => {
+                    let budget = if *wrap {
+                        known.width.unwrap_or(match available.width {
+                            AvailableSpace::Definite(room) => room,
+                            AvailableSpace::MinContent => 0.0,
+                            AvailableSpace::MaxContent => f32::INFINITY,
+                        })
+                    } else {
+                        f32::INFINITY
+                    };
+                    let mut width = |font: &Font, run: &str| {
+                        cache
+                            .entry((*font, run.to_owned()))
+                            .or_insert_with(|| measure.measure(font, run))
+                            .width
+                    };
+                    let lines = lay_lines(spans, looks, budget, *wrap, &mut width);
+                    let widest = lines.iter().map(|line| line.width).fold(0.0, f32::max);
+                    let line_height = rich_line_height(spans, looks, &mut |font, run| {
+                        *cache
+                            .entry((*font, run.to_owned()))
+                            .or_insert_with(|| measure.measure(font, run))
+                    });
+                    #[allow(clippy::cast_precision_loss)]
+                    let height = line_height * lines.len() as f32;
+                    Metrics {
+                        width: widest,
+                        height,
+                    }
+                }
                 Some(Leaf::Image { natural, inset }) => {
                     // The sides given are the box's; the room measured is the picture's, inside
                     // the padding and the border that the box adds to it.
@@ -235,6 +331,8 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
 
     let page = Rect::new(0.0, 0.0, viewport.w, viewport.h);
     let mut nodes: Vec<Node> = Vec::with_capacity(pending.len());
+    // The overlays that stand beside an element, by their place in `nodes`.
+    let mut anchors: Vec<(usize, Anchor)> = Vec::new();
     // Where each element's children are measured from, and the clip they inherit.
     let mut origins: Vec<(f32, f32, Rect, bool)> = Vec::with_capacity(pending.len());
     // How far down and across each box's children reach, where the box does not scroll them:
@@ -255,6 +353,15 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         let (ox, oy, outer_clip, outer_hidden) = entry
             .parent
             .and_then(|parent| origins.get(parent).copied())
+            .map(|(ox, oy, clip, hidden)| {
+                // An overlay stands against the page and is cut by nothing that holds it; it is
+                // hidden with it all the same.
+                if entry.overlay {
+                    (0.0, 0.0, page, hidden)
+                } else {
+                    (ox, oy, clip, hidden)
+                }
+            })
             .unwrap_or((0.0, 0.0, page, false));
         let rect = Rect::new(
             ox + laid.location.x,
@@ -274,7 +381,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             own_clip,
             hidden,
         ));
-        if let Some(parent) = entry.parent {
+        if let Some(parent) = entry.parent.filter(|_| !entry.overlay) {
             let scrolled = inside.get(parent).copied().unwrap_or([0.0; 4]);
             let held = (rect.right() + scrolled[0], rect.bottom() + scrolled[1]);
             if let Some(reach) = reach.get_mut(parent) {
@@ -292,12 +399,16 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             .parent
             .and_then(|parent| nodes.get(parent))
             .map_or(1.0, |parent| parent.opacity);
+        if let Some(anchor) = entry.anchor.filter(|_| entry.overlay) {
+            anchors.push((nodes.len(), anchor));
+        }
         nodes.push(Node {
             rect,
             clip: outer_clip,
             hidden,
             content: entry.content,
             fill: entry.fill,
+            gradient: entry.gradient,
             border: entry.border,
             radii: entry.radii,
             shadow: entry.shadow,
@@ -307,6 +418,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             extent: (entry.overflow == Overflow::Scroll)
                 .then_some((Size::new(0.0, 0.0), Size::new(rect.w, rect.h))),
             scroll: entry.scroll,
+            overlay: entry.overlay,
         });
     }
     // `nodes`, `reach` and `inside` get one entry for every element: they are the same length.
@@ -318,11 +430,174 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             );
         }
     }
+    for (index, anchor) in anchors {
+        place_beside(&mut nodes, index, anchor, page, scale);
+    }
+    for node in &mut nodes {
+        if let Content::Rich(rich) = &mut node.content {
+            lay_rich(rich, node.rect.w, measure);
+        }
+    }
     Laid {
         nodes,
         size: viewport,
         scale,
     }
+}
+
+/// The height of a line of a text of many looks: the tallest of its parts' fonts.
+fn rich_line_height(
+    spans: &[Span],
+    looks: &[Look],
+    metrics: &mut dyn FnMut(&Font, &str) -> Metrics,
+) -> f32 {
+    spans
+        .iter()
+        .zip(looks)
+        .map(|(span, look)| {
+            let sample = if span.text.trim().is_empty() {
+                "x"
+            } else {
+                span.text.as_str()
+            };
+            metrics(&look.font, sample).height
+        })
+        .fold(0.0, f32::max)
+}
+
+/// The lines of a text of many looks in a box `width` pixels wide: as many as its words take where
+/// it wraps, and where it does not, one for each of its line breaks, cut to fit with "…" where it
+/// may be.
+fn lay_rich(rich: &mut Rich, width: f32, measure: &mut dyn Measure) {
+    let mut cache: HashMap<(Font, String), Metrics> = HashMap::new();
+    let mut metrics = |font: &Font, run: &str| {
+        *cache
+            .entry((*font, run.to_owned()))
+            .or_insert_with(|| measure.measure(font, run))
+    };
+    rich.line_height = rich_line_height(&rich.spans, &rich.looks, &mut metrics);
+    let budget = if rich.base.wrap {
+        width + 1.0
+    } else {
+        f32::INFINITY
+    };
+    let mut lines = lay_lines(
+        &rich.spans,
+        &rich.looks,
+        budget,
+        rich.base.wrap,
+        &mut |font, run| metrics(font, run).width,
+    );
+    if rich.base.truncate && !rich.base.wrap {
+        for line in &mut lines {
+            if line.width > width + 1.0 {
+                *line = cut_line(line, &rich.looks, width, measure);
+            }
+        }
+    }
+    rich.lines = lines;
+}
+
+/// Moves the overlay at `index`, and what is inside it, beside the element its anchor names: on
+/// the side asked where the page has the room, on the other where it has not (and there it has),
+/// and along that side as far as it takes to stay on the page.
+fn place_beside(nodes: &mut [Node], index: usize, anchor: Anchor, page: Rect, scale: f32) {
+    let Some(me) = nodes.get(index).map(|node| node.rect) else {
+        return;
+    };
+    // The element it stands beside: the first by that name that is not inside the overlay itself.
+    let Some(to) = nodes
+        .iter()
+        .enumerate()
+        .find(|(at, node)| {
+            node.meta.id == Some(anchor.to) && !node.hidden && !is_inside_of(nodes, *at, index)
+        })
+        .map(|(_, node)| node.rect)
+    else {
+        return;
+    };
+    let gap = anchor.gap * scale;
+    // Where it starts along the side of the element, kept on the page.
+    let along = |start: f32, length: f32, mine: f32, room: f32| {
+        let at = match anchor.align {
+            Align::Start => start,
+            Align::Center => start + (length - mine) / 2.0,
+            Align::End => start + length - mine,
+        };
+        at.min(room - mine).max(0.0)
+    };
+    // `before` is where it starts on the side before the element (above it, or to its left) and
+    // `after` on the side after it; `wanted_after` is the side asked for.
+    let side = |before: f32, after: f32, mine: f32, room: f32, wanted_after: bool| {
+        let fits_before = before >= 0.0;
+        let fits_after = after + mine <= room;
+        if wanted_after {
+            if fits_after || !fits_before {
+                after
+            } else {
+                before
+            }
+        } else if fits_before || !fits_after {
+            before
+        } else {
+            after
+        }
+    };
+    let (x, y) = match anchor.side {
+        Side::Below | Side::Above => (
+            along(to.x, to.w, me.w, page.w),
+            side(
+                to.y - gap - me.h,
+                to.bottom() + gap,
+                me.h,
+                page.h,
+                anchor.side == Side::Below,
+            ),
+        ),
+        Side::Right | Side::Left => (
+            side(
+                to.x - gap - me.w,
+                to.right() + gap,
+                me.w,
+                page.w,
+                anchor.side == Side::Right,
+            ),
+            along(to.y, to.h, me.h, page.h),
+        ),
+    };
+    let (dx, dy) = (x - me.x, y - me.y);
+    if dx == 0.0 && dy == 0.0 {
+        return;
+    }
+    let mut end = index + 1;
+    while end < nodes.len() && is_inside_of(nodes, end, index) {
+        end += 1;
+    }
+    let Some(boxes) = nodes.get_mut(index..end) else {
+        return;
+    };
+    let Some(outer_clip) = boxes.first().map(|node| node.clip) else {
+        return;
+    };
+    for node in boxes {
+        node.rect = node.rect.translate(dx, dy);
+        // A clip of a box inside it moves with it; the page's does not.
+        if node.clip != outer_clip {
+            node.clip = node.clip.translate(dx, dy);
+        }
+    }
+}
+
+/// Whether the node at `index` is inside (or is) the one at `outer`.
+fn is_inside_of(nodes: &[Node], index: usize, outer: usize) -> bool {
+    let mut at = Some(index);
+    while let Some(here) = at {
+        if here == outer {
+            return true;
+        }
+        at = nodes.get(here).and_then(|node| node.parent);
+    }
+    false
 }
 
 /// The room an image takes: the sides its style gives it, and for one that is not given the
@@ -358,6 +633,7 @@ fn empty(page: Rect) -> Node {
         hidden: true,
         content: Content::None,
         fill: None,
+        gradient: None,
         border: None,
         radii: [0.0; 4],
         shadow: None,
@@ -366,14 +642,17 @@ fn empty(page: Rect) -> Node {
         meta: Meta::default(),
         extent: None,
         scroll: (0.0, 0.0),
+        overlay: false,
     }
 }
 
 /// Makes the Taffy node of `element` and of what is inside it; returns the element's place in
 /// `pending` (the pre-order the boxes are painted in) and its node.
+#[allow(clippy::too_many_arguments)]
 fn build(
     tree: &mut TaffyTree<Leaf>,
     pending: &mut Vec<Pending>,
+    lifted: &mut VecDeque<Lifted>,
     element: Element,
     parent: Option<usize>,
     outer: TextStyle,
@@ -412,6 +691,7 @@ fn build(
             .map_or(1.0, |opacity| opacity.clamp(0.0, 1.0)),
         content: Content::None,
         fill: style.fill,
+        gradient: style.gradient,
         border: style.border.map(|b| Border {
             width: (b.width * scale).round().max(1.0),
             color: b.color,
@@ -423,9 +703,11 @@ fn build(
             blur: px(s.blur),
             color: s.color,
         }),
+        overlay: false,
+        anchor: style.anchor,
     });
 
-    let mut taffy_style = convert(&style, scale, matches!(kind, Kind::Text(_)));
+    let mut taffy_style = convert(&style, scale, matches!(kind, Kind::Text(_) | Kind::Rich(_)));
     let id = match kind {
         Kind::Text(content) => {
             let leaf = Leaf::Text {
@@ -447,9 +729,43 @@ fn build(
             }
             tree.new_leaf_with_context(taffy_style, leaf)
         }
+        Kind::Rich(spans) => {
+            let base = TextLine {
+                text: String::new(),
+                font,
+                color,
+                align: text.align.unwrap_or(Align::Start),
+                truncate: style.truncate,
+                wrap: style.wrap,
+                underline: text.underline.unwrap_or(false),
+                strike: text.strike.unwrap_or(false),
+            };
+            let looks: Vec<Look> = spans.iter().map(|span| span.over(&base)).collect();
+            let leaf = Leaf::Rich {
+                spans: spans.clone(),
+                looks: looks.clone(),
+                wrap: style.wrap,
+            };
+            if let Some(entry) = pending.get_mut(index) {
+                entry.content = Content::Rich(Rich {
+                    base,
+                    spans,
+                    looks,
+                    line_height: 0.0,
+                    lines: Vec::new(),
+                });
+            }
+            tree.new_leaf_with_context(taffy_style, leaf)
+        }
         Kind::Spark(spark) => {
             if let Some(entry) = pending.get_mut(index) {
                 entry.content = Content::Spark(spark);
+            }
+            tree.new_leaf(taffy_style)
+        }
+        Kind::Canvas(paths) => {
+            if let Some(entry) = pending.get_mut(index) {
+                entry.content = Content::Canvas(paths);
             }
             tree.new_leaf(taffy_style)
         }
@@ -494,10 +810,31 @@ fn build(
             tree.new_leaf_with_context(taffy_style, Leaf::Image { natural, inset })
         }
         Kind::Box => {
-            let ids: Vec<NodeId> = children
-                .into_iter()
-                .map(|child| build(tree, pending, child, Some(index), text, scale, measure).1)
-                .collect();
+            let mut ids: Vec<NodeId> = Vec::with_capacity(children.len());
+            for child in children {
+                if child.style.overlay {
+                    // Laid out after the rest, as a child of the page.
+                    lifted.push_back(Lifted {
+                        element: child,
+                        text,
+                        parent: index,
+                    });
+                    continue;
+                }
+                ids.push(
+                    build(
+                        tree,
+                        pending,
+                        lifted,
+                        child,
+                        Some(index),
+                        text,
+                        scale,
+                        measure,
+                    )
+                    .1,
+                );
+            }
             tree.new_with_children(taffy_style, &ids)
         }
     };
@@ -564,7 +901,7 @@ fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
         } else {
             FlexWrap::NoWrap
         },
-        position: if style.absolute {
+        position: if style.absolute || style.overlay {
             Position::Absolute
         } else {
             Position::Relative
@@ -715,14 +1052,116 @@ impl Laid {
             .collect()
     }
 
-    /// The element under `at` that answers the pointer ([`crate::Element::press`]): the topmost.
+    /// The element under `at` that answers the pointer ([`crate::Element::press`],
+    /// [`crate::Element::draggable`], a link of a text of many looks): the topmost. One that is
+    /// [`crate::Element::disabled`] does not answer, and what is under it does.
     pub fn hit(&self, at: Point) -> Option<Id> {
+        let (x, y) = (at.x * self.scale, at.y * self.scale);
+        self.nodes.iter().rev().find_map(|node| {
+            if node.hidden || node.meta.state.disabled || !Self::shown(node).contains(x, y) {
+                return None;
+            }
+            if let Some(link) = self
+                .links_of(node)
+                .into_iter()
+                .find(|(rect, _)| rect.contains(x, y))
+            {
+                return Some(link.1);
+            }
+            (node.meta.pressable || node.meta.draggable)
+                .then_some(node.meta.id)
+                .flatten()
+        })
+    }
+
+    /// The element under `at` that can be picked up and moved ([`crate::Element::draggable`]):
+    /// the topmost, when nothing that answers the pointer lies over it.
+    pub fn drag_source(&self, at: Point) -> Option<Id> {
+        let hit = self.hit(at)?;
+        self.nodes
+            .iter()
+            .any(|node| node.meta.id == Some(hit) && node.meta.draggable && !node.hidden)
+            .then_some(hit)
+    }
+
+    /// The element under `at` that what is dragged can be put down on
+    /// ([`crate::Element::drop_target`]): the topmost.
+    pub fn drop_target(&self, at: Point) -> Option<Id> {
         let (x, y) = (at.x * self.scale, at.y * self.scale);
         self.nodes
             .iter()
             .rev()
-            .find(|node| node.meta.pressable && !node.hidden && Self::shown(node).contains(x, y))
+            .find(|node| {
+                node.meta.drop_target
+                    && !node.hidden
+                    && !node.meta.state.disabled
+                    && Self::shown(node).contains(x, y)
+            })
             .and_then(|node| node.meta.id)
+    }
+
+    /// The links of a text of many looks, each with the box of its words (pixels), in order.
+    fn links_of(&self, node: &Node) -> Vec<(Rect, Id)> {
+        let Content::Rich(rich) = &node.content else {
+            return Vec::new();
+        };
+        rich_boxes(node, rich)
+            .into_iter()
+            .filter_map(|(rect, piece)| {
+                let link = rich.looks.get(piece.span)?.link?;
+                Some((rect, link))
+            })
+            .collect()
+    }
+
+    /// What the page can be told to do now ([`crate::Element::command`]): the commands of the
+    /// element the keyboard is on ([`crate::Element::focused`]) and of each box around it, out to
+    /// the page's own, the nearest first. A command already listed by a nearer box is not listed
+    /// again, and neither is one whose keys a nearer one has.
+    pub fn commands(&self) -> Vec<Command> {
+        let focused = self
+            .nodes
+            .iter()
+            .position(|node| node.meta.focused && !node.hidden);
+        let mut path = Vec::new();
+        let mut at = focused.or(if self.nodes.is_empty() { None } else { Some(0) });
+        while let Some(here) = at {
+            path.push(here);
+            at = self.nodes.get(here).and_then(|node| node.parent);
+        }
+        let mut ids = HashSet::new();
+        let mut taken: Vec<crate::Shortcut> = Vec::new();
+        let mut out = Vec::new();
+        for index in path {
+            let Some(node) = self.nodes.get(index) else {
+                continue;
+            };
+            for command in &node.meta.commands {
+                if !ids.insert(command.id) {
+                    continue;
+                }
+                let mut command = command.clone();
+                if let Some(keys) = command.keys {
+                    if taken.iter().any(|k| k.matches(keys.key, keys.mods)) {
+                        command.keys = None;
+                    } else {
+                        taken.push(keys);
+                    }
+                }
+                out.push(command);
+            }
+        }
+        out
+    }
+
+    /// The command that a key pressed with `mods` does now, if one does and can be done: what the
+    /// host tells the page in place of the key ([`crate::Event::Command`]).
+    pub fn command_for(&self, key: Key, mods: Mods) -> Option<Id> {
+        self.commands()
+            .into_iter()
+            .find(|command| command.keys.is_some_and(|keys| keys.matches(key, mods)))
+            .filter(|command| command.enabled)
+            .map(|command| command.id)
     }
 
     /// How large the content of the scrolling box named `id` is and how large the box is.
@@ -735,11 +1174,12 @@ impl Laid {
         })
     }
 
-    /// The elements the keyboard can be on, in the order they are written.
+    /// The elements the keyboard can be on, in the order they are written (one that is
+    /// [`crate::Element::disabled`] is not one of them).
     pub fn focus_order(&self) -> Vec<Id> {
         self.nodes
             .iter()
-            .filter(|node| node.meta.focusable && !node.hidden)
+            .filter(|node| node.meta.focusable && !node.hidden && !node.meta.state.disabled)
             .filter_map(|node| node.meta.id)
             .collect()
     }
@@ -795,13 +1235,14 @@ impl Laid {
             .collect()
     }
 
-    /// What the page is to a screen reader, in the order it is written: each element that answers
-    /// the pointer is a button, said by its label or else by the words inside it (which are not
-    /// said again apart); each text field is a field, said by its label or else by its hint; each
-    /// line of text that is in neither is said as it is, and so is an element that is neither but
-    /// has a label (an icon that says what it shows), whose words inside are not said again. What
-    /// is hidden, has no room or is cut off altogether by the boxes around it is not there.
-    /// Boxes are points.
+    /// What the page is to a screen reader, in the order it is written: each element that says what
+    /// it is ([`crate::Element::role`]) is that, and each other that answers the pointer is a
+    /// button, said by its label or else by the words inside it (which are not said again apart);
+    /// each text field is a field, said by its label or else by its hint; each line of text that is
+    /// in none of them is said as it is (and each link in it, apart, as a link), and so is an
+    /// element that is none of them but has a label (an icon that says what it shows), whose words
+    /// inside are not said again. What is hidden, has no room or is cut off altogether by the boxes
+    /// around it is not there. Boxes are points.
     pub fn accessible(&self) -> Vec<Accessible> {
         let s = self.scale;
         let points = |rect: Rect| Rect::new(rect.x / s, rect.y / s, rect.w / s, rect.h / s);
@@ -826,6 +1267,8 @@ impl Laid {
             let field = node.meta.field.filter(|_| node.meta.id.is_some());
             let role = if let Some(kind) = field {
                 Some(AccessibleRole::Field(kind))
+            } else if let Some(role) = node.meta.role {
+                Some(role)
             } else if node.meta.pressable {
                 Some(AccessibleRole::Button)
             } else if node.meta.label.is_some() {
@@ -844,6 +1287,7 @@ impl Laid {
                     id: node.meta.id,
                     rect: points(node.rect),
                     words,
+                    state: node.meta.state.clone(),
                 });
                 continue;
             }
@@ -855,7 +1299,42 @@ impl Laid {
                     id: node.meta.id,
                     rect: points(node.rect),
                     words: line.text.clone(),
+                    state: node.meta.state.clone(),
                 });
+            }
+            if let Content::Rich(rich) = &node.content {
+                let words = crate::rich::words(&rich.spans);
+                if !words.trim().is_empty() {
+                    items.push(Accessible {
+                        role: AccessibleRole::Text,
+                        id: node.meta.id,
+                        rect: points(node.rect),
+                        words,
+                        state: node.meta.state.clone(),
+                    });
+                }
+                // Each link, apart, as a link: the words of all its pieces, and the box of the
+                // first.
+                let mut said: Vec<Id> = Vec::new();
+                for (rect, link) in self.links_of(node) {
+                    if said.contains(&link) {
+                        continue;
+                    }
+                    said.push(link);
+                    let words = rich
+                        .spans
+                        .iter()
+                        .filter(|span| span.link == Some(link))
+                        .map(|span| span.text.as_str())
+                        .collect::<String>();
+                    items.push(Accessible {
+                        role: AccessibleRole::Link,
+                        id: Some(link),
+                        rect: points(rect),
+                        words,
+                        state: State::default(),
+                    });
+                }
             }
         }
         items
@@ -863,7 +1342,7 @@ impl Laid {
 
     /// The words of the lines of text inside the element at `outer`, in order, a space between.
     fn words_in(&self, outer: usize) -> String {
-        let mut words: Vec<&str> = Vec::new();
+        let mut words: Vec<String> = Vec::new();
         for (index, node) in self.nodes.iter().enumerate().skip(outer) {
             if !self.is_inside(index, outer) {
                 if index > outer {
@@ -871,11 +1350,12 @@ impl Laid {
                 }
                 continue;
             }
-            if let Content::Text(line) = &node.content
-                && !node.hidden
-                && !line.text.is_empty()
-            {
-                words.push(&line.text);
+            if !node.hidden {
+                match &node.content {
+                    Content::Text(line) if !line.text.is_empty() => words.push(line.text.clone()),
+                    Content::Rich(rich) => words.push(crate::rich::words(&rich.spans)),
+                    _ => {}
+                }
             }
         }
         words.join(" ")
@@ -959,6 +1439,10 @@ pub trait Queries {
     fn focus_order(&self) -> Vec<Id>;
     /// `id` and the named elements that hold it, innermost first.
     fn path_of(&self, id: Id) -> Vec<Id>;
+    /// The element under `at` that can be picked up and moved: the topmost.
+    fn drag_source(&self, at: Point) -> Option<Id>;
+    /// The element under `at` that what is dragged can be put down on: the topmost.
+    fn drop_target(&self, at: Point) -> Option<Id>;
 }
 
 impl Queries for Laid {
@@ -979,6 +1463,12 @@ impl Queries for Laid {
     }
     fn path_of(&self, id: Id) -> Vec<Id> {
         Laid::path_of(self, id)
+    }
+    fn drag_source(&self, at: Point) -> Option<Id> {
+        Laid::drag_source(self, at)
+    }
+    fn drop_target(&self, at: Point) -> Option<Id> {
+        Laid::drop_target(self, at)
     }
 }
 
@@ -1001,7 +1491,7 @@ impl Extent {
     }
 }
 
-/// What an element is to a screen reader ([`Laid::accessible`]).
+/// What an element is to a screen reader ([`Laid::accessible`], [`crate::Element::role`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AccessibleRole {
     /// It answers the pointer: pressing it does what it says.
@@ -1010,6 +1500,26 @@ pub enum AccessibleRole {
     Field(FieldKind),
     /// Words to read.
     Text,
+    /// It goes somewhere: a link of a text, or an element that is one.
+    Link,
+    /// It is checked or not ([`crate::Element::checked`]).
+    Checkbox,
+    /// It is on or off ([`crate::Element::checked`]): a switch, or a button that stays down.
+    Switch,
+    /// One of a set of which one is chosen ([`crate::Element::checked`]).
+    Radio,
+    /// A tab of a set of them; the one in front is [`crate::Element::selected`].
+    Tab,
+    /// An entry of a menu or a list that is picked from.
+    MenuItem,
+    /// The title of what follows, of a level from 1 (the page's title) down.
+    Heading(u8),
+    /// A picture, said by its label.
+    Image,
+    /// How far something has come ([`crate::Element::value`]).
+    Progress,
+    /// A value that is set by moving something along a line ([`crate::Element::value`]).
+    Slider,
 }
 
 /// One thing a screen reader says of the page ([`Laid::accessible`]).
@@ -1022,6 +1532,8 @@ pub struct Accessible {
     pub rect: Rect,
     /// What is said.
     pub words: String,
+    /// Whether it is checked, chosen, open or of no use, and the value it shows.
+    pub state: State,
 }
 
 /// A text field the host puts over the page ([`Laid::fields`]).
@@ -1036,4 +1548,31 @@ pub struct Field {
     pub hint: Option<String>,
     /// What it is to a screen reader, where the page said ([`crate::Element::label`]).
     pub label: Option<String>,
+}
+
+/// The pieces of a text of many looks with the box each takes on the page, pixels, in order: the
+/// lines one under the other as the lines of a text that wraps are (one in the middle of its box),
+/// each where its element's alignment puts it.
+pub(crate) fn rich_boxes<'a>(node: &Node, rich: &'a Rich) -> Vec<(Rect, &'a crate::rich::Piece)> {
+    #[allow(clippy::cast_precision_loss)]
+    let total = rich.line_height * rich.lines.len() as f32;
+    let room = (node.rect.h - total) / 2.0;
+    let top = node.rect.y + if rich.base.wrap { room.max(0.0) } else { room };
+    let mut out = Vec::new();
+    for (index, line) in rich.lines.iter().enumerate() {
+        let x = match rich.base.align {
+            Align::Start => node.rect.x,
+            Align::Center => node.rect.x + (node.rect.w - line.width) / 2.0,
+            Align::End => node.rect.right() - line.width,
+        };
+        #[allow(clippy::cast_precision_loss)]
+        let y = top + rich.line_height * index as f32;
+        for piece in &line.pieces {
+            out.push((
+                Rect::new(x + piece.x, y, piece.width, rich.line_height),
+                piece,
+            ));
+        }
+    }
+    out
 }

@@ -6,6 +6,11 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- A Lua app's page is offered as `lua` `2.0`, the version of the kit's page API it is now written
+  against.
+
 ### Added
 
 - **An app's files, carried and reloaded.** `pencere::build::app()`, called from `build.rs`,

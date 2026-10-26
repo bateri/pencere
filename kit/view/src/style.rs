@@ -104,6 +104,44 @@ pub struct Shadow {
     pub color: Color,
 }
 
+/// A fill that runs from one colour to another along a line, as a style sheet's
+/// `linear-gradient(angle, from, to)`: `angle` is in degrees and says where the line goes, as there
+/// (`180`, the default of a style sheet, from the top down; `90` from the left to the right).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Gradient {
+    pub angle: f32,
+    pub from: Color,
+    pub to: Color,
+}
+
+impl Gradient {
+    /// The colour half way along: what a line of text on it is read against.
+    pub fn middle(self) -> Color {
+        self.from.toward(self.to, 0.5)
+    }
+}
+
+/// Which side of the element it is anchored to an overlay stands on ([`crate::Element::anchor`]).
+/// Where there is not the room on that side of it in the page, the overlay goes on the other.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Side {
+    #[default]
+    Below,
+    Above,
+    Right,
+    Left,
+}
+
+/// Where an overlay stands: beside the element named `to`, on `side`, `gap` points away from it,
+/// its edge lined up with the element's start, middle or end along that side (`align`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Anchor {
+    pub to: crate::Id,
+    pub side: Side,
+    pub align: Align,
+    pub gap: f32,
+}
+
 /// The text properties an element sets for itself and the elements under it, as a style
 /// sheet's `font` and `color` are inherited. A property an element does not set is the
 /// nearest ancestor's.
@@ -147,6 +185,12 @@ pub struct Style {
     pub wrap: bool,
     /// Taken out of the flow and placed by `inset` against the parent's box.
     pub absolute: bool,
+    /// Taken out of the flow and out of the boxes around it: placed against the page by `inset`
+    /// (or beside the element `anchor` names), drawn over everything else and cut by nothing
+    /// that holds it.
+    pub overlay: bool,
+    /// For an overlay: the element it stands beside.
+    pub anchor: Option<Anchor>,
     /// Top, right, bottom, left; points.
     pub inset: [Option<f32>; 4],
     pub width: Length,
@@ -173,6 +217,8 @@ pub struct Style {
     /// How far a scrolling box's content is moved up and left, points.
     pub scroll: (f32, f32),
     pub fill: Option<Color>,
+    /// A fill that runs from one colour to another, over `fill` where there are both.
+    pub gradient: Option<Gradient>,
     pub border: Option<Border>,
     /// Top-left, top-right, bottom-right, bottom-left; points.
     pub radii: [f32; 4],

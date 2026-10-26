@@ -4,7 +4,9 @@
 -- A script is Luau. What it can use besides the language is the base functions, `string`,
 -- `table`, `math` and `utf8`, and `pencere`, the table this prelude fills:
 --
---   elements   pencere.div(), pencere.text(), pencere.spark(), pencere.image(), pencere.spacer()
+--   elements   pencere.div(), pencere.text(), pencere.rich({ pencere.span(...), ... }),
+--              pencere.spark(), pencere.image(), pencere.canvas({ pencere.path()..., ... }),
+--              pencere.spacer()
 --   colours    a role of the theme ("accent", "red", "bright-red", "selection", "raised2", ...), a
 --              value ("#rrggbb", "#rrggbbaa", or { light = "#...", dark = "#..." } for a dark
 --              theme), any of them taken part of the way toward another:
@@ -17,7 +19,7 @@
 --
 -- Lengths are points. An element is a plain table; the builders are methods that return it.
 
-pencere.version = 1
+pencere.version = 2
 
 -- A number as the engine holds it, in single precision. The engine measures and draws in
 -- single precision, and a page that adds up highlights or sizes in doubles can come to a
@@ -36,9 +38,12 @@ local host = {
 	scroll_extent = pencere.scroll_extent,
 	focus_order = pencere.focus_order,
 	path_of = pencere.path_of,
+	drag_source = pencere.drag_source,
+	drop_target = pencere.drop_target,
 }
 pencere.send, pencere.hit, pencere.ids_at, pencere.bounds = nil, nil, nil, nil
 pencere.scroll_extent, pencere.focus_order, pencere.path_of = nil, nil, nil
+pencere.drag_source, pencere.drop_target = nil, nil
 pencere.host = host
 
 -- A colour with an opacity. Everywhere a colour is taken, a role's name, a "#rrggbb" value and a
@@ -110,5 +115,15 @@ end
 
 function layout.path_of(id)
 	return host.path_of(id)
+end
+
+-- The element under `at` that can be picked up and moved, and the one what is dragged can be put
+-- down on: the topmost of each.
+function layout.drag_source(at)
+	return host.drag_source(at.x, at.y)
+end
+
+function layout.drop_target(at)
+	return host.drop_target(at.x, at.y)
 end
 

@@ -181,6 +181,22 @@ int l_path_of(lua_State* state) {
     return 1;
 }
 
+int l_drag_source(lua_State* state) {
+    pencere_view_types_point_t at = {(float)luaL_checknumber(state, 1), (float)luaL_checknumber(state, 2)};
+    uint64_t id = 0;
+    if (pencere_view_layout_drag_source(&at, &id)) bridge::push_id(state, id);
+    else lua_pushnil(state);
+    return 1;
+}
+
+int l_drop_target(lua_State* state) {
+    pencere_view_types_point_t at = {(float)luaL_checknumber(state, 1), (float)luaL_checknumber(state, 2)};
+    uint64_t id = 0;
+    if (pencere_view_layout_drop_target(&at, &id)) bridge::push_id(state, id);
+    else lua_pushnil(state);
+    return 1;
+}
+
 // --- Loading the other scripts of the bundle -------------------------------------------------------
 //
 // `require` is Luau's own require-by-string (the `Luau.Require` library), pointed at the bundle the
@@ -498,6 +514,8 @@ void host_functions(lua_State* state) {
         {"scroll_extent", l_scroll_extent},
         {"focus_order", l_focus_order},
         {"path_of", l_path_of},
+        {"drag_source", l_drag_source},
+        {"drop_target", l_drop_target},
         {nullptr, nullptr},
     };
     lua_newtable(state);

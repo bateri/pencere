@@ -6,6 +6,14 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+### Changed
+
+- Written against `pencere:view@2.0.0`: what a page says of overlays, texts of many looks, canvases,
+  commands, dragging, roles and states, and fills from one colour to another crosses the interface,
+  and so do the new events. The engine's new names are exported (`rich`, `span`, `canvas`, `path`,
+  `Command`, `Shortcut`, `Side`, `Drag`, `Dropped`, …), and `Layout` answers `drag_source` and
+  `drop_target`.
+
 ## [0.3.1] - 2026-10-26
 
 ### Fixed

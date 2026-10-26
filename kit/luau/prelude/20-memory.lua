@@ -254,8 +254,12 @@ end
 
 -- --- What the pointer and the keyboard are on ----------------------------------------------------
 
--- The remembered state of a page: what the pointer is over and has pressed, where the keyboard
--- is, how far each list is scrolled. Every method that takes the pointer or the wheel answers
+-- How far the pointer moves with a button held on something that can be dragged before it is
+-- dragged, points: less is a click with an unsteady hand.
+pencere.DRAG_START = 4
+
+-- The remembered state of a page: what the pointer is over and has pressed, what is being
+-- dragged, where the keyboard is, how far each list is scrolled. Every method that takes the pointer or the wheel answers
 -- whether anything it keeps *changed* (a pointer moving inside the row it was already over
 -- changes nothing, and no frame is drawn for it). `laid` is `pencere.layout`.
 local Ui = {}
@@ -269,6 +273,10 @@ function Ui.new()
 		hover = nil,
 		pressed = nil,
 		focus = nil,
+		-- What a button went down on that can be dragged: { source =, from =, at =, target =,
+		-- moving = }; and what was dragged and let go and is not yet taken.
+		drag = nil,
+		dropped = nil,
 		-- How far each scrolling box is scrolled down and across, points.
 		scroll = {},
 		scroll_x = {},
@@ -277,13 +285,32 @@ function Ui.new()
 	}, Ui)
 end
 
--- The pointer is at `at` (nil: it left the page). Whether the element it is over changed.
+-- The pointer is at `at` (nil: it left the page). Whether the element it is over changed, or —
+-- while something is dragged — whether the drag moved.
 function Ui:point(laid, at)
+	local changed = false
+	local drag = self.drag
+	if drag and at then
+		local dx, dy = at.x - drag.from.x, at.y - drag.from.y
+		if not drag.moving and dx * dx + dy * dy >= pencere.DRAG_START * pencere.DRAG_START then
+			drag.moving = true
+			changed = true
+		end
+		if drag.moving then
+			local target = laid.drop_target(at)
+			if target == drag.source then
+				target = nil
+			end
+			changed = changed or drag.at.x ~= at.x or drag.at.y ~= at.y or drag.target ~= target
+			drag.at = { x = at.x, y = at.y }
+			drag.target = target
+		end
+	end
 	local over = nil
 	if at then
 		over = laid.hit(at)
 	end
-	local changed = self.hover ~= over
+	changed = changed or self.hover ~= over
 	self.hover = over
 	return changed
 end
@@ -293,6 +320,18 @@ end
 function Ui:press(laid, at)
 	local hit = laid.hit(at)
 	self.pressed = hit
+	self.dropped = nil
+	local source = laid.drag_source(at)
+	if source ~= nil then
+		self.drag = {
+			source = source,
+			from = { x = at.x, y = at.y },
+			at = { x = at.x, y = at.y },
+			moving = false,
+		}
+	else
+		self.drag = nil
+	end
 	local takes = {}
 	for _, id in ipairs(laid.focus_order()) do
 		takes[id] = true
@@ -306,14 +345,54 @@ function Ui:press(laid, at)
 	return hit
 end
 
--- The button came up at `at`. A click is a release over the element the press was on: that element.
+-- The button came up at `at`. A click is a release over the element the press was on, when it was
+-- not dragged: that element. What was dragged is put down (`take_drop`).
 function Ui:release(laid, at)
+	local drag = self.drag
+	self.drag = nil
+	if drag and drag.moving then
+		self.pressed = nil
+		local target = laid.drop_target(at)
+		if target == drag.source then
+			target = nil
+		end
+		self.dropped = { source = drag.source, target = target, at = { x = at.x, y = at.y } }
+		return nil
+	end
 	local pressed = self.pressed
 	self.pressed = nil
 	if pressed ~= nil and laid.hit(at) == pressed then
 		return pressed
 	end
 	return nil
+end
+
+-- What is being dragged, once the pointer has moved far enough for it to be a drag: { source =,
+-- at = { x =, y = }, target = } — the page draws it where the pointer is and marks the target.
+function Ui:dragging()
+	local drag = self.drag
+	if drag and drag.moving then
+		return drag
+	end
+	return nil
+end
+
+-- What was dragged and let go since the last ask: { source =, target =, at = }. Asked once, it is
+-- no longer kept.
+function Ui:take_drop()
+	local dropped = self.dropped
+	self.dropped = nil
+	return dropped
+end
+
+-- Gives up the drag under way, if there is one (the escape key). Whether there was one.
+function Ui:cancel_drag()
+	if self:dragging() then
+		self.drag = nil
+		self.pressed = nil
+		return true
+	end
+	return false
 end
 
 function Ui:scroll_offset(id)

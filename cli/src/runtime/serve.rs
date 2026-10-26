@@ -19,8 +19,8 @@ use super::core::{Core, ServePlan, ServeRun, ViewSpec};
 use super::events::{CallEvent, Event, SubscribeEvent};
 use crate::files::{ASSETS, Files, VIEW, is_page_script};
 
-/// The version of the page API this runner shows views of (`lua` 1.0).
-const VERSION: &str = "1.0";
+/// The version of the page API this runner shows views of (`lua` 2.0).
+const VERSION: &str = "2.0";
 
 /// The page of the kit and the web page of an app, where `pencere new` puts them: in `view/`.
 const PAGE: &str = "view/page.lua";

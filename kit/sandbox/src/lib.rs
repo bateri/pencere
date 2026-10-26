@@ -18,6 +18,7 @@
 //! runtime, and moves out of the workspace with the engine.
 
 mod decode;
+mod figure;
 mod images;
 mod luau;
 mod module;
@@ -36,6 +37,7 @@ mod luau_require_tests;
 #[cfg(test)]
 mod luau_tests;
 
+pub use figure::draw_figure;
 pub use images::{Arrival, Assets, Bitmap, Diagnostic, ImageLimits, Images};
 pub use luau::{COMPONENT as LUAU_COMPONENT, Script};
 pub use module::{Answer, Frame, Module, Runner, Update};

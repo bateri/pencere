@@ -6,6 +6,10 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+### Changed
+
+- The runner shows the views of version `2.0` of the kit's page API (`lua` `2.0`).
+
 ### Added
 
 - **`pencere upgrade`.** Replaces the command with the newest release of it, as `install.sh` would

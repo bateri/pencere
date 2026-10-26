@@ -51,7 +51,7 @@ const READ_LIMIT: usize = 64 * 1024;
 /// The version of the interface of a view the terminal draws itself (a WebAssembly component or a
 /// Lua script) that the stand-in speaks. It draws nothing: what a program is tried against is the
 /// conversation.
-const KIT_VERSION: &str = "1.0";
+const KIT_VERSION: &str = "2.0";
 
 /// A pixel is not a cell, but the view's container is told in pixels.
 const CELL_WIDTH: u32 = 8;

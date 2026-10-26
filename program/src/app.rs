@@ -24,8 +24,8 @@ use crate::{Bundle, BundleError, File, Kind, View, ViewControl};
 /// The variable `pencere dev` sets to the project's `src/` for the program it runs.
 pub const DEV_VARIABLE: &str = "PENCERE_DEV_APP";
 
-/// The version of the page API a page of the kit is written against (`lua` 1.0), as a Lua app's.
-const PAGE_VERSION: &str = "1.0";
+/// The version of the page API a page of the kit is written against (`lua` 2.0), as a Lua app's.
+const PAGE_VERSION: &str = "2.0";
 
 /// The directories of an app, under `src/`, and the page of each kind of view.
 const VIEW: &str = "view";

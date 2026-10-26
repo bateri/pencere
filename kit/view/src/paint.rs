@@ -4,18 +4,22 @@
 //! into whatever its renderer draws.
 
 use crate::element::Fit;
-use crate::layout::{Content, Laid, Node, Placed, TextLine};
-use crate::style::{Border, Shadow};
+use crate::layout::{Content, Laid, Node, Placed, Rich, TextLine, rich_boxes};
+use crate::style::{Border, Gradient, Shadow};
 use crate::text::wrap_lines;
-use crate::{Align, Color, Font, Measure, Point, Rect, Size};
+use crate::{Align, Color, Font, Measure, Path, Point, Rect, Size};
 
-/// A box: an optional fill, border (drawn inside, over the fill) and soft shadow (never
-/// under the box), cut at `clip`. `radii` are top-left, top-right, bottom-right, bottom-left.
+/// A box: an optional fill, a fill that runs from one colour to another over it, a border (drawn
+/// inside, over the fills) and a soft shadow (never under the box), cut at `clip`. `radii` are
+/// top-left, top-right, bottom-right, bottom-left.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Quad {
     pub rect: Rect,
     pub radii: [f32; 4],
     pub fill: Option<Color>,
+    /// From `from` to `to` along a line at `angle` degrees through the middle of the box, long
+    /// enough that its ends are the box's corners, as a style sheet's `linear-gradient`.
+    pub gradient: Option<Gradient>,
     pub border: Option<Border>,
     pub shadow: Option<Shadow>,
     pub clip: Rect,
@@ -90,12 +94,27 @@ impl Picture {
     }
 }
 
+/// Paths to draw in a box: what a canvas has ([`crate::canvas`]). The paths are in **points** of
+/// the box, from its top-left corner; `rect` is the box on the page, pixels, and `scale` the pixels
+/// to a point, so a host draws a path's point `(x, y)` at `(rect.x + x * scale, rect.y + y * scale)`
+/// and a line `width` points wide `width * scale` pixels wide. The colours are unresolved, with the
+/// element's opacity on them. The sandbox crate turns a figure into pixels for every host
+/// (`pencere_sandbox::figure`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Figure {
+    pub rect: Rect,
+    pub scale: f32,
+    pub paths: Vec<Path>,
+    pub clip: Rect,
+}
+
 /// One thing the page draws.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Paint {
     Quad(Quad),
     Text(Run),
     Image(Picture),
+    Figure(Figure),
 }
 
 /// A page's draw list.
@@ -125,11 +144,20 @@ impl Laid {
                 continue;
             }
             let faded = |color: Color| color.faded(opacity);
-            if node.fill.is_some() || node.border.is_some() || node.shadow.is_some() {
+            if node.fill.is_some()
+                || node.gradient.is_some()
+                || node.border.is_some()
+                || node.shadow.is_some()
+            {
                 list.items.push(Paint::Quad(Quad {
                     rect: node.rect,
                     radii: node.radii,
                     fill: node.fill.map(faded),
+                    gradient: node.gradient.map(|gradient| Gradient {
+                        from: faded(gradient.from),
+                        to: faded(gradient.to),
+                        ..gradient
+                    }),
                     border: node.border.map(|border| Border {
                         color: faded(border.color),
                         ..border
@@ -153,9 +181,24 @@ impl Laid {
                         list.items.push(Paint::Text(run));
                     }
                 }
+                Content::Rich(_) if self.in_text_field(index) => {}
+                Content::Rich(rich) => {
+                    let grounds = self.grounds_under(index);
+                    paint_rich(&mut list, node, rich, &grounds);
+                }
                 Content::Image(image) => {
                     if let Some(picture) = place_image(node, image) {
                         list.items.push(Paint::Image(picture));
+                    }
+                }
+                Content::Canvas(paths) => {
+                    if !paths.is_empty() {
+                        list.items.push(Paint::Figure(Figure {
+                            rect: node.rect,
+                            scale: self.scale,
+                            paths: paths.iter().map(|path| path.faded(opacity)).collect(),
+                            clip: node.clip.intersect(node.rect),
+                        }));
                     }
                 }
                 Content::Spark(spark) => {
@@ -183,6 +226,15 @@ impl Laid {
         while let Some(node) = at.and_then(|at| self.nodes.get(at)) {
             // A box with no room is not drawn, and so is not a ground.
             let drawn = !node.hidden && node.rect.w > 0.0 && node.rect.h > 0.0;
+            // A fill that runs from one colour to another is read as its middle, over the plain
+            // fill under it.
+            if let Some(gradient) = node.gradient.filter(|_| drawn) {
+                let middle = gradient.middle().faded(node.opacity);
+                grounds.push(middle);
+                if middle.is_opaque() {
+                    break;
+                }
+            }
             if let Some(fill) = node.fill.filter(|_| drawn) {
                 let fill = fill.faded(node.opacity);
                 grounds.push(fill);
@@ -193,6 +245,49 @@ impl Laid {
             at = node.parent;
         }
         grounds
+    }
+}
+
+/// The lines of a text of many looks: for each piece, the ground of its part where it has one and
+/// its words, in the look of its part, read against that ground and then `grounds`.
+fn paint_rich(list: &mut DrawList, node: &Node, rich: &Rich, grounds: &[Color]) {
+    let opacity = node.opacity;
+    let clip = if rich.base.truncate {
+        node.clip.intersect(node.rect)
+    } else {
+        node.clip
+    };
+    for (rect, piece) in rich_boxes(node, rich) {
+        let Some(look) = rich.looks.get(piece.span) else {
+            continue;
+        };
+        let mut under = grounds.to_vec();
+        if let Some(background) = look.background {
+            let background = background.faded(opacity);
+            list.items.push(Paint::Quad(Quad {
+                rect,
+                radii: [0.0; 4],
+                fill: Some(background),
+                gradient: None,
+                border: None,
+                shadow: None,
+                clip,
+            }));
+            under.insert(0, background);
+        }
+        if piece.text.trim().is_empty() {
+            continue;
+        }
+        list.items.push(Paint::Text(Run {
+            origin: Point::new(rect.x, rect.y),
+            text: piece.text.clone(),
+            font: look.font,
+            color: look.color.faded(opacity),
+            grounds: under,
+            clip,
+            underline: look.underline,
+            strike: look.strike,
+        }));
     }
 }
 
@@ -406,6 +501,7 @@ fn paint_spark(
             rect,
             radii: [0.0; 4],
             fill: Some(color),
+            gradient: None,
             border: None,
             shadow: None,
             clip,

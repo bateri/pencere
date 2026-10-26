@@ -6,6 +6,27 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+### Added
+
+- The interface is `pencere:view@2.0.0`: overlays and anchors, texts of many looks, canvases,
+  commands, dragging, roles and states, fills from one colour to another, and the middle button, keys
+  that go up, the modifiers alone, commands and dropped files as events (see `pencere-view`). What a
+  module says of them is read with the care the rest is: parts of a text, paths of a canvas and
+  commands of an element are held to `ModuleLimits::parts` (1024), steps of a path to `values`, and
+  every part counts toward the bytes of a frame.
+- `draw_figure`: a canvas's paths in pixels (premultiplied RGBA, the box's size), each colour as the
+  host resolves it — the one rasteriser every host draws a figure with. The same figure in the same
+  colours has the same `Bitmap::id`, and a figure's id is never an image's.
+- The interpreter speaks the Lua page API `2` (`pencere.version`): `pencere.rich`, `pencere.span`,
+  `pencere.canvas`, `pencere.path`, `pencere.keys`, the element methods `overlay`, `anchor`,
+  `bg_gradient`, `max_h`, `role`, `checked`, `selected`, `expanded`, `disabled`, `value`, `command`,
+  `focused`, `draggable` and `drop_target`, `layout.drag_source` and `layout.drop_target`, the drag
+  of `pencere.Ui`, and the events `key_up`, `mods`, `command` and `files`.
+
+### Changed
+
+- A component written against `pencere:view@1.0.0` is refused, in words that name both versions.
+
 ## [0.3.1] - 2026-10-26
 
 ### Fixed

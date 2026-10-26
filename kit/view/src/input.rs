@@ -53,6 +53,8 @@ impl Mods {
 pub enum Button {
     Left,
     Right,
+    /// The wheel pressed down, or the third button.
+    Middle,
 }
 
 /// One thing the person did, in the page's points (the page's top-left corner is the origin).
@@ -85,6 +87,14 @@ pub enum Input {
         key: Key,
         mods: Mods,
     },
+    /// A key the page was told of went up.
+    KeyUp {
+        key: Key,
+        mods: Mods,
+    },
+    /// The modifiers held changed, with no other key: what a page that shows something else while
+    /// a modifier is held (alt for the other action of a button) follows.
+    Mods(Mods),
 }
 
 /// Everything a page is told: what the person did to the page, the text a text field of the
@@ -104,6 +114,15 @@ pub enum Event {
     Focus(Option<Id>),
     /// The person picked the entry with this index of the menu the page asked for.
     MenuPick(usize),
+    /// The person asked for the command named this, from the host's list of the page's commands
+    /// or by its keys ([`crate::Command`]): the key is not told as well.
+    Command(Id),
+    /// Files were dropped on the page at `at`, from outside it: their paths, as the system that
+    /// the host runs on writes them.
+    Files {
+        at: Point,
+        paths: Vec<String>,
+    },
 }
 
 /// The shape the pointer takes over the page.

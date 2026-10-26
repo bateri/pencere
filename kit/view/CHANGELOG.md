@@ -6,6 +6,47 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
+
+### Added
+
+- **Overlays.** `overlay()` takes an element out of the flow and out of every box that holds it: it
+  is placed against the page by its `inset`, drawn after everything else, cut by no box around it
+  and found by the pointer first, and is still as faint as what holds it, hidden with it, and on the
+  path a key takes out of it. `anchor(id, Side)` places one beside another element (`Side::Below`,
+  `Above`, `Right`, `Left`), with `anchor_gap` and `anchor_align`; it goes on the other side where
+  the page has not the room, and is moved along the side to stay on the page.
+- **Text of many looks.** `rich([span("…"), …])`: one paragraph of parts (`Span`), each with its own
+  colour, weight, italic, underline, strike, face, a ground behind its words (`bg`) and a `link(id)`
+  that answers the pointer by that name (`Laid::hit`) and is read as a link. It wraps across the parts
+  and does not break a word made of two of them; one that does not wrap is cut with "…" inside the
+  part that runs over.
+- **Canvases.** `canvas([path()…])`: paths of `move_to`, `line_to`, `quad_to`, `cubic_to`, `close`,
+  `rect`, `arc` (degrees clockwise from the top) and `circle`, with a `fill` and a `stroke`, drawn
+  in the box's points. The draw list hands them to the host as a `Paint::Figure`.
+- **Commands.** `command(Command::new(id, title).keys(Shortcut::parse("cmd+k")?))` on an element and
+  `focused(true)` on the one the keyboard is on; `Laid::commands` is what can be done now (the
+  focused element's and those of the boxes around it, the nearest first, a key taken by the nearest)
+  and `Laid::command_for(key, mods)` the command a key does. `Event::Command(id)` tells a page the
+  command asked for.
+- **Dragging.** `draggable(id)` and `drop_target(id)`; `Ui` keeps the drag (`dragging`, `take_drop`,
+  `cancel_drag`, after `DRAG_START` points), and `Laid::drag_source` and `Laid::drop_target` (in
+  `Queries` too) say what is at a point.
+- **Screen readers.** `role(AccessibleRole::…)` — `Link`, `Checkbox`, `Switch`, `Radio`, `Tab`,
+  `MenuItem`, `Heading(level)`, `Image`, `Progress`, `Slider` besides `Button` and `Text` — and the
+  state `checked`, `selected`, `expanded`, `disabled` (which also keeps an element from the pointer
+  and the keyboard) and `value`, in `Accessible::state`.
+- `bg_gradient(angle, from, to)`: a fill from one colour to another (`Quad::gradient`); a line of
+  text on it is read against its middle.
+- `Button::Middle`, `Input::KeyUp`, `Input::Mods` and `Event::Files`.
+- `max_h` and `scroll_x` on an element, as the Lua page API has them.
+
+### Changed
+
+- `Kind`, `Meta`, `Style`, `Paint`, `Quad`, `Accessible`, `AccessibleRole`, `Input`, `Event`,
+  `Button` and the `Queries` trait have the members above: a host or a page that matches them all
+  or builds them whole is written again for them.
+
 ## [0.3.1] - 2026-10-26
 
 ### Fixed

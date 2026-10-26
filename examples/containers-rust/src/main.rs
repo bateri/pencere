@@ -48,7 +48,7 @@ const SCRIPT: &[u8] = include_bytes!("../../../kit/luau/examples/containers.lua"
 
 /// The version of the interface of the views the terminal draws itself that the page is written
 /// against.
-const VERSION: &str = "1.0";
+const VERSION: &str = "2.0";
 
 /// How often the made-up host reports.
 const EVERY: Duration = Duration::from_secs(1);
