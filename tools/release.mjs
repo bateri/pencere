@@ -8,12 +8,12 @@
 //   rehearse <line>            everything a release of the prepared line checks, without changing
 //                              anything, on any branch
 //
-// In the release workflow (.github/workflows/release.yml), which runs after the gate is green on
-// main, or when it is started by hand:
+// In the release workflow (.github/workflows/release.yml), which runs on every push to main (and
+// runs the gate itself before it releases anything), or when it is started by hand:
 //
 //   plan [<line>]              the lines whose version has no tag yet (or the one named, which may be
-//                              tagged on this commit already, to finish its release): the checks of
-//                              each, and what the workflow reads
+//                              tagged already, on this commit or an earlier one of main, to finish its
+//                              release from there): the checks of each, and what the workflow reads
 //   package <line>             the checks of each package of the line (for a crate, its dry run)
 //   dist <line> [dir]          a binary line: the files of the directory are this version's, and intact
 //   tag <line>                 the annotated tag of the line's version on this commit, pushed
@@ -650,17 +650,17 @@ function dist(name, dir) {
 /**
  * The lines to release on this commit, for the workflow to read from its output file: every line
  * whose version has no tag yet, or the one line named (a run started by hand), which may be tagged
- * on this commit already, so that a release that stopped half way is finished. Each is checked
- * (`lineChecks`) before it is named. With `rehearse`, the line named is built and tried, and
- * nothing is tagged or published.
+ * already, so that a release that stopped half way is finished. Tagged on this commit, it is
+ * finished here; tagged on an earlier commit of the branch (main went on before it was finished),
+ * it is finished from that commit, which `sha=` names for the workflow. Each line released from
+ * this commit is checked (`lineChecks`) before it is named. With `rehearse`, the line named is
+ * built and tried, and nothing is tagged or published.
  */
 function plan(name) {
   const rehearsing = process.env.RELEASE_REHEARSE === "true";
-  if (process.env.RELEASE_REQUIRE_CHECK === "true" && !rehearsing) {
-    requireGreenCheck(run("git", ["rev-parse", "HEAD"]));
-  }
   const ids = name === undefined || name === "" ? Object.keys(LINES) : [lineOf(name).id];
   const chosen = [];
+  let resumeAt;
   for (const id of ids) {
     const line = lineOf(id);
     if (rehearsing) {
@@ -670,10 +670,23 @@ function plan(name) {
     // Every release has a tag: a line whose version has one, and is not named, is released already
     // (and its changelog may have gone on to the next one's Unreleased).
     if (ids.length > 1 && tagExists(tagOf(line, lineVersion(line)))) continue;
-    const { version, tag } = lineChecks(line);
-    if (tagExists(tag)) {
-      if (!tagIsHead(tag)) refuse(`${tag} is on another commit: a tag is never moved`);
+    const tag = tagOf(line, lineVersion(line));
+    if (tagExists(tag) && !tagIsHead(tag)) {
+      // Named, a line tagged on an earlier commit of main whose release is not public is finished
+      // from that commit: main has gone on since, and a tag is never moved. What the workflow
+      // checks, builds and publishes is then the tagged commit's.
+      if (!succeeds("git", ["merge-base", "--is-ancestor", tag, "HEAD"])) {
+        refuse(`${tag} is on a commit that is not one of this branch's: a tag is never moved`);
+      }
       if (releaseState(tag) === "public") refuse(`the GitHub release ${tag} is public already`);
+      resumeAt = run("git", ["rev-list", "-n", "1", tag]);
+      console.error(`${line.title} ${lineVersion(line)} is to be finished from ${tag}`);
+      chosen.push(id);
+      continue;
+    }
+    const { version } = lineChecks(line);
+    if (tagExists(tag) && releaseState(tag) === "public") {
+      refuse(`the GitHub release ${tag} is public already`);
     }
     console.error(`${line.title} ${version} is to be released as ${tag}`);
     chosen.push(id);
@@ -682,40 +695,8 @@ function plan(name) {
   // Read by the workflow from its output file.
   console.log(`lines=${JSON.stringify(chosen)}`);
   for (const id of Object.keys(LINES)) console.log(`${id}=${chosen.includes(id)}`);
-}
-
-/** The run of the gate (check.yml) for the commit, on main, must have finished, and well. */
-function requireGreenCheck(sha) {
-  const runs = JSON.parse(
-    run("gh", [
-      "run",
-      "list",
-      "--workflow",
-      "check.yml",
-      "--event",
-      "push",
-      "--branch",
-      "main",
-      "--commit",
-      sha,
-      "--limit",
-      "10",
-      "--json",
-      "databaseId,status,conclusion",
-    ]),
-  );
-  const [latest] = runs;
-  if (latest === undefined) refuse(`no run of the gate for ${sha.slice(0, 7)} on main`);
-  if (latest.status !== "completed") {
-    refuse(
-      `the gate's run ${latest.databaseId} for ${sha.slice(0, 7)} is ${latest.status}: wait for it`,
-    );
-  }
-  if (latest.conclusion !== "success") {
-    refuse(
-      `the gate's run ${latest.databaseId} for ${sha.slice(0, 7)} ended in ${latest.conclusion}`,
-    );
-  }
+  // The commit the workflow releases, when it is not the one it was started on.
+  if (resumeAt !== undefined) console.log(`sha=${resumeAt}`);
 }
 
 /** The annotated tag of the line's version on this commit, pushed; left as it is if it is there. */

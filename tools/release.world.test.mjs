@@ -331,47 +331,42 @@ describe("release.mjs plan", () => {
     expect(w.run("plan", "cli").err).toContain("the GitHub release cli-v0.1.0 is public already");
   });
 
-  it("refuses to finish a release whose tag is on another commit", () => {
+  it("finishes a release tagged on an earlier commit of the branch from that commit", () => {
     const w = world();
     w.git("tag", "-a", "cli-v0.1.0", "-m", "x");
+    w.state.gh.releases["cli-v0.1.0"] = { draft: true };
+    const tagged = w.git("rev-parse", "HEAD");
     w.git("commit", "--allow-empty", "-q", "-m", "after the tag");
+    // What main has gone on to is not asked: it is not what is released.
+    write(w.root, "cli/CHANGELOG.md", "# Changelog\n\n## [Unreleased]\n\n- the next one\n");
+    w.git("commit", "-q", "-am", "the next one");
     const done = w.run("plan", "cli");
-    expect(done.status).toBe(1);
-    expect(done.err).toContain("cli-v0.1.0 is on another commit: a tag is never moved");
+    expect(done.status).toBe(0);
+    expect(outputs(done)).toMatchObject({ lines: '["cli"]', cli: "true", sha: tagged });
+    expect(done.err).toContain("is to be finished from cli-v0.1.0");
+    // Released on the commit it was started on, it names none.
+    expect(outputs(w.run("plan", "crates")).sha).toBeUndefined();
+    w.state.gh.releases["cli-v0.1.0"].draft = false;
+    expect(w.run("plan", "cli").err).toContain("the GitHub release cli-v0.1.0 is public already");
   });
 
-  it("started by hand, asks for the gate's green run on main for this commit", () => {
+  it("refuses to finish a release whose tag is on a commit that is not one of the branch's", () => {
     const w = world();
-    const asking = { RELEASE_REQUIRE_CHECK: "true" };
-    const sha = w.git("rev-parse", "HEAD");
-    w.state.gh.runs = [];
-    expect(w.runWith(asking, "plan", "cli").err).toContain(
-      `no run of the gate for ${sha.slice(0, 7)} on main`,
-    );
-    w.state.gh.runs = [{ databaseId: 9, status: "in_progress", conclusion: "" }];
-    expect(w.runWith(asking, "plan", "cli").err).toContain("run 9 for");
-    w.state.gh.runs = [
-      { databaseId: 10, status: "completed", conclusion: "failure" },
-      { databaseId: 9, status: "completed", conclusion: "success" },
-    ];
-    const refused = w.runWith(asking, "plan", "cli");
-    expect(refused.err).toContain("ended in failure");
-    expect(refused.out).toBe("");
-    expect(w.said("gh").at(-1)).toContain(
-      `run list --workflow check.yml --event push --branch main --commit ${sha}`,
-    );
-    w.state.gh.runs = [{ databaseId: 11, status: "completed", conclusion: "success" }];
-    expect(outputs(w.runWith(asking, "plan", "cli")).lines).toBe('["cli"]');
+    w.git("checkout", "-q", "-b", "aside");
+    w.git("commit", "--allow-empty", "-q", "-m", "aside");
+    w.git("tag", "-a", "cli-v0.1.0", "-m", "x");
+    w.git("checkout", "-q", "main");
+    w.git("commit", "--allow-empty", "-q", "-m", "on main");
+    const done = w.run("plan", "cli");
+    expect(done.status).toBe(1);
+    expect(done.err).toContain("not one of this branch's: a tag is never moved");
+    expect(done.out).toBe("");
   });
 
   it("rehearsing, names the line whatever its tags, and asks nothing", () => {
     const w = world();
     w.git("tag", "cli-v0.1.0");
-    const done = w.runWith(
-      { RELEASE_REHEARSE: "true", RELEASE_REQUIRE_CHECK: "true" },
-      "plan",
-      "cli",
-    );
+    const done = w.runWith({ RELEASE_REHEARSE: "true" }, "plan", "cli");
     expect(done.status).toBe(0);
     expect(outputs(done).lines).toBe('["cli"]');
     expect(w.calls()).toEqual([]);

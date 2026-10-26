@@ -1,19 +1,28 @@
 # The gate on every push to main and every pull request: `make check` and `make check-heavy`,
-# on the two systems the specification describes (Appendix B measures the tty of both).
+# on the two systems the specification describes (Appendix B measures the tty of both). The release
+# workflow runs it too (`workflow_call`), on the commit it releases, before it tags anything.
 name: check
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to check
+        type: string
+        required: true
 
 permissions:
   contents: read
 
 # A new push to a pull request makes the run of the one before it moot. On main every commit keeps
 # its own run, so each has a result.
+# Called by the release workflow, the run is that workflow's (`github.workflow`), and is kept apart
+# from the gate's own run of the same push.
 concurrency:
-  group: check-${{ github.ref }}
+  group: check-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -25,6 +34,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Empty but when the release workflow calls: the commit of the push or the pull request.
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
