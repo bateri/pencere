@@ -9,7 +9,7 @@
 //! other side says.
 
 use crate::Element;
-pub use crate::element::{Fit, Image, Kind, Meta, Spark};
+pub use crate::element::{FieldKind, Fit, Image, Kind, Meta, Spark};
 pub use crate::style::{Direction, Display, Items, Justify, Length, Overflow, Style, TextStyle};
 
 /// One element of a tree laid down in a list.
@@ -61,7 +61,7 @@ impl Element {
         nodes.push(Node {
             kind: self.kind.clone(),
             style: self.style.clone(),
-            meta: self.meta,
+            meta: self.meta.clone(),
             children: u32::try_from(self.children.len()).unwrap_or(u32::MAX),
         });
         for child in &self.children {
@@ -115,7 +115,7 @@ impl Element {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Fit, Role, div, image, spacer, spark, text};
+    use crate::{Fit, Id, Role, div, image, spacer, spark, text};
 
     fn page() -> Element {
         div()
@@ -138,7 +138,12 @@ mod tests {
                     .opacity(0.5)
                     .size(16.0, 16.0),
             )
-            .child(div().text_field().h(18.0))
+            .child(
+                div()
+                    .field(Id::new(9), FieldKind::Secret)
+                    .label("Password")
+                    .h(18.0),
+            )
     }
 
     #[test]

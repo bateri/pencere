@@ -151,11 +151,16 @@ int l_bounds(lua_State* state) {
 int l_scroll_extent(lua_State* state) {
     pencere_view_types_extent_t extent;
     if (pencere_view_layout_scroll_extent(bridge::id_of(state, 1), &extent)) {
-        lua_createtable(state, 0, 2);
-        lua_pushnumber(state, extent.content);
+        // Down as `content` and `view`, across as `content_w` and `view_w`.
+        lua_createtable(state, 0, 4);
+        lua_pushnumber(state, extent.content.h);
         lua_setfield(state, -2, "content");
-        lua_pushnumber(state, extent.view);
+        lua_pushnumber(state, extent.view.h);
         lua_setfield(state, -2, "view");
+        lua_pushnumber(state, extent.content.w);
+        lua_setfield(state, -2, "content_w");
+        lua_pushnumber(state, extent.view.w);
+        lua_setfield(state, -2, "view_w");
     } else {
         lua_pushnil(state);
     }
@@ -173,13 +178,6 @@ int l_path_of(lua_State* state) {
     view_list_id_t ids = {nullptr, 0};
     pencere_view_layout_path_of(bridge::id_of(state, 1), &ids);
     push_ids(state, ids);
-    return 1;
-}
-
-int l_text_field(lua_State* state) {
-    pencere_view_types_rect_t rect;
-    if (pencere_view_layout_text_field(&rect)) push_rect(state, rect);
-    else lua_pushnil(state);
     return 1;
 }
 
@@ -500,7 +498,6 @@ void host_functions(lua_State* state) {
         {"scroll_extent", l_scroll_extent},
         {"focus_order", l_focus_order},
         {"path_of", l_path_of},
-        {"text_field", l_text_field},
         {nullptr, nullptr},
     };
     lua_newtable(state);

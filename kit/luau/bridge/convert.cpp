@@ -125,6 +125,18 @@ bool flag(lua_State* L, int t, const char* name) {
 
 // The word `name` holds, as its place in `words`; `fallback` when it holds nothing. -1 when it
 // is none of the words (the caller says which it was).
+// A field that is true, false or not said.
+view_option_bool_t optional_flag(lua_State* L, int t, const char* name) {
+    view_option_bool_t out = {};
+    get(L, t, name);
+    if (!lua_isnil(L, -1)) {
+        out.is_some = true;
+        out.val = lua_toboolean(L, -1) != 0;
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
 int word(lua_State* L, int t, const char* name, const char* const* words, int count, int fallback) {
     get(L, t, name);
     int found = fallback;
@@ -312,7 +324,21 @@ pencere_view_types_source_t forms_at(lua_State* L, int t) {
 
 const char kColourIs[] =
     "a colour is a role's name, a \"#rrggbb\" or \"#rrggbbaa\" value, { light = value, dark = value }, "
-    "or one of those with an opacity: { colour, alpha }";
+    "one of those taken toward another (pencere.mix), or any of those with an opacity: { colour, alpha }";
+
+// What a colour is taken toward (`pencere.mix`): a role's name, a value, or a value for each
+// brightness, at the absolute stack index `t`.
+pencere_view_types_source_t toward_at(lua_State* L, int t) {
+    int kind = lua_type(L, t);
+    if (kind == LUA_TSTRING) return source_of(L, lua_tostring(L, t));
+    if (kind == LUA_TTABLE) {
+        lua_rawgetfield(L, t, "light");
+        bool forms = !lua_isnil(L, -1);
+        lua_pop(L, 1);
+        if (forms) return forms_at(L, t);
+    }
+    luaL_error(L, "a colour is taken toward a role's name, a value or { light = value, dark = value }");
+}
 
 // A colour: a role's name, a value, a value for each brightness, or any of those with an
 // opacity: `{colour, alpha}`.
@@ -341,6 +367,13 @@ pencere_view_types_color_t color_at(lua_State* L, int index) {
         lua_pop(L, 1);
         lua_rawgeti(L, index, 2);
         if (lua_type(L, -1) == LUA_TNUMBER) color.alpha = (float)lua_tonumber(L, -1);
+        lua_pop(L, 1);
+        lua_rawgetfield(L, index, "toward");
+        if (!lua_isnil(L, -1)) {
+            color.mix.is_some = true;
+            color.mix.val.toward = toward_at(L, lua_gettop(L));
+            color.mix.val.amount = number(L, index, "amount", 0.0f);
+        }
         lua_pop(L, 1);
     } else {
         luaL_error(L, "%s", kColourIs);
@@ -505,6 +538,7 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& ar
         lua_pop(L, 1);
     }
     lua_pop(L, 1);
+    out.opacity = number(L, s, "opacity", 1.0f);
     get(L, s, "text");
     if (lua_type(L, -1) == LUA_TTABLE) {
         int text = lua_gettop(L);
@@ -516,6 +550,9 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& ar
             out.text.weight.is_some = true;
             out.text.weight.val = weight.val < 0 ? 0 : (weight.val > 65535 ? 65535 : (uint16_t)weight.val);
         }
+        out.text.italic = optional_flag(L, text, "italic");
+        out.text.underline = optional_flag(L, text, "underline");
+        out.text.strike = optional_flag(L, text, "strike");
         out.text.color = optional_color(L, text, "color");
         int align = word(L, text, "align", kAlign, 3, -1);
         if (align >= 0) out.text.align = {true, (uint8_t)align};
@@ -546,6 +583,7 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
     // Zero is the default of everything but the direction: a box is a column.
     memset(&nodes.ptr[at], 0, sizeof(pencere_view_types_node_t));
     nodes.ptr[at].style.direction = PENCERE_VIEW_TYPES_DIRECTION_COLUMN;
+    nodes.ptr[at].style.opacity = 1.0f;
 
     get(L, element, "kind");
     const char* kind = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "box";
@@ -601,7 +639,6 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         int fit = word(L, picture, "fit", kFit, 2, 0);
         image.fit = (pencere_view_types_fit_t)fit;
         image.tint = optional_color(L, picture, "tint");
-        image.opacity = number(L, picture, "opacity", 1.0f);
         lua_pop(L, 1);
         nodes.ptr[at].content.tag = PENCERE_VIEW_TYPES_CONTENT_IMAGE;
         nodes.ptr[at].content.val.image = image;
@@ -626,7 +663,17 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         lua_pop(L, 1);
         nodes.ptr[at].pressable = flag(L, meta, "pressable");
         nodes.ptr[at].focusable = flag(L, meta, "focusable");
-        nodes.ptr[at].text_field = flag(L, meta, "text_field");
+        static const char* const kFieldKinds[] = {"line", "lines", "secret"};
+        int field = word(L, meta, "field", kFieldKinds, 3, -1);
+        if (field >= 0) nodes.ptr[at].field = {true, (uint8_t)field};
+        get(L, meta, "label");
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            size_t length = 0;
+            const char* bytes = lua_tolstring(L, -1, &length);
+            nodes.ptr[at].label.is_some = true;
+            nodes.ptr[at].label.val = add_words(flat.arenas, bytes, length);
+        }
+        lua_pop(L, 1);
     }
     lua_pop(L, 1);
 
@@ -833,6 +880,7 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_number(L, "x", event.val.press.at.x);
             set_number(L, "y", event.val.press.at.y);
             set_word(L, "button", button_name(event.val.press.button));
+            set_number(L, "count", (double)event.val.press.count);
             set_mods(L, event.val.press.mods);
             break;
         case PENCERE_VIEW_TYPES_EVENT_RELEASE:
@@ -845,23 +893,40 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_word(L, "type", "scroll");
             set_number(L, "x", event.val.scroll.at.x);
             set_number(L, "y", event.val.scroll.at.y);
+            set_number(L, "dx", event.val.scroll.dx);
             set_number(L, "dy", event.val.scroll.dy);
             break;
         case PENCERE_VIEW_TYPES_EVENT_KEY: {
-            static const char* const keys[] = {"up",   "down", "left", "right",  "page_up", "page_down",
-                                               "home", "end",  "enter", "escape", "tab"};
+            static const char* const keys[] = {"up",   "down", "left",  "right",  "page_up",   "page_down", "home",
+                                               "end",  "enter", "escape", "tab", "backspace", "delete"};
             set_word(L, "type", "key");
             const auto& key = event.val.key.key;
-            if (key.tag == PENCERE_VIEW_TYPES_KEY_CHARACTER) push_character(L, key.val.character);
-            else lua_pushstring(L, key.tag < 11 ? keys[key.tag] : "unknown");
+            if (key.tag == PENCERE_VIEW_TYPES_KEY_CHARACTER) {
+                push_character(L, key.val.character);
+            } else if (key.tag == PENCERE_VIEW_TYPES_KEY_FUNCTION) {
+                char name[8];
+                snprintf(name, sizeof name, "f%u", (unsigned)key.val.function);
+                lua_pushstring(L, name);
+            } else {
+                lua_pushstring(L, key.tag < 13 ? keys[key.tag] : "unknown");
+            }
             lua_setfield(L, -2, "key");
             set_mods(L, event.val.key.mods);
             break;
         }
         case PENCERE_VIEW_TYPES_EVENT_TEXT:
             set_word(L, "type", "text");
-            lua_pushlstring(L, (const char*)event.val.text.ptr, event.val.text.len);
+            push_id(L, event.val.text.field);
+            lua_setfield(L, -2, "field");
+            lua_pushlstring(L, (const char*)event.val.text.text.ptr, event.val.text.text.len);
             lua_setfield(L, -2, "text");
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_FOCUS:
+            set_word(L, "type", "focus");
+            if (event.val.focus.is_some) {
+                push_id(L, event.val.focus.val);
+                lua_setfield(L, -2, "field");
+            }
             break;
         case PENCERE_VIEW_TYPES_EVENT_MENU_PICK:
             set_word(L, "type", "menu");
@@ -885,11 +950,54 @@ int reply_call(lua_State* L) {
     if (kind != LUA_TTABLE) luaL_error(L, "a reply is nothing, true, false or a table");
     out.redraw = flag(L, 1, "redraw");
     out.close = flag(L, 1, "close");
-    static const char* const cursors[] = {"arrow", "pointer", "text"};
-    out.cursor = (uint8_t)word(L, 1, "cursor", cursors, 3, 0);
-    static const char* const keyboards[] = {"page", "field"};
-    int keyboard = word(L, 1, "keyboard", keyboards, 2, -1);
-    if (keyboard >= 0) out.keyboard = {true, (uint8_t)keyboard};
+    static const char* const cursors[] = {"arrow",           "pointer",     "text", "resize_horizontal",
+                                          "resize_vertical", "not_allowed", "grab", "grabbing",
+                                          "crosshair"};
+    out.cursor = (uint8_t)word(L, 1, "cursor", cursors, 9, 0);
+    // Where the keyboard goes: "page", or { field = name }.
+    get(L, 1, "keyboard");
+    if (lua_type(L, -1) == LUA_TSTRING && strcmp(lua_tostring(L, -1), "page") == 0) {
+        out.keyboard.is_some = true;
+        out.keyboard.val.tag = PENCERE_VIEW_TYPES_KEYBOARD_PAGE;
+    } else if (lua_type(L, -1) == LUA_TTABLE) {
+        int keyboard = lua_gettop(L);
+        get(L, keyboard, "field");
+        if (lua_isnil(L, -1)) luaL_error(L, "keyboard is \"page\" or { field = the field's name }");
+        out.keyboard.is_some = true;
+        out.keyboard.val.tag = PENCERE_VIEW_TYPES_KEYBOARD_FIELD;
+        out.keyboard.val.val.field = id_of(L, lua_gettop(L));
+        lua_pop(L, 1);
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "keyboard is \"page\" or { field = the field's name }");
+    }
+    lua_pop(L, 1);
+    // The texts the fields are to hold: { [name] = "text", ... }.
+    get(L, 1, "fill");
+    if (lua_type(L, -1) == LUA_TTABLE) {
+        int fill = lua_gettop(L);
+        std::vector<pencere_view_types_field_text_t> texts;
+        lua_pushnil(L);
+        while (lua_next(L, fill) != 0) {
+            if (texts.size() >= kMaxNodes) luaL_error(L, "fill names more fields than a page may have");
+            if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "fill gives each field a string");
+            pencere_view_types_field_text_t said = {};
+            said.field = id_of(L, lua_gettop(L) - 1);
+            size_t length = 0;
+            const char* bytes = lua_tolstring(L, -1, &length);
+            said.text = host_string(bytes, length);
+            texts.push_back(said);
+            lua_pop(L, 1);
+        }
+        if (!texts.empty()) {
+            size_t bytes = texts.size() * sizeof(pencere_view_types_field_text_t);
+            out.fill.ptr = (pencere_view_types_field_text_t*)xmalloc(bytes);
+            out.fill.len = texts.size();
+            memcpy(out.fill.ptr, texts.data(), bytes);
+        }
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "fill is a table of the fields' names and the texts they are to hold");
+    }
+    lua_pop(L, 1);
     get(L, 1, "copy");
     if (lua_type(L, -1) == LUA_TSTRING) {
         size_t length = 0;

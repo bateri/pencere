@@ -704,7 +704,7 @@ function Containers:toolbar()
 	local search = div():row():items_center():gap(6):h(28):w(220):min_w(120):px(8):rounded(6)
 		:bg("raised1"):border(1, "border"):press(SEARCH)
 		-- What the host's field says while it is empty.
-		:child(div():id(FIELD):text_field():grow(1):min_w(0):h(18):child(text("Filter by name, image, port\u{2026}")))
+		:child(div():text_field(FIELD):grow(1):min_w(0):h(18):child(text("Filter by name, image, port\u{2026}")))
 		:child(kbd("/", 10.5))
 	local counts = self:counts()
 	local function option(status, count, role)
@@ -1116,7 +1116,7 @@ function Containers:input(event, laid)
 	elseif kind == "scroll" then
 		local at = { x = event.x, y = event.y }
 		self.pointer = at
-		return self:reply(self.ui:scroll_by(laid, at, event.dy))
+		return self:reply(self.ui:scroll_by(laid, at, event.dx, event.dy))
 	elseif kind == "key" then
 		return self:key(event.key, event.mods, laid)
 	end
@@ -1141,7 +1141,7 @@ function Containers:press(laid, at, button, mods)
 	end
 	if id == SEARCH then
 		local reply = self:reply(false)
-		reply.keyboard = "field"
+		reply.keyboard = { field = FIELD }
 		return reply
 	end
 	local row = self:row_of(id)
@@ -1287,7 +1287,7 @@ function Containers:key(key, mods, laid)
 		return { close = true }
 	elseif key == "tab" or key == "/" then
 		local reply = self:reply(false)
-		reply.keyboard = "field"
+		reply.keyboard = { field = FIELD }
 		return reply
 	elseif key == "enter" then
 		return self:fold_key(rows, at, nil)

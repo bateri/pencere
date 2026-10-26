@@ -223,8 +223,9 @@ function Ui.new()
 		hover = nil,
 		pressed = nil,
 		focus = nil,
-		-- How far each scrolling box is scrolled, points.
+		-- How far each scrolling box is scrolled down and across, points.
 		scroll = {},
+		scroll_x = {},
 		-- The highlights coming and going.
 		fades = Fades.new(),
 	}, Ui)
@@ -273,6 +274,16 @@ function Ui:scroll_offset(id)
 	return self.scroll[id] or 0
 end
 
+-- How far the box named `id` is scrolled across.
+function Ui:scroll_offset_x(id)
+	return self.scroll_x[id] or 0
+end
+
+-- Sets how far it is scrolled across, as `set_scroll` does down.
+function Ui:set_scroll_x(id, offset)
+	self.scroll_x[id] = math.max(offset, 0)
+end
+
 -- Scrolls the box named `id` to `offset`, kept within its reach on the page `laid`. Whether it moved.
 function Ui:scroll_to(laid, id, offset)
 	local extent = laid.scroll_extent(id)
@@ -289,41 +300,52 @@ function Ui:set_scroll(id, offset)
 	self.scroll[id] = math.max(offset, 0)
 end
 
--- The wheel turned over `at` by `dy` points (positive: down the page). The innermost scrolling
--- box under the pointer that has room to go that way moves; one already at its end passes the
--- turn on to the box around it. Whether anything moved.
-function Ui:scroll_by(laid, at, dy)
-	for _, id in ipairs(laid.ids_at(at)) do
-		local extent = laid.scroll_extent(id)
-		if extent then
-			local was = self:scroll_offset(id)
-			local to = math.clamp(was + dy, 0, extent.max_offset)
-			if to ~= was then
-				self.scroll[id] = to
-				return true
+-- The wheel turned over `at` by `dx` and `dy` points (positive: across and down the page). For
+-- each way, the innermost scrolling box under the pointer that has room to go that way moves; one
+-- already at its end passes the turn on to the box around it. Whether anything moved.
+function Ui:scroll_by(laid, at, dx, dy)
+	local under = laid.ids_at(at)
+	local moved = false
+	for _, way in ipairs({ { dx or 0, self.scroll_x, "max_offset_x" }, { dy or 0, self.scroll, "max_offset" } }) do
+		local delta, offsets, reach = way[1], way[2], way[3]
+		if delta ~= 0 then
+			for _, id in ipairs(under) do
+				local extent = laid.scroll_extent(id)
+				if extent then
+					local was = offsets[id] or 0
+					local to = math.clamp(was + delta, 0, extent[reach])
+					if to ~= was then
+						offsets[id] = to
+						moved = true
+						break
+					end
+				end
 			end
 		end
 	end
-	return false
+	return moved
 end
 
 -- Brings every scrolled box back within its reach on the page `laid`. Whether any moved: the
 -- page is laid out again then, as its rows depend on the offset.
 function Ui:settle(laid)
 	local moved = false
-	for id, offset in pairs(self.scroll) do
-		local extent = laid.scroll_extent(id)
-		if not extent then
-			if not (offset > 0) then
-				self.scroll[id] = nil
-			end
-		else
-			local to = math.clamp(offset, 0, extent.max_offset)
-			moved = moved or to ~= offset
-			if to > 0 then
-				self.scroll[id] = to
+	for _, way in ipairs({ { self.scroll, "max_offset" }, { self.scroll_x, "max_offset_x" } }) do
+		local offsets, reach = way[1], way[2]
+		for id, offset in pairs(offsets) do
+			local extent = laid.scroll_extent(id)
+			if not extent then
+				if not (offset > 0) then
+					offsets[id] = nil
+				end
 			else
-				self.scroll[id] = nil
+				local to = math.clamp(offset, 0, extent[reach])
+				moved = moved or to ~= offset
+				if to > 0 then
+					offsets[id] = to
+				else
+					offsets[id] = nil
+				end
 			end
 		end
 	end

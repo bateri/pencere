@@ -15,13 +15,14 @@ pub enum Family {
 }
 
 /// A font as the host is asked for it: the size is in **pixels** (the engine multiplies the
-/// points a page is written in by the scale) and the weight on the CSS scale (100–900,
-/// 400 regular, 700 bold).
+/// points a page is written in by the scale), the weight on the CSS scale (100–900,
+/// 400 regular, 700 bold), and whether it is the face's italic.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Font {
     pub family: Family,
     pub size: f32,
     pub weight: u16,
+    pub italic: bool,
 }
 
 impl Eq for Font {}
@@ -31,6 +32,7 @@ impl std::hash::Hash for Font {
         self.family.hash(state);
         self.size.to_bits().hash(state);
         self.weight.hash(state);
+        self.italic.hash(state);
     }
 }
 

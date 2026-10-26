@@ -5,12 +5,12 @@
 use std::sync::Arc;
 
 use pencere_view::wire::{
-    self, Direction, Display, Fit, Image, Items, Justify, Kind, Length, Meta, Node, Overflow,
-    Spark, Style, TextStyle,
+    self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
+    Overflow, Spark, Style, TextStyle,
 };
 use pencere_view::{
     Align, Border, Button, Color, Cursor, Element, Event, Extent, Family, Id, Input, Key, Keyboard,
-    Laid, Menu, MenuEntry, Mods, Point, Rect, Reply, Rgba, Role, Shadow, Size, Source, Track,
+    Laid, Menu, MenuEntry, Mix, Mods, Point, Rect, Reply, Rgba, Role, Shadow, Size, Source, Track,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -154,7 +154,14 @@ impl pencere::view::layout::Host for Host {
 
     fn scroll_extent(&mut self, id: u64) -> Option<wit::Extent> {
         let Extent { content, view } = self.laid()?.scroll_extent(Id::new(id))?;
-        Some(wit::Extent { content, view })
+        let size = |size: Size| wit::Size {
+            w: size.w,
+            h: size.h,
+        };
+        Some(wit::Extent {
+            content: size(content),
+            view: size(view),
+        })
     }
 
     fn focus_order(&mut self) -> Vec<u64> {
@@ -167,10 +174,6 @@ impl pencere::view::layout::Host for Host {
         self.laid().map_or_else(Vec::new, |laid| {
             laid.path_of(Id::new(id)).into_iter().map(id_out).collect()
         })
-    }
-
-    fn text_field(&mut self) -> Option<wit::Rect> {
-        self.laid()?.text_field().map(rect_of)
     }
 }
 
@@ -213,6 +216,9 @@ fn key_in(key: Key) -> wit::Key {
         Key::Enter => wit::Key::Enter,
         Key::Escape => wit::Key::Escape,
         Key::Tab => wit::Key::Tab,
+        Key::Backspace => wit::Key::Backspace,
+        Key::Delete => wit::Key::Delete,
+        Key::Function(n) => wit::Key::Function(n),
         Key::Character(c) => wit::Key::Character(c),
     }
 }
@@ -221,24 +227,35 @@ fn event_in(event: Event) -> wit::Event {
     match event {
         Event::Input(Input::Move(at)) => wit::Event::PointerMove(point_in(at)),
         Event::Input(Input::Leave) => wit::Event::PointerLeave,
-        Event::Input(Input::Press { at, button, mods }) => wit::Event::Press(wit::Press {
+        Event::Input(Input::Press {
+            at,
+            button,
+            mods,
+            count,
+        }) => wit::Event::Press(wit::Press {
             at: point_in(at),
             button: button_in(button),
             mods: mods_in(mods),
+            count,
         }),
         Event::Input(Input::Release { at, button }) => wit::Event::Release(wit::Release {
             at: point_in(at),
             button: button_in(button),
         }),
-        Event::Input(Input::Scroll { at, dy }) => wit::Event::Scroll(wit::Scroll {
+        Event::Input(Input::Scroll { at, dx, dy }) => wit::Event::Scroll(wit::Scroll {
             at: point_in(at),
+            dx,
             dy,
         }),
         Event::Input(Input::Key { key, mods }) => wit::Event::Key(wit::KeyPress {
             key: key_in(key),
             mods: mods_in(mods),
         }),
-        Event::Text(text) => wit::Event::Text(text),
+        Event::Text { field, text } => wit::Event::Text(wit::FieldText {
+            field: id_out(field),
+            text,
+        }),
+        Event::Focus(field) => wit::Event::Focus(field.map(id_out)),
         Event::MenuPick(index) => wit::Event::MenuPick(u32::try_from(index).unwrap_or(u32::MAX)),
     }
 }
@@ -302,20 +319,35 @@ fn rgba_out(value: &wit::Rgba) -> Rgba {
     Rgba::new(value.r, value.g, value.b, value.a)
 }
 
-fn color_out(color: &wit::Color) -> Color {
-    let alpha = if color.alpha.is_finite() {
-        color.alpha.clamp(0.0, 1.0)
-    } else {
-        1.0
-    };
-    let source = match &color.source {
+fn source_out(source: &wit::Source) -> Source {
+    match source {
         wit::Source::Role(role) => Source::Role(role_out(role)),
         wit::Source::Rgba(forms) => Source::Rgba {
             light: rgba_out(&forms.light),
             dark: forms.dark.as_ref().map(rgba_out),
         },
-    };
-    Color { source, alpha }
+    }
+}
+
+/// A share from the module, `0.0..=1.0`: one that is not a number is `otherwise`.
+fn unit(value: f32, otherwise: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 1.0)
+    } else {
+        otherwise
+    }
+}
+
+fn color_out(color: &wit::Color) -> Color {
+    Color {
+        source: source_out(&color.source),
+        // A mix by an amount that is not one is no mix.
+        mix: color.mix.as_ref().map(|mix| Mix {
+            toward: source_out(&mix.toward),
+            amount: unit(mix.amount, 0.0),
+        }),
+        alpha: unit(color.alpha, 1.0),
+    }
 }
 
 fn length_out(length: &wit::Length) -> Length {
@@ -498,6 +530,9 @@ fn text_style_out(text: &wit::TextStyle) -> TextStyle {
         weight: text
             .weight
             .map(|weight| (weight.clamp(100, 900) + 25) / 50 * 50),
+        italic: text.italic,
+        underline: text.underline,
+        strike: text.strike,
         color: text.color.as_ref().map(color_out),
         align: text.align.map(align_out),
     }
@@ -579,6 +614,8 @@ fn style_out(
             blur: share(shadow.blur),
             color: color_out(&shadow.color),
         }),
+        // Not a share of an element that is not one: all of it shows.
+        opacity: Some(unit(style.opacity, 1.0)).filter(|opacity| *opacity < 1.0),
         text: text_style_out(&style.text),
         truncate: style.truncate,
     })
@@ -608,12 +645,6 @@ fn kind_out(
                 wit::Fit::Cover => Fit::Cover,
             },
             tint: image.tint.as_ref().map(color_out),
-            // Not a share of an image that is not one: all of it shows.
-            opacity: if image.opacity.is_finite() {
-                image.opacity.clamp(0.0, 1.0)
-            } else {
-                1.0
-            },
         }),
     })
 }
@@ -626,7 +657,16 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
             id: node.id.map(Id::new),
             pressable: node.pressable,
             focusable: node.focusable,
-            text_field: node.text_field,
+            field: node.field.map(|kind| match kind {
+                wit::FieldKind::Line => FieldKind::Line,
+                wit::FieldKind::Lines => FieldKind::Lines,
+                wit::FieldKind::Secret => FieldKind::Secret,
+            }),
+            label: node
+                .label
+                .as_ref()
+                .map(|part| lists.words(part, limits.text, "a label").map(str::to_owned))
+                .transpose()?,
         },
         children: node.children,
     })
@@ -703,19 +743,40 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
             })
         }
     };
+    // As many texts as a page may have fields of (one for each element it may have), each
+    // within what a text in a reply may be.
+    if reply.fill.len() > limits.nodes {
+        return Err(Fault::Malformed(format!(
+            "texts for {} fields in a reply (at most {})",
+            reply.fill.len(),
+            limits.nodes
+        )));
+    }
+    let fill = reply
+        .fill
+        .into_iter()
+        .map(|said| Ok((Id::new(said.field), text(said.text)?)))
+        .collect::<Result<Vec<_>, Fault>>()?;
     Ok(Reply {
         redraw: reply.redraw,
         close: reply.close,
         menu,
         keyboard: reply.keyboard.map(|keyboard| match keyboard {
             wit::Keyboard::Page => Keyboard::Page,
-            wit::Keyboard::Field => Keyboard::Field,
+            wit::Keyboard::Field(id) => Keyboard::Field(Id::new(id)),
         }),
+        fill,
         copy: reply.copy.map(text).transpose()?,
         cursor: match reply.cursor {
             wit::Cursor::Arrow => Cursor::Arrow,
             wit::Cursor::Pointer => Cursor::Pointer,
             wit::Cursor::Text => Cursor::Text,
+            wit::Cursor::ResizeHorizontal => Cursor::ResizeHorizontal,
+            wit::Cursor::ResizeVertical => Cursor::ResizeVertical,
+            wit::Cursor::NotAllowed => Cursor::NotAllowed,
+            wit::Cursor::Grab => Cursor::Grab,
+            wit::Cursor::Grabbing => Cursor::Grabbing,
+            wit::Cursor::Crosshair => Cursor::Crosshair,
         },
     })
 }
@@ -1014,10 +1075,14 @@ mod tests {
                 bottom_left: 0.0,
             },
             shadow: None,
+            opacity: 1.0,
             text: wit::TextStyle {
                 family: None,
                 size: None,
                 weight: None,
+                italic: None,
+                underline: None,
+                strike: None,
                 color: None,
                 align: None,
             },
@@ -1032,7 +1097,8 @@ mod tests {
             id: None,
             pressable: false,
             focusable: false,
-            text_field: false,
+            field: None,
+            label: None,
             children,
         }
     }
@@ -1105,6 +1171,7 @@ mod tests {
         row.pressable = true;
         row.style.width = wit::Length::Px(120.0);
         row.style.fill = Some(wit::Color {
+            mix: None,
             source: wit::Source::Role(wit::Role::Raised(2)),
             alpha: 0.5,
         });
@@ -1141,6 +1208,7 @@ mod tests {
         odd.style.grow = f32::NEG_INFINITY;
         odd.style.text.size = Some(f32::NAN);
         odd.style.fill = Some(wit::Color {
+            mix: None,
             source: wit::Source::Role(wit::Role::Accent),
             alpha: f32::NAN,
         });
@@ -1149,6 +1217,7 @@ mod tests {
             dy: 1.0e30,
             blur: -5.0,
             color: wit::Color {
+                mix: None,
                 source: wit::Source::Role(wit::Role::Shadow),
                 alpha: 7.0,
             },
@@ -1194,6 +1263,7 @@ mod tests {
         }
         assert_eq!(role_out(&W::Selection), Role::Selection);
         let role = |tone, alpha| wit::Color {
+            mix: None,
             source: wit::Source::Role(tone),
             alpha,
         };
@@ -1203,6 +1273,7 @@ mod tests {
         );
         // A value comes with both its forms, untouched, and its own opacity on top.
         let forms = |light: wit::Rgba, dark| wit::Color {
+            mix: None,
             source: wit::Source::Rgba(wit::RgbaForms { light, dark }),
             alpha: 2.0,
         };
@@ -1225,6 +1296,7 @@ mod tests {
                     light: Rgba::new(1, 2, 3, 4),
                     dark: Some(Rgba::rgb(250, 251, 252)),
                 },
+                mix: None,
                 alpha: 1.0,
             }
         );
@@ -1287,6 +1359,7 @@ mod tests {
             wit::Content::Spark(wit::Spark {
                 values,
                 color: wit::Color {
+                    mix: None,
                     source: wit::Source::Role(wit::Role::Accent),
                     alpha: 1.0,
                 },
@@ -1312,7 +1385,11 @@ mod tests {
             redraw: true,
             close: false,
             menu,
-            keyboard: Some(wit::Keyboard::Field),
+            keyboard: Some(wit::Keyboard::Field(7)),
+            fill: vec![wit::FieldText {
+                field: 7,
+                text: String::new(),
+            }],
             copy,
             cursor: wit::Cursor::Pointer,
         };
@@ -1352,7 +1429,8 @@ mod tests {
             &limits,
         )
         .expect("a reply");
-        assert_eq!(read.keyboard, Some(Keyboard::Field));
+        assert_eq!(read.keyboard, Some(Keyboard::Field(Id::new(7))));
+        assert_eq!(read.fill, [(Id::new(7), String::new())]);
         assert_eq!(read.cursor, Cursor::Pointer);
         assert_eq!(read.copy.as_deref(), Some("id"));
         let menu_read = read.menu.expect("a menu");
@@ -1398,9 +1476,11 @@ mod tests {
                     alt: true,
                     command: false
                 },
+                count: 2,
             })),
             wit::Event::Press(wit::Press {
                 button: wit::Button::Right,
+                count: 2,
                 mods: wit::Mods {
                     shift: true,
                     alt: true,
@@ -1421,8 +1501,30 @@ mod tests {
             })
         ));
         assert!(matches!(
-            event_in(Event::Text("api".into())),
-            wit::Event::Text(text) if text == "api"
+            event_in(Event::Text { field: Id::new(7), text: "api".into() }),
+            wit::Event::Text(wit::FieldText { field: 7, text }) if text == "api"
+        ));
+        assert!(matches!(
+            event_in(Event::Focus(Some(Id::new(7)))),
+            wit::Event::Focus(Some(7))
+        ));
+        assert!(matches!(
+            event_in(Event::Input(Input::Scroll {
+                at,
+                dx: 5.0,
+                dy: -2.0
+            })),
+            wit::Event::Scroll(wit::Scroll { dx, dy, .. }) if (dx, dy) == (5.0, -2.0)
+        ));
+        assert!(matches!(
+            event_in(Event::Input(Input::Key {
+                key: Key::Function(12),
+                mods: Mods::default()
+            })),
+            wit::Event::Key(wit::KeyPress {
+                key: wit::Key::Function(12),
+                ..
+            })
         ));
         assert!(matches!(
             event_in(Event::MenuPick(usize::MAX)),
@@ -1519,6 +1621,7 @@ mod tests {
         let mut lists = Lists::default();
         let values = lists.values(&[1.0; 200]);
         let color = wit::Color {
+            mix: None,
             source: wit::Source::Role(wit::Role::Accent),
             alpha: 1.0,
         };

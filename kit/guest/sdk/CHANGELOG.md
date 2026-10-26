@@ -11,6 +11,9 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 - A page module can wrap a text (`text(...).wrap()`) and give the host's field its hint (a text
   inside the `text_field()` element), as `pencere-view` describes. The terminal's engine lays the
   page out, so a terminal with this release of it is what draws them.
+- Everything `pencere-view` added crosses the interface: mixed colours, an element's opacity,
+  italic and lines under and through words, named fields of three kinds with their texts, focus
+  and fill, labels, a press's count, scrolling across, the new keys and pointer shapes.
 
 ## [0.2.0] - 2026-10-25
 

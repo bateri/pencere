@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
-use containers_page::{Containers, Reading};
+use containers_page::{Containers, FIELD, Reading};
 use pencere_view::{
     Button, Element, Event, Id, Input, Key, Keyboard, Laid, Mods, Point, Reply, Role, Size, div,
     layout, text,
@@ -333,7 +333,10 @@ impl Pair {
     /// Waits until the module has done all it was told: an event that changes nothing goes after
     /// it, and what the module does is done in order.
     fn sync(&mut self) {
-        self.lua.module.event(Event::Text(self.query.clone()));
+        self.lua.module.event(Event::Text {
+            field: FIELD,
+            text: self.query.clone(),
+        });
         let reply = self.answer();
         assert!(!reply.redraw, "the filter said again changed something");
     }
@@ -431,10 +434,11 @@ impl Pair {
                 Reply::redraw()
             }
             Event::Input(input) => self.native.input(input, &*self.laid),
-            Event::Text(words) => {
+            Event::Text { text: words, .. } => {
                 self.query.clone_from(&words);
                 self.native.set_query(&words)
             }
+            Event::Focus(_) => Reply::none(),
             Event::MenuPick(index) => self.native.pick(index),
         };
         assert_same_reply(what, &lua, &native);
@@ -476,6 +480,7 @@ impl Pair {
                 at,
                 button: Button::Left,
                 mods,
+                count: 1,
             },
         );
         self.input(
@@ -727,7 +732,13 @@ fn the_keys_of_the_application_are_not_the_lists() {
 fn what_is_typed_in_the_filter_narrows_the_list_and_what_finds_nothing_says_so() {
     let mut pair = Pair::open(SIZE);
     let before = pair.tree.fold().len();
-    let reply = pair.event("api", Event::Text("api".into()));
+    let reply = pair.event(
+        "api",
+        Event::Text {
+            field: FIELD,
+            text: "api".into(),
+        },
+    );
     assert!(reply.redraw);
     assert!(
         pair.tree.fold().len() < before,
@@ -735,7 +746,13 @@ fn what_is_typed_in_the_filter_narrows_the_list_and_what_finds_nothing_says_so()
     );
     pair.rest(30);
     // The same text again changes nothing.
-    let reply = pair.event("api again", Event::Text("api".into()));
+    let reply = pair.event(
+        "api again",
+        Event::Text {
+            field: FIELD,
+            text: "api".into(),
+        },
+    );
     assert!(!reply.redraw);
     for words in [
         "  SHOP ",
@@ -750,14 +767,32 @@ fn what_is_typed_in_the_filter_narrows_the_list_and_what_finds_nothing_says_so()
         "d",
         "",
     ] {
-        pair.event(words, Event::Text(words.into()));
+        pair.event(
+            words,
+            Event::Text {
+                field: FIELD,
+                text: words.into(),
+            },
+        );
         pair.rest(30);
     }
     // With a status chosen, a filter that finds nothing says which state has no container.
     pair.key(Key::Character('f'));
     pair.key(Key::Character('f'));
-    pair.event("nothing", Event::Text("zzz".into()));
-    pair.event("nothing again", Event::Text(String::new()));
+    pair.event(
+        "nothing",
+        Event::Text {
+            field: FIELD,
+            text: "zzz".into(),
+        },
+    );
+    pair.event(
+        "nothing again",
+        Event::Text {
+            field: FIELD,
+            text: String::new(),
+        },
+    );
     pair.rest(30);
     // And so does a state with no container left in it: the issues, removed.
     pair.key(Key::Character('f'));
@@ -774,7 +809,14 @@ fn the_wheel_scrolls_the_list_and_the_keys_keep_the_cursor_in_view() {
     let mut pair = Pair::open(Size::new(1000.0, 300.0));
     let over = pair.middle("containers list");
     for dy in [40.0, 90.0, 400.0, -30.0, -1000.0, 120.0, 5000.0, -1.0] {
-        pair.input("the wheel", Input::Scroll { at: over, dy });
+        pair.input(
+            "the wheel",
+            Input::Scroll {
+                at: over,
+                dx: 0.0,
+                dy,
+            },
+        );
         pair.rest(30);
     }
     // The wheel over the toolbar has nothing to scroll.
@@ -782,6 +824,7 @@ fn the_wheel_scrolls_the_list_and_the_keys_keep_the_cursor_in_view() {
     pair.input(
         "the wheel over the toolbar",
         Input::Scroll {
+            dx: 0.0,
             at: toolbar,
             dy: 100.0,
         },
@@ -803,13 +846,26 @@ fn the_wheel_scrolls_the_list_and_the_keys_keep_the_cursor_in_view() {
     pair.input(
         "the wheel",
         Input::Scroll {
+            dx: 0.0,
             at: over,
             dy: 5000.0,
         },
     );
-    pair.event("a short list", Event::Text("api".into()));
+    pair.event(
+        "a short list",
+        Event::Text {
+            field: FIELD,
+            text: "api".into(),
+        },
+    );
     pair.rest(30);
-    pair.event("the whole list", Event::Text(String::new()));
+    pair.event(
+        "the whole list",
+        Event::Text {
+            field: FIELD,
+            text: String::new(),
+        },
+    );
     pair.rest(30);
     // A window that grows takes in more rows.
     pair.render(Size::new(1000.0, 700.0), pair.now + 0.05);
@@ -867,7 +923,14 @@ fn a_page_that_moves_under_the_pointer_lights_the_row_that_comes_under_it() {
     pair.rest(30);
     // The wheel moves the list under a pointer that has not moved: the hover is asked again
     // where the pointer stands, once the page is laid out.
-    pair.input("the wheel", Input::Scroll { at, dy: 100.0 });
+    pair.input(
+        "the wheel",
+        Input::Scroll {
+            at,
+            dx: 0.0,
+            dy: 100.0,
+        },
+    );
     pair.rest(30);
     pair.at(pair.now + 0.05);
     pair.rest(30);
@@ -893,13 +956,25 @@ fn under_reduce_motion_a_highlight_is_at_its_end_at_once() {
     pair.click("containers status stopped", Mods::default());
     pair.click("containers group", Mods::default());
     pair.key(Key::Character('f'));
-    pair.event("api", Event::Text("api".into()));
+    pair.event(
+        "api",
+        Event::Text {
+            field: FIELD,
+            text: "api".into(),
+        },
+    );
     pair.input("the pointer left", Input::Leave);
     assert!(!pair.animating);
     // Turned off again, the highlights fade as they did.
     pair.reduce_motion = false;
     pair.at(1.0);
-    pair.event("the whole list", Event::Text(String::new()));
+    pair.event(
+        "the whole list",
+        Event::Text {
+            field: FIELD,
+            text: String::new(),
+        },
+    );
     pair.key(Key::Home);
     pair.key(Key::Down);
     assert!(pair.animating);
@@ -945,9 +1020,10 @@ fn a_click_folds_a_project_and_chooses_the_status_the_grouping_and_a_row() {
             at,
             button: Button::Left,
             mods: Mods::default(),
+            count: 1,
         },
     );
-    assert_eq!(reply.keyboard, Some(Keyboard::Field));
+    assert_eq!(reply.keyboard, Some(Keyboard::Field(FIELD)));
     pair.input(
         "the release on the filter",
         Input::Release {
@@ -963,6 +1039,7 @@ fn a_click_folds_a_project_and_chooses_the_status_the_grouping_and_a_row() {
             at: nowhere,
             button: Button::Left,
             mods: Mods::default(),
+            count: 1,
         },
     );
     pair.input(
@@ -980,6 +1057,7 @@ fn a_click_folds_a_project_and_chooses_the_status_the_grouping_and_a_row() {
             at: down,
             button: Button::Left,
             mods: Mods::default(),
+            count: 1,
         },
     );
     pair.input(
@@ -1028,6 +1106,7 @@ fn a_right_click_opens_the_menu_of_the_row_and_what_is_picked_is_done() {
         at,
         button: Button::Right,
         mods: Mods::default(),
+        count: 1,
     };
     let release = |at| Input::Release {
         at,
@@ -1081,7 +1160,13 @@ fn a_right_click_opens_the_menu_of_the_row_and_what_is_picked_is_done() {
     // The key that opens the menu, with nothing marked and the cursor on no row, and a press on
     // the filter.
     pair.key(Key::Character('A'));
-    pair.event("a filter that finds nothing", Event::Text("zzz".into()));
+    pair.event(
+        "a filter that finds nothing",
+        Event::Text {
+            field: FIELD,
+            text: "zzz".into(),
+        },
+    );
     let reply = pair.key(Key::Character('.'));
     assert!(reply.menu.is_none());
     let at = pair.middle("containers filter");

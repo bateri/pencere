@@ -57,15 +57,15 @@ end
 -- sent at twice the size it is given. `:fit` is "contain" (all of the picture, centred; the
 -- default) or "cover" (the box filled, what does not fit cut off). `:tint` is a colour (any way
 -- of saying one, as for text): the picture is then a shape, drawn in that colour with its own
--- opacity at each pixel. `:opacity` is how much of the picture shows, 0 to 1.
+-- opacity at each pixel. How much of it shows is the element's `:opacity`, as for any element.
 function pencere.image(src)
 	if type(src) ~= "string" then
 		refuse("pencere.image takes the path of a file of the bundle, not " .. type(src))
 	end
 	local element = make("image")
 	-- What the picture is lives in a table of its own: the host reads these by their names, and a
-	-- name that is also a method of the chain (`fit`, `tint`, `opacity`) would hide the method.
-	element.picture = { src = src, fit = "contain", opacity = 1 }
+	-- name that is also a method of the chain (`fit`, `tint`) would hide the method.
+	element.picture = { src = src, fit = "contain" }
 	return element
 end
 
@@ -94,13 +94,13 @@ function Element:tint(color)
 	return self
 end
 
--- How much of the picture shows, 0 to 1.
+-- How much of the element shows with everything inside it, 0 to 1: each thing it draws is that
+-- much fainter (where the things inside overlap, they show through each other).
 function Element:opacity(opacity)
-	local picture = picture_of(self, "opacity")
 	if type(opacity) ~= "number" then
 		error("opacity is a number from 0 to 1, not " .. type(opacity), 2)
 	end
-	picture.opacity = opacity
+	self.style.opacity = opacity
 	return self
 end
 
@@ -152,9 +152,34 @@ function Element:focusable()
 	return self
 end
 
--- The box is the room of a text field the host puts over the page (named too).
-function Element:text_field()
-	self.meta.text_field = true
+local FIELD_KINDS = { line = true, lines = true, secret = true }
+
+-- The box is the room of a text field the host puts over the page, named `id` (the element's own
+-- name when `id` is nil): a page has as many as it names. `kind` is "line" (the default), "lines"
+-- (enter breaks the line) or "secret" (a password). The first text inside is what the field says
+-- while it is empty.
+function Element:text_field(id, kind)
+	if id ~= nil then
+		self.meta.id = id
+	end
+	if self.meta.id == nil then
+		error("a text field is named: text_field(id)", 2)
+	end
+	kind = kind or "line"
+	if not FIELD_KINDS[kind] then
+		error('a text field is "line", "lines" or "secret", not ' .. tostring(kind), 2)
+	end
+	self.meta.field = kind
+	return self
+end
+
+-- What the element is in words, for a person who does not see it (a screen reader says it): a
+-- button that is an icon alone says what it does.
+function Element:label(words)
+	if type(words) ~= "string" then
+		error("label takes the words, not " .. type(words), 2)
+	end
+	self.meta.label = words
 	return self
 end
 
@@ -303,6 +328,14 @@ function Element:scroll_y(offset)
 	return self
 end
 
+-- The same, across: the content moves left behind the box by `offset` points.
+function Element:scroll_x(offset)
+	local style = self.style
+	style.overflow = "scroll"
+	style.scroll_x = offset
+	return self
+end
+
 -- --- Looks ------------------------------------------------------------------------------------
 
 function Element:bg(color) self.style.fill = color return self end
@@ -347,6 +380,10 @@ function Element:color(color) text_style(self).color = color return self end
 function Element:family(family) text_style(self).family = family return self end
 -- "start", "center" or "end".
 function Element:align(align) text_style(self).align = align return self end
+-- The face's italic form; a line under the words; a line through them.
+function Element:italic() text_style(self).italic = true return self end
+function Element:underline() text_style(self).underline = true return self end
+function Element:strike() text_style(self).strike = true return self end
 
 function Element:truncate()
 	self.style.truncate = true

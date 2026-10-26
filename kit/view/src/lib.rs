@@ -44,13 +44,13 @@ mod text;
 mod ui;
 pub mod wire;
 
-pub use color::{Color, Rgba, Role, Source};
-pub use element::{Element, Fit, Image, div, image, spacer, spark, text};
+pub use color::{Color, Mix, Rgba, Role, Source};
+pub use element::{Element, FieldKind, Fit, Image, div, image, spacer, spark, text};
 pub use fades::{FADE_SECONDS, Fades};
 pub use geometry::{Point, Rect, Size};
 pub use id::Id;
 pub use input::{Button, Cursor, Event, Input, Key, Keyboard, Menu, MenuEntry, Mods, Reply};
-pub use layout::{Extent, Laid, Queries, layout};
+pub use layout::{Accessible, AccessibleRole, Extent, Field, Laid, Queries, layout};
 pub use paint::{DrawList, Paint, Picture, Quad, Run};
 pub use rows::Rows;
 pub use style::{Border, Shadow, Track};

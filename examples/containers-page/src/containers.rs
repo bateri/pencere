@@ -37,7 +37,8 @@ const LIST_TRAIL: f32 = 8.0;
 pub(crate) const LIST: Id = Id::named("containers list");
 /// The filter's box, and the room inside it the host's text field takes.
 pub(crate) const SEARCH: Id = Id::named("containers filter");
-pub(crate) const FIELD: Id = Id::named("containers filter field");
+/// The filter's text field: the room the host puts its field in, by this name.
+pub const FIELD: Id = Id::named("containers filter field");
 /// The button that groups the list by project.
 const GROUP_BUTTON: Id = Id::named("containers group");
 /// The button that would sort it: there is one order in the fixed list, so it only looks it.
@@ -553,8 +554,7 @@ impl Containers {
             .press(SEARCH)
             .child(
                 div()
-                    .id(FIELD)
-                    .text_field()
+                    .text_field(FIELD)
                     .grow(1.0)
                     .min_w(0.0)
                     .h(18.0)

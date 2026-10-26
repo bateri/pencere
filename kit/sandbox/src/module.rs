@@ -542,7 +542,7 @@ mod tests {
         fn handle(&mut self, event: Event) -> Result<Reply, Fault> {
             self.note(format!("handle {event:?}"))?;
             Ok(match event {
-                Event::Text(_) => Reply::redraw(),
+                Event::Text { .. } => Reply::redraw(),
                 _ => Reply::none(),
             })
         }
@@ -687,13 +687,19 @@ mod tests {
         assert_eq!(render_time(&rig, 2), 40.0);
         // A hover that changes the page is answered at the time the page now stands at, not at
         // the time of the frame the person saw before the program spoke.
-        rig.module.event(Event::Text("a".into()));
+        rig.module.event(Event::Text {
+            field: pencere_view::Id::named("field"),
+            text: "a".into(),
+        });
         assert_eq!(render_time(&rig, 3), 40.0);
         // A frame the application asks for is made for the time it says, and what follows it is
         // no earlier than the page has been.
         rig.module.render(Size::new(10.0, 10.0), 2.0, false);
         assert_eq!(render_time(&rig, 4), 2.0);
-        rig.module.event(Event::Text("b".into()));
+        rig.module.event(Event::Text {
+            field: pencere_view::Id::named("field"),
+            text: "b".into(),
+        });
         assert_eq!(render_time(&rig, 5), 40.0);
     }
 
@@ -847,7 +853,10 @@ mod tests {
         rig.module.render(Size::new(10.0, 10.0), 1.0, false);
         rig.woken();
         let _ = rig.module.poll();
-        rig.module.event(Event::Text("api".into()));
+        rig.module.event(Event::Text {
+            field: pencere_view::Id::named("field"),
+            text: "api".into(),
+        });
         rig.woken();
         let update = rig.module.poll();
         assert_eq!(
@@ -872,6 +881,7 @@ mod tests {
             at: Point::new(3.0, 1.0),
             button: Button::Left,
             mods: Mods::default(),
+            count: 1,
         }));
         rig.module.event(move_to(4.0));
         open.send(()).unwrap();
@@ -952,7 +962,10 @@ mod tests {
     #[test]
     fn a_module_that_fails_closes_with_the_reason_and_goes_on_being_safe_to_talk_to() {
         let rig = rig(None, Some("handle"), false);
-        rig.module.event(Event::Text("x".into()));
+        rig.module.event(Event::Text {
+            field: pencere_view::Id::named("field"),
+            text: "x".into(),
+        });
         rig.woken();
         let update = rig.module.poll();
         assert!(matches!(update.closed, Some(Fault::Trap(_))), "{update:?}");

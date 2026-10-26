@@ -5,4 +5,4 @@
 
 pub mod containers;
 
-pub use containers::{Container, Containers, Reading, State, readings};
+pub use containers::{Container, Containers, FIELD, Reading, State, readings};

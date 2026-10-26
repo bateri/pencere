@@ -149,8 +149,10 @@ fn the_container_list_is_drawn_laid_out_and_used_through_the_sandbox() {
     // The module asks of the layout it was given: the filter's box is where the page put it.
     page.module.lay_out(Arc::clone(&laid));
     let field = laid
-        .text_field()
-        .expect("the page leaves room for a text field");
+        .fields()
+        .first()
+        .expect("the page leaves room for a text field")
+        .rect;
 
     // Down, down: the cursor moves, so the page changes and comes back by itself.
     for _ in 0..2 {
@@ -208,6 +210,7 @@ fn the_container_list_is_drawn_laid_out_and_used_through_the_sandbox() {
             at: inside,
             button: pencere_view::Button::Left,
             mods: Mods::default(),
+            count: 1,
         },
         Input::Release {
             at: inside,
@@ -220,17 +223,19 @@ fn the_container_list_is_drawn_laid_out_and_used_through_the_sandbox() {
         u.replies.iter().any(|a| a.reply.keyboard.is_some()) || u.closed.is_some()
     });
     assert!(
-        page.seen
-            .replies
-            .iter()
-            .any(|a| a.reply.keyboard == Some(pencere_view::Keyboard::Field)),
+        page.seen.replies.iter().any(
+            |a| a.reply.keyboard == Some(pencere_view::Keyboard::Field(containers_page::FIELD))
+        ),
         "{:?}",
         page.seen.replies
     );
 
     // The text typed there narrows the list.
     let before = page.seen.frame.clone().expect("a page").root.fold().len();
-    page.module.event(Event::Text("api".into()));
+    page.module.event(Event::Text {
+        field: containers_page::FIELD,
+        text: "api".into(),
+    });
     page.until(Duration::from_secs(5), |u| u.frame.is_some());
     let after = page.seen.frame.clone().expect("a page").root.fold().len();
     assert!(

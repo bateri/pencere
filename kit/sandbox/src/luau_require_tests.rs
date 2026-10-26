@@ -201,6 +201,7 @@ fn a_page_split_into_three_files_loads_draws_and_answers_input() {
             at,
             button: Button::Left,
             mods: Mods::default(),
+            count: 1,
         },
         Input::Release {
             at,

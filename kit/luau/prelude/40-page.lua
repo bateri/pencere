@@ -14,12 +14,15 @@
 --       something changed and the page should be rendered again.
 --   handle(event) -> reply         (optional)
 --       The person did something. `event` is { type = "move" | "leave" | "press" | "release" |
---       "scroll" | "key" | "text" | "menu", ... } in the page's points: move/press/release/
---       scroll have x and y (press and release a button, "left" or "right"; press and key
---       mods = { shift =, control =, alt =, command = }; scroll dy, the points the content
---       moves up by), key has `key` ("up", "down", "left", "right", "page_up", "page_down",
---       "home", "end", "enter", "escape", "tab", or the character), text has the text of the
---       application's field, menu has the `index` (from 1) picked of the menu the page asked for.
+--       "scroll" | "key" | "text" | "focus" | "menu", ... } in the page's points: move/press/
+--       release/scroll have x and y (press and release a button, "left" or "right"; press its
+--       `count`, 2 for the second of a double click; press and key mods = { shift =, control =,
+--       alt =, command = }; scroll dx and dy, the points the content moves left and up by), key
+--       has `key` ("up", "down", "left", "right", "page_up", "page_down", "home", "end",
+--       "enter", "escape", "tab", "backspace", "delete", "f1" to "f20", or the character), text
+--       has the `field` (its name) and the `text` it holds, focus the `field` the person clicked
+--       into (nil: the keyboard is the page's again), menu has the `index` (from 1) picked of
+--       the menu the page asked for.
 --   message(message) -> reply      (optional)
 --       The program said something that is not an answer to a call the page made or a push of a
 --       subscription it made (those go to the functions given to `pencere.call` and
@@ -29,8 +32,9 @@
 --       The program has read enough: what `pencere.send` answered false to may be sent again.
 --
 -- A reply is nil (nothing changed), true or false (a frame is worth drawing or not) or a table:
---   { redraw =, close =, copy = "text for the pasteboard", cursor = "arrow" | "pointer" | "text",
---     keyboard = "page" | "field",
+--   { redraw =, close =, copy = "text for the pasteboard", cursor = "arrow" | "pointer" | "text" |
+--     "resize_horizontal" | "resize_vertical" | "not_allowed" | "grab" | "grabbing" | "crosshair",
+--     keyboard = "page" | { field = name }, fill = { [name] = "text for that field", ... },
 --     menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" (a line), ... } } }
 --
 -- What the page says to its program is JSON objects, the six messages of a view and its program:

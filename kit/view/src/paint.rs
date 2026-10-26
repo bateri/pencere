@@ -41,6 +41,10 @@ pub struct Run {
     pub color: Color,
     pub grounds: Vec<Color>,
     pub clip: Rect,
+    /// A line under the words, which the host draws where its font puts one, in `color`.
+    pub underline: bool,
+    /// A line through the words, likewise.
+    pub strike: bool,
 }
 
 /// An image: the file of the view's bundle at `src`, drawn into `rect`, the part of it `crop` says.
@@ -65,7 +69,8 @@ pub struct Picture {
     /// resolves it in the pane's theme, as it does any colour): every pixel of the image is this
     /// colour with the image's opacity at that pixel.
     pub tint: Option<Color>,
-    /// How much of the image shows, `0.0..=1.0`, on top of its own opacity and the tint's.
+    /// How much of the image shows, `0.0..=1.0`, on top of its own opacity and the tint's: the
+    /// opacity of its element and the boxes that hold it.
     pub opacity: f32,
     /// The corners of `rect`, pixels: top-left, top-right, bottom-right, bottom-left. The corners
     /// the element asked for, taken in where the room that is drawn is smaller than its box.
@@ -113,13 +118,26 @@ impl Laid {
             if node.hidden || node.rect.w <= 0.0 || node.rect.h <= 0.0 {
                 continue;
             }
+            // An element that does not show at all draws nothing (and what is inside it shows no
+            // more than it does).
+            let opacity = node.opacity;
+            if opacity <= 0.0 {
+                continue;
+            }
+            let faded = |color: Color| color.faded(opacity);
             if node.fill.is_some() || node.border.is_some() || node.shadow.is_some() {
                 list.items.push(Paint::Quad(Quad {
                     rect: node.rect,
                     radii: node.radii,
-                    fill: node.fill,
-                    border: node.border,
-                    shadow: node.shadow,
+                    fill: node.fill.map(faded),
+                    border: node.border.map(|border| Border {
+                        color: faded(border.color),
+                        ..border
+                    }),
+                    shadow: node.shadow.map(|shadow| Shadow {
+                        color: faded(shadow.color),
+                        ..shadow
+                    }),
                     clip: node.clip,
                 }));
             }
@@ -130,6 +148,7 @@ impl Laid {
                 Content::Text(_) if self.in_text_field(index) => {}
                 Content::Text(line) => {
                     for mut run in place_text(node, line, measure) {
+                        run.color = faded(run.color);
                         run.grounds = self.grounds_under(index);
                         list.items.push(Paint::Text(run));
                     }
@@ -146,7 +165,7 @@ impl Laid {
                         node.rect,
                         clip,
                         &spark.values,
-                        spark.color,
+                        faded(spark.color),
                         spark.peak,
                         self.scale,
                     );
@@ -165,6 +184,7 @@ impl Laid {
             // A box with no room is not drawn, and so is not a ground.
             let drawn = !node.hidden && node.rect.w > 0.0 && node.rect.h > 0.0;
             if let Some(fill) = node.fill.filter(|_| drawn) {
+                let fill = fill.faded(node.opacity);
                 grounds.push(fill);
                 if fill.is_opaque() {
                     break;
@@ -224,11 +244,7 @@ fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
         rect,
         crop,
         tint: image.tint,
-        opacity: if image.opacity.is_finite() {
-            image.opacity.clamp(0.0, 1.0)
-        } else {
-            1.0
-        },
+        opacity: node.opacity,
         radii: node.radii.map(|radius| radius.clamp(0.0, most)),
         clip: node.clip,
     })
@@ -294,6 +310,8 @@ fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Vec<Ru
                 color: line.color,
                 grounds: Vec::new(),
                 clip,
+                underline: line.underline,
+                strike: line.strike,
             }
         })
         .collect()

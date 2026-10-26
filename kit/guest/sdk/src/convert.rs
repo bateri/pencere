@@ -5,8 +5,8 @@
 
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
-    Align, Button, Color, Cursor, Event, Family, Fit, Input, Key, Keyboard, MenuEntry, Mods, Point,
-    Reply, Rgba, Role, Source, Track,
+    Align, Button, Color, Cursor, Event, Family, FieldKind, Fit, Id, Input, Key, Keyboard,
+    MenuEntry, Mods, Point, Reply, Rgba, Role, Source, Track,
 };
 
 use crate::Frame;
@@ -58,16 +58,23 @@ fn rgba(value: Rgba) -> wit::Rgba {
     }
 }
 
-fn color(color: Color) -> wit::Color {
-    let source = match color.source {
+fn source(source: Source) -> wit::Source {
+    match source {
         Source::Role(inner) => wit::Source::Role(role(inner)),
         Source::Rgba { light, dark } => wit::Source::Rgba(wit::RgbaForms {
             light: rgba(light),
             dark: dark.map(rgba),
         }),
-    };
+    }
+}
+
+fn color(color: Color) -> wit::Color {
     wit::Color {
-        source,
+        source: source(color.source),
+        mix: color.mix.map(|mix| wit::Mix {
+            toward: source(mix.toward),
+            amount: mix.amount,
+        }),
         alpha: color.alpha,
     }
 }
@@ -168,6 +175,7 @@ fn style(style: Style, lists: &mut Lists) -> wit::Style {
             blur: shadow.blur,
             color: color(shadow.color),
         }),
+        opacity: style.opacity.unwrap_or(1.0),
         text: wit::TextStyle {
             family: style.text.family.map(|family| match family {
                 Family::System => wit::Family::System,
@@ -175,6 +183,9 @@ fn style(style: Style, lists: &mut Lists) -> wit::Style {
             }),
             size: style.text.size,
             weight: style.text.weight,
+            italic: style.text.italic,
+            underline: style.text.underline,
+            strike: style.text.strike,
             color: style.text.color.map(color),
             align: style.text.align.map(|align| match align {
                 Align::Start => wit::Align::Start,
@@ -242,14 +253,18 @@ fn node(node: Node, lists: &mut Lists) -> wit::Node {
                     Fit::Cover => wit::Fit::Cover,
                 },
                 tint: image.tint.map(color),
-                opacity: image.opacity,
             }),
         },
         style: style(node.style, lists),
         id: node.meta.id.map(|id| id.number()),
         pressable: node.meta.pressable,
         focusable: node.meta.focusable,
-        text_field: node.meta.text_field,
+        field: node.meta.field.map(|kind| match kind {
+            FieldKind::Line => wit::FieldKind::Line,
+            FieldKind::Lines => wit::FieldKind::Lines,
+            FieldKind::Secret => wit::FieldKind::Secret,
+        }),
+        label: node.meta.label.as_deref().map(|label| lists.words(label)),
         children: node.children,
     }
 }
@@ -308,13 +323,27 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
         }),
         keyboard: reply.keyboard.map(|keyboard| match keyboard {
             Keyboard::Page => wit::Keyboard::Page,
-            Keyboard::Field => wit::Keyboard::Field,
+            Keyboard::Field(id) => wit::Keyboard::Field(id.number()),
         }),
+        fill: reply
+            .fill
+            .into_iter()
+            .map(|(field, text)| wit::FieldText {
+                field: field.number(),
+                text,
+            })
+            .collect(),
         copy: reply.copy,
         cursor: match reply.cursor {
             Cursor::Arrow => wit::Cursor::Arrow,
             Cursor::Pointer => wit::Cursor::Pointer,
             Cursor::Text => wit::Cursor::Text,
+            Cursor::ResizeHorizontal => wit::Cursor::ResizeHorizontal,
+            Cursor::ResizeVertical => wit::Cursor::ResizeVertical,
+            Cursor::NotAllowed => wit::Cursor::NotAllowed,
+            Cursor::Grab => wit::Cursor::Grab,
+            Cursor::Grabbing => wit::Cursor::Grabbing,
+            Cursor::Crosshair => wit::Cursor::Crosshair,
         },
     }
 }
@@ -354,6 +383,9 @@ fn key(key: wit::Key) -> Key {
         wit::Key::Enter => Key::Enter,
         wit::Key::Escape => Key::Escape,
         wit::Key::Tab => Key::Tab,
+        wit::Key::Backspace => Key::Backspace,
+        wit::Key::Delete => Key::Delete,
+        wit::Key::Function(n) => Key::Function(n),
         wit::Key::Character(c) => Key::Character(c),
     }
 }
@@ -367,6 +399,7 @@ pub fn from_wit_event(event: wit::Event) -> Event {
             at: point(press.at),
             button: button(press.button),
             mods: mods(press.mods),
+            count: press.count,
         }),
         wit::Event::Release(release) => Event::Input(Input::Release {
             at: point(release.at),
@@ -374,13 +407,18 @@ pub fn from_wit_event(event: wit::Event) -> Event {
         }),
         wit::Event::Scroll(scroll) => Event::Input(Input::Scroll {
             at: point(scroll.at),
+            dx: scroll.dx,
             dy: scroll.dy,
         }),
         wit::Event::Key(pressed) => Event::Input(Input::Key {
             key: key(pressed.key),
             mods: mods(pressed.mods),
         }),
-        wit::Event::Text(text) => Event::Text(text),
+        wit::Event::Text(said) => Event::Text {
+            field: Id::new(said.field),
+            text: said.text,
+        },
+        wit::Event::Focus(field) => Event::Focus(field.map(Id::new)),
         wit::Event::MenuPick(index) => Event::MenuPick(index as usize),
     }
 }

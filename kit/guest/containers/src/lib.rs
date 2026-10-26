@@ -246,7 +246,8 @@ impl Page for ContainerList {
                 Reply::redraw()
             }
             Event::Input(input) => self.list.input(input, layout),
-            Event::Text(text) => self.list.set_query(&text),
+            Event::Text { text, .. } => self.list.set_query(&text),
+            Event::Focus(_) => Reply::none(),
             Event::MenuPick(index) => self.list.pick(index),
         }
     }
