@@ -233,3 +233,50 @@ fn an_overlay_covers_the_page_and_the_keys_of_what_is_in_it_go_out_through_what_
     assert_eq!(bounds(&laid, COVER), Rect::new(0.0, 0.0, 120.0, 80.0));
     assert_eq!(laid.path_of(MENU), vec![MENU, COVER, LIST]);
 }
+
+#[test]
+fn the_wheel_over_an_overlay_does_not_reach_what_it_covers() {
+    // A long list that scrolls, and over it, as a palette is, an overlay with a short list of its
+    // own that has nothing to scroll.
+    let rows = (0..20).map(|n| div().h(20.0).no_shrink().press(Id::new(100 + n)));
+    let palette = div()
+        .id(COVER)
+        .overlay()
+        .inset(Some(10.0), None, None, Some(10.0))
+        .size(100.0, 50.0)
+        .child(
+            div()
+                .id(MENU)
+                .col()
+                .h(40.0)
+                .scroll_y(0.0)
+                .child(div().h(20.0).press(BUTTON).child(text("Copy"))),
+        );
+    let root = div()
+        .col()
+        .size_full()
+        .child(
+            div()
+                .id(LIST)
+                .col()
+                .grow(1.0)
+                .min_h(0.0)
+                .scroll_y(0.0)
+                .children(rows),
+        )
+        .child(palette);
+    let laid = lay(root, 200.0, 100.0);
+    let over = Point::new(30.0, 20.0);
+    assert_eq!(laid.ids_at(over), vec![BUTTON, MENU, COVER]);
+    let mut ui = crate::Ui::default();
+    assert!(
+        !ui.scroll_by(&laid, over, 0.0, 30.0),
+        "the palette's list has no room, and the list under it is not under the pointer"
+    );
+    assert_eq!(ui.scroll_offset(LIST), 0.0);
+    // Beside the palette the list is what the pointer is over.
+    let beside = Point::new(150.0, 80.0);
+    assert_eq!(laid.ids_at(beside), vec![Id::new(104), LIST]);
+    assert!(ui.scroll_by(&laid, beside, 0.0, 30.0));
+    assert_eq!(ui.scroll_offset(LIST), 30.0);
+}

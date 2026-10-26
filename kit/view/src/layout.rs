@@ -1058,16 +1058,22 @@ impl Laid {
         ))
     }
 
-    /// The named elements whose visible part holds `at`, the innermost first. An element that is
-    /// `hidden`, or whose place is cut off by a box around it, is not there.
+    /// The named elements under `at` that hold one another: the topmost there, then what holds
+    /// it, out to the page — where a wheel or a click goes, as an event bubbles in a browser. What
+    /// lies under the topmost without holding it (the list an overlay covers) is not there, nor an
+    /// element that is `hidden`, or whose place at `at` is cut off by a box around it.
     pub fn ids_at(&self, at: Point) -> Vec<Id> {
         let (x, y) = (at.x * self.scale, at.y * self.scale);
-        self.nodes
-            .iter()
-            .rev()
-            .filter(|node| !node.hidden && Self::shown(node).contains(x, y))
-            .filter_map(|node| node.meta.id)
-            .collect()
+        let under = |node: &Node| !node.hidden && Self::shown(node).contains(x, y);
+        let mut held = self.nodes.iter().rposition(under);
+        let mut ids = Vec::new();
+        while let Some(node) = held.and_then(|index| self.nodes.get(index)) {
+            if let Some(id) = node.meta.id.filter(|_| under(node)) {
+                ids.push(id);
+            }
+            held = node.parent;
+        }
+        ids
     }
 
     /// The element under `at` that answers the pointer ([`crate::Element::press`],
