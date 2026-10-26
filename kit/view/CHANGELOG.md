@@ -6,6 +6,13 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+### Fixed
+
+- A box inside another's padding stands in its middle on a page drawn at a scale that is not a
+  whole number of pixels to a point (a terminal's zoom): each length a page gives in points is
+  rounded to whole pixels on its own, so a padding is as many pixels on each side. The edges were
+  rounded where the fractions added up to, a pixel more on one side than the other.
+
 ### Added
 
 - **Motion.** `motion(Motion)` on an element says how a change of it moves instead of jumping: its
