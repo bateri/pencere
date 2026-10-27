@@ -161,7 +161,7 @@ export interface Bridge {
   close(): void;
   /**
    * Asks the host to open `url` in the person's browser (§9.7). Only `http:` and `https:` links
-   * are taken, and the host may ask the person first; it does not say whether it did.
+   * are taken, and the host should ask the person first; it does not say whether it did.
    */
   openLink(url: string): void;
 }

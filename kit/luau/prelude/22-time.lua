@@ -145,7 +145,8 @@ local function bytes(value)
 end
 
 -- The text an ask hands an editor, bytes, as the host counts it: a load's, the inserts of a
--- change, a command's words, the name of a layer decorated.
+-- change, the words of the commands that carry some (insert, find, replace, replace_all), the
+-- name of a layer decorated.
 local function text_of(ask)
 	if type(ask) ~= "table" then
 		return 0
@@ -163,8 +164,12 @@ local function text_of(ask)
 		return 0
 	elseif ask.decorate ~= nil then
 		return bytes(ask.decorate)
+	elseif ask.command == "find" then
+		return bytes(ask.pattern)
+	elseif ask.command == "insert" or ask.command == "replace" or ask.command == "replace_all" then
+		return bytes(ask.text)
 	end
-	return bytes(ask.text) + bytes(ask.pattern)
+	return 0
 end
 
 -- `reply` held to what one reply may hand the editors: the decorations that would take it past
