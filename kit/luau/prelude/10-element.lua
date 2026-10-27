@@ -348,7 +348,56 @@ end
 -- hidden or not. `options` (all optional): `wrap`, `tab_width` (4), `hard_tabs`, `gutter` (true),
 -- `read_only`, `keys` ("editor", or "page": every key the page's), `hint` (what it says while
 -- empty), `comment` ("--": what the command that comments lines puts), `pairs` (the brackets and
--- quotes that close themselves: "()[]{}" or { "()", "[]" }).
+-- quotes that close themselves: "()[]{}" or { "()", "[]" }); how it looks: `line_height` (1.5
+-- times the font's size), `padding` (4 points), `scroll_margin` (rows kept about the caret, 0),
+-- `numbers` ("absolute", "relative", "hidden"), `caret = { shape = "bar" | "block" | "underline",
+-- width = 1.5, color =, text = }` and `colors = { current_line, selection, selection_blurred,
+-- found, brackets, numbers, current_number, gutter, folds, folded, hint }`. A colour it does not
+-- say is the theme's; `false` draws none.
+local EDITOR_OPTIONS = {
+	wrap = true,
+	tab_width = true,
+	hard_tabs = true,
+	gutter = true,
+	read_only = true,
+	keys = true,
+	hint = true,
+	comment = true,
+	pairs = true,
+	line_height = true,
+	padding = true,
+	scroll_margin = true,
+	numbers = true,
+	caret = { shape = true, width = true, color = true, text = true },
+	colors = {
+		current_line = true,
+		selection = true,
+		selection_blurred = true,
+		found = true,
+		brackets = true,
+		numbers = true,
+		current_number = true,
+		gutter = true,
+		folds = true,
+		folded = true,
+		hint = true,
+	},
+}
+
+-- An option an editor has no such name for is a mistake, said where it is made: a misspelt one
+-- would be dropped without a word.
+local function check_editor_options(given, known, where, level)
+	for key, value in given do
+		local takes = known[key]
+		if takes == nil then
+			error("an editor has no option " .. where .. tostring(key), level)
+		end
+		if type(takes) == "table" and type(value) == "table" then
+			check_editor_options(value, takes, where .. key .. ".", level + 1)
+		end
+	end
+end
+
 function Element:editor(id, options)
 	if id ~= nil then
 		self.meta.id = id
@@ -360,6 +409,7 @@ function Element:editor(id, options)
 		error("an editor's options are a table, not " .. type(options), 2)
 	end
 	local given = options or {}
+	check_editor_options(given, EDITOR_OPTIONS, "", 3)
 	local said = {}
 	for key, value in given do
 		said[key] = value

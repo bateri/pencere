@@ -11,7 +11,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use pencere_view::edit::{Look, Mark, Underline};
+use pencere_view::edit::{CaretShape, EditorOptions, Look, Mark, Numbers, Underline};
 use pencere_view::{
     Color, EditorRoom, EditorSlot, Figure, Font, Measure, Paint, Point, Quad, Rect, Role, Run,
     Size, path,
@@ -19,6 +19,7 @@ use pencere_view::{
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::buffer::{Buffer, Placement};
+use crate::segments::grapheme_after;
 
 /// The most lines whose measure is kept.
 const SHAPED: usize = 4096;
@@ -118,6 +119,9 @@ pub(crate) struct View {
     /// How wide the gutter is, and the room kept around the text, pixels.
     pub gutter: f32,
     pub pad: f32,
+    /// What the page said of the room, held to what an editor takes: its rows, caret, gutter and
+    /// colours.
+    pub options: EditorOptions,
     shaped: RefCell<HashMap<String, Rc<Shaped>>>,
     /// The row each line starts at, and after the last the number of rows; hidden lines take none.
     tops: Vec<usize>,
@@ -155,6 +159,7 @@ impl Default for View {
             gutter_shown: true,
             gutter: 0.0,
             pad: 4.0,
+            options: EditorOptions::default(),
             shaped: RefCell::new(HashMap::new()),
             tops: vec![0, 1],
             counted: None,
@@ -168,7 +173,11 @@ impl Default for View {
 impl View {
     /// The room is `room` now, its text as the page's boxes set it, `scale` pixels to a point.
     pub fn set_room(&mut self, room: &EditorRoom, scale: f32, measure: &mut dyn Measure) {
-        let look_changed = room.font != self.font || scale != self.scale;
+        let options = room.options.clone().held();
+        let look_changed = room.font != self.font
+            || scale != self.scale
+            || options.line_height != self.options.line_height
+            || options.padding != self.options.padding;
         let tab = usize::from(room.options.tab_width.max(1));
         if look_changed || tab != self.tab {
             self.shaped.borrow_mut().clear();
@@ -187,13 +196,13 @@ impl View {
             } else {
                 (room.font.size * 1.25).ceil()
             };
-            // Code is read line by line: a row is about one and a half times the font's size, as
-            // editors of code set it, its text in the middle, with a point at least above and
-            // below it where the font's own line is that tall already. The room is whole points,
-            // so a row is as tall on every screen.
+            // A row is as tall as the page says, times the font's size (one and a half, as editors
+            // of code set it, where it says nothing), its text in the middle, with a point at
+            // least above and below it where the font's own line is that tall already. The room is
+            // whole points, so a row is as tall on every screen.
             let s = scale.max(0.01);
             let points = |pixels: f32| (pixels / s).round() * s;
-            let target = points(room.font.size * 1.5);
+            let target = points(room.font.size * options.line_height);
             self.lead = points((target - self.line) / 2.0).max(s);
             self.row = self.line + 2.0 * self.lead;
             self.space = if self.plain {
@@ -206,9 +215,12 @@ impl View {
             } else {
                 digit
             };
-            self.pad = (4.0 * scale).round();
+            self.pad = (options.padding * scale).round();
         }
-        if room.options.wrap != self.wrap || room.options.gutter != self.gutter_shown {
+        if room.options.wrap != self.wrap
+            || room.options.gutter != self.gutter_shown
+            || options.numbers != self.options.numbers
+        {
             self.counted = None;
         }
         if (room.pixels.w - self.room.w).abs() > 0.5 && room.options.wrap {
@@ -219,6 +231,7 @@ impl View {
         self.wrap = room.options.wrap;
         self.gutter_shown = room.options.gutter;
         self.room = room.pixels;
+        self.options = options;
     }
 
     /// Where the text starts across the content, pixels: past the gutter.
@@ -517,19 +530,38 @@ impl View {
         ))
     }
 
-    /// The caret's box at `at`, pixels of the content: as tall as the text, not the row.
+    /// The caret's box at `at`, pixels of the content: as wide as the caret and as tall as the text,
+    /// whatever its shape, so that what stands by it (an overlay, an input method's window) stands
+    /// clear of the text it is on.
     pub fn caret_of(&self, buffer: &Buffer, at: usize, measure: &mut dyn Measure) -> Option<Rect> {
-        let point = self.point_of(buffer, at, measure)?;
-        Some(Rect::new(
-            point.x,
-            point.y + self.lead,
-            self.caret_width(),
-            self.line,
-        ))
+        let (row, into) = self.row_of(buffer, at, measure)?;
+        let x = self.text_x() + row.x(into);
+        let top = self.pad + row.index as f32 * self.row;
+        let drawn = self.caret_box(buffer, &row, at, x, top);
+        Some(Rect::new(drawn.x, top + self.lead, drawn.w, self.line))
     }
 
-    fn caret_width(&self) -> f32 {
-        (1.5 * self.scale).round().max(1.0)
+    /// The caret's box at `at` on `row`, `x` where the place is across and `top` the row's top
+    /// (pixels): a bar or a block as tall as the text, or a line under it; a block and a line as
+    /// wide as the character there (a space at the end of a line).
+    fn caret_box(&self, buffer: &Buffer, row: &Row, at: usize, x: f32, top: f32) -> Rect {
+        let caret = self.options.caret;
+        let thick = (caret.width * self.scale).round().max(1.0);
+        let wide = || {
+            let end = (row.base + row.to).min(grapheme_after(&buffer.text, at));
+            if end > at {
+                (row.x(end - row.base) - row.x(at - row.base)).max(thick)
+            } else {
+                self.space
+            }
+        };
+        match caret.shape {
+            CaretShape::Bar => Rect::new(x, top + self.lead, thick, self.line),
+            CaretShape::Block => Rect::new(x, top + self.lead, wide(), self.line),
+            CaretShape::Underline => {
+                Rect::new(x, top + self.lead + self.line - thick, wide(), thick)
+            }
+        }
     }
 
     /// The place under `point` (pixels of the content): on the row it is on (the first or the last
@@ -640,18 +672,26 @@ impl View {
         let rows: Vec<&Row> = self.rows.iter().filter(in_view).collect();
         let ranges = buffer.ranges();
         let main = buffer.main();
+        let colors = &self.options.colors;
 
         // The line of the main caret.
         if focused
             && main.is_empty()
             && let Some(row) = rows.iter().find(|row| self.on_row(row, main.head))
+            && let Some(ground) = colors.current_line.or(Role::Foreground.alpha(0.05))
         {
             out.push(quad(
                 Rect::new(room.x + gutter.w, row_y(row), room.w - gutter.w, self.row),
-                fade(Role::Foreground.alpha(0.05)),
+                fade(ground),
                 text_clip,
             ));
         }
+        let found_ground = colors.found.or(Role::Warning.alpha(0.3));
+        let selected_ground = if focused {
+            colors.selection.or(Role::Selection.solid())
+        } else {
+            colors.selection_blurred.or(Role::Selection.alpha(0.5))
+        };
         // The grounds of lines the page marked, what was found, what is selected.
         for row in &rows {
             let (from, to) = (row.base + row.from, row.base + row.to);
@@ -665,19 +705,20 @@ impl View {
                     ));
                 }
             }
-            for (start, end) in buffer.found() {
-                if let Some(rect) = self.span(row, *start, *end, false, origin_x, y) {
-                    out.push(quad(rect, fade(Role::Warning.alpha(0.3)), text_clip));
+            if let Some(ground) = found_ground {
+                for (start, end) in buffer.found() {
+                    if let Some(rect) = self.span(row, *start, *end, false, origin_x, y) {
+                        out.push(quad(rect, fade(ground), text_clip));
+                    }
                 }
             }
-            for range in ranges.iter().filter(|range| !range.is_empty()) {
-                if let Some(rect) = self.span(row, range.start(), range.end(), true, origin_x, y) {
-                    let ground = if focused {
-                        Role::Selection.solid()
-                    } else {
-                        Role::Selection.alpha(0.5)
-                    };
-                    out.push(quad(rect, fade(ground), text_clip));
+            if let Some(ground) = selected_ground {
+                for range in ranges.iter().filter(|range| !range.is_empty()) {
+                    if let Some(rect) =
+                        self.span(row, range.start(), range.end(), true, origin_x, y)
+                    {
+                        out.push(quad(rect, fade(ground), text_clip));
+                    }
                 }
             }
         }
@@ -699,17 +740,14 @@ impl View {
             );
         }
         if buffer.len_chars() == 0
-            && let Some(hint) = buffer
-                .options()
-                .hint
-                .clone()
-                .filter(|hint| !hint.is_empty())
+            && let Some(hint) = self.options.hint.clone().filter(|hint| !hint.is_empty())
+            && let Some(color) = colors.hint.or(Role::Quiet.solid())
         {
             out.push(Paint::Text(Run {
                 origin: Point::new(origin_x, origin_y + self.lead),
                 text: hint,
                 font: self.font,
-                color: fade(Role::Quiet.solid()),
+                color: fade(color),
                 grounds: slot.grounds.clone(),
                 clip: text_clip,
                 underline: false,
@@ -730,6 +768,7 @@ impl View {
         // The brackets that match, where the main caret is by one.
         if focused
             && main.is_empty()
+            && let Some(ring) = colors.brackets.or(Role::Dim.alpha(0.6))
             && let Some((here, there)) = buffer.matching_bracket(main.head)
         {
             for at in [here, there] {
@@ -744,7 +783,7 @@ impl View {
                         gradient: None,
                         border: Some(pencere_view::Border {
                             width: self.scale.round().max(1.0),
-                            color: fade(Role::Dim.alpha(0.6)),
+                            color: fade(ring),
                         }),
                         shadow: None,
                         clip: text_clip,
@@ -752,16 +791,24 @@ impl View {
                 }
             }
         }
-        // The carets.
-        if focused && caret_on {
+        // The carets; a block's character is drawn again on it.
+        let caret = self.options.caret;
+        if focused
+            && caret_on
+            && let Some(color) = caret.color.or(Role::Cursor.solid())
+        {
             for range in ranges {
                 if let Some(row) = rows.iter().find(|row| self.on_row(row, range.head)) {
-                    let x = origin_x + row.x(range.head - row.base);
-                    out.push(quad(
-                        Rect::new(x, row_y(row) + self.lead, self.caret_width(), self.line),
-                        fade(Role::Cursor.solid()),
-                        text_clip,
-                    ));
+                    let at = range.head;
+                    let x = origin_x + row.x(at - row.base);
+                    let rect = self.caret_box(buffer, row, at, x, row_y(row));
+                    out.push(quad(rect, fade(color), text_clip));
+                    if caret.shape == CaretShape::Block
+                        && let Some(text_color) = caret.text.or(Role::Background.solid())
+                    {
+                        let colors = (fade(color), fade(text_color));
+                        self.paint_under_block(buffer, row, at, rect, colors, text_clip, &mut out);
+                    }
                 }
             }
         }
@@ -930,26 +977,78 @@ impl View {
             let x = origin_x + row.shaped.width() - row.shift + self.space;
             let y = y + self.lead;
             let marker = Rect::new(x, y + self.line * 0.15, self.space * 3.0, self.line * 0.7);
-            out.push(Paint::Quad(Quad {
-                rect: marker,
-                radii: [self.line * 0.2; 4],
-                fill: Some(fade(Role::Foreground.alpha(0.08))),
-                gradient: None,
-                border: None,
-                shadow: None,
-                clip,
-            }));
-            out.push(Paint::Text(Run {
-                origin: Point::new(x + self.space * 0.5, y),
-                text: "⋯".into(),
-                font: self.font,
-                color: fade(Role::Dim.solid()),
-                grounds: slot.grounds.clone(),
-                clip,
-                underline: false,
-                strike: false,
-            }));
+            let colors = &self.options.colors;
+            if let Some(ground) = colors.folded.or(Role::Foreground.alpha(0.08)) {
+                out.push(Paint::Quad(Quad {
+                    rect: marker,
+                    radii: [self.line * 0.2; 4],
+                    fill: Some(fade(ground)),
+                    gradient: None,
+                    border: None,
+                    shadow: None,
+                    clip,
+                }));
+            }
+            if let Some(color) = colors.folds.or(Role::Dim.solid()) {
+                out.push(Paint::Text(Run {
+                    origin: Point::new(x + self.space * 0.5, y),
+                    text: "⋯".into(),
+                    font: self.font,
+                    color: fade(color),
+                    grounds: slot.grounds.clone(),
+                    clip,
+                    underline: false,
+                    strike: false,
+                }));
+            }
         }
+    }
+
+    /// The character at `at` on `row` drawn again on the block caret `rect`: `colors` the block's
+    /// and the character's, in the weight and slant the page's looks give it there.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_under_block(
+        &self,
+        buffer: &Buffer,
+        row: &Row,
+        at: usize,
+        rect: Rect,
+        (block, color): (Color, Color),
+        clip: Rect,
+        out: &mut Vec<Paint>,
+    ) {
+        let end = (row.base + row.to).min(grapheme_after(&buffer.text, at));
+        let Some(text) = buffer.slice(at, end).filter(|text| !text.trim().is_empty()) else {
+            return;
+        };
+        let mut font = self.font;
+        let look =
+            buffer
+                .decorations_in(at, end)
+                .into_iter()
+                .rev()
+                .find_map(|(_, item)| match &item.mark {
+                    Mark::Style(look) if item.from <= at && item.to >= end => Some(look),
+                    _ => None,
+                });
+        if let Some(look) = look {
+            if let Some(weight) = look.weight {
+                font.weight = weight;
+            }
+            if let Some(italic) = look.italic {
+                font.italic = italic;
+            }
+        }
+        out.push(Paint::Text(Run {
+            origin: Point::new(rect.x, rect.y),
+            text,
+            font,
+            color,
+            grounds: vec![block],
+            clip: clip.intersect(rect),
+            underline: false,
+            strike: false,
+        }));
     }
 
     fn paint_underline(
@@ -1006,22 +1105,32 @@ impl View {
         out: &mut Vec<Paint>,
     ) {
         let fade = |color: Color| color.faded(slot.opacity);
-        let ground = slot
+        let colors = &self.options.colors;
+        let under = slot
             .grounds
             .iter()
             .find(|color| color.is_opaque())
             .copied()
             .unwrap_or(Role::Background.solid());
-        out.push(Paint::Quad(Quad {
-            rect: gutter,
-            radii: [0.0; 4],
-            fill: Some(fade(ground)),
-            gradient: None,
-            border: None,
-            shadow: None,
-            clip,
-        }));
+        let ground = colors.gutter.or(under);
+        if let Some(ground) = ground {
+            out.push(Paint::Quad(Quad {
+                rect: gutter,
+                radii: [0.0; 4],
+                fill: Some(fade(ground)),
+                gradient: None,
+                border: None,
+                shadow: None,
+                clip,
+            }));
+        }
+        let grounds = ground.map_or_else(|| slot.grounds.clone(), |ground| vec![ground]);
         let main_line = buffer.line_of(buffer.main().head);
+        let hidden = if self.options.numbers == Numbers::Relative {
+            merged(buffer.hidden_lines())
+        } else {
+            Vec::new()
+        };
         let folds = buffer.folds();
         let folded = buffer.folded();
         let origin_y = slot.rect.y + self.pad - slot.scroll.y;
@@ -1029,24 +1138,33 @@ impl View {
         for row in rows.iter().filter(|row| row.from == 0) {
             let y = origin_y + row.index as f32 * self.row;
             let text_y = y + self.lead;
-            let number = (row.line + 1).to_string();
-            let width = number.chars().count() as f32 * self.digit;
-            let x = gutter.x + gutter.w - fold_w - self.pad - width;
-            let color = if row.line == main_line {
-                Role::Dim.solid()
-            } else {
-                Role::Quiet.solid()
+            let current = row.line == main_line;
+            let number = match self.options.numbers {
+                Numbers::Absolute => Some(row.line + 1),
+                Numbers::Relative if current => Some(row.line + 1),
+                Numbers::Relative => Some(lines_between(&hidden, row.line, main_line)),
+                Numbers::Hidden => None,
             };
-            out.push(Paint::Text(Run {
-                origin: Point::new(x, text_y),
-                text: number,
-                font: self.font,
-                color: fade(color),
-                grounds: vec![ground],
-                clip,
-                underline: false,
-                strike: false,
-            }));
+            let color = if current {
+                colors.current_number.or(Role::Dim.solid())
+            } else {
+                colors.numbers.or(Role::Quiet.solid())
+            };
+            if let (Some(number), Some(color)) = (number, color) {
+                let number = number.to_string();
+                let width = number.chars().count() as f32 * self.digit;
+                let x = gutter.x + gutter.w - fold_w - self.pad - width;
+                out.push(Paint::Text(Run {
+                    origin: Point::new(x, text_y),
+                    text: number,
+                    font: self.font,
+                    color: fade(color),
+                    grounds: grounds.clone(),
+                    clip,
+                    underline: false,
+                    strike: false,
+                }));
+            }
             let (from, to) = (
                 row.base,
                 row.base + row.shaped.stops.last().map_or(0, |s| s.0),
@@ -1074,14 +1192,15 @@ impl View {
             }
             if let Some(region) = folds.iter().find(|(from, to)| {
                 buffer.line_of(*from) == row.line && buffer.line_of(*to) > row.line
-            }) {
+            }) && let Some(color) = colors.folds.or(Role::Dim.solid())
+            {
                 let shut = folded.contains(region);
                 out.push(Paint::Text(Run {
                     origin: Point::new(gutter.x + gutter.w - fold_w, text_y),
                     text: if shut { "▸" } else { "▾" }.into(),
                     font: self.font,
-                    color: fade(Role::Dim.solid()),
-                    grounds: vec![ground],
+                    color: fade(color),
+                    grounds: grounds.clone(),
                     clip,
                     underline: false,
                     strike: false,
@@ -1103,7 +1222,12 @@ impl View {
         }
         let digits = lines.max(1).to_string().len().max(2);
         let (marks, fold) = self.gutter_parts();
-        self.gutter = marks + digits as f32 * self.digit + self.pad + fold;
+        let numbers = if self.options.numbers == Numbers::Hidden {
+            0.0
+        } else {
+            digits as f32 * self.digit + self.pad
+        };
+        self.gutter = marks + numbers + fold;
     }
 
     /// What is in the gutter at `y` (pixels of the content): the line, where the button of a region
@@ -1117,6 +1241,17 @@ impl View {
         let (_, fold) = self.gutter_parts();
         Some((line, x >= self.gutter - fold))
     }
+}
+
+/// How many lines apart `a` and `b` are as a person moves over them: the `hidden` lines (merged,
+/// first and last of each range) are not counted, a folded region being one line, its first.
+fn lines_between(hidden: &[(usize, usize)], a: usize, b: usize) -> usize {
+    let (low, high) = (a.min(b), a.max(b));
+    let skipped: usize = hidden
+        .iter()
+        .map(|(first, last)| (*last.min(&high) + 1).saturating_sub(*first.max(&(low + 1))))
+        .sum();
+    (high - low).saturating_sub(skipped)
 }
 
 /// The ranges of hidden lines in order, those that overlap made one.

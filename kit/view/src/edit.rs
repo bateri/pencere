@@ -258,6 +258,18 @@ pub struct EditorOptions {
     pub comment: Option<String>,
     /// The brackets and quotes that close themselves when they are typed, opener and closer.
     pub pairs: Vec<(char, char)>,
+    /// How tall a row is, times the font's size: its text is in the middle of it, with a point
+    /// at least above and below (1.5, as editors of code set it; [`limits::LINE_HEIGHT`]).
+    pub line_height: f32,
+    /// The room kept around the text, points ([`limits::PADDING`]).
+    pub padding: f32,
+    /// How many rows are kept between the caret and the top or the bottom of the room when the
+    /// editor scrolls to keep the caret in view (at most half the rows in view).
+    pub scroll_margin: u8,
+    /// What the numbers of the lines in the gutter count.
+    pub numbers: Numbers,
+    pub caret: Caret,
+    pub colors: EditorColors,
 }
 
 impl Default for EditorOptions {
@@ -272,8 +284,137 @@ impl Default for EditorOptions {
             hint: None,
             comment: None,
             pairs: Vec::new(),
+            line_height: 1.5,
+            padding: 4.0,
+            scroll_margin: 0,
+            numbers: Numbers::Absolute,
+            caret: Caret::default(),
+            colors: EditorColors::default(),
         }
     }
+}
+
+impl EditorOptions {
+    /// The options with every number held to what an editor may take ([`limits`]): one past an
+    /// end is taken to it, one that is not a number is the default.
+    #[must_use]
+    pub fn held(mut self) -> Self {
+        let default = Self::default();
+        let hold = |value: f32, range: std::ops::RangeInclusive<f32>, default: f32| {
+            if value.is_nan() {
+                default
+            } else {
+                value.clamp(*range.start(), *range.end())
+            }
+        };
+        self.tab_width = self.tab_width.clamp(1, limits::TAB_WIDTH);
+        self.line_height = hold(self.line_height, limits::LINE_HEIGHT, default.line_height);
+        self.padding = hold(self.padding, limits::PADDING, default.padding);
+        self.caret.width = hold(self.caret.width, limits::CARET_WIDTH, default.caret.width);
+        self
+    }
+}
+
+/// A colour an editor draws something in: the theme's (what the editor draws it in when the page
+/// says nothing), none (it is not drawn), or the page's own.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Tint {
+    #[default]
+    Theme,
+    Off,
+    Color(Color),
+}
+
+impl Tint {
+    /// The colour to draw in: `theme` where the page said nothing, none where it said not to draw.
+    pub fn or(self, theme: Color) -> Option<Color> {
+        match self {
+            Self::Theme => Some(theme),
+            Self::Off => None,
+            Self::Color(color) => Some(color),
+        }
+    }
+}
+
+/// How a caret is drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CaretShape {
+    /// A bar before the character, as tall as the text.
+    #[default]
+    Bar,
+    /// A block over the character (a space wide at the end of a line), the character drawn again
+    /// on it in the caret's `text` colour: the caret of an editor of modes, while it is not typing.
+    Block,
+    /// A line under the character.
+    Underline,
+}
+
+/// How the carets look. The host blinks them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Caret {
+    pub shape: CaretShape,
+    /// How wide a bar is, and how thick the line of `Underline` is, points
+    /// ([`limits::CARET_WIDTH`]); a block is as wide as its character.
+    pub width: f32,
+    /// The caret's colour (the theme's: its cursor colour); off, and no caret is drawn.
+    pub color: Tint,
+    /// The colour of the character under a block (the theme's: its background).
+    pub text: Tint,
+}
+
+impl Default for Caret {
+    fn default() -> Self {
+        Self {
+            shape: CaretShape::Bar,
+            width: 1.5,
+            color: Tint::Theme,
+            text: Tint::Theme,
+        }
+    }
+}
+
+/// What the numbers of the lines in the gutter count.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Numbers {
+    /// Each line its own number, from 1.
+    #[default]
+    Absolute,
+    /// The main caret's line its own number, every other line how many lines it is from it, a
+    /// folded region one line (the count a move of that many lines up or down goes).
+    Relative,
+    /// None: the gutter keeps its marks and the buttons that fold.
+    Hidden,
+}
+
+/// The colours of what an editor draws besides its text: the text is the element's colour and the
+/// looks the page decorates it with ([`Mark::Style`]). Each is the theme's where the page says
+/// nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EditorColors {
+    /// The ground of the main caret's line while the editor has the keyboard (the theme's: the
+    /// foreground at 5%).
+    pub current_line: Tint,
+    /// The ground of what is selected while the editor has the keyboard (the theme's selection),
+    /// and while it has not (the theme's selection at half).
+    pub selection: Tint,
+    pub selection_blurred: Tint,
+    /// The ground of what a search found (the theme's: its warning colour at 30%).
+    pub found: Tint,
+    /// The ring around the bracket by the caret and the one that matches it (the theme's: its dim
+    /// colour at 60%).
+    pub brackets: Tint,
+    /// The numbers of the lines (the theme's quiet colour), and the number of the main caret's
+    /// line (its dim colour).
+    pub numbers: Tint,
+    pub current_number: Tint,
+    /// The ground of the gutter (the theme's: what the editor is on, else the background).
+    pub gutter: Tint,
+    /// The buttons that fold and the `⋯` after a folded line (the theme's dim colour), and the
+    /// ground of that `⋯` (the foreground at 8%).
+    pub folds: Tint,
+    pub folded: Tint,
+    /// What the editor says while its document is empty (the theme's quiet colour).
+    pub hint: Tint,
 }
 
 /// Where a caret goes.
@@ -484,4 +625,12 @@ pub mod limits {
     /// How many versions back a change or a decoration may be made against: the editor keeps the
     /// changes of the last this many, to carry what comes late over them.
     pub const VERSIONS: u64 = 1024;
+    /// The most columns a tab may take.
+    pub const TAB_WIDTH: u8 = 16;
+    /// How tall a row may be, times the font's size.
+    pub const LINE_HEIGHT: std::ops::RangeInclusive<f32> = 1.0..=3.0;
+    /// How much room may be kept around the text, points.
+    pub const PADDING: std::ops::RangeInclusive<f32> = 0.0..=64.0;
+    /// How wide a caret's bar, or thick its line, may be, points.
+    pub const CARET_WIDTH: std::ops::RangeInclusive<f32> = 0.5..=8.0;
 }

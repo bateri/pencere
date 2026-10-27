@@ -7,7 +7,8 @@
 
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
-    Change, Decorate, Decoration, EditCommand, EditorAsk, EditorOptions, Keys, Mark, Range,
+    Caret, CaretShape, Change, Decorate, Decoration, EditCommand, EditorAsk, EditorColors,
+    EditorOptions, Keys, Mark, Numbers, Range, Tint,
 };
 use pencere_view::{
     Command, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint, Point, Rect,
@@ -146,6 +147,49 @@ impl Host {
     fn paint(&mut self, caret_on: bool) -> DrawList {
         let list = self.laid.paint(&mut Fake);
         self.editors.paint(list, &mut Fake, caret_on)
+    }
+
+    /// The main caret put at `at`, the editor having the keyboard.
+    fn caret_at(&mut self, at: usize) {
+        self.editors.set_focus(Some(EDITOR));
+        let laid = self.laid.clone();
+        let version = self.editors.buffer(EDITOR).expect("the editor").version();
+        self.editors.ask(
+            &laid,
+            EDITOR,
+            EditorAsk::Select {
+                version,
+                ranges: vec![Range::caret(at)],
+                main: 0,
+            },
+            &mut Fake,
+            self.now,
+        );
+        self.settle();
+    }
+
+    /// The texts drawn, where and in which role's colour.
+    fn texts(&mut self) -> Vec<(String, Point, Option<Role>)> {
+        self.paint(true)
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Paint::Text(run) => Some((run.text.clone(), run.origin, run.color.role())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The boxes filled, and the role of their colour.
+    fn quads(&mut self) -> Vec<(Rect, Option<Role>)> {
+        self.paint(true)
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Paint::Quad(quad) => Some((quad.rect, quad.fill.and_then(|f| f.role()))),
+                _ => None,
+            })
+            .collect()
     }
 }
 
@@ -694,4 +738,237 @@ fn the_documents_of_a_page_together_are_held_to_what_a_page_may() {
     });
     assert!(refused);
     assert_eq!(host.text(), "x");
+}
+
+#[test]
+fn the_page_says_how_tall_a_row_is_and_the_room_around_the_text() {
+    // 2.4 times the font's 12.5 is 30: the line of 16 with 7 above and 7 below; 10 around it all.
+    let mut host = Host::new(page_with(EditorOptions {
+        line_height: 2.4,
+        padding: 10.0,
+        ..plain()
+    }));
+    host.load("mi\nwi");
+    let metrics = host.editors.metrics(EDITOR).expect("laid out");
+    assert_eq!(metrics.content.h, 2.0 * 30.0 + 20.0);
+    host.caret_at(4);
+    let caret = host
+        .editors
+        .metrics(EDITOR)
+        .and_then(|m| m.caret)
+        .expect("a caret");
+    // `w` is 11 across, on the second row: the caret is as tall as the text, in the row's middle.
+    assert_eq!(caret, Rect::new(10.0 + 11.0, 10.0 + 30.0 + 7.0, 2.0, LINE));
+    // Past what an editor takes, a row is three times the font's size; not a number, the default.
+    let held = EditorOptions {
+        line_height: 9.0,
+        padding: f32::NAN,
+        ..EditorOptions::default()
+    }
+    .held();
+    assert_eq!((held.line_height, held.padding), (3.0, 4.0));
+}
+
+#[test]
+fn a_block_caret_is_as_wide_as_its_character_which_is_drawn_again_on_it() {
+    let mut host = Host::new(page_with(EditorOptions {
+        caret: Caret {
+            shape: CaretShape::Block,
+            color: Tint::Color(Role::Accent.solid()),
+            text: Tint::Color(Role::Magenta.solid()),
+            ..Caret::default()
+        },
+        ..plain()
+    }));
+    host.load("mi");
+    host.caret_at(0);
+    let block = Rect::new(4.0, 4.0 + LEAD, 11.0, LINE);
+    assert!(host.quads().contains(&(block, Some(Role::Accent))));
+    assert!(
+        host.texts()
+            .contains(&("m".into(), Point::new(4.0, 4.0 + LEAD), Some(Role::Magenta)))
+    );
+    // At the end of the line it is a space wide, and over no character.
+    host.caret_at(2);
+    let block = Rect::new(4.0 + 14.0, 4.0 + LEAD, 7.0, LINE);
+    assert!(host.quads().contains(&(block, Some(Role::Accent))));
+    assert!(
+        !host
+            .texts()
+            .iter()
+            .any(|(_, _, role)| *role == Some(Role::Magenta))
+    );
+}
+
+#[test]
+fn an_underline_caret_is_a_line_under_its_character_as_thick_as_the_page_says() {
+    let mut host = Host::new(page_with(EditorOptions {
+        caret: Caret {
+            shape: CaretShape::Underline,
+            width: 3.0,
+            ..Caret::default()
+        },
+        ..plain()
+    }));
+    host.load("mi");
+    host.caret_at(1);
+    let line = Rect::new(4.0 + 11.0, 4.0 + LEAD + LINE - 3.0, 3.0, 3.0);
+    assert!(host.quads().contains(&(line, Some(Role::Cursor))));
+    // What stands by the caret stands by the text it is under, not on it.
+    let caret = host
+        .editors
+        .metrics(EDITOR)
+        .and_then(|m| m.caret)
+        .expect("a caret");
+    assert_eq!(caret, Rect::new(4.0 + 11.0, 4.0 + LEAD, 3.0, LINE));
+}
+
+#[test]
+fn relative_numbers_count_the_lines_from_the_caret_a_folded_region_as_one() {
+    let mut host = Host::new(page_with(EditorOptions {
+        numbers: Numbers::Relative,
+        ..EditorOptions::default()
+    }));
+    // Lines `a` to `f`; the region from the end of `c` to the end of `d` folds `d` away.
+    host.load("a\nb\nc\nd\ne\nf");
+    let laid = host.laid.clone();
+    host.editors.ask(
+        &laid,
+        EDITOR,
+        EditorAsk::Decorate(Decorate {
+            layer: "folds".into(),
+            version: 1,
+            from: 0,
+            to: 11,
+            decorations: vec![Decoration::new(5, 7, Mark::Fold)],
+        }),
+        &mut Fake,
+        0.0,
+    );
+    host.caret_at(4);
+    let laid = host.laid.clone();
+    host.editors.ask(
+        &laid,
+        EDITOR,
+        EditorAsk::Command(EditCommand::Fold),
+        &mut Fake,
+        0.0,
+    );
+    host.caret_at(2);
+    let numbers: Vec<String> = host
+        .texts()
+        .into_iter()
+        .map(|(text, _, _)| text)
+        .filter(|text| text.chars().all(|c| c.is_ascii_digit()))
+        .collect();
+    // The caret's line is its own number; `e` is two lines down, `d` being folded.
+    assert_eq!(numbers, vec!["1", "2", "1", "2", "3"]);
+}
+
+#[test]
+fn hidden_numbers_keep_the_marks_and_the_fold_buttons_and_take_their_room() {
+    let text_x = |numbers: Numbers| {
+        let mut host = Host::new(page_with(EditorOptions {
+            numbers,
+            ..EditorOptions::default()
+        }));
+        host.load("mi");
+        let texts = host.texts();
+        let digits = texts
+            .iter()
+            .filter(|(text, _, _)| text.chars().all(|c| c.is_ascii_digit()))
+            .count();
+        let x = texts
+            .iter()
+            .find(|(text, _, _)| text == "mi")
+            .map(|(_, at, _)| at.x)
+            .expect("the text is drawn");
+        (digits, x)
+    };
+    let (shown, at) = text_x(Numbers::Absolute);
+    let (hidden, nearer) = text_x(Numbers::Hidden);
+    assert_eq!((shown, hidden), (1, 0));
+    // Two digits of 7 and the room after them.
+    assert_eq!(at - nearer, 2.0 * 7.0 + 4.0);
+}
+
+#[test]
+fn the_page_colours_what_the_editor_draws_and_what_it_turns_off_is_not_drawn() {
+    let colours = |colors: EditorColors| {
+        let mut host = Host::new(page_with(EditorOptions {
+            colors,
+            ..EditorOptions::default()
+        }));
+        host.load("mi\nwi");
+        host.caret_at(1);
+        let quads = host.quads();
+        let texts = host.texts();
+        (quads, texts)
+    };
+    // The theme's: the caret's line in the foreground's colour, the numbers quiet and dim.
+    let (quads, texts) = colours(EditorColors::default());
+    assert!(
+        quads
+            .iter()
+            .any(|(_, role)| *role == Some(Role::Foreground))
+    );
+    let role_of = |texts: &[(String, Point, Option<Role>)], wanted: &str| {
+        texts
+            .iter()
+            .find(|(text, _, _)| text == wanted)
+            .and_then(|(_, _, role)| *role)
+    };
+    assert_eq!(role_of(&texts, "1"), Some(Role::Dim));
+    assert_eq!(role_of(&texts, "2"), Some(Role::Quiet));
+    let (quads, texts) = colours(EditorColors {
+        current_line: Tint::Off,
+        numbers: Tint::Color(Role::Accent.solid()),
+        current_number: Tint::Off,
+        gutter: Tint::Color(Role::Raised(1).solid()),
+        ..EditorColors::default()
+    });
+    assert!(
+        !quads
+            .iter()
+            .any(|(_, role)| *role == Some(Role::Foreground))
+    );
+    assert!(quads.iter().any(|(_, role)| *role == Some(Role::Raised(1))));
+    let numbers: Vec<_> = texts
+        .iter()
+        .filter(|(text, _, _)| text.chars().all(|c| c.is_ascii_digit()))
+        .collect();
+    assert_eq!(
+        numbers.len(),
+        1,
+        "the caret's line has no number: {numbers:?}"
+    );
+    assert_eq!(numbers[0].2, Some(Role::Accent));
+}
+
+#[test]
+fn the_page_keeps_rows_between_the_caret_and_the_edge_of_the_room() {
+    let mut host = Host::new(page_with(EditorOptions {
+        scroll_margin: 3,
+        ..plain()
+    }));
+    let text: String = (0..30).map(|n| format!("{n}\n")).collect();
+    host.load(&text);
+    host.editors.set_focus(Some(EDITOR));
+    host.editors.take_scrolls();
+    let laid = host.laid.clone();
+    host.editors.ask(
+        &laid,
+        EDITOR,
+        EditorAsk::Select {
+            version: 1,
+            ranges: vec![Range::caret(50)],
+            main: 0,
+        },
+        &mut Fake,
+        0.0,
+    );
+    // Line 20 ends 4 + 21 rows down; three rows more show below it, and the room's pad.
+    let asked = host.editors.take_scrolls();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].y, Some(4.0 + 21.0 * ROW + 3.0 * ROW + 4.0 - 200.0));
 }

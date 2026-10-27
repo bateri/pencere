@@ -7,13 +7,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pencere_editor::{EditorEvent, Editors, Route};
-use pencere_view::edit::{Mark, Origin, TextSnapshot};
+use pencere_view::edit::{
+    Caret, CaretShape, EditorColors, EditorOptions, Mark, Numbers, Origin, TextSnapshot, Tint,
+};
 use pencere_view::{
-    Element, Event, Font, Id, Key, Keyboard, Laid, Measure, Metrics, Mods, Scrolls, layout,
+    Element, Event, Font, Id, Key, Keyboard, Laid, Measure, Metrics, Mods, Role, Scrolls, layout,
 };
 
 use crate::guests_tests::{Open, SIZE};
-use crate::luau_tests::{open_script, words};
+use crate::luau_tests::{failed, open_script, words};
 use crate::{Fault, ModuleLimits};
 
 const PAGE: &str = include_str!("../../../examples/editor-lua/src/view/page.lua");
@@ -408,4 +410,88 @@ fn a_reply_that_hands_an_editor_more_than_a_reply_may_is_not_a_reply() {
         "{:?}",
         update.closed
     );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme() {
+    let rig = Rig::open(
+        r#"
+        return {
+            render = function()
+                return pencere.div():size_full():child(pencere.editor("vim", {
+                    line_height = 1.8,
+                    padding = 9,
+                    scroll_margin = 3,
+                    numbers = "relative",
+                    caret = { shape = "block", width = 2, color = "accent", text = { "magenta", 0.5 } },
+                    colors = { current_line = false, selection = "raised1", numbers = "dim" },
+                }):grow(1))
+            end,
+        }
+        "#,
+    );
+    let room = rig
+        .laid
+        .editors()
+        .into_iter()
+        .find(|room| room.id == Id::named("vim"))
+        .expect("the editor's room");
+    assert_eq!(
+        room.options,
+        EditorOptions {
+            line_height: 1.8,
+            padding: 9.0,
+            scroll_margin: 3,
+            numbers: Numbers::Relative,
+            caret: Caret {
+                shape: CaretShape::Block,
+                width: 2.0,
+                color: Tint::Color(Role::Accent.solid()),
+                text: Tint::Color(Role::Magenta.alpha(0.5)),
+            },
+            colors: EditorColors {
+                current_line: Tint::Off,
+                selection: Tint::Color(Role::Raised(1).solid()),
+                numbers: Tint::Color(Role::Dim.solid()),
+                ..EditorColors::default()
+            },
+            ..EditorOptions::default()
+        }
+    );
+    // What a page leaves out is the editor's default: the theme's colours, its rows and caret.
+    let plain = Rig::open(r#"return { render = function() return pencere.editor("e") end }"#);
+    let room = plain
+        .laid
+        .editors()
+        .into_iter()
+        .next()
+        .expect("the editor's room");
+    assert_eq!(room.options, EditorOptions::default());
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn an_option_an_editor_has_no_such_name_for_is_a_mistake_said_where_it_is_made() {
+    for (options, said) in [
+        ("{ colours = {} }", "an editor has no option colours"),
+        (
+            "{ caret = { colour = \"accent\" } }",
+            "an editor has no option caret.colour",
+        ),
+        (
+            "{ numbers = \"roman\" }",
+            "\"roman\" is not one of the words it takes",
+        ),
+        ("{ caret = \"block\" }", "the caret of an editor is a table"),
+        ("{ colors = { selection = true } }", "colour"),
+    ] {
+        let script =
+            format!("return {{ render = function() return pencere.editor(\"e\", {options}) end }}");
+        let mut page = open_script(&script, ModuleLimits::default());
+        page.module.render(SIZE, 0.0, false);
+        let update = page.until(Duration::from_secs(30), |u| u.closed.is_some());
+        let why = failed(&update);
+        assert!(why.contains(said), "{options}: {why}");
+    }
 }

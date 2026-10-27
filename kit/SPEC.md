@@ -171,7 +171,37 @@ buttons that fold; on by default), `read_only` (the person cannot change the tex
 `keys` (`"editor"`, or `"page"`: every key the page's, and the editor types nothing and does none of
 its own commands for a key, for an editor of modes the page drives), `hint` (what it says while it is
 empty; or the first text inside it), `comment` (what the command that comments lines puts, `"--"`)
-and `pairs` (the brackets and quotes that close themselves, `"()[]''"`). Its document lives as long
+and `pairs` (the brackets and quotes that close themselves, `"()[]''"`).
+
+How an editor looks is the page's to say, and what it leaves out is the editor's default, in the
+theme's colours:
+
+| option                                         | what it is                                                                                                                                                                                                                             | default                                    |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `line_height`                                  | how tall a row is, times the font's size (1 to 3); the text is in its middle, with a point at least above and below                                                                                                                    | 1.5                                        |
+| `padding`                                      | the room kept around the text, points (0 to 64)                                                                                                                                                                                        | 4                                          |
+| `scroll_margin`                                | the rows kept between the caret and the top or the bottom of the room when the editor scrolls to the caret (at most half the rows in view)                                                                                             | 0                                          |
+| `numbers`                                      | what the numbers of the lines count: `"absolute"`, `"relative"` (the caret's line its own number, every other line how many lines it is from it, a folded region one line) or `"hidden"` (the gutter keeps its marks and fold buttons) | `"absolute"`                               |
+| `caret.shape`                                  | `"bar"` (before the character, as tall as the text), `"block"` (over the character, which is drawn again on it; a space wide at the end of a line) or `"underline"`                                                                    | `"bar"`                                    |
+| `caret.width`                                  | how wide the bar is, or how thick the line under the character, points (0.5 to 8)                                                                                                                                                      | 1.5                                        |
+| `caret.color`, `caret.text`                    | the caret's colour, and the colour of the character under a block                                                                                                                                                                      | cursor, background                         |
+| `colors.current_line`                          | the ground of the main caret's line, while the editor has the keyboard                                                                                                                                                                 | foreground at 5%                           |
+| `colors.selection`, `colors.selection_blurred` | the ground of what is selected, while the editor has the keyboard and while it has not                                                                                                                                                 | selection, selection at half               |
+| `colors.found`                                 | the ground of what a search found                                                                                                                                                                                                      | warning at 30%                             |
+| `colors.brackets`                              | the ring around the bracket by the caret and the one that matches it                                                                                                                                                                   | dim at 60%                                 |
+| `colors.numbers`, `colors.current_number`      | the numbers of the lines, and the caret's line's                                                                                                                                                                                       | quiet, dim                                 |
+| `colors.gutter`                                | the ground of the gutter                                                                                                                                                                                                               | what the editor is on, else the background |
+| `colors.folds`, `colors.folded`                | the buttons that fold and the `⋯` after a folded line, and the ground of that `⋯`                                                                                                                                                      | dim, foreground at 8%                      |
+| `colors.hint`                                  | what the editor says while it is empty                                                                                                                                                                                                 | quiet                                      |
+
+A colour is any colour of the page (a role's name, a value, `{ colour, alpha }`); `false` draws none
+(`colors = { current_line = false }`, or `caret = { color = false }` for an editor with no caret). A
+number out of its range is taken to its nearest end. An option an editor has no such name for is a
+mistake, and so is a word it does not take: the page fails where it says it. The text is the box's
+colour and font (`:color`, `:text_size`, `:family`), and what the page decorates (Section 2.3) is
+drawn over all of it. The host blinks the caret.
+
+Its document lives as long
 as an editor of its name is on the page, hidden or not: a page of tabs hides the editors of the
 files not in front and keeps their documents. The language is the page's or its program's: the
 editor colours, marks and folds what the page says (Section 2.3) and knows no language itself.

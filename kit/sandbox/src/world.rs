@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use pencere_view::edit::{
-    Change, Decorate, Decoration, EditCommand, EditorAsk, EditorOptions, Keys, Look, Mark,
-    Movement, Origin, Range, Refusal, Underline,
+    Caret, CaretShape, Change, Decorate, Decoration, EditCommand, EditorAsk, EditorColors,
+    EditorOptions, Keys, Look, Mark, Movement, Numbers, Origin, Range, Refusal, Tint, Underline,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -1277,6 +1277,7 @@ fn editor_options_out(
             .map(|part| lists.words(part, limits.text, what).map(str::to_owned))
             .transpose()
     };
+    let default = EditorOptions::default();
     let hint = words(&options.hint, "the hint of an editor")?;
     let comment = words(&options.comment, "the comment of an editor")?;
     let pairs: Vec<char> = words(&options.pairs, "the pairs of an editor")?
@@ -1306,7 +1307,51 @@ fn editor_options_out(
             .chunks_exact(2)
             .filter_map(|pair| Some((*pair.first()?, *pair.get(1)?)))
             .collect(),
-    })
+        line_height: options.line_height.unwrap_or(default.line_height),
+        padding: options.padding.unwrap_or(default.padding),
+        scroll_margin: options.scroll_margin.unwrap_or(default.scroll_margin),
+        numbers: match options.numbers {
+            wit::LineNumbers::Absolute => Numbers::Absolute,
+            wit::LineNumbers::Relative => Numbers::Relative,
+            wit::LineNumbers::Hidden => Numbers::Hidden,
+        },
+        caret: Caret {
+            shape: match options.caret.shape {
+                wit::CaretShape::Bar => CaretShape::Bar,
+                wit::CaretShape::Block => CaretShape::Block,
+                wit::CaretShape::Underline => CaretShape::Underline,
+            },
+            width: options.caret.width.unwrap_or(default.caret.width),
+            color: tint_out(&options.caret.color),
+            text: tint_out(&options.caret.text),
+        },
+        colors: editor_colors_out(&options.colors),
+    }
+    .held())
+}
+
+fn tint_out(tint: &wit::EditorTint) -> Tint {
+    match tint {
+        wit::EditorTint::Theme => Tint::Theme,
+        wit::EditorTint::Off => Tint::Off,
+        wit::EditorTint::Color(color) => Tint::Color(color_out(color)),
+    }
+}
+
+fn editor_colors_out(colors: &wit::EditorColors) -> EditorColors {
+    EditorColors {
+        current_line: tint_out(&colors.current_line),
+        selection: tint_out(&colors.selection),
+        selection_blurred: tint_out(&colors.selection_blurred),
+        found: tint_out(&colors.found),
+        brackets: tint_out(&colors.brackets),
+        numbers: tint_out(&colors.numbers),
+        current_number: tint_out(&colors.current_number),
+        gutter: tint_out(&colors.gutter),
+        folds: tint_out(&colors.folds),
+        folded: tint_out(&colors.folded),
+        hint: tint_out(&colors.hint),
+    }
 }
 
 /// What a reply asks of its editors, held to what one reply may hand them: text, decorations,

@@ -4,8 +4,8 @@
 //! `crates/pencere-sandbox/src/world.rs`.
 
 use pencere_view::edit::{
-    Change, EditCommand, Edited, EditorAsk, EditorOptions, Keys, Mark, Movement, Origin, Range,
-    Refusal, Selection, Underline,
+    CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions, Keys, Mark,
+    Movement, Numbers, Origin, Range, Refusal, Selection, Tint, Underline,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
@@ -685,6 +685,49 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
             .as_deref()
             .map(|comment| lists.words(comment)),
         pairs: (!pairs.is_empty()).then(|| lists.words(&pairs)),
+        line_height: Some(options.line_height),
+        padding: Some(options.padding),
+        scroll_margin: Some(options.scroll_margin),
+        numbers: match options.numbers {
+            Numbers::Absolute => wit::LineNumbers::Absolute,
+            Numbers::Relative => wit::LineNumbers::Relative,
+            Numbers::Hidden => wit::LineNumbers::Hidden,
+        },
+        caret: wit::EditorCaret {
+            shape: match options.caret.shape {
+                CaretShape::Bar => wit::CaretShape::Bar,
+                CaretShape::Block => wit::CaretShape::Block,
+                CaretShape::Underline => wit::CaretShape::Underline,
+            },
+            width: Some(options.caret.width),
+            color: tint(options.caret.color),
+            text: tint(options.caret.text),
+        },
+        colors: editor_colors(&options.colors),
+    }
+}
+
+fn tint(tint: Tint) -> wit::EditorTint {
+    match tint {
+        Tint::Theme => wit::EditorTint::Theme,
+        Tint::Off => wit::EditorTint::Off,
+        Tint::Color(value) => wit::EditorTint::Color(color(value)),
+    }
+}
+
+fn editor_colors(colors: &EditorColors) -> wit::EditorColors {
+    wit::EditorColors {
+        current_line: tint(colors.current_line),
+        selection: tint(colors.selection),
+        selection_blurred: tint(colors.selection_blurred),
+        found: tint(colors.found),
+        brackets: tint(colors.brackets),
+        numbers: tint(colors.numbers),
+        current_number: tint(colors.current_number),
+        gutter: tint(colors.gutter),
+        folds: tint(colors.folds),
+        folded: tint(colors.folded),
+        hint: tint(colors.hint),
     }
 }
 
@@ -916,6 +959,46 @@ mod tests {
     use super::*;
     use pencere_view::edit::{Decorate, Decoration, Look};
     use pencere_view::{Element, div};
+
+    #[test]
+    fn how_an_editor_looks_crosses_as_the_page_said_it() {
+        use pencere_view::edit::{Caret, CaretShape};
+        let options = EditorOptions {
+            line_height: 1.8,
+            padding: 9.0,
+            scroll_margin: 3,
+            numbers: Numbers::Relative,
+            caret: Caret {
+                shape: CaretShape::Block,
+                width: 2.0,
+                color: Tint::Color(Color::from(Role::Accent)),
+                text: Tint::Off,
+            },
+            colors: EditorColors {
+                current_line: Tint::Off,
+                gutter: Tint::Color(Color::from(Role::Raised(1))),
+                ..EditorColors::default()
+            },
+            ..EditorOptions::default()
+        };
+        let frame = to_wit_frame(Frame::still(div().editor(Id::new(5), options)));
+        let editor = frame.nodes[0]
+            .editor
+            .as_ref()
+            .expect("the node is an editor");
+        assert_eq!(
+            (editor.line_height, editor.padding, editor.scroll_margin),
+            (Some(1.8), Some(9.0), Some(3))
+        );
+        assert!(matches!(editor.numbers, wit::LineNumbers::Relative));
+        assert!(matches!(editor.caret.shape, wit::CaretShape::Block));
+        assert_eq!(editor.caret.width, Some(2.0));
+        assert!(matches!(&editor.caret.color, wit::EditorTint::Color(_)));
+        assert!(matches!(editor.caret.text, wit::EditorTint::Off));
+        assert!(matches!(editor.colors.current_line, wit::EditorTint::Off));
+        assert!(matches!(&editor.colors.gutter, wit::EditorTint::Color(_)));
+        assert!(matches!(editor.colors.selection, wit::EditorTint::Theme));
+    }
 
     #[test]
     fn an_editor_and_what_the_page_asks_of_it_cross_as_they_are() {

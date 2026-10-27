@@ -899,9 +899,37 @@ static_assert(PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_BUTTON == 0 && PENCERE_VIEW_TYP
 
 // --- An editor ------------------------------------------------------------------------------
 
+// A colour of an editor's, `name` in the table at `t`: not said, the theme's; `false`, none (it is
+// not drawn); anything else a colour.
+pencere_view_types_editor_tint_t tint_at(lua_State* L, int t, const char* name) {
+    pencere_view_types_editor_tint_t out = {};
+    out.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
+    get(L, t, name);
+    int kind = lua_type(L, -1);
+    if (kind == LUA_TBOOLEAN && !lua_toboolean(L, -1)) {
+        out.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_OFF;
+    } else if (kind != LUA_TNIL) {
+        out.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_COLOR;
+        out.val.color = color_at(L, lua_gettop(L));
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
+const char* const kCaretShape[] = {"bar", "block", "underline"};
+const char* const kLineNumbers[] = {"absolute", "relative", "hidden"};
+static_assert(PENCERE_VIEW_TYPES_CARET_SHAPE_BAR == 0 && PENCERE_VIEW_TYPES_CARET_SHAPE_BLOCK == 1 &&
+                  PENCERE_VIEW_TYPES_CARET_SHAPE_UNDERLINE == 2,
+              "kCaretShape is the order of caret-shape");
+static_assert(PENCERE_VIEW_TYPES_LINE_NUMBERS_ABSOLUTE == 0 && PENCERE_VIEW_TYPES_LINE_NUMBERS_RELATIVE == 1 &&
+                  PENCERE_VIEW_TYPES_LINE_NUMBERS_HIDDEN == 2,
+              "kLineNumbers is the order of line-numbers");
+
 // `meta.editor`: { wrap =, tab_width =, hard_tabs =, gutter =, read_only =, keys = "editor" | "page",
-// hint = "words", comment = "--", pairs = "()[]{}" }. What it does not say is the default (a gutter,
-// tabs of four).
+// hint = "words", comment = "--", pairs = "()[]{}", line_height =, padding =, scroll_margin =,
+// numbers = "absolute" | "relative" | "hidden", caret = { shape =, width =, color =, text = },
+// colors = { current_line =, … } }. What it does not say is the default (a gutter, tabs of four);
+// a number the interface takes as an option goes as none, and the host's default stands.
 pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arenas& arenas) {
     pencere_view_types_editor_options_t out = {};
     out.wrap = flag(L, t, "wrap");
@@ -927,6 +955,49 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
         }
         lua_pop(L, 1);
     }
+    out.line_height = optional_number(L, t, "line_height");
+    out.padding = optional_number(L, t, "padding");
+    view_option_f32_t margin = optional_number(L, t, "scroll_margin");
+    if (margin.is_some) {
+        out.scroll_margin.is_some = true;
+        out.scroll_margin.val = margin.val < 0 ? 0 : (margin.val > 255 ? 255 : (uint8_t)margin.val);
+    }
+    out.numbers = (uint8_t)word(L, t, "numbers", kLineNumbers, 3, 0);
+    out.caret.color.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
+    out.caret.text.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
+    get(L, t, "caret");
+    int caret = lua_gettop(L);
+    if (lua_type(L, caret) == LUA_TTABLE) {
+        out.caret.shape = (uint8_t)word(L, caret, "shape", kCaretShape, 3, 0);
+        out.caret.width = optional_number(L, caret, "width");
+        out.caret.color = tint_at(L, caret, "color");
+        out.caret.text = tint_at(L, caret, "text");
+    } else if (!lua_isnil(L, caret)) {
+        luaL_error(L, "the caret of an editor is a table: { shape =, width =, color =, text = }");
+    }
+    lua_pop(L, 1);
+    pencere_view_types_editor_colors_t& colors = out.colors;
+    struct {
+        const char* name;
+        pencere_view_types_editor_tint_t* slot;
+    } const kColors[] = {
+        {"current_line", &colors.current_line},     {"selection", &colors.selection},
+        {"selection_blurred", &colors.selection_blurred}, {"found", &colors.found},
+        {"brackets", &colors.brackets},             {"numbers", &colors.numbers},
+        {"current_number", &colors.current_number}, {"gutter", &colors.gutter},
+        {"folds", &colors.folds},                   {"folded", &colors.folded},
+        {"hint", &colors.hint},
+    };
+    get(L, t, "colors");
+    int table = lua_gettop(L);
+    for (const auto& colour : kColors) {
+        colour.slot->tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
+        if (lua_type(L, table) == LUA_TTABLE) *colour.slot = tint_at(L, table, colour.name);
+    }
+    if (lua_type(L, table) != LUA_TTABLE && !lua_isnil(L, table)) {
+        luaL_error(L, "the colors of an editor are a table: { current_line =, selection =, … }");
+    }
+    lua_pop(L, 1);
     return out;
 }
 

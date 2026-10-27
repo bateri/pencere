@@ -541,6 +541,78 @@ interface types {
         page,
     }
 
+    /// A colour an editor draws something in.
+    variant editor-tint {
+        /// The theme's: what the editor draws it in when the page says nothing.
+        theme,
+        /// None: it is not drawn.
+        off,
+        /// The page's own.
+        color(color),
+    }
+
+    /// How a caret is drawn.
+    enum caret-shape {
+        /// A bar before the character, as tall as the text.
+        bar,
+        /// A block over the character (a space wide at the end of a line), the character drawn
+        /// again on it in the caret's `text` colour.
+        block,
+        /// A line under the character.
+        underline,
+    }
+
+    /// How an editor's carets look. The application blinks them.
+    record editor-caret {
+        shape: caret-shape,
+        /// How wide a bar is, and how thick a line under the character is, points (0.5 to 8;
+        /// 1.5 when none).
+        width: option<f32>,
+        /// The caret's colour (the theme's cursor colour); off, and no caret is drawn.
+        color: editor-tint,
+        /// The colour of the character under a block (the theme's background).
+        text: editor-tint,
+    }
+
+    /// What the numbers of the lines in an editor's gutter count.
+    enum line-numbers {
+        /// Each line its own, from 1.
+        absolute,
+        /// The main caret's line its own, every other line how many lines it is from it, a folded
+        /// region one line.
+        relative,
+        /// None: the gutter keeps its marks and the buttons that fold.
+        hidden,
+    }
+
+    /// The colours of what an editor draws besides its text (the text is the element's colour and
+    /// the looks the page decorates it with).
+    record editor-colors {
+        /// The ground of the main caret's line (the theme's: the foreground at 5%).
+        current-line: editor-tint,
+        /// The ground of what is selected while the editor has the keyboard (the theme's
+        /// selection) and while it has not (the theme's selection at half).
+        selection: editor-tint,
+        selection-blurred: editor-tint,
+        /// The ground of what a search found (the theme's warning colour at 30%).
+        found: editor-tint,
+        /// The ring around the bracket by the caret and the one that matches it (the theme's dim
+        /// colour at 60%).
+        brackets: editor-tint,
+        /// The numbers of the lines (the theme's quiet colour), and the main caret's line's (its
+        /// dim colour).
+        numbers: editor-tint,
+        current-number: editor-tint,
+        /// The ground of the gutter (what the editor is on, else the theme's background).
+        gutter: editor-tint,
+        /// The buttons that fold and the `⋯` after a folded line (the theme's dim colour), and the
+        /// ground of that `⋯` (the foreground at 8%).
+        folds: editor-tint,
+        folded: editor-tint,
+        /// What the editor says while its document is empty (the theme's quiet colour).
+        hint: editor-tint,
+    }
+
     /// How an editor is set up (`node.editor`): said every frame.
     record editor-options {
         /// Long lines go on in the next row where the room ends.
@@ -561,6 +633,17 @@ interface types {
         /// The brackets and quotes that close themselves, each an opener and its closer one after
         /// the other (`()[]{}""`): a part of the frame's `text`.
         pairs: option<slice>,
+        /// How tall a row is, times the font's size, its text in the middle (1 to 3; 1.5 when
+        /// none).
+        line-height: option<f32>,
+        /// The room kept around the text, points (0 to 64; 4 when none).
+        padding: option<f32>,
+        /// How many rows are kept between the caret and the top or the bottom of the room when
+        /// the editor scrolls to the caret (at most half the rows in view; none when none).
+        scroll-margin: option<u8>,
+        numbers: line-numbers,
+        caret: editor-caret,
+        colors: editor-colors,
     }
 
     /// How a move goes over its time.
