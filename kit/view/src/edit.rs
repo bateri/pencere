@@ -256,6 +256,68 @@ pub enum Keys {
     Page,
 }
 
+/// How a language writes its comments, for the commands that comment and uncomment
+/// ([`EditCommand::ToggleComment`], [`EditCommand::ToggleBlockComment`]): a language says either
+/// or both. None, and those commands do nothing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct CommentTokens {
+    /// What starts a comment that runs to the end of the line (`"--"`, `"//"`, `"#"`).
+    pub line: Option<String>,
+    /// What opens a comment and what closes it, for a comment that runs between them
+    /// (`("/*", "*/")`, `("<!--", "-->")`).
+    pub block: Option<(String, String)>,
+}
+
+impl CommentTokens {
+    /// A language whose comments run from `token` to the end of the line.
+    pub fn line(token: impl Into<String>) -> Self {
+        Self {
+            line: Some(token.into()),
+            block: None,
+        }
+    }
+
+    /// A language whose comments run from `open` to `close`.
+    pub fn block(open: impl Into<String>, close: impl Into<String>) -> Self {
+        Self {
+            line: None,
+            block: Some((open.into(), close.into())),
+        }
+    }
+}
+
+/// How a language indents its lines, said as regular expressions (the syntax of Rust's `regex`:
+/// no look-around, no back-references; compiled in the case written, held to
+/// [`limits::PATTERN_SIZE`]) that the editor matches against a line's text, its break left out
+/// (a line longer than 10 000 characters is not read). A language says either or both; with
+/// neither, a line break keeps the line's indent and what is typed moves no line.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct IndentRules {
+    /// A line that opens a block (`then$`, `:\s*$`): a line break after it gives the new line a
+    /// level of indent more than it has, as an opener of the editor's pairs does. What is matched
+    /// is the line's text before the caret.
+    pub increase: Option<String>,
+    /// A line that closes one (`^\s*end\b`, `^\s*\}`): when what is typed makes a line match it, the
+    /// line goes a level out from the indent the line above it gives, where it is not already
+    /// further out. The line above is the nearest one with text; it gives the lines below it its
+    /// own indent, and a level more where it matches `increase` or ends with an opener.
+    pub decrease: Option<String>,
+}
+
+/// Where the regions an editor folds come from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Folds {
+    /// The page's alone: its fold decorations ([`Mark::Fold`]).
+    #[default]
+    Page,
+    /// The page's, and the editor's own from the indent: a line with text folds the lines after it
+    /// that are further in, and the lines with no text among them; those with no text after the
+    /// last of them are not in it, and a run of more than 1 000 of them ends it. A tab is as far
+    /// in as to its next stop. Where the page's fold and the indent's start on one line, the
+    /// page's is the one.
+    Indent,
+}
+
 /// How an editor is set up ([`crate::Element::editor`]): said every frame, like the rest of the page.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EditorOptions {
@@ -272,11 +334,14 @@ pub struct EditorOptions {
     pub keys: Keys,
     /// What the editor says while its document is empty.
     pub hint: Option<String>,
-    /// What starts a comment that runs to the end of the line, for the command that comments
-    /// lines (`"--"`, `"//"`); none, and the command does nothing.
-    pub comment: Option<String>,
+    /// How the language writes its comments, for the commands that comment lines and ranges.
+    pub comment: CommentTokens,
     /// The brackets and quotes that close themselves when they are typed, opener and closer.
     pub pairs: Vec<(char, char)>,
+    /// How the language indents its lines: what a line break and what is typed do to the indent.
+    pub indent: IndentRules,
+    /// Where the regions that fold come from: the page's alone, or the indent's as well.
+    pub folds: Folds,
     /// How tall a row is, times the font's size: its text is in the middle of it, with a point
     /// at least above and below (1.6, the golden ratio editors of code read comfortably at;
     /// [`limits::LINE_HEIGHT`]).
@@ -302,8 +367,10 @@ impl Default for EditorOptions {
             read_only: false,
             keys: Keys::Editor,
             hint: None,
-            comment: None,
+            comment: CommentTokens::default(),
             pairs: Vec::new(),
+            indent: IndentRules::default(),
+            folds: Folds::Page,
             line_height: 1.6,
             padding: 4.0,
             scroll_margin: 0,
@@ -489,13 +556,22 @@ pub enum EditCommand {
     MoveLinesDown,
     /// The lines of each range once more, below.
     DuplicateLines,
-    /// The lines of each range commented, or uncommented when every one of them is.
+    /// The lines of each range commented, or uncommented when every one of them is: with the
+    /// language's line comment, or where it has none with its block comment around the lines of
+    /// each range ([`CommentTokens`]).
     ToggleComment,
+    /// Each range put inside the language's block comment, or taken out of it where it is in one
+    /// already (its tokens just inside the range or just outside it, a space or a tab between
+    /// them and the text taken too); a caret's range is its line's text, its indent left out. Where
+    /// some ranges are in one and some are not, those that are not are put in one.
+    ToggleBlockComment,
     SelectAll,
     /// A caret more on the line above, or below, at the same place across.
     AddCaretAbove,
     AddCaretBelow,
-    /// The next place the main range's text is found, selected as well.
+    /// The next place the main range's text is found, selected as well; where the main range is a
+    /// caret, the word it is in (or touches) selected first: a word as Unicode's rules break the
+    /// text, cut where a mark stands inside it (`bar.baz` is two).
     SelectNext,
     /// Back to the main range alone.
     SingleSelection,
@@ -535,9 +611,10 @@ pub enum EditCommand {
     /// [`EditCommand::Find`] would select).
     SelectFound,
     /// Every place the main selection's text is, selected, the main selection still the main one;
-    /// where it is a caret, every place the word it is in is, as a whole word. In the case written
-    /// and the words as they are, at most [`limits::FIND_MATCHES`] of them; what is searched for
-    /// ([`EditCommand::Find`]) stays as it was.
+    /// where it is a caret, every place the word it is in is (the word [`EditCommand::SelectNext`]
+    /// takes), as a whole word. In the case written and the words as they are, at most
+    /// [`limits::FIND_MATCHES`] of them; what is searched for ([`EditCommand::Find`]) stays as it
+    /// was.
     SelectOccurrences,
 }
 
@@ -669,6 +746,9 @@ pub mod limits {
     /// The most matches a search finds, and the most places a command that selects every match
     /// selects: what is past them is not marked ([`super::Found::more`]).
     pub const FIND_MATCHES: usize = 10_000;
+    /// The most memory a regular expression of an editor's (a search's, a rule of its indent's) may
+    /// take compiled, bytes: one that would take more is no pattern the editor uses.
+    pub const PATTERN_SIZE: usize = 1 << 22;
     /// The most columns a tab may take.
     pub const TAB_WIDTH: u8 = 16;
     /// How tall a row may be, times the font's size.

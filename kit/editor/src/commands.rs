@@ -4,7 +4,7 @@
 use pencere_view::edit::{Change, EditCommand, Movement, Origin, Range};
 
 use crate::buffer::{Buffer, Columns, Placement};
-use crate::find::{FIND_MATCHES, Query, Search, is_word};
+use crate::find::{FIND_MATCHES, Query, Search};
 use crate::history::Kind;
 use crate::segments::{
     column_of, grapheme_after, grapheme_before, run_at, word_after, word_at, word_before,
@@ -12,6 +12,16 @@ use crate::segments::{
 
 /// How far a matching bracket is looked for, characters.
 const BRACKET_REACH: usize = 100_000;
+
+/// How far past a range its block comment's tokens are looked for, characters, past spaces.
+const COMMENT_REACH: usize = 50;
+
+/// A range in a block comment: what is taken out to take it out of it, the token that opens the
+/// comment and the one that closes it (each with a space beside it, where there is one).
+struct Wrapped {
+    open: (usize, usize),
+    close: (usize, usize),
+}
 
 /// What one range becomes: `insert` in place of `from..to`, and the range selected after it, as
 /// places into `insert` (anchor, head).
@@ -63,6 +73,7 @@ impl Buffer {
             EditCommand::MoveLinesDown => self.move_lines(false, now),
             EditCommand::DuplicateLines => self.duplicate_lines(now),
             EditCommand::ToggleComment => self.toggle_comment(now),
+            EditCommand::ToggleBlockComment => self.toggle_block_comment(now),
             EditCommand::SelectAll => {
                 let len = self.text.len_chars();
                 self.select(vec![Range::new(0, len)], 0);
@@ -329,27 +340,45 @@ impl Buffer {
     /// The person typed `text` at every caret, in place of what each range selects. A bracket or a
     /// quote of the editor's pairs comes with its closer, or around what is selected; its closer
     /// typed before the same closer steps over it.
+    ///
+    /// Where the page says how its language indents ([`pencere_view::edit::IndentRules`]), a line
+    /// that what is typed makes match the rule `decrease` goes a level out, undone with it.
     pub fn type_text(&mut self, text: &str, now: f64) {
         if !self.writable() || text.is_empty() {
             return;
         }
+        // Which lines matched the rule before: only one that comes to match it is moved.
+        let closed: Option<Vec<bool>> = (!text.contains('\n') && self.rules.decrease.is_set())
+            .then(|| {
+                self.ranges
+                    .iter()
+                    .map(|range| self.closed_before(*range))
+                    .collect()
+            });
+        let version = self.version;
         let mut chars = text.chars();
-        if let (Some(only), None) = (chars.next(), chars.next())
-            && self.type_pair(only, now)
-        {
-            return;
-        }
-        let kind = if text.contains('\n') {
-            Kind::Other
-        } else {
-            Kind::Typing
+        let paired = match (chars.next(), chars.next()) {
+            (Some(only), None) => self.type_pair(only, now),
+            _ => false,
         };
-        let parts = self
-            .ranges
-            .iter()
-            .map(|range| Part::put(range.start(), range.end(), text.to_owned()))
-            .collect();
-        self.replace_parts(parts, kind, now);
+        if !paired {
+            let kind = if text.contains('\n') {
+                Kind::Other
+            } else {
+                Kind::Typing
+            };
+            let parts = self
+                .ranges
+                .iter()
+                .map(|range| Part::put(range.start(), range.end(), text.to_owned()))
+                .collect();
+            self.replace_parts(parts, kind, now);
+        }
+        if let Some(closed) = closed
+            && self.version != version
+        {
+            self.outdent_closed(&closed, now);
+        }
     }
 
     /// Pastes `text`: one line for each caret where it has as many lines as there are carets, the
@@ -583,8 +612,9 @@ impl Buffer {
     }
 
     /// A line break at each caret: the new line has the indent of the line it came from, a level
-    /// more after an opener, and between an opener and its closer the closer goes on a line of
-    /// its own.
+    /// more after an opener or a line that matches the rule `increase`
+    /// ([`pencere_view::edit::IndentRules`]), and between an opener and its closer (or between
+    /// such a line and what matches the rule `decrease`) the closer goes on a line of its own.
     fn newline(&mut self, now: f64) {
         if !self.writable() {
             return;
@@ -610,19 +640,24 @@ impl Buffer {
                         .find(|(open, close)| *open == last && open != close)
                         .copied()
                 });
-                match opener {
-                    Some((_, close)) if self.text.char_at(to) == Some(close) => {
-                        let first = format!("\n{indent}{unit}");
-                        let len = first.chars().count();
-                        Part {
-                            from,
-                            to,
-                            insert: format!("{first}\n{indent}"),
-                            select: (len, len),
-                        }
+                let opens = opener.is_some() || self.opens(&before);
+                let closer = match opener {
+                    Some((_, close)) => self.text.char_at(to) == Some(close),
+                    None => opens && self.closes_from(to),
+                };
+                if closer {
+                    let first = format!("\n{indent}{unit}");
+                    let len = first.chars().count();
+                    Part {
+                        from,
+                        to,
+                        insert: format!("{first}\n{indent}"),
+                        select: (len, len),
                     }
-                    Some(_) => Part::put(from, to, format!("\n{indent}{unit}")),
-                    None => Part::put(from, to, format!("\n{indent}")),
+                } else if opens {
+                    Part::put(from, to, format!("\n{indent}{unit}"))
+                } else {
+                    Part::put(from, to, format!("\n{indent}"))
                 }
             })
             .collect();
@@ -837,15 +872,25 @@ impl Buffer {
         );
     }
 
-    /// The lines of the ranges commented with the editor's comment, or uncommented where every
-    /// line with text on it already is.
+    /// The lines of the ranges commented with the language's line comment, or uncommented where
+    /// every line with text on it already is; where the language has no line comment, the lines of
+    /// each range put inside its block comment, or taken out of it.
     fn toggle_comment(&mut self, now: f64) {
         if !self.writable() {
             return;
         }
-        let Some(token) = self.options.comment.clone().filter(|t| !t.is_empty()) else {
-            return;
-        };
+        let line = self.options.comment.line.clone().filter(|t| !t.is_empty());
+        match (line, self.block_tokens()) {
+            (Some(token), _) => self.toggle_line_comment(&token, now),
+            (None, Some((open, close))) => {
+                let spans = self.line_spans();
+                self.toggle_block(spans, &open, &close, now);
+            }
+            (None, None) => {}
+        }
+    }
+
+    fn toggle_line_comment(&mut self, token: &str, now: f64) {
         let lines: Vec<(usize, String)> = self
             .each_line()
             .into_iter()
@@ -857,7 +902,7 @@ impl Buffer {
         }
         let commented = lines
             .iter()
-            .all(|(_, text)| text.trim_start().starts_with(token.as_str()));
+            .all(|(_, text)| text.trim_start().starts_with(token));
         let token_len = token.chars().count();
         let changes: Vec<Change> = if commented {
             lines
@@ -887,6 +932,234 @@ impl Buffer {
         let _ = self.edit(changes, Origin::Person, Kind::Other, now, None);
     }
 
+    /// Each range put inside the language's block comment, or taken out of it; a caret's range is
+    /// its line's text.
+    fn toggle_block_comment(&mut self, now: f64) {
+        if !self.writable() {
+            return;
+        }
+        let Some((open, close)) = self.block_tokens() else {
+            return;
+        };
+        let mut spans: Vec<(usize, usize)> = Vec::with_capacity(self.ranges.len());
+        for range in &self.ranges {
+            let span = if range.is_empty() {
+                self.text_of_lines(self.text.line_of(range.head), self.text.line_of(range.head))
+            } else {
+                (range.start(), range.end())
+            };
+            match spans.last_mut() {
+                // Carets on one line are one range, and a caret's line takes in a range on it.
+                Some(last) if span.0 < last.1 || span == *last => {
+                    *last = (last.0.min(span.0), last.1.max(span.1));
+                }
+                _ => spans.push(span),
+            }
+        }
+        self.toggle_block(spans, &open, &close, now);
+    }
+
+    /// The language's block comment, where it has one.
+    fn block_tokens(&self) -> Option<(String, String)> {
+        self.options
+            .comment
+            .block
+            .clone()
+            .filter(|(open, close)| !open.is_empty() && !close.is_empty())
+    }
+
+    /// The text of the lines `first` to `last`: from where the first's indent ends to where the
+    /// last's text ends, its spaces at the end left out.
+    fn text_of_lines(&self, first: usize, last: usize) -> (usize, usize) {
+        let start = self.text.line_start(first);
+        let indent = self.text.chars_at(start).map_or(0, |chars| {
+            chars.take_while(|c| *c == ' ' || *c == '\t').count()
+        });
+        let from = (start + indent).min(self.text.line_end(first));
+        let mut to = self.text.line_end(last);
+        if let Some(mut back) = self.text.chars_at(to) {
+            while to > from && back.prev().is_some_and(char::is_whitespace) {
+                to -= 1;
+            }
+        }
+        (from, to.max(from))
+    }
+
+    /// The text of the lines of each range (CodeMirror's comment of a language with block comments
+    /// alone): ranges whose lines overlap are one.
+    fn line_spans(&self) -> Vec<(usize, usize)> {
+        let mut blocks: Vec<(usize, usize)> = Vec::new();
+        for range in &self.ranges {
+            let first = self.text.line_of(range.start());
+            let mut last = self.text.line_of(range.end());
+            if !range.is_empty() && last > first && self.text.line_start(last) == range.end() {
+                last -= 1;
+            }
+            match blocks.last_mut() {
+                Some(block) if first <= block.1 => block.1 = block.1.max(last),
+                _ => blocks.push((first, last)),
+            }
+        }
+        blocks
+            .into_iter()
+            .map(|(first, last)| self.text_of_lines(first, last))
+            .collect()
+    }
+
+    /// `spans` (in order, apart) put inside `open` and `close`, a space between them and the text,
+    /// those not inside them already; or, where every one is, taken out. The selections keep
+    /// what they selected.
+    fn toggle_block(&mut self, spans: Vec<(usize, usize)>, open: &str, close: &str, now: f64) {
+        if spans.is_empty() {
+            return;
+        }
+        let found: Vec<Option<Wrapped>> = spans
+            .iter()
+            .map(|(from, to)| self.wrapped(*from, *to, open, close))
+            .collect();
+        let changes: Vec<Change>;
+        let mut after = None;
+        if found.iter().all(Option::is_some) {
+            changes = found
+                .into_iter()
+                .flatten()
+                .flat_map(|w| {
+                    [
+                        Change::new(w.open.0, w.open.1, ""),
+                        Change::new(w.close.0, w.close.1, ""),
+                    ]
+                })
+                .collect();
+        } else {
+            let (open_len, close_len) = (open.chars().count() + 1, close.chars().count() + 1);
+            let wrap: Vec<(usize, usize)> = spans
+                .iter()
+                .zip(&found)
+                .filter(|(_, found)| found.is_none())
+                .map(|(span, _)| *span)
+                .collect();
+            changes = wrap
+                .iter()
+                .flat_map(|(from, to)| {
+                    if from == to {
+                        vec![Change::new(*from, *to, format!("{open}  {close}"))]
+                    } else {
+                        vec![
+                            Change::new(*from, *from, format!("{open} ")),
+                            Change::new(*to, *to, format!(" {close}")),
+                        ]
+                    }
+                })
+                .collect();
+            // A place at the start of a span or in it goes past what opens the comment; one at its
+            // end stays before what closes it.
+            let place = |at: usize| {
+                at + wrap
+                    .iter()
+                    .map(|(from, to)| {
+                        usize::from(at >= *from) * open_len + usize::from(at > *to) * close_len
+                    })
+                    .sum::<usize>()
+            };
+            let ranges = self
+                .ranges
+                .iter()
+                .map(|range| Range::new(place(range.anchor), place(range.head)))
+                .collect();
+            after = Some((ranges, self.main));
+        }
+        self.undo.close();
+        let _ = self.edit(changes, Origin::Person, Kind::Other, now, after);
+        self.undo.close();
+    }
+
+    /// Where `open` and `close` are around `from..to`, with spaces or tabs alone between them and
+    /// it (`/* x */` with `x` selected), or are its ends, with spaces alone before and after them
+    /// (`/* x */` selected): what is taken out to uncomment it, a space or a tab beside each token
+    /// with it. As CodeMirror looks, but a line break is never taken with a token.
+    fn wrapped(&self, from: usize, to: usize, open: &str, close: &str) -> Option<Wrapped> {
+        let (open_len, close_len) = (open.chars().count(), close.chars().count());
+        let blank = |c: &char| *c == ' ' || *c == '\t';
+        let len = self.text.len_chars();
+        let before: Vec<char> = self
+            .text
+            .slice(from.saturating_sub(COMMENT_REACH + open_len), from)
+            .unwrap_or_default()
+            .chars()
+            .collect();
+        let after: Vec<char> = self
+            .text
+            .slice(to, (to + COMMENT_REACH + close_len).min(len))
+            .unwrap_or_default()
+            .chars()
+            .collect();
+        let space_before = before.iter().rev().take_while(|c| blank(c)).count();
+        let space_after = after.iter().take_while(|c| blank(c)).count();
+        let ends_with = |chars: &[char], token: &str| {
+            let token: Vec<char> = token.chars().collect();
+            chars.ends_with(&token)
+        };
+        let starts_with = |chars: &[char], token: &str| {
+            let token: Vec<char> = token.chars().collect();
+            chars.starts_with(&token)
+        };
+        if ends_with(
+            before
+                .get(..before.len() - space_before)
+                .unwrap_or_default(),
+            open,
+        ) && starts_with(after.get(space_after..).unwrap_or_default(), close)
+        {
+            let open_end = from - space_before;
+            let close_start = to + space_after;
+            return Some(Wrapped {
+                open: (open_end - open_len, open_end + space_before.min(1)),
+                close: (close_start - space_after.min(1), close_start + close_len),
+            });
+        }
+        // The tokens are the ends of the range: its first and last characters read, past spaces.
+        let head: Vec<char> = self
+            .text
+            .slice(from, (from + COMMENT_REACH + open_len).min(to))
+            .unwrap_or_default()
+            .chars()
+            .collect();
+        let tail: Vec<char> = self
+            .text
+            .slice(to.saturating_sub(COMMENT_REACH + close_len).max(from), to)
+            .unwrap_or_default()
+            .chars()
+            .collect();
+        let lead = head.iter().take_while(|c| c.is_whitespace()).count();
+        let trail = tail.iter().rev().take_while(|c| c.is_whitespace()).count();
+        if !starts_with(head.get(lead..).unwrap_or_default(), open)
+            || !ends_with(tail.get(..tail.len() - trail).unwrap_or_default(), close)
+        {
+            return None;
+        }
+        let open_at = from + lead;
+        let close_end = to - trail;
+        if open_at + open_len + close_len > close_end {
+            return None;
+        }
+        let close_at = close_end - close_len;
+        let open_space = self
+            .text
+            .char_at(open_at + open_len)
+            .is_some_and(|c| blank(&c));
+        let close_space = close_at > open_at + open_len
+            && self.text.char_at(close_at - 1).is_some_and(|c| blank(&c));
+        let open_cut = (open_at, open_at + open_len + usize::from(open_space));
+        let close_cut = (
+            (close_at - usize::from(close_space)).max(open_cut.1),
+            close_end,
+        );
+        Some(Wrapped {
+            open: open_cut,
+            close: close_cut,
+        })
+    }
+
     // --- Folding and finding ---------------------------------------------------------------
 
     /// The fold region that starts on the main caret's line folded (`Some(true)`), unfolded
@@ -900,22 +1173,23 @@ impl Buffer {
     /// or the other way round (`None`): what a fold button of the gutter does. Carets in what it
     /// hides go to the end of its first line. Returns whether a region starts there.
     pub fn fold_at(&mut self, line: usize, fold: Option<bool>) -> bool {
-        let Some(region) =
-            self.decorations.folds().into_iter().find(|(from, to)| {
-                self.text.line_of(*from) == line && self.text.line_of(*to) > line
-            })
-        else {
-            return false;
-        };
-        let folded = self.decorations.folded.contains(&region);
+        // What is folded from a line is told by the line: a folded region has been carried over the
+        // changes since, and the region worked out now need not be the same.
+        let folded = self.is_folded(line);
         let want = fold.unwrap_or(!folded);
         if want == folded {
-            return true;
+            return folded || !self.fold_lines(line, line).is_empty();
         }
         if !want {
-            self.decorations.folded.retain(|r| *r != region);
+            let text = &self.text;
+            self.decorations
+                .folded
+                .retain(|(from, _)| text.line_of(*from) != line);
             return true;
         }
+        let Some(region) = self.fold_region(line) else {
+            return false;
+        };
         let end = self.text.line_end(line);
         let ranges: Vec<Range> = self
             .ranges
@@ -1076,12 +1350,14 @@ impl Buffer {
     }
 
     /// Every place the main selection's text is, selected, or where it is a caret every place the
-    /// word it is in is, as a whole word: in the case written, the words as they are. The main
-    /// selection stays the main one; what is searched for stays as it was.
+    /// word it is in is (the word `select_next` takes), as a whole word: in the case
+    /// written, the words as they are. The main selection stays the main one; what is searched for
+    /// stays as it was.
     fn select_occurrences(&mut self) {
         let main = self.main();
         let (from, to, word) = if main.is_empty() {
-            let Some((from, to)) = self.word_around(main.head) else {
+            // The word `select_next` takes.
+            let Some((from, to)) = word_at(&self.text, main.head) else {
                 return;
             };
             (from, to, true)
@@ -1111,22 +1387,5 @@ impl Buffer {
             }
         };
         self.select(ranges, main);
-    }
-
-    /// The letters, digits and `_` (of any script) the place `at` is among, or is just after or
-    /// just before: a word, as a search for whole words has it.
-    fn word_around(&self, at: usize) -> Option<(usize, usize)> {
-        let mut from = at;
-        if let Some(mut back) = self.text.chars_at(at) {
-            while back.prev().is_some_and(is_word) {
-                from -= 1;
-            }
-        }
-        let to = at
-            + self
-                .text
-                .chars_at(at)
-                .map_or(0, |ahead| ahead.take_while(|c| is_word(*c)).count());
-        (from < to).then_some((from, to))
     }
 }

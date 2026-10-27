@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
-    Caret, CaretShape, EditorColors, EditorOptions, Mark, Numbers, Origin, TextSnapshot, Tint,
+    Caret, CaretShape, CommentTokens, EditorColors, EditorOptions, Folds, IndentRules, Mark,
+    Numbers, Origin, TextSnapshot, Tint,
 };
 use pencere_view::{
     Element, Event, Font, Id, Key, Keyboard, Laid, Measure, Metrics, Mods, Role, Scrolls, layout,
@@ -533,6 +534,18 @@ fn an_option_an_editor_has_no_such_name_for_is_a_mistake_said_where_it_is_made()
         ),
         ("{ caret = \"block\" }", "the caret of an editor is a table"),
         ("{ colors = { selection = true } }", "colour"),
+        (
+            "{ indent = { increse = \"then$\" } }",
+            "an editor has no option indent.increse",
+        ),
+        (
+            "{ comment = { block = \"/*\" } }",
+            "the block comment of an editor is a pair",
+        ),
+        (
+            "{ folds = \"syntax\" }",
+            "\"syntax\" is not one of the words it takes",
+        ),
     ] {
         let script =
             format!("return {{ render = function() return pencere.editor(\"e\", {options}) end }}");
@@ -542,4 +555,89 @@ fn an_option_an_editor_has_no_such_name_for_is_a_mistake_said_where_it_is_made()
         let why = failed(&update);
         assert!(why.contains(said), "{options}: {why}");
     }
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_page_says_how_its_language_comments_indents_and_folds_and_the_editor_does_it() {
+    let mut rig = Rig::open(
+        r#"
+        local asked = false
+        return {
+            render = function()
+                return pencere.div():size_full()
+                    :child(pencere.editor("lua", {
+                        comment = { line = "--", block = { "--[[", "]]" } },
+                        indent = { increase = "\\b(then|do|else)\\s*$", decrease = "^\\s*(end|else)\\b" },
+                        folds = "indent",
+                    }):grow(1))
+                    :child(pencere.editor("css", { comment = { block = { open = "/*", close = "*/" } } }):grow(1))
+            end,
+            handle = function(event)
+                if event.type == "viewport" and not asked then
+                    asked = true
+                    return { editor = { css = { { load = "a { }" }, { command = "toggle_comment" } } } }
+                end
+            end,
+        }
+        "#,
+    );
+    let room = |name: &str| {
+        rig.laid
+            .editors()
+            .into_iter()
+            .find(|room| room.id == Id::named(name))
+            .expect("the editor's room")
+            .options
+    };
+    assert_eq!(
+        room("lua"),
+        EditorOptions {
+            comment: CommentTokens {
+                line: Some("--".into()),
+                block: Some(("--[[".into(), "]]".into())),
+            },
+            indent: IndentRules {
+                increase: Some(r"\b(then|do|else)\s*$".into()),
+                decrease: Some(r"^\s*(end|else)\b".into()),
+            },
+            folds: Folds::Indent,
+            ..EditorOptions::default()
+        }
+    );
+    assert_eq!(room("css").comment, CommentTokens::block("/*", "*/"));
+    // A language of block comments alone comments a line with them.
+    assert_eq!(rig.text("css"), "/* a { } */");
+    // A line break after `then` indents, and `end` typed goes back out.
+    let lua = Id::named("lua");
+    rig.editors.set_focus(Some(lua));
+    rig.type_text("if x then");
+    rig.key(Key::Enter, Mods::default());
+    rig.type_text("y()");
+    rig.key(Key::Enter, Mods::default());
+    rig.type_text("end");
+    assert_eq!(rig.text("lua"), "if x then\n    y()\nend");
+    // The line with further-in lines after it folds by the indent.
+    let buffer = rig.editors.buffer(lua).expect("the editor");
+    assert_eq!(buffer.fold_region(0), Some((9, 17)));
+    assert_eq!(buffer.fold_lines(0, 2), vec![0]);
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_rule_of_an_editors_indent_that_is_no_pattern_fails_the_page_by_the_options_name() {
+    let mut page = open_script(
+        r#"return { render = function()
+            return pencere.editor("e", { indent = { increase = "(then" } })
+        end }"#,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    let update = page.until(Duration::from_secs(30), |u| u.closed.is_some());
+    assert!(
+        matches!(&update.closed, Some(Fault::Malformed(why))
+            if why.contains("indent.increase") && why.contains("(then") && why.contains("unclosed group")),
+        "{:?}",
+        update.closed
+    );
 }

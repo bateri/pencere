@@ -347,8 +347,14 @@ end
 -- asks for what it wants in a reply (`editor = { [id] = … }`). Its document lives as long as an editor of its name is on the page,
 -- hidden or not. `options` (all optional): `wrap`, `tab_width` (4), `hard_tabs`, `gutter` (true),
 -- `read_only`, `keys` ("editor", or "page": every key the page's), `hint` (what it says while
--- empty), `comment` ("--": what the command that comments lines puts), `pairs` (the brackets and
--- quotes that close themselves: "()[]{}" or { "()", "[]" }); how it looks: `line_height` (1.6
+-- empty), `pairs` (the brackets and quotes that close themselves: "()[]{}" or { "()", "[]" }); what
+-- its language says, all of it left out for prose: `comment` (what the commands that comment put: a
+-- line comment, "--", or { line = "--", block = { "--[[", "]]" } }, either of them, the block a pair
+-- or { open =, close = }), `indent = { increase =, decrease = }` (regular expressions, Rust's: a
+-- line break after a line that matches `increase` indents a level more, and a line that what is
+-- typed makes match `decrease` goes a level out; one that is no pattern fails the page) and `folds`
+-- ("page", the page's fold decorations alone, or "indent", the editor's from the indent as well);
+-- how it looks: `line_height` (1.6
 -- times the font's size), `padding` (4 points), `scroll_margin` (rows kept about the caret, 0),
 -- `numbers` ("absolute", "relative", "hidden"), `caret = { shape = "bar" | "block" | "underline",
 -- width = 1.5, color =, text = }` and `colors = { current_line, selection, selection_blurred,
@@ -362,8 +368,10 @@ local EDITOR_OPTIONS = {
 	read_only = true,
 	keys = true,
 	hint = true,
-	comment = true,
+	comment = { line = true, block = true },
 	pairs = true,
+	indent = { increase = true, decrease = true },
+	folds = true,
 	line_height = true,
 	padding = true,
 	scroll_margin = true,

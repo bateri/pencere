@@ -925,11 +925,77 @@ static_assert(PENCERE_VIEW_TYPES_LINE_NUMBERS_ABSOLUTE == 0 && PENCERE_VIEW_TYPE
                   PENCERE_VIEW_TYPES_LINE_NUMBERS_HIDDEN == 2,
               "kLineNumbers is the order of line-numbers");
 
+// The string `name` of the table at `t`, a part of the frame's text; none where it is not said.
+pencere_view_types_option_slice_t words_at(lua_State* L, int t, const char* name, const char* what,
+                                           Arenas& arenas) {
+    pencere_view_types_option_slice_t out = {};
+    get(L, t, name);
+    if (lua_type(L, -1) == LUA_TSTRING) {
+        size_t length = 0;
+        const char* bytes = lua_tolstring(L, -1, &length);
+        out.is_some = true;
+        out.val = add_words(arenas, bytes, length);
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "%s is a string", what);
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
+// `comment = "--"` (a line comment alone) or `comment = { line = "--", block = { "--[[", "]]" } }`,
+// the block's tokens a pair or `{ open =, close = }`.
+pencere_view_types_comment_tokens_t comment_at(lua_State* L, int t, Arenas& arenas) {
+    pencere_view_types_comment_tokens_t out = {};
+    get(L, t, "comment");
+    int comment = lua_gettop(L);
+    if (lua_type(L, comment) == LUA_TSTRING) {
+        size_t length = 0;
+        const char* bytes = lua_tolstring(L, comment, &length);
+        out.line.is_some = true;
+        out.line.val = add_words(arenas, bytes, length);
+    } else if (lua_type(L, comment) == LUA_TTABLE) {
+        out.line = words_at(L, comment, "line", "the line comment of an editor", arenas);
+        get(L, comment, "block");
+        int block = lua_gettop(L);
+        if (lua_type(L, block) == LUA_TTABLE) {
+            const char* const kPair = "the block comment of an editor is a pair of strings: { \"/*\", \"*/\" }";
+            const char* names[] = {"open", "close"};
+            pencere_view_types_slice_t* slots[] = {&out.block.val.open, &out.block.val.close};
+            for (int at = 0; at < 2; at++) {
+                get(L, block, names[at]);
+                if (lua_isnil(L, -1)) {
+                    lua_pop(L, 1);
+                    lua_rawgeti(L, block, at + 1);
+                }
+                if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "%s", kPair);
+                size_t length = 0;
+                const char* bytes = lua_tolstring(L, -1, &length);
+                *slots[at] = add_words(arenas, bytes, length);
+                lua_pop(L, 1);
+            }
+            out.block.is_some = true;
+        } else if (!lua_isnil(L, block)) {
+            luaL_error(L, "the block comment of an editor is a pair of strings: { \"/*\", \"*/\" }");
+        }
+        lua_pop(L, 1);
+    } else if (!lua_isnil(L, comment)) {
+        luaL_error(L, "the comment of an editor is a string, or a table: { line =, block = { open, close } }");
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
+const char* const kFolds[] = {"page", "indent"};
+static_assert(PENCERE_VIEW_TYPES_EDITOR_FOLDS_PAGE == 0 && PENCERE_VIEW_TYPES_EDITOR_FOLDS_INDENT == 1,
+              "kFolds is the order of editor-folds");
+
 // `meta.editor`: { wrap =, tab_width =, hard_tabs =, gutter =, read_only =, keys = "editor" | "page",
-// hint = "words", comment = "--", pairs = "()[]{}", line_height =, padding =, scroll_margin =,
+// hint = "words", comment = "--" | { line =, block = }, pairs = "()[]{}", indent = { increase =,
+// decrease = }, folds = "page" | "indent", line_height =, padding =, scroll_margin =,
 // numbers = "absolute" | "relative" | "hidden", caret = { shape =, width =, color =, text = },
 // colors = { current_line =, … } }. What it does not say is the default (a gutter, tabs of four);
-// a number the interface takes as an option goes as none, and the host's default stands.
+// a number the interface takes as an option goes as none, and the host's default stands. Whether
+// a rule of the indent is a regular expression is the host's to say: the page fails there.
 pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arenas& arenas) {
     pencere_view_types_editor_options_t out = {};
     out.wrap = flag(L, t, "wrap");
@@ -941,20 +1007,19 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
     out.read_only = flag(L, t, "read_only");
     static const char* const kKeysOf[] = {"editor", "page"};
     out.keys = (uint8_t)word(L, t, "keys", kKeysOf, 2, 0);
-    const char* const kWords[] = {"hint", "comment", "pairs"};
-    pencere_view_types_option_slice_t* slots[] = {&out.hint, &out.comment, &out.pairs};
-    for (int at = 0; at < 3; at++) {
-        get(L, t, kWords[at]);
-        if (lua_type(L, -1) == LUA_TSTRING) {
-            size_t length = 0;
-            const char* bytes = lua_tolstring(L, -1, &length);
-            slots[at]->is_some = true;
-            slots[at]->val = add_words(arenas, bytes, length);
-        } else if (!lua_isnil(L, -1)) {
-            luaL_error(L, "the %s of an editor is a string", kWords[at]);
-        }
-        lua_pop(L, 1);
+    out.hint = words_at(L, t, "hint", "the hint of an editor", arenas);
+    out.comment = comment_at(L, t, arenas);
+    out.pairs = words_at(L, t, "pairs", "the pairs of an editor", arenas);
+    get(L, t, "indent");
+    int indent = lua_gettop(L);
+    if (lua_type(L, indent) == LUA_TTABLE) {
+        out.indent.increase = words_at(L, indent, "increase", "the indent.increase of an editor", arenas);
+        out.indent.decrease = words_at(L, indent, "decrease", "the indent.decrease of an editor", arenas);
+    } else if (!lua_isnil(L, indent)) {
+        luaL_error(L, "the indent of an editor is a table: { increase =, decrease = }");
     }
+    lua_pop(L, 1);
+    out.folds = (uint8_t)word(L, t, "folds", kFolds, 2, 0);
     out.line_height = optional_number(L, t, "line_height");
     out.padding = optional_number(L, t, "padding");
     view_option_f32_t margin = optional_number(L, t, "scroll_margin");
@@ -1681,8 +1746,9 @@ const char* const kCommands[] = {"move",          "insert",          "newline", 
                                  "select_next",   "single_selection", "undo",             "redo",
                                  "fold",          "unfold",          "toggle_fold",       "unfold_all",
                                  "find",          "find_next",       "find_previous",     "stop_finding",
-                                 "replace",       "replace_all",     "select_found",      "select_occurrences"};
-static_assert(PENCERE_VIEW_TYPES_EDITOR_COMMAND_SELECT_OCCURRENCES == 31 && PENCERE_VIEW_TYPES_MOVEMENT_BRACKET == 12,
+                                 "replace",       "replace_all",     "select_found",      "select_occurrences",
+                                 "toggle_block_comment"};
+static_assert(PENCERE_VIEW_TYPES_EDITOR_COMMAND_TOGGLE_BLOCK_COMMENT == 32 && PENCERE_VIEW_TYPES_MOVEMENT_BRACKET == 12,
               "the words of an editor's commands are the places of the interface's");
 
 // `{ command = "undo" }`, `{ command = "move", movement = "word_left", extend = true }`,
@@ -1690,7 +1756,7 @@ static_assert(PENCERE_VIEW_TYPES_EDITOR_COMMAND_SELECT_OCCURRENCES == 31 && PENC
 // `{ command = "replace", text = "x" }`, `{ command = "replace_all", text = "x" }`.
 pencere_view_types_editor_command_t command_at(lua_State* L, int t) {
     pencere_view_types_editor_command_t out = {};
-    out.tag = (uint8_t)word(L, t, "command", kCommands, 32, -1);
+    out.tag = (uint8_t)word(L, t, "command", kCommands, 33, -1);
     switch (out.tag) {
         case PENCERE_VIEW_TYPES_EDITOR_COMMAND_MOVE:
             out.val.move.movement = (uint8_t)word(L, t, "movement", kMovements, 13, 0);

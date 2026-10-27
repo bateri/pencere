@@ -883,6 +883,7 @@ dependencies = [
  "pencere-view",
  "pencere-wire",
  "png",
+ "regex",
  "resvg",
  "wasmtime",
  "zune-core",

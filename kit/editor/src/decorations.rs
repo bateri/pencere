@@ -143,10 +143,11 @@ impl Decorations {
         out
     }
 
-    /// The folded regions that are still regions that fold, after the page changed the decorations:
-    /// one stays folded where a fold starts on the same line it did (`line_of` the line of a place),
-    /// with that fold's range.
-    pub fn keep_folded(&mut self, line_of: &dyn Fn(usize) -> usize) {
+    /// The folded regions that are still regions that fold, after the page changed the decorations
+    /// (`line_of` the line of a place): one stays folded where a fold starts on the same line it
+    /// did, with that fold's range, or, as it is, where it starts on one of `others` (the lines the
+    /// editor folds from of itself).
+    pub fn keep_folded(&mut self, line_of: &dyn Fn(usize) -> usize, others: &[usize]) {
         let folds = self.folds();
         let mut folded = std::mem::take(&mut self.folded);
         folded.retain_mut(|region| {
@@ -156,7 +157,7 @@ impl Decorations {
                     *region = *fold;
                     true
                 }
-                None => false,
+                None => others.contains(&line),
             }
         });
         folded.sort_unstable();

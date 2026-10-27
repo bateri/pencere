@@ -541,6 +541,43 @@ interface types {
         page,
     }
 
+    /// What opens a comment that runs between it and what closes it (`/*`, `*/`): parts of the
+    /// frame's `text`.
+    record block-comment {
+        open: slice,
+        close: slice,
+    }
+
+    /// How a language writes its comments, for the commands that comment (`toggle-comment` with
+    /// the line comment where there is one, else with the block comment; `toggle-block-comment`).
+    record comment-tokens {
+        /// What starts a comment that runs to the end of the line (`--`): a part of the frame's
+        /// `text`.
+        line: option<slice>,
+        block: option<block-comment>,
+    }
+
+    /// How a language indents its lines: regular expressions in the syntax of Rust's `regex` (no
+    /// look-around, no back-references), each a part of the frame's `text`, matched against a
+    /// line's text. One that is not a regular expression fails the page.
+    record indent-rules {
+        /// A line that opens a block (its text before the caret): a line break after it gives the
+        /// new line a level of indent more.
+        increase: option<slice>,
+        /// A line that closes one: when what is typed makes a line match it, the line goes a level
+        /// out from the indent the line above gives, where it is not already further out.
+        decrease: option<slice>,
+    }
+
+    /// Where the regions an editor folds come from.
+    enum editor-folds {
+        /// The page's fold decorations alone.
+        page,
+        /// The page's, and the editor's own from the indent: a line with text folds the lines
+        /// further in after it (and the lines with no text among them).
+        indent,
+    }
+
     /// A colour an editor draws something in.
     variant editor-tint {
         /// The theme's: what the editor draws it in when the page says nothing.
@@ -628,11 +665,14 @@ interface types {
         keys: editor-keys,
         /// What it says while its document is empty: a part of the frame's `text`.
         hint: option<slice>,
-        /// What starts a comment to the end of the line (`--`): a part of the frame's `text`.
-        comment: option<slice>,
+        /// How the language writes its comments.
+        comment: comment-tokens,
         /// The brackets and quotes that close themselves, each an opener and its closer one after
         /// the other (`()[]{}""`): a part of the frame's `text`.
         pairs: option<slice>,
+        /// How the language indents its lines.
+        indent: indent-rules,
+        folds: editor-folds,
         /// How tall a row is, times the font's size, its text in the middle (1 to 3; 1.6 when
         /// none).
         line-height: option<f32>,
@@ -1124,6 +1164,9 @@ interface types {
         /// Every place the main selection's text is selected; at a caret, every place its word is,
         /// as a whole word. In the case written; the search stays as it was.
         select-occurrences,
+        /// Each range put in the language's block comment, or taken out of it where it is in one; a
+        /// caret's range is its line's text.
+        toggle-block-comment,
     }
 
     /// A line under some characters.

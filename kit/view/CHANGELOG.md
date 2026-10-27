@@ -40,6 +40,15 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   its editor's search finds (`edit::Found`: the version searched, how many matches, which of them
   the main selection is on, from 1, and whether there may be more), at most
   `edit::limits::FIND_MATCHES`.
+- **What a page says of its language.** `EditorOptions::comment` is a `CommentTokens`: a line
+  comment, a block comment (`open`, `close`) or both (`CommentTokens::line`,
+  `CommentTokens::block`); `EditCommand::ToggleComment` comments with the line comment, or with the
+  block comment around the lines of each range where the language has none, and
+  `EditCommand::ToggleBlockComment` puts each range in the block comment or takes it out.
+  `EditorOptions::indent` (`IndentRules`: `increase`, `decrease`, regular expressions) says how the
+  language indents, and `EditorOptions::folds` (`Folds::Page`, `Folds::Indent`) whether the editor
+  folds by the indent besides the page's folds. An editor that says none of them is as it was.
+  `edit::limits::PATTERN_SIZE` is how large a pattern of an editor's may compile to.
 - **Long lists that keep up with the wheel.** `Built` is which rows of a long list a page builds as
   the host scrolls it: two views ahead of what is in view, the way the list goes, half a view behind
   (all of it the other way at an end of the list, which can only go back), and the same rows again

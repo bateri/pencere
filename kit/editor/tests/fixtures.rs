@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 use pencere_editor::{Buffer, Note};
 use pencere_view::edit::{
-    Change, Decorate, Decoration, EditCommand, EditorOptions, Found, Look, Mark, Movement, Origin,
-    Range, Refusal,
+    Change, CommentTokens, Decorate, Decoration, EditCommand, EditorOptions, Folds, Found,
+    IndentRules, Look, Mark, Movement, Origin, Range, Refusal,
 };
 use pencere_view::{Color, Role};
 use serde_json::Value;
@@ -189,6 +189,22 @@ fn expect(buffer: &mut Buffer, want: &Value, here: &str) {
             "{here}: folded"
         );
     }
+    if !want["folds"].is_null() {
+        let offered: Vec<(usize, usize)> = (0..buffer.len_lines())
+            .filter_map(|line| buffer.fold_region(line))
+            .collect();
+        assert_eq!(offered, pairs(&want["folds"]), "{here}: folds");
+        // What the gutter asks of the lines is what folds from them.
+        let lines: Vec<usize> = offered
+            .iter()
+            .map(|(from, _)| buffer.line_of(*from))
+            .collect();
+        assert_eq!(
+            buffer.fold_lines(0, buffer.len_lines().saturating_sub(1)),
+            lines,
+            "{here}: the lines that fold"
+        );
+    }
     if !want["hidden"].is_null() {
         assert_eq!(
             buffer.hidden_lines(),
@@ -322,8 +338,31 @@ fn options(value: &Value) -> EditorOptions {
     if let Some(read_only) = value["read_only"].as_bool() {
         options.read_only = read_only;
     }
-    if let Some(comment) = value["comment"].as_str() {
-        options.comment = Some(comment.to_owned());
+    match &value["comment"] {
+        Value::String(line) => options.comment = CommentTokens::line(line.as_str()),
+        Value::Object(tokens) => {
+            options.comment = CommentTokens {
+                line: tokens
+                    .get("line")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                block: tokens.get("block").and_then(Value::as_array).map(|pair| {
+                    (
+                        pair[0].as_str().unwrap_or_default().to_owned(),
+                        pair[1].as_str().unwrap_or_default().to_owned(),
+                    )
+                }),
+            };
+        }
+        _ => {}
+    }
+    let rule = |name: &str| value["indent"][name].as_str().map(str::to_owned);
+    options.indent = IndentRules {
+        increase: rule("increase"),
+        decrease: rule("decrease"),
+    };
+    if value["folds"].as_str() == Some("indent") {
+        options.folds = Folds::Indent;
     }
     if let Some(pairs) = value["pairs"].as_array() {
         options.pairs = pairs
@@ -356,6 +395,7 @@ fn command(step: &Value, here: &str) -> EditCommand {
         "move_lines_down" => EditCommand::MoveLinesDown,
         "duplicate_lines" => EditCommand::DuplicateLines,
         "toggle_comment" => EditCommand::ToggleComment,
+        "toggle_block_comment" => EditCommand::ToggleBlockComment,
         "select_all" => EditCommand::SelectAll,
         "add_caret_above" => EditCommand::AddCaretAbove,
         "add_caret_below" => EditCommand::AddCaretBelow,

@@ -44,6 +44,12 @@ zune-jpeg = { version = "0.5.15", default-features = false, features = ["std"] }
 zune-core = { version = "0.5", default-features = false, features = ["std"] }
 resvg = { version = "0.48.1", default-features = false }
 
+# Regular expressions (MIT or Apache-2.0), the same crate and features as the editor's: the rules of
+# an editor's indent a page says are compiled here as the editor compiles them, so that one that is
+# no pattern fails the page that said it, with the option's name, and is never dropped without a
+# word.
+regex = { version = "1", default-features = false, features = ["std", "unicode", "perf"] }
+
 [dev-dependencies]
 # Modules written as text for the sandbox's tests (`.wat`), so that `make check` does not need
 # the toolchain that builds a real one.

@@ -7,7 +7,8 @@
 
 use pencere_editor::Buffer;
 use pencere_view::edit::{
-    Change, Decorate, Decoration, EditCommand, EditorOptions, Mark, Movement, Range,
+    Change, CommentTokens, Decorate, Decoration, EditCommand, EditorOptions, Folds, IndentRules,
+    Mark, Movement, Range,
 };
 
 /// A small generator of numbers that are the same every run.
@@ -35,7 +36,9 @@ impl Dice {
     }
 
     fn text(&mut self) -> String {
-        const PIECES: [&str; 8] = ["a", "ğ", "😀", "\n", "e\u{301}", "  ", "(", "\t"];
+        const PIECES: [&str; 11] = [
+            "a", "ğ", "😀", "\n", "e\u{301}", "  ", "(", "\t", "end", "(*", "*)",
+        ];
         (0..self.below(4))
             .map(|_| PIECES[self.below(PIECES.len())])
             .collect()
@@ -46,12 +49,28 @@ impl Dice {
 fn nothing_a_page_sends_breaks_the_editor() {
     let mut dice = Dice(0x9e37_79b9_7f4a_7c15);
     let mut buffer = Buffer::new("start\nof the\ntext 😀").expect("a small text");
-    buffer.set_options(EditorOptions {
+    // A language of line comments and one of block comments alone, that indents by rules and
+    // folds by the indent, in turn.
+    let lines = EditorOptions {
         pairs: vec![('(', ')'), ('"', '"')],
-        comment: Some("--".into()),
+        comment: CommentTokens::line("--"),
         ..EditorOptions::default()
-    });
+    };
+    let blocks = EditorOptions {
+        pairs: vec![('(', ')')],
+        comment: CommentTokens::block("(*", "*)"),
+        indent: IndentRules {
+            increase: Some(r"\(\s*$|\bthen\s*$".into()),
+            decrease: Some(r"^\s*(\)|end\b)".into()),
+        },
+        folds: Folds::Indent,
+        ..EditorOptions::default()
+    };
     for round in 0..5_000 {
+        if round % 500 == 0 {
+            let options = if round % 1000 == 0 { &lines } else { &blocks };
+            buffer.set_options(options.clone());
+        }
         let now = round as f64 * 0.05;
         let len = buffer.len_chars();
         let version = buffer.version();
@@ -104,7 +123,7 @@ fn nothing_a_page_sends_breaks_the_editor() {
                 _ => buffer.insert(&dice.text(), None, now),
             },
             7 => {
-                const COMMANDS: [EditCommand; 14] = [
+                const COMMANDS: [EditCommand; 16] = [
                     EditCommand::DeleteBackward,
                     EditCommand::DeleteForward,
                     EditCommand::DeleteWordBackward,
@@ -114,6 +133,8 @@ fn nothing_a_page_sends_breaks_the_editor() {
                     EditCommand::MoveLinesDown,
                     EditCommand::DuplicateLines,
                     EditCommand::ToggleComment,
+                    EditCommand::ToggleBlockComment,
+                    EditCommand::Fold,
                     EditCommand::Undo,
                     EditCommand::Redo,
                     EditCommand::ToggleFold,
@@ -149,6 +170,9 @@ fn nothing_a_page_sends_breaks_the_editor() {
                 let _ = buffer.utf16_of(dice.place(len));
                 let _ = buffer.place_of_utf16(dice.place(len * 2));
                 let _ = buffer.matching_bracket(dice.place(len));
+                let line = dice.below(buffer.len_lines() + 2);
+                let _ = buffer.fold_region(line);
+                let _ = buffer.fold_lines(line, line + dice.below(4));
                 let _ = buffer.cut(now);
             }
             _ => {

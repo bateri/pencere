@@ -68,7 +68,9 @@
 --     { command = "replace", text = }, { command = "replace_all", text = } (the main selection's
 --     match, or every match, replaced; a regular expression's `text` takes what its groups hold:
 --     "$1", "${1}", "$name", "${name}", "$$" a "$"), "select_found" (every match),
---     "select_occurrences" (every place of the main selection's text, or of the caret's word), …
+--     "select_occurrences" (every place of the main selection's text, or of the caret's word),
+--     "toggle_comment" (the lines' line comment, else their block comment), "toggle_block_comment"
+--     (each range in the block comment, or out of it; a caret's range its line's text), …
 --   { decorate = "layer", version =, from =, to =, decorations = { d, ... } }, each `d`
 --     { from =, to =, color =, background =, weight =, italic =, strike =,
 --       underline = colour | { wavy = colour } }, or { from =, to =, line = colour },

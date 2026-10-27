@@ -2,11 +2,13 @@
 //! out is read into the engine's own types — checked, because the module is not trusted — and
 //! what the engine tells a module is put into the interface's.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use pencere_view::edit::{
-    Caret, CaretShape, Change, Decorate, Decoration, EditCommand, EditorAsk, EditorColors,
-    EditorOptions, Keys, Look, Mark, Movement, Numbers, Origin, Range, Refusal, Tint, Underline,
+    Caret, CaretShape, Change, CommentTokens, Decorate, Decoration, EditCommand, EditorAsk,
+    EditorColors, EditorOptions, Folds, IndentRules, Keys, Look, Mark, Movement, Numbers, Origin,
+    Range, Refusal, Tint, Underline, limits,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -1165,8 +1167,13 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
     })
 }
 
-/// The tree a module handed out, if it is one within the limits.
-fn frame_out(frame: wit::Frame, limits: &ModuleLimits) -> Result<Frame, Fault> {
+/// The tree a module handed out, if it is one within the limits (and the rules of its editors'
+/// indent are regular expressions: `patterns` are those known to be).
+fn frame_out(
+    frame: wit::Frame,
+    limits: &ModuleLimits,
+    patterns: &mut Patterns,
+) -> Result<Frame, Fault> {
     if frame.nodes.len() > limits.nodes {
         return Err(Fault::Malformed(format!(
             "a page of {} elements (at most {})",
@@ -1180,6 +1187,9 @@ fn frame_out(frame: wit::Frame, limits: &ModuleLimits) -> Result<Frame, Fault> {
         .iter()
         .map(|node| node_out(node, limits, &mut lists))
         .collect::<Result<Vec<_>, _>>()?;
+    for options in nodes.iter().filter_map(|node| node.meta.editor.as_ref()) {
+        patterns.check(&options.indent)?;
+    }
     let root = Element::unfold(nodes, limits.depth)
         .map_err(|why: wire::Malformed| Fault::Malformed(why.to_string()))?;
     Ok(Frame {
@@ -1272,8 +1282,48 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
 
 // --- What a page says of its editors -----------------------------------------------------
 
-/// The options of an editor, read: its hint, its comment and its pairs are parts of the frame's
-/// text; pairs are characters two by two (an odd last one is no pair).
+/// The rules of an editor's indent that a page has said and that are regular expressions, each
+/// compiled once as the editor compiles it, not again at every frame that says it: a page says its
+/// options every frame. A page that says ever new ones has those it said long ago compiled again.
+#[derive(Default)]
+pub(crate) struct Patterns {
+    known: HashSet<String>,
+}
+
+impl Patterns {
+    /// How many patterns are known at most.
+    const MOST: usize = 64;
+
+    /// Whether `rules` are regular expressions: a page that says one that is not fails, the words
+    /// naming the option, as a page that names an option an editor has not.
+    fn check(&mut self, rules: &IndentRules) -> Result<(), Fault> {
+        for (name, pattern) in [("increase", &rules.increase), ("decrease", &rules.decrease)] {
+            let Some(pattern) = pattern else {
+                continue;
+            };
+            if self.known.contains(pattern) {
+                continue;
+            }
+            regex::RegexBuilder::new(pattern)
+                .size_limit(limits::PATTERN_SIZE)
+                .build()
+                .map_err(|why| {
+                    Fault::Malformed(format!(
+                        "the indent.{name} of an editor, {pattern:?}, is not a regular expression \
+                         (the syntax of Rust's regex): {why}"
+                    ))
+                })?;
+            if self.known.len() >= Self::MOST {
+                self.known.clear();
+            }
+            self.known.insert(pattern.clone());
+        }
+        Ok(())
+    }
+}
+
+/// The options of an editor, read: its hint, its comments, its pairs and the rules of its indent
+/// are parts of the frame's text; pairs are characters two by two (an odd last one is no pair).
 fn editor_options_out(
     options: &wit::EditorOptions,
     limits: &ModuleLimits,
@@ -1286,7 +1336,17 @@ fn editor_options_out(
     };
     let default = EditorOptions::default();
     let hint = words(&options.hint, "the hint of an editor")?;
-    let comment = words(&options.comment, "the comment of an editor")?;
+    let line = words(&options.comment.line, "the line comment of an editor")?;
+    let block = match &options.comment.block {
+        None => None,
+        Some(block) => {
+            let open = words(&Some(block.open), "the block comment of an editor")?;
+            let close = words(&Some(block.close), "the block comment of an editor")?;
+            open.zip(close)
+        }
+    };
+    let increase = words(&options.indent.increase, "the indent.increase of an editor")?;
+    let decrease = words(&options.indent.decrease, "the indent.decrease of an editor")?;
     let pairs: Vec<char> = words(&options.pairs, "the pairs of an editor")?
         .unwrap_or_default()
         .chars()
@@ -1309,11 +1369,16 @@ fn editor_options_out(
             wit::EditorKeys::Page => Keys::Page,
         },
         hint,
-        comment,
+        comment: CommentTokens { line, block },
         pairs: pairs
             .chunks_exact(2)
             .filter_map(|pair| Some((*pair.first()?, *pair.get(1)?)))
             .collect(),
+        indent: IndentRules { increase, decrease },
+        folds: match options.folds {
+            wit::EditorFolds::Page => Folds::Page,
+            wit::EditorFolds::Indent => Folds::Indent,
+        },
         line_height: options.line_height.unwrap_or(default.line_height),
         padding: options.padding.unwrap_or(default.padding),
         scroll_margin: options.scroll_margin.unwrap_or(default.scroll_margin),
@@ -1551,6 +1616,7 @@ fn command_out(command: wit::EditorCommand) -> EditCommand {
         C::ReplaceAll(text) => EditCommand::ReplaceAll(text),
         C::SelectFound => EditCommand::SelectFound,
         C::SelectOccurrences => EditCommand::SelectOccurrences,
+        C::ToggleBlockComment => EditCommand::ToggleBlockComment,
     }
 }
 
@@ -1631,6 +1697,7 @@ pub(crate) struct World {
     store: Store<Host>,
     view: View,
     limits: ModuleLimits,
+    patterns: Patterns,
 }
 
 impl World {
@@ -1713,6 +1780,7 @@ impl World {
             store,
             view,
             limits,
+            patterns: Patterns::default(),
         })
     }
 }
@@ -1743,7 +1811,7 @@ impl Runner for World {
             page.call_render(store, size, now, reduce_motion)
         })?;
         self.within_what_a_call_may_send()?;
-        frame_out(frame, &self.limits)
+        frame_out(frame, &self.limits, &mut self.patterns)
     }
 
     fn settle(&mut self) -> Result<bool, Fault> {
@@ -1804,6 +1872,36 @@ impl Runner for World {
 mod tests {
     use super::*;
     use crate::sandbox::Unbounded;
+
+    /// A frame read by a page that has said no rules of an editor's indent before.
+    fn frame_out(frame: wit::Frame, limits: &ModuleLimits) -> Result<Frame, Fault> {
+        super::frame_out(frame, limits, &mut Patterns::default())
+    }
+
+    #[test]
+    fn a_rule_of_an_editors_indent_that_is_no_regular_expression_fails_the_page_by_its_name() {
+        let mut patterns = Patterns::default();
+        let rules = |increase: &str, decrease: &str| IndentRules {
+            increase: Some(increase.to_owned()),
+            decrease: Some(decrease.to_owned()),
+        };
+        assert!(patterns.check(&rules(r"\bthen\s*$", r"^\s*end\b")).is_ok());
+        assert!(patterns.check(&IndentRules::default()).is_ok());
+        let fault = patterns
+            .check(&rules(r"\bthen\s*$", "^(end"))
+            .expect_err("no pattern");
+        assert!(
+            matches!(&fault, Fault::Malformed(why) if why.contains("indent.decrease") && why.contains("^(end")),
+            "{fault:?}"
+        );
+        // Look-around is no pattern of Rust's.
+        assert!(patterns.check(&rules("(?=x)", "x")).is_err());
+        // What is known is compiled once; a page that says ever new ones is held to what is kept.
+        for n in 0..200 {
+            assert!(patterns.check(&rules(&format!("a{{{n}}}"), "b")).is_ok());
+        }
+        assert!(patterns.known.len() <= Patterns::MOST);
+    }
 
     fn edges() -> wit::Edges {
         wit::Edges {

@@ -1139,8 +1139,13 @@ impl View {
         } else {
             Vec::new()
         };
-        let folds = buffer.folds();
-        let folded = buffer.folded();
+        // The lines a region folds from are asked for those in view alone: one that folds by the
+        // indent is worked out from the line and the next with text.
+        let lines = rows.iter().filter(|row| row.from == 0).map(|row| row.line);
+        let folds = match (lines.clone().min(), lines.max()) {
+            (Some(first), Some(last)) => buffer.fold_lines(first, last),
+            _ => Vec::new(),
+        };
         let origin_y = slot.rect.y + self.pad - slot.scroll.y;
         let (marks_w, fold_w) = self.gutter_parts();
         for row in rows.iter().filter(|row| row.from == 0) {
@@ -1199,11 +1204,10 @@ impl View {
                     }));
                 }
             }
-            if let Some(region) = folds.iter().find(|(from, to)| {
-                buffer.line_of(*from) == row.line && buffer.line_of(*to) > row.line
-            }) && let Some(color) = colors.folds.or(Role::Dim.solid())
+            if folds.binary_search(&row.line).is_ok()
+                && let Some(color) = colors.folds.or(Role::Dim.solid())
             {
-                let shut = folded.contains(region);
+                let shut = buffer.is_folded(row.line);
                 out.push(Paint::Text(Run {
                     origin: Point::new(gutter.x + gutter.w - fold_w, text_y),
                     text: if shut { "▸" } else { "▾" }.into(),

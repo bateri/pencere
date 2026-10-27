@@ -48,7 +48,7 @@ impl Query {
         let compiled = RegexBuilder::new(&source)
             .case_insensitive(!case)
             .multi_line(true)
-            .size_limit(1 << 22)
+            .size_limit(limits::PATTERN_SIZE)
             .build()
             .map_err(|_| Refusal::BadPattern)?;
         Ok(Self {

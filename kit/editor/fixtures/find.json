@@ -461,6 +461,25 @@
       ]
     },
     {
+      "about": "the word at a caret is the one select_next takes: a letter with its accent apart is in it",
+      "text": "cafe\u0301 x cafe\u0301 cafe\u0301s",
+      "steps": [
+        { "do": "select", "ranges": [[2, 2]] },
+        { "do": "command", "command": "select_next" },
+        { "do": "expect", "ranges": [[0, 5]] },
+        { "do": "select", "ranges": [[2, 2]] },
+        { "do": "command", "command": "select_occurrences" },
+        {
+          "do": "expect",
+          "ranges": [
+            [0, 5],
+            [8, 13]
+          ],
+          "main": 0
+        }
+      ]
+    },
+    {
       "about": "a search stops at 10 000 matches and says there are more",
       "text": "",
       "steps": [

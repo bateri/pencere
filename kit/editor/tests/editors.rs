@@ -8,7 +8,7 @@
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
     Caret, CaretShape, Change, Decorate, Decoration, EditCommand, EditorAsk, EditorColors,
-    EditorOptions, Found, Keys, Mark, Numbers, Range, Tint,
+    EditorOptions, Folds, Found, Keys, Mark, Numbers, Range, Tint,
 };
 use pencere_view::{
     Command, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint, Point, Rect,
@@ -361,6 +361,45 @@ fn a_folded_region_takes_no_rows_and_its_button_in_the_gutter_folds_it() {
     assert!(host.press(Point::new(60.0, 4.0 + ROW + 8.0), none(), 1));
     let head = host.ranges()[0].head;
     assert!(head >= 14, "on the line after the fold, not {head}");
+}
+
+#[test]
+fn an_editor_that_folds_by_the_indent_has_a_button_by_each_line_that_folds_and_a_plain_one_none() {
+    let text = "fn:\n  a\n  b\nend";
+    let buttons = |host: &mut Host| -> Vec<(String, f32)> {
+        host.texts()
+            .into_iter()
+            .filter(|(text, _, _)| text == "▾" || text == "▸")
+            .map(|(text, at, _)| (text, at.y))
+            .collect()
+    };
+    // An editor that says nothing of its folds: no button, and a click where one would be folds
+    // nothing.
+    let mut plain = Host::new(page_with(EditorOptions::default()));
+    plain.load(text);
+    assert!(buttons(&mut plain).is_empty());
+    let gutter_button = Point::new(30.0, 10.0);
+    plain.press(gutter_button, none(), 1);
+    plain.editors.release();
+    let buffer = plain.editors.buffer(EDITOR).expect("the editor");
+    assert!(buffer.folded().is_empty());
+    // One that folds by the indent: a button by `fn:`, and none by the lines further in.
+    let mut host = Host::new(page_with(EditorOptions {
+        folds: Folds::Indent,
+        ..EditorOptions::default()
+    }));
+    host.load(text);
+    let open = buttons(&mut host);
+    assert_eq!(open.len(), 1, "{open:?}");
+    assert_eq!(open[0].0, "▾");
+    let tall = host.editors.metrics(EDITOR).expect("laid out").content.h;
+    assert!(host.press(gutter_button, none(), 1));
+    host.editors.release();
+    let buffer = host.editors.buffer(EDITOR).expect("the editor");
+    assert_eq!(buffer.folded(), &[(3, 11)]);
+    let short = host.editors.metrics(EDITOR).expect("laid out").content.h;
+    assert_eq!(tall - short, 2.0 * ROW);
+    assert_eq!(buttons(&mut host)[0].0, "▸");
 }
 
 #[test]

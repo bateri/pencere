@@ -17,8 +17,11 @@ Places are characters (code points), from 0; a range is `[from, to]` (a selectio
 
 - `about` — what the example shows, in words.
 - `text` — the document at version 0, a caret at its start.
-- `options` (optional) — `tab_width`, `hard_tabs`, `read_only`, `comment` (what starts a comment,
-  `"--"`) and `pairs` (each two characters, opener and closer: `["()", "\"\""]`).
+- `options` (optional) — `tab_width`, `hard_tabs`, `read_only`, `comment` (what starts a line
+  comment, `"--"`, or `{ "line": "--", "block": ["/*", "*/"] }`, either part left out), `pairs`
+  (each two characters, opener and closer: `["()", "\"\""]`), `indent`
+  (`{ "increase": "…", "decrease": "…" }`, regular expressions) and `folds` (`"indent"` to fold by
+  the indent as well).
 - `room` (optional) — the most bytes the document may come to, in place of the 16 MiB of an editor.
 - `steps` — done in turn. Each has `do`, and may have `at` (the time, seconds, from then on: what
   undoing groups by) and `repeat` (done that many times).
@@ -52,7 +55,9 @@ Each key of an `expect` is checked where it is there:
 
 - `text`, `version`, `ranges`, `main`, `composing`, `marked` (`[from, to]`, or `null`);
 - `decorations` — for each layer named, its decorations as `[from, to, kind]`, in order;
-- `folded` — the folded regions; `hidden` — the lines they hide, `[first, last]`;
+- `folded` — the folded regions; `hidden` — the lines they hide, `[first, last]`; `folds` — the
+  regions that fold, the one from each line that one folds from (the page's, or by the indent), and
+  the lines the gutter has a button by are their first lines;
 - `found` — what the search found;
 - `utf16` — `[place, units]` pairs: the place is that many units of UTF-16 into the text, both ways;
 - `bracket` — `[at, to]`: the bracket at (or before) `at` matches the one at `to` (`null`: none);
@@ -60,6 +65,9 @@ Each key of an `expect` is checked where it is there:
 "origin", "changes" } }`, `{ "selection": { "ranges", "main", "composing" } }`,
   `{ "refused": "<reason>" }`, `{ "found": { "count", "current", "more" } }` (`current` from 1,
   left out for none). Every `expect` takes the notes, whether it checks them or not.
+
+`language.json` holds what the page says of its language (its comments, the rules of its indent,
+folding by the indent), and that an editor that says none of it is as one for prose was before.
 
 `invalid.json` holds what the editor refuses: a range the wrong way round, a place past the end,
 changes that overlap, a version too old or yet to come, a document too large. Each is refused, the

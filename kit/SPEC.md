@@ -171,8 +171,39 @@ row), `tab_width` (4), `hard_tabs`, `gutter` (the numbers of the lines, the page
 buttons that fold; on by default), `read_only` (the person cannot change the text; the page can),
 `keys` (`"editor"`, or `"page"`: every key the page's, and the editor types nothing and does none of
 its own commands for a key, for an editor of modes the page drives), `hint` (what it says while it is
-empty; or the first text inside it), `comment` (what the command that comments lines puts, `"--"`)
-and `pairs` (the brackets and quotes that close themselves, `"()[]''"`).
+empty; or the first text inside it) and `pairs` (the brackets and quotes that close themselves,
+`"()[]''"`).
+
+What the page says of its **language**, as a language configuration of VS Code does, the editor
+does; an editor that says none of it is one for prose, as it was: a line break keeps the line's
+indent, what is typed moves no line, nothing is commented and nothing folds but what the page folds.
+
+- `comment` is how the language writes its comments: a line comment (`"--"`), or
+  `{ line = "--", block = { "--[[", "]]" } }` with either part left out (the block a pair, or
+  `{ open =, close = }`). `"toggle_comment"` comments the lines of each range with the line
+  comment, or uncomments them where every line with text on it is commented; a language with block
+  comments alone puts the lines of each range in one, or takes them out. `"toggle_block_comment"`
+  puts each range in the block comment (a caret's range is its line's text, its indent left out),
+  or takes it out where it is in one: the tokens just outside the range or at its ends, a space or a
+  tab between them and the text taken with them. Where some ranges are in one and some are not,
+  those that are not are put in one. No key does it: a page asks for it (`⌘/` toggles comments).
+- `indent = { increase =, decrease = }` are regular expressions (the syntax of Rust's `regex`: no
+  look-around, no back-references) matched against a line's text, either left out. A line break
+  after a line whose text before the caret matches `increase` gives the new line a level of indent
+  more, as one after an opener of `pairs` does, and between such a line and what matches `decrease`
+  that goes on a line of its own. A line that what is typed makes match `decrease` (it did not
+  before) goes a level out from the indent the line above gives (the nearest line with text: its
+  own indent, a level more where it matches `increase` or ends with an opener), where it is not
+  already further out; an undo takes it back with what was typed. Lua's are
+  `increase = "\\b(then|do|else)\\s*$"` and `decrease = "^\\s*(end|else|elseif|until)\\b"`. A
+  pattern that is not one fails the page, the words naming the option. A line longer than 10 000
+  characters is not read by them.
+- `folds` is `"page"` (the page's fold decorations alone, Section 2.3; the default) or `"indent"`:
+  the editor folds by the indent as well, a line with text folding the lines after it that are
+  further in, and the lines with no text among them but not those after the last of them nor a run
+  of more than 1 000 (a tab is as far in as to its next stop). The page's folds come with them, and its own is the one on a line
+  both fold from. They are worked out from the text as it is, for the lines in view, and so follow
+  every change.
 
 How an editor looks is the page's to say, and what it leaves out is the editor's default, in the
 theme's colours:
@@ -205,7 +236,8 @@ drawn over all of it. The host blinks the caret.
 Its document lives as long
 as an editor of its name is on the page, hidden or not: a page of tabs hides the editors of the
 files not in front and keeps their documents. The language is the page's or its program's: the
-editor colours, marks and folds what the page says (Section 2.3) and knows no language itself.
+editor colours, marks and folds what the page says (Section 2.3), comments and indents as its
+options say, and knows no language itself.
 
 A place in a document is a **character** (a code point) counted from 0, and a line is counted from
 0; a range is from one place to another, the end not in it. A version is a number that grows by one
@@ -364,8 +396,9 @@ regular expression's `text` takes what the match's groups hold: `$1` or `${1}` b
 `$1x`); a plain search's goes in as it is. `"select_found"` selects every match, the main one the
 match the main selection was on (else the one `find` would select); `"select_occurrences"` selects
 every place the main selection's text is, in the case written, or, where the main selection is a
-caret, every place the word it is in is (its letters, digits and `_`), as a whole word; the search
-stays as it was. A document the person cannot change (`read_only`) is not replaced in.
+caret, every place the word it is in is (the word `"select_next"` takes: a word by Unicode's rules,
+cut where a mark stands inside it), as a whole word; the search stays as it was. A document the
+person cannot change (`read_only`) is not replaced in.
 
 ### 2.4 The program
 

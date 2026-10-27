@@ -9,7 +9,9 @@
 //! page changes the text against the version it saw ([`Buffer::change`]: carried over what the
 //! person typed since), colours it, marks it and says where it folds, by layers
 //! ([`Buffer::decorate`]), and reads it through a [`Snapshot`] the host posts it. What the words
-//! mean (the language, completions, errors) is the page's or its program's: the editor knows none.
+//! mean (the language, completions, errors) is the page's or its program's: the editor knows none,
+//! and does what the page's options say of how the language is written (its comments, the rules of
+//! its indent, folding by the indent).
 //!
 //! The editor has no clock and does nothing on its own: what depends on time (which changes are
 //! undone together) is told the time by the host.
@@ -24,6 +26,7 @@ mod decorations;
 mod editors;
 mod find;
 mod history;
+mod indent;
 mod segments;
 mod text;
 mod view;

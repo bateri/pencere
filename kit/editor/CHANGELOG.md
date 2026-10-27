@@ -41,7 +41,20 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   (a regular expression's groups put in by `$1`, `${1}`, `$name`, `${name}`, `$$` a `$`; a plain
   search's text as it is), `ReplaceAll` every match as one change undone as one, `SelectFound`
   selects every match and `SelectOccurrences` every place of the main selection's text, or of the
-  caret's word as a whole word.
+  caret's word (the one `SelectNext` takes) as a whole word.
+- **What a page says of its language, done.** The comment commands take the page's
+  `CommentTokens`: `ToggleComment` comments the lines of each range with the line comment, or, in a
+  language of block comments alone, puts them in one (CodeMirror's `toggleComment`);
+  `ToggleBlockComment` puts each range in the block comment (a caret's, its line's text) or takes it
+  out, its tokens just outside the range or its ends, a space or a tab beside them taken too. The
+  rules of the indent (`IndentRules`) are compiled once for each text the page says: a line break
+  after a line that matches `increase` indents a level more (and puts what matches `decrease` after
+  the caret on a line of its own), and a line that what is typed makes match `decrease` goes a level
+  out from what the line above gives, undone with what was typed. `Folds::Indent` folds by the
+  indent, besides the page's folds: `Buffer::fold_region` and `Buffer::fold_lines` work out what
+  folds from a line when it is asked (the gutter's lines in view, a fold), never the whole document
+  at a key, and so follow every change; a region folded by the indent stays folded while the page
+  decorates. An editor that says none of them does as it did.
 - **Decorations.** Layers the page names, each sent for a range in place of what the layer had there
   and carried over every change; regions that fold, which the person folds and unfolds and the
   editor carries over changes.

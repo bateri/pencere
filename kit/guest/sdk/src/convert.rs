@@ -4,8 +4,8 @@
 //! `crates/pencere-sandbox/src/world.rs`.
 
 use pencere_view::edit::{
-    CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions, Found, Keys,
-    Mark, Movement, Numbers, Origin, Range, Refusal, Selection, Tint, Underline,
+    CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions, Folds, Found,
+    Keys, Mark, Movement, Numbers, Origin, Range, Refusal, Selection, Tint, Underline,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
@@ -681,11 +681,38 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
             Keys::Page => wit::EditorKeys::Page,
         },
         hint: options.hint.as_deref().map(|hint| lists.words(hint)),
-        comment: options
-            .comment
-            .as_deref()
-            .map(|comment| lists.words(comment)),
+        comment: wit::CommentTokens {
+            line: options
+                .comment
+                .line
+                .as_deref()
+                .map(|line| lists.words(line)),
+            block: options
+                .comment
+                .block
+                .as_ref()
+                .map(|(open, close)| wit::BlockComment {
+                    open: lists.words(open),
+                    close: lists.words(close),
+                }),
+        },
         pairs: (!pairs.is_empty()).then(|| lists.words(&pairs)),
+        indent: wit::IndentRules {
+            increase: options
+                .indent
+                .increase
+                .as_deref()
+                .map(|rule| lists.words(rule)),
+            decrease: options
+                .indent
+                .decrease
+                .as_deref()
+                .map(|rule| lists.words(rule)),
+        },
+        folds: match options.folds {
+            Folds::Page => wit::EditorFolds::Page,
+            Folds::Indent => wit::EditorFolds::Indent,
+        },
         line_height: Some(options.line_height),
         padding: Some(options.padding),
         scroll_margin: Some(options.scroll_margin),
@@ -826,6 +853,7 @@ fn editor_command(command: EditCommand) -> wit::EditorCommand {
         EditCommand::ReplaceAll(text) => C::ReplaceAll(text),
         EditCommand::SelectFound => C::SelectFound,
         EditCommand::SelectOccurrences => C::SelectOccurrences,
+        EditCommand::ToggleBlockComment => C::ToggleBlockComment,
     }
 }
 
@@ -973,7 +1001,7 @@ fn editor_event(event: wit::Event) -> Event {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pencere_view::edit::{Decorate, Decoration, Look};
+    use pencere_view::edit::{CommentTokens, Decorate, Decoration, IndentRules, Look};
     use pencere_view::{Element, div};
 
     #[test]
@@ -1020,8 +1048,16 @@ mod tests {
     fn an_editor_and_what_the_page_asks_of_it_cross_as_they_are() {
         let options = EditorOptions {
             hint: Some("SQL…".into()),
-            comment: Some("--".into()),
+            comment: CommentTokens {
+                line: Some("--".into()),
+                block: Some(("/*".into(), "*/".into())),
+            },
             pairs: vec![('(', ')'), ('\'', '\'')],
+            indent: IndentRules {
+                increase: Some(r"\bthen\s*$".into()),
+                decrease: None,
+            },
+            folds: Folds::Indent,
             ..EditorOptions::default()
         };
         let root: Element = div().editor(Id::new(5), options);
@@ -1039,6 +1075,21 @@ mod tests {
         };
         assert_eq!(editor.hint.as_ref().map(words).as_deref(), Some("SQL…"));
         assert_eq!(editor.pairs.as_ref().map(words).as_deref(), Some("()''"));
+        assert_eq!(
+            editor.comment.line.as_ref().map(words).as_deref(),
+            Some("--")
+        );
+        let block = editor.comment.block.as_ref().expect("a block comment");
+        assert_eq!(
+            (words(&block.open), words(&block.close)),
+            ("/*".into(), "*/".into())
+        );
+        assert_eq!(
+            editor.indent.increase.as_ref().map(words).as_deref(),
+            Some(r"\bthen\s*$")
+        );
+        assert!(editor.indent.decrease.is_none());
+        assert!(matches!(editor.folds, wit::EditorFolds::Indent));
         let reply = Reply {
             editor: vec![
                 (

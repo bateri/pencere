@@ -11,6 +11,7 @@ use crate::changes::{Assoc, Done, Step, check, invert, map, rebase, steps, steps
 use crate::decorations::Decorations;
 use crate::find::Search;
 use crate::history::{Group, Kind, Log, Undo};
+use crate::indent::Rules;
 use crate::segments::{at_column, column_of};
 use crate::text::{Snapshot, Text};
 
@@ -111,6 +112,8 @@ pub struct Buffer {
     pub(crate) undo: Undo,
     pub(crate) decorations: Decorations,
     pub(crate) options: EditorOptions,
+    /// The rules of the options' indent, compiled.
+    pub(crate) rules: Rules,
     pub(crate) marked: Option<Marked>,
     pub(crate) found: Option<Search>,
     /// What the page was last told the search finds: how many, which one, whether there are more.
@@ -138,6 +141,7 @@ impl Default for Buffer {
             undo: Undo::default(),
             decorations: Decorations::default(),
             options: EditorOptions::default(),
+            rules: Rules::default(),
             marked: None,
             found: None,
             told_found: (0, None, false),
@@ -215,9 +219,15 @@ impl Buffer {
         &self.options
     }
 
-    /// How the editor is set up: what the page says each frame.
+    /// How the editor is set up: what the page says each frame. A rule of the indent is compiled
+    /// when its text changes.
     pub fn set_options(&mut self, options: EditorOptions) {
+        let refold = options.folds != self.options.folds;
+        self.rules.set(&options.indent);
         self.options = options;
+        if refold {
+            self.keep_folded();
+        }
     }
 
     /// The most bytes the document may come to (an editor's own limit, or less where the page's
@@ -282,13 +292,66 @@ impl Buffer {
             .collect()
     }
 
-    /// The regions that fold, and the ones folded.
+    /// The page's regions that fold: its fold decorations, in order. Those the editor folds by the
+    /// indent ([`pencere_view::edit::Folds::Indent`]) are worked out for a line when they are asked for
+    /// ([`Buffer::fold_region`], [`Buffer::fold_lines`]).
     pub fn folds(&self) -> Vec<(usize, usize)> {
         self.decorations.folds()
     }
 
+    /// The region that folds from line `line`: the page's that starts on it and ends on a later
+    /// line, else, where the editor folds by the indent, the lines further in after it.
+    pub fn fold_region(&self, line: usize) -> Option<(usize, usize)> {
+        self.decorations
+            .folds()
+            .into_iter()
+            .find(|(from, to)| self.text.line_of(*from) == line && self.text.line_of(*to) > line)
+            .or_else(|| self.indent_region(line))
+    }
+
+    /// The lines from `first` to `last` that a region that folds starts on, in order: those the
+    /// gutter has a button by.
+    pub fn fold_lines(&self, first: usize, last: usize) -> Vec<usize> {
+        let mut lines: Vec<usize> = self
+            .decorations
+            .folds()
+            .into_iter()
+            .map(|(from, to)| (self.text.line_of(from), self.text.line_of(to)))
+            .filter(|(line, end)| end > line && (first..=last).contains(line))
+            .map(|(line, _)| line)
+            .chain((first..=last).filter(|line| self.folds_by_indent(*line)))
+            .collect();
+        lines.sort_unstable();
+        lines.dedup();
+        lines
+    }
+
     pub fn folded(&self) -> &[(usize, usize)] {
         &self.decorations.folded
+    }
+
+    /// Whether the region that folds from line `line` is folded.
+    pub fn is_folded(&self, line: usize) -> bool {
+        self.decorations
+            .folded
+            .iter()
+            .any(|(from, _)| self.text.line_of(*from) == line)
+    }
+
+    /// The folded regions that are still regions that fold: one stays where a fold of the page's
+    /// starts on the line it starts on (taking that fold's range), or where the editor folds by
+    /// the indent from that line.
+    fn keep_folded(&mut self) {
+        let by_indent: Vec<usize> = self
+            .decorations
+            .folded
+            .iter()
+            .map(|(from, _)| self.text.line_of(*from))
+            .filter(|line| self.folds_by_indent(*line))
+            .collect();
+        let text = &self.text;
+        self.decorations
+            .keep_folded(&|at| text.line_of(at), &by_indent);
     }
 
     /// The lines folded away: for each folded region, its first hidden line and its last.
@@ -700,8 +763,7 @@ impl Buffer {
             })
             .collect();
         self.decorations.replace(&layer, new_from, new_to, items)?;
-        let text = &self.text;
-        self.decorations.keep_folded(&|at| text.line_of(at));
+        self.keep_folded();
         Ok(())
     }
 

@@ -39,6 +39,14 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   `{ command = "replace_all", text = }`, `"select_found"`, `"select_occurrences"` and the event
   `found` (`current` nil for none). What a replacement puts in counts toward the text a reply may
   hand the editors.
+- **What a page says of its editor's language.** The interface's `editor-options` has `comment` (a
+  `comment-tokens`: a line comment and a `block-comment`), `indent` (`indent-rules`: `increase`,
+  `decrease`) and `folds` (`editor-folds`: `page`, `indent`), and the command
+  `toggle-block-comment`. In Lua they are `comment = "--"` or `{ line =, block = { open, close } }`,
+  `indent = { increase =, decrease = }`, `folds = "page" | "indent"` and `"toggle_block_comment"`. A
+  rule of the indent that is not a regular expression fails the page, the words naming the option
+  (`indent.increase`) and what is wrong with it; each is compiled once, not at every frame. For
+  that the crate depends on `regex` (MIT or Apache-2.0), the editor's own.
 
 - The interface is `pencere:view@2.0.0`: overlays and anchors, texts of many looks, canvases,
   commands, dragging, roles and states, fills from one colour to another, and the middle button, keys

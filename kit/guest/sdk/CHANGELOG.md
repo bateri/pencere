@@ -21,6 +21,8 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
   `caret`, `colors`) across the interface.
 - An editor's search crosses the interface: `word` of a `Find`, the commands `Replace`,
   `ReplaceAll`, `SelectFound` and `SelectOccurrences`, and `Event::Found`.
+- What a page says of its editor's language crosses the interface: the `comment`'s line and block
+  comments, the `indent`'s rules, `folds`, and the command `ToggleBlockComment`.
 
 ## [0.3.1] - 2026-10-26
 

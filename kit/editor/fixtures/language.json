@@ -1,0 +1,348 @@
+{
+  "examples": [
+    {
+      "about": "an editor that says nothing of its language is as it was: a line break keeps the indent, what is typed moves no line, the comment commands do nothing and nothing folds by the indent",
+      "text": "  if x then\n    y\n  ",
+      "steps": [
+        { "do": "select", "ranges": [[11, 11]] },
+        { "do": "command", "command": "newline" },
+        { "do": "expect", "text": "  if x then\n  \n    y\n  ", "ranges": [[14, 14]] },
+        { "do": "command", "command": "undo" },
+        { "do": "select", "ranges": [[20, 20]] },
+        { "do": "type", "text": "end" },
+        { "do": "expect", "text": "  if x then\n    y\n  end", "ranges": [[23, 23]], "version": 3 },
+        { "do": "command", "command": "toggle_comment" },
+        { "do": "command", "command": "toggle_block_comment" },
+        { "do": "expect", "text": "  if x then\n    y\n  end", "version": 3, "folds": [] },
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "command", "command": "fold" },
+        { "do": "expect", "folded": [] }
+      ]
+    },
+    {
+      "about": "a line break after a line that matches `increase` indents the new line a level; `end` typed goes a level out, undone with the character that made it match",
+      "text": "if x then",
+      "options": {
+        "indent": {
+          "increase": "\\b(then|do|else)\\s*$|\\bfunction\\b[^)]*\\)\\s*$",
+          "decrease": "^\\s*(end|else|elseif|until)\\b"
+        }
+      },
+      "steps": [
+        { "do": "select", "ranges": [[9, 9]] },
+        { "do": "command", "command": "newline" },
+        { "do": "expect", "text": "if x then\n    ", "ranges": [[14, 14]] },
+        { "do": "type", "text": "y()" },
+        { "do": "command", "command": "newline" },
+        { "do": "expect", "text": "if x then\n    y()\n    ", "ranges": [[22, 22]] },
+        { "do": "type", "text": "en" },
+        { "do": "type", "text": "d", "at": 5 },
+        { "do": "expect", "text": "if x then\n    y()\nend", "ranges": [[21, 21]] },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "if x then\n    y()\n    en", "ranges": [[24, 24]] },
+        { "do": "type", "text": "d", "at": 10 },
+        { "do": "expect", "text": "if x then\n    y()\nend", "ranges": [[21, 21]] },
+        { "do": "type", "text": " -- done" },
+        { "do": "expect", "text": "if x then\n    y()\nend -- done" }
+      ]
+    },
+    {
+      "about": "`else` goes out to the level of its `if`, and the line break after it indents again; a line further out than the line above leaves it is not moved, nor one that matched before",
+      "text": "if x then\n    a\n    els\n    b\n  en\n    end",
+      "options": {
+        "indent": {
+          "increase": "\\b(then|do|else)\\s*$|\\bfunction\\b[^)]*\\)\\s*$",
+          "decrease": "^\\s*(end|else|elseif|until)\\b"
+        }
+      },
+      "steps": [
+        { "do": "select", "ranges": [[23, 23]] },
+        { "do": "type", "text": "e" },
+        {
+          "do": "expect",
+          "text": "if x then\n    a\nelse\n    b\n  en\n    end",
+          "ranges": [[20, 20]]
+        },
+        { "do": "command", "command": "newline" },
+        {
+          "do": "expect",
+          "text": "if x then\n    a\nelse\n    \n    b\n  en\n    end",
+          "ranges": [[25, 25]]
+        },
+        { "do": "command", "command": "undo" },
+        { "do": "select", "ranges": [[31, 31]] },
+        { "do": "type", "text": "d" },
+        { "do": "expect", "text": "if x then\n    a\nelse\n    b\n  end\n    end" },
+        { "do": "select", "ranges": [[40, 40]] },
+        { "do": "type", "text": " " },
+        { "do": "expect", "text": "if x then\n    a\nelse\n    b\n  end\n    end " }
+      ]
+    },
+    {
+      "about": "between a line that opens a block and what closes it, a line break puts the closer on a line of its own, as between brackets",
+      "text": "function f()end",
+      "options": {
+        "indent": {
+          "increase": "\\b(then|do|else)\\s*$|\\bfunction\\b[^)]*\\)\\s*$",
+          "decrease": "^\\s*(end|else|elseif|until)\\b"
+        }
+      },
+      "steps": [
+        { "do": "select", "ranges": [[12, 12]] },
+        { "do": "command", "command": "newline" },
+        { "do": "expect", "text": "function f()\n    \nend", "ranges": [[17, 17]] }
+      ]
+    },
+    {
+      "about": "a closer typed on the line a bracket opened goes out to the bracket's line, its indent as it was; tabs where the editor indents with them",
+      "text": "  foo {\n\tif x then",
+      "options": {
+        "pairs": ["{}"],
+        "indent": {
+          "increase": "\\b(then|do|else)\\s*$|\\bfunction\\b[^)]*\\)\\s*$",
+          "decrease": "^\\s*(\\}|end\\b)"
+        }
+      },
+      "steps": [
+        { "do": "select", "ranges": [[7, 7]] },
+        { "do": "command", "command": "newline" },
+        { "do": "expect", "text": "  foo {\n      \n\tif x then", "ranges": [[14, 14]] },
+        { "do": "type", "text": "}" },
+        { "do": "expect", "text": "  foo {\n  }\n\tif x then", "ranges": [[11, 11]] }
+      ]
+    },
+    {
+      "about": "an editor that indents with tabs takes a level of tabs out",
+      "text": "\tif x then",
+      "options": {
+        "hard_tabs": true,
+        "indent": {
+          "increase": "\\b(then|do|else)\\s*$|\\bfunction\\b[^)]*\\)\\s*$",
+          "decrease": "^\\s*(end|else|elseif|until)\\b"
+        }
+      },
+      "steps": [
+        { "do": "select", "ranges": [[10, 10]] },
+        { "do": "command", "command": "newline" },
+        { "do": "expect", "text": "\tif x then\n\t\t" },
+        { "do": "type", "text": "end" },
+        { "do": "expect", "text": "\tif x then\n\tend", "ranges": [[15, 15]] }
+      ]
+    },
+    {
+      "about": "a pattern that is no pattern matches nothing (a page that says one fails, in the sandbox)",
+      "text": "if x then",
+      "options": { "indent": { "increase": "(then", "decrease": "[end" } },
+      "steps": [
+        { "do": "select", "ranges": [[9, 9]] },
+        { "do": "command", "command": "newline" },
+        { "do": "type", "text": "end" },
+        { "do": "expect", "text": "if x then\nend" }
+      ]
+    },
+    {
+      "about": "a language of block comments alone comments the lines of each range with them, and uncomments them",
+      "text": "a { color: red; }\nb { }",
+      "options": { "comment": { "block": ["/*", "*/"] } },
+      "steps": [
+        { "do": "select", "ranges": [[3, 3]] },
+        { "do": "command", "command": "toggle_comment" },
+        { "do": "expect", "text": "/* a { color: red; } */\nb { }", "ranges": [[6, 6]] },
+        { "do": "command", "command": "toggle_comment" },
+        { "do": "expect", "text": "a { color: red; }\nb { }", "ranges": [[3, 3]] },
+        { "do": "select", "ranges": [[0, 23]] },
+        { "do": "command", "command": "toggle_comment" },
+        { "do": "expect", "text": "/* a { color: red; }\nb { } */", "ranges": [[3, 26]] },
+        { "do": "command", "command": "toggle_comment" },
+        { "do": "expect", "text": "a { color: red; }\nb { }", "ranges": [[0, 23]] },
+        {
+          "do": "select",
+          "ranges": [
+            [1, 1],
+            [19, 19]
+          ]
+        },
+        { "do": "command", "command": "toggle_comment" },
+        { "do": "expect", "text": "/* a { color: red; } */\n/* b { } */" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "a { color: red; }\nb { }" }
+      ]
+    },
+    {
+      "about": "a language of line comments still comments lines with them, whatever its block comment",
+      "text": "  x = 1\n  y = 2",
+      "options": { "comment": { "line": "--", "block": ["--[[", "]]"] } },
+      "steps": [
+        { "do": "select", "ranges": [[0, 15]] },
+        { "do": "command", "command": "toggle_comment" },
+        { "do": "expect", "text": "  -- x = 1\n  -- y = 2" }
+      ]
+    },
+    {
+      "about": "toggle_block_comment puts each range in the block comment and takes it out, its tokens just outside the range or its ends; a caret's range is its line's text, and takes in a range on its line",
+      "text": "let x = 1 + 2;",
+      "options": { "comment": { "line": "//", "block": ["/*", "*/"] } },
+      "steps": [
+        { "do": "select", "ranges": [[8, 13]] },
+        { "do": "command", "command": "toggle_block_comment" },
+        { "do": "expect", "text": "let x = /* 1 + 2 */;", "ranges": [[11, 16]] },
+        { "do": "command", "command": "toggle_block_comment" },
+        { "do": "expect", "text": "let x = 1 + 2;", "ranges": [[8, 13]] },
+        { "do": "select", "ranges": [[4, 4]] },
+        { "do": "command", "command": "toggle_block_comment" },
+        { "do": "expect", "text": "/* let x = 1 + 2; */", "ranges": [[7, 7]] },
+        { "do": "select", "ranges": [[0, 20]] },
+        { "do": "command", "command": "toggle_block_comment" },
+        { "do": "expect", "text": "let x = 1 + 2;", "ranges": [[0, 14]] },
+        {
+          "do": "select",
+          "ranges": [
+            [8, 13],
+            [14, 14]
+          ]
+        },
+        { "do": "command", "command": "toggle_block_comment" },
+        {
+          "do": "expect",
+          "text": "/* let x = 1 + 2; */",
+          "ranges": [
+            [11, 16],
+            [17, 17]
+          ]
+        }
+      ]
+    },
+    {
+      "about": "a block comment is taken out with no space inside it, or one space; where some ranges are in one and some are not, those that are not are put in one",
+      "text": "/*x*/ a /* b */ c",
+      "options": { "comment": { "block": ["/*", "*/"] } },
+      "steps": [
+        { "do": "select", "ranges": [[2, 3]] },
+        { "do": "command", "command": "toggle_block_comment" },
+        { "do": "expect", "text": "x a /* b */ c", "ranges": [[0, 1]] },
+        {
+          "do": "select",
+          "ranges": [
+            [2, 3],
+            [7, 8]
+          ]
+        },
+        { "do": "command", "command": "toggle_block_comment" },
+        {
+          "do": "expect",
+          "text": "x /* a */ /* b */ c",
+          "ranges": [
+            [5, 6],
+            [13, 14]
+          ]
+        },
+        { "do": "command", "command": "toggle_block_comment" },
+        {
+          "do": "expect",
+          "text": "x a b c",
+          "ranges": [
+            [2, 3],
+            [4, 5]
+          ]
+        }
+      ]
+    },
+    {
+      "about": "a caret on a line with no text puts an empty comment there",
+      "text": "a\n  \nb",
+      "options": { "comment": { "block": ["<!--", "-->"] } },
+      "steps": [
+        { "do": "select", "ranges": [[4, 4]] },
+        { "do": "command", "command": "toggle_block_comment" },
+        { "do": "expect", "text": "a\n  <!--  -->\nb", "ranges": [[9, 9]] }
+      ]
+    },
+    {
+      "about": "an editor that folds by the indent folds a line's further-in lines, the lines with no text among them in it and those after the last not; it stays folded when the page decorates",
+      "text": "a:\n    b\n        c\n\n    d\n\ne",
+      "options": { "folds": "indent" },
+      "steps": [
+        {
+          "do": "expect",
+          "folds": [
+            [2, 25],
+            [8, 18]
+          ]
+        },
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "command", "command": "fold" },
+        { "do": "expect", "folded": [[2, 25]], "hidden": [[1, 4]] },
+        {
+          "do": "decorate",
+          "layer": "syntax",
+          "version": 0,
+          "from": 0,
+          "to": 28,
+          "decorations": [[0, 1, "style"]]
+        },
+        { "do": "expect", "folded": [[2, 25]] },
+        { "do": "command", "command": "toggle_fold" },
+        { "do": "expect", "folded": [] }
+      ]
+    },
+    {
+      "about": "the regions that fold by the indent follow the changes, and the page's folds come with them",
+      "text": "a:\n    b\n        c\n\n    d\n\ne",
+      "options": { "folds": "indent" },
+      "steps": [
+        { "do": "select", "ranges": [[27, 27]] },
+        { "do": "type", "text": "    " },
+        {
+          "do": "expect",
+          "folds": [
+            [2, 32],
+            [8, 18]
+          ]
+        },
+        { "do": "select", "ranges": [[9, 9]] },
+        { "do": "command", "command": "delete_forward", "repeat": 8 },
+        {
+          "do": "expect",
+          "text": "a:\n    b\nc\n\n    d\n\n    e",
+          "folds": [
+            [2, 8],
+            [10, 24]
+          ],
+          "version": 9
+        },
+        {
+          "do": "decorate",
+          "layer": "folds",
+          "version": 9,
+          "from": 0,
+          "to": 24,
+          "decorations": [[2, 10, "fold"]]
+        },
+        {
+          "do": "expect",
+          "folds": [
+            [2, 10],
+            [10, 24]
+          ]
+        }
+      ]
+    },
+    {
+      "about": "a block that runs to the end of the document folds to its end; a tab is as far in as its stop",
+      "text": "a\n\tb\n    c",
+      "options": { "folds": "indent", "tab_width": 2 },
+      "steps": [
+        {
+          "do": "expect",
+          "folds": [
+            [1, 10],
+            [4, 10]
+          ]
+        },
+        { "do": "select", "ranges": [[3, 3]] },
+        { "do": "command", "command": "fold" },
+        { "do": "expect", "folded": [[4, 10]], "hidden": [[2, 2]] }
+      ]
+    }
+  ]
+}
