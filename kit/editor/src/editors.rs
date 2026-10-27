@@ -358,8 +358,10 @@ impl Editors {
             return Route::Page;
         }
         let Some(action) = builtin(key, mods) else {
+            // ⌥ is how a Mac's keyboards type what is not on a key of its own (`@`, `[`, `{`, `|`,
+            // `~` on many of them): a character with it types, as one with ⇧ does.
             return match key {
-                Key::Character(_) if !mods.any_command() => Route::Type,
+                Key::Character(_) if !mods.command && !mods.control => Route::Type,
                 _ => Route::Page,
             };
         };
