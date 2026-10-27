@@ -202,8 +202,9 @@ hover is `bg(hovered and "raised2" or nil):motion({ seconds = 0.12, color = true
 
 ### 2.2 What a page remembers, and asks of the layout
 
-`pencere.Ui`, `pencere.Fades` and `pencere.Rows` keep what a page needs between frames (pointer and
-keyboard state, eased levels, the heights of a long list). A fade takes a highlight's 0.12 s, or its own time (`fades:to(id, level, seconds)`), and is read
+`pencere.Ui`, `pencere.Fades`, `pencere.Rows` and `pencere.Built` keep what a page needs between frames
+(pointer and keyboard state, eased levels, the heights of a long list and which of its rows are
+built). A fade takes a highlight's 0.12 s, or its own time (`fades:to(id, level, seconds)`), and is read
 along a curve where one is given (`fades:level(id, "out")`; `pencere.ease(t, ease)` is the curve). `pencere.layout` answers what is where on the page as it was last laid out: `hit`, `ids_at`,
 `bounds` (a field's too, by its name), `scroll_extent` (`content` and `view` down, `content_w` and
 `view_w` across, with `max_offset` and `max_offset_x`, and how far it is scrolled, `offset` and
@@ -215,6 +216,21 @@ the version it is: `pencere.layout.editor_version(id)` (the version read, the on
 said), `editor_length(id)` and `editor_lines(id)`, `editor_text(id, from, to)` (at most 1 MiB a read;
 a large document is read in pieces), `line_start(id, line)` and `line_of(id, at)`. A page reads in
 the `edit` event the text of the version the event is of.
+
+A long list builds only the rows near what is in view, and keeps the rest of its length with a spacer
+above and one below. `pencere.Rows` is where its rows stand: `Rows.new(heights)`, `Rows.from_tops(tops)`
+(where each row starts, from 0, the last entry where the last row ends: a table the page keeps as the
+list grows, taken as it is) or `Rows.even(count, height)` (rows of one height, as long as any list),
+`:padded(lead, trail)` for room around them; `:window(offset, view, overscan)` the rows that touch a
+window, `:at(y)`, `:top(index)`, `:total()` and `:reveal(index, offset, view)` the offset that shows
+a row. `pencere.Built` (`Built.new()`, one for each list) is which rows to build as the host scrolls:
+the host moves what is built at once and the page builds what comes into view a frame or two later,
+so `built:span(rows, offset, view)` builds two views ahead of what is in view, the way the list goes,
+and half a view behind (as much both ways before it has moved, all of it the other way at an end of
+the list, which can only go back), and keeps what it built while that holds what is in view with a
+view to spare the way the list goes; `built:stale(rows, offset, view)`, asked with a `scrolled` box's
+offset, is whether the page is to be built again for it. A list that goes less than a view a frame
+finds its rows built, and the page is built about once a view, not at every turn of the wheel.
 
 How far a box is scrolled is the **host's**, not the page's. A box that says `scroll()` and has an id
 is moved by the wheel, the trackpad and its scroll bars as the host's system moves them (its speed,

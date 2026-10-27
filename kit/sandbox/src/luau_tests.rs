@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 
 use pencere_view::wire::{Kind, Overflow};
 use pencere_view::{
-    Button, Color, Cursor, Ease, Element, Event, FieldKind, Fit, Id, Input, Key, Keyboard, Mix,
-    Mods, Motion, Point, Rgba, Role, ScrollTo, Shift, Source, Tip, image,
+    Built, Button, Color, Cursor, Ease, Element, Event, FieldKind, Fit, Id, Input, Key, Keyboard,
+    Mix, Mods, Motion, Point, Rgba, Role, Rows, ScrollTo, Shift, Source, Tip, image,
 };
 use wasmtime::component::Component;
 
@@ -1484,4 +1484,103 @@ fn a_script_asks_the_application_to_scroll_and_is_told_where_its_boxes_went() {
         Event::Scrolled(vec![(Id::named("list"), Point::new(0.0, 25.0))]),
     );
     assert_eq!(text(&page), "scrolled list 0 25 at 25");
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_builds_a_long_list_where_the_engine_would() {
+    // The same lists, the same way down and back up, in the script and in the engine: where the
+    // rows stand, and which the page builds and when.
+    let update = first(
+        r##"
+        local heights = {}
+        for i = 1, 3000 do
+            heights[i] = (i - 1) % 9 == 0 and 64 or 26
+        end
+        local lists = {
+            pencere.Rows.even(5000, 32):padded(6, 8),
+            pencere.Rows.new(heights),
+            pencere.Rows.from_tops(pencere.Rows.new(heights).tops):padded(0, 10),
+        }
+        return {
+            render = function()
+                local page = pencere.div()
+                local function say(...)
+                    page:child(pencere.text(table.concat({ ... }, " ")))
+                end
+                for _, rows in ipairs(lists) do
+                    say("len", rows:len(), "total", rows:total(), "at", rows:at(5), rows:at(40), rows:at(1e9))
+                    for _, offset in ipairs({ 0, 13, 4000, 1e9 }) do
+                        local first, last = rows:window(offset, 500, 32)
+                        say("window", offset, first, last, "reveal", rows:reveal(rows:len(), offset, 500))
+                    end
+                    local built = pencere.Built.new()
+                    local offsets = {}
+                    for offset = 0, 20000, 450 do
+                        offsets[#offsets + 1] = offset
+                    end
+                    for offset = 20000, 0, -300 do
+                        offsets[#offsets + 1] = offset
+                    end
+                    for _, offset in ipairs(offsets) do
+                        local stale = built:stale(rows, offset, 600)
+                        local first, last = built:span(rows, offset, 600)
+                        say("at", offset, tostring(stale), first, last)
+                    end
+                end
+                return page
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None, "{}", failed(&update));
+    let said = words(&update.frame.expect("a page").root);
+
+    let heights: Vec<f32> = (0..3000)
+        .map(|i| if i % 9 == 0 { 64.0 } else { 26.0 })
+        .collect();
+    let lists = [
+        Rows::even(5000, 32.0).padded(6.0, 8.0),
+        Rows::new(heights.iter().copied()),
+        Rows::new(heights.iter().copied()).padded(0.0, 10.0),
+    ];
+    let mut expected = Vec::new();
+    for rows in &lists {
+        // A row of the script is counted from 1, and a window is its first and last.
+        let row = |index: Option<usize>| index.map_or("nil".to_owned(), |i| (i + 1).to_string());
+        expected.push(format!(
+            "len {} total {} at {} {} {}",
+            rows.len(),
+            rows.total(),
+            row(rows.at(5.0)),
+            row(rows.at(40.0)),
+            row(rows.at(1.0e9)),
+        ));
+        for offset in [0.0, 13.0, 4000.0, 1.0e9] {
+            let window = rows.window(offset, 500.0, 32.0);
+            expected.push(format!(
+                "window {} {} {} reveal {}",
+                offset,
+                window.start + 1,
+                window.end,
+                rows.reveal(rows.len() - 1, offset, 500.0),
+            ));
+        }
+        let mut built = Built::new();
+        let offsets = (0..=20_000)
+            .step_by(450)
+            .chain((0..=20_000).rev().step_by(300))
+            .map(|offset| offset as f32);
+        for offset in offsets {
+            let stale = built.stale(rows, offset, 600.0);
+            let span = built.span(rows, offset, 600.0);
+            expected.push(format!(
+                "at {offset} {stale} {} {}",
+                span.start + 1,
+                span.end
+            ));
+        }
+    }
+    assert_eq!(said, expected);
 }
