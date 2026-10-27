@@ -26,6 +26,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 ### Changed
 
 - A component written against `pencere:view@1.0.0` is refused, in words that name both versions.
+- A run of wheel turns over one point that waits for the page is one turn by all of them, as a run
+  of pointer moves is the last of them: a page slower to make than the wheel turns does not fall
+  further behind with every turn.
 
 ## [0.3.1] - 2026-10-26
 

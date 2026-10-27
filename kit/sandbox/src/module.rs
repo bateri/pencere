@@ -8,9 +8,10 @@
 //! hung with it.
 //!
 //! The posting is cheap and loses nothing that matters: a frame asked for while an older one is
-//! still wanted replaces it (only the newest is made), a run of pointer moves is one move, an
-//! event is never dropped. The application is woken once per batch of what is waiting
-//! ([`Module::spawn`]'s `wake`), not once per item.
+//! still wanted replaces it (only the newest is made), a run of pointer moves is one move, a run of
+//! wheel turns over one point is one turn by all of them, no other event is ever dropped. The
+//! application is woken once per batch of what is waiting ([`Module::spawn`]'s `wake`), not once
+//! per item.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -392,6 +393,8 @@ fn serve<R: Runner>(
         // batch, made after the last of it (a program that pushes fast does not make the
         // module build a page for every push).
         let mut owed = false;
+        // What the wheel turns that were run into the next one came to, points across and down.
+        let mut wheel = (0.0_f32, 0.0_f32);
         for (at, command) in batch.iter().enumerate() {
             let later = batch.get(at + 1..).unwrap_or_default();
             match command {
@@ -439,8 +442,29 @@ fn serve<R: Runner>(
                         later.first(),
                         Some(Command::Event(Event::Input(Input::Move(_))))
                     ) => {}
+                // A run of wheel turns over one point is one turn by all of them: a page slower
+                // to make than the wheel turns does not fall behind it, a page for each turn.
+                Command::Event(Event::Input(Input::Scroll { at: here, dx, dy }))
+                    if matches!(
+                        later.first(),
+                        Some(Command::Event(Event::Input(Input::Scroll { at, .. }))) if at == here
+                    ) =>
+                {
+                    wheel = (wheel.0 + dx, wheel.1 + dy);
+                }
                 Command::Event(event) => {
                     settled = 0;
+                    let event = match event {
+                        Event::Input(Input::Scroll { at, dx, dy }) => {
+                            let (before_x, before_y) = std::mem::take(&mut wheel);
+                            Event::Input(Input::Scroll {
+                                at: *at,
+                                dx: before_x + dx,
+                                dy: before_y + dy,
+                            })
+                        }
+                        event => event.clone(),
+                    };
                     let reply = runner.handle(event.clone())?;
                     post.say(runner.take_sent());
                     let frame = match (reply.redraw, last) {
@@ -960,6 +984,47 @@ mod tests {
         assert!(handled[0].contains("x: 3.0"), "{handled:?}");
         assert!(handled[1].contains("Press"), "{handled:?}");
         assert!(handled[2].contains("x: 4.0"), "{handled:?}");
+    }
+
+    fn wheel(x: f32, dy: f32) -> Event {
+        Event::Input(Input::Scroll {
+            at: Point::new(x, 1.0),
+            dx: 0.0,
+            dy,
+        })
+    }
+
+    #[test]
+    fn a_run_of_wheel_turns_over_one_point_is_one_turn_by_all_of_them() {
+        let (open, gate) = mpsc::channel();
+        let rig = rig(Some(gate), None, false);
+        rig.module.render(Size::new(10.0, 10.0), 1.0, false);
+        for dy in [10.0, 20.0, 30.0] {
+            rig.module.event(wheel(1.0, dy));
+        }
+        // Over another point the wheel may be over another box: a turn of its own.
+        rig.module.event(wheel(5.0, 4.0));
+        open.send(()).unwrap();
+        let began = std::time::Instant::now();
+        while rig.log().iter().filter(|l| l.starts_with("handle")).count() < 2
+            && began.elapsed() < Duration::from_secs(5)
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let handled: Vec<String> = rig
+            .log()
+            .into_iter()
+            .filter(|l| l.starts_with("handle"))
+            .collect();
+        assert_eq!(handled.len(), 2, "{handled:?}");
+        assert!(
+            handled[0].contains("x: 1.0") && handled[0].contains("dy: 60.0"),
+            "{handled:?}"
+        );
+        assert!(
+            handled[1].contains("x: 5.0") && handled[1].contains("dy: 4.0"),
+            "{handled:?}"
+        );
     }
 
     #[test]

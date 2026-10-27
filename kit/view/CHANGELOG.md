@@ -54,6 +54,10 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   in a style sheet. The layout crate is taffy 0.15 (was 0.10), whose sizing of a box from its
   content counted such an element at its width times its margins, and pushed what came after it
   past the page.
+- **The wheel and a click over an overlay.** `Laid::ids_at` is the topmost element under the point
+  and what holds it, out to the page, as an event bubbles in a browser. It was every named element
+  there, in whatever branch, so the wheel over a palette with nothing to scroll moved the list it
+  covers, and a click there could give the keyboard to a field under it.
 
 ## [0.3.1] - 2026-10-26
 
