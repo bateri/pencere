@@ -320,7 +320,7 @@ end
 
 -- The rows to build (the first and the last) with the list `rows` at `offset` in a window of
 -- `view` points: those built last while they still hold what is in view with room, else a new
--- span around it, longer the way the list goes.
+-- span around it, longer the way the list goes (and all of it the other way at an end of the list).
 function Built:span(rows, offset, view)
 	if not self:stale(rows, offset, view) then
 		return self.first, self.last
@@ -330,7 +330,19 @@ function Built:span(rows, offset, view)
 	if self.count ~= nil then
 		before, after = self.up and AHEAD or BEHIND, self.up and BEHIND or AHEAD
 	end
-	local first, last = rows:window(offset - view * before, view * (1 + before + after), 0)
+	-- What would be built past an end of the list is built at the other instead: a list at its end
+	-- can only go back.
+	local start, finish = rows:top(1), rows:total()
+	local from, to = offset - view * before, offset + view * (1 + after)
+	if from < start then
+		to += start - from
+		from = start
+	end
+	if to > finish then
+		from = math.max(from - (to - finish), start)
+		to = finish
+	end
+	local first, last = rows:window(from, to - from, 0)
 	self.first, self.last, self.count = first, last, rows:len()
 	return first, last
 end

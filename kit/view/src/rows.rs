@@ -240,7 +240,7 @@ impl Built {
 
     /// The rows to build with the list `rows` at `offset` in a window of `view` points: those
     /// built last while they still hold what is in view with room, else a new span around it,
-    /// longer the way the list goes.
+    /// longer the way the list goes (and all of it the other way at an end of the list).
     pub fn span(&mut self, rows: &Rows, offset: f32, view: f32) -> Range<usize> {
         if !self.stale(rows, offset, view)
             && let Some((built, _)) = &self.built
@@ -253,7 +253,19 @@ impl Built {
             (Some(_), true) => (AHEAD, BEHIND),
             (Some(_), false) => (BEHIND, AHEAD),
         };
-        let span = rows.window(offset - view * before, view * (1.0 + before + after), 0.0);
+        // What would be built past an end of the list is built at the other instead: a list at its
+        // end can only go back.
+        let (start, end) = (rows.top(0), rows.total());
+        let (mut from, mut to) = (offset - view * before, offset + view * (1.0 + after));
+        if from < start {
+            to += start - from;
+            from = start;
+        }
+        if to > end {
+            from = (from - (to - end)).max(start);
+            to = end;
+        }
+        let span = rows.window(from, to - from, 0.0);
         self.built = Some((span.clone(), rows.len()));
         span
     }
@@ -471,16 +483,34 @@ mod tests {
     }
 
     #[test]
+    fn at_an_end_of_the_list_all_that_is_built_is_the_other_way() {
+        let rows = flat(10_000);
+        let view = 640.0;
+        let end = rows.total() - view;
+        let mut built = Built::new();
+        // Gone down to the end, the list can only go back: what is built is two views above it.
+        built.span(&rows, end - 5000.0, view);
+        let at_end = built.span(&rows, end, view);
+        assert_eq!(at_end.end, rows.len());
+        assert_eq!(at_end.start, rows.window(end - 2.0 * view, view, 0.0).start);
+        // And it goes back up a view and a quarter before it is built again.
+        assert!(!built.stale(&rows, end - 1.2 * view, view));
+        assert!(built.stale(&rows, end - 1.3 * view, view));
+        // At the top, before it has moved, three views are built below.
+        let mut built = Built::new();
+        let top = built.span(&rows, 0.0, view);
+        assert_eq!(top, rows.window(0.0, 4.0 * view, 0.0));
+    }
+
+    #[test]
     fn a_list_that_changed_its_length_is_built_again() {
         let mut built = Built::new();
         assert!(built.stale(&flat(100), 0.0, 600.0), "nothing is built yet");
         let span = built.span(&flat(100), 0.0, 600.0);
         assert!(!built.stale(&flat(100), 0.0, 600.0));
         assert!(built.stale(&flat(90), 0.0, 600.0));
-        assert_eq!(
-            built.span(&flat(90), 0.0, 600.0),
-            span.start..span.end.min(90)
-        );
+        assert_ne!(built.span(&flat(90), 0.0, 600.0), span);
+        assert!(!built.stale(&flat(90), 0.0, 600.0));
         // All of a short list is built, and is never built again for scrolling.
         assert_eq!(built.span(&flat(10), 0.0, 600.0), 0..10);
         assert!(!built.stale(&flat(10), 0.0, 600.0));
