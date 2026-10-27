@@ -441,6 +441,30 @@ fn a_key_is_the_pages_command_first_then_the_editors_then_text() {
         host.key(Key::Character('c'), with(|m| m.command = true)),
         Route::Copy("b\n".into())
     );
+    // What ⌥ types on a keyboard that has no key of its own for it (`@` is ⌥Q on a Turkish Mac,
+    // `{` ⌥⇧8 on a German one) is typed; ⌘ or ⌃ with a character is not text.
+    assert_eq!(
+        host.key(Key::Character('@'), with(|m| m.alt = true)),
+        Route::Type
+    );
+    assert_eq!(
+        host.key(
+            Key::Character('{'),
+            with(|m| {
+                m.alt = true;
+                m.shift = true;
+            })
+        ),
+        Route::Type
+    );
+    assert_eq!(
+        host.key(Key::Character('b'), with(|m| m.control = true)),
+        Route::Page
+    );
+    assert_eq!(
+        host.key(Key::Character('k'), with(|m| m.command = true)),
+        Route::Page
+    );
     // With the popup open, ↓ is the page's.
     let mut host = Host::new(with_commands(Keys::Editor, true));
     host.load("a\nb");

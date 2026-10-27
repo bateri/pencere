@@ -46,8 +46,10 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   a line; shift selects to it, ⌘ adds a caret, ⌥ selects a column (on each line, from the boundary
   nearest one place across to the boundary nearest the other); a drag past the room scrolls it.
 - **The keys.** In order: the page's command for a key, the editor's own (the keys of a Mac's text
-  views, and those of editors for code), the text (`Route`); none of the page's while an input
-  method composes, every one the page's where the editor gives it its keys (`Keys::Page`).
+  views, and those of editors for code), the text (`Route`): a character types with ⇧ or ⌥ held (⌥
+  is how a Mac's keyboards type `@`, `[`, `{`, `|`, `~` on many of them), not with ⌘ or ⌃; none of
+  the page's while an input method composes, every one the page's where the editor gives it its
+  keys (`Keys::Page`).
 - **Scrolling** is the host's: the room scrolls as a box does, over the content the editor says,
   and the editor asks for the caret to be kept in view (`Editors::take_scrolls`). Where the caret an
   overlay stands by moves with no frame of the page, the host lays the page out again as it is
