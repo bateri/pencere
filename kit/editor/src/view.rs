@@ -188,10 +188,13 @@ impl View {
                 (room.font.size * 1.25).ceil()
             };
             // Code is read line by line: a row is about one and a half times the font's size, as
-            // editors of code set it, its text in the middle. The room is whole points, so a row
-            // is as tall on every screen.
+            // editors of code set it, its text in the middle, with a point at least above and
+            // below it where the font's own line is that tall already. The room is whole points,
+            // so a row is as tall on every screen.
             let s = scale.max(0.01);
-            self.lead = (self.line * 0.15 / s).round() * s;
+            let points = |pixels: f32| (pixels / s).round() * s;
+            let target = points(room.font.size * 1.5);
+            self.lead = points((target - self.line) / 2.0).max(s);
             self.row = self.line + 2.0 * self.lead;
             self.space = if self.plain {
                 room.font.size * 0.6
@@ -1089,7 +1092,7 @@ impl View {
 
     /// How wide the column of marks and the column of fold buttons are, pixels.
     fn gutter_parts(&self) -> (f32, f32) {
-        ((self.row * 0.6).round(), (self.row * 0.8).round())
+        ((self.line * 0.6).round(), (self.line * 0.8).round())
     }
 
     /// The gutter measured again for a document of `lines` lines.
