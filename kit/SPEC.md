@@ -28,7 +28,18 @@ on every host.
 overlays and anchors, texts of many looks, canvases, commands and their keys, dragging and dropping,
 what an element is to a screen reader and its state, fills from one colour to another, a middle
 button, keys that go up, the modifiers alone and files dropped on the page (Sections 2.1 to 2.3 and
-4). The kit's own sandbox opens `2.0` and no longer `1.0`.
+4); editors of text (Sections 2.1 and 2.3, and the host's part in Section 4), with their search and
+what it finds (`found`), what a page says of its language (its comments, the rules of its indent,
+folding by the indent), the spaces, tabs and guides of the indent they show, and a language that
+colours one, `pencere.Syntax` (Section 2.2); and a reply's `link` and `wake`, with the kit's timers,
+`pencere.time` (Sections 2.2 and 2.3). The kit's own sandbox opens `2.0` and no longer `1.0`.
+
+The regular expressions of a view (an editor's search, the rules of its indent) are in the syntax of
+Rust's `regex` crate, `1.x` at the release the kit pins (its `Cargo.lock`), and one may take at most
+4 MiB compiled (`pencere_view::edit::limits::PATTERN_SIZE`): a pattern that would take more is none.
+A release of `regex` whose syntax a view could notice (a pattern it reads otherwise, or one it takes
+that an earlier refused) arrives with a new minor version of both kinds, as a later Luau does for
+`lua`.
 
 ## 2. The Lua page API
 
@@ -42,7 +53,7 @@ A script **returns the page**, a table of the functions the host calls:
 | Function                                                              | Called when                                                                                                                                                                                                                                                                                      |
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `render(size, now, reduce_motion) -> element[, animating[, wake_at]]` | The host draws. `size` is `{ w =, h = }` in points, `now` seconds on the host's clock, `reduce_motion` the person's setting. `animating` asks for the next frame at once; a page at rest costs no frames. `wake_at` (a time on `now`'s clock) asks a page at rest to be rendered once more then. |
-| `settle() -> boolean` (optional)                                      | The page was laid out: bring back what depends on the layout. `true` when something changed.                                                                                                                                                                                                     |
+| `settle() -> boolean` (optional)                                      | The page was laid out: bring back what depends on the layout. `true` when something changed. (A timer set here is asked for: the kit has the page rendered again.)                                                                                                                               |
 | `handle(event) -> reply` (optional)                                   | The person did something, or the time the page asked to be woken at came. See Section 2.3.                                                                                                                                                                                                       |
 | `message(message) -> reply` (optional)                                | The program said something that no `pencere.call` or `pencere.subscribe` of the page was waiting for. `message` is the decoded JSON.                                                                                                                                                             |
 | `room() -> reply` (optional)                                          | The program has read enough that a message `pencere.send` answered `false` to may be sent again.                                                                                                                                                                                                 |
@@ -188,8 +199,8 @@ indent, what is typed moves no line, nothing is commented and nothing folds but 
   or takes it out where it is in one: the tokens just outside the range or at its ends, a space or a
   tab between them and the text taken with them. Where some ranges are in one and some are not,
   those that are not are put in one. No key does it: a page asks for it (`⌘/` toggles comments).
-- `indent = { increase =, decrease = }` are regular expressions (the syntax of Rust's `regex`: no
-  look-around, no back-references) matched against a line's text, either left out. A line break
+- `indent = { increase =, decrease = }` are regular expressions (Rust's `regex`, as Section 1 pins
+  it: no look-around, no back-references) matched against a line's text, either left out. A line break
   after a line whose text before the caret matches `increase` gives the new line a level of indent
   more, as one after an opener of `pairs` does, and between such a line and what matches `decrease`
   that goes on a line of its own. A line that what is typed makes match `decrease` (it did not
@@ -197,8 +208,9 @@ indent, what is typed moves no line, nothing is commented and nothing folds but 
   own indent, a level more where it matches `increase` or ends with an opener), where it is not
   already further out; an undo takes it back with what was typed. Lua's are
   `increase = "\\b(then|do|else)\\s*$"` and `decrease = "^\\s*(end|else|elseif|until)\\b"`. A
-  pattern that is not one fails the page, the words naming the option. A line longer than 10 000
-  characters is not read by them.
+  pattern that is not one fails the page, the words naming the option, and so do more than 64
+  different patterns in the editors of one frame. A line longer than 10 000 characters is not read
+  by them.
 - `folds` is `"page"` (the page's fold decorations alone, Section 2.3; the default) or `"indent"`:
   the editor folds by the indent as well, a line with text folding the lines after it that are
   further in, and the lines with no text among them but not those after the last of them nor a run
@@ -228,7 +240,7 @@ theme's colours:
 | `colors.gutter`                                      | the ground of the gutter                                                                                                                                                                                                                                                        | what the editor is on, else the background |
 | `colors.folds`, `colors.folded`                      | the buttons that fold and the `⋯` after a folded line, and the ground of that `⋯`                                                                                                                                                                                               | dim, foreground at 8%                      |
 | `colors.whitespace`                                  | the dots, arrows and boxes of the spaces and tabs shown                                                                                                                                                                                                                         | border                                     |
-| `colors.indent_guides`, `colors.active_indent_guide` | the guides of the indent, and the guide of the main caret's block (`false`: drawn as the others are)                                                                                                                                                                            | border, quiet                              |
+| `colors.indent_guides`, `colors.active_indent_guide` | the guides of the indent, and the guide of the main caret's block (`false`: drawn as the others are); with the guides' colour `false` and the block's not, the block's guide alone is drawn                                                                                     | border, quiet                              |
 | `colors.hint`                                        | what the editor says while it is empty                                                                                                                                                                                                                                          | quiet                                      |
 
 A colour is any colour of the page (a role's name, a value, `{ colour, alpha }`); `false` draws none
@@ -314,8 +326,19 @@ wants one; of what says one thing (the keyboard, the pasteboard, a link) the las
 A timer set while the page is woken counts from the wake's time, and one it sets runs at a later
 wake, not at that one. A timer set anywhere else (an event, a message, `render`, the script's start)
 counts from the next wake, which the kit asks for at once: the time the page last had may be that of
-a frame long gone, so a timer is late by at most a frame and never early. An error in `fn` is the
-page's, with its line. A page that sets none and asks no `wake` is asked and told nothing new.
+a frame long gone, so a timer is late by at most a frame and never early (one set in `settle`, which
+has no reply, has the page rendered again, and its frame asks). An error in `fn` is the page's, with
+its line. A page that sets none and asks no `wake` is asked and told nothing new.
+
+**What the kit puts together, it holds to what a reply may hand the editors** (Section 4: 1 MiB of
+text, 20 000 decorations): what the page's parts return (`syntax:reply`, the timers, the page's own
+reply) is one reply, and the decorations that would take it past that wait for the page's next
+reply, which the kit asks a wake for at once. They wait in their order, and with each of them every
+decoration after it for the same editor, so that what a layer is given last is what it has; they
+are made against a version, which the editor carries over what is done in between. Nothing else
+waits: a load, a change, a selection or a command goes when the page asks it, and an ask too large
+for a reply by itself goes as it is, for the host to refuse (Section 4: the page fails, as a
+module's would).
 
 **A language** that colours an editor is the page's, and `pencere.Syntax` makes one the way
 CodeMirror's `StreamLanguage` does. `pencere.Syntax.define { name =, start =, token =, copy =,
@@ -335,17 +358,22 @@ function says yes or no), `eat_space()`, `skip_to_end()`, `skip_to(text)`, `back
 case_insensitive)` (a Lua pattern read where the stream is: the text matched or its captures, taken
 unless `consume` is false) and `current()`. A `token` that takes nothing fails the page, as any
 error of the language's does, in words that say the language's name and the line
-(`sql: line 12: …`). `language:tokens(text, state)` is a line's tokens in characters, for a text
-that is not in an editor.
+(`sql: line 12: …`). `language:tokens(text, state, tab_width)` is a line's tokens in characters, for
+a text that is not in an editor (`state` the state before it, `start()`'s where nil; `tab_width` what
+a tab is to the stream's columns, 4).
 
 `pencere.Syntax.new(language, id, { layer =, step =, margin =, tab_width = })` colours the editor
 `id` with it. It keeps the state after each line of the document and is given every event of the
 page (`syntax:handle(event)`): an `edit` makes it read again from the first line the change touched
-until a line ends in the state it ended in before, a `viewport` says what to colour. It colours the
+until a line ends in the state it ended in before, a `viewport` says what to colour, and for those
+two it does a call's work at once; any other event (the pointer moving, a key) costs it nothing,
+what is left being its timer's. It colours the
 lines in view and `margin` lines on each side (as many as are in view) in the layer `layer`
 (`"syntax"`), in characters, a line again only where it or the state before it changed, and takes
 away what it coloured out of them. One call reads at most `step` bytes (20 000), the lines to colour
-first, and a line to its first 10 000 characters (the state after it is the state there). Where the
+first, and a line to its first 10 000 characters (the state after it is the state there), and it
+holds at most 10 000 decorations for the page, half of what a reply may hand the editors (a line
+that would take it past that waits for the next call). Where the
 lines in view are further on than a call reads to, they are coloured from the state the language
 starts in, and the calls after read on to them and colour again what that got wrong. What it asks
 of the editor goes in the page's reply (`syntax:reply(reply)`, its asks before the page's own; or
@@ -458,7 +486,7 @@ way round, a place past the end, changes that overlap, a version older than the 
 come, a document larger than an editor may hold.
 
 An editor **finds** what the page asks it to: `{ command = "find", pattern =, regex =, case =, word
-= }` looks for `pattern` through the whole document (a regular expression where `regex`, in either
+= }` looks for `pattern` through the whole document (a regular expression, Section 1, where `regex`, in either
 case where `case` is `false`, and where `word` only a whole word: no letter or digit, of any script,
 and no `_` just before the match or just after it), marks what it finds, at most 10 000 matches, and
 selects the first at the main selection or after it. The search goes on as the document changes: the
@@ -468,7 +496,9 @@ every `find`, and again whenever the count, or the match the main selection is o
 tells none. `"find_next"` and `"find_previous"` select the next match from the main caret, or the
 one before. `{ command = "replace", text = }` puts `text` in place of the main selection where it is
 a match and selects the next match, and only selects the next match where it is not; `{ command =
-"replace_all", text = }` puts it in place of every match found, as one change undone as one. A
+"replace_all", text = }` puts it in place of every match in the document, not only the 10 000 a
+search marks, as one change undone as one (a search for whole words that runs out of what it may
+read again, a pattern that matches inside words again and again, stops short, and says `more`). A
 regular expression's `text` takes what the match's groups hold: `$1` or `${1}` by number, `$name` or
 `${name}` by name, `$$` a `$` (a name is the longest run of letters, digits and `_`: `${1}x`, not
 `$1x`); a plain search's goes in as it is. `"select_found"` selects every match, the main one the
@@ -480,7 +510,8 @@ person cannot change (`read_only`) is not replaced in.
 
 A reply's **`link`** asks the host to open an address in the person's browser, by the rule of a web
 page's `link` (protocol, Sections 9.7 and 9.8): only an `http` or `https` address, every byte of it
-printable ASCII without the space, at most 8192 bytes. The host may ask the person first, opens it on
+printable ASCII without the space, at most 8192 bytes. The host SHOULD ask the person first (as
+Section 9.7 of the protocol says), opens it on
 the person's machine, and never tells the page what came of it. Any other address is **dropped**, as a
 page's is: the page is not closed for it and not told, and the rest of the reply stands. A `link` that
 is not a string is an error of the script. The link is the host's, not a message to the program. It

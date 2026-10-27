@@ -8,12 +8,12 @@ use std::time::{Duration, Instant};
 
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
-    Caret, CaretShape, CommentTokens, EditorColors, EditorOptions, Folds, IndentRules, Mark,
-    Numbers, Origin, TextSnapshot, Tint, Whitespace,
+    Caret, CaretShape, CommentTokens, EditorAsk, EditorColors, EditorOptions, Folds, IndentRules,
+    Mark, Numbers, Origin, TextSnapshot, Tint, Whitespace,
 };
 use pencere_view::{
-    Element, Event, Font, Id, Key, Keyboard, Laid, Measure, Metrics, Mods, Paint, Role, Scrolls,
-    layout,
+    Element, Event, Font, Id, Input, Key, Keyboard, Laid, Measure, Metrics, Mods, Paint, Point,
+    Role, Scrolls, layout,
 };
 
 use crate::guests_tests::{Open, SIZE};
@@ -70,6 +70,8 @@ struct Rig {
     sent: Vec<String>,
     /// Whether the last page the module made asked for the next frame.
     animating: bool,
+    /// The most decorations one reply of the module's handed the editors.
+    most: usize,
     /// Why the module closed, where a test expects it to ([`Rig::failing`]).
     fault: Option<Fault>,
     may_close: bool,
@@ -103,6 +105,7 @@ impl Rig {
             told: Vec::new(),
             sent: Vec::new(),
             animating: false,
+            most: 0,
             fault: None,
             may_close,
         };
@@ -188,6 +191,16 @@ impl Rig {
         for answer in update.replies {
             busy = true;
             redraw |= answer.reply.redraw;
+            let decorations = answer
+                .reply
+                .editor
+                .iter()
+                .map(|(_, ask)| match ask {
+                    EditorAsk::Decorate(decorate) => decorate.decorations.len(),
+                    _ => 0,
+                })
+                .sum();
+            self.most = self.most.max(decorations);
             if let Some(Keyboard::Field(id)) = answer.reply.keyboard {
                 self.editors.set_focus(Some(id));
             }
@@ -1147,6 +1160,174 @@ fn a_long_document_is_coloured_to_its_end_a_step_a_wake_with_no_event_of_the_per
 
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_syntax_reads_nothing_for_an_event_that_is_not_its_editors_edit_or_view() {
+    let mut rig = Rig::open(&coloured(
+        r#"local lines = {}
+        for i = 1, 20000 do
+            lines[i] = string.format("v = %05d", i)
+        end
+        return table.concat(lines, "\n")"#,
+        "{ step = 2000 }",
+    ));
+    rig.wakes();
+    // Far down, the reading toward the lines in view goes on for many wakes.
+    rig.command("far");
+    // Laid out, the editor scrolls there and tells the view; drawn again, the page shows what was
+    // read for it.
+    rig.frame();
+    rig.frame();
+    assert!(rig.wake_due.is_some(), "there is more to read");
+    let (before, _) = read(&rig);
+    let told = rig.told.len();
+    // The pointer moves over the page, and the page gives the syntax the event: it is no edit and
+    // no view of its editor, and it reads nothing for it.
+    for x in 0..20 {
+        rig.page.module.event(Event::Input(Input::Move(Point {
+            x: 10.0 + x as f32,
+            y: 40.0,
+        })));
+        rig.run();
+    }
+    rig.frame();
+    assert_eq!(rig.told.len(), told, "the editor told the page nothing");
+    assert_eq!(read(&rig).0, before, "a pointer's moves read no line");
+    // What is left is its timer's.
+    assert!(rig.wake());
+    rig.frame();
+    assert!(read(&rig).0 > before);
+}
+
+/// A language of letters and what is not, which gives every character of `a1a1…` a decoration of its
+/// own: a line of 10 000 characters is 10 000 decorations, half what one reply may hand the editors.
+const DENSE: &str = r#"
+local dense = pencere.Syntax.define({
+    name = "dense",
+    start = function()
+        return {}
+    end,
+    token = function(stream)
+        if stream:match("%a") then
+            return "letter"
+        end
+        stream:next()
+        return "other"
+    end,
+    styles = { letter = { color = "accent" }, other = { color = "warning" } },
+})
+"#;
+
+/// How many decorations the layer `layer` of the editor `editor` has on line `line`.
+fn decorated(rig: &Rig, editor: &str, layer: &str, line: usize) -> usize {
+    let buffer = rig.editors.buffer(Id::named(editor)).expect("the editor");
+    let Some(index) = buffer.layer_names().iter().position(|name| name == layer) else {
+        return 0;
+    };
+    let start = buffer.line_start(line);
+    buffer
+        .decorations_in(start, buffer.line_end(line))
+        .into_iter()
+        .filter(|(at, decoration)| *at == index && decoration.from >= start)
+        .count()
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn two_syntaxes_and_the_page_that_ask_more_than_a_reply_may_at_one_wake_hand_it_over_two() {
+    let mut rig = Rig::open(&format!(
+        "{DENSE}{}",
+        r#"
+local a = pencere.Syntax.new(dense, "a")
+local b = pencere.Syntax.new(dense, "b")
+local loaded, marked = {}, false
+local line = string.rep("a1", 5000)
+local document = table.concat({ line, line, line, line }, "\n")
+-- The page's own decorations of `a`'s first ten characters, in the layer `layer`.
+local function marks(layer)
+    local made = {}
+    for k = 0, 9 do
+        made[#made + 1] = { from = k, to = k + 1, background = "accent" }
+    end
+    return { editor = { a = { decorate = layer, from = 0, to = 10,
+        version = pencere.layout.editor_version("a"), decorations = made } } }
+end
+return {
+    render = function()
+        return pencere.div():size_full()
+            :child(pencere.editor("a", { gutter = false }):grow(1))
+            :child(pencere.editor("b", { gutter = false }):grow(1))
+    end,
+    handle = function(event)
+        local ask = nil
+        if event.type == "viewport" and not loaded[event.editor] then
+            loaded[event.editor] = true
+            ask = { editor = { [event.editor] = { load = document } } }
+        end
+        a:handle(event)
+        b:handle(event)
+        if event.type == "edit" and event.editor == "b" and not marked then
+            marked = true
+            -- The page's own, with the line `b` colours now, and at the wake both syntaxes go on
+            -- at with a line each: there, 10 more than the 20 000 a reply may hand the editors.
+            ask = marks("marks")
+            pencere.time.after(0, function()
+                return marks("more")
+            end)
+        end
+        return a:reply(b:reply(ask))
+    end,
+}
+"#
+    ));
+    rig.wakes();
+    assert!(rig.most <= 20_000, "a reply handed {}", rig.most);
+    for editor in ["a", "b"] {
+        for line in 0..4 {
+            assert_eq!(
+                decorated(&rig, editor, "syntax", line),
+                10_000,
+                "{editor}, line {line}"
+            );
+        }
+    }
+    assert_eq!(decorated(&rig, "a", "marks", 0), 10);
+    assert_eq!(decorated(&rig, "a", "more", 0), 10);
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_syntax_holds_at_most_half_a_reply_however_many_decorations_a_line_has() {
+    let mut rig = Rig::open(&format!(
+        "{DENSE}{}",
+        r#"
+local syntax = pencere.Syntax.new(dense, "e")
+local loaded = false
+return {
+    render = function()
+        return pencere.editor("e", { gutter = false })
+    end,
+    handle = function(event)
+        local ask = nil
+        if event.type == "viewport" and not loaded then
+            loaded = true
+            -- Half a line, then lines of 10 000 decorations: the second does not go with the first.
+            ask = { editor = { e = { load = string.rep("a1", 2500) .. "\n" .. string.rep("a1", 5000)
+                .. "\n" .. string.rep("a1", 5000) } } }
+        end
+        syntax:handle(event)
+        return syntax:reply(ask)
+    end,
+}
+"#
+    ));
+    rig.wakes();
+    assert!(rig.most <= 10_000, "a reply handed {}", rig.most);
+    assert_eq!(decorated(&rig, "e", "syntax", 0), 5_000);
+    assert_eq!(decorated(&rig, "e", "syntax", 1), 10_000);
+    assert_eq!(decorated(&rig, "e", "syntax", 2), 10_000);
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_token_that_reads_nothing_fails_the_page_with_its_languages_name_and_its_line() {
     let why = Rig::failing(
         r#"
@@ -1401,6 +1582,37 @@ return {
     assert!(!shown(&rig, "told ").contains("wake"));
     assert!(shown(&rig, "told ").contains("command"));
     assert_eq!(shown(&rig, "now "), "true");
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_timer_set_as_the_page_settles_is_asked_for_with_no_event() {
+    let mut rig = Rig::open(
+        r#"
+local set, ran = false, false
+return {
+    render = function()
+        return pencere.text(ran and "ran" or "waits")
+    end,
+    settle = function()
+        if not set then
+            set = true
+            pencere.time.after(0, function()
+                ran = true
+                return true
+            end)
+        end
+        return false
+    end,
+}
+"#,
+    );
+    // A settle has no reply: the kit asks for the page again, and its frame asks to be woken.
+    assert!(rig.wake_due.is_some(), "the timer is asked for");
+    assert_eq!(words(&rig.root), vec!["waits".to_owned()]);
+    assert!(rig.wake());
+    assert_eq!(words(&rig.root), vec!["ran".to_owned()]);
+    assert_eq!(rig.wake_due, None);
 }
 
 #[test]

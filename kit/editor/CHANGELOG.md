@@ -39,7 +39,8 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   changes, a count of 0 when the search stops, and nothing to an editor that does not search.
   `Replace` puts a text in place of the main selection where it is a match and selects the next
   (a regular expression's groups put in by `$1`, `${1}`, `$name`, `${name}`, `$$` a `$`; a plain
-  search's text as it is), `ReplaceAll` every match as one change undone as one, `SelectFound`
+  search's text as it is), `ReplaceAll` every match of the document (not only the `FIND_MATCHES`
+  a search marks) as one change undone as one, `SelectFound`
   selects every match and `SelectOccurrences` every place of the main selection's text, or of the
   caret's word (the one `SelectNext` takes) as a whole word.
 - **What a page says of its language, done.** The comment commands take the page's

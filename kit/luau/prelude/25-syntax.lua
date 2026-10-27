@@ -38,12 +38,15 @@ local layout = pencere.layout
 local merge = pencere._merge
 
 -- A line is read to its first this many characters: a line of a minified file does not stall the
--- page, and the state after it is the state at that character (CodeMirror's `MaxLineLength`).
+-- page, and the state after it is the state at that character (CodeMirror's `MaxLineLength`). A
+-- line so has at most this many decorations, a character each.
 local LINE_CHARACTERS = 10000
 -- How much text is read from the editor at a time, characters (more than a line is read to).
 local CHUNK_CHARACTERS = 32768
--- The most decorations the kit holds for the page before they are handed out: half of what one
--- reply may hand the editors (20 000), the rest the page's own.
+-- The most decorations a syntax holds for the page before they are handed out: half of what one
+-- reply may hand the editors (20 000), so that two syntaxes fit in one reply. A line whose
+-- decorations would take it past this waits for those it holds to be handed out; a line has at
+-- most LINE_CHARACTERS of them, no more than this, so it always fits where none are held.
 local PENDING_DECORATIONS = 10000
 -- How much one call tokenises unless the page says (`step`), bytes of text. A language of a few
 -- patterns a token reads 20 000 bytes (some 450 lines of code) in about 30 ms on a fast machine:
@@ -825,8 +828,11 @@ function Syntax.new(language, editor, options)
 		-- The lines of the text read last, and the tokens of a line.
 		chunk = nil,
 		out = {},
-		-- The lines being coloured: { first, last, decorations } for one ask.
+		-- The lines being coloured: { first, last, decorations } for one ask; the decorations of the
+		-- line being coloured; and whether a line waits for what is held to be handed out.
 		segment = nil,
+		made = {},
+		full = false,
 		-- The timer it goes on with while it is busy (nil while none waits).
 		timer = nil,
 	}, Syntax)
@@ -951,19 +957,15 @@ local function flush(self)
 	})
 end
 
--- Line `line` coloured with the tokens in `self.out` (its text `text`).
+-- Line `line` coloured with the tokens in `self.out` (its text `text`). False, and nothing of it
+-- coloured, where its decorations would take what is held past PENDING_DECORATIONS: it waits for
+-- them to be handed out (`full`).
 local function paint(self, line, text)
 	local out = self.out
 	local language = self.language
 	local base = layout.line_start(self.editor, line) or 0
-	local segment = self.segment
-	if segment == nil or segment[2] ~= line - 1 then
-		flush(self)
-		segment = { line, line, {} }
-		self.segment = segment
-	end
-	segment[2] = line
-	local decorations = segment[3]
+	local made = self.made
+	table.clear(made)
 	local ascii = string.find(text, "[\128-\255]") == nil
 	local at_byte, at_char = 1, 0
 	local last, last_look = nil, nil
@@ -987,11 +989,25 @@ local function paint(self, line, text)
 				last = table.clone(look)
 				last.from, last.to = from, to
 				last_look = look
-				decorations[#decorations + 1] = last
+				made[#made + 1] = last
 			end
 		end
 	end
+	local segment = self.segment
+	local holding = self.pending_count + (segment and #segment[3] or 0)
+	if holding > 0 and holding + #made > PENDING_DECORATIONS then
+		self.full = true
+		return false
+	end
+	if segment == nil or segment[2] ~= line - 1 then
+		flush(self)
+		segment = { line, line, {} }
+		self.segment = segment
+	end
+	segment[2] = line
+	table.move(made, 1, #made, #segment[3] + 1, segment[3])
 	self.painted = set_add(self.painted, line, line + 1)
+	return true
 end
 
 -- The window of lines to colour: those in view and the margin, within the document.
@@ -1026,12 +1042,13 @@ local function advance(self, first, last)
 	end
 	local equal = self.language.equal
 	local old = ends[line + 1]
+	local same = old ~= nil and equal(after, old)
 	local run = old ~= nil and set_end(self.ok, line + 1)
-	if run and equal(after, old) then
+	if run and same then
 		-- The lines after it read from the state they read from before: they are as they were.
 		self.valid = run
 	else
-		if old == nil or not equal(after, old) then
+		if not same then
 			-- The next line starts from another state: its colours are not right, nor what was
 			-- read from it.
 			if set_end(self.painted, line + 1) then
@@ -1122,9 +1139,10 @@ local function forget_outside(self, first, last)
 end
 
 -- Does what one call may: colours the lines in view that want it (from what it knows, else from
--- a guess), then reads on from what it knows toward them. `handle` calls it, and the timer it goes
--- on with while it is `busy()`: a page need not, and what it asks of the editor goes out with the
--- page's next reply (`reply`) or the timer's, whichever comes first.
+-- a guess), then reads on from what it knows toward them, holding at most PENDING_DECORATIONS
+-- decorations for the page. `handle` calls it for an edit or a view, and the timer it goes on with
+-- while it is `busy()`: a page need not, and what it asks of the editor goes out with the page's
+-- next reply (`reply`) or the timer's, whichever comes first.
 function Syntax:work()
 	if not ready(self) then
 		return
@@ -1135,9 +1153,10 @@ function Syntax:work()
 		forget_outside(self, first, last)
 	end
 	local budget = self.step
+	self.full = false
 	while budget > 0 do
 		local segment = self.segment
-		if self.pending_count + (segment and #segment[3] or 0) >= PENDING_DECORATIONS then
+		if self.full or self.pending_count + (segment and #segment[3] or 0) >= PENDING_DECORATIONS then
 			break
 		end
 		local line = set_first_missing(self.painted, first, last + 1)
@@ -1314,32 +1333,37 @@ local function edited(self, event)
 	end
 end
 
--- Takes the page's event (each of them: its editor's `edit` and `viewport` say what changed and
--- what is in view, and any other is a call it may work in) and does what one call may. What it
--- asks of the editor is handed out in the page's reply (`reply`, or `asks()`).
+-- Takes the page's event (give it each of them): its editor's `edit` and `viewport` say what
+-- changed and what is in view, and a call's work is done for them at once, so that the lines an
+-- edit makes wrong are coloured again with the page's reply to it. Any other event (the pointer
+-- moving, a key, a wheel's turn) it leaves alone: what is left is its timer's, a call a frame,
+-- however many events come. What it asks of the editor is handed out in the page's reply (`reply`,
+-- or `asks()`).
 --
 --   handle = function(event)
 --       syntax:handle(event)
 --       return syntax:reply(respond(event))
 --   end
 function Syntax:handle(event)
-	if type(event) == "table" and event.editor == self.editor then
-		local kind = event.type
-		if kind == "edit" or kind == "viewport" then
-			local now = layout.editor_version(self.editor)
-			if self.version == nil or now == nil or now < self.told then
-				-- Nothing read yet, or an editor of the name that is not the one read (it went and
-				-- came back): it starts from the text as it is.
-				reset(self)
-			end
-			if kind == "edit" then
-				if self.version ~= nil then
-					edited(self, event)
-				end
-			else
-				self.view = { event.first, event.last }
-			end
+	if type(event) ~= "table" or event.editor ~= self.editor then
+		return
+	end
+	local kind = event.type
+	if kind ~= "edit" and kind ~= "viewport" then
+		return
+	end
+	local now = layout.editor_version(self.editor)
+	if self.version == nil or now == nil or now < self.told then
+		-- Nothing read yet, or an editor of the name that is not the one read (it went and came
+		-- back): it starts from the text as it is.
+		reset(self)
+	end
+	if kind == "edit" then
+		if self.version ~= nil then
+			edited(self, event)
 		end
+	else
+		self.view = { event.first, event.last }
 	end
 	self:work()
 	go_on(self)

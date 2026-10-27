@@ -1673,3 +1673,35 @@ fn whatever_the_text_rows_and_selections_the_marks_and_guides_are_drawn_in_the_r
         }
     }
 }
+
+#[test]
+fn selecting_every_occurrence_keeps_the_main_selection_in_order_within_the_most_that_are_selected()
+{
+    use pencere_editor::{Buffer, FIND_MATCHES};
+    // One more of the word than are selected: the caret's, the last, is past the most a search
+    // marks. It is selected still, and in its place in order; the one farthest from it goes.
+    let words = FIND_MATCHES + 1;
+    let mut buffer = Buffer::new(&"ab ".repeat(words)).expect("a document");
+    let last = (words - 1) * 3;
+    buffer.select(vec![Range::caret(last + 1)], 0);
+    buffer.command(EditCommand::SelectOccurrences, 0.0);
+    let ranges = buffer.ranges();
+    assert_eq!(ranges.len(), FIND_MATCHES);
+    assert_eq!(buffer.main(), Range::new(last, last + 2));
+    assert_eq!(ranges.last(), Some(&Range::new(last, last + 2)));
+    assert_eq!(
+        ranges.first(),
+        Some(&Range::new(3, 5)),
+        "the first is the farthest"
+    );
+    assert!(
+        ranges
+            .windows(2)
+            .all(|pair| pair[0].end() < pair[1].start())
+    );
+    // At the first word the main selection is among them: the first of the most there are.
+    buffer.select(vec![Range::caret(1)], 0);
+    buffer.command(EditCommand::SelectOccurrences, 0.0);
+    assert_eq!(buffer.ranges().len(), FIND_MATCHES);
+    assert_eq!(buffer.main(), Range::new(0, 2));
+}

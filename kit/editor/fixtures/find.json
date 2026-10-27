@@ -495,6 +495,33 @@
           ]
         }
       ]
+    },
+    {
+      "about": "replacing every match replaces every match of the document, past the 10 000 a search marks, in one change undone as one",
+      "text": "",
+      "steps": [
+        { "do": "type", "text": "aaaaaaaaaa", "repeat": 2500 },
+        { "do": "expect", "version": 2500 },
+        { "do": "command", "command": "find", "pattern": "a" },
+        {
+          "do": "expect",
+          "notes": [
+            { "selection": { "ranges": [[0, 1]] } },
+            { "found": { "count": 10000, "current": 1, "more": true } }
+          ]
+        },
+        { "do": "command", "command": "replace_all", "text": "b" },
+        { "do": "expect", "version": 2501, "found": [] },
+        { "do": "command", "command": "find", "pattern": "b" },
+        {
+          "do": "expect",
+          "ranges": [[0, 1]],
+          "notes": [{ "found": { "count": 10000, "current": 1, "more": true } }]
+        },
+        { "do": "command", "command": "undo" },
+        { "do": "frame" },
+        { "do": "expect", "version": 2502, "found": [] }
+      ]
     }
   ]
 }

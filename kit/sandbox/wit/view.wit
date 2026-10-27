@@ -557,9 +557,12 @@ interface types {
         block: option<block-comment>,
     }
 
-    /// How a language indents its lines: regular expressions in the syntax of Rust's `regex` (no
-    /// look-around, no back-references), each a part of the frame's `text`, matched against a
-    /// line's text. One that is not a regular expression fails the page.
+    /// How a language indents its lines: regular expressions in the syntax of Rust's `regex` 1.x,
+    /// at the release the kit pins (no look-around, no back-references; a release whose syntax a
+    /// page could notice is a new minor version of this interface), each a part of the frame's
+    /// `text`, matched against a line's text. One that is not a regular expression, or that would
+    /// take more than 4 MiB compiled, fails the page, and so do more than 64 different ones in the
+    /// editors of one frame. A line longer than 10 000 characters is not read by them.
     record indent-rules {
         /// A line that opens a block (its text before the caret): a line break after it gives the
         /// new line a level of indent more.
@@ -574,7 +577,8 @@ interface types {
         /// The page's fold decorations alone.
         page,
         /// The page's, and the editor's own from the indent: a line with text folds the lines
-        /// further in after it (and the lines with no text among them).
+        /// further in after it (and the lines with no text among them, but not a run of more than
+        /// 1 000 of them).
         indent,
     }
 
@@ -668,7 +672,7 @@ interface types {
         whitespace: editor-tint,
         /// The guides of the indent (the theme's border colour), and the guide of the block the
         /// main caret is in while the editor has the keyboard (the theme's quiet colour; off, and it
-        /// is drawn as the others are).
+        /// is drawn as the others are). With the guides off and that one not, it alone is drawn.
         indent-guides: editor-tint,
         active-indent-guide: editor-tint,
     }
@@ -710,7 +714,8 @@ interface types {
         /// Which spaces and tabs are shown.
         whitespace: editor-whitespace,
         /// A thin line down each level of indent (a line with no text has those of the lines with
-        /// text around it), on the first row of a line.
+        /// text around it, where it is not in a run of more than 1 000 such lines), on the first
+        /// row of a line.
         indent-guides: bool,
     }
 
@@ -1150,7 +1155,8 @@ interface types {
 
     record find {
         pattern: string,
-        /// A regular expression, not the words as they are.
+        /// A regular expression (Rust's `regex` 1.x, as the rules of an indent are), not the words
+        /// as they are.
         regex: bool,
         /// In the case written (not either).
         matching-case: bool,
@@ -1194,7 +1200,8 @@ interface types {
         /// match's groups hold (`$1`, `${1}`, `$name`, `${name}`; `$$` is a `$`); a plain search's
         /// goes in as it is.
         replace(string),
-        /// The text in place of every match found, as one change, undone as one.
+        /// The text in place of every match in the document, not only those a search marks, as one
+        /// change, undone as one.
         replace-all(string),
         /// Every match found selected; the main one the match the main selection was on.
         select-found,
@@ -1335,7 +1342,7 @@ interface types {
         /// A link the page asks the application to open in the person's browser, by the rule of
         /// a web page's `link` (the protocol, sections 9.7 and 9.8): an `http` or `https`
         /// address, every byte of it printable ASCII without the space, at most 8192 bytes. The
-        /// application may ask the person first, drops any other link and never tells the page
+        /// application should ask the person first, drops any other link and never tells the page
         /// what came of it; the page is not closed for one it drops. It is not a message to the
         /// program.
         link: option<string>,

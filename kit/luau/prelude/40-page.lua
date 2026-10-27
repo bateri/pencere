@@ -11,7 +11,8 @@
 --       come (a reading that stopped).
 --   settle() -> boolean            (optional)
 --       The page was laid out: bring what depends on the layout back within it. True when
---       something changed and the page should be rendered again.
+--       something changed and the page should be rendered again. (A timer set here is asked for
+--       by the kit, which has the page rendered again for it.)
 --   handle(event) -> reply         (optional)
 --       The person did something. `event` is { type = "move" | "leave" | "press" | "release" |
 --       "scroll" | "scrolled" | "key" | "key_up" | "mods" | "text" | "focus" | "menu" | "command" |
@@ -80,7 +81,7 @@
 --     { from =, to =, gutter = colour }, { from =, to =, fold = true }
 -- `link` asks the host to open an address in the person's browser, as a web page's `link` asks:
 -- only an `http` or `https` address of printable ASCII without spaces, at most 8192 bytes; the
--- host may ask the person first, drops any other address, and never tells the page what came of
+-- host should ask the person first, drops any other address, and never tells the page what came of
 -- it. (It is not the `link` of a span, which only names a part of a text the pointer answers by:
 -- a page whose span says `:link("docs")` replies `{ link = url }` when that part is pressed.)
 -- `wake` asks the host to wake the page that many seconds from now (0 or more; 0: at the next
@@ -227,7 +228,10 @@ function pencere.settle()
 	-- A long list whose window the rows made no longer fill is built again, whatever the page says.
 	local lists = pencere._lists.settle()
 	local settled = page.settle and page.settle() or false
-	return (lists or settled) and true or false
+	-- A timer set as the page settled has no reply to be asked in: the page is rendered again, and
+	-- its frame asks.
+	local timed = time.owed()
+	return (lists or settled or timed) and true or false
 end
 
 function pencere.handle(event)

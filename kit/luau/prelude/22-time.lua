@@ -20,12 +20,15 @@
 -- timer runs while the page is woken: the timers that are due, in the order of their times (and
 -- of their making), before the page's own `handle` hears of the wake, which it does only where it
 -- asked a `wake` itself. What `fn` returns is a reply, put together with what the others and the
--- page return (`pencere._merge`). A timer set while the page is woken counts from the time of the
--- wake. One set anywhere else (an event, a message, `render`, the script's start) counts from the
--- next wake, which the kit asks for at once: the host's next frame, at most a frame late and never
--- early, for the time the host last gave may be that of a frame long gone. The kit asks the host
--- for the wakes its timers want with the page's replies and frames; a page that sets none and asks
--- none is asked nothing new, and its `handle` is never told `wake`.
+-- page return (`pencere._merge`), and what is put together is held to what one reply may hand the
+-- editors: the decorations past that wait for the next reply. A timer set while the page is woken
+-- counts from the time of the wake. One set anywhere else (an event, a message, `render`,
+-- `settle`, the script's start) counts from the next wake, which the kit asks for at once (for one
+-- set in `settle`, which has no reply, the kit has the page rendered again): the host's next
+-- frame, at most a frame late and never early, for the time the host last gave may be that of a
+-- frame long gone. The kit asks the host for the wakes its timers want with the page's replies and
+-- frames; a page that sets none and asks none is asked nothing new, and its `handle` is never told
+-- `wake`.
 --
 -- `pencere.time.now()` is the time the host last gave the page, `render`'s `now` or a wake's:
 -- seconds on the host's clock, 0 before it gave any. It does not go on between them.
@@ -43,6 +46,18 @@ local made = 0
 -- What the page asked of its own wakes: the time it asked for, placed, and the fewest seconds it
 -- asked where the time was not known (placed at the next wake).
 local own_due, own_delay = nil, nil
+-- Something was set where the time was not known (a timer, or the page's own wake) since the kit
+-- last asked for its wakes (`hooks.asked`).
+local owed = false
+
+-- What one reply may hand the page's editors, as the host holds it (the kit's SPEC, Section 4, the
+-- protocol's floors): decorations, and bytes of text (what loads, changes and commands put in, and
+-- the names of the layers decorated).
+local REPLY_DECORATIONS = 20000
+local REPLY_TEXT = 1024 * 1024
+-- The decorations of the editors held back from a reply they would have taken past that, for the
+-- next: { [editor] = { ask, ... } } in order, nil for none.
+local held = nil
 
 -- --- Replies put together ------------------------------------------------------------------------
 
@@ -114,6 +129,115 @@ local function merge(first, second)
 end
 pencere._merge = merge
 
+-- Whether an ask of an editor is a decorate, as the interpreter reads it (a load, a change, a
+-- selection or a reveal first).
+local function is_decorate(ask)
+	return type(ask) == "table"
+		and ask.decorate ~= nil
+		and ask.load == nil
+		and ask.change == nil
+		and ask.select == nil
+		and ask.reveal == nil
+end
+
+local function bytes(value)
+	return type(value) == "string" and #value or 0
+end
+
+-- The text an ask hands an editor, bytes, as the host counts it: a load's, the inserts of a
+-- change, a command's words, the name of a layer decorated.
+local function text_of(ask)
+	if type(ask) ~= "table" then
+		return 0
+	elseif ask.load ~= nil then
+		return bytes(ask.load)
+	elseif ask.change ~= nil then
+		local sum = 0
+		if type(ask.change) == "table" then
+			for _, change in ipairs(ask.change) do
+				sum += type(change) == "table" and bytes(change.insert) or 0
+			end
+		end
+		return sum
+	elseif ask.select ~= nil or ask.reveal ~= nil then
+		return 0
+	elseif ask.decorate ~= nil then
+		return bytes(ask.decorate)
+	end
+	return bytes(ask.text) + bytes(ask.pattern)
+end
+
+-- `reply` held to what one reply may hand the editors: the decorations that would take it past
+-- that wait for the next reply, and with each of them every decoration after it of the same
+-- editor, so that what a layer is given last is still what it has. Only decorations wait: they are
+-- made against a version and carried over what is done since, so they mean a frame later what
+-- they meant; a load, a change, a selection or a command goes when the page asks it. What would not
+-- fit in a reply by itself goes as it is, for the host to refuse: the page's mistake, not the kit's.
+local function fit(reply)
+	if type(reply) ~= "table" or type(reply.editor) ~= "table" then
+		return reply
+	end
+	local editors = reply.editor
+	-- What goes whatever else does: everything but the decorations.
+	local text, decorations = 0, 0
+	for _, asks in next, editors do
+		for _, ask in ipairs(asks_of(asks) or {}) do
+			if not is_decorate(ask) then
+				text += text_of(ask)
+			end
+		end
+	end
+	local out = nil
+	for name, asks in next, editors do
+		local list = asks_of(asks) or {}
+		local kept, waiting = nil, nil
+		for k, ask in ipairs(list) do
+			local wait = false
+			if is_decorate(ask) then
+				local count = type(ask.decorations) == "table" and #ask.decorations or 0
+				local words = bytes(ask.decorate)
+				local fits = count <= REPLY_DECORATIONS and words <= REPLY_TEXT
+				if
+					fits
+					and (waiting ~= nil or decorations + count > REPLY_DECORATIONS or text + words > REPLY_TEXT)
+				then
+					wait = true
+				else
+					decorations += count
+					text += words
+				end
+			end
+			if wait then
+				if waiting == nil then
+					waiting = {}
+					kept = table.move(list, 1, k - 1, 1, {})
+				end
+				waiting[#waiting + 1] = ask
+			elseif kept ~= nil then
+				kept[#kept + 1] = ask
+			end
+		end
+		if waiting ~= nil then
+			held = held or {}
+			local before = held[name]
+			if before == nil then
+				held[name] = waiting
+			else
+				table.move(waiting, 1, #waiting, #before + 1, before)
+			end
+			out = out or table.clone(editors)
+			-- An editor given nothing is not named: `{}` would be an ask, and not one.
+			out[name] = #kept > 0 and kept or nil
+		end
+	end
+	if out == nil then
+		return reply
+	end
+	local fitted = table.clone(reply)
+	fitted.editor = next(out) ~= nil and out or nil
+	return fitted
+end
+
 -- --- Timers --------------------------------------------------------------------------------------
 
 local Timer = {}
@@ -130,6 +254,9 @@ local function add(seconds, every, fn, name)
 		error("pencere.time." .. name .. " takes a number of seconds, then the function to run", 3)
 	end
 	made += 1
+	if waking == nil then
+		owed = true
+	end
 	local timer = setmetatable({
 		due = waking and waking + seconds or nil,
 		delay = seconds,
@@ -199,6 +326,7 @@ function hooks.taken(reply)
 		end
 	elseif own_delay == nil or seconds < own_delay then
 		own_delay = seconds
+		owed = true
 	end
 	local out = table.clone(reply)
 	out.wake = nil
@@ -206,11 +334,13 @@ function hooks.taken(reply)
 end
 
 -- In how many seconds the page is to be woken, for what the kit has learnt since it last asked:
--- at once where a timer (or the page) asked where the time was not known, to place it; in a wake,
--- the earliest time waiting. Outside a wake what was placed was asked when it was, and asking it
--- again from a time that may be old would only ask it later. Nil for nothing.
+-- at once where a timer (or the page) asked where the time was not known, to place it, or where
+-- decorations wait for a reply (`fit`); in a wake, the earliest time waiting. Outside a wake what
+-- was placed was asked when it was, and asking it again from a time that may be old would only ask
+-- it later. Nil for nothing.
 function hooks.asked()
-	local unplaced = own_delay ~= nil
+	owed = false
+	local unplaced = own_delay ~= nil or held ~= nil
 	local earliest = own_due
 	for timer in next, timers do
 		local due = timer.due
@@ -228,9 +358,23 @@ function hooks.asked()
 	return math.max(0, earliest - waking)
 end
 
--- The page's reply as it goes to the host: with the wake the kit asks for. The end of a call of the
--- application's.
+-- Whether a timer was set (or a wake asked) where the time was not known since the kit last asked
+-- for its wakes, and the kit is to ask for one: what a call that has no reply (`settle`) says by
+-- asking for the page again, whose frame asks.
+function hooks.owed()
+	return owed and hooks.asked() ~= nil
+end
+
+-- The page's reply as it goes to the host: the decorations that waited for it first, held, with
+-- the page's, to what a reply may hand the editors (`fit`), and with the wake the kit asks for. The
+-- end of a call of the application's.
 function hooks.finish(reply)
+	if held ~= nil then
+		local waiting = held
+		held = nil
+		reply = merge({ editor = waiting }, reply)
+	end
+	reply = fit(reply)
 	local seconds = hooks.asked()
 	waking = nil
 	if seconds == nil then

@@ -1335,8 +1335,9 @@ as it scrolls a box. The view is told what changed, by version, where the carets
 view, and reads the text from a copy the host posts it before it tells it of the version; it asks for
 changes against the version it saw (the host's editor carries them over what the person typed since),
 for selections, and for the colours, marks and folds of its language, by layers. The language is the
-view's or its program's: the host's editor knows none. Places in a document are characters (Unicode
-code points) counted from 0.
+view's or its program's: the host's editor knows none, and does only what the view's options say of
+how it is written (how it comments, the rules of its indent, folding by the indent: `kit/SPEC.md`,
+Section 2.1). Places in a document are characters (Unicode code points) counted from 0.
 
 **Colours.** A page of the kit says a colour in one of two ways. The way to prefer is a **role**
 of the theme, which follows the theme the terminal wears: the nine roles of its theme

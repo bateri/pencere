@@ -17,13 +17,6 @@ pub const FIND_MATCHES: usize = limits::FIND_MATCHES;
 const RETRY_FACTOR: usize = 4;
 const RETRY_FLOOR: usize = 1 << 16;
 
-/// A match: the byte of the text it starts at, and the places it spans.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Hit {
-    pub byte: usize,
-    pub range: (usize, usize),
-}
-
 /// What is looked for: a pattern, and how it is read.
 #[derive(Clone, Debug)]
 pub(crate) struct Query {
@@ -59,9 +52,10 @@ impl Query {
         })
     }
 
-    /// Where it is in `text`, in order, at most [`FIND_MATCHES`] matches; and whether the search
-    /// stopped before the end of the text. A match with nothing in it is none.
-    pub fn matches(&self, text: &str) -> (Vec<Hit>, bool) {
+    /// Where it is in `text`: the places each match spans, in order, at most `most` of them; and
+    /// whether the search stopped before the end of the text (at `most`, or where a search for
+    /// whole words ran out of what it may read again). A match with nothing in it is none.
+    pub fn matches(&self, text: &str, most: usize) -> (Vec<(usize, usize)>, bool) {
         let mut found = Vec::new();
         if self.empty {
             return (found, false);
@@ -100,22 +94,25 @@ impl Query {
                 at = hit.start() + c.len_utf8();
                 continue;
             }
-            if found.len() >= FIND_MATCHES {
+            if found.len() >= most {
                 return (found, true);
             }
             chars += text
                 .get(counted..hit.start())
                 .map_or(0, |s| s.chars().count());
             let len = hit.as_str().chars().count();
-            found.push(Hit {
-                byte: hit.start(),
-                range: (chars, chars + len),
-            });
+            found.push((chars, chars + len));
             chars += len;
             counted = hit.end();
             at = hit.end();
         }
         (found, false)
+    }
+
+    /// Whether what goes in place of a match takes what its groups hold, read from the text: a
+    /// regular expression's does, a plain search's is the words as they are.
+    pub fn expands(&self) -> bool {
+        self.regex
     }
 
     /// What goes in place of the match that starts at the byte `start` of `text`: `template` with
@@ -187,8 +184,8 @@ impl Search {
 
     /// The search made again, in `text`.
     pub fn again(&mut self, text: &str) {
-        let (found, more) = self.query.matches(text);
-        self.ranges = found.into_iter().map(|hit| hit.range).collect();
+        let (found, more) = self.query.matches(text, FIND_MATCHES);
+        self.ranges = found;
         self.more = more;
         self.stale = false;
     }

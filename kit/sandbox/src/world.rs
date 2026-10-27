@@ -1188,9 +1188,12 @@ fn frame_out(
         .iter()
         .map(|node| node_out(node, limits, &mut lists))
         .collect::<Result<Vec<_>, _>>()?;
-    for options in nodes.iter().filter_map(|node| node.meta.editor.as_ref()) {
-        patterns.check(&options.indent)?;
-    }
+    patterns.check(
+        nodes
+            .iter()
+            .filter_map(|node| node.meta.editor.as_ref())
+            .map(|options| &options.indent),
+    )?;
     let root = Element::unfold(nodes, limits.depth)
         .map_err(|why: wire::Malformed| Fault::Malformed(why.to_string()))?;
     Ok(Frame {
@@ -1304,42 +1307,68 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
 
 // --- What a page says of its editors -----------------------------------------------------
 
-/// The rules of an editor's indent that a page has said and that are regular expressions, each
-/// compiled once as the editor compiles it, not again at every frame that says it: a page says its
-/// options every frame. A page that says ever new ones has those it said long ago compiled again.
+/// The rules of an editor's indent that a page says and that are regular expressions, each
+/// compiled once, as the editor compiles it, when a frame first says it, and not again at each frame
+/// after that says it too: a page says its options every frame. What is kept is what the last frame
+/// said, and a frame says at most [`Patterns::MOST`] different ones: however many editors a page
+/// has, and however it changes their rules, a frame compiles no more than that many.
+///
+/// The editor compiles the rules itself, in the same way, and nothing but the code makes the two
+/// one; the sandbox does not depend on the editor (it reads the text of one through
+/// `TextSnapshot`). What keeps them the same is a test: both take, and refuse, the same patterns.
 #[derive(Default)]
 pub(crate) struct Patterns {
+    /// Those the last frame said, each a regular expression.
     known: HashSet<String>,
+    /// How many it compiled, for the tests to count.
+    #[cfg(test)]
+    compiled: usize,
 }
 
 impl Patterns {
-    /// How many patterns are known at most.
+    /// The most different patterns the editors of one frame may say.
     const MOST: usize = 64;
 
-    /// Whether `rules` are regular expressions: a page that says one that is not fails, the words
-    /// naming the option, as a page that names an option an editor has not.
-    fn check(&mut self, rules: &IndentRules) -> Result<(), Fault> {
-        for (name, pattern) in [("increase", &rules.increase), ("decrease", &rules.decrease)] {
-            let Some(pattern) = pattern else {
-                continue;
-            };
-            if self.known.contains(pattern) {
-                continue;
+    /// Whether the rules of a frame's editors (`rules`, each editor's) are regular expressions: a
+    /// page that says one that is not fails, the words naming the option, as a page that names an
+    /// option an editor has not; and so does one that says more different ones than a frame may.
+    fn check<'a>(&mut self, rules: impl IntoIterator<Item = &'a IndentRules>) -> Result<(), Fault> {
+        let mut said = HashSet::new();
+        for rules in rules {
+            for (name, pattern) in [("increase", &rules.increase), ("decrease", &rules.decrease)] {
+                let Some(pattern) = pattern else {
+                    continue;
+                };
+                if said.contains(pattern) {
+                    continue;
+                }
+                if said.len() >= Self::MOST {
+                    return Err(Fault::Malformed(format!(
+                        "more than {} different rules of the indent of editors in a page",
+                        Self::MOST
+                    )));
+                }
+                if let Some(known) = self.known.take(pattern) {
+                    said.insert(known);
+                    continue;
+                }
+                regex::RegexBuilder::new(pattern)
+                    .size_limit(limits::PATTERN_SIZE)
+                    .build()
+                    .map_err(|why| {
+                        Fault::Malformed(format!(
+                            "the indent.{name} of an editor, {pattern:?}, is not a regular \
+                             expression (the syntax of Rust's regex): {why}"
+                        ))
+                    })?;
+                #[cfg(test)]
+                {
+                    self.compiled += 1;
+                }
+                said.insert(pattern.clone());
             }
-            regex::RegexBuilder::new(pattern)
-                .size_limit(limits::PATTERN_SIZE)
-                .build()
-                .map_err(|why| {
-                    Fault::Malformed(format!(
-                        "the indent.{name} of an editor, {pattern:?}, is not a regular expression \
-                         (the syntax of Rust's regex): {why}"
-                    ))
-                })?;
-            if self.known.len() >= Self::MOST {
-                self.known.clear();
-            }
-            self.known.insert(pattern.clone());
         }
+        self.known = said;
         Ok(())
     }
 }
@@ -1911,29 +1940,120 @@ mod tests {
         super::frame_out(frame, limits, &mut Patterns::default())
     }
 
+    fn rules(increase: &str, decrease: &str) -> IndentRules {
+        IndentRules {
+            increase: Some(increase.to_owned()),
+            decrease: Some(decrease.to_owned()),
+        }
+    }
+
     #[test]
     fn a_rule_of_an_editors_indent_that_is_no_regular_expression_fails_the_page_by_its_name() {
         let mut patterns = Patterns::default();
-        let rules = |increase: &str, decrease: &str| IndentRules {
-            increase: Some(increase.to_owned()),
-            decrease: Some(decrease.to_owned()),
-        };
-        assert!(patterns.check(&rules(r"\bthen\s*$", r"^\s*end\b")).is_ok());
-        assert!(patterns.check(&IndentRules::default()).is_ok());
+        assert!(
+            patterns
+                .check([&rules(r"\bthen\s*$", r"^\s*end\b")])
+                .is_ok()
+        );
+        assert!(patterns.check([&IndentRules::default()]).is_ok());
         let fault = patterns
-            .check(&rules(r"\bthen\s*$", "^(end"))
+            .check([&rules(r"\bthen\s*$", "^(end")])
             .expect_err("no pattern");
         assert!(
             matches!(&fault, Fault::Malformed(why) if why.contains("indent.decrease") && why.contains("^(end")),
             "{fault:?}"
         );
         // Look-around is no pattern of Rust's.
-        assert!(patterns.check(&rules("(?=x)", "x")).is_err());
-        // What is known is compiled once; a page that says ever new ones is held to what is kept.
-        for n in 0..200 {
-            assert!(patterns.check(&rules(&format!("a{{{n}}}"), "b")).is_ok());
+        assert!(patterns.check([&rules("(?=x)", "x")]).is_err());
+    }
+
+    #[test]
+    fn a_frame_compiles_only_the_rules_of_indent_the_frame_before_did_not_say_and_says_at_most_64()
+    {
+        let mut patterns = Patterns::default();
+        let many: Vec<IndentRules> = (0..32)
+            .map(|n| rules(&format!("a{{{n}}}"), &format!("b{{{n}}}")))
+            .collect();
+        // As many as a frame may say, compiled once, and not again while the frames say them.
+        for _ in 0..3 {
+            assert!(patterns.check(&many).is_ok());
         }
-        assert!(patterns.known.len() <= Patterns::MOST);
+        assert_eq!(patterns.compiled, 64);
+        // However many editors say them.
+        let shared = rules("a{0}", "b{0}");
+        assert!(patterns.check(vec![&shared; 500]).is_ok());
+        assert_eq!(patterns.compiled, 64);
+        // What a frame no longer says is forgotten: said again, it is compiled again.
+        assert!(patterns.check([&rules("a{1}", "b{1}")]).is_ok());
+        assert_eq!(patterns.compiled, 66);
+        // One more than a frame may say fails the page, in words.
+        let mut more = many.clone();
+        more.push(rules("c", "a{0}"));
+        let fault = patterns.check(&more).expect_err("too many");
+        assert!(
+            matches!(&fault, Fault::Malformed(why) if why.contains("more than 64 different rules")),
+            "{fault:?}"
+        );
+    }
+
+    /// The editor compiles the rules of its indent itself; the sandbox refuses the page whose rules
+    /// the editor would not compile. Nothing but this keeps the two the same: each pattern here is
+    /// said to both, with a line it matches, and the editor indents after that line exactly where the
+    /// sandbox takes the pattern.
+    #[test]
+    fn the_sandbox_takes_the_rules_of_indent_the_editor_compiles_and_refuses_those_it_does_not() {
+        use pencere_editor::Buffer;
+        use pencere_view::edit::{EditCommand, EditorOptions, Range};
+        let corpus = [
+            (r"\b(then|do)\s*$", "if x then", true),
+            (r"^\s*\p{Greek}+:$", "λόγος:", true),
+            ("(?i)THEN$", "then", true),
+            (r"\w{80}$", &"x".repeat(80), true),
+            // Past what a pattern may take compiled (`limits::PATTERN_SIZE`), though within what
+            // `regex` takes by default.
+            (r"\w{150}$", &"x".repeat(150), false),
+            ("(then", "(then", false),
+            ("(?=then)then", "then", false),
+            (r"(a)\1", "aa", false),
+            (r"\p{NotAScript}", "x", false),
+        ];
+        for (pattern, line, takes) in corpus {
+            let rules = IndentRules {
+                increase: Some(pattern.to_owned()),
+                decrease: None,
+            };
+            let taken = Patterns::default().check([&rules]).is_ok();
+            assert_eq!(taken, takes, "the sandbox and {pattern:?}");
+            let mut buffer = Buffer::new(line).expect("a document");
+            buffer.set_options(EditorOptions {
+                indent: rules,
+                ..EditorOptions::default()
+            });
+            let end = line.chars().count();
+            buffer.select(vec![Range::caret(end)], 0);
+            buffer.command(EditCommand::Newline, 0.0);
+            let indented = buffer.text() != format!("{line}\n");
+            assert_eq!(
+                indented,
+                takes,
+                "the editor and {pattern:?}: {:?}",
+                buffer.text()
+            );
+        }
+        // In the case written: a pattern of another case is taken and matches nothing.
+        let rules = IndentRules {
+            increase: Some("THEN$".to_owned()),
+            decrease: None,
+        };
+        assert!(Patterns::default().check([&rules]).is_ok());
+        let mut buffer = Buffer::new("then").expect("a document");
+        buffer.set_options(EditorOptions {
+            indent: rules,
+            ..EditorOptions::default()
+        });
+        buffer.select(vec![Range::caret(4)], 0);
+        buffer.command(EditCommand::Newline, 0.0);
+        assert_eq!(buffer.text(), "then\n");
     }
 
     fn edges() -> wit::Edges {

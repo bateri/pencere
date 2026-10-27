@@ -24,8 +24,10 @@ a canvas (`draw_figure`), so that a figure is the same pixels in every terminal.
 The interface it implements is `wit/view.wit`, the crate's own copy of the kit's (`kit/wit`), which
 `make check` keeps equal.
 
-It depends on the engine, on the WebAssembly runtime (`wasmtime`), on the image decoders (`png`,
-`zune-jpeg`, `resvg`) and on nothing of a terminal.
+It depends on the engine, on the wire (`pencere-wire`: the size of a message, the rule of a link a
+page asks to open), on the WebAssembly runtime (`wasmtime`), on the image decoders (`png`,
+`zune-jpeg`, `resvg`), on regular expressions (`regex`: the rules of an editor's indent, checked as
+the editor compiles them) and on nothing of a terminal.
 See [`kit/README.md`](../README.md) for the rest.
 
 ## License

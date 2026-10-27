@@ -45,8 +45,10 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   `toggle-block-comment`. In Lua they are `comment = "--"` or `{ line =, block = { open, close } }`,
   `indent = { increase =, decrease = }`, `folds = "page" | "indent"` and `"toggle_block_comment"`. A
   rule of the indent that is not a regular expression fails the page, the words naming the option
-  (`indent.increase`) and what is wrong with it; each is compiled once, not at every frame. For
-  that the crate depends on `regex` (MIT or Apache-2.0), the editor's own.
+  (`indent.increase`) and what is wrong with it, and so do more than 64 different ones in the
+  editors of one frame; each is compiled when a frame first says it, not again while the frames
+  after say it too. For that the crate depends on `regex` (MIT or Apache-2.0), the editor's own, and
+  compiles them as the editor does (a test holds the two to the same patterns).
 - **What an editor shows of what is not seen.** The interface's `editor-options` has `whitespace`
   (`editor-whitespace`: `none`, `boundary`, `selection`, `trailing`, `all`) and `indent-guides`, and
   its `editor-colors` `whitespace`, `indent-guides` and `active-indent-guide`, each appended. In Lua
@@ -68,7 +70,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   frame at most (one at a time no later than the last wake's, or before the time asked, is passed
   over; of wakes that waited while it was busy the newest is the one), and a page drawn again for
   what it did then is drawn at the wake's time. The `wake` of a reply or a frame the application
-  takes is none: the module's to keep. In Lua a reply's `wake = seconds` asks, and `handle` is told
+  takes is none: the module's to keep. `Frame` has a public `wake` field for it: code that writes a
+  `Frame` whole names it (`wake: None`). In Lua a reply's `wake = seconds` asks, and `handle` is told
   `{ type = "wake", now = }`; a `wake` that is not a number of seconds, 0 or more, is an error of
   the script.
 - `pencere.time`: timers, named as the program runner's. `pencere.time.after(seconds, fn)` and
@@ -79,8 +82,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   of the wake (only where it asked a `wake` itself), and puts what each returns into the reply. A
   timer set outside a wake counts from the next one, which is asked for at once (never early, for
   the time the page last had may be old); `every` runs once for runs it fell behind on; an error in
-  a timer is the page's, with its line. A page that sets none and asks no `wake` is asked and told
-  nothing new.
+  a timer is the page's, with its line; a timer set in `settle`, which has no reply, has the page
+  rendered again, and its frame asks. A page that sets none and asks no `wake` is asked and told
+  nothing new. What the page's parts return together (its own reply, its timers', a syntax's) is
+  held to what a reply may hand the editors: the decorations past that wait for the next reply, in
+  their order, and a wake is asked for it at once.
 
 - The interface is `pencere:view@2.0.0`: overlays and anchors, texts of many looks, canvases,
   commands, dragging, roles and states, fills from one colour to another, and the middle button, keys
@@ -115,9 +121,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   far on coloured from a guess and read to in the frames after, by itself: a timer of its own wakes
   the page a frame at a time while there is more, and hands what it finds to the editor with the
   wake's reply, so that a large document is coloured to its end with no event of the person's
-  (`handle`, `reply`, and `work`, `busy`, `asks` for a page that wants them). A token that reads
-  nothing fails the page with the language's name and the line. A page that does not use it has
-  none of it.
+  (`handle`, `reply`, and `work`, `busy`, `asks` for a page that wants them). `handle` works at once
+  for its editor's `edit` and `viewport` alone, and a syntax holds at most 10 000 decorations for
+  the page, half of what a reply may hand the editors. `language:tokens(text, state, tab_width)`
+  is a line's tokens, for a text that is not in an editor. A token that reads nothing fails the
+  page with the language's name and the line. A page that does not use it has none of it.
 
 ### Changed
 

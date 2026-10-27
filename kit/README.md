@@ -52,9 +52,9 @@ one `Images` for a view, and uses three of its calls:
 
 The kit's version is the one a view names in its `open` (specification Sections 5.4 and 5.5):
 `wasm` `2.0` is the interface `pencere:view@2.0.0`, `lua` `2.0` is the page API whose
-`pencere.version` is `2`. (`2.0` added overlays, texts of many looks, canvases, commands, dragging,
-roles and states for screen readers and fills from one colour to another to `1.0`; see
-[`SPEC.md`](SPEC.md). The sandbox here opens `2.0` alone.)
+`pencere.version` is `2`. (What `2.0` added to `1.0`, from overlays to editors of text, their
+languages and a page's timers, is listed in [`SPEC.md`](SPEC.md), Section 1. The sandbox here opens
+`2.0` alone.)
 
 - An **addition** that no existing view can notice is a new minor version (`1.1`): a new function in
   the component interface, a new element or a new colour role in the page API.

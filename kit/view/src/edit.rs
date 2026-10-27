@@ -642,8 +642,10 @@ pub enum EditCommand {
     /// (a name is the longest run of letters, digits and `_`: `${1}x`, not `$1x`); the words of a
     /// search that is no regular expression go in as they are.
     Replace(String),
-    /// Puts `text` in place of every match, as [`EditCommand::Replace`] does one: one change,
-    /// undone as one.
+    /// Puts `text` in place of every match in the document, as [`EditCommand::Replace`] does one:
+    /// one change, undone as one. Every match, not only the [`limits::FIND_MATCHES`] a search
+    /// marks; only a search for whole words that runs out of what it may read again (a pattern
+    /// that matches inside words again and again) stops short, and then says there may be more.
     ReplaceAll(String),
     /// Every match selected, the main one the match the main selection was on (else the one
     /// [`EditCommand::Find`] would select).

@@ -6,6 +6,13 @@ use std::fmt;
 use pencere_view::edit::TextSnapshot;
 use ropey::Rope;
 
+#[cfg(test)]
+thread_local! {
+    /// How many times this thread copied a whole text into one string ([`Text::string`]): what the
+    /// tests of a command that reads the document so count its copies by.
+    pub(crate) static COPIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// The text of a document. Places are characters (code points); a line ends at its `\n`.
 #[derive(Clone, Default)]
 pub(crate) struct Text {
@@ -135,6 +142,8 @@ impl Text {
 
     /// The whole text.
     pub fn string(&self) -> String {
+        #[cfg(test)]
+        COPIES.with(|copies| copies.set(copies.get() + 1));
         self.rope.to_string()
     }
 

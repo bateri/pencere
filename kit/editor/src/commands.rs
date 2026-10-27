@@ -1257,7 +1257,10 @@ impl Buffer {
         if !self.writable() {
             return;
         }
-        self.search_again();
+        // The document as one string, copied once at most before the change: what a stale search
+        // reads again, and what a regular expression's groups are read from.
+        let mut copy = None;
+        self.search_again_in(&mut copy);
         let Some(found) = &self.found else {
             return;
         };
@@ -1269,9 +1272,13 @@ impl Buffer {
             self.select(vec![Range::new(from, to)], 0);
             return;
         }
-        let text = self.text.string();
-        let start = self.text.bytes_of(0, from).unwrap_or(0);
-        let insert = found.query.replacement(&text, start, template);
+        let insert = if found.query.expands() {
+            let text = copy.get_or_insert_with(|| self.text.string());
+            let start = self.text.bytes_of(0, from).unwrap_or(0);
+            found.query.replacement(text, start, template)
+        } else {
+            template.to_owned()
+        };
         let end = from + insert.chars().count();
         self.undo.close();
         let done = self.edit(
@@ -1292,31 +1299,44 @@ impl Buffer {
         }
     }
 
-    /// `template` in place of every match found, as one change, undone as one.
+    /// `template` in place of every match in the document, as one change, undone as one: not only
+    /// the [`FIND_MATCHES`] a search marks, which are read on from to the end of the document where
+    /// they stop short of it. (A search for whole words stops where it runs out of what it may read
+    /// again, a pattern that matches inside words again and again; what it found before is
+    /// replaced, and the search, made again, says there may be more.)
     fn replace_all(&mut self, template: &str, now: f64) {
         if !self.writable() {
             return;
         }
-        self.search_again();
+        // The document as one string, copied once at most before the change: what a stale search
+        // reads again, what a search cut short reads on, and what a regular expression's groups
+        // are read from.
+        let mut copy = None;
+        self.search_again_in(&mut copy);
         let Some(found) = &self.found else {
             return;
         };
-        if found.ranges.is_empty() {
+        let read_on;
+        let matches = if found.more {
+            let text = copy.get_or_insert_with(|| self.text.string());
+            read_on = found.query.matches(text, usize::MAX).0;
+            &read_on
+        } else {
+            &found.ranges
+        };
+        if matches.is_empty() {
             return;
         }
-        let text = self.text.string();
-        // The byte each match starts at, counted from one to the next.
-        let (mut byte, mut chars) = (0, 0);
-        let mut changes = Vec::with_capacity(found.ranges.len());
-        for (from, to) in &found.ranges {
-            byte += text.get(byte..).map_or(0, |rest| {
-                rest.char_indices()
-                    .nth(from - chars)
-                    .map_or(rest.len(), |(at, _)| at)
-            });
-            chars = *from;
-            let insert = found.query.replacement(&text, byte, template);
-            changes.push(Change::new(*from, *to, insert));
+        let mut changes = Vec::with_capacity(matches.len());
+        for &(from, to) in matches {
+            let insert = if found.query.expands() {
+                let text = copy.get_or_insert_with(|| self.text.string());
+                let start = self.text.bytes_of(0, from).unwrap_or(0);
+                found.query.replacement(text, start, template)
+            } else {
+                template.to_owned()
+            };
+            changes.push(Change::new(from, to, insert));
         }
         self.undo.close();
         let done = self.edit(changes, Origin::Person, Kind::Other, now, None);
@@ -1370,22 +1390,97 @@ impl Buffer {
         let Ok(query) = Query::new(&needle, false, true, word) else {
             return;
         };
-        let (found, _) = query.matches(&self.text.string());
+        let (found, _) = query.matches(&self.text.string(), FIND_MATCHES);
         let mut ranges: Vec<Range> = found
             .into_iter()
-            .take(FIND_MATCHES)
-            .map(|hit| Range::new(hit.range.0, hit.range.1))
+            .map(|(from, to)| Range::new(from, to))
             .collect();
-        let main = match ranges
-            .iter()
-            .position(|range| (range.start(), range.end()) == (from, to))
-        {
-            Some(index) => index,
-            None => {
-                ranges.push(Range::new(from, to));
-                ranges.len() - 1
-            }
-        };
+        let main =
+            match ranges.binary_search_by_key(&(from, to), |range| (range.start(), range.end())) {
+                Ok(index) => index,
+                Err(at) => {
+                    // Not among the places marked (they stopped short of it, or one overlaps it): it is
+                    // put in its place, in order, and where that is one more than are selected, the
+                    // place farthest from it goes.
+                    ranges.insert(at, Range::new(from, to));
+                    let first = ranges.first().map_or(from, |range| range.start());
+                    let last = ranges.last().map_or(to, |range| range.end());
+                    if ranges.len() <= FIND_MATCHES {
+                        at
+                    } else if at > 0 && from.saturating_sub(first) >= last.saturating_sub(to) {
+                        ranges.remove(0);
+                        at - 1
+                    } else {
+                        ranges.pop();
+                        at
+                    }
+                }
+            };
         self.select(ranges, main);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pencere_view::edit::{Change, EditCommand};
+
+    use crate::buffer::Buffer;
+    use crate::text::COPIES;
+
+    /// How many times `run` copied a document into one string.
+    fn copies(run: impl FnOnce()) -> usize {
+        let before = COPIES.with(std::cell::Cell::get);
+        run();
+        COPIES.with(std::cell::Cell::get) - before
+    }
+
+    fn searching(pattern: &str, regex: bool) -> Buffer {
+        let mut buffer = Buffer::new("a=1 b=2 a=3 c=4").expect("a document");
+        buffer.command(
+            EditCommand::Find {
+                pattern: pattern.into(),
+                regex,
+                case: true,
+                word: false,
+            },
+            0.0,
+        );
+        buffer
+    }
+
+    /// A page's change since the search: what it found is to be looked for again.
+    fn changed(buffer: &mut Buffer) {
+        let base = buffer.version();
+        buffer
+            .change(base, vec![Change::new(15, 15, " d=5")], 0.0)
+            .expect("the change");
+    }
+
+    #[test]
+    fn a_replacement_reads_the_document_once_before_its_change_for_its_search_and_its_groups() {
+        // Stale, and a regular expression whose groups are read: one copy for both, one after.
+        let mut buffer = searching(r"(\w)=(\d)", true);
+        changed(&mut buffer);
+        let copied = copies(|| buffer.command(EditCommand::Replace("$2$1".into()), 1.0));
+        assert_eq!(buffer.text(), "1a b=2 a=3 c=4 d=5");
+        assert_eq!(
+            copied, 2,
+            "one before the change, one to search again after it"
+        );
+        let mut buffer = searching(r"(\w)=(\d)", true);
+        changed(&mut buffer);
+        let copied = copies(|| buffer.command(EditCommand::ReplaceAll("$2$1".into()), 1.0));
+        assert_eq!(buffer.text(), "1a 2b 3a 4c 5d");
+        assert_eq!(
+            copied, 2,
+            "one before the change, one to search again after it"
+        );
+        // Searched as it is, and no groups to read: only the search after the change copies.
+        let mut buffer = searching("a=", false);
+        let copied = copies(|| buffer.command(EditCommand::ReplaceAll("x".into()), 1.0));
+        assert_eq!(buffer.text(), "x1 b=2 x3 c=4");
+        assert_eq!(copied, 1);
+        // What the next frame searches again it was searched for already.
+        assert_eq!(copies(|| assert!(!buffer.search_again())), 0);
     }
 }

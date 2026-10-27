@@ -261,7 +261,7 @@ pub struct Reply {
     pub editor: Vec<(Id, EditorAsk)>,
     /// A link the page asks the host to open in the person's browser, as a web page's `link`
     /// message asks (specification §9.7, §9.8): an `http` or `https` address, every byte of it
-    /// printable ASCII without the space, at most 8192 bytes. The host may ask the person first,
+    /// printable ASCII without the space, at most 8192 bytes. The host should ask the person first,
     /// drops any other link, and never tells the page what came of it. It is the host's, not a
     /// message to the program.
     pub link: Option<String>,

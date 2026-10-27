@@ -36,8 +36,9 @@ check:
 # The rules of the kit that are not the compiler's: what each crate may depend on, and that the
 # interpreter in the repository is the one its sources build. They are the layers of the kit:
 # the engine knows nothing of the wire or of a terminal, the editor knows the engine and the text, the
-# sandbox knows the engine, the wire (for the size of a message) and the runtime, and the page modules
-# know the SDK and the engine.
+# sandbox knows the engine, the wire (for the size of a message and the rule of a link), the runtime
+# and regular expressions (for the rules of an editor's indent), and the page modules know the SDK
+# and the engine.
 audit:
 	@fail=0; \
 	if [ "$$(cargo tree -p pencere-view -e normal --depth 1 --prefix none | tail -n +2 | sed 's/ .*//' | sort -u)" != "taffy" ]; then echo "audit: pencere-view depends on something besides the layout crate (taffy) — the page engine depends on its layout crate alone"; fail=1; fi; \
@@ -46,7 +47,7 @@ audit:
 	if [ -n "$$(cargo tree -p pencere-editor -e normal --depth 1 --prefix none | tail -n +2 | sed 's/ .*//' | sort -u | grep -vxE 'pencere-view|ropey|unicode-segmentation|regex')" ]; then echo "audit: pencere-editor depends on something besides the page engine, the rope, the boundaries of characters and regular expressions (pencere-view, ropey, unicode-segmentation, regex)"; fail=1; fi; \
 	if cargo tree -p pencere-editor -e normal --prefix none | tail -n +2 | grep -E "^(pencere-(wire|host|sandbox)|containers-|wasmtime|objc2|dispatch2|block2|metal|wgpu|winit|fontdb|rustybuzz|ttf-parser|harfrust|skrifa|read-fonts|swash|fontconfig|freetype|font-types|cosmic-text) "; then echo "audit: pencere-editor links a platform library, a WebAssembly runtime, a font library or a crate of the terminal side — the editor's text is measured by the host, through the engine"; fail=1; fi; \
 	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(pencere-editor|ropey) "; then echo "audit: pencere-sandbox links the editor or its rope — a page reads an editor's text through the copy the host posts it (pencere_view::edit::TextSnapshot), and the sandbox knows the engine alone"; fail=1; fi; \
-	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(pencere-host|containers-|objc2|dispatch2|block2|metal|wgpu|winit)"; then echo "audit: pencere-sandbox links to a crate of this repository past the page engine and the wire, or to a platform library — the sandbox depends on the engine, the wire (for the size of a message) and the runtime alone"; fail=1; fi; \
+	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(pencere-host|containers-|objc2|dispatch2|block2|metal|wgpu|winit)"; then echo "audit: pencere-sandbox links to a crate of this repository past the page engine and the wire, or to a platform library — the sandbox depends on the engine, the wire (for the size of a message and the rule of a link), the runtime and regular expressions alone"; fail=1; fi; \
 	if grep -rnE "objc2|dispatch2|block2|wgpu|winit|pencere_host" kit/sandbox/src | grep -v ":[[:space:]]*//"; then echo "audit: a platform call or a crate of the terminal's is named in the source of pencere-sandbox"; fail=1; fi; \
 	if cargo tree --workspace -e normal -i wasmtime --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-sandbox "; then echo "audit: the WebAssembly runtime is linked by a crate other than pencere-sandbox — one door to it"; fail=1; fi; \
 	for decoder in png zune-jpeg resvg; do \

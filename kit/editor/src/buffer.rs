@@ -426,10 +426,17 @@ impl Buffer {
     /// (until then what was found is carried over the changes): what is done once a frame, before
     /// it is drawn ([`crate::Editors::sync`]). Whether it searched.
     pub fn search_again(&mut self) -> bool {
+        self.search_again_in(&mut None)
+    }
+
+    /// Searches again as [`Self::search_again`] does, in `copy`, the document as one string, where
+    /// it holds one, and where it does not in the copy it puts there: a command that reads the
+    /// text as well (a replacement's groups) copies it once. `copy` is of the document as it is.
+    pub(crate) fn search_again_in(&mut self, copy: &mut Option<String>) -> bool {
         let Some(search) = self.found.as_mut().filter(|search| search.stale) else {
             return false;
         };
-        search.again(&self.text.string());
+        search.again(copy.get_or_insert_with(|| self.text.string()));
         true
     }
 
