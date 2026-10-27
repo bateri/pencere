@@ -152,7 +152,7 @@ int l_scroll_extent(lua_State* state) {
     pencere_view_types_extent_t extent;
     if (pencere_view_layout_scroll_extent(bridge::id_of(state, 1), &extent)) {
         // Down as `content` and `view`, across as `content_w` and `view_w`.
-        lua_createtable(state, 0, 4);
+        lua_createtable(state, 0, 6);
         lua_pushnumber(state, extent.content.h);
         lua_setfield(state, -2, "content");
         lua_pushnumber(state, extent.view.h);
@@ -161,10 +161,26 @@ int l_scroll_extent(lua_State* state) {
         lua_setfield(state, -2, "content_w");
         lua_pushnumber(state, extent.view.w);
         lua_setfield(state, -2, "view_w");
+        // How far it is scrolled: `offset` down, `offset_x` across.
+        lua_pushnumber(state, extent.offset.y);
+        lua_setfield(state, -2, "offset");
+        lua_pushnumber(state, extent.offset.x);
+        lua_setfield(state, -2, "offset_x");
     } else {
         lua_pushnil(state);
     }
     return 1;
+}
+
+// scroll_to(id, x, y, animate): x and y nil stay where they are.
+int l_scroll_to(lua_State* state) {
+    uint64_t id = bridge::id_of(state, 1);
+    float x = 0.0f, y = 0.0f;
+    bool has_x = lua_type(state, 2) == LUA_TNUMBER, has_y = lua_type(state, 3) == LUA_TNUMBER;
+    if (has_x) x = (float)lua_tonumber(state, 2);
+    if (has_y) y = (float)lua_tonumber(state, 3);
+    pencere_view_layout_scroll_to(id, has_x ? &x : nullptr, has_y ? &y : nullptr, lua_toboolean(state, 4) != 0);
+    return 0;
 }
 
 int l_focus_order(lua_State* state) {
@@ -512,6 +528,7 @@ void host_functions(lua_State* state) {
         {"ids_at", l_ids_at},
         {"bounds", l_bounds},
         {"scroll_extent", l_scroll_extent},
+        {"scroll_to", l_scroll_to},
         {"focus_order", l_focus_order},
         {"path_of", l_path_of},
         {"drag_source", l_drag_source},

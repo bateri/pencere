@@ -11,7 +11,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use pencere_view::Laid;
+use pencere_view::{Laid, ScrollTo};
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
 
 use crate::luau::Script;
@@ -248,6 +248,8 @@ pub(crate) struct Host {
     pub(crate) laid: Option<Arc<Laid>>,
     /// What the module sent in the call that is running or ran last.
     pub(crate) sent: Vec<String>,
+    /// The boxes the module asked to be scrolled since the application last took them.
+    pub(crate) asks: Vec<ScrollTo>,
     /// What one call may send: messages, and bytes of one.
     pub(crate) allowed: (usize, usize),
     /// A call sent more than it may: the application closes the module when it comes back.
@@ -271,6 +273,7 @@ impl Host {
             limiter: Limiter::new(limits.memory),
             laid: None,
             sent: Vec::new(),
+            asks: Vec::new(),
             allowed: (limits.messages, limits.message),
             overflowed: false,
             program,

@@ -2,7 +2,10 @@
 //! hits, what a scrolling box reaches, how a wheel chains from one box to the box around it.
 //! The host's measuring is a fixed-width stand-in.
 
-use crate::{Font, Id, Laid, Measure, Metrics, Point, Rect, Size, Ui, div, layout, text};
+use crate::{
+    Font, Id, Laid, Measure, Metrics, Phase, Point, Rect, ScrollTo, Scrolls, Size, Ui, div, layout,
+    text,
+};
 
 struct Fixed;
 
@@ -32,19 +35,38 @@ fn page(rows: u64, offset: f32, scale: f32) -> Laid {
         .focusable()
         .grow(1.0)
         .min_h(0.0)
-        .scroll_y(offset)
+        .scroll()
         .children((0..rows).map(row));
     let root = div()
         .col()
         .id(OUTER)
         .child(div().h(20.0).no_shrink().press(HEADER))
         .child(list);
-    layout(
+    let mut laid = layout(
         root,
         Size::new(200.0 * scale, 100.0 * scale),
         scale,
         &mut Fixed,
-    )
+    );
+    let mut scrolls = Scrolls::new();
+    scrolls.ask(down(offset));
+    scrolls.place(&mut laid, 0.0, false);
+    laid
+}
+
+/// The list, `offset` points down, at once.
+fn down(offset: f32) -> ScrollTo {
+    ScrollTo {
+        id: LIST,
+        x: None,
+        y: Some(offset),
+        animate: false,
+    }
+}
+
+/// A turn of a wheel that turns in steps.
+fn wheel(scrolls: &mut Scrolls, laid: &Laid, at: Point, dx: f32, dy: f32) -> bool {
+    scrolls.wheel(laid, at, dx, dy, Phase::Wheel, 0.0).took
 }
 
 fn at(x: f32, y: f32) -> Point {
@@ -121,38 +143,46 @@ fn a_scrolling_box_reports_its_content_and_its_own_length() {
 
 #[test]
 fn the_wheel_moves_the_list_under_the_pointer_and_stops_at_its_ends() {
-    let mut ui = Ui::default();
+    let mut scrolls = Scrolls::new();
     let laid = page(10, 0.0, 1.0);
-    assert!(ui.scroll_by(&laid, at(50.0, 60.0), 0.0, 30.0));
-    assert_eq!(ui.scroll_offset(LIST), 30.0);
-    assert!(ui.scroll_by(&laid, at(50.0, 60.0), 0.0, 500.0));
-    assert_eq!(ui.scroll_offset(LIST), 120.0, "the end of the list");
+    let over = at(50.0, 60.0);
+    assert!(wheel(&mut scrolls, &laid, over, 0.0, 30.0));
+    assert_eq!(scrolls.offset(LIST).y, 30.0);
+    assert!(wheel(&mut scrolls, &laid, over, 0.0, 500.0));
+    assert_eq!(scrolls.offset(LIST).y, 120.0, "the end of the list");
     assert!(
-        !ui.scroll_by(&laid, at(50.0, 60.0), 0.0, 10.0),
+        !wheel(&mut scrolls, &laid, over, 0.0, 10.0),
         "nothing moved past the end"
     );
-    assert!(ui.scroll_by(&laid, at(50.0, 60.0), 0.0, -500.0));
-    assert_eq!(ui.scroll_offset(LIST), 0.0);
+    assert!(wheel(&mut scrolls, &laid, over, 0.0, -500.0));
+    assert_eq!(scrolls.offset(LIST).y, 0.0);
     assert!(
-        !ui.scroll_by(&laid, at(50.0, 60.0), 0.0, -10.0),
+        !wheel(&mut scrolls, &laid, over, 0.0, -10.0),
         "nothing moved before the start"
     );
-    // Over the header the list is not under the pointer.
-    assert!(!ui.scroll_by(&laid, at(50.0, 5.0), 0.0, 30.0));
-    assert_eq!(ui.scroll_offset(LIST), 0.0);
+    // Over the header the list is not under the pointer: the turn is the page's.
+    assert!(!wheel(&mut scrolls, &laid, at(50.0, 5.0), 0.0, 30.0));
+    assert_eq!(scrolls.offset(LIST).y, 0.0);
 }
 
 #[test]
 fn a_list_that_got_shorter_comes_back_within_its_reach() {
-    let mut ui = Ui::default();
-    let tall = page(10, 0.0, 1.0);
-    ui.scroll_to(&tall, LIST, 120.0);
-    assert_eq!(ui.scroll_offset(LIST), 120.0);
+    let mut scrolls = Scrolls::new();
+    let mut tall = page(10, 0.0, 1.0);
+    scrolls.ask(down(120.0));
+    scrolls.place(&mut tall, 0.0, false);
+    assert_eq!(scrolls.offset(LIST).y, 120.0);
+    assert_eq!(scrolls.take_moved(), vec![(LIST, Point::new(0.0, 120.0))]);
     // Four rows now: 80 points of content in 80 of box, nothing to scroll.
-    let short = page(4, 120.0, 1.0);
-    assert!(ui.settle(&short), "the offset had to move");
-    assert_eq!(ui.scroll_offset(LIST), 0.0);
-    assert!(!ui.settle(&short), "and once is enough");
+    let mut short = page(4, 0.0, 1.0);
+    scrolls.place(&mut short, 0.0, false);
+    assert_eq!(scrolls.offset(LIST).y, 0.0);
+    assert_eq!(
+        scrolls.take_moved(),
+        vec![(LIST, Point::new(0.0, 0.0))],
+        "the page is told"
+    );
+    assert!(scrolls.take_moved().is_empty(), "and once is enough");
 }
 
 #[test]
@@ -259,19 +289,16 @@ fn a_box_wider_than_its_room_scrolls_across_as_well_as_down() {
         div()
             .id(WIDE)
             .size(100.0, 50.0)
-            .scroll_y(0.0)
+            .scroll()
             .child(div().w(300.0).h(200.0).no_shrink()),
     );
     let laid = layout(root, Size::new(200.0, 100.0), 2.0, &mut Fixed);
     let extent = laid.scroll_extent(WIDE).expect("it scrolls");
     assert_eq!((extent.content.w, extent.content.h), (300.0, 200.0));
     assert_eq!((extent.max_offset_x(), extent.max_offset()), (200.0, 150.0));
-    let mut ui = Ui::default();
-    assert!(ui.scroll_by(&laid, at(50.0, 25.0), 40.0, 10.0));
-    assert_eq!(
-        (ui.scroll_offset_x(WIDE), ui.scroll_offset(WIDE)),
-        (40.0, 10.0)
-    );
-    assert!(ui.scroll_by(&laid, at(50.0, 25.0), 1000.0, 0.0));
-    assert_eq!(ui.scroll_offset_x(WIDE), 200.0, "the right end");
+    let mut scrolls = Scrolls::new();
+    assert!(wheel(&mut scrolls, &laid, at(50.0, 25.0), 40.0, 10.0));
+    assert_eq!(scrolls.offset(WIDE), Point::new(40.0, 10.0));
+    assert!(wheel(&mut scrolls, &laid, at(50.0, 25.0), 1000.0, 0.0));
+    assert_eq!(scrolls.offset(WIDE).x, 200.0, "the right end");
 }

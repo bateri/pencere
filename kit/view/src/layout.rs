@@ -14,6 +14,7 @@ use taffy::style::{
 use taffy::{NodeId, TaffyTree, compute_leaf_layout};
 
 use crate::element::{FieldKind, Fit, Kind, Meta, Spark, State};
+use crate::paint::Quad;
 use crate::rich::{Look, RichLine, cut_line, lay_lines};
 use crate::style::{
     Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
@@ -117,12 +118,18 @@ pub(crate) struct Node {
     pub scroll: (f32, f32),
     /// It is an overlay: placed against the page and drawn over the rest ([`Element::overlay`]).
     pub overlay: bool,
+    /// Nothing inside it is drawn outside it (it clips, or it scrolls).
+    pub clips: bool,
 }
 
 /// A page laid out: every element's box, in the order they are painted.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Laid {
     pub(crate) nodes: Vec<Node>,
+    /// The scroll bars of the boxes that scroll, drawn after what is inside each box (and so under
+    /// what covers it): the place of the box in `nodes` and its bars, pixels
+    /// ([`crate::Scrolls::place`]).
+    pub(crate) bars: Vec<(usize, Vec<Quad>)>,
     /// The page's size, pixels.
     pub size: Size,
     /// Pixels per point.
@@ -330,6 +337,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     if measured.is_err() {
         return Laid {
             nodes: Vec::new(),
+            bars: Vec::new(),
             size: viewport,
             scale,
         };
@@ -425,6 +433,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                 .then_some((Size::new(0.0, 0.0), Size::new(rect.w, rect.h))),
             scroll: entry.scroll,
             overlay: entry.overlay,
+            clips: entry.overflow != Overflow::Visible,
         });
     }
     // `nodes`, `reach` and `inside` get one entry for every element: they are the same length.
@@ -446,6 +455,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     }
     Laid {
         nodes,
+        bars: Vec::new(),
         size: viewport,
         scale,
     }
@@ -649,6 +659,7 @@ fn empty(page: Rect) -> Node {
         extent: None,
         scroll: (0.0, 0.0),
         overlay: false,
+        clips: false,
     }
 }
 
@@ -858,7 +869,7 @@ fn build(
 /// fraction of a pixel is rounded on its own, so that a box's padding is as many pixels on each
 /// side and the boxes inside it stand in its middle, instead of the edges each being rounded
 /// where the fractions add up to (two pixels above, three below).
-fn snap(points: f32, scale: f32) -> f32 {
+pub(crate) fn snap(points: f32, scale: f32) -> f32 {
     (points * scale).round()
 }
 
@@ -1188,14 +1199,99 @@ impl Laid {
             .map(|command| command.id)
     }
 
-    /// How large the content of the scrolling box named `id` is and how large the box is.
+    /// How large the content of the scrolling box named `id` is, how large the box is, and how far
+    /// it is scrolled.
     pub fn scroll_extent(&self, id: Id) -> Option<Extent> {
-        let (content, view) = self.named(id)?.extent?;
+        self.named(id).and_then(|node| self.extent_of(node))
+    }
+
+    fn extent_of(&self, node: &Node) -> Option<Extent> {
+        let (content, view) = node.extent?;
         let s = self.scale;
-        Some(Extent {
+        let mut extent = Extent {
             content: Size::new(content.w / s, content.h / s),
             view: Size::new(view.w / s, view.h / s),
-        })
+            offset: Point::new(0.0, 0.0),
+        };
+        // Where the box is pulled past an end, it is at that end.
+        extent.offset = Point::new(
+            (node.scroll.0 / s).clamp(0.0, extent.max_offset_x()),
+            (node.scroll.1 / s).clamp(0.0, extent.max_offset()),
+        );
+        Some(extent)
+    }
+
+    /// The places in the paint order of the boxes that scroll, have a name and are not hidden.
+    pub(crate) fn scrollers(&self) -> Vec<usize> {
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| !node.hidden && node.meta.id.is_some() && node.extent.is_some())
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// The box that scrolls at `index` in the paint order: its name, its extent, and the part of
+    /// the page it shows, points.
+    pub(crate) fn scroller_at(&self, index: usize) -> Option<(Id, Extent, Rect)> {
+        let node = self.nodes.get(index)?;
+        let s = self.scale;
+        let shown = self.shown_at(index)?;
+        Some((
+            node.meta.id?,
+            self.extent_of(node)?,
+            Rect::new(shown.x / s, shown.y / s, shown.w / s, shown.h / s),
+        ))
+    }
+
+    /// The part of the page the box at `index` shows, pixels: its box, cut by those around it.
+    pub(crate) fn shown_at(&self, index: usize) -> Option<Rect> {
+        self.nodes.get(index).map(Self::shown)
+    }
+
+    /// Scrolls the box at `index` in the paint order to `to` pixels across and down (past an end,
+    /// where it is pulled there), without laying the page out again: what is inside it moves, and
+    /// what each box inside it lets be drawn is cut again. An overlay written inside it stands
+    /// where it was put until the page is laid out again.
+    pub(crate) fn rescroll(&mut self, index: usize, to: (f32, f32)) {
+        let Some(node) = self.nodes.get_mut(index) else {
+            return;
+        };
+        let (dx, dy) = (node.scroll.0 - to.0, node.scroll.1 - to.1);
+        node.scroll = to;
+        if dx == 0.0 && dy == 0.0 {
+            return;
+        }
+        // What is inside a box follows it in the paint order, the overlays aside (they come after
+        // everything else).
+        for at in index + 1..self.subtree_end(index) {
+            let parent = self.nodes.get(at).and_then(|node| node.parent);
+            let held = parent
+                .and_then(|parent| self.nodes.get(parent))
+                .map(|parent| {
+                    if parent.clips {
+                        parent.clip.intersect(parent.rect)
+                    } else {
+                        parent.clip
+                    }
+                });
+            if let Some(node) = self.nodes.get_mut(at) {
+                node.rect.x += dx;
+                node.rect.y += dy;
+                if let Some(held) = held {
+                    node.clip = held;
+                }
+            }
+        }
+    }
+
+    /// The place in the paint order just after the box at `index` and what is inside it.
+    pub(crate) fn subtree_end(&self, index: usize) -> usize {
+        let mut end = index + 1;
+        while end < self.nodes.len() && self.is_inside(end, index) {
+            end += 1;
+        }
+        end
     }
 
     /// The elements the keyboard can be on, in the order they are written (one that is
@@ -1496,11 +1592,13 @@ impl Queries for Laid {
     }
 }
 
-/// The size of what a scrolling box holds against the box's own, points.
+/// The size of what a scrolling box holds against the box's own, and how far it is scrolled
+/// across and down (within its reach), points.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Extent {
     pub content: Size,
     pub view: Size,
+    pub offset: Point,
 }
 
 impl Extent {

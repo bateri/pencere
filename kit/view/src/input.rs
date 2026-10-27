@@ -76,8 +76,10 @@ pub enum Input {
         at: Point,
         button: Button,
     },
-    /// The wheel or the trackpad: `dx` points the content moves *left* by and `dy` points it
-    /// moves *up* by (positive scrolls across and down the page).
+    /// The wheel or the trackpad, where no box the host scrolls took it ([`crate::Scrolls`]):
+    /// `dx` points the content would move *left* by and `dy` points it would move *up* by
+    /// (positive scrolls across and down the page). A page that does something of its own with
+    /// the wheel (a zoom, a value that steps) reads it here.
     Scroll {
         at: Point,
         dx: f32,
@@ -123,6 +125,10 @@ pub enum Event {
         at: Point,
         paths: Vec<String>,
     },
+    /// The host scrolled these boxes (the wheel, the trackpad, a scroll bar, or what the page
+    /// asked): each one's name and how far it is scrolled now, across and down, points. A page
+    /// that builds only what is in view builds what has come into it.
+    Scrolled(Vec<(Id, Point)>),
 }
 
 /// The shape the pointer takes over the page.

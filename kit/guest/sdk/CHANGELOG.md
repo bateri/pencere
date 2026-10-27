@@ -13,6 +13,9 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
   and so do the new events. The engine's new names are exported (`rich`, `span`, `canvas`, `path`,
   `Command`, `Shortcut`, `Side`, `Drag`, `Dropped`, …), and `Layout` answers `drag_source` and
   `drop_target`.
+- The application scrolls the page's boxes: `scroll_to(ScrollTo)` asks it to move one, the page is
+  told where they went (`Event::Scrolled`), and `Layout`'s `scroll_extent` says how far each is
+  scrolled (`Extent::offset`).
 
 ## [0.3.1] - 2026-10-26
 

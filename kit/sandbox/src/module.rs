@@ -19,7 +19,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use pencere_view::{Element, Event, Input, Laid, Reply, Size};
+use pencere_view::{Element, Event, Id, Input, Laid, Point, Reply, ScrollTo, Size};
 use pencere_wire::json::unescaped_len;
 
 use crate::luau::Script;
@@ -61,6 +61,11 @@ pub trait Runner: Send + 'static {
 
     /// What the module has said to its program since the last taking.
     fn take_sent(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// The boxes the module has asked to be scrolled since the last taking.
+    fn take_asks(&mut self) -> Vec<ScrollTo> {
         Vec::new()
     }
 }
@@ -105,6 +110,7 @@ struct Waiting {
     frame_size: Option<Size>,
     replies: Vec<Answer>,
     sent: Vec<String>,
+    asks: Vec<ScrollTo>,
     closed: Option<Fault>,
 }
 
@@ -117,6 +123,9 @@ pub struct Update {
     pub replies: Vec<Answer>,
     /// What the module said to its program, in order: JSON objects, as written, not read.
     pub sent: Vec<String>,
+    /// The boxes the module asked to be scrolled, in order: the application does them before it
+    /// next lays the page out ([`pencere_view::Scrolls::ask`]).
+    pub asks: Vec<ScrollTo>,
     /// Why the module is gone, once it is. Told again on every taking after.
     pub closed: Option<Fault>,
 }
@@ -264,6 +273,7 @@ impl Module {
             frame: waiting.frame.take(),
             replies: std::mem::take(&mut waiting.replies),
             sent: std::mem::take(&mut waiting.sent),
+            asks: std::mem::take(&mut waiting.asks),
             closed: waiting.closed.clone(),
         }
     }
@@ -312,16 +322,20 @@ impl Post<'_> {
     }
 
     /// What the module said to its program: kept in order, and the application woken.
-    fn say(&self, sent: Vec<String>) {
-        if sent.is_empty() {
+    /// What the module said to its program, and the boxes it asked to be scrolled.
+    fn say(&self, sent: Vec<String>, asks: Vec<ScrollTo>) {
+        if sent.is_empty() && asks.is_empty() {
             return;
         }
-        self.mailbox
-            .waiting
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .sent
-            .extend(sent);
+        {
+            let mut waiting = self
+                .mailbox
+                .waiting
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            waiting.sent.extend(sent);
+            waiting.asks.extend(asks);
+        }
         self.wake();
     }
 
@@ -395,6 +409,8 @@ fn serve<R: Runner>(
         let mut owed = false;
         // What the wheel turns that were run into the next one came to, points across and down.
         let mut wheel = (0.0_f32, 0.0_f32);
+        // And the boxes scrolled, of a run of them that was.
+        let mut scrolled: Vec<(Id, Point)> = Vec::new();
         for (at, command) in batch.iter().enumerate() {
             let later = batch.get(at + 1..).unwrap_or_default();
             match command {
@@ -421,7 +437,7 @@ fn serve<R: Runner>(
                     });
                     settled = 0;
                     let frame = runner.render(*size, *now, *reduce_motion)?;
-                    post.say(runner.take_sent());
+                    post.say(runner.take_sent(), runner.take_asks());
                     post.put(Some((frame, *size)), None);
                 }
                 Command::Settle if later.iter().any(|c| matches!(c, Command::Settle)) => {}
@@ -434,7 +450,7 @@ fn serve<R: Runner>(
                         let frame = runner.render(asked.size, asked.now, asked.reduce_motion)?;
                         post.put(Some((frame, asked.size)), None);
                     }
-                    post.say(runner.take_sent());
+                    post.say(runner.take_sent(), runner.take_asks());
                 }
                 // A run of pointer moves is the last of them.
                 Command::Event(Event::Input(Input::Move(_)))
@@ -452,9 +468,20 @@ fn serve<R: Runner>(
                 {
                     wheel = (wheel.0 + dx, wheel.1 + dy);
                 }
+                // A run of the boxes the application scrolled is where they stand after the last.
+                Command::Event(Event::Scrolled(boxes))
+                    if matches!(later.first(), Some(Command::Event(Event::Scrolled(_)))) =>
+                {
+                    scrolled.extend(boxes.iter().copied());
+                }
                 Command::Event(event) => {
                     settled = 0;
                     let event = match event {
+                        Event::Scrolled(boxes) => {
+                            let mut all = std::mem::take(&mut scrolled);
+                            all.extend(boxes.iter().copied());
+                            Event::Scrolled(newest_of_each(all))
+                        }
                         Event::Input(Input::Scroll { at, dx, dy }) => {
                             let (before_x, before_y) = std::mem::take(&mut wheel);
                             Event::Input(Input::Scroll {
@@ -466,12 +493,12 @@ fn serve<R: Runner>(
                         event => event.clone(),
                     };
                     let reply = runner.handle(event.clone())?;
-                    post.say(runner.take_sent());
+                    post.say(runner.take_sent(), runner.take_asks());
                     let frame = match (reply.redraw, last) {
                         (true, Some(asked)) => {
                             let frame =
                                 runner.render(asked.size, asked.now, asked.reduce_motion)?;
-                            post.say(runner.take_sent());
+                            post.say(runner.take_sent(), runner.take_asks());
                             Some((frame, asked.size))
                         }
                         _ => None,
@@ -495,13 +522,13 @@ fn serve<R: Runner>(
                     // page that failed on it (the view is over, and the application lets go
                     // of what it counted).
                     program.taken(unescaped_len(text));
-                    post.say(runner.take_sent());
+                    post.say(runner.take_sent(), runner.take_asks());
                     owed |= answered(reply, post);
                 }
                 Command::Room => {
                     settled = 0;
                     let reply = runner.room()?;
-                    post.say(runner.take_sent());
+                    post.say(runner.take_sent(), runner.take_asks());
                     owed |= answered(reply, post);
                 }
             }
@@ -516,10 +543,23 @@ fn serve<R: Runner>(
                 at: Instant::now(),
                 ..asked
             });
-            post.say(runner.take_sent());
+            post.say(runner.take_sent(), runner.take_asks());
             post.put(Some((frame, asked.size)), None);
         }
     }
+}
+
+/// Each box once, where it stands last.
+fn newest_of_each(boxes: Vec<(Id, Point)>) -> Vec<(Id, Point)> {
+    let mut out: Vec<(Id, Point)> = Vec::with_capacity(boxes.len());
+    for (id, offset) in boxes {
+        if let Some(seen) = out.iter_mut().find(|(seen, _)| *seen == id) {
+            seen.1 = offset;
+        } else {
+            out.push((id, offset));
+        }
+    }
+    out
 }
 
 /// What the page said back to something the program did: whether it wants to be drawn again
@@ -992,6 +1032,37 @@ mod tests {
             dx: 0.0,
             dy,
         })
+    }
+
+    #[test]
+    fn a_run_of_boxes_scrolled_is_each_box_where_it_stands_last() {
+        let (open, gate) = mpsc::channel();
+        let rig = rig(Some(gate), None, false);
+        rig.module.render(Size::new(10.0, 10.0), 1.0, false);
+        let (list, side) = (Id::new(7), Id::new(9));
+        let at = |y: f32| Point::new(0.0, y);
+        rig.module.event(Event::Scrolled(vec![(list, at(10.0))]));
+        rig.module
+            .event(Event::Scrolled(vec![(side, at(5.0)), (list, at(20.0))]));
+        rig.module.event(Event::Scrolled(vec![(list, at(30.0))]));
+        open.send(()).unwrap();
+        let began = std::time::Instant::now();
+        while rig.log().iter().all(|l| !l.starts_with("handle"))
+            && began.elapsed() < Duration::from_secs(5)
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        let handled: Vec<String> = rig
+            .log()
+            .into_iter()
+            .filter(|l| l.starts_with("handle"))
+            .collect();
+        let expected = format!(
+            "handle {:?}",
+            Event::Scrolled(vec![(list, at(30.0)), (side, at(5.0))])
+        );
+        assert_eq!(handled, [expected]);
     }
 
     #[test]

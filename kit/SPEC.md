@@ -64,7 +64,8 @@ The builders return the element. Layout: `row`, `col`, `wrap`, `grid(columns)`, 
 `span`, `hidden`, `items_start|center|end|stretch`, `justify_start|center|end|between`, `gap`,
 `gap_x`, `gap_y`, `grow`, `no_shrink`, `w`, `h`, `size`, `w_pct`, `w_full`, `h_full`, `size_full`,
 `min_w`, `min_h`, `max_w`, `max_h`, `p`, `px`, `py`, `pt|pr|pb|pl`, `mt|mr|mb|ml`, `absolute`, `inset`,
-`overlay`, `anchor(id, side, { gap =, align = })`, `clip`, `scroll_y(offset)`, `scroll_x(offset)`.
+`overlay`, `anchor(id, side, { gap =, align = })`, `clip`, `scroll()` (a box whose content scrolls
+behind it, down and across: the host scrolls it, by its id, Section 2.2).
 Looks: `bg`, `bg_gradient(angle, from, to)`, `border(width, color)`, `rounded`, `rounded_corners`,
 `shadow(dx, dy, blur, color)`, `opacity(0..1)` (the element with all inside it: each thing it draws
 is that much fainter). Text, which the elements inside inherit: `text_size`, `weight`, `color`,
@@ -176,13 +177,23 @@ hover is `bg(hovered and "raised2" or nil):motion({ seconds = 0.12, color = true
 ### 2.2 What a page remembers, and asks of the layout
 
 `pencere.Ui`, `pencere.Fades` and `pencere.Rows` keep what a page needs between frames (pointer and
-keyboard state, how far each box is scrolled down and across, eased levels, the heights of a long
-list). A fade takes a highlight's 0.12 s, or its own time (`fades:to(id, level, seconds)`), and is read
+keyboard state, eased levels, the heights of a long list). A fade takes a highlight's 0.12 s, or its own time (`fades:to(id, level, seconds)`), and is read
 along a curve where one is given (`fades:level(id, "out")`; `pencere.ease(t, ease)` is the curve). `pencere.layout` answers what is where on the page as it was last laid out: `hit`, `ids_at`,
 `bounds` (a field's too, by its name), `scroll_extent` (`content` and `view` down, `content_w` and
-`view_w` across, with `max_offset` and `max_offset_x`), `focus_order`, `path_of`, `drag_source` and
-`drop_target` (the topmost element at a point that can be dragged, and that what is dragged can be put
-down on). They are defined by the prelude.
+`view_w` across, with `max_offset` and `max_offset_x`, and how far it is scrolled, `offset` and
+`offset_x`), `focus_order`, `path_of`, `drag_source` and `drop_target` (the topmost element at a point
+that can be dragged, and that what is dragged can be put down on). They are defined by the prelude.
+
+How far a box is scrolled is the **host's**, not the page's. A box that says `scroll()` and has an id
+is moved by the wheel, the trackpad and its scroll bars as the host's system moves them (its speed,
+direction and momentum; where the system does, a box pulled past its end springs back, and the bars
+show as the system's do), at once and on the page as it was last laid out: the page is not asked.
+The page is told where its boxes went (`scrolled`, Section 2.3) and builds what came into view.
+`pencere.layout.scroll_offset(id)` is how far a box is scrolled (down, then across), as the page was
+last told or asked; `pencere.layout.scroll_to(id, { y =, x =, animate = })` asks the host to scroll
+it (a way not given stays where it is, past the end is the end, `animate` glides there unless the
+person asked for less motion), done before the next frame is laid out. A box with no id does not
+scroll.
 
 `Ui` keeps a drag: `press` on an element that can be dragged begins one, `point` makes it a drag once
 the pointer has moved `pencere.DRAG_START` (4) points and follows it, `dragging()` is
@@ -198,7 +209,8 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `move`, `leave`    | `x`, `y` (`leave` has none)                                                                                                                                                                          |
 | `press`, `release` | `x`, `y`, `button` (`"left"`, `"right"` or `"middle"`), and for `press` `mods` and `count` (2 for the second of a double click, as the system counts them)                                           |
-| `scroll`           | `x`, `y`, `dx`, `dy`: the points the content moves left and up by                                                                                                                                    |
+| `scroll`           | `x`, `y`, `dx`, `dy`: a wheel no box the host scrolls took, the points the content would move left and up by (for a page that does something of its own with the wheel)                              |
+| `scrolled`         | `boxes`: the boxes the host scrolled, each `{ id =, x =, y = }`, how far it is scrolled now                                                                                                          |
 | `key`              | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"delete"`, `"f1"` to `"f20"`, or the character), `mods` |
 | `text`             | `field` (its name) and `text`: what a field holds now, after the person changed it (not after the page's own `fill`)                                                                                 |
 | `focus`            | `field`: the field the person clicked into, or nil when the keyboard went back to the page of itself (not said when it went where the page sent it)                                                  |
@@ -319,6 +331,11 @@ Besides drawing what the engine lays out, a host:
 - draws a run's `underline` and `strike` where its font puts those lines, in the run's colour, and
   sets an `italic` run in its face's italic;
 - takes the pointer's shape a reply asks for, and tells a press's `count` and a scroll across;
+- scrolls the boxes that scroll (`Scrolls`): the wheel and the trackpad move the box under the
+  pointer, as its system does (a gesture stays with the box it started on, and where the system does
+  so a box pulled past its end springs back), its scroll bars are drawn as the system's are and can
+  be dragged, the page's `scroll_to` is done before the page is next laid out, and the page is told
+  where its boxes went; a wheel no box took is the page's (`scroll`);
 - may draw a point of the page larger than a point of its screen, the page given fewer points for
   the same room: a terminal draws a page as large as its own text is to the kit's (12.5 points), so a
   page's words are the size of the terminal's and grow and shrink with them (`Laid::accessible` and the

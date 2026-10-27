@@ -19,7 +19,8 @@
 use containers_page::{Containers, Reading};
 use pencere_page::messages::Message;
 use pencere_page::{
-    Event, Frame, Input, Key, Layout, Page, Reply, Role, Size, div, export_page, say, text,
+    Event, Frame, Input, Key, Layout, Page, Reply, Role, Size, div, export_page, say, scroll_to,
+    text,
 };
 use serde_json::{Value, json};
 
@@ -138,6 +139,35 @@ struct ContainerList {
 }
 
 impl ContainerList {
+    /// What the person did, and the host's text field, menu and scrolls.
+    fn handled(&mut self, event: Event, layout: &Layout) -> Reply {
+        match event {
+            Event::Input(Input::Key {
+                key: Key::Character(UPLOAD_KEY),
+                mods,
+            }) if !mods.control && !mods.alt && !mods.command => {
+                if self.upload.is_none() && self.heard {
+                    self.upload = Some(Upload::new());
+                    self.counted = None;
+                    self.pump_upload();
+                }
+                Reply::redraw()
+            }
+            Event::Input(input) => self.list.input(input, layout),
+            Event::Text { text, .. } => self.list.set_query(&text),
+            Event::Focus(_) | Event::Command(_) | Event::Files { .. } => Reply::none(),
+            Event::MenuPick(index) => self.list.pick(index),
+            Event::Scrolled(boxes) => self.list.scrolled(&boxes),
+        }
+    }
+
+    /// What the list asked the application to scroll, asked of it.
+    fn ask_for_scrolls(&mut self) {
+        for ask in self.list.take_asks() {
+            scroll_to(ask);
+        }
+    }
+
     fn subscribe_message() -> String {
         Message::subscribe(STATS, "stats", Value::Null).text()
     }
@@ -191,6 +221,8 @@ impl Page for ContainerList {
     }
 
     fn render(&mut self, size: Size, now: f64, reduce_motion: bool) -> Frame {
+        // What a reading moved the cursor to is asked before the page is laid out.
+        self.ask_for_scrolls();
         if self.more {
             self.pump_upload();
         }
@@ -229,27 +261,15 @@ impl Page for ContainerList {
     }
 
     fn settle(&mut self, layout: &Layout) -> bool {
-        self.list.settle(layout)
+        let moved = self.list.settle(layout);
+        self.ask_for_scrolls();
+        moved
     }
 
     fn handle(&mut self, event: Event, layout: &Layout) -> Reply {
-        match event {
-            Event::Input(Input::Key {
-                key: Key::Character(UPLOAD_KEY),
-                mods,
-            }) if !mods.control && !mods.alt && !mods.command => {
-                if self.upload.is_none() && self.heard {
-                    self.upload = Some(Upload::new());
-                    self.counted = None;
-                    self.pump_upload();
-                }
-                Reply::redraw()
-            }
-            Event::Input(input) => self.list.input(input, layout),
-            Event::Text { text, .. } => self.list.set_query(&text),
-            Event::Focus(_) | Event::Command(_) | Event::Files { .. } => Reply::none(),
-            Event::MenuPick(index) => self.list.pick(index),
-        }
+        let reply = self.handled(event, layout);
+        self.ask_for_scrolls();
+        reply
     }
 
     fn room(&mut self, _layout: &Layout) -> Reply {

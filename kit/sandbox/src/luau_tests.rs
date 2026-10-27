@@ -8,10 +8,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
-use pencere_view::wire::Kind;
+use pencere_view::wire::{Kind, Overflow};
 use pencere_view::{
     Button, Color, Cursor, Ease, Element, Event, FieldKind, Fit, Id, Input, Key, Keyboard, Mix,
-    Mods, Motion, Point, Rgba, Role, Shift, Source, Tip, image,
+    Mods, Motion, Point, Rgba, Role, ScrollTo, Shift, Source, Tip, image,
 };
 use wasmtime::component::Component;
 
@@ -999,7 +999,7 @@ fn a_script_mixes_colours_fades_elements_names_fields_and_sets_its_words_apart()
                 :child(pencere.div():text_field("name"):child(pencere.text("Your name")))
                 :child(pencere.div():text_field("password", "secret"):label("Password"))
                 :child(pencere.div():id("notes"):text_field(nil, "lines"))
-                :child(pencere.div():press("restart"):label("Restart"):scroll_x(12))
+                :child(pencere.div():press("restart"):label("Restart"):scroll())
         end }"##,
         ModuleLimits::default(),
     );
@@ -1061,7 +1061,7 @@ fn a_script_mixes_colours_fades_elements_names_fields_and_sets_its_words_apart()
         (Some(Id::named("notes")), Some(FieldKind::Lines), None)
     );
     assert_eq!(nodes[9].meta.label.as_deref(), Some("Restart"));
-    assert_eq!(nodes[9].style.scroll, (12.0, 0.0));
+    assert_eq!(nodes[9].style.overflow, Overflow::Scroll);
 }
 
 #[test]
@@ -1410,4 +1410,78 @@ fn a_script_drags_and_is_told_commands_keys_that_go_up_modifiers_and_dropped_fil
         ),
         "files 2 /tmp/a.png at 7"
     );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_asks_the_application_to_scroll_and_is_told_where_its_boxes_went() {
+    let mut page = open_script(
+        r##"
+        local said = "nothing"
+        return {
+            render = function()
+                local y = pencere.layout.scroll_offset("list")
+                return pencere.div()
+                    :child(pencere.text(said .. " at " .. y))
+                    :child(pencere.div():id("list"):size(100, 40):scroll():child(pencere.div():size(100, 400):no_shrink()))
+            end,
+            handle = function(e)
+                if e.type == "key" then
+                    pencere.layout.scroll_to("list", { y = 60, animate = true })
+                    said = "asked"
+                    return true
+                elseif e.type == "scrolled" then
+                    local box = e.boxes[1]
+                    said = "scrolled " .. box.id .. " " .. box.x .. " " .. box.y
+                    return true
+                end
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    let text = |page: &Open| words(&page.seen.frame.clone().expect("a page").root).join(" ");
+    // The application lays the page out: the box can go 360 down.
+    let root = page.seen.frame.clone().expect("a page").root;
+    page.module
+        .lay_out(Arc::new(pencere_view::layout(root, SIZE, 1.0, &mut Rough)));
+    let tell = |page: &mut Open, event: Event| {
+        page.module.event(event);
+        page.module.render(SIZE, 0.0, false);
+        let before = page.seen.replies.len();
+        until_seen(page, Duration::from_secs(10), |seen| {
+            seen.replies.len() > before
+        });
+        page.take(Duration::from_millis(200));
+    };
+    tell(
+        &mut page,
+        Event::Input(Input::Key {
+            key: Key::Down,
+            mods: Mods::default(),
+        }),
+    );
+    assert_eq!(
+        page.seen.asks,
+        [ScrollTo {
+            id: Id::named("list"),
+            x: None,
+            y: Some(60.0),
+            animate: true,
+        }]
+    );
+    assert_eq!(
+        text(&page),
+        "asked at 60",
+        "the page builds where it asked to be"
+    );
+    tell(
+        &mut page,
+        Event::Scrolled(vec![(Id::named("list"), Point::new(0.0, 25.0))]),
+    );
+    assert_eq!(text(&page), "scrolled list 0 25 at 25");
 }

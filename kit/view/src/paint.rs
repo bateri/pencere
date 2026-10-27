@@ -133,7 +133,17 @@ impl Laid {
     /// The page's draw list. `measure` is asked again for a line that has to be cut to fit.
     pub fn paint(&self, measure: &mut dyn Measure) -> DrawList {
         let mut list = DrawList::default();
+        // The bars of a box that scrolls go after what is inside it: by where that ends.
+        let mut bars: Vec<(usize, &Vec<Quad>)> = self
+            .bars
+            .iter()
+            .map(|(index, quads)| (self.subtree_end(*index), quads))
+            .collect();
+        bars.sort_by_key(|(end, _)| std::cmp::Reverse(*end));
         for (index, node) in self.nodes.iter().enumerate() {
+            while let Some((_, quads)) = bars.pop_if(|(end, _)| *end <= index) {
+                list.items.extend(quads.iter().cloned().map(Paint::Quad));
+            }
             if node.hidden || node.rect.w <= 0.0 || node.rect.h <= 0.0 {
                 continue;
             }
@@ -214,6 +224,9 @@ impl Laid {
                     );
                 }
             }
+        }
+        while let Some((_, quads)) = bars.pop() {
+            list.items.extend(quads.iter().cloned().map(Paint::Quad));
         }
         list
     }

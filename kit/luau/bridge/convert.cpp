@@ -545,8 +545,6 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& ar
     float span = number(L, s, "column_span", 0.0f);
     out.column_span = span < 0 ? 0 : (span > 65535 ? 65535 : (uint16_t)span);
     out.overflow = (uint8_t)word(L, s, "overflow", kOverflow, 3, 0);
-    out.scroll_x = number(L, s, "scroll_x", 0.0f);
-    out.scroll_y = number(L, s, "scroll_y", 0.0f);
     out.fill = optional_color(L, s, "fill");
     // A fill from one colour to another: { angle = degrees, from = colour, to = colour }.
     get(L, s, "gradient");
@@ -1377,6 +1375,22 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             // The script counts from 1, as a table does.
             set_number(L, "index", (double)event.val.menu_pick + 1);
             break;
+        case PENCERE_VIEW_TYPES_EVENT_SCROLLED: {
+            // { boxes = { { id =, x =, y = }, ... } }: each box and how far it is scrolled.
+            set_word(L, "type", "scrolled");
+            const auto& boxes = event.val.scrolled;
+            lua_createtable(L, (int)boxes.len, 0);
+            for (size_t at = 0; at < boxes.len; at++) {
+                lua_createtable(L, 0, 3);
+                push_id(L, boxes.ptr[at].id);
+                lua_setfield(L, -2, "id");
+                set_number(L, "x", boxes.ptr[at].offset.x);
+                set_number(L, "y", boxes.ptr[at].offset.y);
+                lua_rawseti(L, -2, (int)at + 1);
+            }
+            lua_setfield(L, -2, "boxes");
+            break;
+        }
     }
 }
 

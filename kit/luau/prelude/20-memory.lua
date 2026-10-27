@@ -1,8 +1,9 @@
 -- The page API, part 3: what a page remembers between frames.
 --
--- A page is built afresh for every frame, so what the pointer is over, where the keyboard is,
--- how far a list is scrolled and how far a highlight has faded are not in the elements: they
--- are kept by name (the element's id) in these, and the page reads them when it builds.
+-- A page is built afresh for every frame, so what the pointer is over, where the keyboard is and
+-- how far a highlight has faded are not in the elements: they are kept by name (the element's id)
+-- in these, and the page reads them when it builds. How far a box is scrolled is kept by the host
+-- (`pencere.layout.scroll_offset`).
 
 local layout = pencere.layout
 local f32 = pencere.f32
@@ -259,8 +260,8 @@ end
 pencere.DRAG_START = 4
 
 -- The remembered state of a page: what the pointer is over and has pressed, what is being
--- dragged, where the keyboard is, how far each list is scrolled. Every method that takes the pointer or the wheel answers
--- whether anything it keeps *changed* (a pointer moving inside the row it was already over
+-- dragged, where the keyboard is. (How far a box is scrolled is the host's: `pencere.layout`.)
+-- Every method that takes the pointer answers whether anything it keeps *changed* (a pointer moving inside the row it was already over
 -- changes nothing, and no frame is drawn for it). `laid` is `pencere.layout`.
 local Ui = {}
 Ui.__index = Ui
@@ -277,9 +278,6 @@ function Ui.new()
 		-- moving = }; and what was dragged and let go and is not yet taken.
 		drag = nil,
 		dropped = nil,
-		-- How far each scrolling box is scrolled down and across, points.
-		scroll = {},
-		scroll_x = {},
 		-- The highlights coming and going.
 		fades = Fades.new(),
 	}, Ui)
@@ -393,88 +391,6 @@ function Ui:cancel_drag()
 		return true
 	end
 	return false
-end
-
-function Ui:scroll_offset(id)
-	return self.scroll[id] or 0
-end
-
--- How far the box named `id` is scrolled across.
-function Ui:scroll_offset_x(id)
-	return self.scroll_x[id] or 0
-end
-
--- Sets how far it is scrolled across, as `set_scroll` does down.
-function Ui:set_scroll_x(id, offset)
-	self.scroll_x[id] = math.max(offset, 0)
-end
-
--- Scrolls the box named `id` to `offset`, kept within its reach on the page `laid`. Whether it moved.
-function Ui:scroll_to(laid, id, offset)
-	local extent = laid.scroll_extent(id)
-	local reach = extent and extent.max_offset or math.huge
-	offset = math.clamp(offset, 0, reach)
-	local was = self.scroll[id] or 0
-	self.scroll[id] = offset
-	return was ~= offset
-end
-
--- Sets how far the box named `id` is scrolled, without knowing yet how far it can go: the next
--- `settle` brings it within its reach.
-function Ui:set_scroll(id, offset)
-	self.scroll[id] = math.max(offset, 0)
-end
-
--- The wheel turned over `at` by `dx` and `dy` points (positive: across and down the page). For
--- each way, the innermost scrolling box under the pointer that has room to go that way moves; one
--- already at its end passes the turn on to the box around it. Whether anything moved.
-function Ui:scroll_by(laid, at, dx, dy)
-	local under = laid.ids_at(at)
-	local moved = false
-	for _, way in ipairs({ { dx or 0, self.scroll_x, "max_offset_x" }, { dy or 0, self.scroll, "max_offset" } }) do
-		local delta, offsets, reach = way[1], way[2], way[3]
-		if delta ~= 0 then
-			for _, id in ipairs(under) do
-				local extent = laid.scroll_extent(id)
-				if extent then
-					local was = offsets[id] or 0
-					local to = math.clamp(was + delta, 0, extent[reach])
-					if to ~= was then
-						offsets[id] = to
-						moved = true
-						break
-					end
-				end
-			end
-		end
-	end
-	return moved
-end
-
--- Brings every scrolled box back within its reach on the page `laid`. Whether any moved: the
--- page is laid out again then, as its rows depend on the offset.
-function Ui:settle(laid)
-	local moved = false
-	for _, way in ipairs({ { self.scroll, "max_offset" }, { self.scroll_x, "max_offset_x" } }) do
-		local offsets, reach = way[1], way[2]
-		for id, offset in pairs(offsets) do
-			local extent = laid.scroll_extent(id)
-			if not extent then
-				if not (offset > 0) then
-					offsets[id] = nil
-				end
-			else
-				local to = math.clamp(offset, 0, extent[reach])
-				moved = moved or to ~= offset
-				if to > 0 then
-					offsets[id] = to
-				else
-					offsets[id] = nil
-				end
-			end
-		end
-	end
-	return moved
 end
 
 -- Puts the keyboard on `id`. Whether it moved.

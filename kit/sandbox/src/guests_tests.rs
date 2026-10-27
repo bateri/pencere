@@ -75,6 +75,7 @@ impl Open {
         }
         self.seen.replies.extend(update.replies.iter().cloned());
         self.seen.sent.extend(update.sent.iter().cloned());
+        self.seen.asks.extend(update.asks.iter().copied());
         update
     }
 

@@ -26,6 +26,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 ### Changed
 
 - A component written against `pencere:view@1.0.0` is refused, in words that name both versions.
+- The application scrolls a page's boxes, not the page: a style says no offset (`scroll-x` and
+  `scroll-y` are gone from the interface), `extent` says how far a box is scrolled, the module asks
+  for a box to be scrolled by `layout.scroll-to` (what it asked is in `Update::asks`, for the
+  application's `Scrolls`), and is told where its boxes went (`event.scrolled`, a run of which is
+  each box where it stands last). The Lua page API has `:scroll()`,
+  `pencere.layout.scroll_offset(id)`, `pencere.layout.scroll_to(id, { y =, x =, animate = })` and
+  the `scrolled` event, in place of `scroll_y(offset)`, `scroll_x(offset)` and the offsets `Ui` kept.
 - A run of wheel turns over one point that waits for the page is one turn by all of them, as a run
   of pointer moves is the last of them: a page slower to make than the wheel turns does not fall
   further behind with every turn.

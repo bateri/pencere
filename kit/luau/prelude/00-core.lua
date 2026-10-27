@@ -36,13 +36,14 @@ local host = {
 	ids_at = pencere.ids_at,
 	bounds = pencere.bounds,
 	scroll_extent = pencere.scroll_extent,
+	scroll_to = pencere.scroll_to,
 	focus_order = pencere.focus_order,
 	path_of = pencere.path_of,
 	drag_source = pencere.drag_source,
 	drop_target = pencere.drop_target,
 }
 pencere.send, pencere.hit, pencere.ids_at, pencere.bounds = nil, nil, nil, nil
-pencere.scroll_extent, pencere.focus_order, pencere.path_of = nil, nil, nil
+pencere.scroll_extent, pencere.scroll_to, pencere.focus_order, pencere.path_of = nil, nil, nil, nil
 pencere.drag_source, pencere.drop_target = nil, nil
 pencere.host = host
 
@@ -99,7 +100,8 @@ function layout.bounds(id)
 end
 
 -- How far the scrolling box named `id` reaches: { content =, view = } down and { content_w =,
--- view_w = } across, with how far each way it can be scrolled, `max_offset` and `max_offset_x`.
+-- view_w = } across, with how far each way it can be scrolled, `max_offset` and `max_offset_x`,
+-- and how far it is scrolled, `offset` and `offset_x`, as it was laid out.
 function layout.scroll_extent(id)
 	local extent = host.scroll_extent(id)
 	if extent then
@@ -107,6 +109,51 @@ function layout.scroll_extent(id)
 		extent.max_offset_x = math.max(extent.content_w - extent.view_w, 0)
 	end
 	return extent
+end
+
+-- How far each box is scrolled, the host's word: what the page was last told of it (a `scrolled`
+-- event) or asked for it since. By the box's name: { x =, y = }.
+local offsets = {}
+
+-- How far the box named `id` is scrolled: down, then across, points. The host scrolls a box (an
+-- element with a name and `:scroll()`) with the wheel, the trackpad and its bars, as its system
+-- does; the page is told (`scrolled`) and builds what came into view.
+function layout.scroll_offset(id)
+	local known = offsets[id]
+	if known then
+		return known.y, known.x
+	end
+	local extent = host.scroll_extent(id)
+	if extent then
+		return extent.offset, extent.offset_x
+	end
+	return 0, 0
+end
+
+-- Asks the host to scroll the box named `id`: `to` is { y =, x =, animate = } (a way not given
+-- stays where it is; past the end is the end; `animate` glides there, unless the person asked for
+-- less motion). Done before the next frame is laid out; a box not on the page yet is there when
+-- it comes.
+function layout.scroll_to(id, to)
+	local x, y = to.x, to.y
+	local known = offsets[id] or { x = 0, y = 0 }
+	local extent = host.scroll_extent(id)
+	local clamp = function(value, reach)
+		value = math.max(value, 0)
+		return reach and math.min(value, reach) or value
+	end
+	offsets[id] = {
+		x = x and clamp(x, extent and math.max(extent.content_w - extent.view_w, 0)) or known.x,
+		y = y and clamp(y, extent and math.max(extent.content - extent.view, 0)) or known.y,
+	}
+	host.scroll_to(id, x, y, to.animate and true or false)
+end
+
+-- The prelude's: the host scrolled these boxes ({ { id =, x =, y = }, ... }).
+function layout._heard(boxes)
+	for _, scrolled in ipairs(boxes) do
+		offsets[scrolled.id] = { x = scrolled.x, y = scrolled.y }
+	end
 end
 
 function layout.focus_order()

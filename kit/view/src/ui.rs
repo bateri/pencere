@@ -1,12 +1,11 @@
 //! What a page remembers between builds: what the pointer is over and has pressed, what is being
-//! dragged, where the keyboard is, how far each list is scrolled, how far each highlight has faded.
+//! dragged, where the keyboard is, how far each highlight has faded. How far a box is scrolled is
+//! the host's ([`crate::Scrolls`]).
 //!
 //! The elements are made afresh for every frame, so none of this can be in them; it is kept by
 //! [`Id`] and the page reads it when it builds. Every method that takes the pointer or the
-//! wheel answers whether anything it keeps *changed* — a pointer moving inside the row it
+//! keyboard answers whether anything it keeps *changed* — a pointer moving inside the row it
 //! was already over changes nothing, and the host draws no frame for it.
-
-use std::collections::HashMap;
 
 use crate::{Fades, Id, Point, Queries};
 
@@ -47,10 +46,6 @@ pub struct Ui {
     drag: Option<Drag>,
     dropped: Option<Dropped>,
     focus: Option<Id>,
-    /// How far each scrolling box is scrolled down, points.
-    scroll: HashMap<Id, f32>,
-    /// And across.
-    scroll_x: HashMap<Id, f32>,
     /// The highlights coming and going.
     pub fades: Fades,
 }
@@ -156,97 +151,6 @@ impl Ui {
             self.pressed = None;
         }
         was
-    }
-
-    // --- The wheel -----------------------------------------------------------------------
-
-    /// How far the scrolling box named `id` is scrolled, points.
-    pub fn scroll_offset(&self, id: Id) -> f32 {
-        self.scroll.get(&id).copied().unwrap_or(0.0)
-    }
-
-    /// Scrolls the box named `id` to `offset`, kept within the box's reach on the page `laid`
-    /// (or at least 0 where the box is not known yet). Returns whether it moved.
-    pub fn scroll_to(&mut self, laid: &dyn Queries, id: Id, offset: f32) -> bool {
-        let reach = laid.scroll_extent(id).map_or(f32::MAX, |e| e.max_offset());
-        let offset = offset.clamp(0.0, reach);
-        let was = self.scroll.insert(id, offset).unwrap_or(0.0);
-        was != offset
-    }
-
-    /// Sets how far the box named `id` is scrolled, without knowing yet how far it can go: the
-    /// next [`Ui::settle`] brings it within its reach. For a page that has just changed what
-    /// the box holds.
-    pub fn set_scroll(&mut self, id: Id, offset: f32) {
-        self.scroll.insert(id, offset.max(0.0));
-    }
-
-    /// How far the scrolling box named `id` is scrolled across, points.
-    pub fn scroll_offset_x(&self, id: Id) -> f32 {
-        self.scroll_x.get(&id).copied().unwrap_or(0.0)
-    }
-
-    /// Sets how far the box named `id` is scrolled across, as [`Ui::set_scroll`] does down.
-    pub fn set_scroll_x(&mut self, id: Id, offset: f32) {
-        self.scroll_x.insert(id, offset.max(0.0));
-    }
-
-    /// The wheel turned over `at` by `dx` and `dy` points (positive: across and down the page).
-    /// For each way, the innermost scrolling box under the pointer that has room to go that way
-    /// moves; one already at its end passes the turn on to the box around it. Returns whether
-    /// anything moved.
-    pub fn scroll_by(&mut self, laid: &dyn Queries, at: Point, dx: f32, dy: f32) -> bool {
-        let under = laid.ids_at(at);
-        let mut moved = false;
-        for (delta, across) in [(dx, true), (dy, false)] {
-            if delta == 0.0 {
-                continue;
-            }
-            for id in &under {
-                let Some(extent) = laid.scroll_extent(*id) else {
-                    continue;
-                };
-                let (offsets, reach) = if across {
-                    (&mut self.scroll_x, extent.max_offset_x())
-                } else {
-                    (&mut self.scroll, extent.max_offset())
-                };
-                let was = offsets.get(id).copied().unwrap_or(0.0);
-                let to = (was + delta).clamp(0.0, reach);
-                if to != was {
-                    offsets.insert(*id, to);
-                    moved = true;
-                    break;
-                }
-            }
-        }
-        moved
-    }
-
-    /// Brings every scrolled box back within its reach on the page `laid` — a list that got
-    /// shorter (a filter) or a window that got taller. Returns whether any moved: the page
-    /// is laid out again then, as its rows depend on the offset.
-    pub fn settle(&mut self, laid: &dyn Queries) -> bool {
-        let mut moved = false;
-        self.scroll.retain(|id, offset| {
-            let Some(extent) = laid.scroll_extent(*id) else {
-                return *offset > 0.0;
-            };
-            let to = offset.clamp(0.0, extent.max_offset());
-            moved |= to != *offset;
-            *offset = to;
-            to > 0.0
-        });
-        self.scroll_x.retain(|id, offset| {
-            let Some(extent) = laid.scroll_extent(*id) else {
-                return *offset > 0.0;
-            };
-            let to = offset.clamp(0.0, extent.max_offset_x());
-            moved |= to != *offset;
-            *offset = to;
-            to > 0.0
-        });
-        moved
     }
 
     // --- The keyboard --------------------------------------------------------------------

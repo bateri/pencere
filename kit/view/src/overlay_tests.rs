@@ -181,7 +181,7 @@ fn an_overlay_is_hidden_and_faded_with_what_holds_it_and_does_not_make_it_scroll
         div()
             .id(LIST)
             .h(50.0)
-            .scroll_y(0.0)
+            .scroll()
             .opacity(0.5)
             .child(div().h(20.0))
             .child(menu().overlay().inset(Some(0.0), None, None, Some(0.0))),
@@ -249,7 +249,7 @@ fn the_wheel_over_an_overlay_does_not_reach_what_it_covers() {
                 .id(MENU)
                 .col()
                 .h(40.0)
-                .scroll_y(0.0)
+                .scroll()
                 .child(div().h(20.0).press(BUTTON).child(text("Copy"))),
         );
     let root = div()
@@ -261,22 +261,27 @@ fn the_wheel_over_an_overlay_does_not_reach_what_it_covers() {
                 .col()
                 .grow(1.0)
                 .min_h(0.0)
-                .scroll_y(0.0)
+                .scroll()
                 .children(rows),
         )
         .child(palette);
     let laid = lay(root, 200.0, 100.0);
     let over = Point::new(30.0, 20.0);
     assert_eq!(laid.ids_at(over), vec![BUTTON, MENU, COVER]);
-    let mut ui = crate::Ui::default();
+    let mut scrolls = crate::Scrolls::new();
+    let wheel = |scrolls: &mut crate::Scrolls, at| {
+        scrolls
+            .wheel(&laid, at, 0.0, 30.0, crate::Phase::Wheel, 0.0)
+            .took
+    };
     assert!(
-        !ui.scroll_by(&laid, over, 0.0, 30.0),
+        !wheel(&mut scrolls, over),
         "the palette's list has no room, and the list under it is not under the pointer"
     );
-    assert_eq!(ui.scroll_offset(LIST), 0.0);
+    assert_eq!(scrolls.offset(LIST).y, 0.0);
     // Beside the palette the list is what the pointer is over.
     let beside = Point::new(150.0, 80.0);
     assert_eq!(laid.ids_at(beside), vec![Id::new(104), LIST]);
-    assert!(ui.scroll_by(&laid, beside, 0.0, 30.0));
-    assert_eq!(ui.scroll_offset(LIST), 30.0);
+    assert!(wheel(&mut scrolls, beside));
+    assert_eq!(scrolls.offset(LIST).y, 30.0);
 }
