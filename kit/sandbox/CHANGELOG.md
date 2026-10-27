@@ -6,6 +6,12 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+### Fixed
+
+- The answer to the pointer over an editor (`Event::Pointer`) is the pointer's (`Answer::pointer`),
+  as the answer to a move beside it is: the shape a page asks for over its editor is taken, where
+  the one it asked for just before (a divider's) stayed over the editor.
+
 ### Added
 
 - **Editors.** The interface has `node.editor`, the events `editor-pointer`, `edit`, `selection`,

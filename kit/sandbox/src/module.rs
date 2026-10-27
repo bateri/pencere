@@ -517,6 +517,8 @@ fn serve<R: Runner>(
                         }
                         _ => None,
                     };
+                    // The pointer over an editor is the pointer's too: the shape a page asks for
+                    // there is taken, or the one it asked for beside the editor (a divider's) stays.
                     let pointer = matches!(
                         event,
                         Event::Input(
@@ -525,7 +527,7 @@ fn serve<R: Runner>(
                                 | Input::Press { .. }
                                 | Input::Release { .. }
                                 | Input::Scroll { .. }
-                        )
+                        ) | Event::Pointer { .. }
                     );
                     post.put(frame, Some(Answer { reply, pointer }));
                 }
@@ -1005,6 +1007,25 @@ mod tests {
             }]
         );
         assert!(update.frame.is_some());
+    }
+
+    #[test]
+    fn the_answer_to_the_pointer_over_an_editor_is_the_pointers() {
+        let rig = rig(None, None, false);
+        rig.module.render(Size::new(10.0, 10.0), 1.0, false);
+        rig.woken();
+        let _ = rig.module.poll();
+        rig.module.event(Event::Pointer {
+            input: Input::Move(Point::new(2.0, 2.0)),
+            place: pencere_view::Place {
+                editor: pencere_view::Id::named("sql"),
+                at: 0,
+            },
+        });
+        rig.woken();
+        let update = rig.module.poll();
+        assert_eq!(update.replies.len(), 1, "{update:?}");
+        assert!(update.replies[0].pointer);
     }
 
     #[test]
