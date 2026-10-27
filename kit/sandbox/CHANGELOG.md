@@ -8,6 +8,10 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Fixed
 
+- A reply to what the program said (or to its room) is posted whenever it asks the host something:
+  its `editor` asks and its `fill` too, which were dropped (a page could not load a file it was sent
+  into its editor, nor mark a mistake its program told it of, unless the same reply also moved the
+  keyboard).
 - The answer to the pointer over an editor (`Event::Pointer`) is the pointer's (`Answer::pointer`),
   as the answer to a move beside it is: the shape a page asks for over its editor is taken, where
   the one it asked for just before (a divider's) stayed over the editor.

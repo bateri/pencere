@@ -583,7 +583,16 @@ fn newest_of_each(boxes: Vec<(Id, Point)>) -> Vec<(Id, Point)> {
 /// pasteboard, the end), which is told now.
 fn answered(reply: Reply, post: &Post<'_>) -> bool {
     let redraw = reply.redraw;
-    if reply.close || reply.menu.is_some() || reply.keyboard.is_some() || reply.copy.is_some() {
+    // Whatever the reply asks of the host, it is posted: a page that hears its program puts what it
+    // heard in a field or an editor (a file it read, a completion, the mark of a mistake), and a reply
+    // that only redraws is the frame that follows.
+    let asks = reply.close
+        || reply.menu.is_some()
+        || reply.keyboard.is_some()
+        || reply.copy.is_some()
+        || !reply.fill.is_empty()
+        || !reply.editor.is_empty();
+    if asks {
         post.put(
             None,
             Some(Answer {
@@ -1007,6 +1016,34 @@ mod tests {
             }]
         );
         assert!(update.frame.is_some());
+    }
+
+    #[test]
+    fn what_a_page_asks_of_its_editors_and_fields_on_hearing_its_program_is_posted() {
+        let mailbox = Mailbox::default();
+        let post = Post {
+            mailbox: &mailbox,
+            wake: &|| {},
+        };
+        let mut editor = Reply::redraw();
+        editor.editor.push((
+            pencere_view::Id::named("sql"),
+            pencere_view::edit::EditorAsk::Load {
+                text: "select 1".into(),
+                more: false,
+            },
+        ));
+        assert!(answered(editor, &post));
+        let mut fill = Reply::none();
+        fill.fill
+            .push((pencere_view::Id::named("filter"), "api".into()));
+        answered(fill, &post);
+        // A reply that only redraws is the frame that follows, not an answer to post.
+        assert!(answered(Reply::redraw(), &post));
+        let waiting = mailbox.waiting.lock().unwrap();
+        assert_eq!(waiting.replies.len(), 2, "{:?}", waiting.replies);
+        assert_eq!(waiting.replies[0].reply.editor.len(), 1);
+        assert_eq!(waiting.replies[1].reply.fill.len(), 1);
     }
 
     #[test]
