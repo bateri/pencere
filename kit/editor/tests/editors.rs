@@ -18,6 +18,11 @@ const EDITOR: Id = Id::new(7);
 const POPUP: Id = Id::new(8);
 const RUN: Id = Id::new(9);
 
+/// A line of text is 16 high (`Fake`); a row keeps 2 above it and 2 below.
+const LINE: f32 = 16.0;
+const LEAD: f32 = 2.0;
+const ROW: f32 = LINE + 2.0 * LEAD;
+
 /// `i` and `l` are 3 pixels, `m` and `w` 11, a space and every other character 7; a line is 16 high.
 struct Fake;
 
@@ -180,8 +185,8 @@ fn a_click_puts_the_caret_at_the_nearest_boundary_across_and_a_drag_selects() {
             .take_events()
             .contains(&EditorEvent::Focus(Some(EDITOR)))
     );
-    // …and one on the second line, 16 down.
-    host.drag(Point::new(16.0, 24.0));
+    // …and one on the second line, a row down.
+    host.drag(Point::new(16.0, 4.0 + ROW));
     assert_eq!(host.ranges(), vec![Range::new(3, 9)]);
     assert!(host.editors.release());
     // Two clicks select the word, three the line.
@@ -193,7 +198,7 @@ fn a_click_puts_the_caret_at_the_nearest_boundary_across_and_a_drag_selects() {
     // Shift extends from where the caret was.
     host.press(Point::new(4.0, 10.0), none(), 1);
     host.editors.release();
-    host.press(Point::new(16.0, 24.0), with(|m| m.shift = true), 1);
+    host.press(Point::new(16.0, 4.0 + ROW), with(|m| m.shift = true), 1);
     assert_eq!(host.ranges(), vec![Range::new(0, 9)]);
 }
 
@@ -231,7 +236,7 @@ fn a_column_is_selected_by_the_places_across_on_each_line() {
     host.load("abcdef\nmmmmmm\niiiiii");
     // From 4 + 14 across on the first line (after `ab`) to 4 + 28 on the third.
     host.press(Point::new(18.0, 10.0), with(|m| m.alt = true), 1);
-    host.drag(Point::new(32.0, 42.0));
+    host.drag(Point::new(32.0, 4.0 + 2.0 * ROW + 6.0));
     // `ab|cd|ef`: 14..28 is `cd`; `mmmmmm` (11 each): nearest 14 is 1, nearest 28 is 3 (33 is
     // nearer than 22); `iiiiii` (3 each): nearest 14 is the fifth (15), and 28 is past its end.
     assert_eq!(
@@ -252,7 +257,7 @@ fn a_long_line_wraps_where_the_room_ends_after_a_space() {
     host.load("aaaa bbbb cccc dddd");
     let metrics = host.editors.metrics(EDITOR).expect("laid out");
     // Two rows: "aaaa bbbb " and "cccc dddd" (the space stays at the end of the row it ends).
-    assert_eq!(metrics.content, Size::new(100.0, 2.0 * 16.0 + 8.0));
+    assert_eq!(metrics.content, Size::new(100.0, 2.0 * ROW + 8.0));
     host.editors.set_focus(Some(EDITOR));
     let laid = host.laid.clone();
     host.editors.ask(
@@ -267,13 +272,14 @@ fn a_long_line_wraps_where_the_room_ends_after_a_space() {
         0.0,
     );
     host.settle();
-    // `cccc` starts the second row: the caret two into it is 14 across, 16 down.
+    // `cccc` starts the second row: the caret two into it is 14 across, a row down, as tall as the
+    // text.
     let caret = host
         .editors
         .metrics(EDITOR)
         .and_then(|m| m.caret)
         .expect("a caret");
-    assert_eq!(caret, Rect::new(4.0 + 14.0, 4.0 + 16.0, 2.0, 16.0));
+    assert_eq!(caret, Rect::new(4.0 + 14.0, 4.0 + ROW + LEAD, 2.0, LINE));
     // A move up goes to the first row, by the place across.
     host.key(Key::Up, none());
     assert_eq!(host.ranges(), vec![Range::caret(2)]);
@@ -306,9 +312,9 @@ fn a_folded_region_takes_no_rows_and_its_button_in_the_gutter_folds_it() {
     let buffer = host.editors.buffer(EDITOR).expect("the editor");
     assert_eq!(buffer.folded(), &[(3, 13)]);
     let short = host.editors.metrics(EDITOR).expect("laid out").content.h;
-    assert_eq!(tall - short, 3.0 * 16.0);
+    assert_eq!(tall - short, 3.0 * ROW);
     // The last line is the second row now.
-    assert!(host.press(Point::new(60.0, 4.0 + 16.0 + 8.0), none(), 1));
+    assert!(host.press(Point::new(60.0, 4.0 + ROW + 8.0), none(), 1));
     let head = host.ranges()[0].head;
     assert!(head >= 14, "on the line after the fold, not {head}");
 }
@@ -327,14 +333,14 @@ fn only_the_rows_in_view_are_laid_out_and_the_page_is_told_which_lines_they_are(
             _ => None,
         })
         .next_back();
-    assert_eq!(viewport, Some((0, 12)));
+    assert_eq!(viewport, Some((0, 9)));
     let extent = host.laid.scroll_extent(EDITOR).expect("the room scrolls");
-    assert_eq!(extent.content.h, 10_001.0 * 16.0 + 8.0);
+    assert_eq!(extent.content.h, 10_001.0 * ROW + 8.0);
     // The host scrolls the room, as it scrolls a box: far down, the lines there are in view.
     host.scrolls.ask(pencere_view::ScrollTo {
         id: EDITOR,
         x: None,
-        y: Some(80_000.0),
+        y: Some(100_000.0),
         animate: false,
     });
     host.settle();
@@ -347,7 +353,7 @@ fn only_the_rows_in_view_are_laid_out_and_the_page_is_told_which_lines_they_are(
             _ => None,
         })
         .next_back();
-    assert_eq!(viewport, Some((4999, 5012)));
+    assert_eq!(viewport, Some((4999, 5009)));
     let list = host.paint(false);
     let lines: Vec<&str> = list
         .items
@@ -553,11 +559,11 @@ fn the_editor_is_drawn_in_its_place_its_caret_while_the_host_shows_it() {
         .expect("the text is drawn");
     assert_eq!(
         (run.text.as_str(), run.origin),
-        ("mi", Point::new(4.0, 4.0))
+        ("mi", Point::new(4.0, 4.0 + LEAD))
     );
     let caret = list.items.iter().any(|item| {
         matches!(item, Paint::Quad(q) if q.fill.and_then(|f| f.role()) == Some(Role::Cursor)
-            && q.rect == Rect::new(4.0 + 11.0, 4.0, 2.0, 16.0))
+            && q.rect == Rect::new(4.0 + 11.0, 4.0 + LEAD, 2.0, LINE))
     });
     assert!(caret, "the caret is after the `m`");
     let off = host.paint(false);
@@ -615,7 +621,7 @@ fn typing_past_the_bottom_of_the_room_scrolls_it_to_keep_the_caret_in_view() {
     host.load(&text);
     host.editors.set_focus(Some(EDITOR));
     let laid = host.laid.clone();
-    // Line 20 is 4 + 320 down: past the 200 of the room.
+    // Line 20 is 4 + 400 down: past the 200 of the room.
     host.editors.ask(
         &laid,
         EDITOR,
@@ -629,7 +635,7 @@ fn typing_past_the_bottom_of_the_room_scrolls_it_to_keep_the_caret_in_view() {
     );
     let asked = host.editors.take_scrolls();
     assert_eq!(asked.len(), 1);
-    assert_eq!(asked[0].y, Some(4.0 + 20.0 * 16.0 + 16.0 + 4.0 - 200.0));
+    assert_eq!(asked[0].y, Some(4.0 + 20.0 * ROW + ROW + 4.0 - 200.0));
     for ask in asked {
         host.scrolls.ask(ask);
     }
@@ -647,7 +653,7 @@ fn a_popup_on_the_caret_is_placed_again_when_the_caret_moves_with_no_frame_of_th
     host.load("abc\ndef");
     host.editors.set_focus(Some(EDITOR));
     let before = host.laid.bounds(POPUP).expect("the popup");
-    assert_eq!(before.y, 4.0 + 16.0);
+    assert_eq!(before.y, 4.0 + LEAD + LINE);
     let laid = host.laid.clone();
     host.editors.key(&laid, Key::Right, none(), &mut Fake, 0.0);
     host.editors.key(&laid, Key::Right, none(), &mut Fake, 0.0);

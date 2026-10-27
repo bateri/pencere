@@ -100,8 +100,11 @@ pub(crate) struct View {
     pub font: Font,
     pub color: Color,
     pub scale: f32,
-    /// The height of a row, the width of a space and of a digit, pixels.
+    /// The height of a row and of the text in it, the room a row keeps above its text and as much
+    /// below, the width of a space and of a digit, pixels.
     pub row: f32,
+    pub line: f32,
+    pub lead: f32,
     pub space: f32,
     pub digit: f32,
     /// The host draws no text: a grapheme is a space wide.
@@ -139,7 +142,9 @@ impl Default for View {
             },
             color: Role::Foreground.solid(),
             scale: 1.0,
-            row: 16.0,
+            row: 0.0,
+            line: 0.0,
+            lead: 0.0,
             space: 7.0,
             digit: 7.0,
             plain: false,
@@ -177,11 +182,17 @@ impl View {
             let space = measure.measure(&room.font, " ").width;
             let digit = measure.measure(&room.font, "0").width;
             self.plain = space <= 0.0 || digit <= 0.0;
-            self.row = if line.height > 0.0 {
+            self.line = if line.height > 0.0 {
                 line.height.ceil()
             } else {
                 (room.font.size * 1.25).ceil()
             };
+            // Code is read line by line: a row is about one and a half times the font's size, as
+            // editors of code set it, its text in the middle. The room is whole points, so a row
+            // is as tall on every screen.
+            let s = scale.max(0.01);
+            self.lead = (self.line * 0.15 / s).round() * s;
+            self.row = self.line + 2.0 * self.lead;
             self.space = if self.plain {
                 room.font.size * 0.6
             } else {
@@ -503,10 +514,15 @@ impl View {
         ))
     }
 
-    /// The caret's box at `at`, pixels of the content.
+    /// The caret's box at `at`, pixels of the content: as tall as the text, not the row.
     pub fn caret_of(&self, buffer: &Buffer, at: usize, measure: &mut dyn Measure) -> Option<Rect> {
         let point = self.point_of(buffer, at, measure)?;
-        Some(Rect::new(point.x, point.y, self.caret_width(), self.row))
+        Some(Rect::new(
+            point.x,
+            point.y + self.lead,
+            self.caret_width(),
+            self.line,
+        ))
     }
 
     fn caret_width(&self) -> f32 {
@@ -687,7 +703,7 @@ impl View {
                 .filter(|hint| !hint.is_empty())
         {
             out.push(Paint::Text(Run {
-                origin: Point::new(origin_x, origin_y),
+                origin: Point::new(origin_x, origin_y + self.lead),
                 text: hint,
                 font: self.font,
                 color: fade(Role::Quiet.solid()),
@@ -702,7 +718,8 @@ impl View {
             for row in &rows {
                 if let Some(rect) = self.span(row, from, to, false, origin_x, row_y(row)) {
                     let thick = self.scale.round().max(1.0);
-                    let line = Rect::new(rect.x, rect.bottom() - thick * 2.0, rect.w, thick);
+                    let bottom = rect.bottom() - self.lead;
+                    let line = Rect::new(rect.x, bottom - thick * 2.0, rect.w, thick);
                     out.push(quad(line, fade(self.color), text_clip));
                 }
             }
@@ -716,6 +733,7 @@ impl View {
                 if let Some(row) = rows.iter().find(|row| self.on_row(row, at))
                     && let Some(rect) = self.span(row, at, at + 1, false, origin_x, row_y(row))
                 {
+                    let rect = self.text_box(rect);
                     out.push(Paint::Quad(Quad {
                         rect,
                         radii: [2.0 * self.scale; 4],
@@ -737,7 +755,7 @@ impl View {
                 if let Some(row) = rows.iter().find(|row| self.on_row(row, range.head)) {
                     let x = origin_x + row.x(range.head - row.base);
                     out.push(quad(
-                        Rect::new(x, row_y(row), self.caret_width(), self.row),
+                        Rect::new(x, row_y(row) + self.lead, self.caret_width(), self.line),
                         fade(Role::Cursor.solid()),
                         text_clip,
                     ));
@@ -779,6 +797,11 @@ impl View {
         }
         let left = row.x(a);
         (right > left).then(|| Rect::new(origin_x + left, y, right - left, self.row))
+    }
+
+    /// The part of a row's box `rect` its text takes, the room above and below left out.
+    fn text_box(&self, rect: Rect) -> Rect {
+        Rect::new(rect.x, rect.y + self.lead, rect.w, self.line)
     }
 
     /// One row's text: cut where the look the page gave it changes and at its tabs, each run drawn
@@ -874,7 +897,7 @@ impl View {
                     grounds.insert(0, ground);
                 }
                 out.push(Paint::Text(Run {
-                    origin: Point::new(x, y),
+                    origin: Point::new(x, y + self.lead),
                     text,
                     font,
                     color: fade(color),
@@ -887,7 +910,7 @@ impl View {
             if let Some(underline) = look.and_then(|look| look.underline) {
                 self.paint_underline(
                     underline,
-                    Rect::new(x, y, width, self.row),
+                    self.text_box(Rect::new(x, y, width, self.row)),
                     clip,
                     slot.opacity,
                     out,
@@ -902,10 +925,11 @@ impl View {
                 .any(|(from, _)| buffer.line_of(*from) == row.line)
         {
             let x = origin_x + row.shaped.width() - row.shift + self.space;
-            let marker = Rect::new(x, y + self.row * 0.15, self.space * 3.0, self.row * 0.7);
+            let y = y + self.lead;
+            let marker = Rect::new(x, y + self.line * 0.15, self.space * 3.0, self.line * 0.7);
             out.push(Paint::Quad(Quad {
                 rect: marker,
-                radii: [self.row * 0.2; 4],
+                radii: [self.line * 0.2; 4],
                 fill: Some(fade(Role::Foreground.alpha(0.08))),
                 gradient: None,
                 border: None,
@@ -1001,6 +1025,7 @@ impl View {
         let (marks_w, fold_w) = self.gutter_parts();
         for row in rows.iter().filter(|row| row.from == 0) {
             let y = origin_y + row.index as f32 * self.row;
+            let text_y = y + self.lead;
             let number = (row.line + 1).to_string();
             let width = number.chars().count() as f32 * self.digit;
             let x = gutter.x + gutter.w - fold_w - self.pad - width;
@@ -1010,7 +1035,7 @@ impl View {
                 Role::Quiet.solid()
             };
             out.push(Paint::Text(Run {
-                origin: Point::new(x, y),
+                origin: Point::new(x, text_y),
                 text: number,
                 font: self.font,
                 color: fade(color),
@@ -1049,7 +1074,7 @@ impl View {
             }) {
                 let shut = folded.contains(region);
                 out.push(Paint::Text(Run {
-                    origin: Point::new(gutter.x + gutter.w - fold_w, y),
+                    origin: Point::new(gutter.x + gutter.w - fold_w, text_y),
                     text: if shut { "▸" } else { "▾" }.into(),
                     font: self.font,
                     color: fade(Role::Dim.solid()),

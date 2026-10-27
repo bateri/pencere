@@ -865,10 +865,12 @@ fn column_ranges(editor: &Editor, from: Point, to: Point, measure: &mut dyn Meas
 fn keep_in_view(view: &View, id: Id, caret: Rect, scale: f32) -> Option<ScrollTo> {
     let s = scale.max(0.01);
     let (top, height) = (view.scroll.y, view.room.h);
-    let y = if caret.y - view.pad < top {
-        Some((caret.y - view.pad).max(0.0))
-    } else if caret.bottom() + view.pad > top + height {
-        Some(caret.bottom() + view.pad - height)
+    // The caret's whole row is kept in view, not only its text.
+    let (above, below) = (caret.y - view.lead, caret.bottom() + view.lead);
+    let y = if above - view.pad < top {
+        Some((above - view.pad).max(0.0))
+    } else if below + view.pad > top + height {
+        Some(below + view.pad - height)
     } else {
         None
     };

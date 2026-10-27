@@ -41,7 +41,9 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 - **Layout.** Lines measured by the host (`Measure::offsets`), a tab to the stop the width of a space
   gives, broken after the last space that fits where the editor wraps; only the rows in view laid
   out; folded lines taking none; a gutter of line numbers, the page's marks and fold buttons; the
-  page told the lines in view (`EditorEvent::Viewport`).
+  page told the lines in view (`EditorEvent::Viewport`). A row is about one and a half times the
+  font's size, as editors of code set it: its text in the middle, the caret as tall as the text, the
+  grounds (the caret's line, a selection, what was found) the whole row.
 - **The pointer.** A click puts the caret at the nearest boundary across; two select a word, three
   a line; shift selects to it, ⌘ adds a caret, ⌥ selects a column (on each line, from the boundary
   nearest one place across to the boundary nearest the other); a drag past the room scrolls it.
