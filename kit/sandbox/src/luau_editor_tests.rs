@@ -46,10 +46,28 @@ struct Rig {
     told: Vec<EditorEvent>,
     /// What the module said to its program.
     sent: Vec<String>,
+    /// Whether the last page the module made asked for the next frame.
+    animating: bool,
+    /// Why the module closed, where a test expects it to ([`Rig::failing`]).
+    fault: Option<Fault>,
+    may_close: bool,
 }
 
 impl Rig {
     fn open(script: &str) -> Self {
+        Self::start(script, false)
+    }
+
+    /// Runs a page that is to fail: why it did.
+    fn failing(script: &str) -> String {
+        let rig = Self::start(script, true);
+        match rig.fault {
+            Some(Fault::Failed(why)) => why,
+            other => panic!("expected the page to fail, it is {other:?}"),
+        }
+    }
+
+    fn start(script: &str, may_close: bool) -> Self {
         let mut rig = Self {
             page: open_script(script, ModuleLimits::default()),
             editors: Editors::new(),
@@ -59,6 +77,9 @@ impl Rig {
             now: 0.0,
             told: Vec::new(),
             sent: Vec::new(),
+            animating: false,
+            fault: None,
+            may_close,
         };
         rig.page.module.render(SIZE, rig.now, false);
         // The interpreter is compiled before the first page: that is waited for.
@@ -119,6 +140,10 @@ impl Rig {
     /// told. Whether anything was.
     fn absorb(&mut self, update: crate::Update) -> bool {
         if let Some(fault) = &update.closed {
+            if self.may_close {
+                self.fault = Some(fault.clone());
+                return false;
+            }
             panic!("the page closed: {fault:?}");
         }
         self.sent.extend(update.sent.iter().cloned());
@@ -130,6 +155,7 @@ impl Rig {
         let mut relay = false;
         if let Some(frame) = update.frame {
             self.root = frame.root;
+            self.animating = frame.animating;
             relay = true;
             busy = true;
         }
@@ -163,6 +189,20 @@ impl Rig {
         }
         self.run();
         route
+    }
+
+    /// The next frame, as a host draws it when the page asked for it: rendered, laid out, what it
+    /// came to told.
+    fn frame(&mut self) {
+        self.now += 0.1;
+        self.page.module.render(SIZE, self.now, false);
+        self.run();
+    }
+
+    /// The page's command `id`, as the host's list or its keys ask for it.
+    fn command(&mut self, id: &str) {
+        self.page.module.event(Event::Command(Id::named(id)));
+        self.run();
     }
 
     fn type_text(&mut self, text: &str) {
@@ -720,4 +760,401 @@ fn a_page_says_which_spaces_and_tabs_its_editor_shows_and_whether_its_indent_has
         .filter(|item| matches!(item, Paint::Quad(quad) if role(quad.fill) == Some(Role::Magenta)))
         .count();
     assert_eq!((dots, arrows, guides), (2, 1, 1));
+}
+
+// --- A language of the kit's (`pencere.Syntax`) ---------------------------------------------------
+
+/// A language of C's block comments, strings and numbers, for the tests of `pencere.Syntax`. It
+/// counts the lines it reads (`read`) and the most one call of the page read (`most`, with
+/// `counted`).
+const C_LIKE: &str = r#"
+local read, most = 0, 0
+local language = pencere.Syntax.define({
+    name = "c",
+    start = function()
+        return { comment = false }
+    end,
+    token = function(stream, state)
+        if stream:sol() then
+            read += 1
+        end
+        if state.comment then
+            if stream:skip_to("*/") then
+                stream:match("%*/")
+                state.comment = false
+            else
+                stream:skip_to_end()
+            end
+            return "comment"
+        end
+        if stream:eat_space() then
+            return nil
+        end
+        if stream:match("/%*") then
+            state.comment = true
+            return "comment"
+        end
+        if stream:match('"[^"]*"?') then
+            return "string"
+        end
+        if stream:match("'[^']*'?") then
+            return "string.single"
+        end
+        if stream:match("%d+") then
+            return "number"
+        end
+        local word = stream:match("[%a_][%w_]*")
+        if word == "if" then
+            return "keyword strong"
+        end
+        if word == nil then
+            stream:next()
+        end
+        return nil
+    end,
+    blank = function()
+        read += 1
+    end,
+    styles = {
+        comment = { color = "dim", italic = true },
+        string = { weight = 600 },
+        number = { weight = 700 },
+        keyword = { color = "accent" },
+        strong = { weight = 800 },
+    },
+})
+local function counted(work)
+    local before = read
+    work()
+    most = math.max(most, read - before)
+end
+"#;
+
+/// A page of one editor coloured by `C_LIKE`, with the `options` of its syntax, which loads what
+/// `document` (the body of a function) returns when it is first in view and shows what the language
+/// read. Its commands change the document: `uncomment` and `comment` take the `/*` at the start of
+/// line 20 out and put it back, `open` puts one at the start of line 100, `far` shows line 15 000.
+fn coloured(document: &str, options: &str) -> String {
+    let page = r#"
+local syntax = pencere.Syntax.new(language, "e", OPTIONS)
+local loaded = false
+local function document()
+    DOCUMENT
+end
+local function change(line, take, insert)
+    local at = pencere.layout.line_start("e", line)
+    return { change = { { from = at, to = at + take, insert = insert } }, base = pencere.layout.editor_version("e") }
+end
+return {
+    render = function()
+        counted(function()
+            syntax:work()
+        end)
+        return pencere.div():size_full()
+            :command("uncomment", "Uncomment")
+            :command("comment", "Comment")
+            :command("open", "Open a comment")
+            :command("far", "Go far down")
+            :command("nothing", "Do nothing")
+            :child(pencere.editor("e", { gutter = false }):grow(1))
+            :child(pencere.text(string.format("read %d most %d", read, most))), syntax:busy()
+    end,
+    handle = function(event)
+        local ask = nil
+        if event.type == "viewport" and not loaded then
+            loaded = true
+            ask = { load = document() }
+        elseif event.type == "command" then
+            if event.id == "uncomment" then
+                ask = change(20, 2, "")
+            elseif event.id == "comment" then
+                ask = change(20, 0, "/*")
+            elseif event.id == "open" then
+                ask = change(100, 0, "/*")
+            elseif event.id == "far" then
+                ask = { reveal = pencere.layout.line_start("e", 15000), version = pencere.layout.editor_version("e") }
+            end
+        end
+        counted(function()
+            syntax:handle(event)
+        end)
+        return syntax:reply(ask and { editor = { e = ask } })
+    end,
+}
+"#;
+    format!(
+        "{C_LIKE}{}",
+        page.replace("OPTIONS", options)
+            .replace("DOCUMENT", document)
+    )
+}
+
+/// The lines the language read, and the most one call read, as the page shows them.
+fn read(rig: &Rig) -> (usize, usize) {
+    let shown = words(&rig.root);
+    let line = shown
+        .iter()
+        .find(|words| words.starts_with("read "))
+        .expect("the page shows what it read");
+    let numbers: Vec<usize> = line
+        .split(' ')
+        .filter_map(|word| word.parse().ok())
+        .collect();
+    (numbers[0], numbers[1])
+}
+
+/// What the `syntax` layer gives line `line` of the editor: each look from where to where in the
+/// line (characters), by the style of `C_LIKE` it is.
+fn looks(rig: &Rig, line: usize) -> Vec<(usize, usize, &'static str)> {
+    let buffer = rig.editors.buffer(Id::named("e")).expect("the editor");
+    let Some(layer) = buffer
+        .layer_names()
+        .iter()
+        .position(|name| name == "syntax")
+    else {
+        return Vec::new();
+    };
+    let start = buffer.line_start(line);
+    buffer
+        .decorations_in(start, buffer.line_end(line))
+        .into_iter()
+        .filter(|(index, _)| *index == layer)
+        .map(|(_, decoration)| {
+            let Mark::Style(look) = &decoration.mark else {
+                panic!("a syntax colours, it does not mark: {decoration:?}");
+            };
+            let style = match (look.italic, look.weight) {
+                (Some(true), _) => "comment",
+                (_, Some(600)) => "string",
+                (_, Some(700)) => "number",
+                (_, Some(800)) if look.color.is_some() => "keyword strong",
+                _ => "other",
+            };
+            (decoration.from - start, decoration.to - start, style)
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_language_colours_a_block_comment_over_its_lines_and_only_the_lines_in_view() {
+    let mut rig = Rig::open(&coloured(
+        r#"local lines = {}
+        for i = 1, 3000 do
+            lines[i] = string.format("v = %05d", i)
+        end
+        lines[3] = "a /* one"
+        lines[4] = "two"
+        lines[5] = "three */ 12"
+        lines[6] = "if 'it' \"is\""
+        return table.concat(lines, "\n")"#,
+        "{}",
+    ));
+    rig.frame();
+    assert_eq!(looks(&rig, 1), vec![(4, 9, "number")]);
+    assert_eq!(looks(&rig, 2), vec![(2, 8, "comment")]);
+    assert_eq!(looks(&rig, 3), vec![(0, 3, "comment")]);
+    assert_eq!(
+        looks(&rig, 4),
+        vec![(0, 8, "comment"), (9, 11, "number")],
+        "the comment ends where it says"
+    );
+    // A token of two names has both looks; a dotted name the look of what is before its dot.
+    assert_eq!(
+        looks(&rig, 5),
+        vec![
+            (0, 2, "keyword strong"),
+            (3, 7, "string"),
+            (8, 12, "string")
+        ]
+    );
+    assert_eq!(looks(&rig, 6), vec![(4, 9, "number")]);
+    assert!(
+        looks(&rig, 2500).is_empty(),
+        "a line far out of view is not coloured"
+    );
+    let (lines, most) = read(&rig);
+    assert!(
+        lines < 200 && most < 200,
+        "only what is in view is read: {lines}, {most}"
+    );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn an_edit_reads_the_lines_again_only_until_their_state_is_what_it_was() {
+    let mut rig = Rig::open(&coloured(
+        r#"local lines = {}
+        for i = 1, 2000 do
+            lines[i] = string.format("v = %05d", i)
+        end
+        lines[21] = "/* open"
+        lines[26] = "close */"
+        return table.concat(lines, "\n")"#,
+        "{}",
+    ));
+    rig.frame();
+    let (before, _) = read(&rig);
+    assert_eq!(looks(&rig, 22), vec![(0, 9, "comment")]);
+    // Without its `/*`, lines 20 to 25 are read again: the state after line 25 is what it was, and
+    // the lines after it are not read.
+    rig.command("uncomment");
+    rig.frame();
+    let (after, _) = read(&rig);
+    assert_eq!(after - before, 6);
+    assert_eq!(looks(&rig, 22), vec![(4, 9, "number")]);
+    assert_eq!(looks(&rig, 26), vec![(4, 9, "number")]);
+    rig.command("comment");
+    rig.frame();
+    assert_eq!(read(&rig).0 - after, 6);
+    assert_eq!(looks(&rig, 22), vec![(0, 9, "comment")]);
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_language_colours_characters_where_a_line_has_characters_of_many_bytes() {
+    let mut rig = Rig::open(&coloured(r#"return "çay \"şeker\" 12\né /* ğ */ x""#, "{}"));
+    rig.frame();
+    assert_eq!(looks(&rig, 0), vec![(4, 11, "string"), (12, 14, "number")]);
+    assert_eq!(looks(&rig, 1), vec![(2, 9, "comment")]);
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_long_document_is_coloured_a_step_at_a_time_what_is_in_view_first() {
+    let mut rig = Rig::open(&coloured(
+        r#"local lines = {}
+        for i = 1, 20000 do
+            lines[i] = string.format("v = %05d", i)
+        end
+        return table.concat(lines, "\n")"#,
+        "{ step = 20000 }",
+    ));
+    rig.frame();
+    assert_eq!(looks(&rig, 1), vec![(4, 9, "number")]);
+    // From line 100 on, everything is a comment; far down, out of view, it is not read yet.
+    rig.command("open");
+    rig.command("far");
+    // The editor scrolls there when the host lays the page out next.
+    rig.frame();
+    // The lines in view are coloured at once, from a guess, and the reading goes on in the frames
+    // after: one call reads no more than its step (20 000 bytes, of lines of 10).
+    assert_eq!(looks(&rig, 15000), vec![(4, 9, "number")]);
+    assert!(
+        rig.animating,
+        "the page asks for frames while there is more to read"
+    );
+    let mut frames = 0;
+    while rig.animating && frames < 100 {
+        rig.frame();
+        frames += 1;
+    }
+    assert!(!rig.animating, "the reading comes to an end");
+    assert!(frames >= 5, "the reading went on over {frames} frames");
+    let (_, most) = read(&rig);
+    assert!(most <= 2001, "one call read {most} lines");
+    // What the reading found the guess got wrong goes to the editor with the page's next reply.
+    rig.command("nothing");
+    assert_eq!(looks(&rig, 15000), vec![(0, 9, "comment")]);
+    // The lines out of view are not coloured any more.
+    assert!(looks(&rig, 1).is_empty());
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_token_that_reads_nothing_fails_the_page_with_its_languages_name_and_its_line() {
+    let why = Rig::failing(
+        r#"
+        local language = pencere.Syntax.define({
+            name = "stuck",
+            start = function() return {} end,
+            token = function(stream)
+                if stream:peek() == "!" then
+                    return "x"
+                end
+                stream:next()
+            end,
+        })
+        local syntax = pencere.Syntax.new(language, "e")
+        local loaded = false
+        return {
+            render = function()
+                return pencere.editor("e", { gutter = false })
+            end,
+            handle = function(event)
+                local reply = nil
+                if event.type == "viewport" and not loaded then
+                    loaded = true
+                    reply = { editor = { e = { load = "fine\nnot!" } } }
+                end
+                syntax:handle(event)
+                return syntax:reply(reply)
+            end,
+        }"#,
+    );
+    assert!(
+        why.contains("stuck: line 2: token read nothing at column 4"),
+        "{why}"
+    );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_language_reads_a_line_from_a_stream_as_codemirrors_does() {
+    let rig = Rig::open(
+        r#"
+        local seen = {}
+        local language = pencere.Syntax.define({
+            name = "probe",
+            start = function() return { n = 0 } end,
+            token = function(stream, state)
+                state.n += 1
+                if stream:sol() then
+                    seen[#seen + 1] = stream:indentation()
+                    stream:eat_space()
+                    seen[#seen + 1] = stream:sol()
+                    -- A pattern is read where the stream is, not further on.
+                    seen[#seen + 1] = stream:match("b") or "no b"
+                    seen[#seen + 1] = stream:match("(%a+)=(%d+)", false)
+                    seen[#seen + 1] = stream:match("KEY", false, true)
+                    seen[#seen + 1] = stream:match("[j-l]+", false, true)
+                    seen[#seen + 1] = stream:eat(".") or "no dot"
+                    seen[#seen + 1] = stream:eat("%a")
+                    stream:backup(1)
+                    stream:eat_while("[%w=]")
+                    seen[#seen + 1] = stream:current()
+                    stream:eat_space()
+                    stream.start = stream.pos
+                    seen[#seen + 1] = stream:column()
+                    seen[#seen + 1] = stream:next()
+                    seen[#seen + 1] = stream:skip_to("b") and stream.pos or "no b"
+                    return "word"
+                end
+                stream:skip_to_end()
+                return "rest"
+            end,
+        })
+        local tokens, after = language:tokens("\t  Key=42 é ab")
+        local said = {}
+        for _, value in ipairs(seen) do
+            said[#said + 1] = tostring(value)
+        end
+        for _, token in ipairs(tokens) do
+            said[#said + 1] = token.name .. " " .. token.from .. "-" .. token.to
+        end
+        said[#said + 1] = "states " .. after.n
+        return {
+            render = function()
+                return pencere.text(table.concat(said, ", "))
+            end,
+        }"#,
+    );
+    assert_eq!(
+        words(&rig.root),
+        vec![
+            "6, false, no b, Key, Key, K, no dot, K, \t  Key=42, 13, é, 15, word 0-13, rest 13-14, \
+             states 2"
+                .to_owned()
+        ]
+    );
 }

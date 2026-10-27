@@ -2,9 +2,11 @@
 -- page makes a language of. It is a page of the kit's page API, and an example of every hook the
 -- editor gives a page:
 --
--- * colours: the page reads the lines in view (`pencere.layout.editor_text`) and colours their
---   words with a small lexer, a layer of decorations at a time (`decorate = "syntax"`), only the
---   lines it was told are in view (`viewport`) or that changed (`edit`);
+-- * colours: SQL is a language of the kit's (`pencere.Syntax`), read a line at a time with a state
+--   carried from line to line (a block comment goes on over lines); the kit colours the lines in
+--   view (`viewport`) as a layer of decorations (`decorate = "syntax"`), reads again from the line
+--   an edit touched until the state is what it was, and goes on in the frames after where there is
+--   more than one call may do;
 -- * folds: each statement of more than one line is a region that folds (a layer of its own);
 -- * completions: a popup anchored to the caret (`pencere.caret_of`), whose keys (↑ ↓ ↩ ⇥ Esc) are
 --   commands of the page only while it is open, and which puts the word in with a change against
@@ -39,49 +41,51 @@ local LOOKS = {
 	comment = { color = "dim", italic = true },
 }
 
--- The words of a line and what each is: { from =, to =, kind = } in characters from 0 of the line.
-local function lex(line)
-	local tokens = {}
-	local chars = {}
-	for _, code in utf8.codes(line) do
-		chars[#chars + 1] = utf8.char(code)
-	end
-	local at = 1
-	while at <= #chars do
-		local c = chars[at]
-		if c == "-" and chars[at + 1] == "-" then
-			tokens[#tokens + 1] = { from = at - 1, to = #chars, kind = "comment" }
-			break
-		elseif c == "'" then
-			local close = at + 1
-			while close <= #chars and chars[close] ~= "'" do
-				close += 1
+-- What the state carries from line to line: whether a block comment is open.
+local language = b.Syntax.define({
+	name = "sql",
+	start = function()
+		return { comment = false }
+	end,
+	token = function(stream, state)
+		if state.comment then
+			if stream:skip_to("*/") then
+				stream:match("%*/")
+				state.comment = false
+			else
+				stream:skip_to_end()
 			end
-			tokens[#tokens + 1] = { from = at - 1, to = math.min(close, #chars), kind = "string" }
-			at = close + 1
-		elseif string.match(c, "%d") then
-			local finish = at
-			while finish < #chars and string.match(chars[finish + 1], "[%d%.]") do
-				finish += 1
-			end
-			tokens[#tokens + 1] = { from = at - 1, to = finish, kind = "number" }
-			at = finish + 1
-		elseif string.match(c, "[%a_]") then
-			local finish = at
-			while finish < #chars and string.match(chars[finish + 1], "[%w_]") do
-				finish += 1
-			end
-			local word = string.lower(table.concat(chars, "", at, finish))
-			if IS_KEYWORD[word] then
-				tokens[#tokens + 1] = { from = at - 1, to = finish, kind = "keyword" }
-			end
-			at = finish + 1
-		else
-			at += 1
+			return "comment"
 		end
-	end
-	return tokens
-end
+		if stream:eat_space() then
+			return nil
+		end
+		if stream:match("%-%-") then
+			stream:skip_to_end()
+			return "comment"
+		end
+		if stream:match("/%*") then
+			state.comment = true
+			return "comment"
+		end
+		-- A string ends at its quote, or with the line.
+		if stream:match("'[^']*'?") then
+			return "string"
+		end
+		if stream:match("%d[%d%.]*") then
+			return "number"
+		end
+		local word = stream:match("[%a_][%w_]*")
+		if word then
+			return IS_KEYWORD[string.lower(word)] and "keyword" or nil
+		end
+		stream:next()
+		return nil
+	end,
+	styles = LOOKS,
+})
+
+local syntax = b.Syntax.new(language, SQL)
 
 -- --- The document ------------------------------------------------------------------------------
 
@@ -89,8 +93,6 @@ end
 local version = 0
 local caret = 0
 local composing = false
--- The lines in view, as the editor said.
-local first_line, last_line = 0, 0
 -- What is to be loaded still, in pieces, and the size of a piece.
 local PIECE = 8 * 1024
 local pending = nil
@@ -125,44 +127,6 @@ local function next_piece()
 	local piece = string.sub(pending, 1, cut)
 	pending = string.sub(pending, cut + 1)
 	return { load = piece, more = pending ~= "" }
-end
-
--- The decorations of the lines `from` to `to` (from 0): the colours, as one layer, for the range
--- those lines take.
-local function colour(from, to)
-	local lines = layout.editor_lines(SQL)
-	if not lines then
-		return nil
-	end
-	to = math.min(to, lines - 1)
-	if from > to then
-		return nil
-	end
-	local start = layout.line_start(SQL, from)
-	local finish = (to + 1 < lines) and (layout.line_start(SQL, to + 1) - 1) or layout.editor_length(SQL)
-	local decorations = {}
-	for line = from, to do
-		local base = layout.line_start(SQL, line)
-		local after = (line + 1 < lines) and (layout.line_start(SQL, line + 1) - 1) or layout.editor_length(SQL)
-		local text = layout.editor_text(SQL, base, after) or ""
-		for _, token in lex(text) do
-			local look = LOOKS[token.kind]
-			decorations[#decorations + 1] = {
-				from = base + token.from,
-				to = base + token.to,
-				color = look.color,
-				weight = look.weight,
-				italic = look.italic,
-			}
-		end
-	end
-	return {
-		decorate = "syntax",
-		version = layout.editor_version(SQL),
-		from = start,
-		to = finish,
-		decorations = decorations,
-	}
 end
 
 -- The statements of more than one line, as regions that fold.
@@ -264,7 +228,8 @@ local function run()
 		else
 			note = result.note or "Done."
 		end
-		return true
+		-- An answer is a reply as well: what the language has for the editor goes out with it.
+		return syntax:reply(true)
 	end)
 	note = "Running…"
 	return true
@@ -273,8 +238,11 @@ end
 -- --- The page ------------------------------------------------------------------------------------
 
 local function render(size)
+	-- What is left of the colouring after the last event: the next frame is asked for while there
+	-- is more.
+	syntax:work()
 	local editor = b.editor(SQL, {
-		comment = "--",
+		comment = { line = "--", block = { "/*", "*/" } },
 		pairs = "()''",
 		hint = "Write SQL…",
 	}):grow(1):bg("raised1"):focused(true)
@@ -297,40 +265,29 @@ local function render(size)
 		end
 		editor = editor:child(list)
 	end
-	return b.div():size_full():child(editor):child(b.div():p(6):child(b.text(note):color("dim")))
+	return b.div():size_full():child(editor):child(b.div():p(6):child(b.text(note):color("dim"))),
+		syntax:busy()
 end
 
-local function handle(event)
+-- What the page does of an event, the colours aside.
+local function respond(event)
 	local kind = event.type
 	if kind == "viewport" and event.editor == SQL then
-		first_line, last_line = event.first, event.last
-		local asks = {}
 		if not loaded then
 			loaded = true
 			pending = sample()
-			asks[#asks + 1] = next_piece()
-		else
-			asks[#asks + 1] = colour(first_line, last_line)
+			return { editor = { [SQL] = { next_piece() } } }
 		end
-		return { editor = { [SQL] = asks } }
+		return nil
 	elseif kind == "edit" and event.editor == SQL then
 		version = event.version
-		local asks = {}
 		if event.origin == "load" then
 			local piece = next_piece()
 			if piece then
-				asks[#asks + 1] = piece
-			else
-				asks[#asks + 1] = colour(first_line, last_line)
-				asks[#asks + 1] = folds()
+				return { editor = { [SQL] = { piece } } }
 			end
-		else
-			-- The lines that changed, coloured again (with those in view: a new line moves them).
-			local line = layout.line_of(SQL, event.changes[1].from) or first_line
-			asks[#asks + 1] = colour(math.min(line, first_line), math.max(line + 1, last_line))
-			asks[#asks + 1] = folds()
 		end
-		return { editor = { [SQL] = asks } }
+		return { editor = { [SQL] = { folds() } } }
 	elseif kind == "selection" and event.editor == SQL then
 		local main = event.ranges[event.main]
 		caret = main.head
@@ -360,6 +317,13 @@ local function handle(event)
 		end
 	end
 	return nil
+end
+
+-- The language is given every event (an edit and what is in view are its, any other a call to go
+-- on in), and what it asks of the editor goes first in the reply.
+local function handle(event)
+	syntax:handle(event)
+	return syntax:reply(respond(event))
 end
 
 return { render = render, handle = handle }

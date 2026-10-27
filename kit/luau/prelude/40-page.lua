@@ -1,4 +1,4 @@
--- The page API, part 5: the page itself and its program.
+-- The page API, part 6: the page itself and its program.
 --
 -- A script returns the page, a table of the functions the application calls:
 --
