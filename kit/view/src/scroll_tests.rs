@@ -392,10 +392,15 @@ fn a_knob_dragged_moves_the_box_and_a_click_in_its_track_goes_a_page() {
     scrolls.place(&mut laid, 0.0, false);
     assert!(scrolls.press(Point::new(196.0, 96.0), 1.0));
     assert!(!scrolls.holding());
+    assert!(
+        scrolls.release(1.0),
+        "the release of a press the bar took is the bar's"
+    );
     scrolls.place(&mut laid, 2.0, false);
     assert!((scrolls.offset(LIST).y - (was + 72.0).min(120.0)).abs() < 0.01);
-    // Away from the bars a press is the page's.
+    // Away from the bars a press is the page's, and so is its release.
     assert!(!scrolls.press(Point::new(100.0, 50.0), 3.0));
+    assert!(!scrolls.release(3.0));
 }
 
 #[test]

@@ -156,6 +156,8 @@ pub struct Scrolls {
     /// The bar the pointer is over (the box, and whether it is the one across).
     over: Option<(Id, bool)>,
     held: Option<Held>,
+    /// A bar took the press the button is held for: its release is the bar's too.
+    pressed: bool,
 }
 
 impl Scrolls {
@@ -450,6 +452,7 @@ impl Scrolls {
         let knob_at = start + room * (offset / reach.max(1.0)).clamp(0.0, 1.0);
         let pointer = along(at, across);
         let on_knob = pointer >= knob_at && pointer <= knob_at + knob;
+        self.pressed = true;
         if !on_knob && !jumps {
             let page = view_of(extent, across) * 0.9;
             let toward = if pointer < knob_at { -page } else { page };
@@ -479,16 +482,15 @@ impl Scrolls {
         true
     }
 
-    /// The button came up: a knob held is let go. Returns whether one was (the release is the
-    /// bar's, not the page's).
+    /// The button came up: a knob held is let go. Returns whether a bar took the press it ends
+    /// (the release is the bar's then, not the page's).
     pub fn release(&mut self, now: f64) -> bool {
-        let Some(held) = self.held.take() else {
-            return false;
-        };
-        if let Some(b) = self.boxes.get_mut(&held.id) {
+        if let Some(held) = self.held.take()
+            && let Some(b) = self.boxes.get_mut(&held.id)
+        {
             b.moved_at = Some(now);
         }
-        true
+        std::mem::take(&mut self.pressed)
     }
 
     /// Whether a bar's knob is held: the pointer's moves and the release are the bar's.
