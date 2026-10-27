@@ -42,9 +42,9 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 - **Layout.** Lines measured by the host (`Measure::offsets`), a tab to the stop the width of a space
   gives, broken after the last space that fits where the editor wraps; only the rows in view laid
   out; folded lines taking none; a gutter of line numbers, the page's marks and fold buttons; the
-  page told the lines in view (`EditorEvent::Viewport`). A row is as tall as the page says, one and a
-  half times the font's size where it says nothing, as editors of code set it: its text in the
-  middle, the caret as tall as the text, the grounds (the caret's line, a selection, what was found)
+  page told the lines in view (`EditorEvent::Viewport`). A row is as tall as the page says, 1.6 times
+  the font's size where it says nothing (the golden ratio editors of code read comfortably at): its
+  text in the middle, the caret as tall as the text, the grounds (the caret's line, a selection, what was found)
   the whole row.
 - **How it looks is the page's** (`EditorOptions`): the room around the text, the rows kept about
   the caret when it scrolls, a caret that is a bar, a block (its character drawn again on it) or a

@@ -259,7 +259,8 @@ pub struct EditorOptions {
     /// The brackets and quotes that close themselves when they are typed, opener and closer.
     pub pairs: Vec<(char, char)>,
     /// How tall a row is, times the font's size: its text is in the middle of it, with a point
-    /// at least above and below (1.5, as editors of code set it; [`limits::LINE_HEIGHT`]).
+    /// at least above and below (1.6, the golden ratio editors of code read comfortably at;
+    /// [`limits::LINE_HEIGHT`]).
     pub line_height: f32,
     /// The room kept around the text, points ([`limits::PADDING`]).
     pub padding: f32,
@@ -284,7 +285,7 @@ impl Default for EditorOptions {
             hint: None,
             comment: None,
             pairs: Vec::new(),
-            line_height: 1.5,
+            line_height: 1.6,
             padding: 4.0,
             scroll_margin: 0,
             numbers: Numbers::Absolute,

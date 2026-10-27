@@ -196,10 +196,10 @@ impl View {
             } else {
                 (room.font.size * 1.25).ceil()
             };
-            // A row is as tall as the page says, times the font's size (one and a half, as editors
-            // of code set it, where it says nothing), its text in the middle, with a point at
-            // least above and below it where the font's own line is that tall already. The room is
-            // whole points, so a row is as tall on every screen.
+            // A row is as tall as the page says, times the font's size (1.6, the golden ratio
+            // editors of code read comfortably at, where it says nothing), its text in the middle,
+            // with a point at least above and below it where the font's own line is that tall
+            // already. The room is whole points, so a row is as tall on every screen.
             let s = scale.max(0.01);
             let points = |pixels: f32| (pixels / s).round() * s;
             let target = points(room.font.size * options.line_height);

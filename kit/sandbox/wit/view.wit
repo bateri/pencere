@@ -633,7 +633,7 @@ interface types {
         /// The brackets and quotes that close themselves, each an opener and its closer one after
         /// the other (`()[]{}""`): a part of the frame's `text`.
         pairs: option<slice>,
-        /// How tall a row is, times the font's size, its text in the middle (1 to 3; 1.5 when
+        /// How tall a row is, times the font's size, its text in the middle (1 to 3; 1.6 when
         /// none).
         line-height: option<f32>,
         /// The room kept around the text, points (0 to 64; 4 when none).

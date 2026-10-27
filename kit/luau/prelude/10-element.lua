@@ -348,7 +348,7 @@ end
 -- hidden or not. `options` (all optional): `wrap`, `tab_width` (4), `hard_tabs`, `gutter` (true),
 -- `read_only`, `keys` ("editor", or "page": every key the page's), `hint` (what it says while
 -- empty), `comment` ("--": what the command that comments lines puts), `pairs` (the brackets and
--- quotes that close themselves: "()[]{}" or { "()", "[]" }); how it looks: `line_height` (1.5
+-- quotes that close themselves: "()[]{}" or { "()", "[]" }); how it looks: `line_height` (1.6
 -- times the font's size), `padding` (4 points), `scroll_margin` (rows kept about the caret, 0),
 -- `numbers` ("absolute", "relative", "hidden"), `caret = { shape = "bar" | "block" | "underline",
 -- width = 1.5, color =, text = }` and `colors = { current_line, selection, selection_blurred,
