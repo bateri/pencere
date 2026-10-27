@@ -359,6 +359,30 @@ pub enum EditCommand {
     StopFinding,
 }
 
+/// What a page asks of an editor of its, in a reply.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EditorAsk {
+    /// A piece of the document: the first takes the place of the whole text, each after it (where
+    /// the one before said `more`) goes on its end. Nothing of a load is undone, and what could be
+    /// undone before cannot be any more; while one goes on, the person cannot change the text.
+    Load { text: String, more: bool },
+    /// Changes against the version `base`: carried over what was done since, done, and undone as
+    /// one.
+    Change { base: u64, changes: Vec<Change> },
+    /// The selections, in the places of `version` ([`Selection`]).
+    Select {
+        version: u64,
+        ranges: Vec<Range>,
+        main: usize,
+    },
+    /// The place `at` (of `version`) scrolled into view.
+    Reveal { version: u64, at: usize },
+    /// What the person could have done with a key.
+    Command(EditCommand),
+    /// A layer's decorations for a range.
+    Decorate(Decorate),
+}
+
 /// Why an editor did not do what a page asked: what the page sent was not something it could
 /// do, and nothing of it was done ([`crate::Event::EditorRefused`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

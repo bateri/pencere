@@ -21,12 +21,15 @@ mod buffer;
 mod changes;
 mod commands;
 mod decorations;
+mod editors;
 mod find;
 mod history;
 mod segments;
 mod text;
+mod view;
 
 pub use buffer::{Buffer, Columns, Note, Placement};
+pub use editors::{EditorEvent, Editors, Measured, Route};
 pub use find::FIND_MATCHES;
 pub use history::{UNDO_DEPTH, UNDO_PAUSE};
 pub use text::Snapshot;

@@ -977,6 +977,7 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
                 wit::FieldKind::Lines => FieldKind::Lines,
                 wit::FieldKind::Secret => FieldKind::Secret,
             }),
+            editor: None,
             label: node
                 .label
                 .as_ref()

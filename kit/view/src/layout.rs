@@ -13,6 +13,7 @@ use taffy::style::{
 };
 use taffy::{NodeId, TaffyTree, compute_leaf_layout};
 
+use crate::edit::EditorOptions;
 use crate::element::{FieldKind, Fit, Kind, Meta, Spark, State};
 use crate::paint::Quad;
 use crate::rich::{Look, RichLine, cut_line, lay_lines};
@@ -80,10 +81,19 @@ pub(crate) struct Rich {
     pub lines: Vec<RichLine>,
 }
 
+/// The text an editor's room is in: the face, the size and the colour of the boxes around it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct EditorLook {
+    pub font: Font,
+    pub color: Color,
+}
+
 /// What a laid-out element draws besides its box.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Content {
     None,
+    /// The room of an editor of the host's: the host draws in it.
+    Editor(EditorLook),
     Text(TextLine),
     Rich(Rich),
     Spark(Spark),
@@ -134,6 +144,15 @@ pub struct Laid {
     pub size: Size,
     /// Pixels per point.
     pub scale: f32,
+    /// The carets of the editors on the page: the editor's place in `nodes`, the caret's name and
+    /// its box from the top-left of the editor's content as it is when nothing is scrolled, pixels
+    /// ([`crate::Measure::editor`]).
+    pub(crate) carets: Vec<(usize, Id, Rect)>,
+    /// What the overlays of the page are anchored to.
+    pub(crate) anchored: Vec<Id>,
+    /// An editor with an overlay anchored to its caret was scrolled since the page was laid out:
+    /// the overlay stands where the caret was ([`Laid::wants_layout`]).
+    pub(crate) stale: bool,
 }
 
 /// What a Taffy leaf needs to be measured.
@@ -340,6 +359,9 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             bars: Vec::new(),
             size: viewport,
             scale,
+            carets: Vec::new(),
+            anchored: Vec::new(),
+            stale: false,
         };
     }
 
@@ -445,8 +467,38 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             );
         }
     }
+    // An editor's room scrolls over what the host's editor laid out, and its caret is where the
+    // editor last put it.
+    let mut carets = Vec::new();
+    for (index, node) in nodes.iter_mut().enumerate() {
+        let (Some(id), Content::Editor(_)) = (node.meta.id, &node.content) else {
+            continue;
+        };
+        let Some(said) = measure.editor(id) else {
+            continue;
+        };
+        if let Some((content, view)) = &mut node.extent {
+            let fits = |side: f32| side.is_finite() && side >= 0.0;
+            *content = Size::new(
+                if fits(said.content.w) {
+                    said.content.w
+                } else {
+                    view.w
+                },
+                if fits(said.content.h) {
+                    said.content.h
+                } else {
+                    view.h
+                },
+            );
+        }
+        if let Some(caret) = said.caret.filter(|r| r.x.is_finite() && r.y.is_finite()) {
+            carets.push((index, id.caret(), caret));
+        }
+    }
+    let anchored = anchors.iter().map(|(_, anchor)| anchor.to).collect();
     for (index, anchor) in anchors {
-        place_beside(&mut nodes, index, anchor, page, scale);
+        place_beside(&mut nodes, &carets, index, anchor, page, scale);
     }
     for node in &mut nodes {
         if let Content::Rich(rich) = &mut node.content {
@@ -458,7 +510,17 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         bars: Vec::new(),
         size: viewport,
         scale,
+        carets,
+        anchored,
+        stale: false,
     }
+}
+
+/// Where the caret of an editor is on the page, pixels: its box in the content, moved as the room
+/// is scrolled.
+fn caret_on_page(nodes: &[Node], (index, _, caret): &(usize, Id, Rect)) -> Option<Rect> {
+    let room = nodes.get(*index)?;
+    Some(caret.translate(room.rect.x - room.scroll.0, room.rect.y - room.scroll.1))
 }
 
 /// The height of a line of a text of many looks: the tallest of its parts' fonts.
@@ -517,19 +579,35 @@ fn lay_rich(rich: &mut Rich, width: f32, measure: &mut dyn Measure) {
 /// Moves the overlay at `index`, and what is inside it, beside the element its anchor names: on
 /// the side asked where the page has the room, on the other where it has not (and there it has),
 /// and along that side as far as it takes to stay on the page.
-fn place_beside(nodes: &mut [Node], index: usize, anchor: Anchor, page: Rect, scale: f32) {
+fn place_beside(
+    nodes: &mut [Node],
+    carets: &[(usize, Id, Rect)],
+    index: usize,
+    anchor: Anchor,
+    page: Rect,
+    scale: f32,
+) {
     let Some(me) = nodes.get(index).map(|node| node.rect) else {
         return;
     };
-    // The element it stands beside: the first by that name that is not inside the overlay itself.
-    let Some(to) = nodes
+    // The element it stands beside: the first by that name that is not inside the overlay itself;
+    // or the caret of an editor, where its room is shown.
+    let element = nodes
         .iter()
         .enumerate()
         .find(|(at, node)| {
             node.meta.id == Some(anchor.to) && !node.hidden && !is_inside_of(nodes, *at, index)
         })
-        .map(|(_, node)| node.rect)
-    else {
+        .map(|(_, node)| node.rect);
+    let caret = || {
+        let found = carets.iter().find(|(_, id, _)| *id == anchor.to)?;
+        let room = nodes.get(found.0)?;
+        if room.hidden {
+            return None;
+        }
+        caret_on_page(nodes, found)
+    };
+    let Some(to) = element.or_else(caret) else {
         return;
     };
     let gap = anchor.gap * scale;
@@ -827,6 +905,11 @@ fn build(
             tree.new_leaf_with_context(taffy_style, Leaf::Image { natural, inset })
         }
         Kind::Box => {
+            if let Some(entry) = pending.get_mut(index)
+                && entry.meta.editor.is_some()
+            {
+                entry.content = Content::Editor(EditorLook { font, color });
+            }
             let mut ids: Vec<NodeId> = Vec::with_capacity(children.len());
             for child in children {
                 if child.style.overlay {
@@ -1059,14 +1142,27 @@ impl Laid {
     /// The box of the element named `id`, points (where it is on the page now, whatever of it
     /// is cut off by a box around it).
     pub fn bounds(&self, id: Id) -> Option<Rect> {
-        let node = self.named(id)?;
         let s = self.scale;
-        Some(Rect::new(
-            node.rect.x / s,
-            node.rect.y / s,
-            node.rect.w / s,
-            node.rect.h / s,
-        ))
+        let rect = match self.named(id) {
+            Some(node) => node.rect,
+            None => {
+                let caret = self.carets.iter().find(|(_, caret, _)| *caret == id)?;
+                caret_on_page(&self.nodes, caret)?
+            }
+        };
+        Some(Rect::new(rect.x / s, rect.y / s, rect.w / s, rect.h / s))
+    }
+
+    /// Whether an overlay of the page stands beside `id` (an element, or an editor's caret).
+    pub fn anchored_to(&self, id: Id) -> bool {
+        self.anchored.contains(&id)
+    }
+
+    /// Whether the page is to be laid out again, as it is (its tree, not a new one asked of the
+    /// page): an editor was scrolled ([`crate::Scrolls::place`]) that has an overlay anchored to its
+    /// caret, which still stands where the caret was.
+    pub fn wants_layout(&self) -> bool {
+        self.stale
     }
 
     /// The named elements under `at` that hold one another: the topmost there, then what holds
@@ -1262,6 +1358,13 @@ impl Laid {
         if dx == 0.0 && dy == 0.0 {
             return;
         }
+        let editor = match (&node.content, node.meta.id) {
+            (Content::Editor(_), Some(id)) => Some(id),
+            _ => None,
+        };
+        if editor.is_some_and(|id| self.anchored.contains(&id.caret())) {
+            self.stale = true;
+        }
         // What is inside a box follows it in the paint order, the overlays aside (they come after
         // everything else).
         for at in index + 1..self.subtree_end(index) {
@@ -1334,6 +1437,50 @@ impl Laid {
             .collect()
     }
 
+    /// The editors the host puts on the page ([`crate::Element::editor`]), in the order they are
+    /// written: each named, with its options, where its room stands, the text it is in, what it says
+    /// while it is empty and what it is to a screen reader — the hidden ones too (a hidden editor
+    /// keeps its document: a page with tabs hides the editors of the files not in front). Of two by
+    /// the same name, the first is the editor. One with no name is none.
+    pub fn editors(&self) -> Vec<EditorRoom> {
+        let s = self.scale;
+        let mut seen = HashSet::new();
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| {
+                let (Some(id), Some(options), Content::Editor(look)) =
+                    (node.meta.id, node.meta.editor.as_ref(), &node.content)
+                else {
+                    return None;
+                };
+                if !seen.insert(id) {
+                    return None;
+                }
+                Some(EditorRoom {
+                    id,
+                    options: options.clone(),
+                    rect: Rect::new(
+                        node.rect.x / s,
+                        node.rect.y / s,
+                        node.rect.w / s,
+                        node.rect.h / s,
+                    ),
+                    pixels: node.rect,
+                    clip: Self::shown(node),
+                    hidden: node.hidden,
+                    font: look.font,
+                    color: look.color,
+                    hint: options
+                        .hint
+                        .clone()
+                        .or_else(|| self.hint_of(index).map(str::to_owned)),
+                    label: node.meta.label.clone(),
+                })
+            })
+            .collect()
+    }
+
     /// The elements that say something while the pointer rests on them ([`crate::Element::tip`]),
     /// with the part of each that is seen, in points; the innermost last, so a host that looks
     /// for the tip under the pointer takes the last that holds it.
@@ -1385,8 +1532,11 @@ impl Laid {
                 continue;
             }
             let field = node.meta.field.filter(|_| node.meta.id.is_some());
+            let editor = node.meta.id.is_some() && matches!(node.content, Content::Editor(_));
             let role = if let Some(kind) = field {
                 Some(AccessibleRole::Field(kind))
+            } else if editor {
+                Some(AccessibleRole::Editor)
             } else if let Some(role) = node.meta.role {
                 Some(role)
             } else if node.meta.pressable {
@@ -1400,6 +1550,13 @@ impl Laid {
                 said_by = Some(index);
                 let words = node.meta.label.clone().unwrap_or_else(|| match role {
                     AccessibleRole::Field(_) => self.hint_of(index).unwrap_or_default().to_owned(),
+                    AccessibleRole::Editor => node
+                        .meta
+                        .editor
+                        .as_ref()
+                        .and_then(|options| options.hint.clone())
+                        .or_else(|| self.hint_of(index).map(str::to_owned))
+                        .unwrap_or_default(),
                     _ => self.words_in(index),
                 });
                 items.push(Accessible {
@@ -1489,11 +1646,27 @@ impl Laid {
             .iter()
             .enumerate()
             .skip(field + 1)
-            .filter(|(index, _)| self.is_inside(*index, field))
+            .filter(|(index, _)| self.is_inside(*index, field) && !self.lifted_from(*index, field))
             .find_map(|(_, node)| match &node.content {
                 Content::Text(line) => Some(line.text.as_str()),
                 _ => None,
             })
+    }
+
+    /// Whether the element at `index`, inside the one at `outer`, is in an overlay written inside
+    /// it (and so stands apart from it).
+    fn lifted_from(&self, index: usize, outer: usize) -> bool {
+        let mut at = Some(index);
+        while let Some(here) = at.filter(|here| *here != outer) {
+            let Some(node) = self.nodes.get(here) else {
+                return false;
+            };
+            if node.overlay {
+                return true;
+            }
+            at = node.parent;
+        }
+        false
     }
 
     /// Whether the element at `index` is inside (or is) the one at `outer`.
@@ -1508,16 +1681,22 @@ impl Laid {
         false
     }
 
-    /// Whether the element at `index` is in the room of a text field of the host's, which the
-    /// host draws over: what is there is the field's, not the page's.
+    /// Whether the element at `index` is in the room of a text field or an editor of the host's,
+    /// which the host draws over: what is there is the host's, not the page's.
     pub(crate) fn in_text_field(&self, index: usize) -> bool {
         let mut at = Some(index);
         while let Some(here) = at {
             let Some(node) = self.nodes.get(here) else {
                 return false;
             };
-            if node.meta.field.is_some() && node.meta.id.is_some() {
+            if (node.meta.field.is_some() || matches!(node.content, Content::Editor(_)))
+                && node.meta.id.is_some()
+            {
                 return true;
+            }
+            // An overlay is drawn over the page, not in the room it is written in.
+            if node.overlay {
+                return false;
             }
             at = node.parent;
         }
@@ -1620,6 +1799,8 @@ pub enum AccessibleRole {
     Button,
     /// A text field of the host's, of its kind.
     Field(FieldKind),
+    /// An editor of text of the host's ([`crate::Element::editor`]).
+    Editor,
     /// Words to read.
     Text,
     /// It goes somewhere: a link of a text, or an element that is one.
@@ -1667,6 +1848,29 @@ pub struct Field {
     /// Where it stands, points.
     pub rect: Rect,
     /// What it says while it is empty: the first text inside its room.
+    pub hint: Option<String>,
+    /// What it is to a screen reader, where the page said ([`crate::Element::label`]).
+    pub label: Option<String>,
+}
+
+/// An editor the host puts on the page ([`Laid::editors`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EditorRoom {
+    /// Its name: the id of the element that is its room.
+    pub id: Id,
+    pub options: EditorOptions,
+    /// Where it stands, points.
+    pub rect: Rect,
+    /// The same, pixels.
+    pub pixels: Rect,
+    /// The part of the room that shows, pixels: its box, cut by the boxes around it.
+    pub clip: Rect,
+    /// It, or a box that holds it, is hidden: it keeps its document and draws nothing.
+    pub hidden: bool,
+    /// The face its text is in (its size in pixels) and the colour, from the boxes around it.
+    pub font: Font,
+    pub color: Color,
+    /// What it says while its document is empty: its options' hint, or the first text inside it.
     pub hint: Option<String>,
     /// What it is to a screen reader, where the page said ([`crate::Element::label`]).
     pub label: Option<String>,

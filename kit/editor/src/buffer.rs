@@ -583,6 +583,18 @@ impl Buffer {
         Ok(())
     }
 
+    /// The place `at` of `version`, carried over what was done since.
+    pub fn carry(&mut self, version: u64, at: usize) -> Result<usize, Refusal> {
+        let len = self.log.len_at(version, self.text.len_chars())?;
+        if at > len {
+            return Err(Refusal::OutOfDocument);
+        }
+        let since = self.log.since(version)?;
+        Ok(since
+            .iter()
+            .fold(at, |at, steps| map(steps, at, Assoc::After)))
+    }
+
     /// The page's decorations of a layer for a range of the document.
     pub fn decorate(&mut self, decorate: Decorate) -> Result<(), Refusal> {
         let result = self.page_decorate(decorate);

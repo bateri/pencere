@@ -34,3 +34,23 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 - **Loading.** A document loaded in pieces.
 - **A copy of the text** for the page to read (`Snapshot`), which costs nothing that grows with the
   document.
+- **The editors of a page** (`Editors`), as a host keeps them: one for each editor's room on the page
+  laid out, its document kept while a room of its name is there, hidden or not; the page laid out
+  with what they laid out (`Editors::measure`); each drawn in its place of the draw list
+  (`Editors::paint`).
+- **Layout.** Lines measured by the host (`Measure::offsets`), a tab to the stop the width of a space
+  gives, broken after the last space that fits where the editor wraps; only the rows in view laid
+  out; folded lines taking none; a gutter of line numbers, the page's marks and fold buttons; the
+  page told the lines in view (`EditorEvent::Viewport`).
+- **The pointer.** A click puts the caret at the nearest boundary across; two select a word, three
+  a line; shift selects to it, ⌘ adds a caret, ⌥ selects a column (on each line, from the boundary
+  nearest one place across to the boundary nearest the other); a drag past the room scrolls it.
+- **The keys.** In order: the page's command for a key, the editor's own (the keys of a Mac's text
+  views, and those of editors for code), the text (`Route`); none of the page's while an input
+  method composes, every one the page's where the editor gives it its keys (`Keys::Page`).
+- **Scrolling** is the host's: the room scrolls as a box does, over the content the editor says,
+  and the editor asks for the caret to be kept in view (`Editors::take_scrolls`). Where the caret an
+  overlay stands by moves with no frame of the page, the host lays the page out again as it is
+  (`Editors::wants_layout`).
+- **An input method's questions** in units of UTF-16 (`selected_utf16`, `marked_utf16`,
+  `text_utf16`, `rect_utf16`, `set_marked_utf16`), so that no host turns places into them itself.

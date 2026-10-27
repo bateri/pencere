@@ -885,25 +885,31 @@ impl Buffer {
     // --- Folding and finding ---------------------------------------------------------------
 
     /// The fold region that starts on the main caret's line folded (`Some(true)`), unfolded
-    /// (`Some(false)`) or the other way round (`None`). Carets in what it hides go to the end of
-    /// its first line.
+    /// (`Some(false)`) or the other way round (`None`).
     fn fold(&mut self, fold: Option<bool>) {
         let line = self.text.line_of(self.main().head);
+        self.fold_at(line, fold);
+    }
+
+    /// The fold region that starts on line `line` folded (`Some(true)`), unfolded (`Some(false)`)
+    /// or the other way round (`None`): what a fold button of the gutter does. Carets in what it
+    /// hides go to the end of its first line. Returns whether a region starts there.
+    pub fn fold_at(&mut self, line: usize, fold: Option<bool>) -> bool {
         let Some(region) =
             self.decorations.folds().into_iter().find(|(from, to)| {
                 self.text.line_of(*from) == line && self.text.line_of(*to) > line
             })
         else {
-            return;
+            return false;
         };
         let folded = self.decorations.folded.contains(&region);
         let want = fold.unwrap_or(!folded);
         if want == folded {
-            return;
+            return true;
         }
         if !want {
             self.decorations.folded.retain(|r| *r != region);
-            return;
+            return true;
         }
         let end = self.text.line_end(line);
         let ranges: Vec<Range> = self
@@ -918,6 +924,7 @@ impl Buffer {
         self.set_ranges(ranges, main);
         self.decorations.folded.push(region);
         self.decorations.folded.sort_unstable();
+        true
     }
 
     /// A word under a double click, or a run of marks or of spaces.
