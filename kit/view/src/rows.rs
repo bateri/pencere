@@ -320,6 +320,13 @@ impl State {
     }
 }
 
+/// How far down a list of `rows` in a window `view` tall is built for `offset`: held to the end of
+/// these rows (an ask past the end is the end of the rows given, which may be further than the box
+/// was when it was last laid out: a log that grew is asked for at its new end and built there).
+fn within(offset: f32, rows: &Rows, view: f32) -> f32 {
+    offset.min(rows.total() - view).max(0.0)
+}
+
 impl List {
     pub fn new(id: Id) -> Self {
         Self {
@@ -380,7 +387,8 @@ impl List {
         let made = {
             let mut state = self.state.borrow_mut();
             state.before_laid = page_h;
-            let (offset, view) = (state.offset(), state.view());
+            let view = state.view();
+            let offset = within(state.offset(), &rows, view);
             state.built.span(&rows, offset, view)
         };
         // The rows are made with nothing of the list held: a row may ask it how far it is scrolled.
@@ -409,7 +417,7 @@ impl List {
         let state = self.state.get_mut();
         state.view = Some(extent.view.h);
         state.laid = extent.offset.y;
-        let offset = state.offset();
+        let offset = within(state.offset(), &state.rows, extent.view.h);
         state.shown && state.built.stale(&state.rows, offset, extent.view.h)
     }
 
@@ -889,5 +897,21 @@ mod tests {
         let ask = list.reveal(&rows, 20).expect("row 20 is below the window");
         assert_eq!(ask.y, Some(21.0 * 32.0 - 320.0));
         assert_eq!(list.offset(), 21.0 * 32.0 - 320.0);
+    }
+
+    #[test]
+    fn a_list_asked_past_its_end_is_built_at_the_end_of_the_rows_it_is_given() {
+        let mut list = List::new(LIST);
+        list.scroll_to(1.0e9);
+        list.build(div(), flat(100), 640.0, row);
+        assert!(!list.settle(&Laid {
+            id: LIST,
+            view: 200.0,
+            offset: 100.0 * 32.0 - 200.0,
+        }));
+        // Nine hundred rows more, and asked to the end again: the end it has now is built.
+        list.scroll_to(1.0e9);
+        list.build(div(), flat(1000), 640.0, row);
+        assert_eq!(list.made().end, 1000);
     }
 }

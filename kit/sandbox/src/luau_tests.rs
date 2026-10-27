@@ -1752,3 +1752,55 @@ fn a_long_list_in_a_box_that_cannot_hold_one_says_what_is_wrong() {
         );
     }
 }
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_long_list_asked_to_its_end_is_built_at_the_end_it_has_now() {
+    // A followed log: asked to its end every frame, and grown by more than the rows made ahead.
+    let mut page = open_script(
+        r##"
+        local count = 100
+        return {
+            render = function()
+                pencere.layout.scroll_to("log", { y = 1e9 })
+                return pencere.div():child(pencere.div():id("log"):h(200):no_shrink():scroll()
+                    :list(pencere.Rows.even(count, 20), function(i)
+                        return pencere.div():h(20):no_shrink():child(pencere.text("line " .. i))
+                    end))
+            end,
+            handle = function(e)
+                if e.type == "key" then
+                    count = 1000
+                    return true
+                end
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    let frame = |page: &mut Open| {
+        page.seen.frame = None;
+        let update = page.until(Duration::from_secs(20), |u| {
+            u.frame.is_some() || u.closed.is_some()
+        });
+        assert_eq!(update.closed, None, "{}", failed(&update));
+        words(&page.seen.frame.clone().expect("a page").root)
+    };
+    page.module.render(SIZE, 0.0, false);
+    assert!(frame(&mut page).contains(&"line 100".to_owned()));
+    // Laid out at the end of a hundred lines, then nine hundred more come at once.
+    let root = page.seen.frame.clone().expect("a page").root;
+    page.module
+        .lay_out(Arc::new(pencere_view::layout(root, SIZE, 1.0, &mut Rough)));
+    page.module.event(Event::Input(Input::Key {
+        key: Key::Down,
+        mods: Mods::default(),
+    }));
+    page.module.render(SIZE, 0.1, false);
+    let grown = frame(&mut page);
+    assert!(
+        grown.contains(&"line 1000".to_owned()),
+        "the end it has now is built, not the end it had: {:?}",
+        grown.last()
+    );
+}

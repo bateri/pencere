@@ -363,6 +363,15 @@ local function list_spacer(height)
 	return pencere.div():h(math.max(height, 0)):no_shrink()
 end
 
+-- How far down the list named `id`, of `rows` in a window `view` tall, is to be built: as the host
+-- has it, or as the page asked since, held to the end of these rows. (Past the end is the end of
+-- the rows given, not of the box as it was last laid out: a log that grew by more than the rows
+-- made ahead is asked for at its new end and built there.)
+local function list_offset(id, rows, view)
+	local offset = layout._asked(id) or (layout.scroll_offset(id))
+	return math.max(math.min(offset, rows:total() - view), 0)
+end
+
 -- Fills the box with a long list: `rows` (a `pencere.Rows`) is where its rows stand, and `make(i)`
 -- makes row i. Only the rows near what is in view are made, more of them the way the list goes
 -- (`pencere.Built`), and the rest of the list's length is a spacer above them and one below. The box
@@ -393,7 +402,7 @@ function pencere.Element:list(rows, make)
 	end
 	local extent = layout.scroll_extent(id)
 	local view = extent and extent.view or page_h
-	local first, last = list.built:span(rows, (layout.scroll_offset(id)), view)
+	local first, last = list.built:span(rows, list_offset(id, rows, view), view)
 	list.rows, list.view, list.first, list.last, list.box, list.seen = rows, view, first, last, self, true
 	self:child(list_spacer(rows:top(first)))
 	for index = first, last do
@@ -478,7 +487,7 @@ function pencere._lists.settle()
 		local extent = layout.scroll_extent(id)
 		if extent then
 			list.view = extent.view
-			again = list.built:stale(list.rows, (layout.scroll_offset(id)), extent.view) or again
+			again = list.built:stale(list.rows, list_offset(id, list.rows, extent.view), extent.view) or again
 		end
 	end
 	return again

@@ -125,6 +125,9 @@ end
 -- How far each box is scrolled, the host's word: what the page was last told of it (a `scrolled`
 -- event) or asked for it since. By the box's name: { x =, y = }.
 local offsets = {}
+-- How far down the page asked a box to go and the host has not yet said it went, as asked: the
+-- end of a box that grows in the same frame is further than the layout the ask was held to.
+local asked = {}
 
 -- How far the box named `id` is scrolled: down, then across, points. The host scrolls a box (an
 -- element with a name and `:scroll()`) with the wheel, the trackpad and its bars, as its system
@@ -157,6 +160,9 @@ function layout.scroll_to(id, to)
 		x = x and clamp(x, extent and math.max(extent.content_w - extent.view_w, 0)) or known.x,
 		y = y and clamp(y, extent and math.max(extent.content - extent.view, 0)) or known.y,
 	}
+	if y then
+		asked[id] = math.max(y, 0)
+	end
 	host.scroll_to(id, x, y, to.animate and true or false)
 end
 
@@ -164,7 +170,14 @@ end
 function layout._heard(boxes)
 	for _, scrolled in ipairs(boxes) do
 		offsets[scrolled.id] = { x = scrolled.x, y = scrolled.y }
+		asked[scrolled.id] = nil
 	end
+end
+
+-- The prelude's: how far down the page asked the box named `id` to go, as it asked, while the host
+-- has not said where it went since (nil when it has).
+function layout._asked(id)
+	return asked[id]
 end
 
 function layout.focus_order()
