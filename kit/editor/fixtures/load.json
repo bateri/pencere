@@ -1,0 +1,33 @@
+{
+  "examples": [
+    {
+      "about": "a document loaded in pieces, nothing of it undone",
+      "text": "old",
+      "steps": [
+        { "do": "load", "text": "abc", "more": true },
+        { "do": "expect", "text": "abc", "version": 1 },
+        { "do": "type", "text": "x" },
+        { "do": "expect", "text": "abc" },
+        { "do": "load", "text": "def" },
+        {
+          "do": "expect",
+          "text": "abcdef",
+          "version": 2,
+          "notes": [{ "edited": { "version": 2, "origin": "load", "changes": [[3, 3, "def"]] } }]
+        },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "abcdef", "version": 2 }
+      ]
+    },
+    {
+      "about": "a load takes the place of what could be undone",
+      "text": "",
+      "steps": [
+        { "do": "type", "text": "a" },
+        { "do": "load", "text": "fresh" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "fresh", "ranges": [[0, 0]] }
+      ]
+    }
+  ]
+}

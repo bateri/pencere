@@ -1,0 +1,126 @@
+{
+  "examples": [
+    {
+      "about": "a change whose range ends before it starts",
+      "text": "abcd",
+      "steps": [
+        { "do": "change", "base": 0, "changes": [[3, 1, ""]] },
+        { "do": "expect", "text": "abcd", "version": 0, "notes": [{ "refused": "reversed" }] }
+      ]
+    },
+    {
+      "about": "a change past the end of the document",
+      "text": "abcd",
+      "steps": [
+        { "do": "change", "base": 0, "changes": [[2, 99, ""]] },
+        { "do": "expect", "text": "abcd", "notes": [{ "refused": "out-of-document" }] }
+      ]
+    },
+    {
+      "about": "changes that overlap, and are refused all of them",
+      "text": "abcd",
+      "steps": [
+        {
+          "do": "change",
+          "base": 0,
+          "changes": [
+            [0, 2, "x"],
+            [1, 3, "y"]
+          ]
+        },
+        { "do": "expect", "text": "abcd", "notes": [{ "refused": "overlapping" }] }
+      ]
+    },
+    {
+      "about": "a change of a version the document has not come to",
+      "text": "abcd",
+      "steps": [
+        { "do": "change", "base": 5, "changes": [[0, 0, "x"]] },
+        { "do": "expect", "text": "abcd", "notes": [{ "refused": "future-version" }] }
+      ]
+    },
+    {
+      "about": "a change of a version older than the editor remembers",
+      "text": "",
+      "steps": [
+        { "do": "type", "text": "a", "repeat": 1025 },
+        { "do": "expect", "version": 1025 },
+        { "do": "change", "base": 0, "changes": [[0, 0, "x"]] },
+        { "do": "expect", "version": 1025, "notes": [{ "refused": "stale-version" }] },
+        { "do": "change", "base": 1, "changes": [[0, 0, "x"]] },
+        { "do": "expect", "version": 1026 }
+      ]
+    },
+    {
+      "about": "a change that makes the document larger than it may be",
+      "text": "abc",
+      "room": 5,
+      "steps": [
+        { "do": "change", "base": 0, "changes": [[3, 3, "xyz"]] },
+        { "do": "expect", "text": "abc", "notes": [{ "refused": "too-large" }] },
+        { "do": "select", "ranges": [[3, 3]] },
+        { "do": "type", "text": "xyz" },
+        { "do": "expect", "text": "abc" },
+        { "do": "type", "text": "xy" },
+        { "do": "expect", "text": "abcxy" }
+      ]
+    },
+    {
+      "about": "decorations reversed, outside their range, of a version to come",
+      "text": "abcdef",
+      "steps": [
+        { "do": "decorate", "layer": "s", "version": 0, "from": 4, "to": 2, "decorations": [] },
+        {
+          "do": "decorate",
+          "layer": "s",
+          "version": 0,
+          "from": 0,
+          "to": 3,
+          "decorations": [[2, 5, "style"]]
+        },
+        {
+          "do": "decorate",
+          "layer": "s",
+          "version": 0,
+          "from": 0,
+          "to": 3,
+          "decorations": [[2, 1, "style"]]
+        },
+        { "do": "decorate", "layer": "s", "version": 3, "from": 0, "to": 3, "decorations": [] },
+        { "do": "decorate", "layer": "s", "version": 0, "from": 0, "to": 30, "decorations": [] },
+        {
+          "do": "expect",
+          "decorations": { "s": [] },
+          "notes": [
+            { "refused": "reversed" },
+            { "refused": "outside-range" },
+            { "refused": "reversed" },
+            { "refused": "future-version" },
+            { "refused": "out-of-document" }
+          ]
+        }
+      ]
+    },
+    {
+      "about": "a selection of the page past the end of the document",
+      "text": "ab",
+      "steps": [
+        { "do": "page_select", "version": 0, "ranges": [[0, 9]] },
+        { "do": "expect", "ranges": [[0, 0]], "notes": [{ "refused": "out-of-document" }] }
+      ]
+    },
+    {
+      "about": "a place of UTF-16 past the end has no place, and the middle of a pair of units is the character's",
+      "text": "😀",
+      "steps": [
+        {
+          "do": "expect",
+          "utf16": [
+            [0, 0],
+            [1, 2]
+          ]
+        }
+      ]
+    }
+  ]
+}

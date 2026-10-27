@@ -1,0 +1,89 @@
+{
+  "examples": [
+    {
+      "about": "what is found is marked, and the next and the one before are selected in turn",
+      "text": "foo Foo foo",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "foo" },
+        {
+          "do": "expect",
+          "found": [
+            [0, 3],
+            [8, 11]
+          ],
+          "ranges": [[0, 3]]
+        },
+        { "do": "command", "command": "find_next" },
+        { "do": "expect", "ranges": [[8, 11]] },
+        { "do": "command", "command": "find_next" },
+        { "do": "expect", "ranges": [[0, 3]] },
+        { "do": "command", "command": "find_previous" },
+        { "do": "expect", "ranges": [[8, 11]] },
+        { "do": "command", "command": "stop_finding" },
+        { "do": "expect", "found": [] }
+      ]
+    },
+    {
+      "about": "a search in either case, and a regular expression",
+      "text": "foo Foo foo",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "foo", "case": false },
+        {
+          "do": "expect",
+          "found": [
+            [0, 3],
+            [4, 7],
+            [8, 11]
+          ]
+        },
+        { "do": "command", "command": "find", "pattern": "[fF]o+", "regex": true },
+        {
+          "do": "expect",
+          "found": [
+            [0, 3],
+            [4, 7],
+            [8, 11]
+          ]
+        }
+      ]
+    },
+    {
+      "about": "places are characters, whatever the bytes",
+      "text": "ğü x ğü",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "ğü" },
+        {
+          "do": "expect",
+          "found": [
+            [0, 2],
+            [5, 7]
+          ]
+        }
+      ]
+    },
+    {
+      "about": "what was found is carried over a change",
+      "text": "foo bar foo",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "foo" },
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "type", "text": "x" },
+        {
+          "do": "expect",
+          "found": [
+            [1, 4],
+            [9, 12]
+          ]
+        }
+      ]
+    },
+    {
+      "about": "a pattern that is not a regular expression is refused",
+      "text": "abc",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "(", "regex": true },
+        { "do": "expect", "found": [], "notes": [{ "refused": "bad-pattern" }] }
+      ]
+    }
+  ]
+}

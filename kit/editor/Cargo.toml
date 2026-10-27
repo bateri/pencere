@@ -1,0 +1,36 @@
+[package]
+name = "pencere-editor"
+description = "The editor of text of pencere's native views: a document, its selections, its history and what an input method composes, laid out and drawn in a page's room, the same in every terminal"
+version = "0.3.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["terminal", "pencere", "editor", "text"]
+categories = ["gui", "text-editors"]
+# The tests (`tests/`) and the examples they run (`fixtures/`) are the repository's.
+include = [
+    "src/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE",
+]
+
+[dependencies]
+# The page engine: the room of an editor is a box of a page, and what the page and the editor say
+# to each other is the engine's (`pencere_view::edit`). The editor depends on the engine, never
+# the engine on it (`make check`).
+pencere-view = { path = "../view", version = "0.3.1" }
+# The text: a tree of pieces, so that an edit of a large document does not copy it and a copy of
+# it (what the page is posted to read) costs nothing that grows with it. Only `\n` breaks a line,
+# as the page counts lines.
+ropey = { version = "1.6", default-features = false, features = ["simd"] }
+# Where a character as a person reads it ends (a letter with its accents, an emoji), and a word.
+unicode-segmentation = "1"
+# Finding: regular expressions in time that grows with the text alone.
+regex = { version = "1", default-features = false, features = ["std", "unicode", "perf"] }
+
+[dev-dependencies]
+# The examples in `fixtures/` are JSON.
+serde_json = "1"
+
+[lints]
+workspace = true

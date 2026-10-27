@@ -25,6 +25,10 @@
 //! and says the size of ([`Measure::image`]); the engine makes the room for an image and says
 //! how it fills it ([`Picture`]), and has no pixels of its own.
 //!
+//! A page can hold an editor of text, as it holds a text field: the host's, which edits, lays out and
+//! draws its document (the `pencere-editor` crate); [`edit`] is what the page and the editor say to
+//! each other.
+//!
 //! A page need not live in the host that shows it: [`wire`] lays an [`Element`] tree down as a flat
 //! list and picks it up again, and [`Queries`] is what a page asks of itself laid out — the pair a
 //! page kept in a sandbox is written against, as [`Laid`] answers the same questions to one that
@@ -32,6 +36,7 @@
 
 mod color;
 mod command;
+pub mod edit;
 mod element;
 mod fades;
 mod figure;
