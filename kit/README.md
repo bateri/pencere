@@ -8,6 +8,7 @@ but the interface here; the terminal lays out what it hands out and draws it.
 | Directory            | Crate                             | What it is                                                                                                   |
 | -------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | [`view`](view)       | `pencere-view`                    | The page engine: elements, style, layout (flexbox and grid), the draw list. Depends on the layout crate only |
+| [`editor`](editor)   | `pencere-editor`                  | The editor of text a host puts in an editor's room: document, carets, undo, input method, layout and drawing |
 | [`sandbox`](sandbox) | `pencere-sandbox`                 | Runs a component or a script under limits and hands out pages. The one door to the WebAssembly runtime       |
 | [`wit`](wit)         |                                   | The interface a component speaks: `pencere:view`                                                             |
 | [`SPEC.md`](SPEC.md) |                                   | What the kit's views are written against: the Lua page API, the colours and the sandbox floors               |

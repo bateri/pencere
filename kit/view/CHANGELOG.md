@@ -10,6 +10,21 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **Editors.** `editor(id, EditorOptions)` makes a box the room of an editor of text of the host's
+  (the `pencere-editor` crate): it scrolls as a box does, over the content the host's editor says
+  (`Measure::editor`), and draws in its place of the list (`Paint::Editor`, an `EditorSlot`). A text
+  inside the room is its hint, and is not drawn. `Laid::editors` finds every editor on the page, the
+  hidden ones too (`EditorRoom`); the caret has a name of its own (`Id::caret`), which an overlay is
+  anchored to and `bounds` answers, and an editor scrolled with an overlay on its caret says the
+  page wants laying out again (`Laid::wants_layout`). `Measure::offsets` says where across a line
+  each place is, by default from the start of the line up to it measured. What a page and an
+  editor say to each other is plain data, `pencere_view::edit`: changes, ranges, versions, origins,
+  decorations by layer (`Decorate`, `Mark`, `Look`), the editor's options, its commands, the asks of
+  a reply (`EditorAsk`), refusals, the copy of the text a page reads (`TextSnapshot`) and the floors
+  both sides hold a page to (`edit::limits`). `Event` has `Pointer` (with the `Place` under the
+  pointer), `Edit`, `Selection`, `Viewport` and `EditorRefused`; `Reply::editor` asks; `Queries`
+  reads an editor's text (each with a default of none).
+
 - **Overlays.** `overlay()` takes an element out of the flow and out of every box that holds it: it
   is placed against the page by its `inset`, drawn after everything else, cut by no box around it
   and found by the pointer first, and is still as faint as what holds it, hidden with it, and on the

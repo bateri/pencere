@@ -3,7 +3,7 @@
 //! what was measured is what appears) and answers through [`Measure`]. It has no images of its own
 //! either: the host says how large the image of a path is.
 
-use crate::Size;
+use crate::{Id, Rect, Size};
 
 /// The face a line is set in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -62,6 +62,45 @@ pub trait Measure {
     fn image(&mut self, _src: &str) -> Option<Size> {
         None
     }
+
+    /// Where across `text` set in one line in `font` each of the places `at` is (bytes into the
+    /// text, each where a character starts or at its end), pixels from the start of the line: what an
+    /// editor places its carets and the characters a person reads (graphemes) at. A place that is not
+    /// one of the text is where the text ends.
+    ///
+    /// By default the start of the text up to each place is measured ([`Measure::measure`]); a host
+    /// that shapes a line once and knows where each part of it went answers from that.
+    fn offsets(&mut self, font: &Font, text: &str, at: &[usize]) -> Vec<f32> {
+        at.iter()
+            .map(|place| match text.get(..*place) {
+                Some("") => 0.0,
+                Some(start) => self.measure(font, start).width,
+                None => self.measure(font, text).width,
+            })
+            .collect()
+    }
+
+    /// What the host's editor named `id` has laid out of its document ([`crate::Element::editor`]),
+    /// from its last layout: where its caret is and how large its content is. The engine makes
+    /// the room scroll that far and stands what is anchored to the caret ([`Id::caret`]) beside
+    /// it. The room's size is decided in the same layout, so what is said here is of the room as it
+    /// was: an editor whose room changed size says what it comes to the next time.
+    ///
+    /// A host with no editors answers `None` (the default): the room scrolls nothing and the caret
+    /// is nowhere.
+    fn editor(&mut self, _id: Id) -> Option<EditorMetrics> {
+        None
+    }
+}
+
+/// What an editor has laid out of its document ([`Measure::editor`]), pixels.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EditorMetrics {
+    /// The main caret's box, from the top-left corner of the content as it is when nothing is
+    /// scrolled; `None` where it is not on a line that shows (one that is folded away).
+    pub caret: Option<Rect>,
+    /// How large the content is: what the room scrolls over.
+    pub content: Size,
 }
 
 /// The lines `text` takes in `budget` pixels, broken where it has spaces (and at its line

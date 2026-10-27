@@ -3,11 +3,15 @@
 //! into the engine's. The application's side of the same crossings is
 //! `crates/pencere-sandbox/src/world.rs`.
 
+use pencere_view::edit::{
+    Change, EditCommand, Edited, EditorAsk, EditorOptions, Keys, Mark, Movement, Origin, Range,
+    Refusal, Selection, Underline,
+};
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
     AccessibleRole, Align, Button, Color, Command, Cursor, Ease, Event, Family, FieldKind, Fit, Id,
-    Input, Key, Keyboard, MenuEntry, Mods, Path, Point, Reply, Rgba, Role, Segment, Shift, Side,
-    Source, Span, Track,
+    Input, Key, Keyboard, MenuEntry, Mods, Path, Place, Point, Reply, Rgba, Role, Segment, Shift,
+    Side, Source, Span, Track,
 };
 
 use crate::Frame;
@@ -347,8 +351,8 @@ fn segment(segment: &Segment) -> wit::Segment {
 fn accessible_role(role: AccessibleRole) -> Option<wit::AccessibleRole> {
     Some(match role {
         AccessibleRole::Button => wit::AccessibleRole::Button,
-        // A field is one by what the element is, not by its role.
-        AccessibleRole::Field(_) => return None,
+        // A field and an editor are ones by what the element is, not by its role.
+        AccessibleRole::Field(_) | AccessibleRole::Editor => return None,
         AccessibleRole::Text => wit::AccessibleRole::Text,
         AccessibleRole::Link => wit::AccessibleRole::Link,
         AccessibleRole::Checkbox => wit::AccessibleRole::Checkbox,
@@ -422,6 +426,11 @@ fn node(node: Node, lists: &mut Lists) -> wit::Node {
             FieldKind::Lines => wit::FieldKind::Lines,
             FieldKind::Secret => wit::FieldKind::Secret,
         }),
+        editor: node
+            .meta
+            .editor
+            .as_ref()
+            .map(|options| editor_options(options, lists)),
         label: node.meta.label.as_deref().map(|label| lists.words(label)),
         motion: node.meta.motion.map(|motion| wit::Motion {
             seconds: motion.seconds,
@@ -541,6 +550,7 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
             })
             .collect(),
         copy: reply.copy,
+        editor: reply.editor.into_iter().map(editor_ask).collect(),
         cursor: match reply.cursor {
             Cursor::Arrow => wit::Cursor::Arrow,
             Cursor::Pointer => wit::Cursor::Pointer,
@@ -644,5 +654,347 @@ pub fn from_wit_event(event: wit::Event) -> Event {
                 .map(|scrolled| (Id::new(scrolled.id), point(scrolled.offset)))
                 .collect(),
         ),
+        editor @ (wit::Event::EditorPointer(_)
+        | wit::Event::Edit(_)
+        | wit::Event::Selection(_)
+        | wit::Event::Viewport(_)
+        | wit::Event::EditorRefused(_)) => editor_event(editor),
+    }
+}
+// --- An editor's options and what the page asks of its editors -----------------------------
+
+fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOptions {
+    let pairs: String = options
+        .pairs
+        .iter()
+        .flat_map(|(open, close)| [*open, *close])
+        .collect();
+    wit::EditorOptions {
+        wrap: options.wrap,
+        tab_width: options.tab_width,
+        hard_tabs: options.hard_tabs,
+        gutter: options.gutter,
+        read_only: options.read_only,
+        keys: match options.keys {
+            Keys::Editor => wit::EditorKeys::Editor,
+            Keys::Page => wit::EditorKeys::Page,
+        },
+        hint: options.hint.as_deref().map(|hint| lists.words(hint)),
+        comment: options
+            .comment
+            .as_deref()
+            .map(|comment| lists.words(comment)),
+        pairs: (!pairs.is_empty()).then(|| lists.words(&pairs)),
+    }
+}
+
+/// A place as the interface carries it.
+fn place(at: usize) -> u32 {
+    u32::try_from(at).unwrap_or(u32::MAX)
+}
+
+fn change(change: Change) -> wit::Change {
+    wit::Change {
+        from: place(change.from),
+        to: place(change.to),
+        insert: change.insert,
+    }
+}
+
+fn mark(mark: Mark) -> wit::Mark {
+    match mark {
+        Mark::Style(look) => wit::Mark::Style(wit::Look {
+            color: look.color.map(color),
+            background: look.background.map(color),
+            weight: look.weight,
+            italic: look.italic,
+            underline: look.underline.map(|line| match line {
+                Underline::Straight(c) => wit::Underline::Straight(color(c)),
+                Underline::Wavy(c) => wit::Underline::Wavy(color(c)),
+            }),
+            strike: look.strike,
+        }),
+        Mark::Line(c) => wit::Mark::Line(color(c)),
+        Mark::Gutter(c) => wit::Mark::Gutter(color(c)),
+        Mark::Fold => wit::Mark::Fold,
+    }
+}
+
+fn editor_command(command: EditCommand) -> wit::EditorCommand {
+    use wit::EditorCommand as C;
+    match command {
+        EditCommand::Move { movement, extend } => C::Move(wit::MoveBy {
+            movement: match movement {
+                Movement::Left => wit::Movement::Left,
+                Movement::Right => wit::Movement::Right,
+                Movement::WordLeft => wit::Movement::WordLeft,
+                Movement::WordRight => wit::Movement::WordRight,
+                Movement::Up => wit::Movement::Up,
+                Movement::Down => wit::Movement::Down,
+                Movement::PageUp => wit::Movement::PageUp,
+                Movement::PageDown => wit::Movement::PageDown,
+                Movement::LineStart => wit::Movement::LineStart,
+                Movement::LineEnd => wit::Movement::LineEnd,
+                Movement::DocumentStart => wit::Movement::DocumentStart,
+                Movement::DocumentEnd => wit::Movement::DocumentEnd,
+                Movement::Bracket => wit::Movement::Bracket,
+            },
+            extend,
+        }),
+        EditCommand::Insert(text) => C::Insert(text),
+        EditCommand::Newline => C::Newline,
+        EditCommand::DeleteBackward => C::DeleteBackward,
+        EditCommand::DeleteForward => C::DeleteForward,
+        EditCommand::DeleteWordBackward => C::DeleteWordBackward,
+        EditCommand::DeleteWordForward => C::DeleteWordForward,
+        EditCommand::Indent => C::Indent,
+        EditCommand::Outdent => C::Outdent,
+        EditCommand::MoveLinesUp => C::MoveLinesUp,
+        EditCommand::MoveLinesDown => C::MoveLinesDown,
+        EditCommand::DuplicateLines => C::DuplicateLines,
+        EditCommand::ToggleComment => C::ToggleComment,
+        EditCommand::SelectAll => C::SelectAll,
+        EditCommand::AddCaretAbove => C::AddCaretAbove,
+        EditCommand::AddCaretBelow => C::AddCaretBelow,
+        EditCommand::SelectNext => C::SelectNext,
+        EditCommand::SingleSelection => C::SingleSelection,
+        EditCommand::Undo => C::Undo,
+        EditCommand::Redo => C::Redo,
+        EditCommand::Fold => C::Fold,
+        EditCommand::Unfold => C::Unfold,
+        EditCommand::ToggleFold => C::ToggleFold,
+        EditCommand::UnfoldAll => C::UnfoldAll,
+        EditCommand::Find {
+            pattern,
+            regex,
+            case,
+        } => C::Find(wit::Find {
+            pattern,
+            regex,
+            matching_case: case,
+        }),
+        EditCommand::FindNext => C::FindNext,
+        EditCommand::FindPrevious => C::FindPrevious,
+        EditCommand::StopFinding => C::StopFinding,
+    }
+}
+
+fn editor_ask((editor, ask): (Id, EditorAsk)) -> wit::EditorAsk {
+    let ask = match ask {
+        EditorAsk::Load { text, more } => wit::EditorAskKind::Load(wit::Load { text, more }),
+        EditorAsk::Change { base, changes } => wit::EditorAskKind::Change(wit::ChangeSet {
+            base,
+            changes: changes.into_iter().map(change).collect(),
+        }),
+        EditorAsk::Select {
+            version,
+            ranges,
+            main,
+        } => wit::EditorAskKind::Select(wit::SelectRanges {
+            version,
+            ranges: ranges
+                .into_iter()
+                .map(|range| wit::TextRange {
+                    anchor: place(range.anchor),
+                    head: place(range.head),
+                })
+                .collect(),
+            main: place(main),
+        }),
+        EditorAsk::Reveal { version, at } => wit::EditorAskKind::Reveal(wit::Reveal {
+            version,
+            at: place(at),
+        }),
+        EditorAsk::Command(command) => wit::EditorAskKind::Command(editor_command(command)),
+        EditorAsk::Decorate(decorate) => wit::EditorAskKind::Decorate(wit::Decorate {
+            layer: decorate.layer,
+            version: decorate.version,
+            from: place(decorate.from),
+            to: place(decorate.to),
+            decorations: decorate
+                .decorations
+                .into_iter()
+                .map(|item| wit::Decoration {
+                    from: place(item.from),
+                    to: place(item.to),
+                    mark: mark(item.mark),
+                })
+                .collect(),
+        }),
+    };
+    wit::EditorAsk {
+        editor: editor.number(),
+        ask,
+    }
+}
+
+fn unplace(at: u32) -> usize {
+    at as usize
+}
+
+/// An event of an editor's, as the engine's.
+fn editor_event(event: wit::Event) -> Event {
+    match event {
+        wit::Event::EditorPointer(pointer) => Event::Pointer {
+            input: match pointer.input {
+                wit::PointerInput::Move(at) => Input::Move(point(at)),
+                wit::PointerInput::Press(press) => Input::Press {
+                    at: point(press.at),
+                    button: button(press.button),
+                    mods: mods(press.mods),
+                    count: press.count,
+                },
+                wit::PointerInput::Release(release) => Input::Release {
+                    at: point(release.at),
+                    button: button(release.button),
+                },
+            },
+            place: Place {
+                editor: Id::new(pointer.place.editor),
+                at: unplace(pointer.place.at),
+            },
+        },
+        wit::Event::Edit(edited) => Event::Edit {
+            editor: Id::new(edited.editor),
+            edited: Edited {
+                version: edited.version,
+                changes: edited
+                    .changes
+                    .into_iter()
+                    .map(|c| Change::new(unplace(c.from), unplace(c.to), c.insert))
+                    .collect(),
+                origin: match edited.origin {
+                    wit::Origin::Person => Origin::Person,
+                    wit::Origin::Compose => Origin::Compose,
+                    wit::Origin::Page => Origin::Page,
+                    wit::Origin::Undo => Origin::Undo,
+                    wit::Origin::Redo => Origin::Redo,
+                    wit::Origin::Load => Origin::Load,
+                },
+            },
+        },
+        wit::Event::Selection(selection) => Event::Selection {
+            editor: Id::new(selection.editor),
+            selection: Selection {
+                ranges: selection
+                    .ranges
+                    .into_iter()
+                    .map(|r| Range::new(unplace(r.anchor), unplace(r.head)))
+                    .collect(),
+                main: unplace(selection.main),
+                version: selection.version,
+                composing: selection.composing,
+            },
+        },
+        wit::Event::Viewport(viewport) => Event::Viewport {
+            editor: Id::new(viewport.editor),
+            first: unplace(viewport.first),
+            last: unplace(viewport.last),
+        },
+        wit::Event::EditorRefused(refused) => Event::EditorRefused {
+            editor: Id::new(refused.editor),
+            refusal: match refused.reason {
+                wit::Refusal::Reversed => Refusal::Reversed,
+                wit::Refusal::OutOfDocument => Refusal::OutOfDocument,
+                wit::Refusal::Overlapping => Refusal::Overlapping,
+                wit::Refusal::StaleVersion => Refusal::StaleVersion,
+                wit::Refusal::FutureVersion => Refusal::FutureVersion,
+                wit::Refusal::TooLarge => Refusal::TooLarge,
+                wit::Refusal::TooManyDecorations => Refusal::TooManyDecorations,
+                wit::Refusal::OutsideRange => Refusal::OutsideRange,
+                wit::Refusal::BadPattern => Refusal::BadPattern,
+                wit::Refusal::NoEditor => Refusal::NoEditor,
+            },
+        },
+        // Every other event is the engine's own, read above.
+        other => from_wit_event(other),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pencere_view::edit::{Decorate, Decoration, Look};
+    use pencere_view::{Element, div};
+
+    #[test]
+    fn an_editor_and_what_the_page_asks_of_it_cross_as_they_are() {
+        let options = EditorOptions {
+            hint: Some("SQL…".into()),
+            comment: Some("--".into()),
+            pairs: vec![('(', ')'), ('\'', '\'')],
+            ..EditorOptions::default()
+        };
+        let root: Element = div().editor(Id::new(5), options);
+        let frame = to_wit_frame(Frame::still(root));
+        let editor = frame.nodes[0]
+            .editor
+            .as_ref()
+            .expect("the node is an editor");
+        let words = |part: &wit::Slice| {
+            frame
+                .text
+                .get(part.start as usize..(part.start + part.len) as usize)
+                .unwrap_or_default()
+                .to_owned()
+        };
+        assert_eq!(editor.hint.as_ref().map(words).as_deref(), Some("SQL…"));
+        assert_eq!(editor.pairs.as_ref().map(words).as_deref(), Some("()''"));
+        let reply = Reply {
+            editor: vec![
+                (
+                    Id::new(5),
+                    EditorAsk::Change {
+                        base: 3,
+                        changes: vec![Change::new(0, 2, "ğ")],
+                    },
+                ),
+                (
+                    Id::new(5),
+                    EditorAsk::Decorate(Decorate {
+                        layer: "syntax".into(),
+                        version: 3,
+                        from: 0,
+                        to: 4,
+                        decorations: vec![Decoration::new(
+                            0,
+                            2,
+                            Mark::Style(Look {
+                                weight: Some(700),
+                                ..Look::default()
+                            }),
+                        )],
+                    }),
+                ),
+            ],
+            ..Reply::none()
+        };
+        let asked = to_wit_reply(reply).editor;
+        assert_eq!(asked.len(), 2);
+        assert!(matches!(
+            &asked[0].ask,
+            wit::EditorAskKind::Change(set) if set.base == 3 && set.changes[0].insert == "ğ"
+        ));
+        let event = from_wit_event(wit::Event::Edit(wit::Edited {
+            editor: 5,
+            version: 4,
+            changes: vec![wit::Change {
+                from: 1,
+                to: 1,
+                insert: "x".into(),
+            }],
+            origin: wit::Origin::Person,
+        }));
+        assert_eq!(
+            event,
+            Event::Edit {
+                editor: Id::new(5),
+                edited: Edited {
+                    version: 4,
+                    changes: vec![Change::new(1, 1, "x")],
+                    origin: Origin::Person,
+                },
+            }
+        );
     }
 }

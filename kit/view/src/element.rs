@@ -8,6 +8,7 @@
 //! border and a shadow, and sets the text of the boxes under it; a box is a column unless
 //! told otherwise.
 
+use crate::edit::EditorOptions;
 use crate::style::{
     Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
     Style, Track,
@@ -100,6 +101,8 @@ pub struct Meta {
     pub focusable: bool,
     /// The host puts a text field of its own, of this kind, over this box ([`Element::field`]).
     pub field: Option<FieldKind>,
+    /// The box is the room of an editor of the host's, set up so ([`Element::editor`]).
+    pub editor: Option<EditorOptions>,
     /// What the element is in words, for a person who does not see it ([`Element::label`]).
     pub label: Option<String>,
     /// How a change of the element moves instead of jumping ([`Element::motion`]).
@@ -263,6 +266,21 @@ impl Element {
         self.field(id, FieldKind::Line)
     }
 
+    /// The box is the room of an editor of text the host puts there, named `id`, set up as
+    /// `options` say (`div().editor(id, EditorOptions::default()).grow(1.0)`): the host keeps its
+    /// document, edits it, lays out and draws its lines, and scrolls them as it scrolls a box
+    /// ([`Element::scroll`]); the page is told what changed and asks for changes
+    /// ([`crate::edit`]). The box's fill and border are the page's. Its document lives as long as an
+    /// editor of that name is on the page, hidden or not ([`crate::Laid::editors`]). A text inside it
+    /// is what it says while its document is empty, where its options say nothing; the page does
+    /// not draw it. The caret has a name of its own to stand beside ([`Id::caret`]).
+    #[must_use]
+    pub fn editor(mut self, id: Id, options: EditorOptions) -> Self {
+        self.meta.id = Some(id);
+        self.meta.editor = Some(options);
+        self.set(|s| s.overflow = Overflow::Scroll)
+    }
+
     /// What the element is in words, for a person who does not see it: a screen reader says it.
     /// A button that is an icon alone says what it does; an element with none is read by the
     /// words inside it.
@@ -295,11 +313,11 @@ impl Element {
     }
 
     /// What the element is to a screen reader, where its look says it and its answers do not: a
-    /// checkbox, a switch, a tab, a link, a heading. (A text field is one by [`Element::field`],
-    /// and is not made one here.)
+    /// checkbox, a switch, a tab, a link, a heading. (A text field is one by [`Element::field`], an
+    /// editor by [`Element::editor`], and neither is made one here.)
     #[must_use]
     pub fn role(mut self, role: AccessibleRole) -> Self {
-        if !matches!(role, AccessibleRole::Field(_)) {
+        if !matches!(role, AccessibleRole::Field(_) | AccessibleRole::Editor) {
             self.meta.role = Some(role);
         }
         self

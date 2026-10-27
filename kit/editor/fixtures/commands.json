@@ -1,0 +1,240 @@
+{
+  "examples": [
+    {
+      "about": "a move by words stops at the ends of words and of marks, past spaces",
+      "text": "foo bar.baz  qux",
+      "steps": [
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "command", "command": "move", "movement": "word_right" },
+        { "do": "expect", "ranges": [[3, 3]] },
+        { "do": "command", "command": "move", "movement": "word_right" },
+        { "do": "expect", "ranges": [[7, 7]] },
+        { "do": "command", "command": "move", "movement": "word_right" },
+        { "do": "expect", "ranges": [[8, 8]] },
+        { "do": "command", "command": "move", "movement": "word_right" },
+        { "do": "expect", "ranges": [[11, 11]] },
+        { "do": "command", "command": "move", "movement": "word_right" },
+        { "do": "expect", "ranges": [[16, 16]] },
+        { "do": "command", "command": "move", "movement": "word_left" },
+        { "do": "expect", "ranges": [[13, 13]] },
+        { "do": "command", "command": "move", "movement": "word_left" },
+        { "do": "expect", "ranges": [[8, 8]] },
+        { "do": "command", "command": "move", "movement": "word_left", "extend": true },
+        { "do": "expect", "ranges": [[8, 7]] }
+      ]
+    },
+    {
+      "about": "the start of a line is where its text starts, then where the line does",
+      "text": "    abc",
+      "steps": [
+        { "do": "select", "ranges": [[7, 7]] },
+        { "do": "command", "command": "move", "movement": "line_start" },
+        { "do": "expect", "ranges": [[4, 4]] },
+        { "do": "command", "command": "move", "movement": "line_start" },
+        { "do": "expect", "ranges": [[0, 0]] },
+        { "do": "command", "command": "move", "movement": "line_start" },
+        { "do": "expect", "ranges": [[4, 4]] },
+        { "do": "command", "command": "move", "movement": "line_end", "extend": true },
+        { "do": "expect", "ranges": [[4, 7]] },
+        { "do": "command", "command": "move", "movement": "left" },
+        { "do": "expect", "ranges": [[4, 4]] }
+      ]
+    },
+    {
+      "about": "a level of indent more and less for the lines of a range",
+      "text": "a\nb",
+      "steps": [
+        { "do": "select", "ranges": [[0, 3]] },
+        { "do": "command", "command": "indent" },
+        { "do": "expect", "text": "    a\n    b", "ranges": [[4, 11]] },
+        { "do": "command", "command": "outdent" },
+        { "do": "expect", "text": "a\nb", "ranges": [[0, 3]] }
+      ]
+    },
+    {
+      "about": "the tab key puts spaces to the next stop at a caret, or a tab",
+      "text": "ab",
+      "steps": [
+        { "do": "select", "ranges": [[1, 1]] },
+        { "do": "tab" },
+        { "do": "expect", "text": "a   b", "ranges": [[4, 4]] }
+      ]
+    },
+    {
+      "about": "with hard tabs, the tab key puts a tab",
+      "text": "ab",
+      "options": { "hard_tabs": true },
+      "steps": [
+        { "do": "select", "ranges": [[1, 1]] },
+        { "do": "tab" },
+        { "do": "expect", "text": "a\tb" }
+      ]
+    },
+    {
+      "about": "deleting back in an indent of spaces goes to the stop before",
+      "text": "      x",
+      "steps": [
+        { "do": "select", "ranges": [[6, 6]] },
+        { "do": "command", "command": "delete_backward" },
+        { "do": "expect", "text": "    x", "ranges": [[4, 4]] },
+        { "do": "command", "command": "delete_backward" },
+        { "do": "expect", "text": "x" }
+      ]
+    },
+    {
+      "about": "lines are commented at the indent of the least indented, and uncommented",
+      "text": "a\n  b\n\nc",
+      "options": { "comment": "--" },
+      "steps": [
+        { "do": "select", "ranges": [[0, 8]] },
+        { "do": "command", "command": "toggle_comment" },
+        { "do": "expect", "text": "-- a\n--   b\n\n-- c" },
+        { "do": "command", "command": "toggle_comment" },
+        { "do": "expect", "text": "a\n  b\n\nc" }
+      ]
+    },
+    {
+      "about": "a line goes up and down past its neighbours, and no further than the ends",
+      "text": "1\n2\n3",
+      "steps": [
+        { "do": "select", "ranges": [[2, 2]] },
+        { "do": "command", "command": "move_lines_up" },
+        { "do": "expect", "text": "2\n1\n3", "ranges": [[0, 0]] },
+        { "do": "command", "command": "move_lines_up" },
+        { "do": "expect", "text": "2\n1\n3", "ranges": [[0, 0]] },
+        { "do": "command", "command": "move_lines_down" },
+        { "do": "expect", "text": "1\n2\n3", "ranges": [[2, 2]] },
+        { "do": "command", "command": "move_lines_down" },
+        { "do": "expect", "text": "1\n3\n2", "ranges": [[4, 4]] }
+      ]
+    },
+    {
+      "about": "a line duplicated, the caret on the copy",
+      "text": "ab\ncd",
+      "steps": [
+        { "do": "select", "ranges": [[1, 1]] },
+        { "do": "command", "command": "duplicate_lines" },
+        { "do": "expect", "text": "ab\nab\ncd", "ranges": [[4, 4]] }
+      ]
+    },
+    {
+      "about": "a bracket comes with its closer, which is stepped over when typed",
+      "text": "",
+      "options": { "pairs": ["()", "\"\""] },
+      "steps": [
+        { "do": "type", "text": "(" },
+        { "do": "expect", "text": "()", "ranges": [[1, 1]] },
+        { "do": "type", "text": "x" },
+        { "do": "type", "text": ")" },
+        { "do": "expect", "text": "(x)", "ranges": [[3, 3]] }
+      ]
+    },
+    {
+      "about": "a bracket typed over a selection goes around it",
+      "text": "ab",
+      "options": { "pairs": ["()"] },
+      "steps": [
+        { "do": "select", "ranges": [[0, 2]] },
+        { "do": "type", "text": "(" },
+        { "do": "expect", "text": "(ab)", "ranges": [[1, 3]] }
+      ]
+    },
+    {
+      "about": "deleting back between an empty pair deletes both",
+      "text": "",
+      "options": { "pairs": ["()"] },
+      "steps": [
+        { "do": "type", "text": "(" },
+        { "do": "command", "command": "delete_backward" },
+        { "do": "expect", "text": "" }
+      ]
+    },
+    {
+      "about": "a quote after a letter comes alone",
+      "text": "a",
+      "options": { "pairs": ["\"\""] },
+      "steps": [
+        { "do": "select", "ranges": [[1, 1]] },
+        { "do": "type", "text": "\"" },
+        { "do": "expect", "text": "a\"" }
+      ]
+    },
+    {
+      "about": "a new line keeps the indent, and between a pair puts the closer on a line of its own",
+      "text": "  if {}",
+      "options": { "pairs": ["{}"] },
+      "steps": [
+        { "do": "select", "ranges": [[6, 6]] },
+        { "do": "command", "command": "newline" },
+        { "do": "expect", "text": "  if {\n      \n  }", "ranges": [[13, 13]] }
+      ]
+    },
+    {
+      "about": "a new line after text keeps its indent",
+      "text": "  foo",
+      "steps": [
+        { "do": "select", "ranges": [[5, 5]] },
+        { "do": "command", "command": "newline" },
+        { "do": "expect", "text": "  foo\n  ", "ranges": [[8, 8]] }
+      ]
+    },
+    {
+      "about": "a bracket and the one that matches it",
+      "text": "(a(b)c)",
+      "options": { "pairs": ["()"] },
+      "steps": [
+        { "do": "expect", "bracket": [0, 6] },
+        { "do": "expect", "bracket": [2, 4] },
+        { "do": "expect", "bracket": [6, 0] },
+        { "do": "expect", "bracket": [1, 6] },
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "command", "command": "move", "movement": "bracket" },
+        { "do": "expect", "ranges": [[6, 6]] }
+      ]
+    },
+    {
+      "about": "a word deleted back and forward",
+      "text": "foo bar",
+      "steps": [
+        { "do": "select", "ranges": [[7, 7]] },
+        { "do": "command", "command": "delete_word_backward" },
+        { "do": "expect", "text": "foo " },
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "command", "command": "delete_word_forward" },
+        { "do": "expect", "text": " " }
+      ]
+    },
+    {
+      "about": "a document the person cannot change is changed by the page",
+      "text": "ab",
+      "options": { "read_only": true },
+      "steps": [
+        { "do": "type", "text": "x" },
+        { "do": "command", "command": "delete_forward" },
+        { "do": "expect", "text": "ab", "version": 0 },
+        { "do": "change", "base": 0, "changes": [[0, 0, "x"]] },
+        { "do": "expect", "text": "xab" }
+      ]
+    },
+    {
+      "about": "a copy and a cut with nothing selected take the line",
+      "text": "ab\ncd",
+      "steps": [
+        { "do": "select", "ranges": [[1, 1]] },
+        { "do": "copy", "gives": "ab\n" },
+        { "do": "cut", "gives": "ab\n" },
+        { "do": "expect", "text": "cd" },
+        { "do": "select", "ranges": [[0, 1]] },
+        { "do": "copy", "gives": "c" }
+      ]
+    },
+    {
+      "about": "everything selected",
+      "text": "ab\ncd",
+      "steps": [
+        { "do": "command", "command": "select_all" },
+        { "do": "expect", "ranges": [[0, 5]] }
+      ]
+    }
+  ]
+}

@@ -9,6 +9,9 @@
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Id(u64);
 
+/// The role of an editor's name that is its caret's ([`Id::caret`]): one no page has a use for.
+const CARET: u8 = 0xc7;
+
 impl Id {
     /// The id with this number.
     pub const fn new(number: u64) -> Self {
@@ -31,6 +34,15 @@ impl Id {
             bytes = rest;
         }
         Self(hash)
+    }
+
+    /// The caret of the editor named this ([`crate::Element::editor`]): what an overlay is anchored
+    /// to (`anchor(id.caret(), Side::Below)`, a popup of completions) and what
+    /// [`crate::Laid::bounds`] says the box of, while the editor has the room and the caret is
+    /// in it. A name of the editor's, which no name of the page's is.
+    #[must_use]
+    pub const fn caret(self) -> Self {
+        self.role(CARET)
     }
 
     /// An id related to this one — the same element in another role (a row, and the fade of

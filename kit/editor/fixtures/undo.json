@@ -1,0 +1,133 @@
+{
+  "examples": [
+    {
+      "about": "typing without a pause is undone at once, and done again",
+      "text": "",
+      "steps": [
+        { "do": "type", "text": "a", "at": 0.0 },
+        { "do": "type", "text": "b", "at": 0.2 },
+        { "do": "type", "text": "c", "at": 0.4 },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "", "ranges": [[0, 0]] },
+        { "do": "command", "command": "redo" },
+        { "do": "expect", "text": "abc", "ranges": [[3, 3]] }
+      ]
+    },
+    {
+      "about": "groups undone one after the other and done again in turn",
+      "text": "",
+      "steps": [
+        { "do": "type", "text": "a", "at": 0.0 },
+        { "do": "type", "text": "b", "at": 0.1 },
+        { "do": "command", "command": "delete_backward", "at": 0.2 },
+        { "do": "type", "text": "c", "at": 0.3 },
+        { "do": "expect", "text": "ac" },
+        { "do": "command", "command": "undo" },
+        { "do": "command", "command": "undo" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "" },
+        { "do": "command", "command": "redo" },
+        { "do": "expect", "text": "ab" },
+        { "do": "command", "command": "redo" },
+        { "do": "command", "command": "redo" },
+        { "do": "expect", "text": "ac" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "a" }
+      ]
+    },
+    {
+      "about": "a pause starts a group of its own",
+      "text": "",
+      "steps": [
+        { "do": "type", "text": "a", "at": 0.0 },
+        { "do": "type", "text": "b", "at": 0.3 },
+        { "do": "type", "text": "c", "at": 2.0 },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "ab" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "" }
+      ]
+    },
+    {
+      "about": "typing and deleting are undone apart",
+      "text": "",
+      "steps": [
+        { "do": "type", "text": "a", "at": 0.0 },
+        { "do": "type", "text": "b", "at": 0.1 },
+        { "do": "command", "command": "delete_backward", "at": 0.2 },
+        { "do": "expect", "text": "a" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "ab" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "" }
+      ]
+    },
+    {
+      "about": "a move of the caret ends the group",
+      "text": "",
+      "steps": [
+        { "do": "type", "text": "a", "at": 0.0 },
+        { "do": "select", "ranges": [[0, 0]], "at": 0.1 },
+        { "do": "type", "text": "b", "at": 0.2 },
+        { "do": "expect", "text": "ba" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "a" }
+      ]
+    },
+    {
+      "about": "the page's change is undone apart, carried over what the person typed after it",
+      "text": "x",
+      "steps": [
+        { "do": "select", "ranges": [[1, 1]] },
+        { "do": "type", "text": "1", "at": 0.0 },
+        { "do": "change", "base": 1, "changes": [[0, 0, "P"]], "at": 0.1 },
+        { "do": "type", "text": "2", "at": 0.2 },
+        { "do": "expect", "text": "Px12" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "Px1" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "x1" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "x" }
+      ]
+    },
+    {
+      "about": "undoing puts the selection back where it was",
+      "text": "hello",
+      "steps": [
+        { "do": "select", "ranges": [[0, 5]] },
+        { "do": "type", "text": "X" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "hello", "ranges": [[0, 5]] }
+      ]
+    },
+    {
+      "about": "what was undone cannot be done again after a new change",
+      "text": "",
+      "steps": [
+        { "do": "type", "text": "a" },
+        { "do": "command", "command": "undo" },
+        { "do": "type", "text": "b" },
+        { "do": "command", "command": "redo" },
+        { "do": "expect", "text": "b" }
+      ]
+    },
+    {
+      "about": "an undo is a version of its own, the page is told it",
+      "text": "",
+      "steps": [
+        { "do": "type", "text": "a" },
+        { "do": "expect", "version": 1 },
+        { "do": "command", "command": "undo" },
+        {
+          "do": "expect",
+          "version": 2,
+          "notes": [
+            { "edited": { "version": 2, "origin": "undo", "changes": [[0, 1, ""]] } },
+            { "selection": { "ranges": [[0, 0]] } }
+          ]
+        }
+      ]
+    }
+  ]
+}

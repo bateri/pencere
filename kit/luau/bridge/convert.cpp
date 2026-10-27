@@ -897,6 +897,39 @@ static_assert(PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_BUTTON == 0 && PENCERE_VIEW_TYP
                   PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_HEADING == 8 && PENCERE_VIEW_TYPES_ACCESSIBLE_ROLE_SLIDER == 11,
               "kAccessibleRoles is the order of accessible-role");
 
+// --- An editor ------------------------------------------------------------------------------
+
+// `meta.editor`: { wrap =, tab_width =, hard_tabs =, gutter =, read_only =, keys = "editor" | "page",
+// hint = "words", comment = "--", pairs = "()[]{}" }. What it does not say is the default (a gutter,
+// tabs of four).
+pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arenas& arenas) {
+    pencere_view_types_editor_options_t out = {};
+    out.wrap = flag(L, t, "wrap");
+    float tab = number(L, t, "tab_width", 4.0f);
+    out.tab_width = tab < 1 ? 1 : (tab > 16 ? 16 : (uint8_t)tab);
+    out.hard_tabs = flag(L, t, "hard_tabs");
+    view_option_bool_t gutter = optional_flag(L, t, "gutter");
+    out.gutter = gutter.is_some ? gutter.val : true;
+    out.read_only = flag(L, t, "read_only");
+    static const char* const kKeysOf[] = {"editor", "page"};
+    out.keys = (uint8_t)word(L, t, "keys", kKeysOf, 2, 0);
+    const char* const kWords[] = {"hint", "comment", "pairs"};
+    pencere_view_types_option_slice_t* slots[] = {&out.hint, &out.comment, &out.pairs};
+    for (int at = 0; at < 3; at++) {
+        get(L, t, kWords[at]);
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            size_t length = 0;
+            const char* bytes = lua_tolstring(L, -1, &length);
+            slots[at]->is_some = true;
+            slots[at]->val = add_words(arenas, bytes, length);
+        } else if (!lua_isnil(L, -1)) {
+            luaL_error(L, "the %s of an editor is a string", kWords[at]);
+        }
+        lua_pop(L, 1);
+    }
+    return out;
+}
+
 void flatten(lua_State* L, int element, Flat& flat, int depth) {
     if (depth > kMaxDepth) luaL_error(L, "the page is nested more than %d boxes deep", kMaxDepth);
     luaL_checkstack(L, 32, "the page is nested too deep");
@@ -1013,6 +1046,14 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         static const char* const kFieldKinds[] = {"line", "lines", "secret"};
         int field = word(L, meta, "field", kFieldKinds, 3, -1);
         if (field >= 0) nodes.ptr[at].field = {true, (uint8_t)field};
+        get(L, meta, "editor");
+        if (lua_type(L, -1) == LUA_TTABLE) {
+            nodes.ptr[at].editor.is_some = true;
+            nodes.ptr[at].editor.val = editor_options_at(L, lua_gettop(L), flat.arenas);
+        } else if (!lua_isnil(L, -1)) {
+            luaL_error(L, "an editor's options are a table");
+        }
+        lua_pop(L, 1);
         get(L, meta, "label");
         if (lua_type(L, -1) == LUA_TSTRING) {
             size_t length = 0;
@@ -1152,6 +1193,17 @@ view_string_t host_string(const char* bytes, size_t length) {
 
 uint64_t id_of(lua_State* L, int index) {
     int kind = lua_type(L, index);
+    if (kind == LUA_TTABLE) {
+        // The caret of an editor (`pencere.caret_of`): { caret = the editor's name }, the id the
+        // engine's `Id::caret` makes of it.
+        lua_rawgetfield(L, index, "caret");
+        if (lua_isnil(L, -1)) luaL_error(L, "an element is named by a string or a whole number");
+        uint64_t editor = id_of(L, lua_gettop(L));
+        lua_pop(L, 1);
+        const uint64_t role = 0xc7;
+        uint64_t mixed = (editor ^ ((role + 1) << 56)) * 0x9e3779b97f4a7c15ull;
+        return mixed ^ (mixed >> 29);
+    }
     if (kind == LUA_TSTRING) {
         size_t length = 0;
         const char* bytes = lua_tolstring(L, index, &length);
@@ -1290,6 +1342,29 @@ void push_character(lua_State* L, uint32_t cp) {
 
 }  // namespace
 
+namespace {
+
+// A place of a document as the script is told it: a whole number of characters from 0.
+void set_place(lua_State* L, const char* name, uint32_t at) { set_number(L, name, (double)at); }
+
+const char* const kOrigins[] = {"person", "compose", "page", "undo", "redo", "load"};
+const char* const kRefusals[] = {"reversed",       "out-of-document",      "overlapping",   "stale-version",
+                                 "future-version", "too-large",            "too-many-decorations",
+                                 "outside-range",  "bad-pattern",          "no-editor"};
+
+// The ranges of a selection, as a list of { anchor =, head = }.
+void push_ranges(lua_State* L, const pencere_view_types_list_text_range_t& ranges) {
+    lua_createtable(L, (int)ranges.len, 0);
+    for (size_t at = 0; at < ranges.len; at++) {
+        lua_createtable(L, 0, 2);
+        set_place(L, "anchor", ranges.ptr[at].anchor);
+        set_place(L, "head", ranges.ptr[at].head);
+        lua_rawseti(L, -2, (int)at + 1);
+    }
+}
+
+}  // namespace
+
 void push_event(lua_State* L, const pencere_view_types_event_t& event) {
     lua_createtable(L, 0, 6);
     switch (event.tag) {
@@ -1391,8 +1466,362 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             lua_setfield(L, -2, "boxes");
             break;
         }
+        case PENCERE_VIEW_TYPES_EVENT_EDITOR_POINTER: {
+            // The pointer's own event, as it is told when it is not over an editor, with the
+            // `place` of the document under it: { editor =, at = }.
+            const auto& pointer = event.val.editor_pointer;
+            const auto& input = pointer.input;
+            if (input.tag == PENCERE_VIEW_TYPES_POINTER_INPUT_PRESS) {
+                set_word(L, "type", "press");
+                set_number(L, "x", input.val.press.at.x);
+                set_number(L, "y", input.val.press.at.y);
+                set_word(L, "button", button_name(input.val.press.button));
+                set_number(L, "count", (double)input.val.press.count);
+                set_mods(L, input.val.press.mods);
+            } else if (input.tag == PENCERE_VIEW_TYPES_POINTER_INPUT_RELEASE) {
+                set_word(L, "type", "release");
+                set_number(L, "x", input.val.release.at.x);
+                set_number(L, "y", input.val.release.at.y);
+                set_word(L, "button", button_name(input.val.release.button));
+            } else {
+                set_word(L, "type", "move");
+                set_number(L, "x", input.val.move.x);
+                set_number(L, "y", input.val.move.y);
+            }
+            lua_createtable(L, 0, 2);
+            push_id(L, pointer.place.editor);
+            lua_setfield(L, -2, "editor");
+            set_place(L, "at", pointer.place.at);
+            lua_setfield(L, -2, "place");
+            break;
+        }
+        case PENCERE_VIEW_TYPES_EVENT_EDIT: {
+            // { editor =, version =, origin =, changes = { { from =, to =, insert = }, ... } }
+            const auto& edit = event.val.edit;
+            set_word(L, "type", "edit");
+            push_id(L, edit.editor);
+            lua_setfield(L, -2, "editor");
+            set_number(L, "version", (double)edit.version);
+            set_word(L, "origin", edit.origin < 6 ? kOrigins[edit.origin] : "person");
+            lua_createtable(L, (int)edit.changes.len, 0);
+            for (size_t at = 0; at < edit.changes.len; at++) {
+                const auto& change = edit.changes.ptr[at];
+                lua_createtable(L, 0, 3);
+                set_place(L, "from", change.from);
+                set_place(L, "to", change.to);
+                lua_pushlstring(L, (const char*)change.insert.ptr, change.insert.len);
+                lua_setfield(L, -2, "insert");
+                lua_rawseti(L, -2, (int)at + 1);
+            }
+            lua_setfield(L, -2, "changes");
+            break;
+        }
+        case PENCERE_VIEW_TYPES_EVENT_SELECTION: {
+            // { editor =, version =, ranges = { { anchor =, head = }, ... }, main = (from 1), composing = }
+            const auto& selection = event.val.selection;
+            set_word(L, "type", "selection");
+            push_id(L, selection.editor);
+            lua_setfield(L, -2, "editor");
+            set_number(L, "version", (double)selection.version);
+            push_ranges(L, selection.ranges);
+            lua_setfield(L, -2, "ranges");
+            set_number(L, "main", (double)selection.main + 1);
+            lua_pushboolean(L, selection.composing);
+            lua_setfield(L, -2, "composing");
+            break;
+        }
+        case PENCERE_VIEW_TYPES_EVENT_VIEWPORT:
+            set_word(L, "type", "viewport");
+            push_id(L, event.val.viewport.editor);
+            lua_setfield(L, -2, "editor");
+            set_number(L, "first", (double)event.val.viewport.first);
+            set_number(L, "last", (double)event.val.viewport.last);
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_EDITOR_REFUSED:
+            set_word(L, "type", "editor_refused");
+            push_id(L, event.val.editor_refused.editor);
+            lua_setfield(L, -2, "editor");
+            set_word(L, "reason",
+                     event.val.editor_refused.reason < 10 ? kRefusals[event.val.editor_refused.reason] : "unknown");
+            break;
     }
 }
+
+namespace {
+
+// A place of a document the script gives: a whole number of characters from 0.
+uint32_t place_of(lua_State* L, int t, const char* name) {
+    get(L, t, name);
+    if (lua_type(L, -1) != LUA_TNUMBER) luaL_error(L, "%s is a place: a whole number of characters from 0", name);
+    double at = lua_tonumber(L, -1);
+    lua_pop(L, 1);
+    if (!(at >= 0 && at <= 4294967295.0) || at != (double)(uint32_t)at)
+        luaL_error(L, "%s is a place: a whole number of characters from 0", name);
+    return (uint32_t)at;
+}
+
+// A version of a document the script gives (it was told it).
+uint64_t version_of(lua_State* L, int t, const char* name) {
+    get(L, t, name);
+    if (lua_type(L, -1) != LUA_TNUMBER) luaL_error(L, "%s is the version of the document it is of", name);
+    double version = lua_tonumber(L, -1);
+    lua_pop(L, 1);
+    if (!(version >= 0 && version < 9007199254740992.0)) luaL_error(L, "%s is a version: a whole number", name);
+    return (uint64_t)version;
+}
+
+view_string_t string_of(lua_State* L, int t, const char* name) {
+    get(L, t, name);
+    if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "%s is a string", name);
+    size_t length = 0;
+    const char* bytes = lua_tolstring(L, -1, &length);
+    view_string_t out = host_string(bytes, length);
+    lua_pop(L, 1);
+    return out;
+}
+
+// The length of the list at the absolute index `t`, held to what a reply may say.
+size_t list_length(lua_State* L, int t, const char* what) {
+    size_t count = (size_t)lua_objlen(L, t);
+    if (count > kMaxNodes) luaL_error(L, "%s has more items than a reply may", what);
+    return count;
+}
+
+const char* const kMovements[] = {"left",      "right",     "word_left",  "word_right",     "up",
+                                  "down",      "page_up",   "page_down",  "line_start",     "line_end",
+                                  "document_start", "document_end", "bracket"};
+const char* const kCommands[] = {"move",          "insert",          "newline",           "delete_backward",
+                                 "delete_forward", "delete_word_backward", "delete_word_forward", "indent",
+                                 "outdent",       "move_lines_up",   "move_lines_down",   "duplicate_lines",
+                                 "toggle_comment", "select_all",     "add_caret_above",   "add_caret_below",
+                                 "select_next",   "single_selection", "undo",             "redo",
+                                 "fold",          "unfold",          "toggle_fold",       "unfold_all",
+                                 "find",          "find_next",       "find_previous",     "stop_finding"};
+static_assert(PENCERE_VIEW_TYPES_EDITOR_COMMAND_STOP_FINDING == 27 && PENCERE_VIEW_TYPES_MOVEMENT_BRACKET == 12,
+              "the words of an editor's commands are the places of the interface's");
+
+// `{ command = "undo" }`, `{ command = "move", movement = "word_left", extend = true }`,
+// `{ command = "insert", text = "x" }`, `{ command = "find", pattern =, regex =, case = }`.
+pencere_view_types_editor_command_t command_at(lua_State* L, int t) {
+    pencere_view_types_editor_command_t out = {};
+    out.tag = (uint8_t)word(L, t, "command", kCommands, 28, -1);
+    switch (out.tag) {
+        case PENCERE_VIEW_TYPES_EDITOR_COMMAND_MOVE:
+            out.val.move.movement = (uint8_t)word(L, t, "movement", kMovements, 13, 0);
+            out.val.move.extend = flag(L, t, "extend");
+            break;
+        case PENCERE_VIEW_TYPES_EDITOR_COMMAND_INSERT:
+            out.val.insert = string_of(L, t, "text");
+            break;
+        case PENCERE_VIEW_TYPES_EDITOR_COMMAND_FIND: {
+            out.val.find.pattern = string_of(L, t, "pattern");
+            out.val.find.regex = flag(L, t, "regex");
+            view_option_bool_t matching = optional_flag(L, t, "case");
+            out.val.find.matching_case = matching.is_some ? matching.val : true;
+            break;
+        }
+        default:
+            break;
+    }
+    return out;
+}
+
+// A decoration: `{ from =, to =, fold = true }`, `{ from =, to =, line = colour }`,
+// `{ from =, to =, gutter = colour }`, or a look: `{ from =, to =, color =, background =, weight =,
+// italic =, strike =, underline = colour | { wavy = colour } }`.
+pencere_view_types_decoration_t decoration_at(lua_State* L, int t) {
+    pencere_view_types_decoration_t out = {};
+    out.from = place_of(L, t, "from");
+    out.to = place_of(L, t, "to");
+    if (flag(L, t, "fold")) {
+        out.mark.tag = PENCERE_VIEW_TYPES_MARK_FOLD;
+        return out;
+    }
+    pencere_view_types_option_color_t line = optional_color(L, t, "line");
+    if (line.is_some) {
+        out.mark.tag = PENCERE_VIEW_TYPES_MARK_LINE;
+        out.mark.val.line = line.val;
+        return out;
+    }
+    pencere_view_types_option_color_t gutter = optional_color(L, t, "gutter");
+    if (gutter.is_some) {
+        out.mark.tag = PENCERE_VIEW_TYPES_MARK_GUTTER;
+        out.mark.val.gutter = gutter.val;
+        return out;
+    }
+    out.mark.tag = PENCERE_VIEW_TYPES_MARK_STYLE;
+    auto& look = out.mark.val.style;
+    look.color = optional_color(L, t, "color");
+    look.background = optional_color(L, t, "background");
+    view_option_f32_t weight = optional_number(L, t, "weight");
+    if (weight.is_some) {
+        look.weight.is_some = true;
+        look.weight.val = weight.val < 100 ? 100 : (weight.val > 900 ? 900 : (uint16_t)weight.val);
+    }
+    look.italic = optional_flag(L, t, "italic");
+    look.strike = flag(L, t, "strike");
+    // A colour is a straight line; { wavy = colour } is a wavy one.
+    get(L, t, "underline");
+    int underline = lua_gettop(L);
+    if (lua_type(L, underline) == LUA_TTABLE) {
+        lua_rawgetfield(L, underline, "wavy");
+        if (!lua_isnil(L, -1)) {
+            look.underline.is_some = true;
+            look.underline.val.tag = PENCERE_VIEW_TYPES_UNDERLINE_WAVY;
+            look.underline.val.val.wavy = color_at(L, lua_gettop(L));
+        }
+        lua_pop(L, 1);
+    }
+    if (!look.underline.is_some && !lua_isnil(L, underline)) {
+        look.underline.is_some = true;
+        look.underline.val.tag = PENCERE_VIEW_TYPES_UNDERLINE_STRAIGHT;
+        look.underline.val.val.straight = color_at(L, underline);
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
+// One ask of an editor's, at the absolute index `t`: what it is is the key it has.
+pencere_view_types_editor_ask_kind_t ask_at(lua_State* L, int t) {
+    pencere_view_types_editor_ask_kind_t out = {};
+    get(L, t, "load");
+    bool load = !lua_isnil(L, -1);
+    lua_pop(L, 1);
+    get(L, t, "change");
+    bool change = !lua_isnil(L, -1);
+    lua_pop(L, 1);
+    get(L, t, "select");
+    bool select = !lua_isnil(L, -1);
+    lua_pop(L, 1);
+    get(L, t, "reveal");
+    bool reveal = !lua_isnil(L, -1);
+    lua_pop(L, 1);
+    get(L, t, "decorate");
+    bool decorate = !lua_isnil(L, -1);
+    lua_pop(L, 1);
+    get(L, t, "command");
+    bool command = !lua_isnil(L, -1);
+    lua_pop(L, 1);
+    if (load) {
+        out.tag = PENCERE_VIEW_TYPES_EDITOR_ASK_KIND_LOAD;
+        out.val.load.text = string_of(L, t, "load");
+        out.val.load.more = flag(L, t, "more");
+    } else if (change) {
+        // { change = { { from =, to =, insert = }, ... }, base = version }
+        out.tag = PENCERE_VIEW_TYPES_EDITOR_ASK_KIND_CHANGE;
+        out.val.change.base = version_of(L, t, "base");
+        get(L, t, "change");
+        int list = lua_gettop(L);
+        if (lua_type(L, list) != LUA_TTABLE) luaL_error(L, "change is a list of { from =, to =, insert = }");
+        std::vector<pencere_view_types_change_t> changes;
+        size_t count = list_length(L, list, "change");
+        for (size_t at = 0; at < count; at++) {
+            lua_rawgeti(L, list, (int)at + 1);
+            int item = lua_gettop(L);
+            if (lua_type(L, item) != LUA_TTABLE) luaL_error(L, "a change is { from =, to =, insert = }");
+            pencere_view_types_change_t one = {};
+            one.from = place_of(L, item, "from");
+            one.to = place_of(L, item, "to");
+            get(L, item, "insert");
+            size_t length = 0;
+            const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
+            one.insert = host_string(bytes, length);
+            lua_pop(L, 2);
+            changes.push_back(one);
+        }
+        lua_pop(L, 1);
+        take_list(out.val.change.changes, changes);
+    } else if (select) {
+        // { select = { { anchor =, head = }, ... }, version =, main = (from 1) }
+        out.tag = PENCERE_VIEW_TYPES_EDITOR_ASK_KIND_SELECT;
+        out.val.select.version = version_of(L, t, "version");
+        float main = number(L, t, "main", 1.0f);
+        out.val.select.main = main < 1 ? 0 : (uint32_t)(main - 1);
+        get(L, t, "select");
+        int list = lua_gettop(L);
+        if (lua_type(L, list) != LUA_TTABLE) luaL_error(L, "select is a list of { anchor =, head = }");
+        std::vector<pencere_view_types_text_range_t> ranges;
+        size_t count = list_length(L, list, "select");
+        for (size_t at = 0; at < count; at++) {
+            lua_rawgeti(L, list, (int)at + 1);
+            int item = lua_gettop(L);
+            if (lua_type(L, item) != LUA_TTABLE) luaL_error(L, "a range is { anchor =, head = }");
+            pencere_view_types_text_range_t range = {};
+            range.anchor = place_of(L, item, "anchor");
+            range.head = place_of(L, item, "head");
+            lua_pop(L, 1);
+            ranges.push_back(range);
+        }
+        lua_pop(L, 1);
+        take_list(out.val.select.ranges, ranges);
+    } else if (reveal) {
+        out.tag = PENCERE_VIEW_TYPES_EDITOR_ASK_KIND_REVEAL;
+        out.val.reveal.at = place_of(L, t, "reveal");
+        out.val.reveal.version = version_of(L, t, "version");
+    } else if (decorate) {
+        // { decorate = "layer", version =, from =, to =, decorations = { ... } }
+        out.tag = PENCERE_VIEW_TYPES_EDITOR_ASK_KIND_DECORATE;
+        out.val.decorate.layer = string_of(L, t, "decorate");
+        out.val.decorate.version = version_of(L, t, "version");
+        out.val.decorate.from = place_of(L, t, "from");
+        out.val.decorate.to = place_of(L, t, "to");
+        get(L, t, "decorations");
+        int list = lua_gettop(L);
+        std::vector<pencere_view_types_decoration_t> items;
+        if (lua_type(L, list) == LUA_TTABLE) {
+            size_t count = list_length(L, list, "decorations");
+            for (size_t at = 0; at < count; at++) {
+                lua_rawgeti(L, list, (int)at + 1);
+                if (lua_type(L, -1) != LUA_TTABLE) luaL_error(L, "a decoration is { from =, to =, ... }");
+                items.push_back(decoration_at(L, lua_gettop(L)));
+                lua_pop(L, 1);
+            }
+        } else if (!lua_isnil(L, list)) {
+            luaL_error(L, "decorations is a list");
+        }
+        lua_pop(L, 1);
+        take_list(out.val.decorate.decorations, items);
+    } else if (command) {
+        out.tag = PENCERE_VIEW_TYPES_EDITOR_ASK_KIND_COMMAND;
+        out.val.command = command_at(L, t);
+    } else {
+        luaL_error(L, "an ask of an editor is a load, a change, a select, a reveal, a decorate or a command");
+    }
+    return out;
+}
+
+// `editor = { [name] = ask or { ask, ... }, ... }`.
+void read_editor_asks(lua_State* L, int t, pencere_view_types_list_editor_ask_t& out) {
+    std::vector<pencere_view_types_editor_ask_t> asks;
+    lua_pushnil(L);
+    while (lua_next(L, t) != 0) {
+        int value = lua_gettop(L);
+        if (lua_type(L, value) != LUA_TTABLE) luaL_error(L, "editor gives each editor an ask, or a list of them");
+        uint64_t editor = id_of(L, value - 1);
+        lua_rawgeti(L, value, 1);
+        bool list = lua_type(L, -1) == LUA_TTABLE;
+        lua_pop(L, 1);
+        size_t count = list ? list_length(L, value, "an editor's asks") : 1;
+        for (size_t at = 0; at < count; at++) {
+            if (asks.size() >= kMaxNodes) luaL_error(L, "editor asks more than a reply may");
+            int ask = value;
+            if (list) {
+                lua_rawgeti(L, value, (int)at + 1);
+                ask = lua_gettop(L);
+                if (lua_type(L, ask) != LUA_TTABLE) luaL_error(L, "an ask of an editor is a table");
+            }
+            pencere_view_types_editor_ask_t one = {};
+            one.editor = editor;
+            one.ask = ask_at(L, ask);
+            asks.push_back(one);
+            if (list) lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+    }
+    take_list(out, asks);
+}
+
+}  // namespace
 
 int reply_call(lua_State* L) {
     auto* job = (ReplyJob*)lua_touserdata(L, 2);
@@ -1454,6 +1883,14 @@ int reply_call(lua_State* L) {
         }
     } else if (!lua_isnil(L, -1)) {
         luaL_error(L, "fill is a table of the fields' names and the texts they are to hold");
+    }
+    lua_pop(L, 1);
+    // What the page asks of its editors: { [name] = ask, or { ask, ... } }.
+    get(L, 1, "editor");
+    if (lua_type(L, -1) == LUA_TTABLE) {
+        read_editor_asks(L, lua_gettop(L), out.editor);
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "editor is a table of the editors' names and what is asked of each");
     }
     lua_pop(L, 1);
     get(L, 1, "copy");

@@ -464,7 +464,7 @@ interface types {
     }
 
     /// What an element is to a screen reader, where its look says it and its answers do not. (A
-    /// text field is one by `node.field`; an element that answers the pointer and says nothing is
+    /// text field is one by `node.field`, an editor by `node.editor`; an element that answers the pointer and says nothing is
     /// a button.)
     variant accessible-role {
         button,
@@ -529,6 +529,38 @@ interface types {
         lines,
         /// One line whose characters are not shown (a password), and which is never copied.
         secret,
+    }
+
+    /// What the keys do in an editor.
+    enum editor-keys {
+        /// The page's commands first, then the editor's own, then what is typed.
+        editor,
+        /// The page's, every one: the editor types nothing and does none of its commands for a
+        /// key, and the page drives it (`editor-ask.command`). An input method and the pasteboard
+        /// are still the editor's.
+        page,
+    }
+
+    /// How an editor is set up (`node.editor`): said every frame.
+    record editor-options {
+        /// Long lines go on in the next row where the room ends.
+        wrap: bool,
+        /// How many columns a tab takes, and how many spaces a level of indent is.
+        tab-width: u8,
+        /// A level of indent is a tab.
+        hard-tabs: bool,
+        /// The numbers of the lines, the marks and the buttons that fold.
+        gutter: bool,
+        /// The person cannot change the text; the page can.
+        read-only: bool,
+        keys: editor-keys,
+        /// What it says while its document is empty: a part of the frame's `text`.
+        hint: option<slice>,
+        /// What starts a comment to the end of the line (`--`): a part of the frame's `text`.
+        comment: option<slice>,
+        /// The brackets and quotes that close themselves, each an opener and its closer one after
+        /// the other (`()[]{}""`): a part of the frame's `text`.
+        pairs: option<slice>,
     }
 
     /// How a move goes over its time.
@@ -610,6 +642,12 @@ interface types {
         /// What it is to a screen reader, where its look says it.
         role: option<accessible-role>,
         state: state,
+        /// The box is the room of an editor of text the application puts there, named by the
+        /// element's `id` (one with no id is none), set up so. The application keeps its document,
+        /// lays out and draws its lines, and scrolls it as a box that scrolls; the box's fill and
+        /// border are the page's. Its document lives as long as an editor of its name is on the
+        /// page, hidden or not.
+        editor: option<editor-options>,
         /// What the page can be told to do while the keyboard is on this element or inside it:
         /// a part of the frame's `commands`. The commands of the outermost element can be done
         /// whatever has the keyboard; where two say the same keys, the nearer the keyboard is done.
@@ -745,6 +783,99 @@ interface types {
         offset: point,
     }
 
+    /// A place in an editor's document: the editor and the place, characters (code points) from
+    /// the start.
+    record place {
+        editor: id,
+        at: u32,
+    }
+
+    /// What the pointer did over an editor.
+    variant pointer-input {
+        move(point),
+        press(press),
+        release(release),
+    }
+
+    /// The pointer over an editor, and the place of its document under it.
+    record editor-pointer {
+        input: pointer-input,
+        place: place,
+    }
+
+    /// One change of a document: the characters `from..to` replaced by `insert`.
+    record change {
+        %from: u32,
+        to: u32,
+        insert: string,
+    }
+
+    /// A selected range, from where it was started to where the caret is; a caret alone where
+    /// the two are one.
+    record text-range {
+        anchor: u32,
+        head: u32,
+    }
+
+    /// Who made a change.
+    enum origin {
+        person,
+        /// An input method, composing.
+        compose,
+        page,
+        undo,
+        redo,
+        load,
+    }
+
+    /// An editor's document changed: the changes that took version `version - 1` to `version`, in
+    /// its places, in order and apart. The text the page reads (`layout.editor-text`) is of this
+    /// version when it is told.
+    record edited {
+        editor: id,
+        version: u64,
+        changes: list<change>,
+        origin: origin,
+    }
+
+    /// Where an editor's carets and selections are.
+    record editor-selection {
+        editor: id,
+        /// The version the places are of.
+        version: u64,
+        ranges: list<text-range>,
+        /// The place of the main range in `ranges`.
+        main: u32,
+        /// An input method is composing at the main caret.
+        composing: bool,
+    }
+
+    /// The lines of an editor in view: the first and the last.
+    record viewport {
+        editor: id,
+        first: u32,
+        last: u32,
+    }
+
+    /// Why an editor did not do what the page asked.
+    enum refusal {
+        reversed,
+        out-of-document,
+        overlapping,
+        stale-version,
+        future-version,
+        too-large,
+        too-many-decorations,
+        outside-range,
+        bad-pattern,
+        no-editor,
+    }
+
+    record editor-refused {
+        editor: id,
+        reason: refusal,
+    }
+
     /// One thing the person did, in the page's points (its top-left corner is the origin).
     variant event {
         pointer-move(point),
@@ -774,6 +905,16 @@ interface types {
         /// The application scrolled these boxes (the wheel, the trackpad, a scroll bar, or what
         /// the page asked): a page that builds only what is in view builds what came into it.
         scrolled(list<scrolled>),
+        /// The pointer over an editor, with the place under it.
+        editor-pointer(editor-pointer),
+        /// An editor's document changed.
+        edit(edited),
+        /// An editor's selections moved, or an input method began or stopped composing.
+        selection(editor-selection),
+        /// An editor's lines in view changed.
+        viewport(viewport),
+        /// What the page asked of an editor was not done, and nothing of it was.
+        editor-refused(editor-refused),
     }
 
     /// The shape the pointer takes over the page.
@@ -803,6 +944,154 @@ interface types {
         page,
         /// The field named by this id.
         field(id),
+    }
+
+    /// Where a caret goes.
+    enum movement {
+        left,
+        right,
+        word-left,
+        word-right,
+        up,
+        down,
+        page-up,
+        page-down,
+        line-start,
+        line-end,
+        document-start,
+        document-end,
+        /// To the bracket that matches the one at the caret.
+        bracket,
+    }
+
+    record move-by {
+        movement: movement,
+        /// The anchor stays: the range grows.
+        extend: bool,
+    }
+
+    record find {
+        pattern: string,
+        /// A regular expression, not the words as they are.
+        regex: bool,
+        /// In the case written (not either).
+        matching-case: bool,
+    }
+
+    /// What the page asks an editor to do as if the person had.
+    variant editor-command {
+        move(move-by),
+        insert(string),
+        newline,
+        delete-backward,
+        delete-forward,
+        delete-word-backward,
+        delete-word-forward,
+        indent,
+        outdent,
+        move-lines-up,
+        move-lines-down,
+        duplicate-lines,
+        toggle-comment,
+        select-all,
+        add-caret-above,
+        add-caret-below,
+        select-next,
+        single-selection,
+        undo,
+        redo,
+        fold,
+        unfold,
+        toggle-fold,
+        unfold-all,
+        find(find),
+        find-next,
+        find-previous,
+        stop-finding,
+    }
+
+    /// A line under some characters.
+    variant underline {
+        straight(color),
+        wavy(color),
+    }
+
+    /// The look of some characters: what it does not say is the editor's.
+    record look {
+        color: option<color>,
+        background: option<color>,
+        weight: option<u16>,
+        italic: option<bool>,
+        underline: option<underline>,
+        strike: bool,
+    }
+
+    /// What a decoration marks.
+    variant mark {
+        style(look),
+        /// A ground for each line the range touches.
+        line(color),
+        /// A mark in the gutter by its first line.
+        gutter(color),
+        /// The range can be folded: its first line stays, the lines after it are hidden.
+        fold,
+    }
+
+    record decoration {
+        %from: u32,
+        to: u32,
+        mark: mark,
+    }
+
+    /// A layer's decorations for `from..to`, of `version`, in place of what the layer had there.
+    record decorate {
+        layer: string,
+        version: u64,
+        %from: u32,
+        to: u32,
+        decorations: list<decoration>,
+    }
+
+    record load {
+        text: string,
+        /// Another piece follows.
+        more: bool,
+    }
+
+    record change-set {
+        /// The version the changes are made against.
+        base: u64,
+        changes: list<change>,
+    }
+
+    record select-ranges {
+        version: u64,
+        ranges: list<text-range>,
+        main: u32,
+    }
+
+    record reveal {
+        version: u64,
+        at: u32,
+    }
+
+    /// What the page asks of an editor.
+    variant editor-ask-kind {
+        /// A piece of the document: the first takes the place of the whole, each after it goes on
+        /// its end. Nothing of it is undone.
+        load(load),
+        /// Changes against an older version, carried over what was done since.
+        change(change-set),
+        select(select-ranges),
+        /// A place scrolled into view.
+        reveal(reveal),
+        command(editor-command),
+        decorate(decorate),
+    }
+
+    record editor-ask {
+        editor: id,
+        ask: editor-ask-kind,
     }
 
     record menu-item {
@@ -843,6 +1132,10 @@ interface types {
         copy: option<string>,
         /// The pointer's shape after this event.
         cursor: cursor,
+        /// What the page asks of its editors, in order. The text of one reply (its loads, its
+        /// changes, its layers' names, what it finds) is at most 1 MiB, its decorations at most
+        /// 20 000: a reply past them is not one.
+        editor: list<editor-ask>,
     }
 }
 
@@ -872,6 +1165,22 @@ interface layout {
     drag-source: func(at: point) -> option<id>;
     /// The element under `at` that what is dragged can be put down on: the topmost.
     drop-target: func(at: point) -> option<id>;
+
+    /// The version of the editor named `editor` whose text the module can read: the copy the
+    /// application posted, of the version the last `edit` event it was told says. None for an
+    /// editor the page has not.
+    editor-version: func(editor: id) -> option<u64>;
+    /// How many characters the editor's text has.
+    editor-length: func(editor: id) -> option<u32>;
+    /// How many lines it has: one more than it has line breaks.
+    editor-lines: func(editor: id) -> option<u32>;
+    /// The characters `from..to` of the editor's text: none for a range it has not, or one of more
+    /// than 1 MiB (a large document is read in pieces).
+    editor-text: func(editor: id, %from: u32, to: u32) -> option<string>;
+    /// Where line `line` (from 0) of the editor's text starts.
+    line-start: func(editor: id, line: u32) -> option<u32>;
+    /// The line the place `at` is on.
+    line-of: func(editor: id, at: u32) -> option<u32>;
 }
 
 /// What the module can say to the program that opened the page, if one did.
