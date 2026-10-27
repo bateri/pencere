@@ -5,7 +5,7 @@
 
 use pencere_view::edit::{
     CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions, Folds, Found,
-    Keys, Mark, Movement, Numbers, Origin, Range, Refusal, Selection, Tint, Underline,
+    Keys, Mark, Movement, Numbers, Origin, Range, Refusal, Selection, Tint, Underline, Whitespace,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
@@ -732,6 +732,14 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
             text: tint(options.caret.text),
         },
         colors: editor_colors(&options.colors),
+        whitespace: match options.whitespace {
+            Whitespace::None => wit::EditorWhitespace::None,
+            Whitespace::Boundary => wit::EditorWhitespace::Boundary,
+            Whitespace::Selection => wit::EditorWhitespace::Selection,
+            Whitespace::Trailing => wit::EditorWhitespace::Trailing,
+            Whitespace::All => wit::EditorWhitespace::All,
+        },
+        indent_guides: options.indent_guides,
     }
 }
 
@@ -756,6 +764,9 @@ fn editor_colors(colors: &EditorColors) -> wit::EditorColors {
         folds: tint(colors.folds),
         folded: tint(colors.folded),
         hint: tint(colors.hint),
+        whitespace: tint(colors.whitespace),
+        indent_guides: tint(colors.indent_guides),
+        active_indent_guide: tint(colors.active_indent_guide),
     }
 }
 
@@ -1018,9 +1029,13 @@ mod tests {
                 color: Tint::Color(Color::from(Role::Accent)),
                 text: Tint::Off,
             },
+            whitespace: Whitespace::Boundary,
+            indent_guides: true,
             colors: EditorColors {
                 current_line: Tint::Off,
                 gutter: Tint::Color(Color::from(Role::Raised(1))),
+                whitespace: Tint::Color(Color::from(Role::Dim)),
+                active_indent_guide: Tint::Off,
                 ..EditorColors::default()
             },
             ..EditorOptions::default()
@@ -1042,6 +1057,20 @@ mod tests {
         assert!(matches!(editor.colors.current_line, wit::EditorTint::Off));
         assert!(matches!(&editor.colors.gutter, wit::EditorTint::Color(_)));
         assert!(matches!(editor.colors.selection, wit::EditorTint::Theme));
+        assert!(matches!(editor.whitespace, wit::EditorWhitespace::Boundary));
+        assert!(editor.indent_guides);
+        assert!(matches!(
+            &editor.colors.whitespace,
+            wit::EditorTint::Color(_)
+        ));
+        assert!(matches!(
+            editor.colors.indent_guides,
+            wit::EditorTint::Theme
+        ));
+        assert!(matches!(
+            editor.colors.active_indent_guide,
+            wit::EditorTint::Off
+        ));
     }
 
     #[test]

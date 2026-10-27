@@ -25,6 +25,7 @@ mod commands;
 mod decorations;
 mod editors;
 mod find;
+mod guides;
 mod history;
 mod indent;
 mod segments;

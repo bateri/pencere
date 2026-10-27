@@ -356,10 +356,14 @@ end
 -- ("page", the page's fold decorations alone, or "indent", the editor's from the indent as well);
 -- how it looks: `line_height` (1.6
 -- times the font's size), `padding` (4 points), `scroll_margin` (rows kept about the caret, 0),
--- `numbers` ("absolute", "relative", "hidden"), `caret = { shape = "bar" | "block" | "underline",
--- width = 1.5, color =, text = }` and `colors = { current_line, selection, selection_blurred,
--- found, brackets, numbers, current_number, gutter, folds, folded, hint }`. A colour it does not
--- say is the theme's; `false` draws none.
+-- `numbers` ("absolute", "relative", "hidden"), `whitespace` (which spaces and tabs it shows, as
+-- VS Code: "none", "boundary" (all but a space alone between words), "selection", "trailing" or
+-- "all"; a space is a dot, a tab an arrow, any other space a box), `indent_guides` (a thin line down
+-- each level of indent, the caret's block's in its own colour), `caret = { shape = "bar" | "block" |
+-- "underline", width = 1.5, color =, text = }` and `colors = { current_line, selection,
+-- selection_blurred, found, brackets, numbers, current_number, gutter, folds, folded, hint,
+-- whitespace, indent_guides, active_indent_guide }`. A colour it does not say is the theme's;
+-- `false` draws none. A plain editor shows no spaces and no guides.
 local EDITOR_OPTIONS = {
 	wrap = true,
 	tab_width = true,
@@ -376,6 +380,8 @@ local EDITOR_OPTIONS = {
 	padding = true,
 	scroll_margin = true,
 	numbers = true,
+	whitespace = true,
+	indent_guides = true,
 	caret = { shape = true, width = true, color = true, text = true },
 	colors = {
 		current_line = true,
@@ -389,6 +395,9 @@ local EDITOR_OPTIONS = {
 		folds = true,
 		folded = true,
 		hint = true,
+		whitespace = true,
+		indent_guides = true,
+		active_indent_guide = true,
 	},
 }
 

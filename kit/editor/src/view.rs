@@ -9,16 +9,21 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::iter::Peekable;
 use std::rc::Rc;
+use std::slice;
 
-use pencere_view::edit::{CaretShape, EditorOptions, Look, Mark, Numbers, Underline};
+use pencere_view::edit::{
+    CaretShape, EditorOptions, Look, Mark, Numbers, Range, Underline, Whitespace,
+};
 use pencere_view::{
-    Color, EditorRoom, EditorSlot, Figure, Font, Measure, Paint, Point, Quad, Rect, Role, Run,
-    Size, path,
+    Border, Color, EditorRoom, EditorSlot, Figure, Font, Measure, Paint, Point, Quad, Rect, Role,
+    Run, Size, path,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::buffer::{Buffer, Placement};
+use crate::guides::{Levels, active_guide};
 use crate::segments::grapheme_after;
 
 /// The most lines whose measure is kept.
@@ -722,11 +727,24 @@ impl View {
                 }
             }
         }
-        // The text, in the looks the page gave it.
+        // The text, in the looks the page gave it, over the guides of the indent and the marks of
+        // the spaces and tabs shown (each over the grounds the page's looks give the text).
+        let whitespace = self.options.whitespace;
+        let marks = match whitespace {
+            Whitespace::None => None,
+            _ => colors.whitespace.or(Role::Border.solid()).map(fade),
+        };
+        let guides = self.guides(buffer, &rows, (focused, main.head), origin_x, text_clip);
         let mut grounds = slot.grounds.clone();
-        for row in &rows {
+        for (index, row) in rows.iter().enumerate() {
             let y = row_y(row);
             let line = buffer.line(row.line);
+            let under = Under {
+                whitespace,
+                marks,
+                ranges,
+                guides: guides.get(index).map_or(&[], Vec::as_slice),
+            };
             self.paint_row(
                 buffer,
                 row,
@@ -736,6 +754,7 @@ impl View {
                 text_clip,
                 &mut grounds,
                 slot,
+                &under,
                 &mut out,
             );
         }
@@ -871,6 +890,7 @@ impl View {
         clip: Rect,
         grounds: &mut Vec<Color>,
         slot: &EditorSlot,
+        under: &Under<'_>,
         out: &mut Vec<Paint>,
     ) {
         let (start, end) = (row.base + row.from, row.base + row.to);
@@ -902,12 +922,23 @@ impl View {
         cuts.sort_unstable();
         cuts.dedup();
         let fade = |color: Color| color.faded(slot.opacity);
+        // Under each run and over its ground: the guides before its end, the marks of its spaces.
+        let mut guides = under.guides.iter().peekable();
+        let marks = under
+            .marks
+            .map(|color| Marks::of(&chars, row.base, under.whitespace, color, under.ranges));
+        let marks = marks.as_ref();
         for pair in cuts.windows(2) {
             let (Some(a), Some(b)) = (pair.first().copied(), pair.get(1).copied()) else {
                 continue;
             };
             let text: String = chars.get(a..b).unwrap_or_default().iter().collect();
-            if text.is_empty() || text == "\t" {
+            if text.is_empty() {
+                continue;
+            }
+            if text == "\t" {
+                let around = (origin_x, y, clip, slot.opacity);
+                self.paint_under(row, &mut guides, marks, (a, b), around, out);
                 continue;
             }
             let (from, to) = (row.base + a, row.base + b);
@@ -945,6 +976,8 @@ impl View {
                     }));
                 }
             }
+            let around = (origin_x, y, clip, slot.opacity);
+            self.paint_under(row, &mut guides, marks, (a, b), around, out);
             if !text.trim().is_empty() {
                 grounds.clone_from(&slot.grounds);
                 if let Some(ground) = look.and_then(|look| look.background) {
@@ -971,6 +1004,10 @@ impl View {
                     out,
                 );
             }
+        }
+        // The guides past the row's text: those of a line with none.
+        for (x, color) in guides {
+            out.push(self.guide(*x, y, color.faded(slot.opacity), clip));
         }
         // A folded region is a "⋯" after its first line.
         if row.last
@@ -1008,6 +1045,200 @@ impl View {
                 }));
             }
         }
+    }
+
+    /// The guides of the indent each of `rows` shows, where across (pixels of the page) and in what
+    /// colour, left to right: on the first row of each line (a row that goes on with its line has
+    /// none, as its text starts at the left), those of its guides in `clip` (`origin_x` where the
+    /// text starts). The guide of the block the main caret (`caret`, a place) is in has its own
+    /// colour while the editor has the keyboard.
+    fn guides(
+        &self,
+        buffer: &Buffer,
+        rows: &[&Row],
+        (focused, caret): (bool, usize),
+        origin_x: f32,
+        clip: Rect,
+    ) -> Vec<Vec<(f32, Color)>> {
+        let colors = &self.options.colors;
+        let guide = colors.indent_guides.or(Role::Border.solid());
+        let active = colors.active_indent_guide.or(Role::Quiet.solid());
+        let step = self.space * self.tab as f32;
+        if !self.options.indent_guides || (guide.is_none() && active.is_none()) || step <= 0.0 {
+            return Vec::new();
+        }
+        let mut levels = Levels::new(buffer);
+        let block = match (rows.first(), rows.last()) {
+            (Some(top), Some(bottom)) if focused && active.is_some() => {
+                active_guide(&mut levels, buffer.line_of(caret), top.line, bottom.line)
+            }
+            _ => None,
+        };
+        let thick = self.scale.round().max(1.0);
+        rows.iter()
+            .map(|row| {
+                if row.from != 0 {
+                    return Vec::new();
+                }
+                let level = levels.of(row.line);
+                let first = ((clip.x - thick - origin_x) / step).floor().max(0.0) as usize;
+                let past = ((clip.right() - origin_x) / step).floor().max(0.0) as usize;
+                (first..level.min(past.saturating_add(1)))
+                    .filter_map(|at| {
+                        let in_block = block.is_some_and(|(index, from, to)| {
+                            index == at && (from..=to).contains(&row.line)
+                        });
+                        let color = if in_block { active.or(guide) } else { guide }?;
+                        Some(((origin_x + at as f32 * step).round(), color))
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// What is drawn on `row` under its run from `a` to `b` (characters into the line) and over the
+    /// run's ground: the `guides` left to right before the run's end, and the marks of the run's
+    /// spaces and tabs `marks` shows; `around` is where the text starts across, the row's top, the
+    /// clip and how faint what is drawn is.
+    fn paint_under(
+        &self,
+        row: &Row,
+        guides: &mut Peekable<slice::Iter<'_, (f32, Color)>>,
+        marks: Option<&Marks<'_>>,
+        (a, b): (usize, usize),
+        (origin_x, y, clip, opacity): (f32, f32, Rect, f32),
+        out: &mut Vec<Paint>,
+    ) {
+        let end = origin_x + row.x(b);
+        while let Some((x, color)) = guides.next_if(|(x, _)| *x < end) {
+            out.push(self.guide(*x, y, color.faded(opacity), clip));
+        }
+        let Some(marks) = marks else {
+            return;
+        };
+        for at in a..b {
+            let Some(&c) = marks.chars.get(at) else {
+                break;
+            };
+            if !c.is_whitespace() {
+                continue;
+            }
+            let (left, right) = (origin_x + row.x(at), origin_x + row.x(at + 1));
+            if left > clip.right() {
+                break;
+            }
+            // A space with an accent on it is a letter.
+            if right <= left || right < clip.x || !marks.shows(at) {
+                continue;
+            }
+            match c {
+                ' ' => out.push(self.dot((left, right), y, marks.color, clip)),
+                '\t' => out.extend(self.arrow((left, right), y, marks.color, clip)),
+                c if !c.is_control() => {
+                    out.push(self.space_box((left, right), y, marks.color, clip))
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// A guide of the indent at `x` on the row whose top is `y`: a line a pixel wide down the row,
+    /// so that those of the rows one under the other are one line.
+    fn guide(&self, x: f32, y: f32, color: Color, clip: Rect) -> Paint {
+        Paint::Quad(Quad {
+            rect: Rect::new(x, y, self.scale.round().max(1.0), self.row),
+            radii: [0.0; 4],
+            fill: Some(color),
+            gradient: None,
+            border: None,
+            shadow: None,
+            clip,
+        })
+    }
+
+    /// How large the marks of the spaces are, pixels: the radius of a space's dot and the width of
+    /// the line of a tab's arrow, a seventh of a space (as VS Code draws them).
+    fn mark_unit(&self) -> f32 {
+        self.space / 7.0
+    }
+
+    /// The dot of a space from `left` to `right` across, on the row whose top is `y`: in its
+    /// middle, whole pixels wide.
+    fn dot(&self, (left, right): (f32, f32), y: f32, color: Color, clip: Rect) -> Paint {
+        let d = (2.0 * self.mark_unit()).round().max(1.0);
+        let (x, y) = ((left + right) / 2.0, y + self.row / 2.0);
+        Paint::Quad(Quad {
+            rect: Rect::new((x - d / 2.0).round(), (y - d / 2.0).round(), d, d),
+            radii: [d / 2.0; 4],
+            fill: Some(color),
+            gradient: None,
+            border: None,
+            shadow: None,
+            clip,
+        })
+    }
+
+    /// The arrow of a tab from `left` to `right` across, on the row whose top is `y`: a line along
+    /// the middle of the row as wide as the tab (a seventh of a space in from each end), its head at
+    /// the right; none for a tab too narrow for one. The figure's box is whole pixels, and its line
+    /// on them, so that it is drawn sharp.
+    fn arrow(&self, (left, right): (f32, f32), y: f32, color: Color, clip: Rect) -> Option<Paint> {
+        let unit = self.mark_unit();
+        let length = right - left - 2.0 * unit;
+        if length <= 0.0 {
+            return None;
+        }
+        let head = (2.0 * unit).min(length / 2.0);
+        let stroke = unit.round().max(1.0);
+        // An odd width of line is drawn sharp about the middle of a pixel.
+        let middle = (y + self.row / 2.0).round() + if stroke % 2.0 == 1.0 { 0.5 } else { 0.0 };
+        let (x, top) = (left.floor(), (middle - head - stroke).floor());
+        let rect = Rect::new(
+            x,
+            top,
+            (right.ceil() - x).max(1.0),
+            (middle + head + stroke).ceil() - top,
+        );
+        // The figure's points, from its box's corner.
+        let s = self.scale.max(0.01);
+        let (start, tip, mid) = (
+            (left + unit - x) / s,
+            (right - unit - x) / s,
+            (middle - top) / s,
+        );
+        let (back, head) = (tip - head / s, head / s);
+        let line = path()
+            .move_to(start, mid)
+            .line_to(tip, mid)
+            .move_to(back, mid - head)
+            .line_to(tip, mid)
+            .line_to(back, mid + head)
+            .stroke(stroke / s, color);
+        Some(Paint::Figure(Figure {
+            rect,
+            scale: s,
+            paths: vec![line],
+            clip: clip.intersect(rect),
+        }))
+    }
+
+    /// The box of another space (a no-break space, an ideographic one) from `left` to `right`
+    /// across, on the row whose top is `y`: as wide as it is and as tall as the text, a line a
+    /// pixel wide round it.
+    fn space_box(&self, (left, right): (f32, f32), y: f32, color: Color, clip: Rect) -> Paint {
+        let width = right - left;
+        Paint::Quad(Quad {
+            rect: self.text_box(Rect::new(left, y, width, self.row)),
+            radii: [(2.0 * self.scale).min(width / 2.0); 4],
+            fill: None,
+            gradient: None,
+            border: Some(Border {
+                width: self.scale.round().max(1.0),
+                color,
+            }),
+            shadow: None,
+            clip,
+        })
     }
 
     /// The character at `at` on `row` drawn again on the block caret `rect`: `colors` the block's
@@ -1254,6 +1485,84 @@ impl View {
         let line = self.line_at_row(row.min(self.total() - 1));
         let (_, fold) = self.gutter_parts();
         Some((line, x >= self.gutter - fold))
+    }
+}
+
+/// What a row draws under its text and over its grounds, besides the grounds of the page's looks.
+struct Under<'a> {
+    /// Which spaces and tabs are shown, and in what colour (none: they are not); the ranges
+    /// selected, for those shown in them.
+    whitespace: Whitespace,
+    marks: Option<Color>,
+    ranges: &'a [Range],
+    /// The guides of the indent on the row: where across (pixels of the page) and in what colour,
+    /// left to right.
+    guides: &'a [(f32, Color)],
+}
+
+/// Which of a line's spaces and tabs are shown ([`Whitespace`]), and in what colour.
+struct Marks<'a> {
+    whitespace: Whitespace,
+    color: Color,
+    chars: &'a [char],
+    /// The first and the last of the line's characters that are not spaces; none on a line of
+    /// spaces alone.
+    text: Option<(usize, usize)>,
+    /// Where the line starts in the document, and the ranges selected, in order.
+    base: usize,
+    ranges: &'a [Range],
+}
+
+impl<'a> Marks<'a> {
+    fn of(
+        chars: &'a [char],
+        base: usize,
+        whitespace: Whitespace,
+        color: Color,
+        ranges: &'a [Range],
+    ) -> Self {
+        let text = |c: &char| !c.is_whitespace();
+        Self {
+            whitespace,
+            color,
+            chars,
+            text: chars
+                .iter()
+                .position(text)
+                .zip(chars.iter().rposition(text)),
+            base,
+            ranges,
+        }
+    }
+
+    /// Whether the space or tab `at` characters into the line is shown (VS Code's rules).
+    fn shows(&self, at: usize) -> bool {
+        match self.whitespace {
+            Whitespace::None => false,
+            Whitespace::All => true,
+            Whitespace::Trailing => self.text.is_none_or(|(_, last)| at > last),
+            Whitespace::Selection => {
+                let place = self.base + at;
+                let next = self.ranges.partition_point(|range| range.end() <= place);
+                self.ranges
+                    .get(next)
+                    .is_some_and(|range| range.start() <= place)
+            }
+            Whitespace::Boundary => {
+                // Every one but a space alone between two words.
+                let between = self
+                    .text
+                    .is_some_and(|(first, last)| at > first && at < last);
+                let space = |at: Option<usize>| {
+                    at.and_then(|at| self.chars.get(at))
+                        .is_some_and(|c| c.is_whitespace())
+                };
+                !between
+                    || self.chars.get(at) != Some(&' ')
+                    || space(at.checked_sub(1))
+                    || space(at.checked_add(1))
+            }
+        }
     }
 }
 

@@ -47,6 +47,10 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   rule of the indent that is not a regular expression fails the page, the words naming the option
   (`indent.increase`) and what is wrong with it; each is compiled once, not at every frame. For
   that the crate depends on `regex` (MIT or Apache-2.0), the editor's own.
+- **What an editor shows of what is not seen.** The interface's `editor-options` has `whitespace`
+  (`editor-whitespace`: `none`, `boundary`, `selection`, `trailing`, `all`) and `indent-guides`, and
+  its `editor-colors` `whitespace`, `indent-guides` and `active-indent-guide`, each appended. In Lua
+  they are `whitespace = "boundary"`, `indent_guides = true` and the colours of the same names.
 
 - The interface is `pencere:view@2.0.0`: overlays and anchors, texts of many looks, canvases,
   commands, dragging, roles and states, fills from one colour to another, and the middle button, keys

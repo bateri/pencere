@@ -8,7 +8,7 @@ use std::sync::Arc;
 use pencere_view::edit::{
     Caret, CaretShape, Change, CommentTokens, Decorate, Decoration, EditCommand, EditorAsk,
     EditorColors, EditorOptions, Folds, IndentRules, Keys, Look, Mark, Movement, Numbers, Origin,
-    Range, Refusal, Tint, Underline, limits,
+    Range, Refusal, Tint, Underline, Whitespace, limits,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -1387,6 +1387,14 @@ fn editor_options_out(
             wit::LineNumbers::Relative => Numbers::Relative,
             wit::LineNumbers::Hidden => Numbers::Hidden,
         },
+        whitespace: match options.whitespace {
+            wit::EditorWhitespace::None => Whitespace::None,
+            wit::EditorWhitespace::Boundary => Whitespace::Boundary,
+            wit::EditorWhitespace::Selection => Whitespace::Selection,
+            wit::EditorWhitespace::Trailing => Whitespace::Trailing,
+            wit::EditorWhitespace::All => Whitespace::All,
+        },
+        indent_guides: options.indent_guides,
         caret: Caret {
             shape: match options.caret.shape {
                 wit::CaretShape::Bar => CaretShape::Bar,
@@ -1423,6 +1431,9 @@ fn editor_colors_out(colors: &wit::EditorColors) -> EditorColors {
         folds: tint_out(&colors.folds),
         folded: tint_out(&colors.folded),
         hint: tint_out(&colors.hint),
+        whitespace: tint_out(&colors.whitespace),
+        indent_guides: tint_out(&colors.indent_guides),
+        active_indent_guide: tint_out(&colors.active_indent_guide),
     }
 }
 

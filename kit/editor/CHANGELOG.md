@@ -55,6 +55,14 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   folds from a line when it is asked (the gutter's lines in view, a fold), never the whole document
   at a key, and so follow every change; a region folded by the indent stays folded while the page
   decorates. An editor that says none of them does as it did.
+- **What is not seen, drawn.** `Whitespace` shows the spaces and tabs VS Code's `renderWhitespace`
+  shows (`Boundary`, `Selection`, `Trailing`, `All`): a space as a dot in the middle of its place, a
+  tab as an arrow as wide as it is, any other space as a box as wide as it is, the controls not at
+  all. `indent_guides` draws a line a pixel wide down each level of indent, on a line with no text
+  those of the block it is in (VS Code's rule), on the first row of a line that wraps and nowhere a
+  fold hides; the guide of the block the main caret is in has its own colour while the editor has
+  the keyboard. Both are worked out for the rows drawn, over the grounds and under the text, and an
+  editor that says neither draws what it drew.
 - **Decorations.** Layers the page names, each sent for a range in place of what the layer had there
   and carried over every change; regions that fold, which the person folds and unfolds and the
   editor carries over changes.

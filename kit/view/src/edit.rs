@@ -318,6 +318,26 @@ pub enum Folds {
     Indent,
 }
 
+/// Which spaces and tabs an editor shows (VS Code's `renderWhitespace`): a space is a dot in the
+/// middle of its place, a tab an arrow as wide as it is, and any other space (a no-break space, the
+/// spaces of typesetting, an ideographic space) a box as wide as it is. A line break, a `\r` before
+/// it and the other controls show nothing, and count as spaces for where a line's text ends.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Whitespace {
+    /// None of them: a plain editor.
+    #[default]
+    None,
+    /// Every one but a space alone between two words: those before a line's text and after it,
+    /// those in a run of two or more, and every tab and other space.
+    Boundary,
+    /// Those in what is selected.
+    Selection,
+    /// Those after the last word of a line (every one of a line with no words).
+    Trailing,
+    /// Every one.
+    All,
+}
+
 /// How an editor is set up ([`crate::Element::editor`]): said every frame, like the rest of the page.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EditorOptions {
@@ -353,6 +373,14 @@ pub struct EditorOptions {
     pub scroll_margin: u8,
     /// What the numbers of the lines in the gutter count.
     pub numbers: Numbers,
+    /// Which spaces and tabs are shown.
+    pub whitespace: Whitespace,
+    /// A thin line down each level of indent (VS Code's indent guides): a line shows one for each
+    /// level its indent reaches into (a level is `tab_width` columns, a tab as far as its next
+    /// stop), a line with no text those of the lines with text around it, as VS Code shows them;
+    /// a line that wraps shows them on its first row. The guide of the block the main caret is in
+    /// is drawn in its own colour while the editor has the keyboard ([`EditorColors`]).
+    pub indent_guides: bool,
     pub caret: Caret,
     pub colors: EditorColors,
 }
@@ -375,6 +403,8 @@ impl Default for EditorOptions {
             padding: 4.0,
             scroll_margin: 0,
             numbers: Numbers::Absolute,
+            whitespace: Whitespace::None,
+            indent_guides: false,
             caret: Caret::default(),
             colors: EditorColors::default(),
         }
@@ -502,6 +532,14 @@ pub struct EditorColors {
     pub folded: Tint,
     /// What the editor says while its document is empty (the theme's quiet colour).
     pub hint: Tint,
+    /// The dots, arrows and boxes of the spaces and tabs shown (the theme's border colour: the
+    /// hairline, seen and never read).
+    pub whitespace: Tint,
+    /// The guides of the indent (the theme's border colour), and the guide of the block the main
+    /// caret is in while the editor has the keyboard (the theme's quiet colour; off, and it is drawn
+    /// as the others are). With the guides off and that one not, it alone is drawn.
+    pub indent_guides: Tint,
+    pub active_indent_guide: Tint,
 }
 
 /// Where a caret goes.

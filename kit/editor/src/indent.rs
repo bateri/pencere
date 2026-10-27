@@ -20,7 +20,7 @@ const RULE_REACH: usize = 10_000;
 
 /// How many lines with no text a look for the next (or the last) line with text goes past: a run
 /// of more ends a block that folds, and has no line above it for the rule `decrease`.
-const BLANK_REACH: usize = 1_000;
+pub(crate) const BLANK_REACH: usize = 1_000;
 
 /// One of the page's patterns, compiled: the page says its options every frame, and a pattern is
 /// compiled again only when its text changes. One that is no pattern (the sandbox fails a page

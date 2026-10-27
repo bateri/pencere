@@ -23,6 +23,8 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
   `ReplaceAll`, `SelectFound` and `SelectOccurrences`, and `Event::Found`.
 - What a page says of its editor's language crosses the interface: the `comment`'s line and block
   comments, the `indent`'s rules, `folds`, and the command `ToggleBlockComment`.
+- Which spaces and tabs an editor shows (`whitespace`) and its guides of the indent
+  (`indent_guides`), and their colours, cross the interface.
 
 ## [0.3.1] - 2026-10-26
 

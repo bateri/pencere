@@ -578,6 +578,22 @@ interface types {
         indent,
     }
 
+    /// Which spaces and tabs an editor shows (VS Code's `renderWhitespace`): a space is a dot, a
+    /// tab an arrow as wide as it is, any other space a box as wide as it is; the controls (a `\r`
+    /// before a line break) show nothing.
+    enum editor-whitespace {
+        /// None of them.
+        none,
+        /// Every one but a space alone between two words.
+        boundary,
+        /// Those in what is selected.
+        selection,
+        /// Those after the last word of a line (every one of a line with no words).
+        trailing,
+        /// Every one.
+        all,
+    }
+
     /// A colour an editor draws something in.
     variant editor-tint {
         /// The theme's: what the editor draws it in when the page says nothing.
@@ -648,6 +664,13 @@ interface types {
         folded: editor-tint,
         /// What the editor says while its document is empty (the theme's quiet colour).
         hint: editor-tint,
+        /// The marks of the spaces and tabs shown (the theme's border colour).
+        whitespace: editor-tint,
+        /// The guides of the indent (the theme's border colour), and the guide of the block the
+        /// main caret is in while the editor has the keyboard (the theme's quiet colour; off, and it
+        /// is drawn as the others are).
+        indent-guides: editor-tint,
+        active-indent-guide: editor-tint,
     }
 
     /// How an editor is set up (`node.editor`): said every frame.
@@ -684,6 +707,11 @@ interface types {
         numbers: line-numbers,
         caret: editor-caret,
         colors: editor-colors,
+        /// Which spaces and tabs are shown.
+        whitespace: editor-whitespace,
+        /// A thin line down each level of indent (a line with no text has those of the lines with
+        /// text around it), on the first row of a line.
+        indent-guides: bool,
     }
 
     /// How a move goes over its time.

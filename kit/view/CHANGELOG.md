@@ -49,6 +49,11 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   language indents, and `EditorOptions::folds` (`Folds::Page`, `Folds::Indent`) whether the editor
   folds by the indent besides the page's folds. An editor that says none of them is as it was.
   `edit::limits::PATTERN_SIZE` is how large a pattern of an editor's may compile to.
+- **What is not seen.** `EditorOptions::whitespace` (`Whitespace`: `None`, `Boundary`, `Selection`,
+  `Trailing`, `All`, VS Code's `renderWhitespace`) says which spaces and tabs an editor shows, and
+  `EditorOptions::indent_guides` whether it draws the guides of the indent; `EditorColors` has
+  `whitespace`, `indent_guides` and `active_indent_guide` (the guide of the block the main caret is
+  in). An editor that says neither is as it was.
 - **Long lists that keep up with the wheel.** `Built` is which rows of a long list a page builds as
   the host scrolls it: two views ahead of what is in view, the way the list goes, half a view behind
   (all of it the other way at an end of the list, which can only go back), and the same rows again

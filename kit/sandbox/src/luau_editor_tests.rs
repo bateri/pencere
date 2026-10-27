@@ -9,10 +9,11 @@ use std::time::Duration;
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
     Caret, CaretShape, CommentTokens, EditorColors, EditorOptions, Folds, IndentRules, Mark,
-    Numbers, Origin, TextSnapshot, Tint,
+    Numbers, Origin, TextSnapshot, Tint, Whitespace,
 };
 use pencere_view::{
-    Element, Event, Font, Id, Key, Keyboard, Laid, Measure, Metrics, Mods, Role, Scrolls, layout,
+    Element, Event, Font, Id, Key, Keyboard, Laid, Measure, Metrics, Mods, Paint, Role, Scrolls,
+    layout,
 };
 
 use crate::guests_tests::{Open, SIZE};
@@ -546,6 +547,14 @@ fn an_option_an_editor_has_no_such_name_for_is_a_mistake_said_where_it_is_made()
             "{ folds = \"syntax\" }",
             "\"syntax\" is not one of the words it takes",
         ),
+        (
+            "{ whitespace = \"dots\" }",
+            "\"dots\" is not one of the words it takes",
+        ),
+        (
+            "{ colors = { indent_guide = \"red\" } }",
+            "an editor has no option colors.indent_guide",
+        ),
     ] {
         let script =
             format!("return {{ render = function() return pencere.editor(\"e\", {options}) end }}");
@@ -640,4 +649,75 @@ fn a_rule_of_an_editors_indent_that_is_no_pattern_fails_the_page_by_the_options_
         "{:?}",
         update.closed
     );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_page_says_which_spaces_and_tabs_its_editor_shows_and_whether_its_indent_has_guides() {
+    let mut rig = Rig::open(
+        r#"
+        local asked = false
+        return {
+            render = function()
+                return pencere.div():size_full():child(pencere.editor("code", {
+                    gutter = false,
+                    whitespace = "boundary",
+                    indent_guides = true,
+                    colors = { whitespace = "accent", indent_guides = "magenta", active_indent_guide = false },
+                }):grow(1))
+            end,
+            handle = function(event)
+                if event.type == "viewport" and not asked then
+                    asked = true
+                    return { editor = { code = { { load = "if a then\n\tb  c\nend" } } } }
+                end
+            end,
+        }
+        "#,
+    );
+    let code = Id::named("code");
+    let room = rig
+        .laid
+        .editors()
+        .into_iter()
+        .find(|room| room.id == code)
+        .expect("the editor's room");
+    assert_eq!(
+        room.options,
+        EditorOptions {
+            gutter: false,
+            whitespace: Whitespace::Boundary,
+            indent_guides: true,
+            colors: EditorColors {
+                whitespace: Tint::Color(Role::Accent.solid()),
+                indent_guides: Tint::Color(Role::Magenta.solid()),
+                active_indent_guide: Tint::Off,
+                ..EditorColors::default()
+            },
+            ..EditorOptions::default()
+        }
+    );
+    assert_eq!(rig.text("code"), "if a then\n\tb  c\nend");
+    // The tab and the two spaces together are shown, not a space alone between words; the line
+    // further in has a guide.
+    rig.editors.set_focus(Some(code));
+    let list = rig.laid.paint(&mut Fixed);
+    let painted = rig.editors.paint(list, &mut Fixed, true).items;
+    let role = |color: Option<pencere_view::Color>| color.and_then(|color| color.role());
+    let dots = painted
+        .iter()
+        .filter(|item| matches!(item, Paint::Quad(quad) if role(quad.fill) == Some(Role::Accent)))
+        .count();
+    let arrows = painted
+        .iter()
+        .filter(|item| {
+            matches!(item, Paint::Figure(figure)
+                if figure.paths.iter().any(|path| role(path.stroke.map(|line| line.color)) == Some(Role::Accent)))
+        })
+        .count();
+    let guides = painted
+        .iter()
+        .filter(|item| matches!(item, Paint::Quad(quad) if role(quad.fill) == Some(Role::Magenta)))
+        .count();
+    assert_eq!((dots, arrows, guides), (2, 1, 1));
 }

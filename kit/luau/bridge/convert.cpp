@@ -988,11 +988,17 @@ pencere_view_types_comment_tokens_t comment_at(lua_State* L, int t, Arenas& aren
 const char* const kFolds[] = {"page", "indent"};
 static_assert(PENCERE_VIEW_TYPES_EDITOR_FOLDS_PAGE == 0 && PENCERE_VIEW_TYPES_EDITOR_FOLDS_INDENT == 1,
               "kFolds is the order of editor-folds");
+const char* const kWhitespace[] = {"none", "boundary", "selection", "trailing", "all"};
+static_assert(PENCERE_VIEW_TYPES_EDITOR_WHITESPACE_NONE == 0 && PENCERE_VIEW_TYPES_EDITOR_WHITESPACE_BOUNDARY == 1 &&
+                  PENCERE_VIEW_TYPES_EDITOR_WHITESPACE_SELECTION == 2 &&
+                  PENCERE_VIEW_TYPES_EDITOR_WHITESPACE_TRAILING == 3 && PENCERE_VIEW_TYPES_EDITOR_WHITESPACE_ALL == 4,
+              "kWhitespace is the order of editor-whitespace");
 
 // `meta.editor`: { wrap =, tab_width =, hard_tabs =, gutter =, read_only =, keys = "editor" | "page",
 // hint = "words", comment = "--" | { line =, block = }, pairs = "()[]{}", indent = { increase =,
 // decrease = }, folds = "page" | "indent", line_height =, padding =, scroll_margin =,
-// numbers = "absolute" | "relative" | "hidden", caret = { shape =, width =, color =, text = },
+// numbers = "absolute" | "relative" | "hidden", whitespace = "none" | "boundary" | "selection" |
+// "trailing" | "all", indent_guides =, caret = { shape =, width =, color =, text = },
 // colors = { current_line =, … } }. What it does not say is the default (a gutter, tabs of four);
 // a number the interface takes as an option goes as none, and the host's default stands. Whether
 // a rule of the indent is a regular expression is the host's to say: the page fails there.
@@ -1028,6 +1034,8 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
         out.scroll_margin.val = margin.val < 0 ? 0 : (margin.val > 255 ? 255 : (uint8_t)margin.val);
     }
     out.numbers = (uint8_t)word(L, t, "numbers", kLineNumbers, 3, 0);
+    out.whitespace = (uint8_t)word(L, t, "whitespace", kWhitespace, 5, 0);
+    out.indent_guides = flag(L, t, "indent_guides");
     out.caret.color.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
     out.caret.text.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
     get(L, t, "caret");
@@ -1051,7 +1059,8 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
         {"brackets", &colors.brackets},             {"numbers", &colors.numbers},
         {"current_number", &colors.current_number}, {"gutter", &colors.gutter},
         {"folds", &colors.folds},                   {"folded", &colors.folded},
-        {"hint", &colors.hint},
+        {"hint", &colors.hint},                     {"whitespace", &colors.whitespace},
+        {"indent_guides", &colors.indent_guides},   {"active_indent_guide", &colors.active_indent_guide},
     };
     get(L, t, "colors");
     int table = lua_gettop(L);

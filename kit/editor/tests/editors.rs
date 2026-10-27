@@ -8,7 +8,7 @@
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
     Caret, CaretShape, Change, Decorate, Decoration, EditCommand, EditorAsk, EditorColors,
-    EditorOptions, Folds, Found, Keys, Mark, Numbers, Range, Tint,
+    EditorOptions, Folds, Found, Keys, Look, Mark, Numbers, Range, Tint, Whitespace,
 };
 use pencere_view::{
     Command, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint, Point, Rect,
@@ -1106,4 +1106,570 @@ fn what_is_typed_is_searched_again_once_a_frame_and_the_page_told_what_it_finds(
     // A frame with nothing new to search tells nothing.
     host.frame();
     assert!(found_told(host.editors.take_events()).is_empty());
+}
+
+// --- What is not seen: the spaces and tabs, and the guides of the indent ------------------------
+
+/// Where each character of `line` is across, from the start of the text (4 in): a tab to its next
+/// stop, every 28 (four spaces of 7).
+fn cells(line: &str) -> Vec<(f32, f32)> {
+    let mut x = 0.0_f32;
+    line.chars()
+        .map(|c| {
+            let width = if c == '\t' {
+                ((x / 28.0).floor() + 1.0) * 28.0 - x
+            } else {
+                width_of(c)
+            };
+            let cell = (4.0 + x, 4.0 + x + width);
+            x += width;
+            cell
+        })
+        .collect()
+}
+
+/// What the editor draws of the spaces and tabs of its `lines` (each one row), in `role`'s colour:
+/// each line with the characters a mark is drawn on put as their marks, `·` a dot, `→` an arrow
+/// and `□` a box.
+fn marks_drawn(host: &mut Host, role: Role, lines: &[&str]) -> Vec<String> {
+    let mut drawn: Vec<Vec<char>> = lines.iter().map(|line| line.chars().collect()).collect();
+    for item in host.paint(true).items {
+        let (mark, rect) = match &item {
+            Paint::Quad(quad)
+                if quad.fill.and_then(|fill| fill.role()) == Some(role) && quad.radii[0] > 0.0 =>
+            {
+                ('·', quad.rect)
+            }
+            Paint::Quad(quad)
+                if quad.border.as_ref().and_then(|border| border.color.role()) == Some(role) =>
+            {
+                ('□', quad.rect)
+            }
+            Paint::Figure(figure)
+                if figure
+                    .paths
+                    .iter()
+                    .any(|path| path.stroke.and_then(|line| line.color.role()) == Some(role)) =>
+            {
+                ('→', figure.rect)
+            }
+            _ => continue,
+        };
+        let (x, y) = (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
+        let line = ((y - 4.0) / ROW).floor() as usize;
+        let at = cells(lines[line])
+            .iter()
+            .position(|(left, right)| *left <= x && x < *right)
+            .expect("a mark is on a character");
+        drawn[line][at] = mark;
+    }
+    drawn
+        .into_iter()
+        .map(|chars| chars.into_iter().collect())
+        .collect()
+}
+
+/// The guides of the indent drawn in `role`'s colour: for each of the first `rows` rows, the
+/// columns they are at (a column is a space, 7 across), left to right.
+fn guides_drawn(host: &mut Host, role: Role, rows: usize) -> Vec<Vec<usize>> {
+    let mut drawn = vec![Vec::new(); rows];
+    for item in host.paint(true).items {
+        if let Paint::Quad(quad) = &item
+            && quad.fill.and_then(|fill| fill.role()) == Some(role)
+            && quad.radii == [0.0; 4]
+        {
+            assert_eq!(
+                (quad.rect.w, quad.rect.h),
+                (1.0, ROW),
+                "a guide is a line a pixel wide down its row"
+            );
+            let row = ((quad.rect.y - 4.0) / ROW) as usize;
+            drawn[row].push(((quad.rect.x - 4.0) / 7.0) as usize);
+        }
+    }
+    drawn
+}
+
+/// An editor that shows its spaces and tabs as `whitespace` says, in magenta, and its guides of
+/// the indent where `guides`, in cyan (the main caret's block's in yellow).
+fn invisible(whitespace: Whitespace, guides: bool) -> EditorOptions {
+    EditorOptions {
+        whitespace,
+        indent_guides: guides,
+        colors: EditorColors {
+            whitespace: Tint::Color(Role::Magenta.solid()),
+            indent_guides: Tint::Color(Role::Cyan.solid()),
+            active_indent_guide: Tint::Color(Role::Yellow.solid()),
+            ..EditorColors::default()
+        },
+        ..plain()
+    }
+}
+
+fn select(host: &mut Host, ranges: Vec<Range>) {
+    let laid = host.laid.clone();
+    let version = host.editors.buffer(EDITOR).expect("the editor").version();
+    host.editors.ask(
+        &laid,
+        EDITOR,
+        EditorAsk::Select {
+            version,
+            ranges,
+            main: 0,
+        },
+        &mut Fake,
+        host.now,
+    );
+    host.settle();
+}
+
+fn command(host: &mut Host, command: EditCommand) {
+    let laid = host.laid.clone();
+    host.editors.ask(
+        &laid,
+        EDITOR,
+        EditorAsk::Command(command),
+        &mut Fake,
+        host.now,
+    );
+    host.settle();
+}
+
+#[test]
+fn each_whitespace_shows_the_spaces_and_tabs_vs_code_shows() {
+    // Spaces before the text, alone between words and two together, a tab in the middle and spaces
+    // after the text; a line of spaces alone; a space alone between two words.
+    let lines = ["  a b  c\td  ", "   ", "x y"];
+    let text = lines.join("\n");
+    let drawn = |whitespace: Whitespace, ranges: Option<Vec<Range>>| {
+        let mut host = Host::new(page_with(invisible(whitespace, false)));
+        host.load(&text);
+        if let Some(ranges) = ranges {
+            select(&mut host, ranges);
+        }
+        marks_drawn(&mut host, Role::Magenta, &lines)
+    };
+    assert_eq!(drawn(Whitespace::None, None), lines);
+    assert_eq!(drawn(Whitespace::All, None), ["··a·b··c→d··", "···", "x·y"]);
+    // All but a space alone between two words.
+    assert_eq!(
+        drawn(Whitespace::Boundary, None),
+        ["··a b··c→d··", "···", "x y"]
+    );
+    // After the last word, every one of a line of spaces.
+    assert_eq!(
+        drawn(Whitespace::Trailing, None),
+        ["  a b  c\td··", "···", "x y"]
+    );
+    // In what is selected, from the space after `a` to the tab and a space of the next line: the
+    // editor need not have the keyboard.
+    assert_eq!(
+        drawn(
+            Whitespace::Selection,
+            Some(vec![Range::new(3, 9), Range::new(15, 14)])
+        ),
+        ["  a·b··c→d  ", " · ", "x y"]
+    );
+    assert_eq!(
+        drawn(Whitespace::Selection, Some(vec![Range::caret(3)])),
+        lines,
+        "a caret selects nothing"
+    );
+}
+
+#[test]
+fn a_tabs_arrow_is_as_wide_as_the_tab_wherever_it_starts() {
+    // Tabs from the start, a column in, three columns in (to the stop just after), a stop in, and
+    // a pixel short of a stop (`i` is 3 across): too narrow for an arrow.
+    let lines = ["\tx", "x\ty", "xxx\ty", "xxxx\ty", "iiiiiiiii\ty"];
+    let mut host = Host::new(page_with(invisible(Whitespace::All, false)));
+    host.load(&lines.join("\n"));
+    let arrows: Vec<(f32, f32, f32)> = host
+        .paint(true)
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Figure(figure) => Some((figure.rect.x, figure.rect.w, figure.rect.y)),
+            _ => None,
+        })
+        .collect();
+    let middle = |line: usize| 4.0 + line as f32 * ROW + ROW / 2.0;
+    assert_eq!(arrows.len(), 4, "{arrows:?}");
+    for (line, (x, w)) in [(4.0, 28.0), (11.0, 21.0), (25.0, 7.0), (32.0, 28.0)]
+        .into_iter()
+        .enumerate()
+    {
+        let (left, width, top) = arrows[line];
+        assert_eq!((left, width), (x, w), "the tab of line {line}");
+        assert!(
+            top < middle(line) && middle(line) < top + 8.0,
+            "the arrow of line {line} is along the middle of its row"
+        );
+    }
+    // The line of an arrow runs from a seventh of a space in to the head at the other end.
+    let Some(Paint::Figure(figure)) = host
+        .paint(true)
+        .items
+        .into_iter()
+        .find(|item| matches!(item, Paint::Figure(_)))
+    else {
+        panic!("an arrow")
+    };
+    let xs: Vec<f32> = figure.paths[0]
+        .segments
+        .iter()
+        .filter_map(|segment| match segment {
+            pencere_view::Segment::Move(at) | pencere_view::Segment::Line(at) => Some(at.x),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(xs, [1.0, 27.0, 25.0, 27.0, 25.0]);
+}
+
+#[test]
+fn other_spaces_show_as_boxes_a_control_as_nothing_and_a_space_with_an_accent_as_a_letter() {
+    // A no-break space and an ideographic one between words, a `\r` before the line break; a space
+    // after the text and before the `\r`; a space an accent is on.
+    let lines = ["a\u{a0}b\u{3000}c\r", "a b \r", " \u{301}x"];
+    let text = lines.join("\n");
+    let drawn = |whitespace: Whitespace| {
+        let mut host = Host::new(page_with(invisible(whitespace, false)));
+        host.load(&text);
+        marks_drawn(&mut host, Role::Magenta, &lines)
+    };
+    assert_eq!(drawn(Whitespace::All), ["a□b□c\r", "a·b·\r", " \u{301}x"]);
+    // An other space alone between words is shown, as a tab is.
+    assert_eq!(
+        drawn(Whitespace::Boundary),
+        ["a□b□c\r", "a b·\r", " \u{301}x"]
+    );
+    // The `\r` counts as a space where the text ends.
+    assert_eq!(
+        drawn(Whitespace::Trailing),
+        ["a\u{a0}b\u{3000}c\r", "a b·\r", " \u{301}x"]
+    );
+}
+
+#[test]
+fn the_guides_show_each_level_of_indent_and_go_on_through_the_lines_with_no_text() {
+    let guides = |text: &str, rows: usize| {
+        let mut host = Host::new(page_with(invisible(Whitespace::None, true)));
+        host.load(text);
+        guides_drawn(&mut host, Role::Cyan, rows)
+    };
+    // A line with no text shows the guides of the block it is in: the one the line above opens
+    // (before `}`), the one the line below ends.
+    assert_eq!(
+        guides("fn a {\n    if b {\n        c\n\n    }\n\n}", 7),
+        [
+            vec![],
+            vec![0],
+            vec![0, 4],
+            vec![0, 4],
+            vec![0],
+            vec![0],
+            vec![]
+        ]
+    );
+    // A tab is a level, as far as its next stop; a level part filled is one; a line of spaces alone
+    // is one with no text.
+    assert_eq!(
+        guides("\tx\n\t\ty\n  z\n      w\n        \n      v", 6),
+        [
+            vec![0],
+            vec![0, 4],
+            vec![0],
+            vec![0, 4],
+            vec![0, 4],
+            vec![0, 4]
+        ]
+    );
+    // None on a line with no text at the top or the bottom of the document.
+    assert_eq!(guides("\n    x\n", 3), [vec![], vec![0], vec![]]);
+}
+
+#[test]
+fn a_folded_line_and_a_wrapped_one_show_their_guides_on_the_rows_they_have() {
+    // Folded by the indent, `if b` hides the two lines further in: nothing is drawn of them.
+    let mut host = Host::new(page_with(EditorOptions {
+        folds: Folds::Indent,
+        ..invisible(Whitespace::All, true)
+    }));
+    let text = "fn a {\n    if b {\n        c\n        d\n    }\n}";
+    host.load(text);
+    host.caret_at(10);
+    command(&mut host, EditCommand::Fold);
+    let buffer = host.editors.buffer(EDITOR).expect("the editor");
+    assert_eq!(buffer.hidden_lines(), [(2, 3)]);
+    host.editors.set_focus(None);
+    assert_eq!(
+        guides_drawn(&mut host, Role::Cyan, 6),
+        [vec![], vec![0], vec![0], vec![], vec![], vec![]]
+    );
+    let lines = ["fn a {", "    if b {", "    }", "}"];
+    assert_eq!(
+        marks_drawn(&mut host, Role::Magenta, &lines),
+        ["fn·a·{", "····if·b·{", "····}", "}"]
+    );
+    // A line that wraps shows its guides on its first row: the rows after it start at the left.
+    let options = EditorOptions {
+        wrap: true,
+        ..invisible(Whitespace::None, true)
+    };
+    let mut host =
+        Host::new(move || div().child(div().editor(EDITOR, options.clone()).size(100.0, 200.0)));
+    // 92 across: "    aaaa ", "bbbb cccc ", "dddd".
+    host.load("    aaaa bbbb cccc dddd\n    x");
+    assert_eq!(
+        guides_drawn(&mut host, Role::Cyan, 4),
+        [vec![0], vec![], vec![], vec![0]]
+    );
+}
+
+#[test]
+fn the_guide_of_the_block_the_caret_is_in_is_drawn_in_its_own_colour_while_it_has_the_keyboard() {
+    let text = "fn a {\n    if b {\n        c\n\n    }\n\n}";
+    let mut host = Host::new(page_with(invisible(Whitespace::None, true)));
+    host.load(text);
+    let at = |host: &mut Host, place: usize| {
+        host.caret_at(place);
+        (
+            guides_drawn(host, Role::Cyan, 7),
+            guides_drawn(host, Role::Yellow, 7),
+        )
+    };
+    let none = || vec![Vec::<usize>::new(); 7];
+    // In `c`'s block, on it, on the line that opens it and on the one that ends it.
+    for place in [26, 10, 33] {
+        let (guides, active) = at(&mut host, place);
+        assert_eq!(
+            active,
+            [vec![], vec![], vec![4], vec![4], vec![], vec![], vec![]],
+            "the caret at {place}"
+        );
+        assert_eq!(
+            guides,
+            [vec![], vec![0], vec![0], vec![0], vec![0], vec![0], vec![]]
+        );
+    }
+    // On the line that opens the outer block and on the one that ends it: the block of `fn a`.
+    for place in [0, 36] {
+        let (_, active) = at(&mut host, place);
+        assert_eq!(
+            active,
+            [vec![], vec![0], vec![0], vec![0], vec![0], vec![0], vec![]],
+            "the caret at {place}"
+        );
+    }
+    // Without the keyboard, no guide is the caret's.
+    host.editors.set_focus(None);
+    assert_eq!(guides_drawn(&mut host, Role::Yellow, 7), none());
+}
+
+#[test]
+fn the_page_colours_the_marks_and_the_guides_and_what_it_turns_off_is_not_drawn() {
+    let text = "fn a {\n    b c\n}";
+    let colours = |colors: EditorColors| {
+        let mut host = Host::new(page_with(EditorOptions {
+            whitespace: Whitespace::All,
+            indent_guides: true,
+            colors,
+            ..plain()
+        }));
+        host.load(text);
+        host.caret_at(12);
+        host.quads()
+    };
+    let count = |quads: &[(Rect, Option<Role>)], role: Role, round: bool| {
+        quads
+            .iter()
+            .filter(|(rect, colour)| *colour == Some(role) && (rect.w == 2.0) == round)
+            .count()
+    };
+    // The theme's: the dots in its border colour, the guides too, the caret's block's quiet.
+    let quads = colours(EditorColors::default());
+    assert_eq!(count(&quads, Role::Border, true), 7, "the dots: {quads:?}");
+    assert_eq!(
+        count(&quads, Role::Quiet, false),
+        1,
+        "the caret's block's guide"
+    );
+    assert_eq!(count(&quads, Role::Border, false), 0, "no other guide");
+    // The page's own, and what it turns off.
+    let quads = colours(EditorColors {
+        whitespace: Tint::Off,
+        indent_guides: Tint::Color(Role::Accent.solid()),
+        active_indent_guide: Tint::Off,
+        ..EditorColors::default()
+    });
+    assert_eq!(count(&quads, Role::Border, true), 0, "no dots");
+    assert_eq!(
+        count(&quads, Role::Accent, false),
+        1,
+        "the caret's block's guide is drawn as the others are"
+    );
+    let quads = colours(EditorColors {
+        whitespace: Tint::Color(Role::Info.solid()),
+        indent_guides: Tint::Off,
+        ..EditorColors::default()
+    });
+    assert_eq!(count(&quads, Role::Info, true), 7);
+    assert_eq!(
+        count(&quads, Role::Quiet, false),
+        1,
+        "with the guides off, the caret's block's alone"
+    );
+    let quads = colours(EditorColors {
+        indent_guides: Tint::Off,
+        active_indent_guide: Tint::Off,
+        ..EditorColors::default()
+    });
+    assert_eq!(count(&quads, Role::Quiet, false), 0, "no guide at all");
+}
+
+#[test]
+fn an_editor_that_says_neither_draws_as_it_did_and_what_they_draw_is_only_added() {
+    // Spaces and tabs under the page's grounds and looks, selected, found, folded, under a block
+    // caret, a no-break space, a line too long for the room.
+    let text = "fn a {\n\tif b {\n\t\tc  d\u{a0}e  \n\t}\n    f\n\n}\n    long long long long long long long long long long long long long long";
+    let accent = Look {
+        background: Some(Role::Accent.alpha(0.3)),
+        italic: Some(true),
+        ..Look::default()
+    };
+    let paints = |options: EditorOptions, focused: bool| {
+        let mut host = Host::new(page_with(EditorOptions {
+            folds: Folds::Indent,
+            caret: Caret {
+                shape: CaretShape::Block,
+                ..Caret::default()
+            },
+            ..options
+        }));
+        host.load(text);
+        let laid = host.laid.clone();
+        host.editors.ask(
+            &laid,
+            EDITOR,
+            EditorAsk::Decorate(Decorate {
+                layer: "syntax".into(),
+                version: 1,
+                from: 0,
+                to: 40,
+                decorations: vec![
+                    Decoration::new(14, 26, Mark::Style(accent.clone())),
+                    Decoration::new(28, 31, Mark::Line(Role::Red.alpha(0.2))),
+                ],
+            }),
+            &mut Fake,
+            0.0,
+        );
+        host.settle();
+        command(
+            &mut host,
+            EditCommand::Find {
+                pattern: "d".into(),
+                regex: false,
+                case: true,
+                word: false,
+            },
+        );
+        host.caret_at(37);
+        command(&mut host, EditCommand::Fold);
+        select(&mut host, vec![Range::new(16, 24), Range::caret(48)]);
+        if !focused {
+            host.editors.set_focus(None);
+        }
+        host.paint(true).items
+    };
+    let marked = |item: &Paint| {
+        let ours =
+            |color: Option<Role>| matches!(color, Some(Role::Magenta | Role::Cyan | Role::Yellow));
+        match item {
+            Paint::Quad(quad) => {
+                ours(quad.fill.and_then(|fill| fill.role()))
+                    || ours(quad.border.as_ref().and_then(|border| border.color.role()))
+            }
+            Paint::Figure(figure) => figure
+                .paths
+                .iter()
+                .any(|path| ours(path.stroke.and_then(|line| line.color.role()))),
+            _ => false,
+        }
+    };
+    for focused in [true, false] {
+        let plain_editor = paints(plain(), focused);
+        assert!(!plain_editor.iter().any(marked));
+        // Saying neither is saying nothing.
+        assert_eq!(
+            paints(invisible(Whitespace::None, false), focused),
+            plain_editor
+        );
+        // What they draw is all there is besides what a plain editor draws, in the same order.
+        let shown = paints(invisible(Whitespace::All, true), focused);
+        assert!(shown.len() > plain_editor.len() + 20, "they draw");
+        let without: Vec<Paint> = shown.into_iter().filter(|item| !marked(item)).collect();
+        assert_eq!(without, plain_editor);
+    }
+}
+
+#[test]
+fn whatever_the_text_rows_and_selections_the_marks_and_guides_are_drawn_in_the_room() {
+    const PIECES: [&str; 13] = [
+        " ", "  ", "\t", "\u{a0}", "\r", "x", "\n", "e\u{301}", " \u{301}", "ğ", "😀", "\u{3000}",
+        "\n\n",
+    ];
+    let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
+    let mut below = |n: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % n as u64) as usize
+    };
+    let kinds = [
+        Whitespace::None,
+        Whitespace::Boundary,
+        Whitespace::Selection,
+        Whitespace::Trailing,
+        Whitespace::All,
+    ];
+    for round in 0..60 {
+        let text: String = (0..below(80))
+            .map(|_| PIECES[below(PIECES.len())])
+            .collect();
+        let options = EditorOptions {
+            wrap: round % 2 == 0,
+            tab_width: 1 + below(8) as u8,
+            folds: Folds::Indent,
+            ..invisible(kinds[round % kinds.len()], true)
+        };
+        let mut host = Host::new(page_with(options));
+        host.load(&text);
+        let len = text.chars().count();
+        host.caret_at(below(len + 1));
+        command(&mut host, EditCommand::Fold);
+        select(
+            &mut host,
+            vec![
+                Range::new(below(len + 1), below(len + 1)),
+                Range::caret(len),
+            ],
+        );
+        let room = Rect::new(0.0, 0.0, 400.0, 200.0);
+        for item in host.paint(true).items {
+            let rect = match &item {
+                Paint::Quad(quad) => quad.rect,
+                Paint::Figure(figure) => figure.rect,
+                _ => continue,
+            };
+            assert!(
+                rect.w.is_finite() && rect.h.is_finite() && rect.w >= 0.0 && rect.h >= 0.0,
+                "{text:?}: {item:?}"
+            );
+            assert!(
+                rect.x < room.right() + 1.0 && rect.y < room.bottom() + ROW,
+                "{text:?}: {item:?}"
+            );
+        }
+    }
 }
