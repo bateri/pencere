@@ -19,7 +19,7 @@ fmt:
 check:
 	@test -d node_modules || { echo "check: node_modules is missing, run 'make setup' first"; exit 1; }
 	node tools/check-spec.mjs
-	@for name in LICENSE NOTICE; do for dir in sdk/typescript host/rust wire program kit/view kit/sandbox kit/guest/sdk cli; do cmp -s $$name $$dir/$$name || { echo "check: $$dir/$$name is not the repository's $$name"; exit 1; }; done; done
+	@for name in LICENSE NOTICE; do for dir in sdk/typescript host/rust wire program kit/view kit/editor kit/sandbox kit/guest/sdk cli; do cmp -s $$name $$dir/$$name || { echo "check: $$dir/$$name is not the repository's $$name"; exit 1; }; done; done
 	@for dir in kit/sandbox kit/guest/sdk; do cmp -s kit/wit/view.wit $$dir/wit/view.wit || { echo "check: $$dir/wit/view.wit is not the interface in kit/wit/view.wit (a published crate cannot read outside itself, so it carries a copy: cp kit/wit/view.wit $$dir/wit/view.wit)"; exit 1; }; done
 	@diff -r kit/luau/licenses kit/sandbox/licenses >/dev/null || { echo "check: kit/sandbox/licenses is not a copy of kit/luau/licenses (the crate carries the licences of what is built into its interpreter)"; exit 1; }
 	$(MAKE) --no-print-directory audit
@@ -35,13 +35,17 @@ check:
 
 # The rules of the kit that are not the compiler's: what each crate may depend on, and that the
 # interpreter in the repository is the one its sources build. They are the layers of the kit:
-# the engine knows nothing of the wire or of a terminal, the sandbox knows the engine, the wire
-# (for the size of a message) and the runtime, and the page modules know the SDK and the engine.
+# the engine knows nothing of the wire or of a terminal, the editor knows the engine and the text, the
+# sandbox knows the engine, the wire (for the size of a message) and the runtime, and the page modules
+# know the SDK and the engine.
 audit:
 	@fail=0; \
 	if [ "$$(cargo tree -p pencere-view -e normal --depth 1 --prefix none | tail -n +2 | sed 's/ .*//' | sort -u)" != "taffy" ]; then echo "audit: pencere-view depends on something besides the layout crate (taffy) — the page engine depends on its layout crate alone"; fail=1; fi; \
 	if cargo tree -p pencere-view -e normal --prefix none | tail -n +2 | grep -E "^(pencere-|containers-|objc2|dispatch2|block2|metal|wgpu|winit)"; then echo "audit: pencere-view links to a crate of this repository or a platform library"; fail=1; fi; \
 	if grep -rnE "objc2|dispatch2|block2|wgpu|winit|pencere_(wire|host|sandbox)" kit/view/src | grep -v ":[[:space:]]*//"; then echo "audit: a platform call or a crate of this repository is named in the source of pencere-view"; fail=1; fi; \
+	if [ -n "$$(cargo tree -p pencere-editor -e normal --depth 1 --prefix none | tail -n +2 | sed 's/ .*//' | sort -u | grep -vxE 'pencere-view|ropey|unicode-segmentation|regex')" ]; then echo "audit: pencere-editor depends on something besides the page engine, the rope, the boundaries of characters and regular expressions (pencere-view, ropey, unicode-segmentation, regex)"; fail=1; fi; \
+	if cargo tree -p pencere-editor -e normal --prefix none | tail -n +2 | grep -E "^(pencere-(wire|host|sandbox)|containers-|wasmtime|objc2|dispatch2|block2|metal|wgpu|winit|fontdb|rustybuzz|ttf-parser|harfrust|skrifa|read-fonts|swash|fontconfig|freetype|font-types|cosmic-text) "; then echo "audit: pencere-editor links a platform library, a WebAssembly runtime, a font library or a crate of the terminal side — the editor's text is measured by the host, through the engine"; fail=1; fi; \
+	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(pencere-editor|ropey) "; then echo "audit: pencere-sandbox links the editor or its rope — a page reads an editor's text through the copy the host posts it (pencere_view::edit::TextSnapshot), and the sandbox knows the engine alone"; fail=1; fi; \
 	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(pencere-host|containers-|objc2|dispatch2|block2|metal|wgpu|winit)"; then echo "audit: pencere-sandbox links to a crate of this repository past the page engine and the wire, or to a platform library — the sandbox depends on the engine, the wire (for the size of a message) and the runtime alone"; fail=1; fi; \
 	if grep -rnE "objc2|dispatch2|block2|wgpu|winit|pencere_host" kit/sandbox/src | grep -v ":[[:space:]]*//"; then echo "audit: a platform call or a crate of the terminal's is named in the source of pencere-sandbox"; fail=1; fi; \
 	if cargo tree --workspace -e normal -i wasmtime --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-sandbox "; then echo "audit: the WebAssembly runtime is linked by a crate other than pencere-sandbox — one door to it"; fail=1; fi; \
@@ -53,7 +57,7 @@ audit:
 	if cargo tree -p pencere-cli -e normal --prefix none | tail -n +2 | grep -E "^(pencere-(host|sandbox|view)|wasmtime|taffy|objc2|dispatch2|block2|metal|wgpu|winit) "; then echo "audit: the pencere command links a terminal's crate or a platform library — it is a program that uses the program library, and hosts nothing"; fail=1; fi; \
 	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(fontdb|rustybuzz|ttf-parser|harfrust|skrifa|read-fonts|swash|fontconfig|freetype|font-types)"; then echo "audit: pencere-sandbox links to a font or text-shaping library — an SVG draws shapes and no words, and no font is loaded for it"; fail=1; fi; \
 	if grep -rnE "std::(fs|net|process)\b|File::open|TcpStream" kit/sandbox/src --exclude="*_tests.rs" | grep -v ":[[:space:]]*//"; then echo "audit: the sandbox reads a file, opens a connection or runs a program — the only door it has to the bundle is Assets, which the host gives"; fail=1; fi; \
-	if grep -nE "^pencere-(host|sandbox) *=" kit/guest/*/Cargo.toml kit/guest/Cargo.toml; then echo "audit: a page module depends on a crate of the terminal side — a module is written with the SDK, the engine and the wire alone"; fail=1; fi; \
+	if grep -nE "^pencere-(host|sandbox|editor) *=" kit/guest/*/Cargo.toml kit/guest/Cargo.toml; then echo "audit: a page module depends on a crate of the terminal side — a module is written with the SDK, the engine and the wire alone"; fail=1; fi; \
 	if [ "$$(sh kit/luau/inputs.sh)" != "$$(cat kit/sandbox/luau/inputs.sha256 2>/dev/null)" ]; then echo "audit: kit/sandbox/luau/luau.wasm is not built from the sources of kit/luau and the interface in kit/wit/view.wit as they are now — make luau rebuilds it"; fail=1; fi; \
 	test $$fail = 0
 
@@ -160,7 +164,7 @@ dist-sums:
 	$(DIST_ENV) tools/dist.sh sums
 
 # Releasing a line (RELEASING.md). LINE is one of the lines in tools/lines.mjs: sdk-typescript
-# (@pencere/sdk), crates (the six crates, one version) or cli (the pencere command). A release is
+# (@pencere/sdk), crates (the seven crates, one version) or cli (the pencere command). A release is
 # the commit of release-prepare, pushed to main: the release workflow tags, builds and drafts it
 # once the gate is green, and publishes it when a maintainer approves.
 #

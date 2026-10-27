@@ -8,6 +8,15 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **Editors.** The interface has `node.editor`, the events `editor-pointer`, `edit`, `selection`,
+  `viewport` and `editor-refused`, a reply's `editor` asks, and `layout.editor-version`,
+  `editor-length`, `editor-lines`, `editor-text`, `line-start` and `line-of`, which read the copy of
+  each editor's text the application posts (`Module::texts`, before the events that tell of its
+  version). A reply is held to the text (1 MiB) and the decorations (20 000) it may hand the editors
+  (`ModuleLimits::editor_text`, `editor_decorations`, `editor_asks`), a read of a text to 1 MiB. The
+  interpreter speaks them as the Lua page API: `pencere.editor`, `pencere.caret_of`, the text of an
+  editor through `pencere.layout`, the events and the `editor` of a reply.
+
 - The interface is `pencere:view@2.0.0`: overlays and anchors, texts of many looks, canvases,
   commands, dragging, roles and states, fills from one colour to another, and the middle button, keys
   that go up, the modifiers alone, commands and dropped files as events (see `pencere-view`). What a

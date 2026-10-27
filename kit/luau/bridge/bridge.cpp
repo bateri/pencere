@@ -213,6 +213,69 @@ int l_drop_target(lua_State* state) {
     return 1;
 }
 
+// --- The text of the page's editors ------------------------------------------------------------
+//
+// What the application posted of each editor's document: read at once, of the version the last
+// `edit` event the page was told says. Places and lines are whole numbers from 0.
+
+uint32_t checked_place(lua_State* state, int index, const char* what) {
+    double at = luaL_checknumber(state, index);
+    if (!(at >= 0 && at <= 4294967295.0) || at != (double)(uint32_t)at)
+        luaL_error(state, "%s is a whole number from 0", what);
+    return (uint32_t)at;
+}
+
+int l_editor_version(lua_State* state) {
+    uint64_t version = 0;
+    if (pencere_view_layout_editor_version(bridge::id_of(state, 1), &version)) lua_pushnumber(state, (double)version);
+    else lua_pushnil(state);
+    return 1;
+}
+
+int l_editor_length(lua_State* state) {
+    uint32_t length = 0;
+    if (pencere_view_layout_editor_length(bridge::id_of(state, 1), &length)) lua_pushnumber(state, length);
+    else lua_pushnil(state);
+    return 1;
+}
+
+int l_editor_lines(lua_State* state) {
+    uint32_t lines = 0;
+    if (pencere_view_layout_editor_lines(bridge::id_of(state, 1), &lines)) lua_pushnumber(state, lines);
+    else lua_pushnil(state);
+    return 1;
+}
+
+int l_editor_text(lua_State* state) {
+    uint64_t editor = bridge::id_of(state, 1);
+    uint32_t from = checked_place(state, 2, "from");
+    uint32_t to = checked_place(state, 3, "to");
+    view_string_t text = {nullptr, 0};
+    if (pencere_view_layout_editor_text(editor, from, to, &text)) {
+        lua_pushlstring(state, (const char*)text.ptr, text.len);
+        view_string_free(&text);
+    } else {
+        lua_pushnil(state);
+    }
+    return 1;
+}
+
+int l_line_start(lua_State* state) {
+    uint64_t editor = bridge::id_of(state, 1);
+    uint32_t at = 0;
+    if (pencere_view_layout_line_start(editor, checked_place(state, 2, "a line"), &at)) lua_pushnumber(state, at);
+    else lua_pushnil(state);
+    return 1;
+}
+
+int l_line_of(lua_State* state) {
+    uint64_t editor = bridge::id_of(state, 1);
+    uint32_t line = 0;
+    if (pencere_view_layout_line_of(editor, checked_place(state, 2, "a place"), &line)) lua_pushnumber(state, line);
+    else lua_pushnil(state);
+    return 1;
+}
+
 // --- Loading the other scripts of the bundle -------------------------------------------------------
 //
 // `require` is Luau's own require-by-string (the `Luau.Require` library), pointed at the bundle the
@@ -533,6 +596,12 @@ void host_functions(lua_State* state) {
         {"path_of", l_path_of},
         {"drag_source", l_drag_source},
         {"drop_target", l_drop_target},
+        {"editor_version", l_editor_version},
+        {"editor_length", l_editor_length},
+        {"editor_lines", l_editor_lines},
+        {"editor_text", l_editor_text},
+        {"line_start", l_line_start},
+        {"line_of", l_line_of},
         {nullptr, nullptr},
     };
     lua_newtable(state);

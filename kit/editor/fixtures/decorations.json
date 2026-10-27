@@ -1,0 +1,195 @@
+{
+  "examples": [
+    {
+      "about": "a layer's range is put in place of, and the other layers stay",
+      "text": "abcdef",
+      "steps": [
+        {
+          "do": "decorate",
+          "layer": "syntax",
+          "version": 0,
+          "from": 0,
+          "to": 6,
+          "decorations": [
+            [0, 2, "style"],
+            [3, 5, "style"]
+          ]
+        },
+        {
+          "do": "decorate",
+          "layer": "diagnostics",
+          "version": 0,
+          "from": 0,
+          "to": 6,
+          "decorations": [[1, 4, "line"]]
+        },
+        {
+          "do": "decorate",
+          "layer": "syntax",
+          "version": 0,
+          "from": 2,
+          "to": 6,
+          "decorations": [[4, 6, "style"]]
+        },
+        {
+          "do": "expect",
+          "decorations": {
+            "syntax": [
+              [0, 2, "style"],
+              [4, 6, "style"]
+            ],
+            "diagnostics": [[1, 4, "line"]]
+          }
+        },
+        {
+          "do": "decorate",
+          "layer": "diagnostics",
+          "version": 0,
+          "from": 0,
+          "to": 6,
+          "decorations": []
+        },
+        {
+          "do": "expect",
+          "decorations": {
+            "diagnostics": [],
+            "syntax": [
+              [0, 2, "style"],
+              [4, 6, "style"]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "about": "a decoration whose characters all went goes, and a mark of a place stays",
+      "text": "abcdef",
+      "steps": [
+        {
+          "do": "decorate",
+          "layer": "syntax",
+          "version": 0,
+          "from": 0,
+          "to": 6,
+          "decorations": [
+            [2, 4, "style"],
+            [3, 3, "gutter"]
+          ]
+        },
+        { "do": "select", "ranges": [[1, 5]] },
+        { "do": "command", "command": "delete_backward" },
+        { "do": "expect", "text": "af", "decorations": { "syntax": [[1, 1, "gutter"]] } }
+      ]
+    },
+    {
+      "about": "decorations of the text typed inside them grow with it, and before them move",
+      "text": "abcd",
+      "steps": [
+        {
+          "do": "decorate",
+          "layer": "syntax",
+          "version": 0,
+          "from": 0,
+          "to": 4,
+          "decorations": [[1, 3, "style"]]
+        },
+        { "do": "select", "ranges": [[2, 2]] },
+        { "do": "type", "text": "xy" },
+        { "do": "expect", "decorations": { "syntax": [[1, 5, "style"]] } },
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "type", "text": "_" },
+        { "do": "expect", "decorations": { "syntax": [[2, 6, "style"]] } }
+      ]
+    },
+    {
+      "about": "a fold hides the lines after its first, and a move down goes past them",
+      "text": "a {\n  b\n  c\n}\nd",
+      "steps": [
+        {
+          "do": "decorate",
+          "layer": "folds",
+          "version": 0,
+          "from": 0,
+          "to": 15,
+          "decorations": [[2, 12, "fold"]]
+        },
+        { "do": "select", "ranges": [[1, 1]] },
+        { "do": "command", "command": "fold" },
+        { "do": "expect", "folded": [[2, 12]], "hidden": [[1, 3]] },
+        { "do": "command", "command": "move", "movement": "down" },
+        { "do": "expect", "ranges": [[15, 15]] },
+        { "do": "command", "command": "move", "movement": "up" },
+        { "do": "expect", "ranges": [[1, 1]] }
+      ]
+    },
+    {
+      "about": "a fold stays folded when the page sends its folds again, and is carried over an edit above it",
+      "text": "a {\n  b\n  c\n}\nd",
+      "steps": [
+        {
+          "do": "decorate",
+          "layer": "folds",
+          "version": 0,
+          "from": 0,
+          "to": 15,
+          "decorations": [[2, 12, "fold"]]
+        },
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "command", "command": "toggle_fold" },
+        {
+          "do": "decorate",
+          "layer": "folds",
+          "version": 0,
+          "from": 0,
+          "to": 15,
+          "decorations": [[2, 12, "fold"]]
+        },
+        { "do": "expect", "folded": [[2, 12]] },
+        { "do": "type", "text": "z" },
+        { "do": "expect", "folded": [[3, 13]], "hidden": [[1, 3]] },
+        { "do": "command", "command": "toggle_fold" },
+        { "do": "expect", "folded": [] }
+      ]
+    },
+    {
+      "about": "a change in what a fold hides unfolds it, and so does a caret that goes in",
+      "text": "a {\n  b\n  c\n}\nd",
+      "steps": [
+        {
+          "do": "decorate",
+          "layer": "folds",
+          "version": 0,
+          "from": 0,
+          "to": 15,
+          "decorations": [[2, 12, "fold"]]
+        },
+        { "do": "command", "command": "fold" },
+        { "do": "change", "base": 0, "changes": [[5, 5, "X"]] },
+        { "do": "expect", "folded": [] },
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "command", "command": "fold" },
+        { "do": "expect", "folded": [[2, 13]] },
+        { "do": "select", "ranges": [[6, 6]] },
+        { "do": "expect", "folded": [] }
+      ]
+    },
+    {
+      "about": "a fold the page no longer sends is unfolded",
+      "text": "a {\n  b\n}",
+      "steps": [
+        {
+          "do": "decorate",
+          "layer": "folds",
+          "version": 0,
+          "from": 0,
+          "to": 9,
+          "decorations": [[2, 8, "fold"]]
+        },
+        { "do": "command", "command": "fold" },
+        { "do": "expect", "folded": [[2, 8]] },
+        { "do": "decorate", "layer": "folds", "version": 0, "from": 0, "to": 9, "decorations": [] },
+        { "do": "expect", "folded": [] }
+      ]
+    }
+  ]
+}

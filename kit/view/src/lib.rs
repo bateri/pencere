@@ -25,6 +25,10 @@
 //! and says the size of ([`Measure::image`]); the engine makes the room for an image and says
 //! how it fills it ([`Picture`]), and has no pixels of its own.
 //!
+//! A page can hold an editor of text, as it holds a text field: the host's, which edits, lays out and
+//! draws its document (the `pencere-editor` crate); [`edit`] is what the page and the editor say to
+//! each other.
+//!
 //! A page need not live in the host that shows it: [`wire`] lays an [`Element`] tree down as a flat
 //! list and picks it up again, and [`Queries`] is what a page asks of itself laid out — the pair a
 //! page kept in a sandbox is written against, as [`Laid`] answers the same questions to one that
@@ -32,6 +36,7 @@
 
 mod color;
 mod command;
+pub mod edit;
 mod element;
 mod fades;
 mod figure;
@@ -58,19 +63,21 @@ pub use fades::{FADE_SECONDS, Fades};
 pub use figure::{Path, Segment, Stroke, path};
 pub use geometry::{Point, Rect, Size};
 pub use id::Id;
-pub use input::{Button, Cursor, Event, Input, Key, Keyboard, Menu, MenuEntry, Mods, Reply};
-pub use layout::{Accessible, AccessibleRole, Extent, Field, Laid, Queries, layout};
+pub use input::{Button, Cursor, Event, Input, Key, Keyboard, Menu, MenuEntry, Mods, Place, Reply};
+pub use layout::{Accessible, AccessibleRole, EditorRoom, Extent, Field, Laid, Queries, layout};
 pub use motion::{Ease, Motion, Motions, Shift, Tip};
-pub use paint::{DrawList, Figure, Paint, Picture, Quad, Run};
+pub use paint::{DrawList, EditorSlot, Figure, Paint, Picture, Quad, Run};
 pub use rich::{Span, span};
 pub use rows::{Built, Rows};
 pub use scrolls::{Bars, Phase, ScrollTo, Scrolls, Wheeled};
 pub use style::{Anchor, Border, Gradient, Shadow, Side, Track};
-pub use text::{Align, Family, Font, Measure, Metrics};
+pub use text::{Align, EditorMetrics, Family, Font, Measure, Metrics};
 pub use ui::{Drag, Dropped, Ui};
 
 #[cfg(test)]
 mod commands_tests;
+#[cfg(test)]
+mod editor_tests;
 #[cfg(test)]
 mod image_tests;
 #[cfg(test)]

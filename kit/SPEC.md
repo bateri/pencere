@@ -58,6 +58,7 @@ An element is a plain table that a chain of builder methods fills. Lengths are p
 | `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 9.8).                                                |
 | `pencere.rich(parts)`            | A text of many looks: its parts (`pencere.span(words)`, or a string) one after the other, as one paragraph.        |
 | `pencere.canvas(paths)`          | A box with paths drawn in it (`pencere.path()`), in its own points. It has no size of its own.                     |
+| `pencere.editor(id, options)`    | The room of an editor of text the host keeps, lays out and draws (below); `div():editor(id, options)` the same.    |
 | `pencere.spacer()`               | A box that takes the room left over.                                                                               |
 
 The builders return the element. Layout: `row`, `col`, `wrap`, `grid(columns)`, `grid_rows(rows)`,
@@ -157,7 +158,32 @@ An element says what it is to a **screen reader** where its look says it and its
 "progress" | "slider" | "button" | "text", level)` (a heading's level is 1 to 6), and where it stands:
 `checked(on)` (a checkbox, a switch, a radio), `selected(chosen)` (the tab in front, the row picked),
 `expanded(open)`, `disabled(off)` (it does not answer the pointer, nor take the keyboard) and
-`value(words)` (a progress's `"40%"`). A text field is one by `text_field`, not by a role.
+`value(words)` (a progress's `"40%"`). A text field is one by `text_field`, and an editor by `editor`,
+not by a role.
+
+An **editor** (`pencere.editor(id, options)`) is the host's, as a text field is: its document, its
+carets and selections (as many as the person makes, a column with ⌥), undoing, what an input method
+composes, finding, folding and the drawing of its lines are the host's editor's, the same in every
+host, and the room scrolls as a box that scrolls does (`pencere.layout.scroll_to(id, …)` scrolls
+it). The box's fill and border are the page's. `options` are `wrap` (long lines go on in the next
+row), `tab_width` (4), `hard_tabs`, `gutter` (the numbers of the lines, the page's marks and the
+buttons that fold; on by default), `read_only` (the person cannot change the text; the page can),
+`keys` (`"editor"`, or `"page"`: every key the page's, and the editor types nothing and does none of
+its own commands for a key, for an editor of modes the page drives), `hint` (what it says while it is
+empty; or the first text inside it), `comment` (what the command that comments lines puts, `"--"`)
+and `pairs` (the brackets and quotes that close themselves, `"()[]''"`). Its document lives as long
+as an editor of its name is on the page, hidden or not: a page of tabs hides the editors of the
+files not in front and keeps their documents. The language is the page's or its program's: the
+editor colours, marks and folds what the page says (Section 2.3) and knows no language itself.
+
+A place in a document is a **character** (a code point) counted from 0, and a line is counted from
+0; a range is from one place to another, the end not in it. A version is a number that grows by one
+with every change of the document, whoever made it. The caret of an editor has a name of its own,
+`pencere.caret_of(id)`: an overlay anchored to it stands by the caret (`:anchor(pencere.caret_of("sql"),
+"below")`, a popup of completions, which goes above it where there is no room below), and
+`pencere.layout.bounds` says where it is. A popup's keys (↑ ↓ ↩ ⇥ Esc) are commands of the page
+written only while the popup is open (a command that is there and not `enabled` is a key for the
+page, and so not the editor's).
 
 A **fill from one colour to another** (`bg_gradient(angle, from, to)`) runs along a line at `angle`
 degrees as a style sheet's `linear-gradient` does (`180` from the top down, `90` from the left to the
@@ -184,6 +210,12 @@ along a curve where one is given (`fades:level(id, "out")`; `pencere.ease(t, eas
 `view_w` across, with `max_offset` and `max_offset_x`, and how far it is scrolled, `offset` and
 `offset_x`), `focus_order`, `path_of`, `drag_source` and `drop_target` (the topmost element at a point
 that can be dragged, and that what is dragged can be put down on). They are defined by the prelude.
+
+The text of an editor is read at once, from what the host posted of it before it told the page of
+the version it is: `pencere.layout.editor_version(id)` (the version read, the one the last `edit`
+said), `editor_length(id)` and `editor_lines(id)`, `editor_text(id, from, to)` (at most 1 MiB a read;
+a large document is read in pieces), `line_start(id, line)` and `line_of(id, at)`. A page reads in
+the `edit` event the text of the version the event is of.
 
 A long list builds only the rows near what is in view, and keeps the rest of its length with a spacer
 above and one below. `pencere.Rows` is where its rows stand: `Rows.new(heights)`, `Rows.from_tops(tops)`
@@ -221,27 +253,55 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 
 `handle` is given `{ type = ..., ... }` in the page's points:
 
-| `type`             | Members                                                                                                                                                                                              |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `move`, `leave`    | `x`, `y` (`leave` has none)                                                                                                                                                                          |
-| `press`, `release` | `x`, `y`, `button` (`"left"`, `"right"` or `"middle"`), and for `press` `mods` and `count` (2 for the second of a double click, as the system counts them)                                           |
-| `scroll`           | `x`, `y`, `dx`, `dy`: a wheel no box the host scrolls took, the points the content would move left and up by (for a page that does something of its own with the wheel)                              |
-| `scrolled`         | `boxes`: the boxes the host scrolled, each `{ id =, x =, y = }`, how far it is scrolled now                                                                                                          |
-| `key`              | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"delete"`, `"f1"` to `"f20"`, or the character), `mods` |
-| `text`             | `field` (its name) and `text`: what a field holds now, after the person changed it (not after the page's own `fill`)                                                                                 |
-| `focus`            | `field`: the field the person clicked into, or nil when the keyboard went back to the page of itself (not said when it went where the page sent it)                                                  |
-| `menu`             | `index` (from 1) of the entry picked from the menu the page asked for                                                                                                                                |
-| `key_up`           | `key` and `mods`, as `key`: a key the page was told of went up                                                                                                                                       |
-| `mods`             | `mods`: the modifiers held changed, with no other key                                                                                                                                                |
-| `command`          | `id`: the command asked for, from the host's list or by its keys (the key is not told as well)                                                                                                       |
-| `files`            | `x`, `y`, `paths`: files dropped on the page from outside it, their paths as the host's system writes them                                                                                           |
+| `type`             | Members                                                                                                                                                                                                                                                  |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `move`, `leave`    | `x`, `y` (`leave` has none)                                                                                                                                                                                                                              |
+| `press`, `release` | `x`, `y`, `button` (`"left"`, `"right"` or `"middle"`), and for `press` `mods` and `count` (2 for the second of a double click, as the system counts them)                                                                                               |
+| `scroll`           | `x`, `y`, `dx`, `dy`: a wheel no box the host scrolls took, the points the content would move left and up by (for a page that does something of its own with the wheel)                                                                                  |
+| `scrolled`         | `boxes`: the boxes the host scrolled, each `{ id =, x =, y = }`, how far it is scrolled now                                                                                                                                                              |
+| `key`              | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"delete"`, `"f1"` to `"f20"`, or the character), `mods`                                                     |
+| `text`             | `field` (its name) and `text`: what a field holds now, after the person changed it (not after the page's own `fill`)                                                                                                                                     |
+| `focus`            | `field`: the field the person clicked into, or nil when the keyboard went back to the page of itself (not said when it went where the page sent it)                                                                                                      |
+| `menu`             | `index` (from 1) of the entry picked from the menu the page asked for                                                                                                                                                                                    |
+| `key_up`           | `key` and `mods`, as `key`: a key the page was told of went up                                                                                                                                                                                           |
+| `mods`             | `mods`: the modifiers held changed, with no other key                                                                                                                                                                                                    |
+| `command`          | `id`: the command asked for, from the host's list or by its keys (the key is not told as well)                                                                                                                                                           |
+| `files`            | `x`, `y`, `paths`: files dropped on the page from outside it, their paths as the host's system writes them                                                                                                                                               |
+| `edit`             | `editor`, `version` (what the document came to), `origin` (`"person"`, `"compose"`, `"page"`, `"undo"`, `"redo"`, `"load"`), `changes` (`{ { from =, to =, insert = }, ... }`, in the places of the version before, in order)                            |
+| `selection`        | `editor`, `version`, `ranges` (`{ { anchor =, head = }, ... }`), `main` (from 1), `composing` (an input method is composing at the main caret; the host does none of the page's commands then)                                                           |
+| `viewport`         | `editor`, `first`, `last`: the lines in view, for a page that colours only what is seen                                                                                                                                                                  |
+| `editor_refused`   | `editor`, `reason` (`"reversed"`, `"out-of-document"`, `"overlapping"`, `"stale-version"`, `"future-version"`, `"too-large"`, `"too-many-decorations"`, `"outside-range"`, `"bad-pattern"`, `"no-editor"`): what the page asked was not done, none of it |
+
+`move`, `press` and `release` over an editor have `place`, `{ editor =, at = }`: the place of its
+document under the pointer (a word to say what it is of while the pointer rests on it, a name to go to
+at a ⌘-click). A press in an editor is the editor's as well: it puts the caret.
 
 `mods` is `{ shift =, control =, alt =, command = }`. A reply is `nil` (nothing changed), `true` or
 `false` (a frame is worth drawing or not), or a table: `redraw`, `close`, `copy` (text for the
 pasteboard), `cursor` (`"arrow"`, `"pointer"`, `"text"`, `"resize_horizontal"`, `"resize_vertical"`,
 `"not_allowed"`, `"grab"`, `"grabbing"` or `"crosshair"`), `keyboard` (`"page"` or `{ field = name }`),
 `fill` (`{ [name] = text }`: what fields are to hold from now on; a name that is not a field of the
-page is passed over), and `menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" } }`.
+page is passed over), `menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" } }`,
+and `editor = { [name] = ask, or { ask, ... } }`, what the page asks of its editors, each ask one of:
+
+| Ask                                                                    | What                                                                                                                                                                               |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{ load = text, more = true }`                                         | A piece of the document: the first in place of the whole text, each after it (`more` said before) on its end. Nothing of it is undone, and what could be undone before cannot be.  |
+| `{ change = { { from =, to =, insert = }, ... }, base = version }`     | Changes against the version the page saw: carried over what was done since (a range's start after what came in at it, its end before), done, undone as one.                        |
+| `{ select = { { anchor =, head = }, ... }, version =, main = }`        | The selections, in the places of `version`.                                                                                                                                        |
+| `{ reveal = place, version = }`                                        | The place scrolled into view.                                                                                                                                                      |
+| `{ command = name, ... }`                                              | What the person could do with a key: `"move"` (`movement`, `extend`), `"insert"` (`text`), `"undo"`, `"find"` (`pattern`, `regex`, `case`), … (`pencere_view::edit::EditCommand`). |
+| `{ decorate = layer, version =, from =, to =, decorations = { ... } }` | The layer's decorations for `from`–`to`, in place of those it had there; the other layers stay.                                                                                    |
+
+A layer is named by the page (`"syntax"`, `"diagnostics"`, `"folds"`): the colours of what is in view
+are sent without taking the errors away. A decoration is `{ from =, to =, color =, background =,
+weight =, italic =, strike =, underline = colour or { wavy = colour } }` (a look), `{ from =, to =,
+line = colour }` (a ground for each line it touches), `{ from =, to =, gutter = colour }` (a mark by
+its first line) or `{ from =, to =, fold = true }` (a region that folds: its first line stays; whether
+it is folded is the person's). Decorations of an older version are carried over the changes made
+since. What the editor cannot do is refused and the page told why (`editor_refused`): a range the wrong
+way round, a place past the end, changes that overlap, a version older than the last 1 024 or yet to
+come, a document larger than an editor may hold.
 
 ### 2.4 The program
 
@@ -375,7 +435,23 @@ Besides drawing what the engine lays out, a host:
   button pressed on the page is held (it does not tell a `leave` then), so that a drag that leaves the
   page and comes back, or ends outside it, is followed to its end;
 - tells the page the middle button, the keys that go up after it was told they went down, the
-  modifiers when they alone change, and the files dropped on the page from outside it.
+  modifiers when they alone change, and the files dropped on the page from outside it;
+- puts an editor of its own (`pencere-editor`, the same in every host) in each editor's room
+  (`Laid::editors`), keeps its document as long as an editor of that name is on the page, hidden or
+  not, and draws it in its place of the draw list (`Paint::Editor`), over the room's fill and under
+  what covers it; draws its carets and blinks them on its own clock (the page is asked for no frames
+  for it); gives it its system's input method (what is composed, and the questions of where the
+  caret is and what is around it, answered at once, in the units its system counts in) and its
+  pasteboard; sends a key to the page's command for it first, the editor's own next, the text last
+  (none of the page's while an input method composes, and every key to the page where the editor
+  gives it its keys), and tells its screen reader the editor as one;
+- scrolls an editor's room as it scrolls a box, over the content the editor laid out, keeps the
+  caret in view where the editor asks, and tells the page the lines in view; where a caret an
+  overlay is anchored to moves, or an editor with one scrolls, it lays the page's last tree out again
+  without asking the page;
+- posts the page the text of each editor before it tells the page of the version it is (the copy
+  costs nothing that grows with the document), and holds a reply to what one may hand the editors
+  (1 MiB of text, 20 000 decorations) and the editors to the floors of the protocol (Section 9.8).
 
 ## 5. Pictures
 

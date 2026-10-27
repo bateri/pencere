@@ -340,6 +340,43 @@ function Element:text_field(id, kind)
 	return self
 end
 
+-- The box is the room of an editor of text the host puts there, named `id` (the element's own name
+-- when `id` is nil). The host keeps its document, edits it, lays out and draws its lines and
+-- scrolls them (as a box that scrolls: `pencere.layout.scroll_to(id, …)`); the page is told what
+-- changed (`edit`, `selection`, `viewport`, `editor_refused`) and asks for what it wants in a reply
+-- (`editor = { [id] = … }`). Its document lives as long as an editor of its name is on the page,
+-- hidden or not. `options` (all optional): `wrap`, `tab_width` (4), `hard_tabs`, `gutter` (true),
+-- `read_only`, `keys` ("editor", or "page": every key the page's), `hint` (what it says while
+-- empty), `comment` ("--": what the command that comments lines puts), `pairs` (the brackets and
+-- quotes that close themselves: "()[]{}" or { "()", "[]" }).
+function Element:editor(id, options)
+	if id ~= nil then
+		self.meta.id = id
+	end
+	if self.meta.id == nil then
+		error("an editor is named: editor(id, options)", 2)
+	end
+	if options ~= nil and type(options) ~= "table" then
+		error("an editor's options are a table, not " .. type(options), 2)
+	end
+	local given = options or {}
+	local said = {}
+	for key, value in given do
+		said[key] = value
+	end
+	if type(said.pairs) == "table" then
+		said.pairs = table.concat(said.pairs)
+	end
+	self.meta.editor = said
+	self.style.overflow = "scroll"
+	return self
+end
+
+-- An editor named `id`, as `pencere.div():editor(id, options)`.
+function pencere.editor(id, options)
+	return make("box"):editor(id, options)
+end
+
 -- What the element is in words, for a person who does not see it (a screen reader says it): a
 -- button that is an icon alone says what it does.
 function Element:label(words)

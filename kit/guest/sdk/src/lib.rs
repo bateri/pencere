@@ -54,12 +54,13 @@ use bindings::pencere::view::diagnostics as to_diagnostics;
 use bindings::pencere::view::layout as host;
 use bindings::pencere::view::program as to_program;
 
+pub use pencere_view::edit;
 pub use pencere_view::wire;
 pub use pencere_view::{
     AccessibleRole, Align, Anchor, Border, Built, Button, Color, Command, Cursor, Drag, Dropped,
     Element, Event, Extent, Fades, Family, Field, FieldKind, Fit, Gradient, Id, Image, Input, Key,
-    Keyboard, Menu, MenuEntry, Mix, Mods, Path, Point, Queries, Rect, Reply, Rgba, Role, Rows,
-    ScrollTo, Segment, Shadow, Shortcut, Side, Size, Source, Span, State, Stroke, Track, Ui,
+    Keyboard, Menu, MenuEntry, Mix, Mods, Path, Place, Point, Queries, Rect, Reply, Rgba, Role,
+    Rows, ScrollTo, Segment, Shadow, Shortcut, Side, Size, Source, Span, State, Stroke, Track, Ui,
     canvas, div, image, path, rich, spacer, span, spark, text,
 };
 pub use pencere_wire::messages;
@@ -139,6 +140,34 @@ impl Queries for Layout {
 
     fn drop_target(&self, at: Point) -> Option<Id> {
         host::drop_target(point_in(at)).map(Id::new)
+    }
+
+    fn editor_version(&self, editor: Id) -> Option<u64> {
+        host::editor_version(editor.number())
+    }
+
+    fn editor_length(&self, editor: Id) -> Option<usize> {
+        host::editor_length(editor.number()).map(|n| n as usize)
+    }
+
+    fn editor_lines(&self, editor: Id) -> Option<usize> {
+        host::editor_lines(editor.number()).map(|n| n as usize)
+    }
+
+    fn editor_text(&self, editor: Id, from: usize, to: usize) -> Option<String> {
+        host::editor_text(
+            editor.number(),
+            u32::try_from(from).ok()?,
+            u32::try_from(to).ok()?,
+        )
+    }
+
+    fn line_start(&self, editor: Id, line: usize) -> Option<usize> {
+        host::line_start(editor.number(), u32::try_from(line).ok()?).map(|n| n as usize)
+    }
+
+    fn line_of(&self, editor: Id, at: usize) -> Option<usize> {
+        host::line_of(editor.number(), u32::try_from(at).ok()?).map(|n| n as usize)
     }
 }
 

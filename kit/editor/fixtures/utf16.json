@@ -1,0 +1,48 @@
+{
+  "examples": [
+    {
+      "about": "an emoji is one place and two units of UTF-16",
+      "text": "a😀b",
+      "steps": [
+        {
+          "do": "expect",
+          "utf16": [
+            [0, 0],
+            [1, 1],
+            [2, 3],
+            [3, 4]
+          ]
+        }
+      ]
+    },
+    {
+      "about": "a letter and its accent are two places, and one step of the caret",
+      "text": "éx",
+      "steps": [
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "command", "command": "move", "movement": "right" },
+        { "do": "expect", "ranges": [[2, 2]], "utf16": [[2, 2]] },
+        { "do": "command", "command": "delete_backward" },
+        { "do": "expect", "text": "x" }
+      ]
+    },
+    {
+      "about": "a family of emoji joined is five places, eight units and one step",
+      "text": "👨‍👩‍👧!",
+      "steps": [
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "command", "command": "move", "movement": "right" },
+        {
+          "do": "expect",
+          "ranges": [[5, 5]],
+          "utf16": [
+            [5, 8],
+            [6, 9]
+          ]
+        },
+        { "do": "command", "command": "move", "movement": "left" },
+        { "do": "expect", "ranges": [[0, 0]] }
+      ]
+    }
+  ]
+}

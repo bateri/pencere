@@ -498,7 +498,14 @@ impl Pair {
                 self.query.clone_from(&words);
                 self.native.set_query(&words)
             }
-            Event::Focus(_) | Event::Command(_) | Event::Files { .. } => Reply::none(),
+            Event::Focus(_)
+            | Event::Command(_)
+            | Event::Files { .. }
+            | Event::Pointer { .. }
+            | Event::Edit { .. }
+            | Event::Selection { .. }
+            | Event::Viewport { .. }
+            | Event::EditorRefused { .. } => Reply::none(),
             Event::MenuPick(index) => self.native.pick(index),
             Event::Scrolled(boxes) => self.native.scrolled(&boxes),
         };

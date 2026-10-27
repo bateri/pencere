@@ -1,0 +1,97 @@
+{
+  "examples": [
+    {
+      "about": "a change the page made against the version before what the person typed lands where it meant",
+      "text": "hello world",
+      "steps": [
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "type", "text": "> " },
+        { "do": "change", "base": 0, "changes": [[6, 11, "WORLD"]] },
+        {
+          "do": "expect",
+          "text": "> hello WORLD",
+          "version": 2,
+          "ranges": [[2, 2]],
+          "notes": [
+            { "edited": { "version": 1, "origin": "person", "changes": [[0, 0, "> "]] } },
+            { "edited": { "version": 2, "origin": "page", "changes": [[8, 13, "WORLD"]] } },
+            { "selection": { "ranges": [[2, 2]] } }
+          ]
+        }
+      ]
+    },
+    {
+      "about": "the page's text put in where the person typed goes after what they typed, and so does the caret",
+      "text": "ab",
+      "steps": [
+        { "do": "select", "ranges": [[1, 1]] },
+        { "do": "type", "text": "X" },
+        { "do": "change", "base": 0, "changes": [[1, 1, "Y"]] },
+        { "do": "expect", "text": "aXYb", "ranges": [[3, 3]], "version": 2 }
+      ]
+    },
+    {
+      "about": "a change inside what the person deleted lands where the deleted text was",
+      "text": "abcdef",
+      "steps": [
+        { "do": "select", "ranges": [[1, 4]] },
+        { "do": "command", "command": "delete_backward" },
+        { "do": "change", "base": 0, "changes": [[2, 3, "Z"]] },
+        { "do": "expect", "text": "aZef", "ranges": [[2, 2]] }
+      ]
+    },
+    {
+      "about": "a change of the version the editor is at is made as it is",
+      "text": "one two",
+      "steps": [
+        {
+          "do": "change",
+          "base": 0,
+          "changes": [
+            [0, 3, "1"],
+            [4, 7, "2"]
+          ]
+        },
+        { "do": "expect", "text": "1 2", "version": 1 }
+      ]
+    },
+    {
+      "about": "decorations of an older version are carried over the changes made since",
+      "text": "let x = 1",
+      "steps": [
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "type", "text": "  " },
+        {
+          "do": "decorate",
+          "layer": "syntax",
+          "version": 0,
+          "from": 0,
+          "to": 9,
+          "decorations": [
+            [0, 3, "style"],
+            [8, 9, "style"]
+          ]
+        },
+        {
+          "do": "expect",
+          "decorations": {
+            "syntax": [
+              [2, 5, "style"],
+              [10, 11, "style"]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "about": "the page's selection of an older version is carried over",
+      "text": "abc",
+      "steps": [
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "type", "text": "__" },
+        { "do": "page_select", "version": 0, "ranges": [[1, 3]] },
+        { "do": "expect", "ranges": [[3, 5]] }
+      ]
+    }
+  ]
+}

@@ -7,7 +7,7 @@ use crate::element::Fit;
 use crate::layout::{Content, Laid, Node, Placed, Rich, TextLine, rich_boxes};
 use crate::style::{Border, Gradient, Shadow};
 use crate::text::wrap_lines;
-use crate::{Align, Color, Font, Measure, Path, Point, Rect, Size};
+use crate::{Align, Color, Font, Id, Measure, Path, Point, Rect, Size};
 
 /// A box: an optional fill, a fill that runs from one colour to another over it, a border (drawn
 /// inside, over the fills) and a soft shadow (never under the box), cut at `clip`. `radii` are
@@ -108,6 +108,24 @@ pub struct Figure {
     pub clip: Rect,
 }
 
+/// Where an editor of the host's is drawn ([`crate::Element::editor`]): the host puts what its editor
+/// draws (its lines, carets, selections, gutter) in this place of the list, over the room's fill
+/// and border and under what covers it (the overlays, the bars of the boxes that scroll).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EditorSlot {
+    pub id: Id,
+    /// The room, pixels.
+    pub rect: Rect,
+    /// What of it is seen: nothing is drawn outside it.
+    pub clip: Rect,
+    /// How far the room is scrolled, across and down, pixels.
+    pub scroll: Point,
+    /// How much of what is drawn shows: the opacity of the room and the boxes that hold it.
+    pub opacity: f32,
+    /// What its text is read against, nearest first, as a line of text's ([`Run::grounds`]).
+    pub grounds: Vec<Color>,
+}
+
 /// One thing the page draws.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Paint {
@@ -115,6 +133,8 @@ pub enum Paint {
     Text(Run),
     Image(Picture),
     Figure(Figure),
+    /// The place of an editor: the host draws its editor there.
+    Editor(EditorSlot),
 }
 
 /// A page's draw list.
@@ -181,6 +201,18 @@ impl Laid {
             }
             match &node.content {
                 Content::None => {}
+                Content::Editor(_) => {
+                    if let Some(id) = node.meta.id {
+                        list.items.push(Paint::Editor(EditorSlot {
+                            id,
+                            rect: node.rect,
+                            clip: node.clip.intersect(node.rect),
+                            scroll: Point::new(node.scroll.0, node.scroll.1),
+                            opacity,
+                            grounds: self.grounds_under(index),
+                        }));
+                    }
+                }
                 // The words in the room of the host's field are what it says while it is empty:
                 // the host's field draws them (`Laid::text_field_hint`).
                 Content::Text(_) if self.in_text_field(index) => {}

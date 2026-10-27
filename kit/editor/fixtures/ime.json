@@ -1,0 +1,89 @@
+{
+  "examples": [
+    {
+      "about": "what an input method composes takes the place of what it composed, and is typed when it is done",
+      "text": "",
+      "steps": [
+        { "do": "compose", "text": "k", "selected": [1, 1] },
+        {
+          "do": "expect",
+          "text": "k",
+          "composing": true,
+          "marked": [0, 1],
+          "notes": [
+            { "edited": { "version": 1, "origin": "compose", "changes": [[0, 0, "k"]] } },
+            { "selection": { "ranges": [[1, 1]], "composing": true } }
+          ]
+        },
+        { "do": "compose", "text": "ka", "selected": [2, 2] },
+        { "do": "compose", "text": "か", "selected": [1, 1] },
+        {
+          "do": "expect",
+          "text": "か",
+          "marked": [0, 1],
+          "ranges": [[1, 1]],
+          "notes": [
+            { "edited": { "version": 2, "origin": "compose", "changes": [[0, 1, "ka"]] } },
+            { "edited": { "version": 3, "origin": "compose", "changes": [[0, 2, "か"]] } },
+            { "selection": { "ranges": [[1, 1]], "composing": true } }
+          ]
+        },
+        { "do": "commit" },
+        {
+          "do": "expect",
+          "text": "か",
+          "composing": false,
+          "marked": null,
+          "notes": [{ "selection": { "ranges": [[1, 1]] } }]
+        },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "" }
+      ]
+    },
+    {
+      "about": "an input method that gives up puts back what was there, and leaves nothing to undo",
+      "text": "ab",
+      "steps": [
+        { "do": "select", "ranges": [[0, 2]] },
+        { "do": "compose", "text": "x", "selected": [1, 1] },
+        { "do": "expect", "text": "x", "composing": true },
+        { "do": "abort" },
+        { "do": "expect", "text": "ab", "composing": false, "ranges": [[2, 2]], "version": 2 },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "ab", "version": 2 }
+      ]
+    },
+    {
+      "about": "the text an input method puts in for good need not be what it composed",
+      "text": "",
+      "steps": [
+        { "do": "compose", "text": "ni", "selected": [2, 2] },
+        { "do": "commit_text", "text": "に" },
+        { "do": "expect", "text": "に", "composing": false, "ranges": [[1, 1]] },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "" }
+      ]
+    },
+    {
+      "about": "an input method that names the range it replaces composes there",
+      "text": "abc",
+      "steps": [
+        { "do": "select", "ranges": [[3, 3]] },
+        { "do": "compose", "text": "X", "selected": [1, 1], "replace": [0, 1] },
+        { "do": "expect", "text": "Xbc", "marked": [0, 1], "ranges": [[1, 1]] }
+      ]
+    },
+    {
+      "about": "a page's change while an input method composes moves what it composes",
+      "text": "ab",
+      "steps": [
+        { "do": "select", "ranges": [[2, 2]] },
+        { "do": "compose", "text": "x", "selected": [1, 1] },
+        { "do": "change", "base": 1, "changes": [[0, 0, "__"]] },
+        { "do": "expect", "text": "__abx", "marked": [4, 5] },
+        { "do": "commit" },
+        { "do": "expect", "text": "__abx", "marked": null }
+      ]
+    }
+  ]
+}

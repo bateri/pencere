@@ -75,7 +75,7 @@ export const RELEASED = `# Changelog
 `;
 
 /**
- * A copy of the repository's shape: the SDK, the six crates and the command at `0.1.0` (the
+ * A copy of the repository's shape: the SDK, the seven crates and the command at `0.1.0` (the
  * program library at `programVersion`, as it is on crates.io's side of the story) with something
  * unreleased in every changelog, the crates asking for each other by path and version, and the
  * workspace of the page modules of its own beside them.
@@ -92,7 +92,7 @@ export function fixture({ programVersion = "0.2.0" } = {}) {
   write(
     root,
     "Cargo.toml",
-    `[workspace]\nresolver = "3"\nmembers = ["wire", "host/rust", "kit/view", "kit/sandbox", "program", "cli"]\nexclude = ["kit/guest"]\n\n[workspace.package]\nversion = "0.0.0"\nedition = "2024"\n`,
+    `[workspace]\nresolver = "3"\nmembers = ["wire", "host/rust", "kit/view", "kit/editor", "kit/sandbox", "program", "cli"]\nexclude = ["kit/guest"]\n\n[workspace.package]\nversion = "0.0.0"\nedition = "2024"\n`,
   );
   const versions = { "pencere-wire": "0.1.0", "pencere-view": "0.1.0", pencere: programVersion };
   const crate = (dir, name, version, dependencies = {}) => {
@@ -110,6 +110,7 @@ export function fixture({ programVersion = "0.2.0" } = {}) {
   crate("wire", "pencere-wire", "0.1.0");
   crate("host/rust", "pencere-host", "0.1.0", { "pencere-wire": "../../wire" });
   crate("kit/view", "pencere-view", "0.1.0");
+  crate("kit/editor", "pencere-editor", "0.1.0", { "pencere-view": "../view" });
   crate("kit/sandbox", "pencere-sandbox", "0.1.0", { "pencere-view": "../view" });
   crate("program", "pencere", programVersion, { "pencere-wire": "../wire" });
   crate("cli", "pencere-cli", "0.1.0", { pencere: "../program", "pencere-wire": "../wire" });
@@ -316,6 +317,7 @@ const filesOf = (pkg) => [
 /** The crates each crate asks for by path, as the fixture has them. */
 const ASKS = {
   "pencere-host": ["pencere-wire"],
+  "pencere-editor": ["pencere-view"],
   "pencere-sandbox": ["pencere-view"],
   "pencere-page": ["pencere-view", "pencere-wire"],
   pencere: ["pencere-wire"],

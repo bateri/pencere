@@ -28,6 +28,10 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Added
 
+- **Editors.** A page writes an editor (`div().editor(id, options)`), reads what it tells (`Event::Edit`,
+  `Selection`, `Viewport`, `EditorRefused`, `Pointer`), asks of it in a reply (`Reply::editor`) and
+  reads its text through `Layout` (`editor_text`, `line_start`, …); `edit` is re-exported.
+
 - An element's `motion` and `tip` cross the interface.
 
 - A page module can wrap a text (`text(...).wrap()`) and give the host's field its hint (a text
