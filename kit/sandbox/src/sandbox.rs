@@ -11,7 +11,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use pencere_view::{Laid, ScrollTo};
+use std::collections::HashMap;
+
+use pencere_view::edit::{TextSnapshot, limits as editor_limits};
+use pencere_view::{Id, Laid, ScrollTo};
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
 
 use crate::luau::Script;
@@ -106,6 +109,15 @@ pub struct ModuleLimits {
     pub messages: usize,
     /// Bytes of one message to the program: the protocol's own limit for one (1 MiB).
     pub message: usize,
+    /// Bytes of text one reply may hand the page's editors (its loads, changes, names of layers
+    /// and what it finds, together), and the most one query of an editor's text answers with: the
+    /// floor of the specification, an editor's own (`pencere_view::edit::limits`).
+    pub editor_text: usize,
+    /// Decorations one reply may send the page's editors.
+    pub editor_decorations: usize,
+    /// What one reply may ask of the page's editors: asks, and changes, ranges or decorations of
+    /// one of them besides.
+    pub editor_asks: usize,
 }
 
 impl Default for ModuleLimits {
@@ -126,6 +138,9 @@ impl Default for ModuleLimits {
             component: 4 << 20,
             messages: 32,
             message: 1 << 20,
+            editor_text: editor_limits::REPLY_TEXT_BYTES,
+            editor_decorations: editor_limits::REPLY_DECORATIONS,
+            editor_asks: 4096,
         }
     }
 }
@@ -246,6 +261,10 @@ impl ResourceLimiter for Limiter {
 pub(crate) struct Host {
     pub(crate) limiter: Limiter,
     pub(crate) laid: Option<Arc<Laid>>,
+    /// The text of each of the page's editors, as the application last posted it.
+    pub(crate) texts: HashMap<Id, Arc<dyn TextSnapshot>>,
+    /// The most bytes one query of an editor's text answers with.
+    pub(crate) query_text: usize,
     /// What the module sent in the call that is running or ran last.
     pub(crate) sent: Vec<String>,
     /// The boxes the module asked to be scrolled since the application last took them.
@@ -272,6 +291,8 @@ impl Host {
         Self {
             limiter: Limiter::new(limits.memory),
             laid: None,
+            texts: HashMap::new(),
+            query_text: limits.editor_text,
             sent: Vec::new(),
             asks: Vec::new(),
             allowed: (limits.messages, limits.message),

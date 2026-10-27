@@ -155,7 +155,15 @@ impl ContainerList {
             }
             Event::Input(input) => self.list.input(input, layout),
             Event::Text { text, .. } => self.list.set_query(&text),
-            Event::Focus(_) | Event::Command(_) | Event::Files { .. } => Reply::none(),
+            // The list has no editor: what an editor tells is not told it.
+            Event::Focus(_)
+            | Event::Command(_)
+            | Event::Files { .. }
+            | Event::Pointer { .. }
+            | Event::Edit { .. }
+            | Event::Selection { .. }
+            | Event::Viewport { .. }
+            | Event::EditorRefused { .. } => Reply::none(),
             Event::MenuPick(index) => self.list.pick(index),
             Event::Scrolled(boxes) => self.list.scrolled(&boxes),
         }

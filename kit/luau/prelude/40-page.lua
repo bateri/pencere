@@ -28,6 +28,15 @@
 --       into (nil: the keyboard is the page's again), menu has the `index` (from 1) picked of
 --       the menu the page asked for, command the `id` of the command asked for (its keys are
 --       not told as a key), files the `paths` of the files dropped on the page.
+--       An editor (`pencere.editor`) tells: move, press and release over it have a `place`
+--       ({ editor =, at = }, the place of its document under the pointer); "edit" has the `editor`,
+--       the `version` it came to, its `origin` ("person", "compose", "page", "undo", "redo",
+--       "load") and its `changes` ({ { from =, to =, insert = }, ... }, in the places of the
+--       version before, in order); "selection" the `editor`, the `version`, its `ranges`
+--       ({ { anchor =, head = }, ... }), which is `main` (from 1) and whether an input method is
+--       `composing`; "viewport" the `editor` and the `first` and `last` of its lines in view;
+--       "editor_refused" the `editor` and the `reason` ("stale-version", "out-of-document", …) it
+--       did not do what the page asked. Places are characters from 0, lines from 0.
 --   message(message) -> reply      (optional)
 --       The program said something that is not an answer to a call the page made or a push of a
 --       subscription it made (those go to the functions given to `pencere.call` and
@@ -40,7 +49,19 @@
 --   { redraw =, close =, copy = "text for the pasteboard", cursor = "arrow" | "pointer" | "text" |
 --     "resize_horizontal" | "resize_vertical" | "not_allowed" | "grab" | "grabbing" | "crosshair",
 --     keyboard = "page" | { field = name }, fill = { [name] = "text for that field", ... },
---     menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" (a line), ... } } }
+--     menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" (a line), ... } },
+--     editor = { [name] = ask, or { ask, ... } } }
+-- where an ask of an editor is one of:
+--   { load = "text", more = true }             a piece of the document (the first in place of all)
+--   { change = { { from =, to =, insert = }, ... }, base = version }
+--   { select = { { anchor =, head = }, ... }, version =, main = (from 1) }
+--   { reveal = place, version = }              scrolled into view
+--   { command = "undo" }, { command = "move", movement = "word_left", extend = true },
+--   { command = "insert", text = "x" }, { command = "find", pattern =, regex =, case = }, …
+--   { decorate = "layer", version =, from =, to =, decorations = { d, ... } }, each `d`
+--     { from =, to =, color =, background =, weight =, italic =, strike =,
+--       underline = colour | { wavy = colour } }, or { from =, to =, line = colour },
+--     { from =, to =, gutter = colour }, { from =, to =, fold = true }
 --
 -- What the page says to its program is JSON objects, the six messages of a view and its program:
 -- `pencere.call` asks the program to do something and answers once, `pencere.subscribe` asks to hear

@@ -1742,6 +1742,36 @@ pub trait Queries {
     fn drag_source(&self, at: Point) -> Option<Id>;
     /// The element under `at` that what is dragged can be put down on: the topmost.
     fn drop_target(&self, at: Point) -> Option<Id>;
+
+    // The text of the page's editors ([`crate::Element::editor`]): what the host posted of each,
+    // of the version the last [`crate::Event::Edit`] said. A page that lives in the host that
+    // shows it reads its editors there, and these say none.
+
+    /// The version of the text of the editor named `editor` that is read.
+    fn editor_version(&self, _editor: Id) -> Option<u64> {
+        None
+    }
+    /// How many characters it has.
+    fn editor_length(&self, _editor: Id) -> Option<usize> {
+        None
+    }
+    /// How many lines it has.
+    fn editor_lines(&self, _editor: Id) -> Option<usize> {
+        None
+    }
+    /// The characters `from..to`: none for a range it has not, or of more than a query answers
+    /// with ([`crate::edit::limits::REPLY_TEXT_BYTES`]).
+    fn editor_text(&self, _editor: Id, _from: usize, _to: usize) -> Option<String> {
+        None
+    }
+    /// Where line `line` starts.
+    fn line_start(&self, _editor: Id, _line: usize) -> Option<usize> {
+        None
+    }
+    /// The line the place `at` is on.
+    fn line_of(&self, _editor: Id, _at: usize) -> Option<usize> {
+        None
+    }
 }
 
 impl Queries for Laid {

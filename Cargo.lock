@@ -879,6 +879,7 @@ name = "pencere-sandbox"
 version = "0.3.1"
 dependencies = [
  "containers-page",
+ "pencere-editor",
  "pencere-view",
  "pencere-wire",
  "png",

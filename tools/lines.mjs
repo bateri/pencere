@@ -45,6 +45,11 @@ export const LINES = {
         entries: ["src/lib.rs"],
       },
       {
+        dir: "kit/editor",
+        name: "pencere-editor",
+        entries: ["src/lib.rs"],
+      },
+      {
         dir: "kit/sandbox",
         name: "pencere-sandbox",
         // The interpreter, the licences of what is built into it and the interface the crate reads

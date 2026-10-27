@@ -41,10 +41,18 @@ local host = {
 	path_of = pencere.path_of,
 	drag_source = pencere.drag_source,
 	drop_target = pencere.drop_target,
+	editor_version = pencere.editor_version,
+	editor_length = pencere.editor_length,
+	editor_lines = pencere.editor_lines,
+	editor_text = pencere.editor_text,
+	line_start = pencere.line_start,
+	line_of = pencere.line_of,
 }
 pencere.send, pencere.hit, pencere.ids_at, pencere.bounds = nil, nil, nil, nil
 pencere.scroll_extent, pencere.scroll_to, pencere.focus_order, pencere.path_of = nil, nil, nil, nil
 pencere.drag_source, pencere.drop_target = nil, nil
+pencere.editor_version, pencere.editor_length, pencere.editor_lines = nil, nil, nil
+pencere.editor_text, pencere.line_start, pencere.line_of = nil, nil, nil
 pencere.host = host
 
 -- A colour with an opacity. Everywhere a colour is taken, a role's name, a "#rrggbb" value and a
@@ -174,3 +182,45 @@ function layout.drop_target(at)
 	return host.drop_target(at.x, at.y)
 end
 
+-- --- The text of the page's editors -----------------------------------------------------------
+--
+-- What the host posted of each editor's document (`pencere.editor`), read at once: the text is of
+-- the version the last `edit` event said (`layout.editor_version`). Places are characters (code
+-- points) and lines are counted from 0, as the host counts them; a range is from one place to
+-- another, the end not in it. A large document is read in pieces: one read answers with at most
+-- 1 MiB.
+
+-- The version of the editor's text that is read; nil for an editor the page has not.
+function layout.editor_version(editor)
+	return host.editor_version(editor)
+end
+
+-- How many characters it has, and how many lines.
+function layout.editor_length(editor)
+	return host.editor_length(editor)
+end
+
+function layout.editor_lines(editor)
+	return host.editor_lines(editor)
+end
+
+-- The characters `from` to `to` (the end not in it); nil for a range it has not.
+function layout.editor_text(editor, from, to)
+	return host.editor_text(editor, from, to)
+end
+
+-- Where line `line` starts, and the line the place `at` is on.
+function layout.line_start(editor, line)
+	return host.line_start(editor, line)
+end
+
+function layout.line_of(editor, at)
+	return host.line_of(editor, at)
+end
+
+-- The caret of the editor named `editor`: what an overlay stands beside
+-- (`:anchor(pencere.caret_of("sql"), "below")`, a popup of completions) and what
+-- `layout.bounds` says the box of. A name of the editor's own, which no name of the page's is.
+function pencere.caret_of(editor)
+	return { caret = editor }
+end

@@ -19,6 +19,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use pencere_view::edit::TextSnapshot;
 use pencere_view::{Element, Event, Id, Input, Laid, Point, Reply, ScrollTo, Size};
 use pencere_wire::json::unescaped_len;
 
@@ -49,6 +50,9 @@ pub trait Runner: Send + 'static {
     fn handle(&mut self, event: Event) -> Result<Reply, Fault>;
     /// The layout the module may ask of from now on.
     fn lay_out(&mut self, laid: Arc<Laid>);
+    /// The text of each of the page's editors the module may read from now on, in place of what
+    /// it had: an editor not named has none.
+    fn texts(&mut self, _texts: Vec<(Id, Arc<dyn TextSnapshot>)>) {}
     /// The program that opened the page said something (a JSON object, as written).
     fn message(&mut self, _text: String) -> Result<Reply, Fault> {
         Ok(Reply::none())
@@ -78,6 +82,7 @@ enum Command {
     },
     Settle,
     Laid(Arc<Laid>),
+    Texts(Vec<(Id, Arc<dyn TextSnapshot>)>),
     Event(Event),
     Message(String),
     /// The program has read enough that the module may say what it kept.
@@ -226,6 +231,14 @@ impl Module {
     /// ([`Program::may_say`]). Returns at once.
     pub fn room(&self) {
         let _ = self.commands.send(Command::Room);
+    }
+
+    /// Hands the module the text of each of the page's editors as it is now
+    /// (`pencere_editor::Editors::snapshots`), for it to read at once when it asks. Posted before
+    /// the events that tell of the versions it is of, it is what the module reads when it is told
+    /// of them. Returns at once.
+    pub fn texts(&self, texts: Vec<(Id, Arc<dyn TextSnapshot>)>) {
+        let _ = self.commands.send(Command::Texts(texts));
     }
 
     /// Tells the module the page was laid out as `laid`: it may ask of it from now on, and is
@@ -416,6 +429,7 @@ fn serve<R: Runner>(
             match command {
                 Command::Stop => return Ok(()),
                 Command::Laid(laid) => runner.lay_out(Arc::clone(laid)),
+                Command::Texts(texts) => runner.texts(texts.clone()),
                 // Only the newest of the pages asked for is made.
                 Command::Render { .. } if later.iter().any(is_render) => {}
                 Command::Render {

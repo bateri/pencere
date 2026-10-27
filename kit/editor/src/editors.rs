@@ -974,3 +974,27 @@ fn builtin(key: Key, mods: Mods) -> Option<Action> {
         _ => None,
     }
 }
+
+impl From<EditorEvent> for pencere_view::Event {
+    /// What the page is told of it.
+    fn from(event: EditorEvent) -> Self {
+        use pencere_view::Event;
+        match event {
+            EditorEvent::Edited { id, edited } => Event::Edit { editor: id, edited },
+            EditorEvent::Selection { id, selection } => Event::Selection {
+                editor: id,
+                selection,
+            },
+            EditorEvent::Refused { id, refusal } => Event::EditorRefused {
+                editor: id,
+                refusal,
+            },
+            EditorEvent::Viewport { id, first, last } => Event::Viewport {
+                editor: id,
+                first,
+                last,
+            },
+            EditorEvent::Focus(id) => Event::Focus(id),
+        }
+    }
+}

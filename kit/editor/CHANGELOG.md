@@ -54,3 +54,6 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   (`Editors::wants_layout`).
 - **An input method's questions** in units of UTF-16 (`selected_utf16`, `marked_utf16`,
   `text_utf16`, `rect_utf16`, `set_marked_utf16`), so that no host turns places into them itself.
+- **Events of the page.** What `Editors` tells is an `Event` of the page's (`From<EditorEvent>`); the
+  example `examples/editor-lua` is a page of SQL that colours, folds and completes, run by the
+  sandbox's tests against `Editors`.

@@ -5,6 +5,7 @@
 //! whether anything it shows changed (so a frame is worth drawing), and the few things only the
 //! host can do: pop up a menu, move the keyboard into a text field, copy, close the page.
 
+use crate::edit::{Edited, EditorAsk, Refusal, Selection};
 use crate::{Id, Point};
 
 /// A key the page reads. Letters, symbols and the space bar come as [`Key::Character`] — the
@@ -99,6 +100,14 @@ pub enum Input {
     Mods(Mods),
 }
 
+/// A place in the document of an editor ([`crate::Element::editor`]): the editor's name and the
+/// place, in characters ([`crate::edit`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Place {
+    pub editor: Id,
+    pub at: usize,
+}
+
 /// Everything a page is told: what the person did to the page, the text a text field of the
 /// host's now holds, the entry picked of a menu the page asked for. A page that lives apart from
 /// the host is told by this one type.
@@ -129,6 +138,36 @@ pub enum Event {
     /// asked): each one's name and how far it is scrolled now, across and down, points. A page
     /// that builds only what is in view builds what has come into it.
     Scrolled(Vec<(Id, Point)>),
+    /// The pointer over an editor: what it did (a move, a press, a release), and the place in the
+    /// editor's document under it — what a page that shows what a word is when the pointer rests
+    /// on it, or goes to where a name is defined at a ⌘-click, reads. The press is the editor's
+    /// as well: it puts the caret.
+    Pointer {
+        input: Input,
+        place: Place,
+    },
+    /// The document of the editor named `editor` changed ([`Edited`]): the copy of its text the
+    /// page reads (`Queries` of the sandbox) is of this version when the page is told.
+    Edit {
+        editor: Id,
+        edited: Edited,
+    },
+    /// Its carets and selections are elsewhere, or an input method began or stopped composing.
+    Selection {
+        editor: Id,
+        selection: Selection,
+    },
+    /// Its lines in view are these now, the first and the last.
+    Viewport {
+        editor: Id,
+        first: usize,
+        last: usize,
+    },
+    /// What the page asked of it was not done, for this reason, and nothing of it was.
+    EditorRefused {
+        editor: Id,
+        refusal: Refusal,
+    },
 }
 
 /// The shape the pointer takes over the page.
@@ -138,7 +177,7 @@ pub enum Cursor {
     Arrow,
     /// Over something that answers a click.
     Pointer,
-    /// Over the room of a text field the host has put over the page.
+    /// Over the room of a text field or an editor the host has put over the page.
     Text,
     /// Over an edge that is dragged left and right (a column's, a divider's).
     ResizeHorizontal,
@@ -159,8 +198,8 @@ pub enum Cursor {
 pub enum Keyboard {
     /// The page's own keys.
     Page,
-    /// The text field named by this id, which the host put over the page (the room of an
-    /// element that said it is one): the page asks for the keyboard to type into it.
+    /// The text field or the editor named by this id, which the host put over the page (the room
+    /// of an element that said it is one): the page asks for the keyboard to type into it.
     Field(Id),
 }
 
@@ -205,6 +244,9 @@ pub struct Reply {
     pub copy: Option<String>,
     /// The pointer's shape after this input.
     pub cursor: Cursor,
+    /// What the page asks of its editors, in order: a piece of a document to load, changes,
+    /// selections, colours and marks ([`EditorAsk`]), each with the editor's name.
+    pub editor: Vec<(Id, EditorAsk)>,
 }
 
 impl Reply {

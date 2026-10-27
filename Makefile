@@ -164,7 +164,7 @@ dist-sums:
 	$(DIST_ENV) tools/dist.sh sums
 
 # Releasing a line (RELEASING.md). LINE is one of the lines in tools/lines.mjs: sdk-typescript
-# (@pencere/sdk), crates (the six crates, one version) or cli (the pencere command). A release is
+# (@pencere/sdk), crates (the seven crates, one version) or cli (the pencere command). A release is
 # the commit of release-prepare, pushed to main: the release workflow tags, builds and drafts it
 # once the gate is green, and publishes it when a maintainer approves.
 #

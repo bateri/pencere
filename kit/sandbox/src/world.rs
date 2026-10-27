@@ -4,6 +4,10 @@
 
 use std::sync::Arc;
 
+use pencere_view::edit::{
+    Change, Decorate, Decoration, EditCommand, EditorAsk, EditorOptions, Keys, Look, Mark,
+    Movement, Origin, Range, Refusal, Underline,
+};
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
     Overflow, Spark, Style, TextStyle,
@@ -211,6 +215,40 @@ impl pencere::view::layout::Host for Host {
         let laid = self.laid()?;
         laid.drop_target(Point::new(at.x, at.y)).map(id_out)
     }
+
+    fn editor_version(&mut self, editor: u64) -> Option<u64> {
+        Some(self.texts.get(&Id::new(editor))?.version())
+    }
+
+    fn editor_length(&mut self, editor: u64) -> Option<u32> {
+        u32::try_from(self.texts.get(&Id::new(editor))?.len_chars()).ok()
+    }
+
+    fn editor_lines(&mut self, editor: u64) -> Option<u32> {
+        u32::try_from(self.texts.get(&Id::new(editor))?.len_lines()).ok()
+    }
+
+    fn editor_text(&mut self, editor: u64, from: u32, to: u32) -> Option<String> {
+        let text = self.texts.get(&Id::new(editor))?;
+        let (from, to) = (usize::try_from(from).ok()?, usize::try_from(to).ok()?);
+        // More characters than a query answers with bytes are more bytes: refused before they are
+        // copied; a range of fewer that comes to more bytes is refused after.
+        if to.saturating_sub(from) > self.query_text {
+            return None;
+        }
+        text.slice(from, to)
+            .filter(|words| words.len() <= self.query_text)
+    }
+
+    fn line_start(&mut self, editor: u64, line: u32) -> Option<u32> {
+        let text = self.texts.get(&Id::new(editor))?;
+        u32::try_from(text.line_start(usize::try_from(line).ok()?)?).ok()
+    }
+
+    fn line_of(&mut self, editor: u64, at: u32) -> Option<u32> {
+        let text = self.texts.get(&Id::new(editor))?;
+        u32::try_from(text.line_of(usize::try_from(at).ok()?)?).ok()
+    }
 }
 
 fn id_out(id: Id) -> u64 {
@@ -316,7 +354,103 @@ fn event_in(event: Event) -> wit::Event {
                 })
                 .collect(),
         ),
+        Event::Pointer { input, place } => {
+            let place = wit::Place {
+                editor: id_out(place.editor),
+                at: place_in(place.at),
+            };
+            let input = match input {
+                Input::Press {
+                    at,
+                    button,
+                    mods,
+                    count,
+                } => wit::PointerInput::Press(wit::Press {
+                    at: point_in(at),
+                    button: button_in(button),
+                    mods: mods_in(mods),
+                    count,
+                }),
+                Input::Release { at, button } => wit::PointerInput::Release(wit::Release {
+                    at: point_in(at),
+                    button: button_in(button),
+                }),
+                Input::Move(at) => wit::PointerInput::Move(point_in(at)),
+                // Nothing else of the pointer's has a place: it is the page's as it is.
+                other => return event_in(Event::Input(other)),
+            };
+            wit::Event::EditorPointer(wit::EditorPointer { input, place })
+        }
+        Event::Edit { editor, edited } => wit::Event::Edit(wit::Edited {
+            editor: id_out(editor),
+            version: edited.version,
+            changes: edited
+                .changes
+                .into_iter()
+                .map(|change| wit::Change {
+                    from: place_in(change.from),
+                    to: place_in(change.to),
+                    insert: change.insert,
+                })
+                .collect(),
+            origin: match edited.origin {
+                Origin::Person => wit::Origin::Person,
+                Origin::Compose => wit::Origin::Compose,
+                Origin::Page => wit::Origin::Page,
+                Origin::Undo => wit::Origin::Undo,
+                Origin::Redo => wit::Origin::Redo,
+                Origin::Load => wit::Origin::Load,
+            },
+        }),
+        Event::Selection { editor, selection } => wit::Event::Selection(wit::EditorSelection {
+            editor: id_out(editor),
+            version: selection.version,
+            ranges: selection
+                .ranges
+                .into_iter()
+                .map(|range| wit::TextRange {
+                    anchor: place_in(range.anchor),
+                    head: place_in(range.head),
+                })
+                .collect(),
+            main: place_in(selection.main),
+            composing: selection.composing,
+        }),
+        Event::Viewport {
+            editor,
+            first,
+            last,
+        } => wit::Event::Viewport(wit::Viewport {
+            editor: id_out(editor),
+            first: place_in(first),
+            last: place_in(last),
+        }),
+        Event::EditorRefused { editor, refusal } => wit::Event::EditorRefused(wit::EditorRefused {
+            editor: id_out(editor),
+            reason: match refusal {
+                Refusal::Reversed => wit::Refusal::Reversed,
+                Refusal::OutOfDocument => wit::Refusal::OutOfDocument,
+                Refusal::Overlapping => wit::Refusal::Overlapping,
+                Refusal::StaleVersion => wit::Refusal::StaleVersion,
+                Refusal::FutureVersion => wit::Refusal::FutureVersion,
+                Refusal::TooLarge => wit::Refusal::TooLarge,
+                Refusal::TooManyDecorations => wit::Refusal::TooManyDecorations,
+                Refusal::OutsideRange => wit::Refusal::OutsideRange,
+                Refusal::BadPattern => wit::Refusal::BadPattern,
+                Refusal::NoEditor => wit::Refusal::NoEditor,
+            },
+        }),
     }
+}
+
+/// A place (a count of characters) as the interface carries it: a document holds fewer than four
+/// billion of them.
+fn place_in(at: usize) -> u32 {
+    u32::try_from(at).unwrap_or(u32::MAX)
+}
+
+fn place_out(at: u32) -> usize {
+    usize::try_from(at).unwrap_or(usize::MAX)
 }
 
 // --- What the module hands out ------------------------------------------------------------
@@ -977,7 +1111,11 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
                 wit::FieldKind::Lines => FieldKind::Lines,
                 wit::FieldKind::Secret => FieldKind::Secret,
             }),
-            editor: None,
+            editor: node
+                .editor
+                .as_ref()
+                .map(|options| editor_options_out(options, limits, lists))
+                .transpose()?,
             label: node
                 .label
                 .as_ref()
@@ -1110,6 +1248,7 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
         }),
         fill,
         copy: reply.copy.map(text).transpose()?,
+        editor: editor_asks_out(reply.editor, limits)?,
         cursor: match reply.cursor {
             wit::Cursor::Arrow => Cursor::Arrow,
             wit::Cursor::Pointer => Cursor::Pointer,
@@ -1122,6 +1261,238 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
             wit::Cursor::Crosshair => Cursor::Crosshair,
         },
     })
+}
+
+// --- What a page says of its editors -----------------------------------------------------
+
+/// The options of an editor, read: its hint, its comment and its pairs are parts of the frame's
+/// text; pairs are characters two by two (an odd last one is no pair).
+fn editor_options_out(
+    options: &wit::EditorOptions,
+    limits: &ModuleLimits,
+    lists: &mut Lists<'_>,
+) -> Result<EditorOptions, Fault> {
+    let mut words = |part: &Option<wit::Slice>, what: &str| -> Result<Option<String>, Fault> {
+        part.as_ref()
+            .map(|part| lists.words(part, limits.text, what).map(str::to_owned))
+            .transpose()
+    };
+    let hint = words(&options.hint, "the hint of an editor")?;
+    let comment = words(&options.comment, "the comment of an editor")?;
+    let pairs: Vec<char> = words(&options.pairs, "the pairs of an editor")?
+        .unwrap_or_default()
+        .chars()
+        .collect();
+    if pairs.len() > limits.parts.saturating_mul(2) {
+        return Err(Fault::Malformed(format!(
+            "an editor of {} pairs (at most {})",
+            pairs.len() / 2,
+            limits.parts
+        )));
+    }
+    Ok(EditorOptions {
+        wrap: options.wrap,
+        tab_width: options.tab_width.clamp(1, 16),
+        hard_tabs: options.hard_tabs,
+        gutter: options.gutter,
+        read_only: options.read_only,
+        keys: match options.keys {
+            wit::EditorKeys::Editor => Keys::Editor,
+            wit::EditorKeys::Page => Keys::Page,
+        },
+        hint,
+        comment,
+        pairs: pairs
+            .chunks_exact(2)
+            .filter_map(|pair| Some((*pair.first()?, *pair.get(1)?)))
+            .collect(),
+    })
+}
+
+/// What a reply asks of its editors, held to what one reply may hand them: text, decorations,
+/// and asks (and the changes, ranges and decorations of each) by count. A reply past them is not
+/// one; what an ask means for the document is the editor's to check, and to refuse.
+fn editor_asks_out(
+    asks: Vec<wit::EditorAsk>,
+    limits: &ModuleLimits,
+) -> Result<Vec<(Id, EditorAsk)>, Fault> {
+    let mut text = 0_usize;
+    let mut decorations = 0_usize;
+    let mut items = asks.len();
+    let mut out = Vec::with_capacity(asks.len());
+    let too_many = |what: &str, count: usize, most: usize| {
+        Fault::Malformed(format!("{what} of {count} in a reply (at most {most})"))
+    };
+    for ask in asks {
+        let editor = Id::new(ask.editor);
+        let ask = match ask.ask {
+            wit::EditorAskKind::Load(load) => {
+                text = text.saturating_add(load.text.len());
+                EditorAsk::Load {
+                    text: load.text,
+                    more: load.more,
+                }
+            }
+            wit::EditorAskKind::Change(set) => {
+                items = items.saturating_add(set.changes.len());
+                EditorAsk::Change {
+                    base: set.base,
+                    changes: set
+                        .changes
+                        .into_iter()
+                        .map(|change| {
+                            text = text.saturating_add(change.insert.len());
+                            Change {
+                                from: place_out(change.from),
+                                to: place_out(change.to),
+                                insert: change.insert,
+                            }
+                        })
+                        .collect(),
+                }
+            }
+            wit::EditorAskKind::Select(select) => {
+                items = items.saturating_add(select.ranges.len());
+                EditorAsk::Select {
+                    version: select.version,
+                    ranges: select
+                        .ranges
+                        .into_iter()
+                        .map(|range| Range::new(place_out(range.anchor), place_out(range.head)))
+                        .collect(),
+                    main: place_out(select.main),
+                }
+            }
+            wit::EditorAskKind::Reveal(reveal) => EditorAsk::Reveal {
+                version: reveal.version,
+                at: place_out(reveal.at),
+            },
+            wit::EditorAskKind::Command(command) => {
+                let command = command_out(command);
+                if let EditCommand::Insert(words) | EditCommand::Find { pattern: words, .. } =
+                    &command
+                {
+                    text = text.saturating_add(words.len());
+                }
+                EditorAsk::Command(command)
+            }
+            wit::EditorAskKind::Decorate(decorate) => {
+                text = text.saturating_add(decorate.layer.len());
+                decorations = decorations.saturating_add(decorate.decorations.len());
+                if decorations > limits.editor_decorations {
+                    return Err(too_many(
+                        "decorations",
+                        decorations,
+                        limits.editor_decorations,
+                    ));
+                }
+                EditorAsk::Decorate(Decorate {
+                    layer: decorate.layer,
+                    version: decorate.version,
+                    from: place_out(decorate.from),
+                    to: place_out(decorate.to),
+                    decorations: decorate
+                        .decorations
+                        .iter()
+                        .map(|item| Decoration {
+                            from: place_out(item.from),
+                            to: place_out(item.to),
+                            mark: mark_out(&item.mark),
+                        })
+                        .collect(),
+                })
+            }
+        };
+        if items > limits.editor_asks {
+            return Err(too_many(
+                "asks of editors and their changes and ranges",
+                items,
+                limits.editor_asks,
+            ));
+        }
+        if text > limits.editor_text {
+            return Err(Fault::Malformed(format!(
+                "{text} bytes of text for editors in a reply (at most {})",
+                limits.editor_text
+            )));
+        }
+        out.push((editor, ask));
+    }
+    Ok(out)
+}
+
+fn mark_out(mark: &wit::Mark) -> Mark {
+    match mark {
+        wit::Mark::Style(look) => Mark::Style(Look {
+            color: look.color.as_ref().map(color_out),
+            background: look.background.as_ref().map(color_out),
+            weight: look.weight.map(|weight| weight.clamp(100, 900)),
+            italic: look.italic,
+            underline: look.underline.as_ref().map(|line| match line {
+                wit::Underline::Straight(color) => Underline::Straight(color_out(color)),
+                wit::Underline::Wavy(color) => Underline::Wavy(color_out(color)),
+            }),
+            strike: look.strike,
+        }),
+        wit::Mark::Line(color) => Mark::Line(color_out(color)),
+        wit::Mark::Gutter(color) => Mark::Gutter(color_out(color)),
+        wit::Mark::Fold => Mark::Fold,
+    }
+}
+
+fn command_out(command: wit::EditorCommand) -> EditCommand {
+    use wit::EditorCommand as C;
+    match command {
+        C::Move(by) => EditCommand::Move {
+            movement: match by.movement {
+                wit::Movement::Left => Movement::Left,
+                wit::Movement::Right => Movement::Right,
+                wit::Movement::WordLeft => Movement::WordLeft,
+                wit::Movement::WordRight => Movement::WordRight,
+                wit::Movement::Up => Movement::Up,
+                wit::Movement::Down => Movement::Down,
+                wit::Movement::PageUp => Movement::PageUp,
+                wit::Movement::PageDown => Movement::PageDown,
+                wit::Movement::LineStart => Movement::LineStart,
+                wit::Movement::LineEnd => Movement::LineEnd,
+                wit::Movement::DocumentStart => Movement::DocumentStart,
+                wit::Movement::DocumentEnd => Movement::DocumentEnd,
+                wit::Movement::Bracket => Movement::Bracket,
+            },
+            extend: by.extend,
+        },
+        C::Insert(text) => EditCommand::Insert(text),
+        C::Newline => EditCommand::Newline,
+        C::DeleteBackward => EditCommand::DeleteBackward,
+        C::DeleteForward => EditCommand::DeleteForward,
+        C::DeleteWordBackward => EditCommand::DeleteWordBackward,
+        C::DeleteWordForward => EditCommand::DeleteWordForward,
+        C::Indent => EditCommand::Indent,
+        C::Outdent => EditCommand::Outdent,
+        C::MoveLinesUp => EditCommand::MoveLinesUp,
+        C::MoveLinesDown => EditCommand::MoveLinesDown,
+        C::DuplicateLines => EditCommand::DuplicateLines,
+        C::ToggleComment => EditCommand::ToggleComment,
+        C::SelectAll => EditCommand::SelectAll,
+        C::AddCaretAbove => EditCommand::AddCaretAbove,
+        C::AddCaretBelow => EditCommand::AddCaretBelow,
+        C::SelectNext => EditCommand::SelectNext,
+        C::SingleSelection => EditCommand::SingleSelection,
+        C::Undo => EditCommand::Undo,
+        C::Redo => EditCommand::Redo,
+        C::Fold => EditCommand::Fold,
+        C::Unfold => EditCommand::Unfold,
+        C::ToggleFold => EditCommand::ToggleFold,
+        C::UnfoldAll => EditCommand::UnfoldAll,
+        C::Find(find) => EditCommand::Find {
+            pattern: find.pattern,
+            regex: find.regex,
+            case: find.matching_case,
+        },
+        C::FindNext => EditCommand::FindNext,
+        C::FindPrevious => EditCommand::FindPrevious,
+        C::StopFinding => EditCommand::StopFinding,
+    }
 }
 
 // --- Compiling and the version of the interface -------------------------------------------
@@ -1364,6 +1735,10 @@ impl Runner for World {
     fn lay_out(&mut self, laid: Arc<Laid>) {
         self.store.data_mut().laid = Some(laid);
     }
+
+    fn texts(&mut self, texts: Vec<(Id, Arc<dyn pencere_view::edit::TextSnapshot>)>) {
+        self.store.data_mut().texts = texts.into_iter().collect();
+    }
 }
 
 #[cfg(test)]
@@ -1446,6 +1821,7 @@ mod tests {
             pressable: false,
             focusable: false,
             field: None,
+            editor: None,
             label: None,
             motion: None,
             tip: None,
@@ -1744,6 +2120,216 @@ mod tests {
         assert!(refused(frame(Vec::new())));
     }
 
+    /// A text an editor posted, as plain characters.
+    #[derive(Debug)]
+    struct Plain(Vec<char>);
+
+    impl pencere_view::edit::TextSnapshot for Plain {
+        fn version(&self) -> u64 {
+            4
+        }
+        fn len_chars(&self) -> usize {
+            self.0.len()
+        }
+        fn len_lines(&self) -> usize {
+            self.0.iter().filter(|c| **c == '\n').count() + 1
+        }
+        fn slice(&self, from: usize, to: usize) -> Option<String> {
+            self.0.get(from..to).map(|chars| chars.iter().collect())
+        }
+        fn line_start(&self, line: usize) -> Option<usize> {
+            if line == 0 {
+                return Some(0);
+            }
+            self.0
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| **c == '\n')
+                .nth(line - 1)
+                .map(|(at, _)| at + 1)
+        }
+        fn line_of(&self, at: usize) -> Option<usize> {
+            (at <= self.0.len()).then(|| self.0.iter().take(at).filter(|c| **c == '\n').count())
+        }
+    }
+
+    #[test]
+    fn a_module_reads_the_text_of_an_editor_from_what_the_application_posted() {
+        use pencere::view::layout::Host as _;
+        let limits = ModuleLimits {
+            editor_text: 6,
+            ..ModuleLimits::default()
+        };
+        let mut host = Host::new(&limits, Arc::new(Unbounded));
+        assert_eq!(host.editor_version(3), None);
+        host.texts
+            .insert(Id::new(3), Arc::new(Plain("ğü\nselect".chars().collect())));
+        assert_eq!(host.editor_version(3), Some(4));
+        assert_eq!(host.editor_length(3), Some(9));
+        assert_eq!(host.editor_lines(3), Some(2));
+        assert_eq!(host.editor_text(3, 0, 2).as_deref(), Some("ğü"));
+        assert_eq!(host.line_start(3, 1), Some(3));
+        assert_eq!(host.line_of(3, 5), Some(1));
+        // Past the end, the wrong way round, or more than a query answers with: none.
+        assert_eq!(host.editor_text(3, 5, 99), None);
+        assert_eq!(host.editor_text(3, 4, 2), None);
+        assert_eq!(host.editor_text(3, 0, 9), None);
+        assert_eq!(host.editor_text(4, 0, 1), None);
+    }
+
+    #[test]
+    fn what_an_editor_tells_reaches_the_module_as_it_was() {
+        let edited = event_in(Event::Edit {
+            editor: Id::new(3),
+            edited: pencere_view::edit::Edited {
+                version: 5,
+                changes: vec![Change::new(1, 2, "ğ")],
+                origin: Origin::Undo,
+            },
+        });
+        let wit::Event::Edit(edited) = edited else {
+            panic!("an edit, not {edited:?}");
+        };
+        assert_eq!((edited.editor, edited.version), (3, 5));
+        assert!(matches!(edited.origin, wit::Origin::Undo));
+        let change = &edited.changes[0];
+        assert_eq!(
+            (change.from, change.to, change.insert.as_str()),
+            (1, 2, "ğ")
+        );
+        let pressed = event_in(Event::Pointer {
+            input: Input::Press {
+                at: Point::new(1.0, 2.0),
+                button: Button::Left,
+                mods: Mods::default(),
+                count: 2,
+            },
+            place: pencere_view::Place {
+                editor: Id::new(3),
+                at: 7,
+            },
+        });
+        let wit::Event::EditorPointer(pointer) = pressed else {
+            panic!("an editor's pointer event, not {pressed:?}");
+        };
+        assert_eq!((pointer.place.editor, pointer.place.at), (3, 7));
+        assert!(matches!(
+            pointer.input,
+            wit::PointerInput::Press(wit::Press { count: 2, .. })
+        ));
+        let refused = event_in(Event::EditorRefused {
+            editor: Id::new(3),
+            refusal: Refusal::StaleVersion,
+        });
+        assert!(matches!(
+            refused,
+            wit::Event::EditorRefused(wit::EditorRefused {
+                editor: 3,
+                reason: wit::Refusal::StaleVersion,
+            })
+        ));
+    }
+
+    #[test]
+    fn what_a_reply_asks_of_editors_is_read_and_held_to_what_a_reply_may_hand_them() {
+        let limits = ModuleLimits {
+            editor_text: 8,
+            editor_decorations: 2,
+            ..ModuleLimits::default()
+        };
+        let reply = |editor: Vec<wit::EditorAsk>| wit::Reply {
+            redraw: false,
+            close: false,
+            menu: None,
+            keyboard: None,
+            fill: Vec::new(),
+            copy: None,
+            cursor: wit::Cursor::Arrow,
+            editor,
+        };
+        let ask = |ask: wit::EditorAskKind| wit::EditorAsk { editor: 3, ask };
+        let fold = || wit::Decoration {
+            from: 0,
+            to: 4,
+            mark: wit::Mark::Fold,
+        };
+        let read = reply_out(
+            reply(vec![
+                ask(wit::EditorAskKind::Load(wit::Load {
+                    text: "abc".into(),
+                    more: true,
+                })),
+                ask(wit::EditorAskKind::Change(wit::ChangeSet {
+                    base: 2,
+                    changes: vec![wit::Change {
+                        from: 0,
+                        to: 1,
+                        insert: "x".into(),
+                    }],
+                })),
+                ask(wit::EditorAskKind::Command(wit::EditorCommand::Undo)),
+                ask(wit::EditorAskKind::Decorate(wit::Decorate {
+                    layer: "f".into(),
+                    version: 2,
+                    from: 0,
+                    to: 9,
+                    decorations: vec![fold()],
+                })),
+            ]),
+            &limits,
+        )
+        .expect("within the limits");
+        assert_eq!(
+            read.editor,
+            vec![
+                (
+                    Id::new(3),
+                    EditorAsk::Load {
+                        text: "abc".into(),
+                        more: true
+                    }
+                ),
+                (
+                    Id::new(3),
+                    EditorAsk::Change {
+                        base: 2,
+                        changes: vec![Change::new(0, 1, "x")]
+                    }
+                ),
+                (Id::new(3), EditorAsk::Command(EditCommand::Undo)),
+                (
+                    Id::new(3),
+                    EditorAsk::Decorate(Decorate {
+                        layer: "f".into(),
+                        version: 2,
+                        from: 0,
+                        to: 9,
+                        decorations: vec![Decoration::new(0, 4, Mark::Fold)],
+                    })
+                ),
+            ]
+        );
+        // More text than a reply may hand the editors, together, is not a reply.
+        let much = reply(vec![
+            ask(wit::EditorAskKind::Load(wit::Load {
+                text: "abcde".into(),
+                more: true,
+            })),
+            ask(wit::EditorAskKind::Command(wit::EditorCommand::Insert(
+                "1234".into(),
+            ))),
+        ]);
+        assert!(matches!(reply_out(much, &limits), Err(Fault::Malformed(_))));
+        let many = reply(vec![ask(wit::EditorAskKind::Decorate(wit::Decorate {
+            layer: "f".into(),
+            version: 2,
+            from: 0,
+            to: 9,
+            decorations: vec![fold(), fold(), fold()],
+        }))]);
+        assert!(matches!(reply_out(many, &limits), Err(Fault::Malformed(_))));
+    }
+
     #[test]
     fn a_reply_past_a_limit_is_refused_and_one_within_them_is_read() {
         let limits = ModuleLimits {
@@ -1762,6 +2348,7 @@ mod tests {
             }],
             copy,
             cursor: wit::Cursor::Pointer,
+            editor: Vec::new(),
         };
         // A menu as a module writes it: the titles are one string and each entry names its part.
         // `None` is a line between entries.

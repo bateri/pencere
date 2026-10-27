@@ -582,7 +582,8 @@ number  = "0" / ( %x31-39 *8DIGIT )
 
 Versions are compared for equality and for nothing else; the order of a list is the preference of
 whoever wrote it. What a version means is the interface's. For the kit, `wasm` `2.0` is the
-interface `pencere:view@2.0.0` and `lua` `2.0` is the page API whose `pencere.version` is `2`; the
+interface `pencere:view@2.0.0` and `lua` `2.0` is the page API whose `pencere.version` is `2` (which
+have, among what `2.0` added to `1.0`, the editors of text of Section 9.8); the
 rule that moves the numbers is in Section 5.4, and a host that updates its kit offers the new major
 version and the one before. The examples in this document use made-up versions (`0.4`, `0.5`,
 `0.6`) so that they show several at once. For `web`, a change that only adds an optional member to a message of Section 9.4 moves the
@@ -1312,8 +1313,28 @@ give it more:
 | Messages to the program that one call may send                                           | 32                     |
 | Bytes of one message to the program                                                      | 1 MiB (Section 9.3)    |
 | Pictures: the sides, the file, the decoded pixels, the paths named                       | as listed under Images |
+| The document of one editor of the view (bytes of UTF-8)                                  | 16 MiB                 |
+| The documents of all the view's editors together                                         | 64 MiB                 |
+| Text one reply hands the view's editors, and text one read of an editor answers with     | 1 MiB                  |
+| Decorations one reply sends the view's editors                                           | 20 000                 |
+| Layers of decorations of one editor, and decorations of all its layers                   | 16, and 200 000        |
+| Versions back a change or a decoration of an editor may be made against                  | 1 024                  |
 
-A view that goes over a limit it is held to is closed as one that fails (below).
+A view that goes over a limit it is held to is closed as one that fails (below). The limits of an
+editor are of two sorts: a reply that hands the editors more text or decorations than it may is not a
+reply, and the view fails; a change, a load or decorations that would take a document or an editor
+past what it may hold, or that are made against a version older than the last 1 024, are refused by
+the editor, which tells the view why and does none of it (`kit/SPEC.md`, Section 2.3).
+
+**Editors.** A kit view of version `2.0` may hold editors of text (`kit/SPEC.md`, Section 2.1): rooms
+in which the host puts an editor of its own, which keeps the document, its carets and selections,
+undoing and what the system's input method composes, lays out and draws the lines, and scrolls them
+as it scrolls a box. The view is told what changed, by version, where the carets are and the lines in
+view, and reads the text from a copy the host posts it before it tells it of the version; it asks for
+changes against the version it saw (the host's editor carries them over what the person typed since),
+for selections, and for the colours, marks and folds of its language, by layers. The language is the
+view's or its program's: the host's editor knows none. Places in a document are characters (Unicode
+code points) counted from 0.
 
 **Colours.** A page of the kit says a colour in one of two ways. The way to prefer is a **role**
 of the theme, which follows the theme the terminal wears: the nine roles of its theme
