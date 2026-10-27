@@ -18,8 +18,8 @@
 //! named ([`Id`]) and the ones that answer the pointer say so ([`Element::press`]); what a page
 //! keeps between builds — what is hovered, pressed, focused, how far a list is scrolled, how
 //! far a highlight has faded — is a [`Ui`] kept by those names; a long list builds only the
-//! rows in view ([`Rows`]), and more of them the way it scrolls ([`Built`]). What the host tells a page is an [`Input`], and what the page
-//! tells back a [`Reply`].
+//! rows near what is in view ([`List`], over [`Rows`] and [`Built`]). What the host tells a page
+//! is an [`Input`], and what the page tells back a [`Reply`].
 //!
 //! A page shows images too ([`image`]): files of the bundle it came in, which the host decodes
 //! and says the size of ([`Measure::image`]); the engine makes the room for an image and says
@@ -68,7 +68,7 @@ pub use layout::{Accessible, AccessibleRole, EditorRoom, Extent, Field, Laid, Qu
 pub use motion::{Ease, Motion, Motions, Shift, Tip};
 pub use paint::{DrawList, EditorSlot, Figure, Paint, Picture, Quad, Run};
 pub use rich::{Span, span};
-pub use rows::{Built, Rows};
+pub use rows::{Built, List, Rows};
 pub use scrolls::{Bars, Phase, ScrollTo, Scrolls, Wheeled};
 pub use style::{Anchor, Border, Gradient, Shadow, Side, Track};
 pub use text::{Align, EditorMetrics, Family, Font, Measure, Metrics};

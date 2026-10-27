@@ -31,9 +31,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   `bg_gradient`, `max_h`, `role`, `checked`, `selected`, `expanded`, `disabled`, `value`, `command`,
   `focused`, `draggable` and `drop_target`, `layout.drag_source` and `layout.drop_target`, the drag
   of `pencere.Ui`, and the events `key_up`, `mods`, `command` and `files`.
-- `pencere.Built`, which rows of a long list to build as the host scrolls it and whether a `scrolled`
-  box is to be built again, and `pencere.Rows.even` and `pencere.Rows.from_tops`, as the engine's
-  `Built` and `Rows` (see `pencere-view`).
+- `box:list(rows, make)`: a long list in a box the host scrolls, only the rows near what is in view
+  made, and the frames it needs asked for by the kit (a `scrolled` event near the end of the rows
+  made, a layout that gives it a taller window), whatever the page answers; a box that cannot hold
+  one is refused by name. `pencere.list_window(id)` says the rows a list made and how tall its
+  window is. Under them, `pencere.Built`, which rows of a long list to build as the host scrolls it
+  and whether a `scrolled` box is to be built again, and `pencere.Rows.even` and
+  `pencere.Rows.from_tops`, as the engine's `Built` and `Rows` (see `pencere-view`).
 
 ### Changed
 

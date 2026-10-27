@@ -15,7 +15,8 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
   `drop_target`.
 - The application scrolls the page's boxes: `scroll_to(ScrollTo)` asks it to move one, the page is
   told where they went (`Event::Scrolled`), and `Layout`'s `scroll_extent` says how far each is
-  scrolled (`Extent::offset`). `Built` is exported: which rows of a long list to build as it scrolls.
+  scrolled (`Extent::offset`). `List` and `Built` are exported: a long list that builds only the rows near what is in
+  view, and which rows to build as it scrolls.
 
 ## [0.3.1] - 2026-10-26
 

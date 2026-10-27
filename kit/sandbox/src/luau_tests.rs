@@ -1584,3 +1584,171 @@ fn a_script_builds_a_long_list_where_the_engine_would() {
     }
     assert_eq!(said, expected);
 }
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_long_list_is_built_near_what_is_in_view_and_again_only_when_it_is_scrolled_near_its_end() {
+    let mut page = open_script(
+        r##"
+        local rows = pencere.Rows.even(1000, 20)
+        local shown, tall = true, false
+        return {
+            render = function()
+                local first, last, view = pencere.list_window("list")
+                local said = "before " .. tostring(first) .. " " .. tostring(last) .. " " .. tostring(view)
+                local page = pencere.div():child(pencere.text(said))
+                if shown then
+                    page:child(pencere.div():id("list"):h(tall and 5000 or 200):no_shrink():scroll()
+                        :list(rows, function(i)
+                            return pencere.div():h(20):no_shrink():child(pencere.text("row " .. i))
+                        end))
+                end
+                return page
+            end,
+            handle = function(e)
+                if e.type == "key" then
+                    if e.key == "t" then
+                        tall = true
+                    elseif e.key == "x" then
+                        shown = false
+                    end
+                    return true
+                end
+                -- Nothing of the page's own changes for a scroll: the kit asks for what the list needs.
+                return false
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    let list = Id::named("list");
+    let said = |page: &Open| words(&page.seen.frame.clone().expect("a page").root);
+    let frame = |page: &mut Open| {
+        page.seen.frame = None;
+        let update = page.until(Duration::from_secs(20), |u| {
+            u.frame.is_some() || u.closed.is_some()
+        });
+        assert_eq!(update.closed, None, "{}", failed(&update));
+    };
+    let laid = |page: &Open| {
+        let root = page.seen.frame.clone().expect("a page").root;
+        Arc::new(pencere_view::layout(root, SIZE, 1.0, &mut Rough))
+    };
+    let tell = |page: &mut Open, event: Event| -> bool {
+        let before = page.seen.replies.len();
+        page.module.event(event);
+        until_seen(page, Duration::from_secs(10), |seen| {
+            seen.replies.len() > before
+        });
+        page.seen.replies.last().expect("an answer").reply.redraw
+    };
+
+    // Not laid out yet: the window is the page's, and as much is made below as could be above.
+    page.module.render(SIZE, 0.0, false);
+    frame(&mut page);
+    let first = said(&page);
+    assert!(first.contains(&"before nil nil nil".to_owned()));
+    assert!(first.contains(&"row 175".to_owned()) && !first.contains(&"row 176".to_owned()));
+    // The spacers and the rows made are all of the list's length.
+    let at_first = laid(&page);
+    let extent = at_first.scroll_extent(list).expect("the list scrolls");
+    assert_eq!(extent.content.h, 20.0 * 1000.0);
+    // Laid out in a window the rows made fill, nothing is built again.
+    page.module.lay_out(Arc::clone(&at_first));
+    page.seen.frame = None;
+    page.take(Duration::from_millis(300));
+    assert!(page.seen.frame.is_none(), "the rows made fill the window");
+
+    // A scroll within the rows made is the host's alone; one near their end builds the list again,
+    // though the page itself said nothing changed.
+    assert!(!tell(
+        &mut page,
+        Event::Scrolled(vec![(list, Point::new(0.0, 1000.0))])
+    ));
+    assert!(tell(
+        &mut page,
+        Event::Scrolled(vec![(list, Point::new(0.0, 3400.0))])
+    ));
+    page.module.render(SIZE, 0.1, false);
+    frame(&mut page);
+    // Built again going down: half a view behind what is in view, two ahead.
+    let far = said(&page);
+    assert!(
+        far.contains(&"row 166".to_owned()) && far.contains(&"row 200".to_owned()),
+        "{far:?}"
+    );
+    assert!(!far.contains(&"row 165".to_owned()) && !far.contains(&"row 201".to_owned()));
+
+    // The box laid out taller than the rows made fill: the page is built again of itself.
+    assert!(tell(
+        &mut page,
+        Event::Input(Input::Key {
+            key: Key::Character('t'),
+            mods: Mods::default()
+        })
+    ));
+    page.module.render(SIZE, 0.2, false);
+    frame(&mut page);
+    assert!(
+        !said(&page).contains(&"row 400".to_owned()),
+        "built for the window it had"
+    );
+    page.module.lay_out(laid(&page));
+    frame(&mut page);
+    assert!(
+        said(&page).contains(&"row 400".to_owned()),
+        "and again for the one it has"
+    );
+
+    // A list the page no longer builds is forgotten.
+    assert!(tell(
+        &mut page,
+        Event::Input(Input::Key {
+            key: Key::Character('x'),
+            mods: Mods::default()
+        })
+    ));
+    page.module.render(SIZE, 0.3, false);
+    frame(&mut page);
+    page.module.render(SIZE, 0.4, false);
+    frame(&mut page);
+    assert!(said(&page).contains(&"before nil nil nil".to_owned()));
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_long_list_in_a_box_that_cannot_hold_one_says_what_is_wrong() {
+    let make = r#"function(i) return pencere.div():h(20) end"#;
+    for (script, says) in [
+        (
+            format!("pencere.div():scroll():list(pencere.Rows.even(10, 20), {make})"),
+            "give it one (:id)",
+        ),
+        (
+            format!("pencere.div():id('l'):pt(4):scroll():list(pencere.Rows.even(10, 20), {make})"),
+            "padding above its rows",
+        ),
+        (
+            format!("pencere.div():id('l'):list(pencere.Rows.even(10, 20), {make})"),
+            "does not scroll",
+        ),
+        (
+            format!("pencere.div():id('l'):row():scroll():list(pencere.Rows.even(10, 20), {make})"),
+            "is not a column",
+        ),
+        (
+            format!("pencere.div():id('l'):scroll():list({{}}, {make})"),
+            "a pencere.Rows",
+        ),
+    ] {
+        let update = first(
+            &format!("return {{ render = function() return {script} end }}"),
+            ModuleLimits::default(),
+        );
+        assert!(
+            failed(&update).contains(says),
+            "{script}: {}",
+            failed(&update)
+        );
+    }
+}

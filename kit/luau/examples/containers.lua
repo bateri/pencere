@@ -457,10 +457,6 @@ function Containers.fixture()
 		-- Where the pointer last was over the page: the hover is asked again where it stands when
 		-- the page moves under it.
 		pointer = nil,
-		-- How tall the list's window was when the page was last laid out, points.
-		list_view = 400,
-		-- How far the host has the list scrolled, as it last said (or the page asked since).
-		list_offset = 0,
 		-- What the entries of the menu that is up do, by entry; and the containers they do it to.
 		menu = { acts = {}, targets = {} },
 		-- The modifiers held when the last button went down.
@@ -619,7 +615,7 @@ function Containers:view(size)
 	local main = div():col():grow(1):min_w(0):clip()
 		:child(self:header())
 		:child(self:toolbar())
-		:child(self:list(width, size.h))
+		:child(self:list(width))
 	local body = div():row():grow(1):min_h(0):clip()
 		:child(rail and self:rail() or nil)
 		:child(main)
@@ -755,7 +751,7 @@ end
 
 -- --- The list ----------------------------------------------------------------------------------
 
-function Containers:list(width, view)
+function Containers:list(width)
 	local function head(label, active)
 		local words = string.upper(label)
 		return text(active and (words .. " \u{25be}") or words):truncate()
@@ -775,19 +771,19 @@ function Containers:list(width, view)
 	local top = div():grid(tracks(width)):gap_x(10):items_center():h(28):px(16):no_shrink()
 		:text_size(10.5):color("quiet"):children(heads)
 
-	-- Only the rows in view are made; the rest of the list's length is two spacers.
+	-- Only the rows near what is in view are made; the rest of the list's length is two spacers.
+	-- Where no container is shown, what the list says stands where its rows would.
 	local rows = self:rows()
-	local standing = places(rows)
-	local first, last = standing:window(self.list_offset, view, 2 * ROW)
 	local body = div():col():id(LIST):focusable():grow(1):min_h(0):px(8):scroll()
-		:child(div():h(standing:top(first)):no_shrink())
 	if #rows == 0 then
-		body = body:child(self:nothing())
+		body:child(div():h(LIST_LEAD):no_shrink())
+			:child(self:nothing())
+			:child(div():h(LIST_TRAIL):no_shrink())
+	else
+		body:list(places(rows), function(index)
+			return self:row(rows[index], width)
+		end)
 	end
-	for index = first, last do
-		body = body:child(self:row(rows[index], width))
-	end
-	body = body:child(div():h(standing:total() - standing:top(last + 1)):no_shrink())
 
 	return div():col():grow(1):min_h(0):clip()
 		:child(top)
@@ -1022,21 +1018,13 @@ function Containers:animating()
 	return self.ui.fades:moving()
 end
 
--- The page was laid out as `laid`: what depends on where things stand is brought up to date, the
--- list's window and how far it is scrolled, what the pointer is over now that the page moved
--- under it. Whether the page has to be built and laid out again (the rows in view depend on both).
+-- The page was laid out as `laid`: what the pointer is over now that the page moved under it.
+-- (The list is built again, where its window is one the rows made do not fill, by the kit.)
 function Containers:settle(laid)
-	local extent = laid.scroll_extent(LIST)
-	local moved = false
-	if extent then
-		moved = extent.view ~= self.list_view or extent.offset ~= self.list_offset
-		self.list_view = extent.view
-		self.list_offset = extent.offset
-	end
 	if self.pointer then
 		self:hover_to(laid, self.pointer)
 	end
-	return moved
+	return false
 end
 
 -- --- The cursor --------------------------------------------------------------------------------
@@ -1075,9 +1063,10 @@ function Containers:reveal_cursor()
 	if not at then
 		return
 	end
-	local to = places(rows):reveal(at, self.list_offset, self.list_view)
-	if to ~= self.list_offset then
-		self.list_offset = to
+	local offset = pencere.layout.scroll_offset(LIST)
+	local _, _, view = pencere.list_window(LIST)
+	local to = places(rows):reveal(at, offset, view or 0)
+	if to ~= offset then
 		pencere.layout.scroll_to(LIST, { y = to })
 	end
 end
@@ -1120,15 +1109,9 @@ function Containers:input(event, laid)
 		self.pointer = { x = event.x, y = event.y }
 		return self:reply(false)
 	elseif kind == "scrolled" then
-		-- The host scrolled the list: the rows in view are the ones at its new place.
-		local moved = false
-		for _, box in ipairs(event.boxes) do
-			if box.id == LIST and box.y ~= self.list_offset then
-				self.list_offset = box.y
-				moved = true
-			end
-		end
-		return self:reply(moved)
+		-- The host scrolled the list: the kit builds it again where what is in view comes near the
+		-- end of the rows made.
+		return self:reply(false)
 	elseif kind == "key" then
 		return self:key(event.key, event.mods, laid)
 	end
@@ -1271,7 +1254,8 @@ function Containers:key(key, mods, laid)
 	local rows = self:rows()
 	local at = self:cursor_at(rows)
 	local count = #rows
-	local page = math.max(math.floor(self.list_view / ROW) - 1, 1)
+	local _, _, view = pencere.list_window(LIST)
+	local page = math.max(math.floor((view or 0) / ROW) - 1, 1)
 	local function move_to(to)
 		return math.min(to, count)
 	end

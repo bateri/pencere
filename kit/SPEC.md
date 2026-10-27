@@ -218,19 +218,30 @@ a large document is read in pieces), `line_start(id, line)` and `line_of(id, at)
 the `edit` event the text of the version the event is of.
 
 A long list builds only the rows near what is in view, and keeps the rest of its length with a spacer
-above and one below. `pencere.Rows` is where its rows stand: `Rows.new(heights)`, `Rows.from_tops(tops)`
-(where each row starts, from 0, the last entry where the last row ends: a table the page keeps as the
-list grows, taken as it is) or `Rows.even(count, height)` (rows of one height, as long as any list),
+above and one below. `box:list(rows, make)` does all of it: in a box with a name that scrolls, a
+column with no padding above and no gap between its children, it puts a spacer, the rows near what
+is in view (`make(i)` makes row i) and a spacer, and returns the box. The host moves what is built at
+once and the page builds what comes into view a frame or two later, so two views are made ahead of
+what is in view, the way the list goes, and half a view behind (as much both ways before it has
+moved, all of it the other way at an end of the list, which can only go back), and the same rows
+are made again while they hold what is in view with a view to spare the way the list goes. The kit
+asks for the frame a list needs: a `scrolled` event that takes a list near the end of the rows made
+draws the page again whatever `handle` answers, and so does a layout that gives a list a taller
+window than its rows fill. A list that goes less than a view a frame finds its rows built, and the
+page is built about once a view, not at every turn of the wheel. Before the box is laid out its
+window is taken as the page's height; a list the page stops building is forgotten, and is built
+afresh when it comes back. `pencere.list_window(id)` is the first and the last row the list made and
+how tall its window is (what a page asks its program for, a window at a time, and how far a page of
+rows goes). A box that cannot hold a long list (no name, no scroll, a row or a grid, padding above,
+a gap) is refused by name when the page is made.
+
+`pencere.Rows` is where a list's rows stand: `Rows.new(heights)`, `Rows.from_tops(tops)` (where each
+row starts, from 0, the last entry where the last row ends: a table the page keeps as the list grows,
+taken as it is) or `Rows.even(count, height)` (rows of one height, as long as any list),
 `:padded(lead, trail)` for room around them; `:window(offset, view, overscan)` the rows that touch a
 window, `:at(y)`, `:top(index)`, `:total()` and `:reveal(index, offset, view)` the offset that shows
-a row. `pencere.Built` (`Built.new()`, one for each list) is which rows to build as the host scrolls:
-the host moves what is built at once and the page builds what comes into view a frame or two later,
-so `built:span(rows, offset, view)` builds two views ahead of what is in view, the way the list goes,
-and half a view behind (as much both ways before it has moved, all of it the other way at an end of
-the list, which can only go back), and keeps what it built while that holds what is in view with a
-view to spare the way the list goes; `built:stale(rows, offset, view)`, asked with a `scrolled` box's
-offset, is whether the page is to be built again for it. A list that goes less than a view a frame
-finds its rows built, and the page is built about once a view, not at every turn of the wheel.
+a row. `pencere.Built` (`Built.new()`, `built:span(rows, offset, view)`, `built:stale(rows, offset,
+view)`) is what `:list` decides with, for a page that builds a list its own way.
 
 How far a box is scrolled is the **host's**, not the page's. A box that says `scroll()` and has an id
 is moved by the wheel, the trackpad and its scroll bars as the host's system moves them (its speed,

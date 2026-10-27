@@ -180,7 +180,9 @@ function pencere.start(returned)
 end
 
 function pencere.render(width, height, now, reduce_motion)
+	pencere._lists.begin(height)
 	local root, animating, wake_at = page.render({ w = width, h = height }, now, reduce_motion)
+	pencere._lists.finish()
 	if type(root) ~= "table" then
 		error("render must return an element, not a " .. type(root), 0)
 	end
@@ -195,21 +197,27 @@ end
 function pencere.settle()
 	-- Before the first page there is no layout to settle to: the application asks once as the
 	-- script starts, and that is a call that only starts it.
-	if rendered and page.settle then
-		return page.settle() and true or false
+	if not rendered then
+		return false
 	end
-	return false
+	-- A long list whose window the rows made no longer fill is built again, whatever the page says.
+	local lists = pencere._lists.settle()
+	local settled = page.settle and page.settle() or false
+	return (lists or settled) and true or false
 end
 
 function pencere.handle(event)
 	local reply = nil
+	local lists = false
 	if event.type == "scrolled" then
 		pencere.layout._heard(event.boxes)
+		lists = pencere._lists.scrolled(event.boxes)
 	end
 	if page.handle then
 		reply = page.handle(event)
 	end
-	if flush() then
+	-- A long list scrolled near the end of the rows made is built again, whatever the page says.
+	if flush() or lists then
 		reply = with_frame(reply)
 	end
 	return reply

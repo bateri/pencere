@@ -30,7 +30,10 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   until what is in view comes within a view of their end (`Built::span`); `Built::stale` says
   whether a box the host scrolled is to be built again. `Rows::even(count, height)` is a list of
   rows of one height with no table of where each starts, and `Rows::from_tops` one from the sums a
-  page keeps.
+  page keeps. `List` is all of it for one list a page keeps: `List::build` fills the list's box
+  with a spacer, the rows near what is in view and a spacer (it takes `&self`, so a page builds it
+  as it builds the rest), `List::settle` and `List::scrolled` say whether the page is to be built
+  again for it, and `List::reveal`, `List::scroll_to` and `List::offset` are how far it is scrolled.
 
 - **Overlays.** `overlay()` takes an element out of the flow and out of every box that holds it: it
   is placed against the page by its `inset`, drawn after everything else, cut by no box around it

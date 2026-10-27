@@ -15,6 +15,8 @@
 --   pages      the script returns { render = ..., handle = ..., settle = ..., message = ..., room = ... }
 --   memory     pencere.Ui, pencere.Fades, pencere.Rows, pencere.Built (what a page remembers
 --              between frames)
+--   lists      box:list(rows, make), pencere.list_window(id) (a long list in a box the host
+--              scrolls: only the rows near what is in view are made)
 --   layout     pencere.layout (what is where on the page as it was last laid out)
 --   program    pencere.send, pencere.call, pencere.subscribe, pencere.cancel, pencere.json
 --
