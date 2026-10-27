@@ -39,10 +39,24 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 - `bg_gradient(angle, from, to)`: a fill from one colour to another (`Quad::gradient`); a line of
   text on it is read against its middle.
 - `Button::Middle`, `Input::KeyUp`, `Input::Mods` and `Event::Files`.
-- `max_h` and `scroll_x` on an element, as the Lua page API has them.
+- `max_h` on an element, as the Lua page API has it.
+
+- **The host scrolls.** `Scrolls` is how far each box of a page is scrolled, kept by the host and
+  not the page: the wheel and the trackpad move a box at once on the page already laid out
+  (`Scrolls::wheel`, with the system's `Phase` of the gesture: a gesture stays with the box it
+  started on, and with `set_elastic` a box pulled past its end springs back), its bars are drawn
+  as the system's are (`Bars`) and are dragged and clicked (`press`, `point`, `release`,
+  `set_track_jumps`), and a page asks for a box to go somewhere (`ScrollTo`, `Scrolls::ask`, over a
+  glide or at once). A box moves without the page being laid out again (`Scrolls::place` moves what
+  is inside it on the `Laid` it has), and the page is told where its boxes went
+  (`Scrolls::take_moved`, `Event::Scrolled`). `Extent::offset` is how far a box is scrolled.
 
 ### Changed
 
+- How far a box is scrolled is no longer the page's: `Element::scroll()` makes a box that scrolls,
+  in place of `scroll_y(offset)` and `scroll_x(offset)`, and `Ui` keeps no offsets (`scroll_offset`,
+  `scroll_to`, `set_scroll`, `scroll_by` and `settle` are gone; the host's `Scrolls` does it). A
+  wheel no box took is still told to the page (`Input::Scroll`).
 - `Kind`, `Meta`, `Style`, `Paint`, `Quad`, `Accessible`, `AccessibleRole`, `Input`, `Event`,
   `Button` and the `Queries` trait have the members above: a host or a page that matches them all
   or builds them whole is written again for them.

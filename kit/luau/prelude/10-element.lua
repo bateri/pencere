@@ -694,19 +694,12 @@ function Element:clip()
 	return self
 end
 
--- A box whose content is bigger than itself and moves behind it by `offset` points.
-function Element:scroll_y(offset)
-	local style = self.style
-	style.overflow = "scroll"
-	style.scroll_y = offset
-	return self
-end
-
--- The same, across: the content moves left behind the box by `offset` points.
-function Element:scroll_x(offset)
-	local style = self.style
-	style.overflow = "scroll"
-	style.scroll_x = offset
+-- A box whose content can be bigger than itself and is scrolled behind it, down and across. How
+-- far is the host's, kept by the box's name (`:id`; one with none does not scroll): the wheel, the
+-- trackpad and the scroll bars move it as the host's system does (`pencere.layout.scroll_offset`,
+-- `scroll_to`, and the `scrolled` event).
+function Element:scroll()
+	self.style.overflow = "scroll"
 	return self
 end
 

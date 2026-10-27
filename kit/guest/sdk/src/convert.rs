@@ -184,8 +184,6 @@ fn style(style: Style, lists: &mut Lists) -> wit::Style {
             Overflow::Hidden => wit::Overflow::Hidden,
             Overflow::Scroll => wit::Overflow::Scroll,
         },
-        scroll_x: style.scroll.0,
-        scroll_y: style.scroll.1,
         fill: style.fill.map(color),
         gradient: style.gradient.map(|gradient| wit::Gradient {
             angle: gradient.angle,
@@ -640,5 +638,11 @@ pub fn from_wit_event(event: wit::Event) -> Event {
             at: point(dropped.at),
             paths: dropped.paths,
         },
+        wit::Event::Scrolled(boxes) => Event::Scrolled(
+            boxes
+                .into_iter()
+                .map(|scrolled| (Id::new(scrolled.id), point(scrolled.offset)))
+                .collect(),
+        ),
     }
 }

@@ -11,8 +11,8 @@ use pencere_view::wire::{
 use pencere_view::{
     AccessibleRole, Align, Anchor, Border, Button, Color, Command, Cursor, Ease, Element, Event,
     Extent, Family, Gradient, Id, Input, Key, Keyboard, Laid, Menu, MenuEntry, Mix, Mods, Motion,
-    Path, Point, Rect, Reply, Rgba, Role, Segment, Shadow, Shift, Shortcut, Side, Size, Source,
-    Span, State, Stroke, Tip, Track,
+    Path, Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift, Shortcut, Side, Size,
+    Source, Span, State, Stroke, Tip, Track,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -155,7 +155,11 @@ impl pencere::view::layout::Host for Host {
     }
 
     fn scroll_extent(&mut self, id: u64) -> Option<wit::Extent> {
-        let Extent { content, view } = self.laid()?.scroll_extent(Id::new(id))?;
+        let Extent {
+            content,
+            view,
+            offset,
+        } = self.laid()?.scroll_extent(Id::new(id))?;
         let size = |size: Size| wit::Size {
             w: size.w,
             h: size.h,
@@ -163,7 +167,27 @@ impl pencere::view::layout::Host for Host {
         Some(wit::Extent {
             content: size(content),
             view: size(view),
+            offset: point_in(offset),
         })
+    }
+
+    fn scroll_to(&mut self, id: u64, x: Option<f32>, y: Option<f32>, animate: bool) {
+        // What a page may ask before the application takes it: a page that asks without end is
+        // not kept asking (the newest ask of a box is the one that counts).
+        if self.asks.len() >= MOST_ASKS {
+            return;
+        }
+        let at = |value: Option<f32>| {
+            value
+                .filter(|v| !v.is_nan())
+                .map(|v| v.clamp(0.0, f32::MAX))
+        };
+        self.asks.push(ScrollTo {
+            id: Id::new(id),
+            x: at(x),
+            y: at(y),
+            animate,
+        });
     }
 
     fn focus_order(&mut self) -> Vec<u64> {
@@ -192,6 +216,9 @@ impl pencere::view::layout::Host for Host {
 fn id_out(id: Id) -> u64 {
     id.number()
 }
+
+/// The most asks for a box to be scrolled the module keeps before the application takes them.
+const MOST_ASKS: usize = 256;
 
 // --- What the engine tells the module -----------------------------------------------------
 
@@ -280,6 +307,15 @@ fn event_in(event: Event) -> wit::Event {
             at: point_in(at),
             paths,
         }),
+        Event::Scrolled(boxes) => wit::Event::Scrolled(
+            boxes
+                .into_iter()
+                .map(|(id, offset)| wit::Scrolled {
+                    id: id_out(id),
+                    offset: point_in(offset),
+                })
+                .collect(),
+        ),
     }
 }
 
@@ -694,7 +730,8 @@ fn style_out(
             wit::Overflow::Hidden => Overflow::Hidden,
             wit::Overflow::Scroll => Overflow::Scroll,
         },
-        scroll: (pt(style.scroll_x), pt(style.scroll_y)),
+        // How far a box is scrolled is the application's: put in when it lays the page out.
+        scroll: (0.0, 0.0),
         fill: style.fill.as_ref().map(color_out),
         gradient: style.gradient.as_ref().map(|gradient| Gradient {
             angle: angle_out(gradient.angle),
@@ -1319,6 +1356,10 @@ impl Runner for World {
         std::mem::take(&mut self.store.data_mut().sent)
     }
 
+    fn take_asks(&mut self) -> Vec<ScrollTo> {
+        std::mem::take(&mut self.store.data_mut().asks)
+    }
+
     fn lay_out(&mut self, laid: Arc<Laid>) {
         self.store.data_mut().laid = Some(laid);
     }
@@ -1371,8 +1412,6 @@ mod tests {
             rows: nothing(),
             column_span: 0,
             overflow: wit::Overflow::Visible,
-            scroll_x: 0.0,
-            scroll_y: 0.0,
             fill: None,
             gradient: None,
             border: None,

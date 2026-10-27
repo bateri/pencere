@@ -723,23 +723,23 @@ impl Element {
         self.set(|s| s.overflow = Overflow::Hidden)
     }
 
-    /// A box whose content is bigger than itself and moves behind it: nothing is drawn
-    /// outside the box, and the content is moved up by `offset` points.
+    /// A box whose content can be bigger than itself and is scrolled behind it, down and across:
+    /// nothing is drawn outside the box. How far it is scrolled is the host's, kept by the box's
+    /// name ([`Element::id`]: one with none does not scroll), moved by the wheel, the trackpad and
+    /// the scroll bars as the host's system moves them ([`crate::Scrolls`]). The page is told where
+    /// it stands ([`crate::Event::Scrolled`], [`crate::Extent::offset`]) and asks for it to go
+    /// somewhere ([`crate::ScrollTo`]).
     #[must_use]
-    pub fn scroll_y(self, offset: f32) -> Self {
-        self.set(|s| {
-            s.overflow = Overflow::Scroll;
-            s.scroll.1 = offset;
-        })
+    pub fn scroll(self) -> Self {
+        self.set(|s| s.overflow = Overflow::Scroll)
     }
 
-    /// The same, across: the content moves left behind the box by `offset` points.
+    /// Scrolled `x` across and `y` down, as the host puts it before it lays the page out
+    /// ([`crate::Scrolls::apply`]): for the engine's tests.
+    #[cfg(test)]
     #[must_use]
-    pub fn scroll_x(self, offset: f32) -> Self {
-        self.set(|s| {
-            s.overflow = Overflow::Scroll;
-            s.scroll.0 = offset;
-        })
+    pub(crate) fn scrolled(self, x: f32, y: f32) -> Self {
+        self.set(|s| s.scroll = (x, y))
     }
 
     // --- Looks -------------------------------------------------------------------------

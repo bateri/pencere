@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 
 use containers_page::{Containers, FIELD, Reading};
 use pencere_view::{
-    Button, Element, Event, Id, Input, Key, Keyboard, Laid, Mods, Point, Reply, Role, Size, div,
-    layout, text,
+    Button, Element, Event, Id, Input, Key, Keyboard, Laid, Mods, Phase, Point, Reply, Role,
+    ScrollTo, Scrolls, Size, div, layout, text,
 };
 
 use crate::guests_tests::{Open, Rough, SIZE};
@@ -277,6 +277,11 @@ struct Pair {
     looked: usize,
     /// When the program's newest reading came: the page says so when none has for a while.
     last_reading: Option<f64>,
+    /// How far the application has the boxes scrolled.
+    scrolls: Scrolls,
+    /// What the page asked the application to scroll, not yet held against what the script
+    /// asked.
+    asked: Vec<ScrollTo>,
 }
 
 impl Pair {
@@ -300,6 +305,8 @@ impl Pair {
             reduce_motion: false,
             looked: 0,
             last_reading: None,
+            scrolls: Scrolls::new(),
+            asked: Vec::new(),
         };
         // (The first frame waits for the interpreter to be compiled.)
         pair.wait_for_frame();
@@ -341,9 +348,17 @@ impl Pair {
         assert!(!reply.redraw, "the filter said again changed something");
     }
 
-    /// The script's last frame is the page's.
+    /// The script's last frame is the page's, and it asked for the same scrolls.
     fn check(&mut self, what: &str) {
         self.sync();
+        let (lua, native) = (
+            rounded(&format!("{:?}", std::mem::take(&mut self.lua.seen.asks))),
+            rounded(&format!("{:?}", std::mem::take(&mut self.asked))),
+        );
+        assert!(
+            lua == native,
+            "{what}: the scrolls asked differ\n  script: {lua}\n  page:   {native}"
+        );
         let frame = self.lua.seen.frame.clone().expect("a frame");
         assert_same(what, &frame.root, &self.tree);
         assert_eq!(
@@ -373,18 +388,62 @@ impl Pair {
         }
     }
 
-    /// The page was made anew: the application lays it out and tells the module, which settles
-    /// what depends on the layout; a settle that changed the page makes it again, up to three
+    /// The page was made anew: the application does the scrolls the page asked for, lays it out
+    /// where its boxes are scrolled and tells the module, which settles what depends on the
+    /// layout, and both where the boxes went; what changed the page makes it again, up to three
     /// times.
     fn lay_out(&mut self) {
         for _ in 0..3 {
-            self.laid = Arc::new(layout(self.tree.clone(), self.size, 1.0, &mut Rough));
-            self.lua.module.lay_out(Arc::clone(&self.laid));
-            if !self.native.settle(&*self.laid) {
+            let asks = self.native.take_asks();
+            self.asked.extend(asks.iter().copied());
+            for ask in asks {
+                self.scrolls.ask(ask);
+            }
+            let mut root = self.tree.clone();
+            self.scrolls.apply(&mut root);
+            let mut laid = layout(root, self.size, 1.0, &mut Rough);
+            self.scrolls.place(&mut laid, self.now, true);
+            if !self.placed(laid) {
                 return;
             }
             self.again();
         }
+    }
+
+    /// The page is `laid` from now on: the module is told, both settle, and both are told where
+    /// the boxes went. Whether that changed the page.
+    fn placed(&mut self, laid: Laid) -> bool {
+        self.laid = Arc::new(laid);
+        self.lua.module.lay_out(Arc::clone(&self.laid));
+        let mut again = self.native.settle(&*self.laid);
+        let moved = self.scrolls.take_moved();
+        if !moved.is_empty() {
+            self.lua.module.event(Event::Scrolled(moved.clone()));
+            let lua = self.answer();
+            let native = self.native.scrolled(&moved);
+            assert_same_reply("the boxes scrolled", &lua, &native);
+            again |= native.redraw;
+        }
+        again
+    }
+
+    /// The wheel turned over `at` by `dy`: the application scrolls the box under it on the page
+    /// as it is, or, where none took it, the page is told.
+    fn wheel(&mut self, what: &str, at: Point, dy: f32) {
+        let mut laid = (*self.laid).clone();
+        if !self
+            .scrolls
+            .wheel(&laid, at, 0.0, dy, Phase::Wheel, self.now)
+        {
+            self.input(what, Input::Scroll { at, dx: 0.0, dy });
+            return;
+        }
+        self.scrolls.place(&mut laid, self.now, true);
+        if self.placed(laid) {
+            self.again();
+            self.lay_out();
+        }
+        self.check(what);
     }
 
     /// The page again, for the time of the last frame.
@@ -440,6 +499,7 @@ impl Pair {
             }
             Event::Focus(_) | Event::Command(_) | Event::Files { .. } => Reply::none(),
             Event::MenuPick(index) => self.native.pick(index),
+            Event::Scrolled(boxes) => self.native.scrolled(&boxes),
         };
         assert_same_reply(what, &lua, &native);
         if native.redraw {
@@ -809,26 +869,12 @@ fn the_wheel_scrolls_the_list_and_the_keys_keep_the_cursor_in_view() {
     let mut pair = Pair::open(Size::new(1000.0, 300.0));
     let over = pair.middle("containers list");
     for dy in [40.0, 90.0, 400.0, -30.0, -1000.0, 120.0, 5000.0, -1.0] {
-        pair.input(
-            "the wheel",
-            Input::Scroll {
-                at: over,
-                dx: 0.0,
-                dy,
-            },
-        );
+        pair.wheel("the wheel", over, dy);
         pair.rest(30);
     }
     // The wheel over the toolbar has nothing to scroll.
     let toolbar = pair.middle("containers filter");
-    pair.input(
-        "the wheel over the toolbar",
-        Input::Scroll {
-            dx: 0.0,
-            at: toolbar,
-            dy: 100.0,
-        },
-    );
+    pair.wheel("the wheel over the toolbar", toolbar, 100.0);
     // The cursor goes on down the list and takes the list with it, and back.
     for key in [
         Key::End,
@@ -843,14 +889,7 @@ fn the_wheel_scrolls_the_list_and_the_keys_keep_the_cursor_in_view() {
         pair.rest(30);
     }
     // A list that gets shorter than its scroll takes the scroll back within its reach.
-    pair.input(
-        "the wheel",
-        Input::Scroll {
-            dx: 0.0,
-            at: over,
-            dy: 5000.0,
-        },
-    );
+    pair.wheel("the wheel", over, 5000.0);
     pair.event(
         "a short list",
         Event::Text {
@@ -923,14 +962,7 @@ fn a_page_that_moves_under_the_pointer_lights_the_row_that_comes_under_it() {
     pair.rest(30);
     // The wheel moves the list under a pointer that has not moved: the hover is asked again
     // where the pointer stands, once the page is laid out.
-    pair.input(
-        "the wheel",
-        Input::Scroll {
-            at,
-            dx: 0.0,
-            dy: 100.0,
-        },
-    );
+    pair.wheel("the wheel", at, 100.0);
     pair.rest(30);
     pair.at(pair.now + 0.05);
     pair.rest(30);

@@ -57,10 +57,12 @@ interface types {
     }
 
     /// How large the content of a scrolling box is against how large the box is, points: it can
-    /// be scrolled down by `content.h - view.h` and across by `content.w - view.w`.
+    /// be scrolled down by `content.h - view.h` and across by `content.w - view.w`. `offset` is how
+    /// far it is scrolled across and down, within that.
     record extent {
         content: size,
         view: size,
+        offset: point,
     }
 
     /// What a colour is called: the nine roles of the theme, its ANSI palette and its selection,
@@ -200,7 +202,11 @@ interface types {
         visible,
         /// Nothing is drawn outside the box.
         hidden,
-        /// As `hidden`, and the children move with the box's scroll offset.
+        /// As `hidden`, and the content is scrolled behind the box, down and across. How far is
+        /// the application's, kept by the element's id (one with none does not scroll): the
+        /// wheel, the trackpad and the scroll bars move it as the application's system does, the
+        /// page is told where it stands (`event.scrolled`, `extent.offset`) and asks for it to
+        /// go somewhere (`layout.scroll-to`).
         scroll,
     }
 
@@ -338,9 +344,6 @@ interface types {
         /// How many grid columns the element takes (`0` or `1`: one).
         column-span: u16,
         overflow: overflow,
-        /// How far a scrolling box's content is moved up and left, points.
-        scroll-x: f32,
-        scroll-y: f32,
         fill: option<color>,
         gradient: option<gradient>,
         border: option<border>,
@@ -707,7 +710,9 @@ interface types {
         button: button,
     }
 
-    /// The wheel or the trackpad: the points the content moves left by (`dx`) and up by (`dy`).
+    /// The wheel or the trackpad where no box the application scrolls took it: the points the
+    /// content would move left by (`dx`) and up by (`dy`). For a page that does something of its
+    /// own with the wheel (a zoom, a value that steps).
     record scroll {
         at: point,
         dx: f32,
@@ -731,6 +736,13 @@ interface types {
     record dropped-files {
         at: point,
         paths: list<string>,
+    }
+
+    /// Where a box the application scrolls stands now: its id and how far it is scrolled across
+    /// and down, points.
+    record scrolled {
+        id: id,
+        offset: point,
     }
 
     /// One thing the person did, in the page's points (its top-left corner is the origin).
@@ -759,6 +771,9 @@ interface types {
         command(id),
         /// Files were dropped on the page.
         files(dropped-files),
+        /// The application scrolled these boxes (the wheel, the trackpad, a scroll bar, or what
+        /// the page asked): a page that builds only what is in view builds what came into it.
+        scrolled(list<scrolled>),
     }
 
     /// The shape the pointer takes over the page.
@@ -842,8 +857,13 @@ interface layout {
     ids-at: func(at: point) -> list<id>;
     /// The box of the element named `id`, points.
     bounds: func(id: id) -> option<rect>;
-    /// How far the scrolling box named `id` reaches.
+    /// How far the scrolling box named `id` reaches, and how far it is scrolled.
     scroll-extent: func(id: id) -> option<extent>;
+    /// Asks for the scrolling box named `id` to be scrolled to `x` across and `y` down (points;
+    /// one not given stays where it is; past the end is the end), over a moment where `animate`
+    /// (and the person has not asked for less motion), before the next frame is laid out. A box
+    /// that is not on the page yet is there when it comes.
+    scroll-to: func(id: id, x: option<f32>, y: option<f32>, animate: bool);
     /// The elements the keyboard can be on, in the order they are written.
     focus-order: func() -> list<id>;
     /// `id` and the named elements that hold it, innermost first.

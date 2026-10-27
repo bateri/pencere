@@ -58,9 +58,9 @@ pub use pencere_view::wire;
 pub use pencere_view::{
     AccessibleRole, Align, Anchor, Border, Button, Color, Command, Cursor, Drag, Dropped, Element,
     Event, Extent, Fades, Family, Field, FieldKind, Fit, Gradient, Id, Image, Input, Key, Keyboard,
-    Menu, MenuEntry, Mix, Mods, Path, Point, Queries, Rect, Reply, Rgba, Role, Rows, Segment,
-    Shadow, Shortcut, Side, Size, Source, Span, State, Stroke, Track, Ui, canvas, div, image, path,
-    rich, spacer, span, spark, text,
+    Menu, MenuEntry, Mix, Mods, Path, Point, Queries, Rect, Reply, Rgba, Role, Rows, ScrollTo,
+    Segment, Shadow, Shortcut, Side, Size, Source, Span, State, Stroke, Track, Ui, canvas, div,
+    image, path, rich, spacer, span, spark, text,
 };
 pub use pencere_wire::messages;
 
@@ -118,6 +118,7 @@ impl Queries for Layout {
         host::scroll_extent(id.number()).map(|e| Extent {
             content: Size::new(e.content.w, e.content.h),
             view: Size::new(e.view.w, e.view.h),
+            offset: Point::new(e.offset.x, e.offset.y),
         })
     }
 
@@ -153,6 +154,14 @@ impl Queries for Layout {
 #[must_use = "a message the program had no room for is not sent: keep it for Page::room"]
 pub fn say(message: &str) -> bool {
     matches!(to_program::send(message), to_program::Delivery::Accepted)
+}
+
+/// Asks the application to scroll a box of the page ([`ScrollTo`]): it does it before it next lays
+/// the page out, and tells the page where the box went ([`Event::Scrolled`]). How far a box is
+/// scrolled is the application's: the wheel, the trackpad and the scroll bars move it as its
+/// system does, and the page reads it from the layout ([`Extent::offset`]) or the event.
+pub fn scroll_to(ask: ScrollTo) {
+    host::scroll_to(ask.id.number(), ask.x, ask.y, ask.animate);
 }
 
 fn point_in(at: Point) -> bindings::pencere::view::types::Point {

@@ -38,7 +38,8 @@ fn list(ids: &[u64], offset: f32) -> Element {
         .id(LIST)
         .col()
         .h_full()
-        .scroll_y(offset)
+        .scroll()
+        .scrolled(0.0, offset)
         .children(ids.iter().map(|&n| {
             div()
                 .id(row_id(n))
@@ -190,7 +191,8 @@ fn what_scrolling_brings_in_or_takes_out_does_not_move() {
             .id(LIST)
             .col()
             .h_full()
-            .scroll_y(40.0)
+            .scroll()
+            .scrolled(0.0, 40.0)
             .child(div().h(40.0).no_shrink())
             .children(ids[2..8].iter().map(|&n| {
                 div()

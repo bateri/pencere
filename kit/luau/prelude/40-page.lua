@@ -14,11 +14,14 @@
 --       something changed and the page should be rendered again.
 --   handle(event) -> reply         (optional)
 --       The person did something. `event` is { type = "move" | "leave" | "press" | "release" |
---       "scroll" | "key" | "key_up" | "mods" | "text" | "focus" | "menu" | "command" | "files",
+--       "scroll" | "scrolled" | "key" | "key_up" | "mods" | "text" | "focus" | "menu" | "command" |
+--       "files",
 --       ... } in the page's points: move/press/release/scroll/files have x and y (press and
 --       release a button, "left", "right" or "middle"; press its `count`, 2 for the second of a
 --       double click; press, key, key_up and mods have mods = { shift =, control =, alt =,
---       command = }; scroll dx and dy, the points the content moves left and up by), key and
+--       command = }; scroll dx and dy, the points the content would move left and up by, for a
+--       wheel no box the host scrolls took; scrolled the `boxes` the host scrolled, each
+--       { id =, x =, y = }, for a page that builds only what is in view), key and
 --       key_up have `key` ("up", "down", "left", "right", "page_up", "page_down", "home", "end",
 --       "enter", "escape", "tab", "backspace", "delete", "f1" to "f20", or the character), text
 --       has the `field` (its name) and the `text` it holds, focus the `field` the person clicked
@@ -179,6 +182,9 @@ end
 
 function pencere.handle(event)
 	local reply = nil
+	if event.type == "scrolled" then
+		pencere.layout._heard(event.boxes)
+	end
 	if page.handle then
 		reply = page.handle(event)
 	end

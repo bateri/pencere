@@ -399,7 +399,8 @@ fn a_scrolling_box_moves_its_content_behind_it() {
     let rows = |offset: f32| {
         div()
             .size(50.0, 40.0)
-            .scroll_y(offset)
+            .scroll()
+            .scrolled(0.0, offset)
             .child(div().h(30.0).no_shrink().bg(Role::Accent))
             .child(div().h(30.0).no_shrink().bg(Role::Success))
             .child(div().h(30.0).no_shrink().bg(Role::Error))

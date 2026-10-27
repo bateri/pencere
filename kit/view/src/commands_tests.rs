@@ -281,7 +281,8 @@ fn a_box_is_held_to_its_greatest_height_and_scrolls_across() {
         div()
             .id(LIST)
             .max_h(30.0)
-            .scroll_x(15.0)
+            .scroll()
+            .scrolled(15.0, 0.0)
             .row()
             .child(div().size(300.0, 50.0).no_shrink()),
     );
