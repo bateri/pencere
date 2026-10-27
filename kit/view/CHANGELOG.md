@@ -12,9 +12,9 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 - **Long lists that keep up with the wheel.** `Built` is which rows of a long list a page builds as
   the host scrolls it: a view and a half ahead of what is in view, the way the list goes, half a view
-  behind (all of it the other way at an end of the list, which can only go back), and the same rows again until what is in view comes within three quarters of a view of
-  their end (`Built::span`); `Built::stale` says whether a box the host scrolled is to be built
-  again. `Rows::even(count, height)` is a list of rows of one height with no table of where each
+  behind (all of it the other way at an end of the list, which can only go back), and the same rows
+  again until what is in view comes within three quarters of a view of their end (`Built::span`);
+  `Built::stale` says whether a box the host scrolled is to be built again. `Rows::even(count, height)` is a list of rows of one height with no table of where each
   starts, and `Rows::from_tops` one from the sums a page keeps.
 
 - **Overlays.** `overlay()` takes an element out of the flow and out of every box that holds it: it
