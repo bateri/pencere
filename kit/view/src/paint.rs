@@ -37,12 +37,18 @@ pub struct Quad {
 /// holds `color` to its lowest contrast against that. A fill the line does not stand on (the
 /// box that holds it ends before the line does) is still named; the engine does not
 /// intersect boxes.
+///
+/// `color` is the words' own, its opacity included; `opacity` is how much of the words shows:
+/// that of their element and the boxes that hold it (`opacity`, and what a motion fades). A host
+/// that holds `color` to its contrast lays `opacity` over what it holds, so that words fade with
+/// their box all the way, as its fill does, and a page can make them fainter than the floor.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Run {
     pub origin: Point,
     pub text: String,
     pub font: Font,
     pub color: Color,
+    pub opacity: f32,
     pub grounds: Vec<Color>,
     pub clip: Rect,
     /// A line under the words, which the host draws where its font puts one, in `color`.
@@ -218,7 +224,7 @@ impl Laid {
                 Content::Text(_) if self.in_text_field(index) => {}
                 Content::Text(line) => {
                     for mut run in place_text(node, line, measure) {
-                        run.color = faded(run.color);
+                        run.opacity = opacity;
                         run.grounds = self.grounds_under(index);
                         list.items.push(Paint::Text(run));
                     }
@@ -327,7 +333,8 @@ fn paint_rich(list: &mut DrawList, node: &Node, rich: &Rich, grounds: &[Color]) 
             origin: Point::new(rect.x, rect.y),
             text: piece.text.clone(),
             font: look.font,
-            color: look.color.faded(opacity),
+            color: look.color,
+            opacity,
             grounds: under,
             clip,
             underline: look.underline,
@@ -448,6 +455,7 @@ fn place_text(node: &Node, line: &TextLine, measure: &mut dyn Measure) -> Vec<Ru
                 text,
                 font: line.font,
                 color: line.color,
+                opacity: 1.0,
                 grounds: Vec::new(),
                 clip,
                 underline: line.underline,

@@ -1359,6 +1359,10 @@ setting for the lowest contrast of text) resolves the grounds in its theme, lays
 other, and holds the colour of the line to its contrast with the result. That is a rule of the
 host, not of the page: it applies to a line whether its colour is a role or a value, and only to
 lines of text; lines, fills, borders and the values of a chart are drawn as the page said them.
+What is held is the colour of the line, its own opacity included. The opacity of the element the
+line is in and of the boxes that hold it (an element made fainter, one fading as it comes or goes)
+is laid over what the colour comes to: a line fades with its box all the way, as the box's fill
+does, and a page can make words fainter than the floor.
 
 **Images.** A view of the kit shows pictures. An element of its page names a file of the view's own
 bundle by the path the manifest gives it (`icons/stop.svg`), and the host draws that file in the

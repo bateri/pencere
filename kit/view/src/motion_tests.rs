@@ -2,7 +2,8 @@
 //! comes in and goes out; nothing moves under Reduce Motion, on a resize or for scrolling.
 
 use crate::{
-    Ease, Element, Font, Id, Laid, Measure, Metrics, Motion, Motions, Role, Shift, Size, div,
+    Ease, Element, Font, Id, Laid, Measure, Metrics, Motion, Motions, Paint, Role, Shift, Size,
+    div, text,
 };
 
 struct Fixed;
@@ -150,6 +151,46 @@ fn a_row_moved_up_by_one_that_went_slides_and_the_one_that_went_fades_out() {
         rest.len(),
         3,
         "the list and its two rows, nothing that went"
+    );
+}
+
+#[test]
+fn the_words_of_a_row_that_goes_fade_out_with_it_in_their_own_colour() {
+    let rows = |ids: &[u64]| {
+        div()
+            .id(LIST)
+            .col()
+            .h_full()
+            .scroll()
+            .children(ids.iter().map(|&n| {
+                div()
+                    .id(row_id(n))
+                    .h(20.0)
+                    .no_shrink()
+                    .motion(rows_motion())
+                    .child(text(format!("row {n}")).color(Role::Dim))
+            }))
+    };
+    let mut motions = Motions::default();
+    lay(&mut motions, rows(&[1, 2]), 0.0);
+    lay(&mut motions, rows(&[2]), 1.0);
+    let list = lay(&mut motions, rows(&[2]), 1.05).paint(&mut Fixed);
+    let Some(Paint::Text(run)) = list
+        .items
+        .iter()
+        .find(|item| matches!(item, Paint::Text(run) if run.text == "row 1"))
+    else {
+        panic!("the row that went is drawn");
+    };
+    assert_eq!(
+        run.color,
+        Role::Dim.solid(),
+        "its words are in their colour"
+    );
+    assert!(
+        run.opacity > 0.0 && run.opacity < 1.0,
+        "and as faint as the row: {}",
+        run.opacity
     );
 }
 

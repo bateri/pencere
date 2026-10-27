@@ -747,7 +747,8 @@ impl View {
                 origin: Point::new(origin_x, origin_y + self.lead),
                 text: hint,
                 font: self.font,
-                color: fade(color),
+                color,
+                opacity: slot.opacity,
                 grounds: slot.grounds.clone(),
                 clip: text_clip,
                 underline: false,
@@ -806,8 +807,11 @@ impl View {
                     if caret.shape == CaretShape::Block
                         && let Some(text_color) = caret.text.or(Role::Background.solid())
                     {
-                        let colors = (fade(color), fade(text_color));
-                        self.paint_under_block(buffer, row, at, rect, colors, text_clip, &mut out);
+                        let colors = (fade(color), text_color);
+                        let opacity = slot.opacity;
+                        self.paint_under_block(
+                            buffer, row, at, rect, colors, opacity, text_clip, &mut out,
+                        );
                     }
                 }
             }
@@ -950,7 +954,8 @@ impl View {
                     origin: Point::new(x, y + self.lead),
                     text,
                     font,
-                    color: fade(color),
+                    color,
+                    opacity: slot.opacity,
                     grounds: grounds.clone(),
                     clip,
                     underline: false,
@@ -994,7 +999,8 @@ impl View {
                     origin: Point::new(x + self.space * 0.5, y),
                     text: "⋯".into(),
                     font: self.font,
-                    color: fade(color),
+                    color,
+                    opacity: slot.opacity,
                     grounds: slot.grounds.clone(),
                     clip,
                     underline: false,
@@ -1014,6 +1020,7 @@ impl View {
         at: usize,
         rect: Rect,
         (block, color): (Color, Color),
+        opacity: f32,
         clip: Rect,
         out: &mut Vec<Paint>,
     ) {
@@ -1044,6 +1051,7 @@ impl View {
             text,
             font,
             color,
+            opacity,
             grounds: vec![block],
             clip: clip.intersect(rect),
             underline: false,
@@ -1158,7 +1166,8 @@ impl View {
                     origin: Point::new(x, text_y),
                     text: number,
                     font: self.font,
-                    color: fade(color),
+                    color,
+                    opacity: slot.opacity,
                     grounds: grounds.clone(),
                     clip,
                     underline: false,
@@ -1199,7 +1208,8 @@ impl View {
                     origin: Point::new(gutter.x + gutter.w - fold_w, text_y),
                     text: if shut { "▸" } else { "▾" }.into(),
                     font: self.font,
-                    color: fade(color),
+                    color,
+                    opacity: slot.opacity,
                     grounds: grounds.clone(),
                     clip,
                     underline: false,

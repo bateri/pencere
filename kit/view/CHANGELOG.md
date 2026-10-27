@@ -94,6 +94,13 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 - `Kind`, `Meta`, `Style`, `Paint`, `Quad`, `Accessible`, `AccessibleRole`, `Input`, `Event`,
   `Button` and the `Queries` trait have the members above: a host or a page that matches them all
   or builds them whole is written again for them.
+- **Words fade with their box.** A line of text in the draw list keeps its own colour (`Run::color`,
+  its own opacity included) and says apart from it how much of it shows (`Run::opacity`: the
+  `opacity` of its element and the boxes that hold it, and what a motion fades), as an editor's place
+  already did (`EditorSlot::opacity`). A host that holds words to a lowest contrast lays the opacity
+  over what it holds: before, it held the faded colour, so words that came or went with their row
+  stopped fading at the floor and appeared or vanished at once, and `opacity` could not make words
+  fainter than the floor. A host that builds a `Run` gives it an `opacity`.
 
 ### Fixed
 

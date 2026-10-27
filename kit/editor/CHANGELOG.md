@@ -37,7 +37,8 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 - **The editors of a page** (`Editors`), as a host keeps them: one for each editor's room on the page
   laid out, its document kept while a room of its name is there, hidden or not; the page laid out
   with what they laid out (`Editors::measure`); each drawn in its place of the draw list
-  (`Editors::paint`).
+  (`Editors::paint`), its words in their own colours with the opacity of the room beside them
+  (`Run::opacity`), so that a host's floor of contrast does not keep them from fading with it.
 - **Layout.** Lines measured by the host (`Measure::offsets`), a tab to the stop the width of a space
   gives, broken after the last space that fits where the editor wraps; only the rows in view laid
   out; folded lines taking none; a gutter of line numbers, the page's marks and fold buttons; the

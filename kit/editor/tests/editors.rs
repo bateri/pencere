@@ -617,6 +617,31 @@ fn the_editor_is_drawn_in_its_place_its_caret_while_the_host_shows_it() {
 }
 
 #[test]
+fn the_words_of_an_editor_in_a_faint_box_keep_their_colour_and_say_how_faint() {
+    let mut host = Host::new(|| {
+        div().child(
+            div()
+                .opacity(0.5)
+                .size_full()
+                .child(div().editor(EDITOR, plain()).size_full()),
+        )
+    });
+    host.load("mi");
+    host.settle();
+    let list = host.paint(false);
+    let run = list
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Paint::Text(run) if run.text == "mi" => Some(run),
+            _ => None,
+        })
+        .expect("the text is drawn");
+    assert_eq!(run.color.alpha, 1.0);
+    assert_eq!(run.opacity, 0.5);
+}
+
+#[test]
 fn the_colours_of_the_page_cut_the_text_into_runs() {
     let mut host = Host::new(page_with(plain()));
     host.load("select x");

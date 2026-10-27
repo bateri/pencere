@@ -690,7 +690,10 @@ fn an_elements_opacity_fades_all_it_draws_and_all_inside_it() {
         "its own times the box's"
     );
     let run = runs(&list)[0];
-    assert_eq!(run.color.alpha, 0.25);
+    // The words keep their own colour, and say how much of them shows apart from it: a host that
+    // holds the colour to its contrast lays this over what it holds.
+    assert_eq!(run.color.alpha, 1.0);
+    assert_eq!(run.opacity, 0.25);
     assert_eq!(
         run.grounds
             .iter()

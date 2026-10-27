@@ -69,7 +69,8 @@ The builders return the element. Layout: `row`, `col`, `wrap`, `grid(columns)`, 
 behind it, down and across: the host scrolls it, by its id, Section 2.2).
 Looks: `bg`, `bg_gradient(angle, from, to)`, `border(width, color)`, `rounded`, `rounded_corners`,
 `shadow(dx, dy, blur, color)`, `opacity(0..1)` (the element with all inside it: each thing it draws
-is that much fainter). Text, which the elements inside inherit: `text_size`, `weight`, `color`,
+is that much fainter, its words too, past a host's floor of contrast). Text, which the elements
+inside inherit: `text_size`, `weight`, `color`,
 `family("system" | "terminal")`, `align("start" | "center" | "end")`, `italic`, `underline`, `strike`,
 `truncate`. Images: `fit("contain" | "cover")`, `tint(color)`. Names and answers: `id`, `press(id)`,
 `focusable`, `focused`, `text_field(id, "line" | "lines" | "secret")`, `label(words)`, `tip(words,
