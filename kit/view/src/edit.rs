@@ -373,6 +373,8 @@ pub struct EditorOptions {
     pub scroll_margin: u8,
     /// What the numbers of the lines in the gutter count.
     pub numbers: Numbers,
+    /// Where the ground of the main caret's line is drawn (its colour is `colors.current_line`).
+    pub current_line: LineHighlight,
     /// Which spaces and tabs are shown.
     pub whitespace: Whitespace,
     /// A thin line down each level of indent (VS Code's indent guides): a line shows one for each
@@ -403,6 +405,7 @@ impl Default for EditorOptions {
             padding: 4.0,
             scroll_margin: 0,
             numbers: Numbers::Absolute,
+            current_line: LineHighlight::Text,
             whitespace: Whitespace::None,
             indent_guides: false,
             caret: Caret::default(),
@@ -456,7 +459,7 @@ impl Tint {
 /// How a caret is drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum CaretShape {
-    /// A bar before the character, as tall as the text.
+    /// A bar before the character.
     #[default]
     Bar,
     /// A block over the character (a space wide at the end of a line), the character drawn again
@@ -466,11 +469,22 @@ pub enum CaretShape {
     Underline,
 }
 
+/// How tall a caret is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CaretHeight {
+    /// As tall as its row, as the current line's ground is (as Zed and VS Code draw it).
+    #[default]
+    Row,
+    /// As tall as the text: the room the row keeps above and below it left out.
+    Text,
+}
+
 /// How the carets look. The host blinks them.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Caret {
     pub shape: CaretShape,
-    /// How wide a bar is, and how thick the line of `Underline` is, points
+    pub height: CaretHeight,
+    /// How wide a bar is (2, as Zed draws it), and how thick the line of `Underline` is, points
     /// ([`limits::CARET_WIDTH`]); a block is as wide as its character.
     pub width: f32,
     /// The caret's colour (the theme's: its cursor colour); off, and no caret is drawn.
@@ -483,7 +497,8 @@ impl Default for Caret {
     fn default() -> Self {
         Self {
             shape: CaretShape::Bar,
-            width: 1.5,
+            height: CaretHeight::Row,
+            width: 2.0,
             color: Tint::Theme,
             text: Tint::Theme,
         }
@@ -501,6 +516,18 @@ pub enum Numbers {
     Relative,
     /// None: the gutter keeps its marks and the buttons that fold.
     Hidden,
+}
+
+/// Where an editor draws the ground of the main caret's line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum LineHighlight {
+    /// Across the text, not the gutter.
+    #[default]
+    Text,
+    /// In the gutter only.
+    Gutter,
+    /// Across the gutter and the text.
+    All,
 }
 
 /// The colours of what an editor draws besides its text: the text is the element's colour and the

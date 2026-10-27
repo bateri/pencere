@@ -610,7 +610,7 @@ interface types {
 
     /// How a caret is drawn.
     enum caret-shape {
-        /// A bar before the character, as tall as the text.
+        /// A bar before the character.
         bar,
         /// A block over the character (a space wide at the end of a line), the character drawn
         /// again on it in the caret's `text` colour.
@@ -619,11 +619,20 @@ interface types {
         underline,
     }
 
+    /// How tall a caret is.
+    enum caret-height {
+        /// As tall as its row, as the current line's ground is.
+        row,
+        /// As tall as the text: the room the row keeps above and below it left out.
+        text,
+    }
+
     /// How an editor's carets look. The application blinks them.
     record editor-caret {
         shape: caret-shape,
+        height: caret-height,
         /// How wide a bar is, and how thick a line under the character is, points (0.5 to 8;
-        /// 1.5 when none).
+        /// 2 when none).
         width: option<f32>,
         /// The caret's colour (the theme's cursor colour); off, and no caret is drawn.
         color: editor-tint,
@@ -640,6 +649,16 @@ interface types {
         relative,
         /// None: the gutter keeps its marks and the buttons that fold.
         hidden,
+    }
+
+    /// Where an editor draws the ground of the main caret's line.
+    enum line-highlight {
+        /// Across the text, not the gutter.
+        text,
+        /// In the gutter only.
+        gutter,
+        /// Across the gutter and the text.
+        all,
     }
 
     /// The colours of what an editor draws besides its text (the text is the element's colour and
@@ -709,6 +728,9 @@ interface types {
         /// the editor scrolls to the caret (at most half the rows in view; none when none).
         scroll-margin: option<u8>,
         numbers: line-numbers,
+        /// Where the ground of the main caret's line is drawn (its colour is
+        /// `colors.current-line`).
+        current-line: line-highlight,
         caret: editor-caret,
         colors: editor-colors,
         /// Which spaces and tabs are shown.

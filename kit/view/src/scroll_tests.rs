@@ -474,3 +474,29 @@ fn a_box_that_scrolls_only_down_leaves_the_turn_across_to_the_page() {
     assert!(!header.took);
     assert_eq!(header.left, Point::new(3.0, 7.0));
 }
+
+#[test]
+fn a_bar_answers_the_pointer_only_where_nothing_is_drawn_over_it() {
+    let mut scrolls = Scrolls::new();
+    scrolls.set_bars(Bars::Always);
+    // A card over the top of the list (a dialog, a popup): the knob at the top is under it.
+    let page = || {
+        list().child(
+            div()
+                .id(COVER)
+                .overlay()
+                .inset(Some(0.0), Some(0.0), Some(50.0), Some(0.0))
+                .bg(Role::Raised(2)),
+        )
+    };
+    let _laid = placed(&mut scrolls, page(), 0.0);
+    let on_knob = Point::new(196.0, 30.0);
+    assert!(
+        !scrolls.point(Some(on_knob), 0.0),
+        "the bar under the card is not lit"
+    );
+    assert!(!scrolls.press(on_knob, 0.0), "the press is the card's");
+    assert!(!scrolls.holding());
+    // Below the card the bar is the bar.
+    assert!(scrolls.press(Point::new(196.0, 96.0), 1.0));
+}

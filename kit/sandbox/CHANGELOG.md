@@ -27,11 +27,12 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   interpreter speaks them as the Lua page API: `pencere.editor`, `pencere.caret_of`, the text of an
   editor through `pencere.layout`, the events and the `editor` of a reply.
 - **How an editor looks.** `editor-options` carries `line-height`, `padding`, `scroll-margin`,
-  `numbers`, `caret` (`editor-caret`) and `colors` (`editor-colors`), each colour an `editor-tint`
-  (the theme's, off, or a colour); a number the page does not say is the editor's default, and every
-  number is held to what an editor takes. In Lua they are options of `pencere.editor` of the same
-  names, `caret` and `colors` tables of their own, a colour `false` for none; an option an editor
-  has no such name for fails the page where it is said.
+  `numbers`, `current-line` (`line-highlight`), `caret` (`editor-caret`, with `caret-height`) and
+  `colors` (`editor-colors`), each colour an `editor-tint` (the theme's, off, or a colour); a number
+  the page does not say is the editor's default, and every number is held to what an editor takes.
+  In Lua they are options of `pencere.editor` of the same names, `caret` and `colors` tables of
+  their own, a colour `false` for none; an option an editor has no such name for fails the page
+  where it is said.
 - **What an editor's search finds.** The interface's `find` has `word`, the editor's commands
   `replace`, `replace-all`, `select-found` and `select-occurrences`, and the event `found` (the
   version searched, how many matches, which of them the main selection is on, from 1, whether there

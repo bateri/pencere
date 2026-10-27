@@ -8,6 +8,12 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
+### Fixed
+
+- A box's bars answer the pointer only where nothing is drawn over them: under a dialog or a popup
+  (an overlay, or anything after the box in the paint order) a bar was lit by the pointer and took
+  its press, which was the dialog's.
+
 ### Added
 
 - **Editors.** `editor(id, EditorOptions)` makes a box the room of an editor of text of the host's
@@ -24,14 +30,15 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   both sides hold a page to (`edit::limits`). `Event` has `Pointer` (with the `Place` under the
   pointer), `Edit`, `Selection`, `Viewport` and `EditorRefused`; `Reply::editor` asks; `Queries`
   reads an editor's text (each with a default of none).
-- **How an editor looks is the page's.** `EditorOptions` says how tall a row is (`line_height`, times
-  the font's size), the room around the text (`padding`), the rows kept about the caret when it
-  scrolls (`scroll_margin`), what the line numbers count (`Numbers`: absolute, relative, hidden), the
-  caret (`Caret`: a bar, a block or a line under the character, how wide, its colour and the colour
-  of the character under a block) and the colour of everything the editor draws besides the text
-  (`EditorColors`). Each colour is a `Tint`: the theme's, none, or the page's. What a page leaves
-  out is the default, today's look; `EditorOptions::held` takes each number into what an editor
-  takes (`edit::limits`).
+- **How an editor looks is the page's.** `EditorOptions` says how tall a row is (`line_height`,
+  times the font's size), the room around the text (`padding`), the rows kept about the caret when
+  it scrolls (`scroll_margin`), what the line numbers count (`Numbers`: absolute, relative, hidden),
+  where the caret's line is drawn (`LineHighlight`: across the text, the gutter or both), the caret
+  (`Caret`: a bar, a block or a line under the character, as tall as the row or the text, how wide,
+  its colour and the colour of the character under a block) and the colour of everything the editor
+  draws besides the text (`EditorColors`). Each colour is a `Tint`: the theme's, none, or the
+  page's. What a page leaves out is the default, today's look; `EditorOptions::held` takes each
+  number into what an editor takes (`edit::limits`).
 - **What an editor's search finds.** `EditCommand::Find` has `word` (only a whole word: no letter
   or digit, of any script, and no `_` beside it); `EditCommand::Replace` and `ReplaceAll` put a
   text in place of the main selection's match, or of every match (a regular expression's groups put

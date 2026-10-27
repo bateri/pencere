@@ -6,9 +6,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use pencere_view::edit::{
-    Caret, CaretShape, Change, CommentTokens, Decorate, Decoration, EditCommand, EditorAsk,
-    EditorColors, EditorOptions, Folds, IndentRules, Keys, Look, Mark, Movement, Numbers, Origin,
-    Range, Refusal, Tint, Underline, Whitespace, limits,
+    Caret, CaretHeight, CaretShape, Change, CommentTokens, Decorate, Decoration, EditCommand,
+    EditorAsk, EditorColors, EditorOptions, Folds, IndentRules, Keys, LineHighlight, Look, Mark,
+    Movement, Numbers, Origin, Range, Refusal, Tint, Underline, Whitespace, limits,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -1446,11 +1446,20 @@ fn editor_options_out(
             wit::EditorWhitespace::All => Whitespace::All,
         },
         indent_guides: options.indent_guides,
+        current_line: match options.current_line {
+            wit::LineHighlight::Text => LineHighlight::Text,
+            wit::LineHighlight::Gutter => LineHighlight::Gutter,
+            wit::LineHighlight::All => LineHighlight::All,
+        },
         caret: Caret {
             shape: match options.caret.shape {
                 wit::CaretShape::Bar => CaretShape::Bar,
                 wit::CaretShape::Block => CaretShape::Block,
                 wit::CaretShape::Underline => CaretShape::Underline,
+            },
+            height: match options.caret.height {
+                wit::CaretHeight::Row => CaretHeight::Row,
+                wit::CaretHeight::Text => CaretHeight::Text,
             },
             width: options.caret.width.unwrap_or(default.caret.width),
             color: tint_out(&options.caret.color),

@@ -168,6 +168,8 @@ pub struct Scrolls {
     held: Option<Held>,
     /// A bar took the press the button is held for: its release is the bar's too.
     pressed: bool,
+    /// What is drawn over each box (a dialog, a popup), points: its bars do not answer there.
+    covered: HashMap<Id, Vec<Rect>>,
 }
 
 impl Scrolls {
@@ -550,7 +552,12 @@ impl Scrolls {
                 continue;
             };
             let r = b.rect;
-            if !r.contains(at.x, at.y) {
+            if !r.contains(at.x, at.y)
+                || self
+                    .covered
+                    .get(id)
+                    .is_some_and(|over| over.iter().any(|cut| cut.contains(at.x, at.y)))
+            {
                 continue;
             }
             let area = r.w * r.h;
@@ -619,6 +626,7 @@ impl Scrolls {
         }
         // The bars, once every box is where it goes (one inside another moves with it).
         let mut bars = Vec::new();
+        self.covered.clear();
         for (index, id) in placed {
             let Some((_, extent, rect)) = laid.scroller_at(index) else {
                 continue;
@@ -639,6 +647,7 @@ impl Scrolls {
             };
             b.rect = rect;
             let b = *b;
+            self.covered.insert(id, laid.covering(index));
             let quads = self.bars_of(&b, extent, rect, clip, scale, over, held, now);
             if !quads.is_empty() {
                 bars.push((index, quads));

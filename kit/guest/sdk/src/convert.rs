@@ -4,8 +4,9 @@
 //! `crates/pencere-sandbox/src/world.rs`.
 
 use pencere_view::edit::{
-    CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions, Folds, Found,
-    Keys, Mark, Movement, Numbers, Origin, Range, Refusal, Selection, Tint, Underline, Whitespace,
+    CaretHeight, CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions,
+    Folds, Found, Keys, LineHighlight, Mark, Movement, Numbers, Origin, Range, Refusal, Selection,
+    Tint, Underline, Whitespace,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
@@ -725,11 +726,20 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
             Numbers::Relative => wit::LineNumbers::Relative,
             Numbers::Hidden => wit::LineNumbers::Hidden,
         },
+        current_line: match options.current_line {
+            LineHighlight::Text => wit::LineHighlight::Text,
+            LineHighlight::Gutter => wit::LineHighlight::Gutter,
+            LineHighlight::All => wit::LineHighlight::All,
+        },
         caret: wit::EditorCaret {
             shape: match options.caret.shape {
                 CaretShape::Bar => wit::CaretShape::Bar,
                 CaretShape::Block => wit::CaretShape::Block,
                 CaretShape::Underline => wit::CaretShape::Underline,
+            },
+            height: match options.caret.height {
+                CaretHeight::Row => wit::CaretHeight::Row,
+                CaretHeight::Text => wit::CaretHeight::Text,
             },
             width: Some(options.caret.width),
             color: tint(options.caret.color),
@@ -1063,8 +1073,10 @@ mod tests {
             padding: 9.0,
             scroll_margin: 3,
             numbers: Numbers::Relative,
+            current_line: LineHighlight::All,
             caret: Caret {
                 shape: CaretShape::Block,
+                height: CaretHeight::Text,
                 width: 2.0,
                 color: Tint::Color(Color::from(Role::Accent)),
                 text: Tint::Off,
@@ -1090,7 +1102,9 @@ mod tests {
             (Some(1.8), Some(9.0), Some(3))
         );
         assert!(matches!(editor.numbers, wit::LineNumbers::Relative));
+        assert!(matches!(editor.current_line, wit::LineHighlight::All));
         assert!(matches!(editor.caret.shape, wit::CaretShape::Block));
+        assert!(matches!(editor.caret.height, wit::CaretHeight::Text));
         assert_eq!(editor.caret.width, Some(2.0));
         assert!(matches!(&editor.caret.color, wit::EditorTint::Color(_)));
         assert!(matches!(editor.caret.text, wit::EditorTint::Off));

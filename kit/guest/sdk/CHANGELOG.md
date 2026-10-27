@@ -18,7 +18,7 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
   scrolled (`Extent::offset`). `List` and `Built` are exported: a long list that builds only the rows near what is in
   view, and which rows to build as it scrolls.
 - An editor's options carry how it looks (`line_height`, `padding`, `scroll_margin`, `numbers`,
-  `caret`, `colors`) across the interface.
+  `current_line`, `caret`, `colors`) across the interface.
 - An editor's search crosses the interface: `word` of a `Find`, the commands `Replace`,
   `ReplaceAll`, `SelectFound` and `SelectOccurrences`, and `Event::Found`.
 - What a page says of its editor's language crosses the interface: the `comment`'s line and block

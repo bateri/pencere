@@ -918,13 +918,20 @@ pencere_view_types_editor_tint_t tint_at(lua_State* L, int t, const char* name) 
 }
 
 const char* const kCaretShape[] = {"bar", "block", "underline"};
+const char* const kCaretHeight[] = {"row", "text"};
 const char* const kLineNumbers[] = {"absolute", "relative", "hidden"};
+const char* const kLineHighlight[] = {"text", "gutter", "all"};
 static_assert(PENCERE_VIEW_TYPES_CARET_SHAPE_BAR == 0 && PENCERE_VIEW_TYPES_CARET_SHAPE_BLOCK == 1 &&
                   PENCERE_VIEW_TYPES_CARET_SHAPE_UNDERLINE == 2,
               "kCaretShape is the order of caret-shape");
+static_assert(PENCERE_VIEW_TYPES_CARET_HEIGHT_ROW == 0 && PENCERE_VIEW_TYPES_CARET_HEIGHT_TEXT == 1,
+              "kCaretHeight is the order of caret-height");
 static_assert(PENCERE_VIEW_TYPES_LINE_NUMBERS_ABSOLUTE == 0 && PENCERE_VIEW_TYPES_LINE_NUMBERS_RELATIVE == 1 &&
                   PENCERE_VIEW_TYPES_LINE_NUMBERS_HIDDEN == 2,
               "kLineNumbers is the order of line-numbers");
+static_assert(PENCERE_VIEW_TYPES_LINE_HIGHLIGHT_TEXT == 0 && PENCERE_VIEW_TYPES_LINE_HIGHLIGHT_GUTTER == 1 &&
+                  PENCERE_VIEW_TYPES_LINE_HIGHLIGHT_ALL == 2,
+              "kLineHighlight is the order of line-highlight");
 
 // The string `name` of the table at `t`, a part of the frame's text; none where it is not said.
 pencere_view_types_option_slice_t words_at(lua_State* L, int t, const char* name, const char* what,
@@ -998,8 +1005,9 @@ static_assert(PENCERE_VIEW_TYPES_EDITOR_WHITESPACE_NONE == 0 && PENCERE_VIEW_TYP
 // `meta.editor`: { wrap =, tab_width =, hard_tabs =, gutter =, read_only =, keys = "editor" | "page",
 // hint = "words", comment = "--" | { line =, block = }, pairs = "()[]{}", indent = { increase =,
 // decrease = }, folds = "page" | "indent", line_height =, padding =, scroll_margin =,
-// numbers = "absolute" | "relative" | "hidden", whitespace = "none" | "boundary" | "selection" |
-// "trailing" | "all", indent_guides =, caret = { shape =, width =, color =, text = },
+// numbers = "absolute" | "relative" | "hidden", current_line = "text" | "gutter" | "all",
+// whitespace = "none" | "boundary" | "selection" | "trailing" | "all", indent_guides =,
+// caret = { shape =, height =, width =, color =, text = },
 // colors = { current_line =, … } }. What it does not say is the default (a gutter, tabs of four);
 // a number the interface takes as an option goes as none, and the host's default stands. Whether
 // a rule of the indent is a regular expression is the host's to say: the page fails there.
@@ -1035,6 +1043,7 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
         out.scroll_margin.val = margin.val < 0 ? 0 : (margin.val > 255 ? 255 : (uint8_t)margin.val);
     }
     out.numbers = (uint8_t)word(L, t, "numbers", kLineNumbers, 3, 0);
+    out.current_line = (uint8_t)word(L, t, "current_line", kLineHighlight, 3, 0);
     out.whitespace = (uint8_t)word(L, t, "whitespace", kWhitespace, 5, 0);
     out.indent_guides = flag(L, t, "indent_guides");
     out.caret.color.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
@@ -1043,6 +1052,7 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
     int caret = lua_gettop(L);
     if (lua_type(L, caret) == LUA_TTABLE) {
         out.caret.shape = (uint8_t)word(L, caret, "shape", kCaretShape, 3, 0);
+        out.caret.height = (uint8_t)word(L, caret, "height", kCaretHeight, 2, 0);
         out.caret.width = optional_number(L, caret, "width");
         out.caret.color = tint_at(L, caret, "color");
         out.caret.text = tint_at(L, caret, "text");

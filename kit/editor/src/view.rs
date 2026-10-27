@@ -14,7 +14,8 @@ use std::rc::Rc;
 use std::slice;
 
 use pencere_view::edit::{
-    CaretShape, EditorOptions, Look, Mark, Numbers, Range, Underline, Whitespace,
+    CaretHeight, CaretShape, EditorOptions, LineHighlight, Look, Mark, Numbers, Range, Underline,
+    Whitespace,
 };
 use pencere_view::{
     Border, Color, EditorRoom, EditorSlot, Figure, Font, Measure, Paint, Point, Quad, Rect, Role,
@@ -543,15 +544,26 @@ impl View {
         let x = self.text_x() + row.x(into);
         let top = self.pad + row.index as f32 * self.row;
         let drawn = self.caret_box(buffer, &row, at, x, top);
-        Some(Rect::new(drawn.x, top + self.lead, drawn.w, self.line))
+        let (y, h) = self.caret_span(top);
+        Some(Rect::new(drawn.x, y, drawn.w, h))
+    }
+
+    /// Where a caret on the row whose top is `top` starts down, and how tall it is (pixels): the
+    /// row's, or its text's.
+    fn caret_span(&self, top: f32) -> (f32, f32) {
+        match self.options.caret.height {
+            CaretHeight::Row => (top, self.row),
+            CaretHeight::Text => (top + self.lead, self.line),
+        }
     }
 
     /// The caret's box at `at` on `row`, `x` where the place is across and `top` the row's top
-    /// (pixels): a bar or a block as tall as the text, or a line under it; a block and a line as
-    /// wide as the character there (a space at the end of a line).
+    /// (pixels): a bar or a block as tall as the row or the text, or a line under it; a block and
+    /// a line as wide as the character there (a space at the end of a line).
     fn caret_box(&self, buffer: &Buffer, row: &Row, at: usize, x: f32, top: f32) -> Rect {
         let caret = self.options.caret;
         let thick = (caret.width * self.scale).round().max(1.0);
+        let (y, h) = self.caret_span(top);
         let wide = || {
             let end = (row.base + row.to).min(grapheme_after(&buffer.text, at));
             if end > at {
@@ -561,11 +573,9 @@ impl View {
             }
         };
         match caret.shape {
-            CaretShape::Bar => Rect::new(x, top + self.lead, thick, self.line),
-            CaretShape::Block => Rect::new(x, top + self.lead, wide(), self.line),
-            CaretShape::Underline => {
-                Rect::new(x, top + self.lead + self.line - thick, wide(), thick)
-            }
+            CaretShape::Bar => Rect::new(x, y, thick, h),
+            CaretShape::Block => Rect::new(x, y, wide(), h),
+            CaretShape::Underline => Rect::new(x, y + h - thick, wide(), thick),
         }
     }
 
@@ -679,14 +689,20 @@ impl View {
         let main = buffer.main();
         let colors = &self.options.colors;
 
-        // The line of the main caret.
-        if focused
-            && main.is_empty()
-            && let Some(row) = rows.iter().find(|row| self.on_row(row, main.head))
-            && let Some(ground) = colors.current_line.or(Role::Foreground.alpha(0.05))
+        // The line of the main caret: across the text, the gutter or both, as the page says.
+        let band = if focused && main.is_empty() {
+            rows.iter()
+                .find(|row| self.on_row(row, main.head))
+                .zip(colors.current_line.or(Role::Foreground.alpha(0.05)))
+                .map(|(row, ground)| (row_y(row), ground))
+        } else {
+            None
+        };
+        if let Some((y, ground)) = band
+            && self.options.current_line != LineHighlight::Gutter
         {
             out.push(quad(
-                Rect::new(room.x + gutter.w, row_y(row), room.w - gutter.w, self.row),
+                Rect::new(room.x + gutter.w, y, room.w - gutter.w, self.row),
                 fade(ground),
                 text_clip,
             ));
@@ -828,15 +844,17 @@ impl View {
                     {
                         let colors = (fade(color), text_color);
                         let opacity = slot.opacity;
+                        let place = (rect, row_y(row) + self.lead);
                         self.paint_under_block(
-                            buffer, row, at, rect, colors, opacity, text_clip, &mut out,
+                            buffer, row, at, place, colors, opacity, text_clip, &mut out,
                         );
                     }
                 }
             }
         }
         if self.gutter_shown {
-            self.paint_gutter(buffer, &rows, slot, gutter, gutter_clip, &mut out);
+            let band = band.filter(|_| self.options.current_line != LineHighlight::Text);
+            self.paint_gutter(buffer, &rows, slot, (gutter, gutter_clip), band, &mut out);
         }
         out
     }
@@ -1241,15 +1259,16 @@ impl View {
         })
     }
 
-    /// The character at `at` on `row` drawn again on the block caret `rect`: `colors` the block's
-    /// and the character's, in the weight and slant the page's looks give it there.
+    /// The character at `at` on `row` drawn again on the block caret `rect`, its text's top at
+    /// `text_y`: `colors` the block's and the character's, in the weight and slant the page's
+    /// looks give it there.
     #[allow(clippy::too_many_arguments)]
     fn paint_under_block(
         &self,
         buffer: &Buffer,
         row: &Row,
         at: usize,
-        rect: Rect,
+        (rect, text_y): (Rect, f32),
         (block, color): (Color, Color),
         opacity: f32,
         clip: Rect,
@@ -1278,7 +1297,7 @@ impl View {
             }
         }
         out.push(Paint::Text(Run {
-            origin: Point::new(rect.x, rect.y),
+            origin: Point::new(rect.x, text_y),
             text,
             font,
             color,
@@ -1332,15 +1351,16 @@ impl View {
         }
     }
 
-    /// The gutter: its ground (so that what scrolls across goes under it), the number of each line,
-    /// the page's marks and the buttons of the regions that fold.
+    /// The gutter: its ground (so that what scrolls across goes under it), the main caret's line
+    /// where `band` says (its top and colour), the number of each line, the page's marks and the
+    /// buttons of the regions that fold.
     fn paint_gutter(
         &self,
         buffer: &Buffer,
         rows: &[&Row],
         slot: &EditorSlot,
-        gutter: Rect,
-        clip: Rect,
+        (gutter, clip): (Rect, Rect),
+        band: Option<(f32, Color)>,
         out: &mut Vec<Paint>,
     ) {
         let fade = |color: Color| color.faded(slot.opacity);
@@ -1355,6 +1375,18 @@ impl View {
         if let Some(ground) = ground {
             out.push(Paint::Quad(Quad {
                 rect: gutter,
+                radii: [0.0; 4],
+                fill: Some(fade(ground)),
+                gradient: None,
+                border: None,
+                shadow: None,
+                clip,
+            }));
+        }
+        // The main caret's line where the page draws it in the gutter too, `y` its top.
+        if let Some((y, ground)) = band {
+            out.push(Paint::Quad(Quad {
+                rect: Rect::new(gutter.x, y, gutter.w, self.row),
                 radii: [0.0; 4],
                 fill: Some(fade(ground)),
                 gradient: None,

@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
-    Caret, CaretShape, CommentTokens, EditorAsk, EditorColors, EditorOptions, Folds, IndentRules,
-    Mark, Numbers, Origin, TextSnapshot, Tint, Whitespace,
+    Caret, CaretHeight, CaretShape, CommentTokens, EditorAsk, EditorColors, EditorOptions, Folds,
+    IndentRules, LineHighlight, Mark, Numbers, Origin, TextSnapshot, Tint, Whitespace,
 };
 use pencere_view::{
     Element, Event, Font, Id, Input, Key, Keyboard, Laid, Measure, Metrics, Mods, Paint, Point,
@@ -84,11 +84,23 @@ impl Rig {
 
     /// Runs a page that is to fail: why it did.
     fn failing(script: &str) -> String {
-        let rig = Self::start(script, true);
-        match rig.fault {
+        let mut rig = Self::start(script, true);
+        match rig.failure() {
             Some(Fault::Failed(why)) => why,
             other => panic!("expected the page to fail, it is {other:?}"),
         }
+    }
+
+    /// Why the page failed, waited for as long as a loaded machine may take: `run` comes to rest
+    /// after 400 ms with nothing new, before a page that fails slowly (beside a build) has said so.
+    fn failure(&mut self) -> Option<Fault> {
+        if self.fault.is_none() && self.may_close {
+            let update = self
+                .page
+                .until(Duration::from_secs(20), |u| u.closed.is_some());
+            self.fault = update.closed.clone();
+        }
+        self.fault.clone()
     }
 
     fn start(script: &str, may_close: bool) -> Self {
@@ -597,7 +609,8 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
                     padding = 9,
                     scroll_margin = 3,
                     numbers = "relative",
-                    caret = { shape = "block", width = 2, color = "accent", text = { "magenta", 0.5 } },
+                    current_line = "all",
+                    caret = { shape = "block", height = "text", width = 3, color = "accent", text = { "magenta", 0.5 } },
                     colors = { current_line = false, selection = "raised1", numbers = "dim" },
                 }):grow(1))
             end,
@@ -617,9 +630,11 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
             padding: 9.0,
             scroll_margin: 3,
             numbers: Numbers::Relative,
+            current_line: LineHighlight::All,
             caret: Caret {
                 shape: CaretShape::Block,
-                width: 2.0,
+                height: CaretHeight::Text,
+                width: 3.0,
                 color: Tint::Color(Role::Accent.solid()),
                 text: Tint::Color(Role::Magenta.alpha(0.5)),
             },
@@ -1624,7 +1639,7 @@ fn a_timer_that_fails_fails_the_page_at_its_line_and_a_wake_that_is_no_time_is_a
         true,
     );
     rig.wakes();
-    let Some(Fault::Failed(why)) = &rig.fault else {
+    let Some(Fault::Failed(why)) = &rig.failure() else {
         panic!("the page failed: {:?}", rig.fault);
     };
     assert!(why.starts_with("script.lua:2: the timer broke"), "{why}");
@@ -1658,7 +1673,7 @@ fn a_timer_that_fails_fails_the_page_at_its_line_and_a_wake_that_is_no_time_is_a
             true,
         );
         rig.command("go");
-        let Some(Fault::Failed(why)) = &rig.fault else {
+        let Some(Fault::Failed(why)) = &rig.failure() else {
             panic!("a wake of {wake} failed the page: {:?}", rig.fault);
         };
         assert!(
