@@ -1,4 +1,4 @@
-.PHONY: setup fmt check check-heavy audit guest luau dist dist-linux dist-macos dist-sums release-prepare rehearse
+.PHONY: setup fmt check check-heavy audit guest luau dist dist-linux dist-macos dist-sums runner release-prepare rehearse
 
 # Installs the TypeScript half's dependencies from the lockfile. The only
 # target that reaches the network.
@@ -163,6 +163,14 @@ dist-macos:
 
 dist-sums:
 	$(DIST_ENV) tools/dist.sh sums
+
+# The runner of one target (TARGET, one of the four above), built from this checkout into OUT
+# (target/runners/pencere-<target>), for an app built with a pencere that has no release:
+# `pencere build --target TARGET --runner OUT`. It is built and checked as the executable of a
+# release is (Linux in Docker, macOS on Apple silicon), without the rest of a release.
+runner:
+	@test -n "$(TARGET)" || { echo "usage: make runner TARGET=<target> [OUT=<file>]"; exit 2; }
+	$(DIST_ENV) tools/dist.sh runner $(TARGET) $(OUT)
 
 # Releasing a line (RELEASING.md). LINE is one of the lines in tools/lines.mjs: sdk-typescript
 # (@pencere/sdk), crates (the seven crates, one version) or cli (the pencere command). A release is

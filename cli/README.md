@@ -232,7 +232,9 @@ run it with `--log FILE` to read them in a file. `pencere dev` does that by itse
   is signed ad hoc, in the process; a Linux one is static.
 - **Another target without its toolchain.** `--target` fetches the same version's runner of that
   target from the release (`curl`, checked against the release's `SHA256SUMS`, kept in the cache),
-  and `--runner FILE` uses one you have.
+  and `--runner FILE` uses one you have. A pencere that is not released, a commit of it, has no
+  runners to fetch: `make runner TARGET=<target>` in a checkout of it builds one into
+  `target/runners/` (Docker for Linux, a Mac for macOS).
 - **Other languages need nothing of this to run.** The protocol is bytes; the TypeScript SDK
   (`@pencere/sdk`, `deno compile`) and the Rust library (`pencere`) are the same program in other
   words, and `pencere new --lang ts|rust` starts one. For a Rust program `dev` and `build` are a
