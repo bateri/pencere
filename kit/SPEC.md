@@ -193,13 +193,12 @@ list grows, taken as it is) or `Rows.even(count, height)` (rows of one height, a
 window, `:at(y)`, `:top(index)`, `:total()` and `:reveal(index, offset, view)` the offset that shows
 a row. `pencere.Built` (`Built.new()`, one for each list) is which rows to build as the host scrolls:
 the host moves what is built at once and the page builds what comes into view a frame or two later,
-so `built:span(rows, offset, view)` builds a view and a half ahead of what is in view, the way the
-list goes, and half a view behind (as much both ways before it has moved, all of it the other way at
-an end of the list, which can only go back), and keeps what it built
-while that holds what is in view with three quarters of a view to spare the way the list goes;
-`built:stale(rows, offset, view)`, asked with a `scrolled` box's offset, is whether the page is to be
-built again for it. A list that goes less than three quarters of a view a frame finds its rows built,
-and the page is built about once in three quarters of a view, not at every turn of the wheel.
+so `built:span(rows, offset, view)` builds two views ahead of what is in view, the way the list goes,
+and half a view behind (as much both ways before it has moved, all of it the other way at an end of
+the list, which can only go back), and keeps what it built while that holds what is in view with a
+view to spare the way the list goes; `built:stale(rows, offset, view)`, asked with a `scrolled` box's
+offset, is whether the page is to be built again for it. A list that goes less than a view a frame
+finds its rows built, and the page is built about once a view, not at every turn of the wheel.
 
 How far a box is scrolled is the **host's**, not the page's. A box that says `scroll()` and has an id
 is moved by the wheel, the trackpad and its scroll bars as the host's system moves them (its speed,

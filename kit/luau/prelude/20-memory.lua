@@ -271,14 +271,15 @@ end
 -- How much of a list is built beyond what is in view, in views: more the way it goes than behind
 -- it, for the host scrolls what is built at once and the page builds what comes into view only a
 -- frame or two later. How near the end of what is built, the way the list goes, what is in view
--- comes before the page is built again, in views.
-local AHEAD, BEHIND, NEAR = 1.5, 0.5, 0.75
+-- comes before the page is built again, in views: as much as comes into view while the page
+-- builds, at the most a person scrolls.
+local AHEAD, BEHIND, NEAR = 2, 0.5, 1
 
 -- Which rows of a long list a page built, and which way the list goes: kept between frames (one
--- for each list), so that the page builds a view and a half of rows ahead of what is in view and
--- half a view behind it, and is built again only when what is in view comes within three quarters
--- of a view of the end of what was built, the way the list goes: not at every turn of the wheel,
--- and never short of what scrolling brings into view while it keeps up. `built:span` is the rows to
+-- for each list), so that the page builds two views of rows ahead of what is in view and half a
+-- view behind it, and is built again only when what is in view comes within a view of the end of
+-- what was built, the way the list goes: not at every turn of the wheel, and never short of what
+-- scrolling brings into view while it keeps up. `built:span` is the rows to
 -- build; `built:stale`, in a `scrolled` event, whether the list's new place means building again.
 local Built = {}
 Built.__index = Built

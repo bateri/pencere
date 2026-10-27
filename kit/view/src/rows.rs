@@ -178,17 +178,18 @@ impl Rows {
 /// How much of a list is built beyond what is in view, in views: more the way it goes than behind
 /// it, for the host scrolls what is built at once and the page builds what comes into view only a
 /// frame or two later.
-const AHEAD: f32 = 1.5;
+const AHEAD: f32 = 2.0;
 const BEHIND: f32 = 0.5;
 /// How near the end of what is built, the way the list goes, what is in view comes before the page
-/// is built again, in views.
-const NEAR: f32 = 0.75;
+/// is built again, in views: as much as comes into view while the page builds, at the most a
+/// person scrolls.
+const NEAR: f32 = 1.0;
 
 /// Which rows of a long list a page built, and which way the list goes: kept between frames, so
-/// that the page builds a view and a half of rows ahead of what is in view and half a view behind
-/// it, and is built again only when what is in view comes within three quarters of a view of the
-/// end of what was built, the way the list goes — not at every turn of the wheel, and never short
-/// of what scrolling brings into view while it keeps up.
+/// that the page builds two views of rows ahead of what is in view and half a view behind it, and
+/// is built again only when what is in view comes within a view of the end of what was built, the
+/// way the list goes — not at every turn of the wheel, and never short of what scrolling brings
+/// into view while it keeps up.
 ///
 /// The page asks [`Built::span`] which rows to build, and [`Built::stale`] whether the list's
 /// being scrolled to an offset (`Event::Scrolled`) means it is to be built again.
@@ -429,26 +430,26 @@ mod tests {
     }
 
     #[test]
-    fn a_list_that_goes_by_three_quarters_of_a_view_a_frame_finds_its_rows_built() {
+    fn a_list_that_goes_by_a_view_a_frame_finds_its_rows_built() {
         let rows = flat(20_000);
         let view = 600.0;
-        for speed in [1.0, 10.0, 120.0, 300.0, 450.0] {
+        for speed in [1.0, 10.0, 120.0, 300.0, 600.0] {
             scroll_by_frames(&rows, view, 0.0, speed, 2000);
             scroll_by_frames(&rows, view, rows.total(), -speed, 2000);
         }
         // Uneven rows are found built as well.
         let uneven = Rows::new((0..5000).map(|i| if i % 9 == 0 { 64.0 } else { 26.0 }));
-        scroll_by_frames(&uneven, view, 0.0, 400.0, 1000);
-        scroll_by_frames(&uneven, view, uneven.total(), -400.0, 1000);
+        scroll_by_frames(&uneven, view, 0.0, 550.0, 1000);
+        scroll_by_frames(&uneven, view, uneven.total(), -550.0, 1000);
     }
 
     #[test]
-    fn a_list_is_built_again_once_in_three_quarters_of_a_view_and_not_at_every_turn() {
+    fn a_list_is_built_again_once_in_a_view_and_not_at_every_turn() {
         let rows = flat(20_000);
         let view = 600.0;
-        // 20 000 points down, ten at a time: a build in about every 450 points, not 2 000.
+        // 20 000 points down, ten at a time: a build in about every 600 points, not 2 000.
         let builds = scroll_by_frames(&rows, view, 0.0, 10.0, 2000);
-        assert!((40..=50).contains(&builds), "{builds} builds");
+        assert!((30..=38).contains(&builds), "{builds} builds");
         let up = scroll_by_frames(&rows, view, 640_000.0, -10.0, 2000);
         assert!(
             up.abs_diff(builds) <= 1,
@@ -470,16 +471,16 @@ mod tests {
         let down = built.span(&rows, 100_000.0, view);
         let in_view = rows.window(100_000.0, view, 0.0);
         assert!(down.end - in_view.end > 2 * (in_view.start - down.start));
-        assert!(!built.stale(&rows, 100_300.0, view));
+        assert!(!built.stale(&rows, 100_500.0, view));
         // It turns: what is built is the same until what is in view comes near its top.
-        assert!(!built.stale(&rows, 100_290.0, view));
-        assert_eq!(built.span(&rows, 100_290.0, view), down);
-        assert!(built.stale(&rows, 100_100.0, view));
-        let up = built.span(&rows, 100_100.0, view);
-        let in_view = rows.window(100_100.0, view, 0.0);
+        assert!(!built.stale(&rows, 100_490.0, view));
+        assert_eq!(built.span(&rows, 100_490.0, view), down);
+        assert!(built.stale(&rows, 100_300.0, view));
+        let up = built.span(&rows, 100_300.0, view);
+        let in_view = rows.window(100_300.0, view, 0.0);
         assert!(in_view.start - up.start > 2 * (up.end - in_view.end));
         // Asked again where it is, it still goes up.
-        assert_eq!(built.span(&rows, 100_100.0, view), up);
+        assert_eq!(built.span(&rows, 100_300.0, view), up);
     }
 
     #[test]
@@ -488,18 +489,19 @@ mod tests {
         let view = 640.0;
         let end = rows.total() - view;
         let mut built = Built::new();
-        // Gone down to the end, the list can only go back: what is built is two views above it.
+        // Gone down to the end, the list can only go back: what is built is two views and a half
+        // above it.
         built.span(&rows, end - 5000.0, view);
         let at_end = built.span(&rows, end, view);
         assert_eq!(at_end.end, rows.len());
-        assert_eq!(at_end.start, rows.window(end - 2.0 * view, view, 0.0).start);
-        // And it goes back up a view and a quarter before it is built again.
-        assert!(!built.stale(&rows, end - 1.2 * view, view));
-        assert!(built.stale(&rows, end - 1.3 * view, view));
-        // At the top, before it has moved, three views are built below.
+        assert_eq!(at_end.start, rows.window(end - 2.5 * view, view, 0.0).start);
+        // And it goes back up a view and a half before it is built again.
+        assert!(!built.stale(&rows, end - 1.4 * view, view));
+        assert!(built.stale(&rows, end - 1.6 * view, view));
+        // At the top, before it has moved, four views are built below.
         let mut built = Built::new();
         let top = built.span(&rows, 0.0, view);
-        assert_eq!(top, rows.window(0.0, 4.0 * view, 0.0));
+        assert_eq!(top, rows.window(0.0, 5.0 * view, 0.0));
     }
 
     #[test]
