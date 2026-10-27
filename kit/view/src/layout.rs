@@ -1340,6 +1340,40 @@ impl Laid {
         ))
     }
 
+    /// What is drawn over the box that scrolls at `index` where it shows, points: what comes after
+    /// it in the paint order and is not inside it (an overlay, wherever it is written, comes after
+    /// everything). Its bars answer the pointer only where none of it is, as its elements do
+    /// ([`Laid::ids_at`]).
+    pub(crate) fn covering(&self, index: usize) -> Vec<Rect> {
+        let Some(node) = self.nodes.get(index) else {
+            return Vec::new();
+        };
+        let shown = Self::shown(node);
+        let inside = |mut at: usize| loop {
+            if at == index {
+                return true;
+            }
+            match self.nodes.get(at).and_then(|node| node.parent) {
+                Some(parent) => at = parent,
+                None => return false,
+            }
+        };
+        // What is inside it follows it; an overlay written inside it is lifted to the end, a child
+        // of the page's box, so all that comes after the first that is not inside it is over it.
+        let after = (index + 1..self.nodes.len())
+            .find(|at| !inside(*at))
+            .unwrap_or(self.nodes.len());
+        let s = self.scale;
+        self.nodes
+            .iter()
+            .skip(after)
+            .filter(|other| !other.hidden)
+            .map(|other| Self::shown(other).intersect(shown))
+            .filter(|cut| cut.w > 0.0 && cut.h > 0.0)
+            .map(|cut| Rect::new(cut.x / s, cut.y / s, cut.w / s, cut.h / s))
+            .collect()
+    }
+
     /// The part of the page the box at `index` shows, pixels: its box, cut by those around it.
     pub(crate) fn shown_at(&self, index: usize) -> Option<Rect> {
         self.nodes.get(index).map(Self::shown)

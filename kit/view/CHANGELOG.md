@@ -8,6 +8,12 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
+### Fixed
+
+- A box's bars answer the pointer only where nothing is drawn over them: under a dialog or a popup
+  (an overlay, or anything after the box in the paint order) a bar was lit by the pointer and took
+  its press, which was the dialog's.
+
 ### Added
 
 - **Editors.** `editor(id, EditorOptions)` makes a box the room of an editor of text of the host's
