@@ -299,6 +299,43 @@ said), `editor_length(id)` and `editor_lines(id)`, `editor_text(id, from, to)` (
 a large document is read in pieces), `line_start(id, line)` and `line_of(id, at)`. A page reads in
 the `edit` event the text of the version the event is of.
 
+**A language** that colours an editor is the page's, and `pencere.Syntax` makes one the way
+CodeMirror's `StreamLanguage` does. `pencere.Syntax.define { name =, start =, token =, copy =,
+equal =, blank =, styles = }` reads a line a token at a time: `token(stream, state)` takes at least
+a character from the stream and says the name of its style, or nil, and the state carries what a
+line leaves open to the next (`start()` is the state before the first line; `copy` and `equal` copy
+and compare two, by default tables all the way down; `blank(state)` is told of a line with nothing
+on it). `styles` gives a name a look, a decoration's (`color`, `background`, `weight`, `italic`,
+`underline`, `strike`): a name may be several apart (`"keyword strong"`, the later's look over the
+earlier's), a dotted one falls back to what is before its last dot (`"string.special"` to
+`"string"`), and one no style says is not coloured. The stream is the line, its `\r` left out
+(`string`), and where it is (`pos`, and `start` where the token began, bytes from 1): `sol()`,
+`eol()`, `peek()` and `next()` (a character is a whole UTF-8 sequence), `eat(match)` and
+`eat_while(match)` (a character is itself, a longer string a Lua pattern the character matches, a
+function says yes or no), `eat_space()`, `skip_to_end()`, `skip_to(text)`, `backup(count)`
+(characters), `column()` and `indentation()` (a tab to its next stop), `match(pattern, consume,
+case_insensitive)` (a Lua pattern read where the stream is: the text matched or its captures, taken
+unless `consume` is false) and `current()`. A `token` that takes nothing fails the page, as any
+error of the language's does, in words that say the language's name and the line
+(`sql: line 12: …`). `language:tokens(text, state)` is a line's tokens in characters, for a text
+that is not in an editor.
+
+`pencere.Syntax.new(language, id, { layer =, step =, margin =, tab_width = })` colours the editor
+`id` with it. It keeps the state after each line of the document and is given every event of the
+page (`syntax:handle(event)`): an `edit` makes it read again from the first line the change touched
+until a line ends in the state it ended in before, a `viewport` says what to colour. It colours the
+lines in view and `margin` lines on each side (as many as are in view) in the layer `layer`
+(`"syntax"`), in characters, a line again only where it or the state before it changed, and takes
+away what it coloured out of them. One call reads at most `step` bytes (20 000), the lines to colour
+first, and a line to its first 10 000 characters (the state after it is the state there). Where the
+lines in view are further on than a call reads to, they are coloured from the state the language
+starts in, and the calls after read on to them and colour again what that got wrong. What it asks
+of the editor goes in the page's reply (`syntax:reply(reply)`, which asks for the next frame as well
+while there is more to do; or `syntax:asks()`), and the page goes on with it in `render`
+(`syntax:work()`, with `syntax:busy()` as `animating`). `render` hands the editor nothing: what a
+frame finds to colour again goes with the page's next reply. It does nothing for a page that does
+not use it.
+
 A long list builds only the rows near what is in view, and keeps the rest of its length with a spacer
 above and one below. `box:list(rows, make)` does all of it: in a box with a name that scrolls, a
 column with no padding above and no gap between its children, it puts a spacer, the rows near what

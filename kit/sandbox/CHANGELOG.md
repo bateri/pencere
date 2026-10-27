@@ -80,6 +80,18 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   window is. Under them, `pencere.Built`, which rows of a long list to build as the host scrolls it
   and whether a `scrolled` box is to be built again, and `pencere.Rows.even` and
   `pencere.Rows.from_tops`, as the engine's `Built` and `Rows` (see `pencere-view`).
+- `pencere.Syntax`: a language that colours an editor, as CodeMirror's `StreamLanguage` does.
+  `pencere.Syntax.define { name, start, token, copy, equal, blank, styles }` reads a line a token at
+  a time from a stream (`sol`, `eol`, `peek`, `next`, `eat`, `eat_while`, `eat_space`,
+  `skip_to_end`, `skip_to`, `backup`, `column`, `indentation`, `match` with Lua's patterns,
+  `current`) with a state carried from line to line, and a token's name is looked up in its
+  `styles` by each of its names and by what is before a dot.
+  `pencere.Syntax.new(language, editor, options)` keeps the state after each line, reads again
+  after an edit only until the state is what it was, colours the lines in view and a margin (in
+  characters) and takes away the rest, and reads at most `step` bytes a call (20 000), lines in view
+  far on coloured from a guess and read to in the frames after (`handle`, `work`, `busy`, `reply`,
+  `asks`). A token that reads nothing fails the page with the language's name and the line. A page
+  that does not use it has none of it.
 
 ### Changed
 
