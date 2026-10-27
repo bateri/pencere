@@ -44,7 +44,8 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 - **The host scrolls.** `Scrolls` is how far each box of a page is scrolled, kept by the host and
   not the page: the wheel and the trackpad move a box at once on the page already laid out
   (`Scrolls::wheel`, with the system's `Phase` of the gesture: a gesture stays with the box it
-  started on, and with `set_elastic` a box pulled past its end springs back), its bars are drawn
+  started on, and with `set_elastic` a box pulled past its end springs back; what of the turn no
+  box took is the page's, `Wheeled::left`), its bars are drawn
   as the system's are (`Bars`) and are dragged and clicked (`press`, `point`, `release`,
   `set_track_jumps`), and a page asks for a box to go somewhere (`ScrollTo`, `Scrolls::ask`, over a
   glide or at once). A box moves without the page being laid out again (`Scrolls::place` moves what

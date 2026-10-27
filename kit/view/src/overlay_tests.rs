@@ -270,7 +270,9 @@ fn the_wheel_over_an_overlay_does_not_reach_what_it_covers() {
     assert_eq!(laid.ids_at(over), vec![BUTTON, MENU, COVER]);
     let mut scrolls = crate::Scrolls::new();
     let wheel = |scrolls: &mut crate::Scrolls, at| {
-        scrolls.wheel(&laid, at, 0.0, 30.0, crate::Phase::Wheel, 0.0)
+        scrolls
+            .wheel(&laid, at, 0.0, 30.0, crate::Phase::Wheel, 0.0)
+            .took
     };
     assert!(
         !wheel(&mut scrolls, over),

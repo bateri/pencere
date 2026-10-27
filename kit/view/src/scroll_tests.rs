@@ -132,8 +132,16 @@ fn a_box_moved_on_the_page_laid_out_is_where_laying_it_out_scrolled_puts_it() {
 fn the_page_is_told_where_its_boxes_went_once() {
     let mut scrolls = Scrolls::new();
     let laid = placed(&mut scrolls, list(), 0.0);
-    assert!(scrolls.wheel(&laid, OVER, 0.0, 30.0, Phase::Wheel, 0.0));
-    assert!(scrolls.wheel(&laid, OVER, 0.0, 10.0, Phase::Wheel, 0.0));
+    assert!(
+        scrolls
+            .wheel(&laid, OVER, 0.0, 30.0, Phase::Wheel, 0.0)
+            .took
+    );
+    assert!(
+        scrolls
+            .wheel(&laid, OVER, 0.0, 10.0, Phase::Wheel, 0.0)
+            .took
+    );
     assert_eq!(scrolls.take_moved(), vec![(LIST, Point::new(0.0, 40.0))]);
     assert!(scrolls.take_moved().is_empty());
     // The rows are moved on the page already laid out, and the page asks of it where they are.
@@ -169,9 +177,21 @@ fn a_gesture_stays_with_the_box_it_started_on_and_the_next_one_goes_on() {
     let mut scrolls = Scrolls::new();
     let laid = placed(&mut scrolls, nested(), 0.0);
     let over_inner = Point::new(50.0, 10.0);
-    assert!(scrolls.wheel(&laid, over_inner, 0.0, 0.0, Phase::Begin, 0.0));
-    assert!(scrolls.wheel(&laid, over_inner, 0.0, 30.0, Phase::Move, 0.0));
-    assert!(scrolls.wheel(&laid, over_inner, 0.0, 30.0, Phase::Move, 0.0));
+    assert!(
+        scrolls
+            .wheel(&laid, over_inner, 0.0, 0.0, Phase::Begin, 0.0)
+            .took
+    );
+    assert!(
+        scrolls
+            .wheel(&laid, over_inner, 0.0, 30.0, Phase::Move, 0.0)
+            .took
+    );
+    assert!(
+        scrolls
+            .wheel(&laid, over_inner, 0.0, 30.0, Phase::Move, 0.0)
+            .took
+    );
     assert_eq!(scrolls.offset(INNER).y, 40.0, "the inner list at its end");
     assert_eq!(
         scrolls.offset(LIST).y,
@@ -180,8 +200,16 @@ fn a_gesture_stays_with_the_box_it_started_on_and_the_next_one_goes_on() {
     );
     scrolls.wheel(&laid, over_inner, 0.0, 0.0, Phase::Lift, 0.0);
     // A new gesture down over the inner list, which cannot go further: the outer one moves.
-    assert!(scrolls.wheel(&laid, over_inner, 0.0, 0.0, Phase::Begin, 1.0));
-    assert!(scrolls.wheel(&laid, over_inner, 0.0, 30.0, Phase::Move, 1.0));
+    assert!(
+        scrolls
+            .wheel(&laid, over_inner, 0.0, 0.0, Phase::Begin, 1.0)
+            .took
+    );
+    assert!(
+        scrolls
+            .wheel(&laid, over_inner, 0.0, 30.0, Phase::Move, 1.0)
+            .took
+    );
     assert_eq!(scrolls.offset(LIST).y, 30.0);
     assert_eq!(scrolls.offset(INNER).y, 40.0);
 }
@@ -192,7 +220,11 @@ fn a_box_pulled_past_its_end_springs_back_when_the_fingers_leave() {
     scrolls.set_elastic(true);
     let mut laid = placed(&mut scrolls, list(), 0.0);
     scrolls.wheel(&laid, OVER, 0.0, 0.0, Phase::Begin, 0.0);
-    assert!(scrolls.wheel(&laid, OVER, 0.0, -100.0, Phase::Move, 0.0));
+    assert!(
+        scrolls
+            .wheel(&laid, OVER, 0.0, -100.0, Phase::Move, 0.0)
+            .took
+    );
     assert_eq!(scrolls.offset(LIST).y, 0.0, "still at the start");
     scrolls.place(&mut laid, 0.0, false);
     let pulled = row_y(&laid, 0) - 20.0;
@@ -222,7 +254,11 @@ fn momentum_that_runs_into_an_end_bounces_once_and_is_spent() {
     scrolls.wheel(&laid, OVER, 0.0, 0.0, Phase::Begin, 0.0);
     scrolls.wheel(&laid, OVER, 0.0, 100.0, Phase::Move, 0.0);
     scrolls.wheel(&laid, OVER, 0.0, 0.0, Phase::Lift, 0.0);
-    assert!(scrolls.wheel(&laid, OVER, 0.0, 40.0, Phase::Coast, 0.02));
+    assert!(
+        scrolls
+            .wheel(&laid, OVER, 0.0, 40.0, Phase::Coast, 0.02)
+            .took
+    );
     assert_eq!(
         scrolls.offset(LIST).y,
         120.0,
@@ -231,7 +267,9 @@ fn momentum_that_runs_into_an_end_bounces_once_and_is_spent() {
     scrolls.place(&mut laid, 0.02, false);
     assert!(scrolls.moving(0.02), "springing back");
     assert!(
-        scrolls.wheel(&laid, OVER, 0.0, -40.0, Phase::Coast, 0.04),
+        scrolls
+            .wheel(&laid, OVER, 0.0, -40.0, Phase::Coast, 0.04)
+            .took,
         "what momentum is left is the box's, and moves nothing"
     );
     assert_eq!(scrolls.offset(LIST).y, 120.0);
@@ -416,4 +454,23 @@ fn a_click_in_the_track_goes_there_where_the_system_says_so() {
         "the knob's middle under the pointer, at the end"
     );
     assert!(scrolls.holding(), "and held from there");
+}
+
+#[test]
+fn a_box_that_scrolls_only_down_leaves_the_turn_across_to_the_page() {
+    let mut scrolls = Scrolls::new();
+    let laid = placed(&mut scrolls, list(), 0.0);
+    // A wheel: down is the list's, across no box's.
+    let wheel = scrolls.wheel(&laid, OVER, 25.0, 30.0, Phase::Wheel, 0.0);
+    assert!(wheel.took);
+    assert_eq!(wheel.left, Point::new(25.0, 0.0));
+    // A gesture: the list it is with takes down, and across is the page's all along.
+    scrolls.wheel(&laid, OVER, 0.0, 0.0, Phase::Begin, 1.0);
+    let moving = scrolls.wheel(&laid, OVER, 12.0, 4.0, Phase::Move, 1.0);
+    assert!(moving.took);
+    assert_eq!(moving.left, Point::new(12.0, 0.0));
+    // Over what does not scroll, all of it is the page's.
+    let header = scrolls.wheel(&laid, Point::new(50.0, 5.0), 3.0, 7.0, Phase::Wheel, 2.0);
+    assert!(!header.took);
+    assert_eq!(header.left, Point::new(3.0, 7.0));
 }

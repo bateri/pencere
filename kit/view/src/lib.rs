@@ -64,7 +64,7 @@ pub use motion::{Ease, Motion, Motions, Shift, Tip};
 pub use paint::{DrawList, Figure, Paint, Picture, Quad, Run};
 pub use rich::{Span, span};
 pub use rows::Rows;
-pub use scrolls::{Bars, Phase, ScrollTo, Scrolls};
+pub use scrolls::{Bars, Phase, ScrollTo, Scrolls, Wheeled};
 pub use style::{Anchor, Border, Gradient, Shadow, Side, Track};
 pub use text::{Align, Family, Font, Measure, Metrics};
 pub use ui::{Drag, Dropped, Ui};

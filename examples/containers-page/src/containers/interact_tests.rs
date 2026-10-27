@@ -52,7 +52,7 @@ fn lay(page: &mut Containers, height: f32) -> Laid {
 
 /// A turn of the wheel over `at` on the page `laid`, as the host takes it: whether a box moved.
 fn wheel(laid: &Laid, at: Point, dy: f32) -> bool {
-    SCROLLS.with_borrow_mut(|scrolls| scrolls.wheel(laid, at, 0.0, dy, Phase::Wheel, 0.0))
+    SCROLLS.with_borrow_mut(|scrolls| scrolls.wheel(laid, at, 0.0, dy, Phase::Wheel, 0.0).took)
 }
 
 /// How far the host has the list scrolled.

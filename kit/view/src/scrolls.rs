@@ -77,6 +77,16 @@ pub struct ScrollTo {
     pub animate: bool,
 }
 
+/// What a turn of the wheel came to: whether a box took it (the host draws again, by
+/// [`Scrolls::place`] on the same page), and what of it no box took, points across and down — the
+/// page's to have ([`crate::Input::Scroll`]): a box that scrolls only down leaves the turn across
+/// to the page under it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Wheeled {
+    pub took: bool,
+    pub left: Point,
+}
+
 /// How far a box is pulled past its end against how far the fingers went past it: less and less,
 /// never more than the box itself (the curve of a scroll view of macOS).
 const RUBBER: f32 = 0.55;
@@ -227,9 +237,8 @@ impl Scrolls {
     // --- The wheel -------------------------------------------------------------------------
 
     /// The wheel turned, or the fingers moved on the trackpad, over `at` (points of the page
-    /// `laid`) by `dx` and `dy` (positive: the content moves left and up). Returns whether a box
-    /// took it: one that did not is the page's to have ([`crate::Input::Scroll`]). After a box took
-    /// it the host draws again, by [`Scrolls::place`] on the same page.
+    /// `laid`) by `dx` and `dy` (positive: the content moves left and up): whether a box took it,
+    /// and what of it is the page's ([`Wheeled`]).
     pub fn wheel(
         &mut self,
         laid: &Laid,
@@ -238,7 +247,8 @@ impl Scrolls {
         dy: f32,
         phase: Phase,
         now: f64,
-    ) -> bool {
+    ) -> Wheeled {
+        let nothing = Point::new(0.0, 0.0);
         match phase {
             Phase::Wheel => {
                 self.latch = None;
@@ -248,23 +258,40 @@ impl Scrolls {
                 self.latch = None;
                 self.catch(laid, at, now);
                 // The touch moves nothing: there is nothing for the page.
-                true
+                Wheeled {
+                    took: true,
+                    left: nothing,
+                }
             }
             Phase::Move | Phase::Coast => {
-                if dx == 0.0 && dy == 0.0 {
-                    return self.latch.is_some();
-                }
-                if self.latch.is_none() {
+                if self.latch.is_none() && (dx != 0.0 || dy != 0.0) {
                     self.latch = self.choose(laid, at, dx, dy).map(|id| (id, false));
                 }
                 let Some((id, spent)) = self.latch else {
-                    return false;
+                    return Wheeled {
+                        took: false,
+                        left: Point::new(dx, dy),
+                    };
                 };
-                if !spent {
+                // The way the box does not scroll is the page's.
+                let reach = self.boxes.get(&id).and_then(|b| b.extent);
+                let left = Point::new(
+                    if reach.is_some_and(|e| e.max_offset_x() > 0.0) {
+                        0.0
+                    } else {
+                        dx
+                    },
+                    if reach.is_some_and(|e| e.max_offset() > 0.0) {
+                        0.0
+                    } else {
+                        dy
+                    },
+                );
+                if !spent && (dx != 0.0 || dy != 0.0) {
                     let spent = self.pull_by(id, dx, dy, phase == Phase::Coast, now);
                     self.latch = Some((id, spent));
                 }
-                true
+                Wheeled { took: true, left }
             }
             Phase::Lift | Phase::Stop => {
                 let latched = self.latch.map(|(id, _)| id);
@@ -275,16 +302,22 @@ impl Scrolls {
                     let reduce = self.reduce_motion;
                     let_go(b, now, reduce);
                 }
-                latched.is_some()
+                Wheeled {
+                    took: latched.is_some(),
+                    left: nothing,
+                }
             }
         }
     }
 
     /// A wheel that turns in steps: for each way, the innermost box under the pointer that has
     /// room that way moves; one at its end passes the turn to the box around it.
-    fn chain(&mut self, laid: &Laid, at: Point, dx: f32, dy: f32, now: f64) -> bool {
+    fn chain(&mut self, laid: &Laid, at: Point, dx: f32, dy: f32, now: f64) -> Wheeled {
         let under = laid.ids_at(at);
-        let mut moved = false;
+        let mut moved = Wheeled {
+            took: false,
+            left: Point::new(dx, dy),
+        };
         for (delta, across) in [(dx, true), (dy, false)] {
             if delta == 0.0 {
                 continue;
@@ -301,7 +334,8 @@ impl Scrolls {
                     set_along(&mut b.offset, across, to);
                     b.glide = None;
                     b.moved_at = Some(now);
-                    moved = true;
+                    moved.took = true;
+                    set_along(&mut moved.left, across, 0.0);
                     break;
                 }
             }
@@ -311,29 +345,39 @@ impl Scrolls {
 
     /// The box a gesture moves: under the pointer, the innermost that can go the way the fingers
     /// mostly go; where none can (each is at that end), the innermost that scrolls that way at all,
-    /// to be pulled past its end.
+    /// to be pulled past its end. Where no box scrolls that way, the same the other way, if the
+    /// fingers go that way at all.
     fn choose(&self, laid: &Laid, at: Point, dx: f32, dy: f32) -> Option<Id> {
-        let across = dx.abs() > dy.abs();
-        let delta = if across { dx } else { dy };
+        let mostly_across = dx.abs() > dy.abs();
         let under: Vec<(Id, Extent)> = laid
             .ids_at(at)
             .into_iter()
             .filter_map(|id| Some((id, laid.scroll_extent(id)?)))
-            .filter(|(_, extent)| reach_of(*extent, across) > 0.0)
             .collect();
-        let can_go = |(id, extent): &(Id, Extent)| {
-            let offset = along(self.offset(*id), across);
-            if delta > 0.0 {
-                offset < reach_of(*extent, across)
-            } else {
-                offset > 0.0
-            }
-        };
-        under
-            .iter()
-            .find(|candidate| can_go(candidate))
-            .or_else(|| under.first())
-            .map(|(id, _)| *id)
+        [(mostly_across, true), (!mostly_across, false)]
+            .into_iter()
+            .find_map(|(across, first)| {
+                let delta = if across { dx } else { dy };
+                if delta == 0.0 && !first {
+                    return None;
+                }
+                let way: Vec<&(Id, Extent)> = under
+                    .iter()
+                    .filter(|(_, extent)| reach_of(*extent, across) > 0.0)
+                    .collect();
+                let can_go = |(id, extent): &&(Id, Extent)| {
+                    let offset = along(self.offset(*id), across);
+                    if delta > 0.0 {
+                        offset < reach_of(*extent, across)
+                    } else {
+                        offset > 0.0
+                    }
+                };
+                way.iter()
+                    .find(|candidate| can_go(candidate))
+                    .or_else(|| way.first())
+                    .map(|(id, _)| *id)
+            })
     }
 
     /// Moves the box `id` by the fingers' `dx` and `dy`: within its reach it scrolls, past an end

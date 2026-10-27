@@ -66,7 +66,7 @@ fn down(offset: f32) -> ScrollTo {
 
 /// A turn of a wheel that turns in steps.
 fn wheel(scrolls: &mut Scrolls, laid: &Laid, at: Point, dx: f32, dy: f32) -> bool {
-    scrolls.wheel(laid, at, dx, dy, Phase::Wheel, 0.0)
+    scrolls.wheel(laid, at, dx, dy, Phase::Wheel, 0.0).took
 }
 
 fn at(x: f32, y: f32) -> Point {

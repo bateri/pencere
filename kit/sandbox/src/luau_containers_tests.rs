@@ -431,11 +431,12 @@ impl Pair {
     /// as it is, or, where none took it, the page is told.
     fn wheel(&mut self, what: &str, at: Point, dy: f32) {
         let mut laid = (*self.laid).clone();
-        if !self
+        let wheel = self
             .scrolls
-            .wheel(&laid, at, 0.0, dy, Phase::Wheel, self.now)
-        {
-            self.input(what, Input::Scroll { at, dx: 0.0, dy });
+            .wheel(&laid, at, 0.0, dy, Phase::Wheel, self.now);
+        if !wheel.took {
+            let (dx, dy) = (wheel.left.x, wheel.left.y);
+            self.input(what, Input::Scroll { at, dx, dy });
             return;
         }
         self.scrolls.place(&mut laid, self.now, true);
