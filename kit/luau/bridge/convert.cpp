@@ -918,16 +918,21 @@ pencere_view_types_editor_tint_t tint_at(lua_State* L, int t, const char* name) 
 
 const char* const kCaretShape[] = {"bar", "block", "underline"};
 const char* const kLineNumbers[] = {"absolute", "relative", "hidden"};
+const char* const kLineHighlight[] = {"text", "gutter", "all"};
 static_assert(PENCERE_VIEW_TYPES_CARET_SHAPE_BAR == 0 && PENCERE_VIEW_TYPES_CARET_SHAPE_BLOCK == 1 &&
                   PENCERE_VIEW_TYPES_CARET_SHAPE_UNDERLINE == 2,
               "kCaretShape is the order of caret-shape");
 static_assert(PENCERE_VIEW_TYPES_LINE_NUMBERS_ABSOLUTE == 0 && PENCERE_VIEW_TYPES_LINE_NUMBERS_RELATIVE == 1 &&
                   PENCERE_VIEW_TYPES_LINE_NUMBERS_HIDDEN == 2,
               "kLineNumbers is the order of line-numbers");
+static_assert(PENCERE_VIEW_TYPES_LINE_HIGHLIGHT_TEXT == 0 && PENCERE_VIEW_TYPES_LINE_HIGHLIGHT_GUTTER == 1 &&
+                  PENCERE_VIEW_TYPES_LINE_HIGHLIGHT_ALL == 2,
+              "kLineHighlight is the order of line-highlight");
 
 // `meta.editor`: { wrap =, tab_width =, hard_tabs =, gutter =, read_only =, keys = "editor" | "page",
 // hint = "words", comment = "--", pairs = "()[]{}", line_height =, padding =, scroll_margin =,
-// numbers = "absolute" | "relative" | "hidden", caret = { shape =, width =, color =, text = },
+// numbers = "absolute" | "relative" | "hidden", current_line = "text" | "gutter" | "all",
+// caret = { shape =, width =, color =, text = },
 // colors = { current_line =, … } }. What it does not say is the default (a gutter, tabs of four);
 // a number the interface takes as an option goes as none, and the host's default stands.
 pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arenas& arenas) {
@@ -963,6 +968,7 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
         out.scroll_margin.val = margin.val < 0 ? 0 : (margin.val > 255 ? 255 : (uint8_t)margin.val);
     }
     out.numbers = (uint8_t)word(L, t, "numbers", kLineNumbers, 3, 0);
+    out.current_line = (uint8_t)word(L, t, "current_line", kLineHighlight, 3, 0);
     out.caret.color.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
     out.caret.text.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
     get(L, t, "caret");

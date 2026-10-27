@@ -49,8 +49,9 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 - **How it looks is the page's** (`EditorOptions`): the room around the text, the rows kept about
   the caret when it scrolls, a caret that is a bar, a block (its character drawn again on it) or a
   line under the character, line numbers counted from the caret's line (a folded region one line) or
-  none, and the colour of every ground, ring, number and button it draws, or none; what the page
-  leaves out is drawn in the theme's colours.
+  none, the caret's line drawn across the text, the gutter or both, and the colour of every ground,
+  ring, number and button it draws, or none; what the page leaves out is drawn in the theme's
+  colours.
 - **The pointer.** A click puts the caret at the nearest boundary across; two select a word, three
   a line; shift selects to it, ⌘ adds a caret, ⌥ selects a column (on each line, from the boundary
   nearest one place across to the boundary nearest the other); a drag past the room scrolls it.

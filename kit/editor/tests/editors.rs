@@ -8,7 +8,7 @@
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
     Caret, CaretShape, Change, Decorate, Decoration, EditCommand, EditorAsk, EditorColors,
-    EditorOptions, Keys, Mark, Numbers, Range, Tint,
+    EditorOptions, Keys, LineHighlight, Mark, Numbers, Range, Tint,
 };
 use pencere_view::{
     Command, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint, Point, Rect,
@@ -996,4 +996,29 @@ fn the_page_keeps_rows_between_the_caret_and_the_edge_of_the_room() {
     let asked = host.editors.take_scrolls();
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].y, Some(4.0 + 21.0 * ROW + 3.0 * ROW + 4.0 - 200.0));
+}
+
+#[test]
+fn the_caret_s_line_is_drawn_across_the_text_the_gutter_or_both_as_the_page_says() {
+    // The gutter is 41 wide: marks 10, two digits and room 18, the fold buttons 13.
+    let bands = |current_line: LineHighlight| {
+        let mut host = Host::new(page_with(EditorOptions {
+            current_line,
+            ..EditorOptions::default()
+        }));
+        host.load("mi\nwi");
+        host.caret_at(4);
+        let mut bands: Vec<(f32, f32)> = host
+            .quads()
+            .into_iter()
+            .filter(|(rect, role)| *role == Some(Role::Foreground) && rect.h == ROW)
+            .map(|(rect, _)| (rect.x, rect.y))
+            .collect();
+        bands.sort_by(|a, b| a.0.total_cmp(&b.0));
+        bands
+    };
+    let row = 4.0 + ROW;
+    assert_eq!(bands(LineHighlight::Text), vec![(41.0, row)]);
+    assert_eq!(bands(LineHighlight::Gutter), vec![(0.0, row)]);
+    assert_eq!(bands(LineHighlight::All), vec![(0.0, row), (41.0, row)]);
 }

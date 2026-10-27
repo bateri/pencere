@@ -11,7 +11,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use pencere_view::edit::{CaretShape, EditorOptions, Look, Mark, Numbers, Underline};
+use pencere_view::edit::{
+    CaretShape, EditorOptions, LineHighlight, Look, Mark, Numbers, Underline,
+};
 use pencere_view::{
     Color, EditorRoom, EditorSlot, Figure, Font, Measure, Paint, Point, Quad, Rect, Role, Run,
     Size, path,
@@ -674,14 +676,20 @@ impl View {
         let main = buffer.main();
         let colors = &self.options.colors;
 
-        // The line of the main caret.
-        if focused
-            && main.is_empty()
-            && let Some(row) = rows.iter().find(|row| self.on_row(row, main.head))
-            && let Some(ground) = colors.current_line.or(Role::Foreground.alpha(0.05))
+        // The line of the main caret: across the text, the gutter or both, as the page says.
+        let band = if focused && main.is_empty() {
+            rows.iter()
+                .find(|row| self.on_row(row, main.head))
+                .zip(colors.current_line.or(Role::Foreground.alpha(0.05)))
+                .map(|(row, ground)| (row_y(row), ground))
+        } else {
+            None
+        };
+        if let Some((y, ground)) = band
+            && self.options.current_line != LineHighlight::Gutter
         {
             out.push(quad(
-                Rect::new(room.x + gutter.w, row_y(row), room.w - gutter.w, self.row),
+                Rect::new(room.x + gutter.w, y, room.w - gutter.w, self.row),
                 fade(ground),
                 text_clip,
             ));
@@ -817,7 +825,8 @@ impl View {
             }
         }
         if self.gutter_shown {
-            self.paint_gutter(buffer, &rows, slot, gutter, gutter_clip, &mut out);
+            let band = band.filter(|_| self.options.current_line != LineHighlight::Text);
+            self.paint_gutter(buffer, &rows, slot, (gutter, gutter_clip), band, &mut out);
         }
         out
     }
@@ -1101,15 +1110,16 @@ impl View {
         }
     }
 
-    /// The gutter: its ground (so that what scrolls across goes under it), the number of each line,
-    /// the page's marks and the buttons of the regions that fold.
+    /// The gutter: its ground (so that what scrolls across goes under it), the main caret's line
+    /// where `band` says (its top and colour), the number of each line, the page's marks and the
+    /// buttons of the regions that fold.
     fn paint_gutter(
         &self,
         buffer: &Buffer,
         rows: &[&Row],
         slot: &EditorSlot,
-        gutter: Rect,
-        clip: Rect,
+        (gutter, clip): (Rect, Rect),
+        band: Option<(f32, Color)>,
         out: &mut Vec<Paint>,
     ) {
         let fade = |color: Color| color.faded(slot.opacity);
@@ -1124,6 +1134,18 @@ impl View {
         if let Some(ground) = ground {
             out.push(Paint::Quad(Quad {
                 rect: gutter,
+                radii: [0.0; 4],
+                fill: Some(fade(ground)),
+                gradient: None,
+                border: None,
+                shadow: None,
+                clip,
+            }));
+        }
+        // The main caret's line where the page draws it in the gutter too, `y` its top.
+        if let Some((y, ground)) = band {
+            out.push(Paint::Quad(Quad {
+                rect: Rect::new(gutter.x, y, gutter.w, self.row),
                 radii: [0.0; 4],
                 fill: Some(fade(ground)),
                 gradient: None,

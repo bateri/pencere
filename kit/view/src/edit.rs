@@ -269,6 +269,8 @@ pub struct EditorOptions {
     pub scroll_margin: u8,
     /// What the numbers of the lines in the gutter count.
     pub numbers: Numbers,
+    /// Where the ground of the main caret's line is drawn (its colour is `colors.current_line`).
+    pub current_line: LineHighlight,
     pub caret: Caret,
     pub colors: EditorColors,
 }
@@ -289,6 +291,7 @@ impl Default for EditorOptions {
             padding: 4.0,
             scroll_margin: 0,
             numbers: Numbers::Absolute,
+            current_line: LineHighlight::Text,
             caret: Caret::default(),
             colors: EditorColors::default(),
         }
@@ -385,6 +388,18 @@ pub enum Numbers {
     Relative,
     /// None: the gutter keeps its marks and the buttons that fold.
     Hidden,
+}
+
+/// Where an editor draws the ground of the main caret's line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum LineHighlight {
+    /// Across the text, not the gutter.
+    #[default]
+    Text,
+    /// In the gutter only.
+    Gutter,
+    /// Across the gutter and the text.
+    All,
 }
 
 /// The colours of what an editor draws besides its text: the text is the element's colour and the

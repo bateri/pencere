@@ -585,6 +585,16 @@ interface types {
         hidden,
     }
 
+    /// Where an editor draws the ground of the main caret's line.
+    enum line-highlight {
+        /// Across the text, not the gutter.
+        text,
+        /// In the gutter only.
+        gutter,
+        /// Across the gutter and the text.
+        all,
+    }
+
     /// The colours of what an editor draws besides its text (the text is the element's colour and
     /// the looks the page decorates it with).
     record editor-colors {
@@ -642,6 +652,9 @@ interface types {
         /// the editor scrolls to the caret (at most half the rows in view; none when none).
         scroll-margin: option<u8>,
         numbers: line-numbers,
+        /// Where the ground of the main caret's line is drawn (its colour is
+        /// `colors.current-line`).
+        current-line: line-highlight,
         caret: editor-caret,
         colors: editor-colors,
     }

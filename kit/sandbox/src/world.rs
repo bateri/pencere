@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use pencere_view::edit::{
     Caret, CaretShape, Change, Decorate, Decoration, EditCommand, EditorAsk, EditorColors,
-    EditorOptions, Keys, Look, Mark, Movement, Numbers, Origin, Range, Refusal, Tint, Underline,
+    EditorOptions, Keys, LineHighlight, Look, Mark, Movement, Numbers, Origin, Range, Refusal,
+    Tint, Underline,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -1314,6 +1315,11 @@ fn editor_options_out(
             wit::LineNumbers::Absolute => Numbers::Absolute,
             wit::LineNumbers::Relative => Numbers::Relative,
             wit::LineNumbers::Hidden => Numbers::Hidden,
+        },
+        current_line: match options.current_line {
+            wit::LineHighlight::Text => LineHighlight::Text,
+            wit::LineHighlight::Gutter => LineHighlight::Gutter,
+            wit::LineHighlight::All => LineHighlight::All,
         },
         caret: Caret {
             shape: match options.caret.shape {

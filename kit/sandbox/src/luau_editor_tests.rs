@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
-    Caret, CaretShape, EditorColors, EditorOptions, Mark, Numbers, Origin, TextSnapshot, Tint,
+    Caret, CaretShape, EditorColors, EditorOptions, LineHighlight, Mark, Numbers, Origin,
+    TextSnapshot, Tint,
 };
 use pencere_view::{
     Element, Event, Font, Id, Key, Keyboard, Laid, Measure, Metrics, Mods, Role, Scrolls, layout,
@@ -424,6 +425,7 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
                     padding = 9,
                     scroll_margin = 3,
                     numbers = "relative",
+                    current_line = "all",
                     caret = { shape = "block", width = 2, color = "accent", text = { "magenta", 0.5 } },
                     colors = { current_line = false, selection = "raised1", numbers = "dim" },
                 }):grow(1))
@@ -444,6 +446,7 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
             padding: 9.0,
             scroll_margin: 3,
             numbers: Numbers::Relative,
+            current_line: LineHighlight::All,
             caret: Caret {
                 shape: CaretShape::Block,
                 width: 2.0,
