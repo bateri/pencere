@@ -41,7 +41,10 @@ Places are characters (code points), from 0; a range is `[from, to]` (a selectio
 | `commit`      | The input method is done with what it composed.                                                                                                                              |
 | `commit_text` | The input method puts `text` in, for good.                                                                                                                                   |
 | `abort`       | The input method gives up.                                                                                                                                                   |
+| `frame`       | A frame of the host's: the editor searches again, where the document changed since it searched.                                                                              |
 | `expect`      | What the editor holds now (below).                                                                                                                                           |
+
+A `find` has `word` as well, and `replace` and `replace_all` have the `text` put in.
 
 ## What is expected
 
@@ -55,7 +58,8 @@ Each key of an `expect` is checked where it is there:
 - `bracket` — `[at, to]`: the bracket at (or before) `at` matches the one at `to` (`null`: none);
 - `notes` — what the editor told the page since the last `expect`, in order: `{ "edited": { "version",
 "origin", "changes" } }`, `{ "selection": { "ranges", "main", "composing" } }`,
-  `{ "refused": "<reason>" }`. Every `expect` takes the notes, whether it checks them or not.
+  `{ "refused": "<reason>" }`, `{ "found": { "count", "current", "more" } }` (`current` from 1,
+  left out for none). Every `expect` takes the notes, whether it checks them or not.
 
 `invalid.json` holds what the editor refuses: a range the wrong way round, a place past the end,
 changes that overlap, a version too old or yet to come, a document too large. Each is refused, the

@@ -4,8 +4,8 @@
 //! `crates/pencere-sandbox/src/world.rs`.
 
 use pencere_view::edit::{
-    CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions, Keys, Mark,
-    Movement, Numbers, Origin, Range, Refusal, Selection, Tint, Underline,
+    CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions, Found, Keys,
+    Mark, Movement, Numbers, Origin, Range, Refusal, Selection, Tint, Underline,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
@@ -658,7 +658,8 @@ pub fn from_wit_event(event: wit::Event) -> Event {
         | wit::Event::Edit(_)
         | wit::Event::Selection(_)
         | wit::Event::Viewport(_)
-        | wit::Event::EditorRefused(_)) => editor_event(editor),
+        | wit::Event::EditorRefused(_)
+        | wit::Event::Found(_)) => editor_event(editor),
     }
 }
 // --- An editor's options and what the page asks of its editors -----------------------------
@@ -811,14 +812,20 @@ fn editor_command(command: EditCommand) -> wit::EditorCommand {
             pattern,
             regex,
             case,
+            word,
         } => C::Find(wit::Find {
             pattern,
             regex,
             matching_case: case,
+            word,
         }),
         EditCommand::FindNext => C::FindNext,
         EditCommand::FindPrevious => C::FindPrevious,
         EditCommand::StopFinding => C::StopFinding,
+        EditCommand::Replace(text) => C::Replace(text),
+        EditCommand::ReplaceAll(text) => C::ReplaceAll(text),
+        EditCommand::SelectFound => C::SelectFound,
+        EditCommand::SelectOccurrences => C::SelectOccurrences,
     }
 }
 
@@ -947,6 +954,15 @@ fn editor_event(event: wit::Event) -> Event {
                 wit::Refusal::OutsideRange => Refusal::OutsideRange,
                 wit::Refusal::BadPattern => Refusal::BadPattern,
                 wit::Refusal::NoEditor => Refusal::NoEditor,
+            },
+        },
+        wit::Event::Found(found) => Event::Found {
+            editor: Id::new(found.editor),
+            found: Found {
+                version: found.version,
+                count: unplace(found.count),
+                current: found.current.map(unplace),
+                more: found.more,
             },
         },
         // Every other event is the engine's own, read above.
@@ -1079,5 +1095,35 @@ mod tests {
                 },
             }
         );
+        let event = from_wit_event(wit::Event::Found(wit::Found {
+            editor: 5,
+            version: 4,
+            count: 12,
+            current: Some(3),
+            more: false,
+        }));
+        assert_eq!(
+            event,
+            Event::Found {
+                editor: Id::new(5),
+                found: Found {
+                    version: 4,
+                    count: 12,
+                    current: Some(3),
+                    more: false,
+                },
+            }
+        );
+        let replace = Reply {
+            editor: vec![(
+                Id::new(5),
+                EditorAsk::Command(EditCommand::ReplaceAll("${1}x".into())),
+            )],
+            ..Reply::none()
+        };
+        assert!(matches!(
+            &to_wit_reply(replace).editor[0].ask,
+            wit::EditorAskKind::Command(wit::EditorCommand::ReplaceAll(text)) if text == "${1}x"
+        ));
     }
 }

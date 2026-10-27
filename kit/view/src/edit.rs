@@ -156,6 +156,25 @@ impl Default for Selection {
     }
 }
 
+/// What a search ([`EditCommand::Find`]) finds now: what a find widget shows ("3 of 12"). The
+/// editor says it after every `Find`, searches again as the document changes, and says it again
+/// whenever the count, or which match the main selection is on, changes; when the search stops it
+/// says a count of 0. The ranges themselves stay the editor's: a page that wants them reads the
+/// text.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Found {
+    /// The version of the document searched.
+    pub version: u64,
+    /// How many matches it found, at most [`limits::FIND_MATCHES`]; 0 when nothing is searched for.
+    pub count: usize,
+    /// Which of them the main selection is exactly on, counted from 1 as a find widget shows it;
+    /// none when it is on none of them.
+    pub current: Option<usize>,
+    /// The search stopped before the end of the document (at [`limits::FIND_MATCHES`] matches, or
+    /// where a search for whole words had read as much as it may): there may be more than `count`.
+    pub more: bool,
+}
+
 /// What a page has drawn under, over or beside a range of the text.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Mark {
@@ -488,17 +507,38 @@ pub enum EditCommand {
     ToggleFold,
     UnfoldAll,
     /// Looks for `pattern` in the document and marks what it finds (a regular expression where
-    /// `regex`, the words as they are where not; where `case` is false, in either case).
+    /// `regex`, the words as they are where not; where `case` is false, in either case; where
+    /// `word`, only a match with no letter, digit or `_` just before it or just after it), and
+    /// selects the first match at the main selection or after it. The editor searches again as the
+    /// document changes, and says what it finds ([`Found`]) until the search stops.
     Find {
         pattern: String,
         regex: bool,
         case: bool,
+        word: bool,
     },
     /// Selects the next, or the one before, of what was found, from the main caret.
     FindNext,
     FindPrevious,
     /// Forgets what was found.
     StopFinding,
+    /// Where the main selection is a match, puts `text` in its place and selects the next match;
+    /// where it is not, selects the next match from it. A regular expression's `text` says what
+    /// the match's groups hold: `$1` or `${1}` by number, `$name` or `${name}` by name, `$$` a `$`
+    /// (a name is the longest run of letters, digits and `_`: `${1}x`, not `$1x`); the words of a
+    /// search that is no regular expression go in as they are.
+    Replace(String),
+    /// Puts `text` in place of every match, as [`EditCommand::Replace`] does one: one change,
+    /// undone as one.
+    ReplaceAll(String),
+    /// Every match selected, the main one the match the main selection was on (else the one
+    /// [`EditCommand::Find`] would select).
+    SelectFound,
+    /// Every place the main selection's text is, selected, the main selection still the main one;
+    /// where it is a caret, every place the word it is in is, as a whole word. In the case written
+    /// and the words as they are, at most [`limits::FIND_MATCHES`] of them; what is searched for
+    /// ([`EditCommand::Find`]) stays as it was.
+    SelectOccurrences,
 }
 
 /// What a page asks of an editor of its, in a reply.
@@ -626,6 +666,9 @@ pub mod limits {
     /// How many versions back a change or a decoration may be made against: the editor keeps the
     /// changes of the last this many, to carry what comes late over them.
     pub const VERSIONS: u64 = 1024;
+    /// The most matches a search finds, and the most places a command that selects every match
+    /// selects: what is past them is not marked ([`super::Found::more`]).
+    pub const FIND_MATCHES: usize = 10_000;
     /// The most columns a tab may take.
     pub const TAB_WIDTH: u8 = 16;
     /// How tall a row may be, times the font's size.

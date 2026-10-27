@@ -343,8 +343,8 @@ end
 -- The box is the room of an editor of text the host puts there, named `id` (the element's own name
 -- when `id` is nil). The host keeps its document, edits it, lays out and draws its lines and
 -- scrolls them (as a box that scrolls: `pencere.layout.scroll_to(id, …)`); the page is told what
--- changed (`edit`, `selection`, `viewport`, `editor_refused`) and asks for what it wants in a reply
--- (`editor = { [id] = … }`). Its document lives as long as an editor of its name is on the page,
+-- changed (`edit`, `selection`, `viewport`, `editor_refused`, and `found` while it searches) and
+-- asks for what it wants in a reply (`editor = { [id] = … }`). Its document lives as long as an editor of its name is on the page,
 -- hidden or not. `options` (all optional): `wrap`, `tab_width` (4), `hard_tabs`, `gutter` (true),
 -- `read_only`, `keys` ("editor", or "page": every key the page's), `hint` (what it says while
 -- empty), `comment` ("--": what the command that comments lines puts), `pairs` (the brackets and

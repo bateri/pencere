@@ -157,11 +157,21 @@ fn nothing_a_page_sends_breaks_the_editor() {
                     EditCommand::Find {
                         pattern,
                         regex: dice.below(2) == 0,
-                        case: true,
+                        case: dice.below(2) == 0,
+                        word: dice.below(2) == 0,
                     },
                     now,
                 );
-                buffer.command(EditCommand::FindNext, now);
+                let command = match dice.below(6) {
+                    0 => EditCommand::FindNext,
+                    1 => EditCommand::Replace(dice.text()),
+                    2 => EditCommand::ReplaceAll(format!("${{1}}{}$0", dice.text())),
+                    3 => EditCommand::SelectFound,
+                    4 => EditCommand::SelectOccurrences,
+                    _ => EditCommand::FindPrevious,
+                };
+                buffer.command(command, now);
+                buffer.search_again();
             }
         }
         let _ = buffer.take_notes();

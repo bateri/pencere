@@ -505,7 +505,8 @@ impl Pair {
             | Event::Edit { .. }
             | Event::Selection { .. }
             | Event::Viewport { .. }
-            | Event::EditorRefused { .. } => Reply::none(),
+            | Event::EditorRefused { .. }
+            | Event::Found { .. } => Reply::none(),
             Event::MenuPick(index) => self.native.pick(index),
             Event::Scrolled(boxes) => self.native.scrolled(&boxes),
         };

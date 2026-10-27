@@ -5,7 +5,7 @@
 //! whether anything it shows changed (so a frame is worth drawing), and the few things only the
 //! host can do: pop up a menu, move the keyboard into a text field, copy, close the page.
 
-use crate::edit::{Edited, EditorAsk, Refusal, Selection};
+use crate::edit::{Edited, EditorAsk, Found, Refusal, Selection};
 use crate::{Id, Point};
 
 /// A key the page reads. Letters, symbols and the space bar come as [`Key::Character`] — the
@@ -167,6 +167,12 @@ pub enum Event {
     EditorRefused {
         editor: Id,
         refusal: Refusal,
+    },
+    /// What its search finds now ([`Found`]): said after every search the page asks for, and
+    /// whenever the count, or the match the main selection is on, changes.
+    Found {
+        editor: Id,
+        found: Found,
     },
 }
 

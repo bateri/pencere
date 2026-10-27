@@ -4,7 +4,7 @@
 use pencere_view::edit::{Change, EditCommand, Movement, Origin, Range};
 
 use crate::buffer::{Buffer, Columns, Placement};
-use crate::find::Found;
+use crate::find::{FIND_MATCHES, Query, Search, is_word};
 use crate::history::Kind;
 use crate::segments::{
     column_of, grapheme_after, grapheme_before, run_at, word_after, word_at, word_before,
@@ -84,10 +84,15 @@ impl Buffer {
                 pattern,
                 regex,
                 case,
-            } => self.find(&pattern, regex, case),
+                word,
+            } => self.find(&pattern, regex, case, word),
             EditCommand::FindNext => self.find_step(true),
             EditCommand::FindPrevious => self.find_step(false),
             EditCommand::StopFinding => self.found = None,
+            EditCommand::Replace(text) => self.replace(&text, now),
+            EditCommand::ReplaceAll(text) => self.replace_all(&text, now),
+            EditCommand::SelectFound => self.select_found(),
+            EditCommand::SelectOccurrences => self.select_occurrences(),
         }
     }
 
@@ -932,12 +937,14 @@ impl Buffer {
         run_at(&self.text, at)
     }
 
-    fn find(&mut self, pattern: &str, regex: bool, case: bool) {
-        match Found::search(&self.text.string(), pattern, regex, case) {
-            Ok(found) => {
-                let main = self.main();
-                let first = found.after(main.start());
-                self.found = Some(found);
+    /// Looks for `pattern`, and selects the first match at the main selection or after it.
+    fn find(&mut self, pattern: &str, regex: bool, case: bool, word: bool) {
+        match Query::new(pattern, regex, case, word) {
+            Ok(query) => {
+                let search = Search::new(query, &self.text.string());
+                let first = search.after(self.main().start());
+                self.found = Some(search);
+                self.found_asked = true;
                 if let Some((from, to)) = first {
                     self.select(vec![Range::new(from, to)], 0);
                 }
@@ -949,7 +956,9 @@ impl Buffer {
         }
     }
 
+    /// Selects the next match from the main caret, or the one before.
     fn find_step(&mut self, forward: bool) {
+        self.search_again();
         let Some(found) = &self.found else {
             return;
         };
@@ -966,5 +975,158 @@ impl Buffer {
         if let Some((from, to)) = next {
             self.select(vec![Range::new(from, to)], 0);
         }
+    }
+
+    /// Where the main selection is a match, `template` in its place and the next match selected;
+    /// where it is not, the next match from it selected. Each replacement is undone apart.
+    fn replace(&mut self, template: &str, now: f64) {
+        if !self.writable() {
+            return;
+        }
+        self.search_again();
+        let Some(found) = &self.found else {
+            return;
+        };
+        let main = self.main();
+        let Some((from, to)) = found.after(main.start()) else {
+            return;
+        };
+        if (from, to) != (main.start(), main.end()) {
+            self.select(vec![Range::new(from, to)], 0);
+            return;
+        }
+        let text = self.text.string();
+        let start = self.text.bytes_of(0, from).unwrap_or(0);
+        let insert = found.query.replacement(&text, start, template);
+        let end = from + insert.chars().count();
+        self.undo.close();
+        let done = self.edit(
+            vec![Change::new(from, to, insert)],
+            Origin::Person,
+            Kind::Other,
+            now,
+            Some((vec![Range::caret(end)], 0)),
+        );
+        self.undo.close();
+        if done.is_err() {
+            return;
+        }
+        // What it finds now is told with the change, as a search asked for is.
+        self.search_again();
+        if let Some((from, to)) = self.found.as_ref().and_then(|found| found.after(end)) {
+            self.select(vec![Range::new(from, to)], 0);
+        }
+    }
+
+    /// `template` in place of every match found, as one change, undone as one.
+    fn replace_all(&mut self, template: &str, now: f64) {
+        if !self.writable() {
+            return;
+        }
+        self.search_again();
+        let Some(found) = &self.found else {
+            return;
+        };
+        if found.ranges.is_empty() {
+            return;
+        }
+        let text = self.text.string();
+        // The byte each match starts at, counted from one to the next.
+        let (mut byte, mut chars) = (0, 0);
+        let mut changes = Vec::with_capacity(found.ranges.len());
+        for (from, to) in &found.ranges {
+            byte += text.get(byte..).map_or(0, |rest| {
+                rest.char_indices()
+                    .nth(from - chars)
+                    .map_or(rest.len(), |(at, _)| at)
+            });
+            chars = *from;
+            let insert = found.query.replacement(&text, byte, template);
+            changes.push(Change::new(*from, *to, insert));
+        }
+        self.undo.close();
+        let done = self.edit(changes, Origin::Person, Kind::Other, now, None);
+        self.undo.close();
+        if done.is_ok() {
+            self.search_again();
+        }
+    }
+
+    /// Every match selected, the main one the match the main selection is on, else the one a
+    /// search would select.
+    fn select_found(&mut self) {
+        self.search_again();
+        let Some(found) = &self.found else {
+            return;
+        };
+        let main = self.main();
+        let Some(first) = found.after(main.start()) else {
+            return;
+        };
+        let main = found
+            .index_of(main)
+            .or_else(|| found.ranges.iter().position(|range| *range == first))
+            .unwrap_or(0);
+        let ranges = found
+            .ranges
+            .iter()
+            .map(|(from, to)| Range::new(*from, *to))
+            .collect();
+        self.select(ranges, main);
+    }
+
+    /// Every place the main selection's text is, selected, or where it is a caret every place the
+    /// word it is in is, as a whole word: in the case written, the words as they are. The main
+    /// selection stays the main one; what is searched for stays as it was.
+    fn select_occurrences(&mut self) {
+        let main = self.main();
+        let (from, to, word) = if main.is_empty() {
+            let Some((from, to)) = self.word_around(main.head) else {
+                return;
+            };
+            (from, to, true)
+        } else {
+            (main.start(), main.end(), false)
+        };
+        let Some(needle) = self.text.slice(from, to) else {
+            return;
+        };
+        let Ok(query) = Query::new(&needle, false, true, word) else {
+            return;
+        };
+        let (found, _) = query.matches(&self.text.string());
+        let mut ranges: Vec<Range> = found
+            .into_iter()
+            .take(FIND_MATCHES)
+            .map(|hit| Range::new(hit.range.0, hit.range.1))
+            .collect();
+        let main = match ranges
+            .iter()
+            .position(|range| (range.start(), range.end()) == (from, to))
+        {
+            Some(index) => index,
+            None => {
+                ranges.push(Range::new(from, to));
+                ranges.len() - 1
+            }
+        };
+        self.select(ranges, main);
+    }
+
+    /// The letters, digits and `_` (of any script) the place `at` is among, or is just after or
+    /// just before: a word, as a search for whole words has it.
+    fn word_around(&self, at: usize) -> Option<(usize, usize)> {
+        let mut from = at;
+        if let Some(mut back) = self.text.chars_at(at) {
+            while back.prev().is_some_and(is_word) {
+                from -= 1;
+            }
+        }
+        let to = at
+            + self
+                .text
+                .chars_at(at)
+                .map_or(0, |ahead| ahead.take_while(|c| is_word(*c)).count());
+        (from < to).then_some((from, to))
     }
 }

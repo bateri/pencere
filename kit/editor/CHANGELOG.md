@@ -28,6 +28,20 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   bracket; deleting by character and by word; indent and outdent; lines moved, copied and commented;
   brackets and quotes that close themselves; a line break that keeps the indent; a caret added above
   or below; the next of the selected text selected; finding with words or regular expressions.
+- **Finding, as a find widget needs it.** A search (`EditCommand::Find`) for words or a regular
+  expression, in either case or the one written, and for whole words only (`word`: no letter or
+  digit, of any script, and no `_` just before or after the match). It goes on as the document
+  changes: an editor whose document changed since it searched searches again when it is next
+  synced (`Editors::sync`, `Buffer::search_again`), once a frame however many keys came, what it
+  found carried over the changes until then. What it finds is told (`Note::Found`,
+  `EditorEvent::Found`): how many matches (at most `FIND_MATCHES`), which of them the main
+  selection is on (from 1), whether there may be more; after every search asked for and whenever it
+  changes, a count of 0 when the search stops, and nothing to an editor that does not search.
+  `Replace` puts a text in place of the main selection where it is a match and selects the next
+  (a regular expression's groups put in by `$1`, `${1}`, `$name`, `${name}`, `$$` a `$`; a plain
+  search's text as it is), `ReplaceAll` every match as one change undone as one, `SelectFound`
+  selects every match and `SelectOccurrences` every place of the main selection's text, or of the
+  caret's word as a whole word.
 - **Decorations.** Layers the page names, each sent for a range in place of what the layer had there
   and carried over every change; regions that fold, which the person folds and unfolds and the
   editor carries over changes.

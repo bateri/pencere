@@ -163,7 +163,8 @@ impl ContainerList {
             | Event::Edit { .. }
             | Event::Selection { .. }
             | Event::Viewport { .. }
-            | Event::EditorRefused { .. } => Reply::none(),
+            | Event::EditorRefused { .. }
+            | Event::Found { .. } => Reply::none(),
             Event::MenuPick(index) => self.list.pick(index),
             Event::Scrolled(boxes) => self.list.scrolled(&boxes),
         }

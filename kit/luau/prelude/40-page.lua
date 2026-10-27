@@ -36,7 +36,12 @@
 --       ({ { anchor =, head = }, ... }), which is `main` (from 1) and whether an input method is
 --       `composing`; "viewport" the `editor` and the `first` and `last` of its lines in view;
 --       "editor_refused" the `editor` and the `reason` ("stale-version", "out-of-document", …) it
---       did not do what the page asked. Places are characters from 0, lines from 0.
+--       did not do what the page asked; "found", while it searches (after every "find" asked
+--       for, and whenever these change; a `count` of 0 when the search stops), the `editor`, the
+--       `version` searched, the `count` of matches (at most 10 000), which of them the main
+--       selection is exactly on, `current` (from 1, as a find widget shows it; nil for none), and
+--       `more` (the search stopped before the end: there may be more). Places are characters
+--       from 0, lines from 0.
 --   message(message) -> reply      (optional)
 --       The program said something that is not an answer to a call the page made or a push of a
 --       subscription it made (those go to the functions given to `pencere.call` and
@@ -57,7 +62,13 @@
 --   { select = { { anchor =, head = }, ... }, version =, main = (from 1) }
 --   { reveal = place, version = }              scrolled into view
 --   { command = "undo" }, { command = "move", movement = "word_left", extend = true },
---   { command = "insert", text = "x" }, { command = "find", pattern =, regex =, case = }, …
+--   { command = "insert", text = "x" }, { command = "find", pattern =, regex =, case =, word = }
+--     (`word`: only a whole word, no letter or digit of any script or `_` beside it; the search
+--     goes on as the document changes), "find_next", "find_previous", "stop_finding",
+--     { command = "replace", text = }, { command = "replace_all", text = } (the main selection's
+--     match, or every match, replaced; a regular expression's `text` takes what its groups hold:
+--     "$1", "${1}", "$name", "${name}", "$$" a "$"), "select_found" (every match),
+--     "select_occurrences" (every place of the main selection's text, or of the caret's word), …
 --   { decorate = "layer", version =, from =, to =, decorations = { d, ... } }, each `d`
 --     { from =, to =, color =, background =, weight =, italic =, strike =,
 --       underline = colour | { wavy = colour } }, or { from =, to =, line = colour },

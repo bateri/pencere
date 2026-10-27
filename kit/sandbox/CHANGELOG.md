@@ -32,6 +32,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   number is held to what an editor takes. In Lua they are options of `pencere.editor` of the same
   names, `caret` and `colors` tables of their own, a colour `false` for none; an option an editor
   has no such name for fails the page where it is said.
+- **What an editor's search finds.** The interface's `find` has `word`, the editor's commands
+  `replace`, `replace-all`, `select-found` and `select-occurrences`, and the event `found` (the
+  version searched, how many matches, which of them the main selection is on, from 1, whether there
+  may be more). In Lua they are `{ command = "find", …, word = }`, `{ command = "replace", text = }`,
+  `{ command = "replace_all", text = }`, `"select_found"`, `"select_occurrences"` and the event
+  `found` (`current` nil for none). What a replacement puts in counts toward the text a reply may
+  hand the editors.
 
 - The interface is `pencere:view@2.0.0`: overlays and anchors, texts of many looks, canvases,
   commands, dragging, roles and states, fills from one colour to another, and the middle button, keys

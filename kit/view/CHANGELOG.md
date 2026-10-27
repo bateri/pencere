@@ -32,6 +32,14 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   (`EditorColors`). Each colour is a `Tint`: the theme's, none, or the page's. What a page leaves
   out is the default, today's look; `EditorOptions::held` takes each number into what an editor
   takes (`edit::limits`).
+- **What an editor's search finds.** `EditCommand::Find` has `word` (only a whole word: no letter
+  or digit, of any script, and no `_` beside it); `EditCommand::Replace` and `ReplaceAll` put a
+  text in place of the main selection's match, or of every match (a regular expression's groups put
+  in by `$1`, `${1}`, `$name`, `${name}`, `$$`), `SelectFound` selects every match and
+  `SelectOccurrences` every place of the main selection's text. `Event::Found` tells a page what
+  its editor's search finds (`edit::Found`: the version searched, how many matches, which of them
+  the main selection is on, from 1, and whether there may be more), at most
+  `edit::limits::FIND_MATCHES`.
 - **Long lists that keep up with the wheel.** `Built` is which rows of a long list a page builds as
   the host scrolls it: two views ahead of what is in view, the way the list goes, half a view behind
   (all of it the other way at an end of the list, which can only go back), and the same rows again

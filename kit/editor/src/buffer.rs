@@ -3,12 +3,13 @@
 //! not something it can do is refused, and the page is told why ([`Note::Refused`]).
 
 use pencere_view::edit::{
-    Change, Decorate, Decoration, Edited, EditorOptions, Origin, Range, Refusal, Selection, limits,
+    Change, Decorate, Decoration, Edited, EditorOptions, Found, Origin, Range, Refusal, Selection,
+    limits,
 };
 
 use crate::changes::{Assoc, Done, Step, check, invert, map, rebase, steps, steps_done};
 use crate::decorations::Decorations;
-use crate::find::Found;
+use crate::find::Search;
 use crate::history::{Group, Kind, Log, Undo};
 use crate::segments::{at_column, column_of};
 use crate::text::{Snapshot, Text};
@@ -22,6 +23,9 @@ pub enum Note {
     Selection(Selection),
     /// What the page asked was not done.
     Refused(Refusal),
+    /// What the search finds now: after every search asked for, and whenever the count, or the
+    /// match the main selection is on, changed.
+    Found(Found),
 }
 
 /// What an input method is composing: the range of the document its text is in, the part of that
@@ -108,7 +112,11 @@ pub struct Buffer {
     pub(crate) decorations: Decorations,
     pub(crate) options: EditorOptions,
     pub(crate) marked: Option<Marked>,
-    pub(crate) found: Option<Found>,
+    pub(crate) found: Option<Search>,
+    /// What the page was last told the search finds: how many, which one, whether there are more.
+    told_found: (usize, Option<usize>, bool),
+    /// A search was asked for: what it finds is told, whether it changed or not.
+    pub(crate) found_asked: bool,
     notes: Vec<Note>,
     /// The selections changed since the page was last told.
     selection_moved: bool,
@@ -132,6 +140,8 @@ impl Default for Buffer {
             options: EditorOptions::default(),
             marked: None,
             found: None,
+            told_found: (0, None, false),
+            found_asked: false,
             notes: Vec::new(),
             selection_moved: false,
             loading: false,
@@ -249,7 +259,8 @@ impl Buffer {
         self.marked.is_some()
     }
 
-    /// What the search last asked for found, in order.
+    /// What the search last asked for found, in order: carried over the changes made since it last
+    /// searched, until it searches again ([`Buffer::search_again`]).
     pub fn found(&self) -> &[(usize, usize)] {
         self.found
             .as_ref()
@@ -308,13 +319,55 @@ impl Buffer {
         self.text.place_of_utf16(units)
     }
 
-    /// What there is to tell the page, oldest first; the selections last, where they moved.
+    /// What there is to tell the page, oldest first; the selections after, where they moved, and
+    /// last what the search finds, where that changed.
     pub fn take_notes(&mut self) -> Vec<Note> {
         let mut notes = std::mem::take(&mut self.notes);
         if std::mem::take(&mut self.selection_moved) {
             notes.push(Note::Selection(self.selection()));
         }
+        if let Some(found) = self.found_to_tell() {
+            notes.push(Note::Found(found));
+        }
         notes
+    }
+
+    /// What the search finds now, where the page is to be told it: it was asked for, or what it
+    /// finds is not what the page was last told. Nothing while the document changed since it was
+    /// searched: what it finds is told once it is searched again.
+    fn found_to_tell(&mut self) -> Option<Found> {
+        let now = match &self.found {
+            Some(search) if search.stale => return None,
+            Some(search) => (
+                search.ranges.len(),
+                search.index_of(self.main()).map(|index| index + 1),
+                search.more,
+            ),
+            None => (0, None, false),
+        };
+        let asked = std::mem::take(&mut self.found_asked);
+        if !asked && now == self.told_found {
+            return None;
+        }
+        self.told_found = now;
+        let (count, current, more) = now;
+        Some(Found {
+            version: self.version,
+            count,
+            current,
+            more,
+        })
+    }
+
+    /// Searches again for what is searched for, where the document changed since it was searched
+    /// (until then what was found is carried over the changes): what is done once a frame, before
+    /// it is drawn ([`crate::Editors::sync`]). Whether it searched.
+    pub fn search_again(&mut self) -> bool {
+        let Some(search) = self.found.as_mut().filter(|search| search.stale) else {
+            return false;
+        };
+        search.again(&self.text.string());
+        true
     }
 
     pub(crate) fn refuse(&mut self, refusal: Refusal) -> Refusal {

@@ -1615,6 +1615,19 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_word(L, "reason",
                      event.val.editor_refused.reason < 10 ? kRefusals[event.val.editor_refused.reason] : "unknown");
             break;
+        case PENCERE_VIEW_TYPES_EVENT_FOUND: {
+            // { editor =, version =, count =, current = (from 1, nil for none), more = }
+            const auto& found = event.val.found;
+            set_word(L, "type", "found");
+            push_id(L, found.editor);
+            lua_setfield(L, -2, "editor");
+            set_number(L, "version", (double)found.version);
+            set_number(L, "count", (double)found.count);
+            if (found.current.is_some) set_number(L, "current", (double)found.current.val);
+            lua_pushboolean(L, found.more);
+            lua_setfield(L, -2, "more");
+            break;
+        }
     }
 }
 
@@ -1667,15 +1680,17 @@ const char* const kCommands[] = {"move",          "insert",          "newline", 
                                  "toggle_comment", "select_all",     "add_caret_above",   "add_caret_below",
                                  "select_next",   "single_selection", "undo",             "redo",
                                  "fold",          "unfold",          "toggle_fold",       "unfold_all",
-                                 "find",          "find_next",       "find_previous",     "stop_finding"};
-static_assert(PENCERE_VIEW_TYPES_EDITOR_COMMAND_STOP_FINDING == 27 && PENCERE_VIEW_TYPES_MOVEMENT_BRACKET == 12,
+                                 "find",          "find_next",       "find_previous",     "stop_finding",
+                                 "replace",       "replace_all",     "select_found",      "select_occurrences"};
+static_assert(PENCERE_VIEW_TYPES_EDITOR_COMMAND_SELECT_OCCURRENCES == 31 && PENCERE_VIEW_TYPES_MOVEMENT_BRACKET == 12,
               "the words of an editor's commands are the places of the interface's");
 
 // `{ command = "undo" }`, `{ command = "move", movement = "word_left", extend = true }`,
-// `{ command = "insert", text = "x" }`, `{ command = "find", pattern =, regex =, case = }`.
+// `{ command = "insert", text = "x" }`, `{ command = "find", pattern =, regex =, case =, word = }`,
+// `{ command = "replace", text = "x" }`, `{ command = "replace_all", text = "x" }`.
 pencere_view_types_editor_command_t command_at(lua_State* L, int t) {
     pencere_view_types_editor_command_t out = {};
-    out.tag = (uint8_t)word(L, t, "command", kCommands, 28, -1);
+    out.tag = (uint8_t)word(L, t, "command", kCommands, 32, -1);
     switch (out.tag) {
         case PENCERE_VIEW_TYPES_EDITOR_COMMAND_MOVE:
             out.val.move.movement = (uint8_t)word(L, t, "movement", kMovements, 13, 0);
@@ -1689,8 +1704,15 @@ pencere_view_types_editor_command_t command_at(lua_State* L, int t) {
             out.val.find.regex = flag(L, t, "regex");
             view_option_bool_t matching = optional_flag(L, t, "case");
             out.val.find.matching_case = matching.is_some ? matching.val : true;
+            out.val.find.word = flag(L, t, "word");
             break;
         }
+        case PENCERE_VIEW_TYPES_EDITOR_COMMAND_REPLACE:
+            out.val.replace = string_of(L, t, "text");
+            break;
+        case PENCERE_VIEW_TYPES_EDITOR_COMMAND_REPLACE_ALL:
+            out.val.replace_all = string_of(L, t, "text");
+            break;
         default:
             break;
     }

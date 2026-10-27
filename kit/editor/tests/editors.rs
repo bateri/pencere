@@ -8,7 +8,7 @@
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
     Caret, CaretShape, Change, Decorate, Decoration, EditCommand, EditorAsk, EditorColors,
-    EditorOptions, Keys, Mark, Numbers, Range, Tint,
+    EditorOptions, Found, Keys, Mark, Numbers, Range, Tint,
 };
 use pencere_view::{
     Command, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint, Point, Rect,
@@ -996,4 +996,75 @@ fn the_page_keeps_rows_between_the_caret_and_the_edge_of_the_room() {
     let asked = host.editors.take_scrolls();
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].y, Some(4.0 + 21.0 * ROW + 3.0 * ROW + 4.0 - 200.0));
+}
+
+/// What the page was told the search finds, in order.
+fn found_told(events: Vec<EditorEvent>) -> Vec<Found> {
+    events
+        .into_iter()
+        .filter_map(|event| match event {
+            EditorEvent::Found { found, .. } => Some(found),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn what_is_typed_is_searched_again_once_a_frame_and_the_page_told_what_it_finds() {
+    let mut host = Host::new(page_with(plain()));
+    host.load("foo bar");
+    host.editors.set_focus(Some(EDITOR));
+    let laid = host.laid.clone();
+    let find = EditCommand::Find {
+        pattern: "foo".into(),
+        regex: false,
+        case: true,
+        word: false,
+    };
+    host.editors
+        .ask(&laid, EDITOR, EditorAsk::Command(find), &mut Fake, host.now);
+    let version = host.editors.buffer(EDITOR).expect("the editor").version();
+    assert_eq!(
+        found_told(host.editors.take_events()),
+        [Found {
+            version,
+            count: 1,
+            current: Some(1),
+            more: false,
+        }]
+    );
+    // The caret moved off the match: it is on none of them now.
+    let cmd = with(|mods| mods.command = true);
+    host.editors.key(&laid, Key::Down, cmd, &mut Fake, host.now);
+    assert_eq!(
+        found_told(host.editors.take_events()),
+        [Found {
+            version,
+            count: 1,
+            current: None,
+            more: false,
+        }]
+    );
+    // Keys between two frames: what they typed is carried over, and searched again at the frame,
+    // once.
+    host.editors.type_text(&laid, " foo", &mut Fake, host.now);
+    host.editors.type_text(&laid, " foo", &mut Fake, host.now);
+    assert!(found_told(host.editors.take_events()).is_empty());
+    let buffer = host.editors.buffer(EDITOR).expect("the editor");
+    assert_eq!(buffer.found(), [(0, 3)]);
+    host.frame();
+    assert_eq!(
+        found_told(host.editors.take_events()),
+        [Found {
+            version: version + 2,
+            count: 3,
+            current: None,
+            more: false,
+        }]
+    );
+    let buffer = host.editors.buffer(EDITOR).expect("the editor");
+    assert_eq!(buffer.found(), [(0, 3), (8, 11), (12, 15)]);
+    // A frame with nothing new to search tells nothing.
+    host.frame();
+    assert!(found_told(host.editors.take_events()).is_empty());
 }

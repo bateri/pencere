@@ -7,7 +7,10 @@
 //!
 //! 1. lays the page out measuring with it ([`Editors::measure`]), so that each editor's room scrolls
 //!    over its content and what is anchored to its caret stands by it;
-//! 2. [`Editors::sync`] with the page laid out: editors come and go with their rooms;
+//! 2. [`Editors::sync`] with the page laid out: editors come and go with their rooms, and an
+//!    editor whose document changed since it last searched searches again, once a frame however
+//!    many keys came between two frames (until then what it found is carried over the changes;
+//!    what the page's asks change after it is searched at the next frame);
 //! 3. paints the page and [`Editors::paint`] on the list: each editor's place is filled.
 //!
 //! What it has for the page ([`Editors::take_events`]) and for the host's scrolling
@@ -19,7 +22,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use pencere_view::edit::{
-    EditCommand, Edited, EditorAsk, Keys, Movement, Range, Refusal, Selection, limits,
+    EditCommand, Edited, EditorAsk, Found, Keys, Movement, Range, Refusal, Selection, limits,
 };
 use pencere_view::{
     DrawList, EditorMetrics, EditorRoom, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint, Point,
@@ -44,6 +47,9 @@ pub enum EditorEvent {
     Viewport { id: Id, first: usize, last: usize },
     /// The person clicked into an editor that did not have the keyboard: it has it now.
     Focus(Option<Id>),
+    /// What its search finds now: after every search asked for, and whenever the count, or the
+    /// match the main selection is on, changed.
+    Found { id: Id, found: Found },
 }
 
 /// Where a key goes ([`Editors::key`]).
@@ -233,6 +239,7 @@ impl Editors {
             editor.view.set_room(room, self.scale, measure);
             editor.view.size_gutter(editor.buffer.len_lines());
             editor.shown = !room.hidden;
+            editor.buffer.search_again();
             let scroll = scroll_of(laid, room);
             if editor.shown {
                 editor.view.lay_out(&editor.buffer, scroll, measure);
@@ -270,6 +277,7 @@ impl Editors {
                     EditorEvent::Selection { id, selection }
                 }
                 Note::Refused(refusal) => EditorEvent::Refused { id, refusal },
+                Note::Found(found) => EditorEvent::Found { id, found },
             });
         }
         if !editor.shown {
@@ -1008,6 +1016,7 @@ impl From<EditorEvent> for pencere_view::Event {
                 last,
             },
             EditorEvent::Focus(id) => Event::Focus(id),
+            EditorEvent::Found { id, found } => Event::Found { editor: id, found },
         }
     }
 }

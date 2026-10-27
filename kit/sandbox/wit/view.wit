@@ -959,6 +959,22 @@ interface types {
         reason: refusal,
     }
 
+    /// What an editor's search finds now: what a find widget shows ("3 of 12"). Told after every
+    /// `find` the page asks for, and whenever the count, or the match the main selection is on,
+    /// changes (the editor searches again as the document changes); a count of 0 when the search
+    /// stops. Only while there is a search: an editor that is never asked to find tells none.
+    record found {
+        editor: id,
+        /// The version of the document searched.
+        version: u64,
+        /// How many matches there are, at most 10 000.
+        count: u32,
+        /// Which of them the main selection is exactly on, counted from 1; none when it is on none.
+        current: option<u32>,
+        /// The search stopped before the end of the document: there may be more than `count`.
+        more: bool,
+    }
+
     /// One thing the person did, in the page's points (its top-left corner is the origin).
     variant event {
         pointer-move(point),
@@ -998,6 +1014,8 @@ interface types {
         viewport(viewport),
         /// What the page asked of an editor was not done, and nothing of it was.
         editor-refused(editor-refused),
+        /// What an editor's search finds now.
+        found(found),
     }
 
     /// The shape the pointer takes over the page.
@@ -1059,6 +1077,9 @@ interface types {
         regex: bool,
         /// In the case written (not either).
         matching-case: bool,
+        /// Only a whole word: no letter or digit (of any script) or `_` just before the match or
+        /// just after it.
+        word: bool,
     }
 
     /// What the page asks an editor to do as if the person had.
@@ -1091,6 +1112,18 @@ interface types {
         find-next,
         find-previous,
         stop-finding,
+        /// Where the main selection is a match, the text in its place and the next match selected;
+        /// where it is not, the next match selected. A regular expression's text takes what the
+        /// match's groups hold (`$1`, `${1}`, `$name`, `${name}`; `$$` is a `$`); a plain search's
+        /// goes in as it is.
+        replace(string),
+        /// The text in place of every match found, as one change, undone as one.
+        replace-all(string),
+        /// Every match found selected; the main one the match the main selection was on.
+        select-found,
+        /// Every place the main selection's text is selected; at a caret, every place its word is,
+        /// as a whole word. In the case written; the search stays as it was.
+        select-occurrences,
     }
 
     /// A line under some characters.

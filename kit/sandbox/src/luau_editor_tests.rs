@@ -219,6 +219,13 @@ fn the_example_loads_its_document_in_pieces_colours_what_is_in_view_and_folds_it
     let far = buffer.line_start(1500);
     assert_eq!(coloured(far, far + 40), 0, "a line out of view is not");
     assert!(buffer.folds().len() > 100, "each statement folds");
+    // A page that searches for nothing is told nothing of a search.
+    assert!(
+        !rig.told
+            .iter()
+            .any(|event| matches!(event, EditorEvent::Found { .. })),
+        "nothing was searched for"
+    );
 }
 
 #[test]
@@ -385,6 +392,47 @@ fn a_change_the_editor_cannot_make_is_refused_and_the_page_told_why() {
         words(&rig.root),
         vec!["future-version, reversed".to_owned()]
     );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_page_is_told_what_its_search_finds_and_replaces_every_match_in_one_ask() {
+    let rig = Rig::open(
+        r#"
+        local said = {}
+        local asked, replaced = false, false
+        return {
+            render = function()
+                return pencere.div():size_full()
+                    :child(pencere.editor("e"):grow(1))
+                    :child(pencere.text(table.concat(said, " ")))
+            end,
+            handle = function(event)
+                if event.type == "viewport" and not asked then
+                    asked = true
+                    return { editor = { e = {
+                        { load = "çiçek bir çiçekçi, Çiçek" },
+                        { command = "find", pattern = "çiçek", word = true, case = false },
+                    } } }
+                elseif event.type == "found" then
+                    table.insert(said, string.format("v%d:%d/%s%s", event.version, event.count,
+                        tostring(event.current or "-"), event.more and "+" or ""))
+                    if event.count == 2 and not replaced then
+                        replaced = true
+                        return { redraw = true, editor = { e = { command = "replace_all", text = "gül" } } }
+                    end
+                    return true
+                end
+            end,
+        }
+        "#,
+    );
+    // Whole words in either case: `çiçekçi` is not one. Every match went in one change, and the
+    // search, gone through the document again at once, finds none.
+    assert_eq!(rig.text("e"), "gül bir çiçekçi, gül");
+    assert_eq!(words(&rig.root), vec!["v1:2/1 v2:0/-".to_owned()]);
+    let buffer = rig.editors.buffer(Id::named("e")).expect("the editor");
+    assert_eq!(buffer.version(), 2);
 }
 
 #[test]

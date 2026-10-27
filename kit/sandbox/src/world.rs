@@ -440,6 +440,13 @@ fn event_in(event: Event) -> wit::Event {
                 Refusal::NoEditor => wit::Refusal::NoEditor,
             },
         }),
+        Event::Found { editor, found } => wit::Event::Found(wit::Found {
+            editor: id_out(editor),
+            version: found.version,
+            count: place_in(found.count),
+            current: found.current.map(place_in),
+            more: found.more,
+        }),
     }
 }
 
@@ -1414,8 +1421,10 @@ fn editor_asks_out(
             },
             wit::EditorAskKind::Command(command) => {
                 let command = command_out(command);
-                if let EditCommand::Insert(words) | EditCommand::Find { pattern: words, .. } =
-                    &command
+                if let EditCommand::Insert(words)
+                | EditCommand::Find { pattern: words, .. }
+                | EditCommand::Replace(words)
+                | EditCommand::ReplaceAll(words) = &command
                 {
                     text = text.saturating_add(words.len());
                 }
@@ -1533,10 +1542,15 @@ fn command_out(command: wit::EditorCommand) -> EditCommand {
             pattern: find.pattern,
             regex: find.regex,
             case: find.matching_case,
+            word: find.word,
         },
         C::FindNext => EditCommand::FindNext,
         C::FindPrevious => EditCommand::FindPrevious,
         C::StopFinding => EditCommand::StopFinding,
+        C::Replace(text) => EditCommand::Replace(text),
+        C::ReplaceAll(text) => EditCommand::ReplaceAll(text),
+        C::SelectFound => EditCommand::SelectFound,
+        C::SelectOccurrences => EditCommand::SelectOccurrences,
     }
 }
 
@@ -2273,6 +2287,25 @@ mod tests {
                 reason: wit::Refusal::StaleVersion,
             })
         ));
+        let found = event_in(Event::Found {
+            editor: Id::new(3),
+            found: pencere_view::edit::Found {
+                version: 9,
+                count: 12,
+                current: Some(3),
+                more: true,
+            },
+        });
+        assert!(matches!(
+            found,
+            wit::Event::Found(wit::Found {
+                editor: 3,
+                version: 9,
+                count: 12,
+                current: Some(3),
+                more: true,
+            })
+        ));
     }
 
     #[test]
@@ -2365,6 +2398,19 @@ mod tests {
             ))),
         ]);
         assert!(matches!(reply_out(much, &limits), Err(Fault::Malformed(_))));
+        // What a replacement puts in is text it hands them too.
+        let replaced = reply(vec![
+            ask(wit::EditorAskKind::Command(wit::EditorCommand::Replace(
+                "abcde".into(),
+            ))),
+            ask(wit::EditorAskKind::Command(wit::EditorCommand::ReplaceAll(
+                "1234".into(),
+            ))),
+        ]);
+        assert!(matches!(
+            reply_out(replaced, &limits),
+            Err(Fault::Malformed(_))
+        ));
         let many = reply(vec![ask(wit::EditorAskKind::Decorate(wit::Decorate {
             layer: "f".into(),
             version: 2,

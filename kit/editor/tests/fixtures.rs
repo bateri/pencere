@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 use pencere_editor::{Buffer, Note};
 use pencere_view::edit::{
-    Change, Decorate, Decoration, EditCommand, EditorOptions, Look, Mark, Movement, Origin, Range,
-    Refusal,
+    Change, Decorate, Decoration, EditCommand, EditorOptions, Found, Look, Mark, Movement, Origin,
+    Range, Refusal,
 };
 use pencere_view::{Color, Role};
 use serde_json::Value;
@@ -124,6 +124,9 @@ fn run(file: &str, example: &Value) {
                 "commit" => buffer.unmark(),
                 "commit_text" => buffer.insert(text(step), None, now),
                 "abort" => buffer.abort_marked(now),
+                "frame" => {
+                    buffer.search_again();
+                }
                 "expect" => expect(&mut buffer, step, &here),
                 other => panic!("{here}: no step `{other}`"),
             }
@@ -223,13 +226,18 @@ fn expect(buffer: &mut Buffer, want: &Value, here: &str) {
     }
     if let Some(expected) = want["notes"].as_array() {
         let expected: Vec<Note> = expected.iter().map(|note| note_of(note, here)).collect();
-        // A selection note says the version too: the one the editor is at.
+        // A selection note, and one of what is found, say the version too: the one the editor is
+        // at.
         let notes: Vec<Note> = notes
             .into_iter()
             .map(|note| match note {
                 Note::Selection(mut selection) => {
                     selection.version = 0;
                     Note::Selection(selection)
+                }
+                Note::Found(mut found) => {
+                    found.version = 0;
+                    Note::Found(found)
                 }
                 other => other,
             })
@@ -292,7 +300,15 @@ fn note_of(note: &Value, here: &str) -> Note {
             Refusal::named(refused).unwrap_or_else(|| panic!("{here}: no refusal `{refused}`")),
         );
     }
-    panic!("{here}: a note is `edited`, `selection` or `refused`")
+    if let Some(found) = note.get("found") {
+        return Note::Found(Found {
+            version: 0,
+            count: number(&found["count"]),
+            current: found["current"].as_u64().map(|current| current as usize),
+            more: found["more"].as_bool().unwrap_or(false),
+        });
+    }
+    panic!("{here}: a note is `edited`, `selection`, `refused` or `found`")
 }
 
 fn options(value: &Value) -> EditorOptions {
@@ -355,10 +371,15 @@ fn command(step: &Value, here: &str) -> EditCommand {
             pattern: step["pattern"].as_str().unwrap_or_default().to_owned(),
             regex: step["regex"].as_bool().unwrap_or(false),
             case: step["case"].as_bool().unwrap_or(true),
+            word: step["word"].as_bool().unwrap_or(false),
         },
         "find_next" => EditCommand::FindNext,
         "find_previous" => EditCommand::FindPrevious,
         "stop_finding" => EditCommand::StopFinding,
+        "replace" => EditCommand::Replace(text(step).to_owned()),
+        "replace_all" => EditCommand::ReplaceAll(text(step).to_owned()),
+        "select_found" => EditCommand::SelectFound,
+        "select_occurrences" => EditCommand::SelectOccurrences,
         other => panic!("{here}: no command `{other}`"),
     }
 }

@@ -314,6 +314,7 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 | `selection`        | `editor`, `version`, `ranges` (`{ { anchor =, head = }, ... }`), `main` (from 1), `composing` (an input method is composing at the main caret; the host does none of the page's commands then)                                                           |
 | `viewport`         | `editor`, `first`, `last`: the lines in view, for a page that colours only what is seen                                                                                                                                                                  |
 | `editor_refused`   | `editor`, `reason` (`"reversed"`, `"out-of-document"`, `"overlapping"`, `"stale-version"`, `"future-version"`, `"too-large"`, `"too-many-decorations"`, `"outside-range"`, `"bad-pattern"`, `"no-editor"`): what the page asked was not done, none of it |
+| `found`            | `editor`, `version`, `count` (at most 10 000), `current` (the match the main selection is exactly on, from 1; nil for none), `more` (there may be more than `count`): what its search finds (below)                                                      |
 
 `move`, `press` and `release` over an editor have `place`, `{ editor =, at = }`: the place of its
 document under the pointer (a word to say what it is of while the pointer rests on it, a name to go to
@@ -333,7 +334,7 @@ and `editor = { [name] = ask, or { ask, ... } }`, what the page asks of its edit
 | `{ change = { { from =, to =, insert = }, ... }, base = version }`     | Changes against the version the page saw: carried over what was done since (a range's start after what came in at it, its end before), done, undone as one.                        |
 | `{ select = { { anchor =, head = }, ... }, version =, main = }`        | The selections, in the places of `version`.                                                                                                                                        |
 | `{ reveal = place, version = }`                                        | The place scrolled into view.                                                                                                                                                      |
-| `{ command = name, ... }`                                              | What the person could do with a key: `"move"` (`movement`, `extend`), `"insert"` (`text`), `"undo"`, `"find"` (`pattern`, `regex`, `case`), … (`pencere_view::edit::EditCommand`). |
+| `{ command = name, ... }`                                              | What the person could do with a key: `"move"` (`movement`, `extend`), `"insert"` (`text`), `"undo"`, `"find"` and the commands of a search, … (`pencere_view::edit::EditCommand`). |
 | `{ decorate = layer, version =, from =, to =, decorations = { ... } }` | The layer's decorations for `from`–`to`, in place of those it had there; the other layers stay.                                                                                    |
 
 A layer is named by the page (`"syntax"`, `"diagnostics"`, `"folds"`): the colours of what is in view
@@ -345,6 +346,26 @@ it is folded is the person's). Decorations of an older version are carried over 
 since. What the editor cannot do is refused and the page told why (`editor_refused`): a range the wrong
 way round, a place past the end, changes that overlap, a version older than the last 1 024 or yet to
 come, a document larger than an editor may hold.
+
+An editor **finds** what the page asks it to: `{ command = "find", pattern =, regex =, case =, word
+= }` looks for `pattern` through the whole document (a regular expression where `regex`, in either
+case where `case` is `false`, and where `word` only a whole word: no letter or digit, of any script,
+and no `_` just before the match or just after it), marks what it finds, at most 10 000 matches, and
+selects the first at the main selection or after it. The search goes on as the document changes: the
+editor looks again, once a frame, before it draws. The page is told what it finds (`found`) after
+every `find`, and again whenever the count, or the match the main selection is on, changes;
+`"stop_finding"` ends the search and tells a `count` of 0. An editor that is never asked to find
+tells none. `"find_next"` and `"find_previous"` select the next match from the main caret, or the
+one before. `{ command = "replace", text = }` puts `text` in place of the main selection where it is
+a match and selects the next match, and only selects the next match where it is not; `{ command =
+"replace_all", text = }` puts it in place of every match found, as one change undone as one. A
+regular expression's `text` takes what the match's groups hold: `$1` or `${1}` by number, `$name` or
+`${name}` by name, `$$` a `$` (a name is the longest run of letters, digits and `_`: `${1}x`, not
+`$1x`); a plain search's goes in as it is. `"select_found"` selects every match, the main one the
+match the main selection was on (else the one `find` would select); `"select_occurrences"` selects
+every place the main selection's text is, in the case written, or, where the main selection is a
+caret, every place the word it is in is (its letters, digits and `_`), as a whole word; the search
+stays as it was. A document the person cannot change (`read_only`) is not replaced in.
 
 ### 2.4 The program
 

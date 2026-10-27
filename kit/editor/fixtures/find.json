@@ -84,6 +84,398 @@
         { "do": "command", "command": "find", "pattern": "(", "regex": true },
         { "do": "expect", "found": [], "notes": [{ "refused": "bad-pattern" }] }
       ]
+    },
+    {
+      "about": "a search tells what it finds: how many, which of them the main selection is on (from 1), and nothing more until that changes; stopping tells none",
+      "text": "foo Foo foo",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "zzz" },
+        { "do": "expect", "notes": [{ "found": { "count": 0 } }] },
+        { "do": "command", "command": "find", "pattern": "foo" },
+        {
+          "do": "expect",
+          "notes": [
+            { "selection": { "ranges": [[0, 3]] } },
+            { "found": { "count": 2, "current": 1 } }
+          ]
+        },
+        { "do": "command", "command": "find_next" },
+        {
+          "do": "expect",
+          "notes": [
+            { "selection": { "ranges": [[8, 11]] } },
+            { "found": { "count": 2, "current": 2 } }
+          ]
+        },
+        { "do": "command", "command": "move", "movement": "right" },
+        {
+          "do": "expect",
+          "notes": [{ "selection": { "ranges": [[11, 11]] } }, { "found": { "count": 2 } }]
+        },
+        { "do": "command", "command": "move", "movement": "left" },
+        { "do": "expect", "notes": [{ "selection": { "ranges": [[10, 10]] } }] },
+        { "do": "command", "command": "stop_finding" },
+        { "do": "expect", "found": [], "notes": [{ "found": { "count": 0 } }] },
+        { "do": "command", "command": "stop_finding" },
+        { "do": "expect", "notes": [] }
+      ]
+    },
+    {
+      "about": "an editor that searches for nothing tells nothing of a search, whatever is done to it",
+      "text": "foo bar",
+      "steps": [
+        { "do": "type", "text": "x" },
+        { "do": "frame" },
+        { "do": "command", "command": "select_all" },
+        { "do": "command", "command": "stop_finding" },
+        { "do": "command", "command": "select_occurrences" },
+        {
+          "do": "expect",
+          "notes": [
+            { "edited": { "version": 1, "origin": "person", "changes": [[0, 0, "x"]] } },
+            { "selection": { "ranges": [[0, 8]] } }
+          ]
+        }
+      ]
+    },
+    {
+      "about": "a match typed in is found when the editor next searches (a frame), and by a command that steps through what was found at once",
+      "text": "foo bar",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "foo" },
+        { "do": "select", "ranges": [[7, 7]] },
+        { "do": "expect", "found": [[0, 3]] },
+        { "do": "type", "text": " foo" },
+        {
+          "do": "expect",
+          "found": [[0, 3]],
+          "notes": [
+            { "edited": { "version": 1, "origin": "person", "changes": [[7, 7, " foo"]] } },
+            { "selection": { "ranges": [[11, 11]] } }
+          ]
+        },
+        { "do": "frame" },
+        {
+          "do": "expect",
+          "found": [
+            [0, 3],
+            [8, 11]
+          ],
+          "notes": [{ "found": { "count": 2 } }]
+        },
+        { "do": "frame" },
+        { "do": "expect", "notes": [] },
+        { "do": "type", "text": " foo" },
+        { "do": "command", "command": "find_next" },
+        {
+          "do": "expect",
+          "text": "foo bar foo foo",
+          "ranges": [[0, 3]],
+          "found": [
+            [0, 3],
+            [8, 11],
+            [12, 15]
+          ],
+          "notes": [
+            { "edited": { "version": 2, "origin": "person", "changes": [[11, 11, " foo"]] } },
+            { "selection": { "ranges": [[0, 3]] } },
+            { "found": { "count": 3, "current": 1 } }
+          ]
+        }
+      ]
+    },
+    {
+      "about": "a whole word has no letter, digit or `_` just before it or just after it, a regular expression's as well",
+      "text": "foo food foo_bar (foo) bar.foo",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "foo", "word": true },
+        {
+          "do": "expect",
+          "found": [
+            [0, 3],
+            [18, 21],
+            [27, 30]
+          ]
+        },
+        { "do": "command", "command": "find", "pattern": "fo+", "regex": true, "word": true },
+        {
+          "do": "expect",
+          "found": [
+            [0, 3],
+            [18, 21],
+            [27, 30]
+          ]
+        },
+        { "do": "command", "command": "find", "pattern": "FOO", "case": false, "word": true },
+        {
+          "do": "expect",
+          "found": [
+            [0, 3],
+            [18, 21],
+            [27, 30]
+          ]
+        }
+      ]
+    },
+    {
+      "about": "the letters and digits of a word are those of every script",
+      "text": "çiçek çiçekçi ççiçek çiçek_ çiçek. 7çiçek",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "çiçek", "word": true },
+        {
+          "do": "expect",
+          "found": [
+            [0, 5],
+            [28, 33]
+          ]
+        },
+        { "do": "command", "command": "find", "pattern": "çiçek" },
+        {
+          "do": "expect",
+          "found": [
+            [0, 5],
+            [6, 11],
+            [15, 20],
+            [21, 26],
+            [28, 33],
+            [36, 41]
+          ]
+        }
+      ]
+    },
+    {
+      "about": "replacing: a main selection that is a match is replaced and the next match selected; one that is not, only the next match selected; each undone apart",
+      "text": "foo bar foo bar foo",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "foo" },
+        { "do": "select", "ranges": [[5, 5]] },
+        { "do": "command", "command": "replace", "text": "X" },
+        { "do": "expect", "text": "foo bar foo bar foo", "version": 0, "ranges": [[8, 11]] },
+        { "do": "command", "command": "replace", "text": "X" },
+        {
+          "do": "expect",
+          "text": "foo bar X bar foo",
+          "ranges": [[14, 17]],
+          "found": [
+            [0, 3],
+            [14, 17]
+          ],
+          "notes": [
+            { "edited": { "version": 1, "origin": "person", "changes": [[8, 11, "X"]] } },
+            { "selection": { "ranges": [[14, 17]] } },
+            { "found": { "count": 2, "current": 2 } }
+          ]
+        },
+        { "do": "command", "command": "replace", "text": "X" },
+        { "do": "expect", "text": "foo bar X bar X", "ranges": [[0, 3]], "found": [[0, 3]] },
+        { "do": "command", "command": "replace", "text": "X" },
+        { "do": "expect", "text": "X bar X bar X", "ranges": [[1, 1]], "found": [] },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "foo bar X bar X", "ranges": [[0, 3]] },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "foo bar X bar foo" }
+      ]
+    },
+    {
+      "about": "a regular expression's replacement takes what its groups hold, by number and by name, and `$$` is a `$`; a plain search's is put in as it is",
+      "text": "x=1, y=22",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "(\\w)=(?P<n>\\d+)", "regex": true },
+        {
+          "do": "expect",
+          "ranges": [[0, 3]],
+          "found": [
+            [0, 3],
+            [5, 9]
+          ]
+        },
+        { "do": "command", "command": "replace", "text": "${n}<-$1 $$" },
+        { "do": "expect", "text": "1<-x $, y=22", "ranges": [[8, 12]] },
+        { "do": "command", "command": "replace_all", "text": "$2$1" },
+        { "do": "expect", "text": "1<-x $, 22y" }
+      ]
+    },
+    {
+      "about": "a plain search's replacement is put in as it is, `$` and all",
+      "text": "a.b axb a.b",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "a.b" },
+        { "do": "command", "command": "replace_all", "text": "$1$$" },
+        { "do": "expect", "text": "$1$$ axb $1$$" }
+      ]
+    },
+    {
+      "about": "replacing every match is one change, undone and done again as one",
+      "text": "foo bar foo bar foo",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "foo" },
+        { "do": "expect", "version": 0 },
+        { "do": "command", "command": "replace_all", "text": "baz" },
+        {
+          "do": "expect",
+          "text": "baz bar baz bar baz",
+          "version": 1,
+          "found": [],
+          "notes": [
+            {
+              "edited": {
+                "version": 1,
+                "origin": "person",
+                "changes": [
+                  [0, 3, "baz"],
+                  [8, 11, "baz"],
+                  [16, 19, "baz"]
+                ]
+              }
+            },
+            { "found": { "count": 0 } }
+          ],
+          "ranges": [[0, 3]]
+        },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "foo bar foo bar foo", "version": 2, "ranges": [[0, 3]] },
+        { "do": "frame" },
+        {
+          "do": "expect",
+          "found": [
+            [0, 3],
+            [8, 11],
+            [16, 19]
+          ],
+          "notes": [{ "found": { "count": 3, "current": 1 } }]
+        },
+        { "do": "command", "command": "redo" },
+        { "do": "expect", "text": "baz bar baz bar baz", "version": 3 }
+      ]
+    },
+    {
+      "about": "a document the person cannot change is not replaced in, and the selection does not move",
+      "text": "foo bar foo",
+      "options": { "read_only": true },
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "foo" },
+        { "do": "select", "ranges": [[5, 5]] },
+        { "do": "command", "command": "replace", "text": "X" },
+        { "do": "command", "command": "replace_all", "text": "X" },
+        { "do": "expect", "text": "foo bar foo", "version": 0, "ranges": [[5, 5]] }
+      ]
+    },
+    {
+      "about": "every match selected, the main one the match the main selection is on, else the one a search would select",
+      "text": "foo bar foo bar foo",
+      "steps": [
+        { "do": "command", "command": "find", "pattern": "foo" },
+        { "do": "command", "command": "find_next" },
+        { "do": "command", "command": "select_found" },
+        {
+          "do": "expect",
+          "ranges": [
+            [0, 3],
+            [8, 11],
+            [16, 19]
+          ],
+          "main": 1
+        },
+        { "do": "select", "ranges": [[12, 12]] },
+        { "do": "command", "command": "select_found" },
+        {
+          "do": "expect",
+          "ranges": [
+            [0, 3],
+            [8, 11],
+            [16, 19]
+          ],
+          "main": 2
+        }
+      ]
+    },
+    {
+      "about": "every place the main selection's text is selected, or, at a caret, every place its word is as a whole word; what is searched for stays",
+      "text": "ab abc ab xab ab",
+      "steps": [
+        { "do": "select", "ranges": [[8, 8]] },
+        { "do": "command", "command": "select_occurrences" },
+        {
+          "do": "expect",
+          "ranges": [
+            [0, 2],
+            [7, 9],
+            [14, 16]
+          ],
+          "main": 1,
+          "found": []
+        },
+        { "do": "select", "ranges": [[0, 2]] },
+        { "do": "command", "command": "select_occurrences" },
+        {
+          "do": "expect",
+          "ranges": [
+            [0, 2],
+            [3, 5],
+            [7, 9],
+            [11, 13],
+            [14, 16]
+          ],
+          "main": 0
+        },
+        { "do": "select", "ranges": [[2, 2]] },
+        { "do": "command", "command": "select_occurrences" },
+        {
+          "do": "expect",
+          "ranges": [
+            [0, 2],
+            [7, 9],
+            [14, 16]
+          ],
+          "main": 0
+        }
+      ]
+    },
+    {
+      "about": "the word at a caret is of every script, and so are the letters beside it",
+      "text": "çiçek çiçekçi ççiçek çiçek_ çiçek.",
+      "steps": [
+        { "do": "select", "ranges": [[2, 2]] },
+        { "do": "command", "command": "select_occurrences" },
+        {
+          "do": "expect",
+          "ranges": [
+            [0, 5],
+            [28, 33]
+          ],
+          "main": 0
+        },
+        { "do": "select", "ranges": [[6, 11]] },
+        { "do": "command", "command": "select_occurrences" },
+        {
+          "do": "expect",
+          "ranges": [
+            [0, 5],
+            [6, 11],
+            [15, 20],
+            [21, 26],
+            [28, 33]
+          ],
+          "main": 1
+        }
+      ]
+    },
+    {
+      "about": "a search stops at 10 000 matches and says there are more",
+      "text": "",
+      "steps": [
+        { "do": "type", "text": "a", "repeat": 10001 },
+        { "do": "expect", "version": 10001 },
+        { "do": "command", "command": "find", "pattern": "a" },
+        {
+          "do": "expect",
+          "ranges": [[0, 1]],
+          "notes": [
+            { "selection": { "ranges": [[0, 1]] } },
+            { "found": { "count": 10000, "current": 1, "more": true } }
+          ]
+        }
+      ]
     }
   ]
 }

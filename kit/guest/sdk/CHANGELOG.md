@@ -19,6 +19,8 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
   view, and which rows to build as it scrolls.
 - An editor's options carry how it looks (`line_height`, `padding`, `scroll_margin`, `numbers`,
   `caret`, `colors`) across the interface.
+- An editor's search crosses the interface: `word` of a `Find`, the commands `Replace`,
+  `ReplaceAll`, `SelectFound` and `SelectOccurrences`, and `Event::Found`.
 
 ## [0.3.1] - 2026-10-26
 
