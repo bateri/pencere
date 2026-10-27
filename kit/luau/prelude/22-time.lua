@@ -1,0 +1,300 @@
+-- The page API, part 4: replies put together, and the time that wakes a page.
+--
+-- A page has no clock of its own. The host gives it the time as it draws it (`render`'s `now`)
+-- and when it wakes it: a reply's `wake = seconds` asks the host to wake the page that many
+-- seconds from now (0: at the next frame), and once the time has come the page's `handle` is told
+-- { type = "wake", now = } and answers as it answers any event. Of the times a page asks the
+-- earliest stands (what one part of it asks is not put off by another); a wake that came is gone,
+-- and a page that wants another asks again. The host wakes a page at most once a frame.
+--
+-- The kit's timers run on it, named as the program runner's:
+--
+--   local saving = pencere.time.after(0.5, function() pencere.call("save", text) end)
+--   local clock = pencere.time.every(1, function() return true end)   -- a frame each second
+--   saving:cancel()             -- whether it was still waiting
+--   clock:active()              -- whether it is
+--   pencere.time.now()          -- the time the host last gave the page
+--
+-- `after(seconds, fn)` runs `fn` once, `seconds` (0 or more) from now; `every(seconds, fn)` every
+-- `seconds` (more than 0) from now on, and once, not once for each, for runs it fell behind on. A
+-- timer runs while the page is woken: the timers that are due, in the order of their times (and
+-- of their making), before the page's own `handle` hears of the wake, which it does only where it
+-- asked a `wake` itself. What `fn` returns is a reply, put together with what the others and the
+-- page return (`pencere._merge`). A timer set while the page is woken counts from the time of the
+-- wake. One set anywhere else (an event, a message, `render`, the script's start) counts from the
+-- next wake, which the kit asks for at once: the host's next frame, at most a frame late and never
+-- early, for the time the host last gave may be that of a frame long gone. The kit asks the host
+-- for the wakes its timers want with the page's replies and frames; a page that sets none and asks
+-- none is asked nothing new, and its `handle` is never told `wake`.
+--
+-- `pencere.time.now()` is the time the host last gave the page, `render`'s `now` or a wake's:
+-- seconds on the host's clock, 0 before it gave any. It does not go on between them.
+
+local time = {}
+pencere.time = time
+
+-- The latest time the host gave, and the time of the wake being answered (nil while none is).
+local known = 0
+local waking = nil
+-- The timers that wait, as a set. A timer set where the time was not known has no `due`, only
+-- its `delay`, until the next wake places it.
+local timers = {}
+local made = 0
+-- What the page asked of its own wakes: the time it asked for, placed, and the fewest seconds it
+-- asked where the time was not known (placed at the next wake).
+local own_due, own_delay = nil, nil
+
+-- --- Replies put together ------------------------------------------------------------------------
+
+-- An ask of an editor, or a list of them, as a list (nil for what is neither).
+local function asks_of(value)
+	if type(value) ~= "table" then
+		return nil
+	end
+	if value[1] == nil and next(value) ~= nil then
+		return { value }
+	end
+	return value
+end
+
+-- Two replies (nil, true, false or a table) as one: everything both ask, the first's asks of an
+-- editor before the second's; a frame where either wants one, the page closed where either asks;
+-- where both say the one thing (the keyboard, the pasteboard, a menu, a link, the pointer's shape)
+-- the second's; and the earlier of two wakes. Neither is changed. What a page's parts answer is
+-- put together with it: a syntax's (`syntax:reply`), the timers' and the page's own.
+local function merge(first, second)
+	if first == nil then
+		return second
+	elseif second == nil then
+		return first
+	end
+	local first_table, second_table = type(first) == "table", type(second) == "table"
+	if not first_table and not second_table then
+		return first == true or second == true
+	end
+	local out = first_table and table.clone(first) or { redraw = first == true }
+	local other = second_table and second or { redraw = second == true }
+	for key, value in next, other do
+		local mine = out[key]
+		if mine == nil then
+			out[key] = value
+		elseif key == "redraw" or key == "close" then
+			out[key] = (mine and true or false) or (value and true or false)
+		elseif key == "wake" then
+			-- What is not a number is kept, for the reply to be refused for it.
+			if type(mine) == "number" and type(value) == "number" then
+				out.wake = math.min(mine, value)
+			elseif type(mine) == "number" then
+				out.wake = value
+			end
+		elseif key == "editor" and type(mine) == "table" and type(value) == "table" then
+			local editors = table.clone(mine)
+			for name, asks in next, value do
+				local before, after = asks_of(editors[name]), asks_of(asks)
+				if before == nil or after == nil then
+					editors[name] = asks
+				else
+					local all = table.clone(before)
+					table.move(after, 1, #after, #all + 1, all)
+					editors[name] = all
+				end
+			end
+			out.editor = editors
+		elseif key == "fill" and type(mine) == "table" and type(value) == "table" then
+			local fill = table.clone(mine)
+			for name, text in next, value do
+				fill[name] = text
+			end
+			out.fill = fill
+		else
+			out[key] = value
+		end
+	end
+	return out
+end
+pencere._merge = merge
+
+-- --- Timers --------------------------------------------------------------------------------------
+
+local Timer = {}
+Timer.__index = Timer
+
+local function add(seconds, every, fn, name)
+	if type(seconds) ~= "number" or not (seconds >= 0 and seconds < math.huge) then
+		error("pencere.time." .. name .. " takes a number of seconds, 0 or more, then a function", 3)
+	end
+	if every and seconds == 0 then
+		error("pencere.time.every: the time between two runs is more than 0 seconds", 3)
+	end
+	if type(fn) ~= "function" then
+		error("pencere.time." .. name .. " takes a number of seconds, then the function to run", 3)
+	end
+	made += 1
+	local timer = setmetatable({
+		due = waking and waking + seconds or nil,
+		delay = seconds,
+		every = every and seconds or nil,
+		fn = fn,
+		order = made,
+		waiting = true,
+	}, Timer)
+	timers[timer] = true
+	return timer
+end
+
+-- Runs `fn` once, `seconds` (0 or more) from now. The timer.
+function time.after(seconds, fn)
+	return add(seconds, false, fn, "after")
+end
+
+-- Runs `fn` every `seconds` (more than 0), the first time `seconds` from now. The timer.
+function time.every(seconds, fn)
+	return add(seconds, true, fn, "every")
+end
+
+-- The time the host last gave the page, seconds on its clock (0 before it gave any).
+function time.now()
+	return known
+end
+
+-- Stops the timer: whether it was still waiting (an `after` that ran is not).
+function Timer:cancel()
+	local was = self.waiting
+	self.waiting = false
+	timers[self] = nil
+	return was
+end
+
+-- Whether the timer is still waiting to run.
+function Timer:active()
+	return self.waiting
+end
+
+-- --- What the application's calls do with it (`40-page.lua`) -------------------------------------
+
+local hooks = {}
+pencere._time = hooks
+
+-- The host gave the time `now` (a frame).
+function hooks.given(now)
+	if type(now) == "number" and now > known then
+		known = now
+	end
+end
+
+-- A reply the page's own code returned, the wake it asks taken out of it and kept: the page is
+-- woken (its `handle` told) at the earliest of the times it asked.
+function hooks.taken(reply)
+	if type(reply) ~= "table" or reply.wake == nil then
+		return reply
+	end
+	local seconds = reply.wake
+	if type(seconds) ~= "number" or not (seconds >= 0 and seconds < math.huge) then
+		error("wake is a number of seconds, 0 or more", 0)
+	end
+	if waking ~= nil then
+		local due = waking + seconds
+		if own_due == nil or due < own_due then
+			own_due = due
+		end
+	elseif own_delay == nil or seconds < own_delay then
+		own_delay = seconds
+	end
+	local out = table.clone(reply)
+	out.wake = nil
+	return out
+end
+
+-- In how many seconds the page is to be woken, for what the kit has learnt since it last asked:
+-- at once where a timer (or the page) asked where the time was not known, to place it; in a wake,
+-- the earliest time waiting. Outside a wake what was placed was asked when it was, and asking it
+-- again from a time that may be old would only ask it later. Nil for nothing.
+function hooks.asked()
+	local unplaced = own_delay ~= nil
+	local earliest = own_due
+	for timer in next, timers do
+		local due = timer.due
+		if due == nil then
+			unplaced = true
+		elseif earliest == nil or due < earliest then
+			earliest = due
+		end
+	end
+	if unplaced then
+		return 0
+	elseif waking == nil or earliest == nil then
+		return nil
+	end
+	return math.max(0, earliest - waking)
+end
+
+-- The page's reply as it goes to the host: with the wake the kit asks for. The end of a call of the
+-- application's.
+function hooks.finish(reply)
+	local seconds = hooks.asked()
+	waking = nil
+	if seconds == nil then
+		return reply
+	end
+	return merge(reply, { wake = seconds })
+end
+
+-- The page is woken at `now`: what was set where the time was not known is placed from it, the
+-- timers that are due run in the order of their times, then the page's `handle` is told where it
+-- asked a wake itself. What they return, put together. A timer set by these counts from `now`
+-- and runs at a later wake, not in this one.
+function hooks.woken(now, handle)
+	hooks.given(now)
+	waking = now
+	for timer in next, timers do
+		if timer.due == nil then
+			timer.due = now + timer.delay
+		end
+	end
+	if own_delay ~= nil then
+		local due = now + own_delay
+		if own_due == nil or due < own_due then
+			own_due = due
+		end
+		own_delay = nil
+	end
+	local due = {}
+	for timer in next, timers do
+		if timer.due <= now then
+			due[#due + 1] = timer
+		end
+	end
+	table.sort(due, function(a, b)
+		if a.due ~= b.due then
+			return a.due < b.due
+		end
+		return a.order < b.order
+	end)
+	-- The page's own wake is gone once it comes, before the page is told, so that what it asks
+	-- then stands.
+	local own = own_due ~= nil and own_due <= now
+	if own then
+		own_due = nil
+	end
+	local reply = nil
+	for _, timer in ipairs(due) do
+		-- One that ran before it may have stopped it.
+		if timer.waiting then
+			if timer.every then
+				local next_due = timer.due + timer.every
+				if next_due <= now then
+					next_due = now + timer.every
+				end
+				timer.due = next_due
+			else
+				timer.waiting = false
+				timers[timer] = nil
+			end
+			reply = merge(reply, hooks.taken(timer.fn()))
+		end
+	end
+	if own and handle then
+		reply = merge(reply, hooks.taken(handle({ type = "wake", now = now })))
+	end
+	return reply
+end

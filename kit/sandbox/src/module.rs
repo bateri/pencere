@@ -37,6 +37,11 @@ pub struct Frame {
     /// When the page wants to be asked for again if nothing happens before then, seconds on the
     /// clock `render` was given; always a finite time.
     pub wake_at: Option<f64>,
+    /// The page asks to be woken this many seconds from now, as a reply asks
+    /// ([`Reply::wake`]): what a page that set a timer while it was drawn has no reply to ask
+    /// in. The module keeps it with the rest of what the page asked ([`Update::wake`]); a frame
+    /// taken from the module has none.
+    pub wake: Option<f64>,
 }
 
 /// What a module can be asked, whatever it is made of. The sandbox is one; the tests have a
@@ -87,11 +92,15 @@ enum Command {
     Message(String),
     /// The program has read enough that the module may say what it kept.
     Room,
+    /// The application is at a frame of this time, at or after the time the page asked to be
+    /// woken at.
+    Wake(f64),
     Stop,
 }
 
 /// What the module said to an event, and whether the event was the pointer's (a move, a
-/// press, the wheel): the pointer's shape after a key is nobody's to set.
+/// press, the wheel): the pointer's shape after a key is nobody's to set. The `wake` a reply asked
+/// is not in it: the module keeps that ([`Update::wake`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Answer {
     pub reply: Reply,
@@ -117,6 +126,8 @@ struct Waiting {
     sent: Vec<String>,
     asks: Vec<ScrollTo>,
     closed: Option<Fault>,
+    /// The earliest time the page asked to be woken at and has not been, on render's clock.
+    wake: Option<f64>,
 }
 
 /// What the application takes from the mailbox.
@@ -133,6 +144,12 @@ pub struct Update {
     pub asks: Vec<ScrollTo>,
     /// Why the module is gone, once it is. Told again on every taking after.
     pub closed: Option<Fault>,
+    /// The time the page asked to be woken at, seconds on the clock `render` is given: of all the
+    /// times its replies and its frames asked since it was last woken, the earliest (one part of a
+    /// page does not put off what another asked). Told on every taking while it stands, none once
+    /// the page is woken or gone. The application arms one wakeup for it and, at the first frame
+    /// at or after it, wakes the page ([`Module::wake`]).
+    pub wake: Option<f64>,
 }
 
 /// A page module, on its thread.
@@ -233,6 +250,19 @@ impl Module {
         let _ = self.commands.send(Command::Room);
     }
 
+    /// Wakes the page: the application is at a frame of the time `now` (on the clock it gives
+    /// `render`), at or after the time the page asked to be woken at ([`Update::wake`]). The page
+    /// is told [`Event::Wake`] and its reply comes as any other does. Returns at once.
+    ///
+    /// The application calls it from the frame, before it asks for the frame's page, so that a
+    /// page that asks to be woken again at once (`wake` 0, a reading that goes on) is woken once a
+    /// frame and no more, as a page that is `animating` is drawn. A wake before the time asked,
+    /// when nothing is asked, or at a time no later than the last wake's (a second in the same
+    /// frame) is passed over; of wakes that wait while the module is busy, the newest is the one.
+    pub fn wake(&self, now: f64) {
+        let _ = self.commands.send(Command::Wake(now));
+    }
+
     /// Hands the module the text of each of the page's editors as it is now
     /// (`pencere_editor::Editors::snapshots`), for it to read at once when it asks. Posted before
     /// the events that tell of the versions it is of, it is what the module reads when it is told
@@ -288,6 +318,7 @@ impl Module {
             sent: std::mem::take(&mut waiting.sent),
             asks: std::mem::take(&mut waiting.asks),
             closed: waiting.closed.clone(),
+            wake: waiting.wake,
         }
     }
 }
@@ -305,6 +336,8 @@ impl Mailbox {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         waiting.closed.get_or_insert(fault);
+        // A page that is gone is woken for nothing.
+        waiting.wake = None;
     }
 }
 
@@ -358,6 +391,42 @@ impl Post<'_> {
         self.wake();
     }
 
+    /// The page asked to be woken at `due` (render's clock): the earliest of what it asked
+    /// stands, and the application is told when that changes, though nothing else came of what
+    /// asked it.
+    fn ask_wake(&self, due: f64) {
+        let earlier = {
+            let mut waiting = self
+                .mailbox
+                .waiting
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let earlier = waiting.wake.is_none_or(|asked| due < asked);
+            if earlier {
+                waiting.wake = Some(due);
+            }
+            earlier
+        };
+        if earlier {
+            self.wake();
+        }
+    }
+
+    /// Whether the page is to be woken at `now`: it asked for a time no later. That wake is
+    /// gone then; what the page asks after it is asked anew.
+    fn take_wake(&self, now: f64) -> bool {
+        let mut waiting = self
+            .mailbox
+            .waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let due = waiting.wake.is_some_and(|asked| asked <= now);
+        if due {
+            waiting.wake = None;
+        }
+        due
+    }
+
     /// Once per taking: a wake that is already on its way covers what is posted after it.
     fn wake(&self) {
         if !self.mailbox.woken.swap(true, Ordering::SeqCst) {
@@ -394,6 +463,60 @@ impl Asked {
     }
 }
 
+/// The time on the application's clock now, as far as the module can tell (the time of the
+/// last frame and what passed since, or the application's own reading): what the seconds a page
+/// asks to be woken in are counted from. None before any frame where the application has no clock.
+fn clock(last: Option<Asked>, program: &dyn Program) -> Option<f64> {
+    last.map(|asked| asked.since(program))
+        .or_else(|| program.now().filter(|now| now.is_finite()))
+}
+
+/// What the module keeps of the page's wakes besides the time asked ([`Post::ask_wake`]).
+#[derive(Default)]
+struct Wakes {
+    /// The time of the last wake the page was told: a wake at that time or before it (a second
+    /// in the same frame) is passed over.
+    told: Option<f64>,
+    /// The fewest seconds asked while there was no time to count them from (no frame yet, no
+    /// clock of the application's): counted from the first frame's time.
+    unplaced: Option<f64>,
+}
+
+impl Wakes {
+    /// The page asked to be woken `seconds` after `now`, the time it asked at.
+    fn ask(&mut self, seconds: Option<f64>, now: Option<f64>, post: &Post<'_>) {
+        let Some(seconds) = seconds else {
+            return;
+        };
+        match now {
+            // A time so far off that it is past what a clock can say is never.
+            Some(now) if (now + seconds).is_finite() => post.ask_wake(now + seconds),
+            Some(_) => {}
+            None => {
+                self.unplaced = Some(self.unplaced.map_or(seconds, |kept| kept.min(seconds)));
+            }
+        }
+    }
+
+    /// A reply, with the wake it asks taken out of it and kept.
+    fn reply(&mut self, mut reply: Reply, now: Option<f64>, post: &Post<'_>) -> Reply {
+        self.ask(reply.wake.take(), now, post);
+        reply
+    }
+
+    /// A page, with the wake it asks taken out of it and kept.
+    fn frame(&mut self, mut frame: Frame, now: Option<f64>, post: &Post<'_>) -> Frame {
+        self.ask(frame.wake.take(), now, post);
+        frame
+    }
+
+    /// The first frame's time has come: what was asked before there was one is counted from it.
+    fn place(&mut self, now: f64, post: &Post<'_>) {
+        let seconds = self.unplaced.take();
+        self.ask(seconds, Some(now), post);
+    }
+}
+
 /// The module's life: made, then asked until it is stopped or gone.
 fn serve<R: Runner>(
     make: impl FnOnce() -> Result<R, Fault>,
@@ -407,6 +530,8 @@ fn serve<R: Runner>(
     // How many times in a row a settle has asked for the page again without anyone else asking
     // for anything: a module that always wants another page does not make an endless chain of them.
     let mut settled = 0_u8;
+    // What the page asked of its wakes.
+    let mut wakes = Wakes::default();
     // The module is up: the application hears of it with the first page.
     loop {
         let Ok(first) = inbox.recv() else {
@@ -443,14 +568,17 @@ fn serve<R: Runner>(
                     // whichever of the application's frame and its own reading of the clock was
                     // behind the other. The frame itself is made for the time it was asked for.
                     let kept = last.map_or(*now, |before| before.now);
-                    last = Some(Asked {
+                    let asked = Asked {
                         size: *size,
                         now: if now.is_finite() { now.max(kept) } else { kept },
                         reduce_motion: *reduce_motion,
                         at: Instant::now(),
-                    });
+                    };
+                    last = Some(asked);
+                    wakes.place(asked.now, post);
                     settled = 0;
                     let frame = runner.render(*size, *now, *reduce_motion)?;
+                    let frame = wakes.frame(frame, clock(last, program), post);
                     post.say(runner.take_sent(), runner.take_asks());
                     post.put(Some((frame, *size)), None);
                 }
@@ -462,6 +590,7 @@ fn serve<R: Runner>(
                     {
                         settled += 1;
                         let frame = runner.render(asked.size, asked.now, asked.reduce_motion)?;
+                        let frame = wakes.frame(frame, clock(last, program), post);
                         post.put(Some((frame, asked.size)), None);
                     }
                     post.say(runner.take_sent(), runner.take_asks());
@@ -507,11 +636,13 @@ fn serve<R: Runner>(
                         event => event.clone(),
                     };
                     let reply = runner.handle(event.clone())?;
+                    let reply = wakes.reply(reply, clock(last, program), post);
                     post.say(runner.take_sent(), runner.take_asks());
                     let frame = match (reply.redraw, last) {
                         (true, Some(asked)) => {
                             let frame =
                                 runner.render(asked.size, asked.now, asked.reduce_motion)?;
+                            let frame = wakes.frame(frame, clock(last, program), post);
                             post.say(runner.take_sent(), runner.take_asks());
                             Some((frame, asked.size))
                         }
@@ -534,6 +665,7 @@ fn serve<R: Runner>(
                 Command::Message(text) => {
                     settled = 0;
                     let reply = runner.message(text.clone())?;
+                    let reply = wakes.reply(reply, clock(last, program), post);
                     // Taken: the program may say more. After the page was told, and not for a
                     // page that failed on it (the view is over, and the application lets go
                     // of what it counted).
@@ -544,6 +676,38 @@ fn serve<R: Runner>(
                 Command::Room => {
                     settled = 0;
                     let reply = runner.room()?;
+                    let reply = wakes.reply(reply, clock(last, program), post);
+                    post.say(runner.take_sent(), runner.take_asks());
+                    owed |= answered(reply, post);
+                }
+                // Of the wakes that waited, the newest: the frame the application is at.
+                Command::Wake(_) if later.iter().any(|c| matches!(c, Command::Wake(_))) => {}
+                Command::Wake(now) => {
+                    let now = *now;
+                    // Not a time; a second wake in the frame of the last; nothing asked, or not
+                    // yet: passed over, and what was asked stays asked.
+                    if !now.is_finite()
+                        || wakes.told.is_some_and(|told| now <= told)
+                        || !post.take_wake(now)
+                    {
+                        continue;
+                    }
+                    wakes.told = Some(now);
+                    settled = 0;
+                    // The page is at the time of the wake: drawn again for what it did, it is
+                    // drawn for that time, not for the last frame's.
+                    if let Some(asked) = last
+                        && now > asked.now
+                    {
+                        last = Some(Asked {
+                            now,
+                            at: Instant::now(),
+                            ..asked
+                        });
+                    }
+                    let reply = runner.handle(Event::Wake { now })?;
+                    // What it asks next is counted from the time it was told, as it counts.
+                    let reply = wakes.reply(reply, Some(now), post);
                     post.say(runner.take_sent(), runner.take_asks());
                     owed |= answered(reply, post);
                 }
@@ -559,6 +723,7 @@ fn serve<R: Runner>(
                 at: Instant::now(),
                 ..asked
             });
+            let frame = wakes.frame(frame, Some(now), post);
             post.say(runner.take_sent(), runner.take_asks());
             post.put(Some((frame, asked.size)), None);
         }
@@ -578,9 +743,9 @@ fn newest_of_each(boxes: Vec<(Id, Point)>) -> Vec<(Id, Point)> {
     out
 }
 
-/// What the page said back to something the program did: whether it wants to be drawn again
-/// (the page that follows the batch), and the rest of the reply (a menu, the keyboard, the
-/// pasteboard, a link, the end), which is told now.
+/// What the page said back to something the program did, or to a wake: whether it wants to be
+/// drawn again (the page that follows the batch), and the rest of the reply (a menu, the keyboard,
+/// the pasteboard, a link, the end), which is told now.
 fn answered(reply: Reply, post: &Post<'_>) -> bool {
     let redraw = reply.redraw;
     // Whatever the reply asks of the host, it is posted: a page that hears its program puts what it
@@ -629,6 +794,15 @@ mod tests {
         fail_on: Option<&'static str>,
         settles: bool,
         said: bool,
+        /// What it asks of its wakes: again this many seconds after it is woken, and once in the
+        /// first page it makes.
+        rewake: Option<f64>,
+        frame_wake: Option<f64>,
+    }
+
+    /// The seconds a text or a message `wake N` asks to be woken in.
+    fn asked_wake(text: &str) -> Option<f64> {
+        text.strip_prefix("wake ")?.parse().ok()
     }
 
     impl Plain {
@@ -653,6 +827,7 @@ mod tests {
                 root: div().child(text(format!("{now}"))),
                 animating: false,
                 wake_at: None,
+                wake: self.frame_wake.take(),
             })
         }
 
@@ -664,7 +839,16 @@ mod tests {
         fn handle(&mut self, event: Event) -> Result<Reply, Fault> {
             self.note(format!("handle {event:?}"))?;
             Ok(match event {
+                Event::Text { text, .. } if asked_wake(&text).is_some() => Reply {
+                    wake: asked_wake(&text),
+                    ..Reply::none()
+                },
                 Event::Text { .. } => Reply::redraw(),
+                // Woken, it draws again (to show the time it was woken at) and asks as it does.
+                Event::Wake { .. } => Reply {
+                    wake: self.rewake,
+                    ..Reply::redraw()
+                },
                 _ => Reply::none(),
             })
         }
@@ -678,7 +862,10 @@ mod tests {
             Ok(if text.contains("redraw") {
                 Reply::redraw()
             } else {
-                Reply::none()
+                Reply {
+                    wake: asked_wake(&text),
+                    ..Reply::none()
+                }
             })
         }
 
@@ -710,6 +897,18 @@ mod tests {
         fail_on: Option<&'static str>,
         settles: bool,
     ) -> Rig {
+        rig_waking(program, gate, None, None, (fail_on, settles))
+    }
+
+    /// A rig whose page asks to be woken `rewake` seconds after each wake, and `frame_wake` seconds
+    /// after its first page.
+    fn rig_waking(
+        program: Arc<dyn Program>,
+        gate: Option<Receiver<()>>,
+        rewake: Option<f64>,
+        frame_wake: Option<f64>,
+        (fail_on, settles): (Option<&'static str>, bool),
+    ) -> Rig {
         let log = Arc::new(Mutex::new(Vec::new()));
         let (told, woken) = mpsc::channel();
         let told = Mutex::new(told);
@@ -719,6 +918,8 @@ mod tests {
             fail_on,
             settles,
             said: false,
+            rewake,
+            frame_wake,
         };
         let module = Module::spawn(
             move || Ok(plain),
@@ -1304,6 +1505,172 @@ mod tests {
         assert!(matches!(module.poll().closed, Some(Fault::Trap(_))));
     }
 
+    /// A field's text, as the person typed it: `wake N` asks to be woken in N seconds.
+    fn typed(words: &str) -> Event {
+        Event::Text {
+            field: pencere_view::Id::named("field"),
+            text: words.into(),
+        }
+    }
+
+    /// Takes what the module put out until `done` says so of a taking.
+    fn take_until(rig: &Rig, done: impl Fn(&Update) -> bool) -> Update {
+        let began = std::time::Instant::now();
+        loop {
+            let _ = rig.woken.recv_timeout(Duration::from_millis(20));
+            let update = rig.module.poll();
+            if done(&update) {
+                return update;
+            }
+            assert!(
+                began.elapsed() < Duration::from_secs(5),
+                "not yet: {update:?} {:?}",
+                rig.log()
+            );
+        }
+    }
+
+    /// Waits until the module has done all that was posted to it before: it is told a message
+    /// `mark n` and logs it.
+    fn caught_up(rig: &Rig, n: u32) {
+        let mark = format!("mark {n}");
+        rig.module.message(mark.clone());
+        let began = std::time::Instant::now();
+        while !rig.log().contains(&format!("message {mark}")) {
+            assert!(began.elapsed() < Duration::from_secs(5), "{:?}", rig.log());
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// The times the page was woken at, in order.
+    fn woken_at(rig: &Rig) -> Vec<f64> {
+        rig.log()
+            .iter()
+            .filter_map(|line| line.strip_prefix("handle Wake { now: "))
+            .map(|rest| rest.trim_end_matches(" }").parse().unwrap())
+            .collect()
+    }
+
+    const SMALL: Size = Size::new(10.0, 10.0);
+
+    #[test]
+    fn of_the_wakes_a_page_asks_the_earliest_stands_and_the_application_hears_of_each() {
+        let clock = Arc::new(Clocked(Mutex::new(Some(10.0))));
+        let rig = rig_for(clock.clone(), None, None, false);
+        rig.module.render(SMALL, 10.0, false);
+        let first = take_until(&rig, |u| u.frame.is_some());
+        assert_eq!(
+            first.wake, None,
+            "a page that asks nothing is woken for nothing"
+        );
+        // Seconds from the time it asks at, placed on the application's clock.
+        rig.module.event(typed("wake 5"));
+        let update = take_until(&rig, |u| !u.replies.is_empty());
+        assert_eq!(update.wake, Some(15.0));
+        // The module keeps it: the reply the application takes does not ask it again.
+        assert_eq!(update.replies[0].reply.wake, None);
+        *clock.0.lock().unwrap() = Some(11.0);
+        rig.module.event(typed("wake 2"));
+        take_until(&rig, |u| u.wake == Some(13.0));
+        // A later time does not put off an earlier one: one part of a page does not delay what
+        // another asked.
+        rig.module.event(typed("wake 9"));
+        let update = take_until(&rig, |u| !u.replies.is_empty());
+        assert_eq!(update.wake, Some(13.0));
+        // A reply to the program that asks nothing but a wake still tells the application.
+        rig.module.message("wake 1".into());
+        let update = take_until(&rig, |u| u.wake == Some(12.0));
+        assert!(update.replies.is_empty());
+        assert!(woken_at(&rig).is_empty());
+    }
+
+    #[test]
+    fn a_page_is_woken_once_its_time_has_come_and_not_before_and_that_wake_is_gone_after() {
+        let clock = Arc::new(Clocked(Mutex::new(Some(10.0))));
+        let rig = rig_for(clock, None, None, false);
+        rig.module.render(SMALL, 10.0, false);
+        take_until(&rig, |u| u.frame.is_some());
+        rig.module.event(typed("wake 2"));
+        take_until(&rig, |u| u.wake == Some(12.0));
+        // Before the time asked: passed over, and the time stays asked.
+        rig.module.wake(11.5);
+        caught_up(&rig, 1);
+        assert!(woken_at(&rig).is_empty());
+        assert_eq!(rig.module.poll().wake, Some(12.0));
+        // At a frame after it: the page is told the frame's time, and drawn again for that time
+        // (not for the last frame's, nor the clock's, which stands behind).
+        rig.module.wake(12.25);
+        assert_eq!(render_time(&rig, 2), 12.25);
+        assert_eq!(woken_at(&rig), [12.25]);
+        let update = take_until(&rig, |u| u.frame.is_some());
+        assert_eq!(update.wake, None, "a wake that came is gone");
+        // Nothing asked: nothing is told.
+        rig.module.wake(20.0);
+        caught_up(&rig, 2);
+        assert_eq!(woken_at(&rig), [12.25]);
+    }
+
+    #[test]
+    fn a_page_that_asks_again_at_once_is_woken_once_a_frame_and_wakes_that_waited_are_one() {
+        let clock = Arc::new(Clocked(Mutex::new(Some(10.0))));
+        let rig = rig_waking(clock.clone(), None, Some(0.0), None, (None, false));
+        rig.module.render(SMALL, 10.0, false);
+        take_until(&rig, |u| u.frame.is_some());
+        rig.module.event(typed("wake 0"));
+        take_until(&rig, |u| u.wake == Some(10.0));
+        // Woken, it asks again at once: due at the time it was woken at, and told at the next
+        // frame, not a second time in this one.
+        rig.module.wake(10.0);
+        rig.module.wake(10.0);
+        caught_up(&rig, 1);
+        assert_eq!(woken_at(&rig), [10.0]);
+        assert_eq!(rig.module.poll().wake, Some(10.0));
+        rig.module.wake(10.016);
+        caught_up(&rig, 2);
+        assert_eq!(woken_at(&rig), [10.0, 10.016]);
+
+        // Wakes that waited while the module was busy are the newest of them. This page asks to be
+        // woken at once by its first page, which is held while the wakes are posted.
+        let (open, gate) = mpsc::channel();
+        let rig = rig_waking(clock, Some(gate), Some(0.0), Some(0.0), (None, false));
+        rig.module.render(SMALL, 10.0, false);
+        let began = std::time::Instant::now();
+        while !rig.log().contains(&"held".to_owned()) {
+            assert!(began.elapsed() < Duration::from_secs(5));
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        rig.module.wake(10.1);
+        rig.module.wake(10.2);
+        rig.module.wake(10.3);
+        open.send(()).unwrap();
+        caught_up(&rig, 1);
+        assert_eq!(woken_at(&rig), [10.3]);
+    }
+
+    #[test]
+    fn a_wake_a_page_asks_as_it_is_drawn_is_kept_as_a_replys_and_none_outlives_the_page() {
+        // Asked by a frame: kept by the module, not handed out with the frame.
+        let clock = Arc::new(Clocked(Mutex::new(Some(10.0))));
+        let rig = rig_waking(clock, None, None, Some(3.0), (Some("message boom"), false));
+        rig.module.render(SMALL, 10.0, false);
+        let update = take_until(&rig, |u| u.frame.is_some());
+        assert_eq!(update.wake, Some(13.0));
+        assert_eq!(update.frame.expect("a page").wake, None);
+        // A page that is gone is woken for nothing.
+        rig.module.message("boom".into());
+        let update = take_until(&rig, |u| u.closed.is_some());
+        assert_eq!(update.wake, None);
+
+        // Asked before there is a time to count from (no page yet, no clock of the
+        // application's): counted from the first page's.
+        let rig = rig_for(Arc::new(Unbounded), None, None, false);
+        rig.module.message("wake 4".into());
+        caught_up(&rig, 1);
+        assert_eq!(rig.module.poll().wake, None);
+        rig.module.render(SMALL, 20.0, false);
+        take_until(&rig, |u| u.wake == Some(24.0));
+    }
+
     #[test]
     fn dropping_the_module_ends_its_thread() {
         struct Marker(mpsc::Sender<()>);
@@ -1318,6 +1685,7 @@ mod tests {
                     root: div(),
                     animating: false,
                     wake_at: None,
+                    wake: None,
                 })
             }
             fn settle(&mut self) -> Result<bool, Fault> {

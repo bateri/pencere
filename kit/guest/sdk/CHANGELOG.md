@@ -28,6 +28,9 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 - A reply's link (`Reply::with_link`), an address the page asks the application to open in the
   person's browser, crosses the interface as the page said it; which ones are opened is the
   application's to rule.
+- A page asks to be woken: a reply's `wake` (`Reply::with_wake(seconds)`) and a frame's
+  (`Frame::wake`, a field: a `Frame` written whole names it) cross the interface, and the wake comes
+  back as `Event::Wake { now }`.
 
 ## [0.3.1] - 2026-10-26
 

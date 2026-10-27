@@ -1,4 +1,4 @@
--- The page API, part 4: a language that colours an editor as it changes.
+-- The page API, part 5: a language that colours an editor as it changes.
 --
 -- The editor knows no language: the page colours its text with decorations (a layer of them,
 -- `decorate`). `pencere.Syntax` is how a page does that the way CodeMirror's `StreamLanguage`
@@ -7,7 +7,8 @@
 -- comment, a string that goes on). The kit keeps the state at the end of every line, reads again
 -- only from the first line a change touched until the state comes to what it was, colours only
 -- the lines in view (and a margin), and does a bounded amount of work in each call, the rest in
--- the calls after it. It does nothing for a page that does not use it.
+-- the frames after it, by itself (a timer, `pencere.time`): a large document is coloured to its
+-- end with no event of the person's. It does nothing for a page that does not use it.
 --
 --   local sql = pencere.Syntax.define {
 --       name = "sql",
@@ -28,13 +29,13 @@
 --   }
 --   local syntax = pencere.Syntax.new(sql, "editor")
 --
---   render = function(size) syntax:work(); return tree, syntax:busy() end
 --   handle = function(event) syntax:handle(event); return syntax:reply(respond(event)) end
 --
 -- A place the stream says (`pos`, `start`) is a byte of the line's text from 1, as `string.find`
 -- counts; the kit makes characters of them for the editor.
 
 local layout = pencere.layout
+local merge = pencere._merge
 
 -- A line is read to its first this many characters: a line of a minified file does not stall the
 -- page, and the state after it is the state at that character (CodeMirror's `MaxLineLength`).
@@ -753,9 +754,10 @@ end
 -- One call reads at most `step` bytes, the lines to colour first. A document far longer than that
 -- above the lines in view is coloured from a guess (the language's `start()` at the first line to
 -- colour, as CodeMirror does) and read from where it knows in the calls after, which colour again
--- what the guess got wrong. A page does that reading in `render` (`work()`) and asks for the next
--- frame while there is more (`busy()`); `render` hands nothing to the editor, so what such a frame
--- finds to colour again goes with the page's next reply.
+-- what the guess got wrong. While there is more to do (`busy()`) it goes on by itself, a call a
+-- frame: a timer of its own (`pencere.time.after(0, ...)`) wakes the page, does the next call and
+-- hands the editor what it found with the wake's reply. The page does nothing for it but give it
+-- its events.
 function Syntax.new(language, editor, options)
 	if getmetatable(language) ~= Language then
 		error("pencere.Syntax.new takes a language (pencere.Syntax.define), then the name of an editor", 2)
@@ -825,6 +827,8 @@ function Syntax.new(language, editor, options)
 		out = {},
 		-- The lines being coloured: { first, last, decorations } for one ask.
 		segment = nil,
+		-- The timer it goes on with while it is busy (nil while none waits).
+		timer = nil,
 	}, Syntax)
 end
 
@@ -1118,8 +1122,9 @@ local function forget_outside(self, first, last)
 end
 
 -- Does what one call may: colours the lines in view that want it (from what it knows, else from
--- a guess), then reads on from what it knows toward them. The page calls it in `render` while it
--- is `busy()`; `handle` calls it itself.
+-- a guess), then reads on from what it knows toward them. `handle` calls it, and the timer it goes
+-- on with while it is `busy()`: a page need not, and what it asks of the editor goes out with the
+-- page's next reply (`reply`) or the timer's, whichever comes first.
 function Syntax:work()
 	if not ready(self) then
 		return
@@ -1164,8 +1169,8 @@ function Syntax:work()
 	flush(self)
 end
 
--- Whether there is more to do that a call to `work()` would do: the page asks for the next frame
--- while there is (`render`'s second value).
+-- Whether there is more to do that a call to `work()` would do. It goes on with it by itself,
+-- a call a frame, while there is.
 function Syntax:busy()
 	if not ready(self) or self.pending_count >= PENDING_DECORATIONS then
 		return false
@@ -1187,45 +1192,28 @@ function Syntax:asks()
 end
 
 -- The page's `reply` (nil, true, false or a table) with what it asks of the editor handed out in
--- it, before the page's own asks of the editor, and the next frame asked for while there is more
--- to do (`busy()`, which the page's `render` goes on with): what `handle`, `message` and `room`
--- return.
+-- it, before the page's own asks of the editor: what `handle`, `message` and `room` return. The
+-- page's reply itself is not changed.
 function Syntax:reply(reply)
-	local busy = self:busy()
 	if #self.pending == 0 then
-		if not busy then
-			return reply
-		elseif type(reply) == "table" then
-			reply.redraw = true
-			return reply
-		end
-		return true
+		return reply
 	end
-	if type(reply) ~= "table" then
-		reply = { redraw = reply == true }
+	return merge({ editor = { [self.editor] = self:asks() } }, reply)
+end
+
+-- Goes on with what is left by itself while there is any: a timer that wakes the page at the next
+-- frame, does a call's work and hands what it found out with the wake's reply. Held up by as many
+-- decorations as it may hold, it goes on to hand them out.
+local function go_on(self)
+	if self.timer ~= nil or not (self:busy() or self.pending_count >= PENDING_DECORATIONS) then
+		return
 	end
-	if busy then
-		reply.redraw = true
-	end
-	local editors = reply.editor
-	if editors == nil then
-		editors = {}
-		reply.editor = editors
-	end
-	local asks = self:asks()
-	local own = editors[self.editor]
-	if type(own) == "table" then
-		if own[1] == nil and next(own) ~= nil then
-			-- One ask, not a list of them.
-			asks[#asks + 1] = own
-		else
-			for _, item in ipairs(own) do
-				asks[#asks + 1] = item
-			end
-		end
-	end
-	editors[self.editor] = asks
-	return reply
+	self.timer = pencere.time.after(0, function()
+		self.timer = nil
+		self:work()
+		go_on(self)
+		return self:reply(nil)
+	end)
 end
 
 -- The changes told since the text the kit knows came to the text read now: what is kept is moved
@@ -1354,4 +1342,5 @@ function Syntax:handle(event)
 		end
 	end
 	self:work()
+	go_on(self)
 end

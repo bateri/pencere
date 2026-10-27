@@ -1,5 +1,6 @@
 #include "convert.h"
 
+#include <float.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1411,6 +1412,8 @@ int frame_call(lua_State* L) {
     job->out->animating = job->animating;
     job->out->wake_at.is_some = job->has_wake_at;
     job->out->wake_at.val = job->wake_at;
+    job->out->wake.is_some = job->has_wake;
+    job->out->wake.val = job->wake;
     return 0;
 }
 
@@ -1702,6 +1705,12 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             lua_setfield(L, -2, "more");
             break;
         }
+        case PENCERE_VIEW_TYPES_EVENT_WAKE:
+            // { now = }: the time the page asked to be woken at has come (the prelude runs its
+            // timers, and tells the page only if it asked itself).
+            set_word(L, "type", "wake");
+            set_number(L, "now", event.val.wake);
+            break;
     }
 }
 
@@ -2079,6 +2088,18 @@ int reply_call(lua_State* L) {
         out.link.val = host_string(bytes, length);
     } else if (!lua_isnil(L, -1)) {
         luaL_error(L, "link is a string: the http or https address to open");
+    }
+    lua_pop(L, 1);
+    // When to wake the page, seconds from now. The prelude puts it (the earliest its timers and
+    // the page ask); what is not a number of seconds is still an error of the script's.
+    get(L, 1, "wake");
+    if (lua_type(L, -1) == LUA_TNUMBER) {
+        double seconds = lua_tonumber(L, -1);
+        if (!(seconds >= 0 && seconds <= DBL_MAX)) luaL_error(L, "wake is a number of seconds, 0 or more");
+        out.wake.is_some = true;
+        out.wake.val = seconds;
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "wake is a number of seconds, 0 or more");
     }
     lua_pop(L, 1);
     get(L, 1, "menu");

@@ -501,6 +501,7 @@ pub fn to_wit_frame(frame: Frame) -> wit::Frame {
         commands: lists.commands,
         animating: frame.animating,
         wake_at: frame.wake_at,
+        wake: frame.wake,
     }
 }
 
@@ -552,6 +553,7 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
         copy: reply.copy,
         editor: reply.editor.into_iter().map(editor_ask).collect(),
         link: reply.link,
+        wake: reply.wake,
         cursor: match reply.cursor {
             Cursor::Arrow => wit::Cursor::Arrow,
             Cursor::Pointer => wit::Cursor::Pointer,
@@ -661,6 +663,7 @@ pub fn from_wit_event(event: wit::Event) -> Event {
         | wit::Event::Viewport(_)
         | wit::Event::EditorRefused(_)
         | wit::Event::Found(_)) => editor_event(editor),
+        wit::Event::Wake(now) => Event::Wake { now },
     }
 }
 // --- An editor's options and what the page asks of its editors -----------------------------
@@ -1031,6 +1034,25 @@ mod tests {
         let reply = to_wit_reply(Reply::none().with_link("file:///etc/passwd"));
         assert_eq!(reply.link.as_deref(), Some("file:///etc/passwd"));
         assert_eq!(to_wit_reply(Reply::none()).link, None);
+    }
+
+    #[test]
+    fn a_wake_crosses_as_the_page_asked_it_and_the_time_it_comes_at_crosses_back() {
+        // Asked twice, the earlier stands; asked by a frame, it crosses with the frame.
+        let reply = to_wit_reply(Reply::redraw().with_wake(2.0).with_wake(0.5));
+        assert_eq!(reply.wake, Some(0.5));
+        assert!(reply.redraw);
+        assert_eq!(to_wit_reply(Reply::none()).wake, None);
+        let frame = to_wit_frame(crate::Frame {
+            wake: Some(3.0),
+            ..crate::Frame::still(div())
+        });
+        assert_eq!(frame.wake, Some(3.0));
+        assert_eq!(to_wit_frame(crate::Frame::still(div())).wake, None);
+        assert_eq!(
+            from_wit_event(wit::Event::Wake(41.25)),
+            Event::Wake { now: 41.25 }
+        );
     }
 
     #[test]

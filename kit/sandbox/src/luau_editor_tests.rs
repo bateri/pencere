@@ -3,8 +3,8 @@
 //! the page asks of them done. The page is the example's (`examples/editor-lua`), and some short
 //! scripts besides. Heavy: the interpreter is compiled and run (`make check-heavy`).
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
@@ -17,8 +17,8 @@ use pencere_view::{
 };
 
 use crate::guests_tests::{Open, SIZE};
-use crate::luau_tests::{failed, open_script, words};
-use crate::{Fault, ModuleLimits};
+use crate::luau_tests::{failed, open_script, open_script_for, words};
+use crate::{Fault, ModuleLimits, Program};
 
 const PAGE: &str = include_str!("../../../examples/editor-lua/src/view/page.lua");
 
@@ -34,9 +34,31 @@ impl Measure for Fixed {
     }
 }
 
+/// The host's clock, which stands where the rig puts it: the time the seconds a page asks to be
+/// woken in are counted from.
+struct Clock(Mutex<f64>);
+
+impl Program for Clock {
+    fn may_say(&self, _bytes: usize) -> bool {
+        true
+    }
+
+    fn taken(&self, _bytes: usize) {}
+
+    fn now(&self) -> Option<f64> {
+        Some(*self.0.lock().unwrap())
+    }
+}
+
+/// A frame of the host's, seconds.
+const FRAME: f64 = 1.0 / 60.0;
+
 /// A host of one page: the module, its layout, its scrolling and its editors.
 struct Rig {
     page: Open,
+    clock: Arc<Clock>,
+    /// The time the page asked to be woken at, as the module last said.
+    wake_due: Option<f64>,
     editors: Editors,
     scrolls: Scrolls,
     laid: Arc<Laid>,
@@ -68,8 +90,11 @@ impl Rig {
     }
 
     fn start(script: &str, may_close: bool) -> Self {
+        let clock = Arc::new(Clock(Mutex::new(0.0)));
         let mut rig = Self {
-            page: open_script(script, ModuleLimits::default()),
+            page: open_script_for(script, ModuleLimits::default(), clock.clone()),
+            clock,
+            wake_due: None,
             editors: Editors::new(),
             scrolls: Scrolls::new(),
             laid: Arc::new(layout(pencere_view::div(), SIZE, 1.0, &mut Fixed)),
@@ -139,6 +164,7 @@ impl Rig {
     /// Does what an update of the module asks: a page laid out, replies done, what the editors have
     /// told. Whether anything was.
     fn absorb(&mut self, update: crate::Update) -> bool {
+        self.wake_due = update.wake;
         if let Some(fault) = &update.closed {
             if self.may_close {
                 self.fault = Some(fault.clone());
@@ -175,10 +201,54 @@ impl Rig {
         }
         busy |= self.tell();
         if redraw {
-            self.now += 0.1;
+            self.at(self.now + 0.1);
             self.page.module.render(SIZE, self.now, false);
         }
         busy || redraw
+    }
+
+    /// The host's time is `now`.
+    fn at(&mut self, now: f64) {
+        self.now = now;
+        *self.clock.0.lock().unwrap() = now;
+    }
+
+    /// The page's next wake, as a host gives it: at the first frame at or after the time the page
+    /// asked for (a frame after the last at the soonest), then the frame's page. Whether the page
+    /// had asked for one.
+    fn wake(&mut self) -> bool {
+        let Some(due) = self.wake_due else {
+            return false;
+        };
+        self.at((self.now + FRAME).max(due));
+        self.page.module.wake(self.now);
+        self.page.module.render(SIZE, self.now, false);
+        // The frame comes after what the wake came to: what came is done as it comes.
+        let began = Instant::now();
+        loop {
+            let update = self.page.take(Duration::from_millis(400));
+            let framed = update.frame.is_some() || update.closed.is_some();
+            self.absorb(update);
+            if framed || self.fault.is_some() {
+                break;
+            }
+            assert!(
+                began.elapsed() < Duration::from_secs(20),
+                "the frame after a wake never came"
+            );
+        }
+        self.run();
+        true
+    }
+
+    /// Wakes the page until it asks for no more wakes: how many it was woken.
+    fn wakes(&mut self) -> usize {
+        let mut count = 0;
+        while self.wake() {
+            count += 1;
+            assert!(count < 500, "the page never stopped asking to be woken");
+        }
+        count
     }
 
     fn key(&mut self, key: Key, mods: Mods) -> Route {
@@ -194,7 +264,7 @@ impl Rig {
     /// The next frame, as a host draws it when the page asked for it: rendered, laid out, what it
     /// came to told.
     fn frame(&mut self) {
-        self.now += 0.1;
+        self.at(self.now + 0.1);
         self.page.module.render(SIZE, self.now, false);
         self.run();
     }
@@ -834,9 +904,17 @@ end
 /// `document` (the body of a function) returns when it is first in view and shows what the language
 /// read. Its commands change the document: `uncomment` and `comment` take the `/*` at the start of
 /// line 20 out and put it back, `open` puts one at the start of line 100, `far` shows line 15 000.
+/// The syntax goes on by itself (its timer wakes the page): `render` does nothing for it.
 fn coloured(document: &str, options: &str) -> String {
     let page = r#"
 local syntax = pencere.Syntax.new(language, "e", OPTIONS)
+-- Each call's reading counted, the calls of the syntax's own timer as well.
+local work = syntax.work
+function syntax:work()
+    counted(function()
+        work(self)
+    end)
+end
 local loaded = false
 local function document()
     DOCUMENT
@@ -847,9 +925,6 @@ local function change(line, take, insert)
 end
 return {
     render = function()
-        counted(function()
-            syntax:work()
-        end)
         return pencere.div():size_full()
             :command("uncomment", "Uncomment")
             :command("comment", "Comment")
@@ -857,7 +932,7 @@ return {
             :command("far", "Go far down")
             :command("nothing", "Do nothing")
             :child(pencere.editor("e", { gutter = false }):grow(1))
-            :child(pencere.text(string.format("read %d most %d", read, most))), syntax:busy()
+            :child(pencere.text(string.format("read %d most %d", read, most)))
     end,
     handle = function(event)
         local ask = nil
@@ -875,9 +950,7 @@ return {
                 ask = { reveal = pencere.layout.line_start("e", 15000), version = pencere.layout.editor_version("e") }
             end
         end
-        counted(function()
-            syntax:handle(event)
-        end)
+        syntax:handle(event)
         return syntax:reply(ask and { editor = { e = ask } })
     end,
 }
@@ -950,6 +1023,7 @@ fn a_language_colours_a_block_comment_over_its_lines_and_only_the_lines_in_view(
         return table.concat(lines, "\n")"#,
         "{}",
     ));
+    rig.wakes();
     rig.frame();
     assert_eq!(looks(&rig, 1), vec![(4, 9, "number")]);
     assert_eq!(looks(&rig, 2), vec![(2, 8, "comment")]);
@@ -993,18 +1067,21 @@ fn an_edit_reads_the_lines_again_only_until_their_state_is_what_it_was() {
         return table.concat(lines, "\n")"#,
         "{}",
     ));
+    rig.wakes();
     rig.frame();
     let (before, _) = read(&rig);
     assert_eq!(looks(&rig, 22), vec![(0, 9, "comment")]);
     // Without its `/*`, lines 20 to 25 are read again: the state after line 25 is what it was, and
     // the lines after it are not read.
     rig.command("uncomment");
+    rig.wakes();
     rig.frame();
     let (after, _) = read(&rig);
     assert_eq!(after - before, 6);
     assert_eq!(looks(&rig, 22), vec![(4, 9, "number")]);
     assert_eq!(looks(&rig, 26), vec![(4, 9, "number")]);
     rig.command("comment");
+    rig.wakes();
     rig.frame();
     assert_eq!(read(&rig).0 - after, 6);
     assert_eq!(looks(&rig, 22), vec![(0, 9, "comment")]);
@@ -1014,6 +1091,7 @@ fn an_edit_reads_the_lines_again_only_until_their_state_is_what_it_was() {
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_language_colours_characters_where_a_line_has_characters_of_many_bytes() {
     let mut rig = Rig::open(&coloured(r#"return "çay \"şeker\" 12\né /* ğ */ x""#, "{}"));
+    rig.wakes();
     rig.frame();
     assert_eq!(looks(&rig, 0), vec![(4, 11, "string"), (12, 14, "number")]);
     assert_eq!(looks(&rig, 1), vec![(2, 9, "comment")]);
@@ -1021,7 +1099,7 @@ fn a_language_colours_characters_where_a_line_has_characters_of_many_bytes() {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
-fn a_long_document_is_coloured_a_step_at_a_time_what_is_in_view_first() {
+fn a_long_document_is_coloured_to_its_end_a_step_a_wake_with_no_event_of_the_persons() {
     let mut rig = Rig::open(&coloured(
         r#"local lines = {}
         for i = 1, 20000 do
@@ -1030,34 +1108,41 @@ fn a_long_document_is_coloured_a_step_at_a_time_what_is_in_view_first() {
         return table.concat(lines, "\n")"#,
         "{ step = 20000 }",
     ));
-    rig.frame();
+    rig.wakes();
     assert_eq!(looks(&rig, 1), vec![(4, 9, "number")]);
     // From line 100 on, everything is a comment; far down, out of view, it is not read yet.
     rig.command("open");
     rig.command("far");
     // The editor scrolls there when the host lays the page out next.
     rig.frame();
-    // The lines in view are coloured at once, from a guess, and the reading goes on in the frames
-    // after: one call reads no more than its step (20 000 bytes, of lines of 10).
+    // The lines in view are coloured at once, from a guess, and the reading goes on by itself:
+    // one call reads no more than its step (20 000 bytes, of lines of 10).
     assert_eq!(looks(&rig, 15000), vec![(4, 9, "number")]);
     assert!(
-        rig.animating,
-        "the page asks for frames while there is more to read"
+        rig.wake_due.is_some(),
+        "the page asks to be woken while there is more to read"
     );
-    let mut frames = 0;
-    while rig.animating && frames < 100 {
-        rig.frame();
-        frames += 1;
-    }
-    assert!(!rig.animating, "the reading comes to an end");
-    assert!(frames >= 5, "the reading went on over {frames} frames");
-    let (_, most) = read(&rig);
-    assert!(most <= 2001, "one call read {most} lines");
-    // What the reading found the guess got wrong goes to the editor with the page's next reply.
-    rig.command("nothing");
-    assert_eq!(looks(&rig, 15000), vec![(0, 9, "comment")]);
+    // Nothing of the person's comes now: only the wakes the page asks for, a frame apart, each
+    // a call's reading, what it found handed to the editor with the wake's reply.
+    let told = rig.told.len();
+    let woken = rig.wakes();
+    assert_eq!(
+        rig.told.len(),
+        told,
+        "the page was told nothing but its wakes"
+    );
+    assert!(woken >= 5, "the reading went on over {woken} wakes");
+    assert_eq!(rig.wake_due, None, "the reading came to an end");
+    assert_eq!(
+        looks(&rig, 15000),
+        vec![(0, 9, "comment")],
+        "what the guess got wrong is coloured again"
+    );
     // The lines out of view are not coloured any more.
     assert!(looks(&rig, 1).is_empty());
+    rig.frame();
+    let (_, most) = read(&rig);
+    assert!(most <= 2001, "one call read {most} lines");
 }
 
 #[test]
@@ -1157,4 +1242,216 @@ fn a_language_reads_a_line_from_a_stream_as_codemirrors_does() {
                 .to_owned()
         ]
     );
+}
+
+// --- Wakes and the kit's timers (`pencere.time`) -------------------------------------------------
+
+/// The words of the page that start with `head`, the rest of the line.
+fn shown(rig: &Rig, head: &str) -> String {
+    words(&rig.root)
+        .into_iter()
+        .find_map(|line| line.strip_prefix(head).map(str::to_owned))
+        .unwrap_or_else(|| panic!("the page shows no {head:?}: {:?}", words(&rig.root)))
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn timers_run_in_the_order_of_their_times_a_stopped_one_never_and_what_they_return_is_one_reply() {
+    let mut rig = Rig::open(
+        r#"
+local ran = {}
+local told = {}
+local stopped = nil
+return {
+    render = function()
+        return pencere.div():size_full():command("start", "Start")
+            :child(pencere.editor("e", { gutter = false }):grow(1))
+            :child(pencere.text("ran " .. table.concat(ran, " ")))
+            :child(pencere.text("told " .. table.concat(told, " ")))
+    end,
+    handle = function(event)
+        told[#told + 1] = event.type
+        if event.type == "command" and event.id == "start" then
+            pencere.time.after(0.3, function()
+                ran[#ran + 1] = "c"
+                return true
+            end)
+            pencere.time.after(0.1, function()
+                ran[#ran + 1] = "a"
+                return { editor = { e = { load = "from a timer", more = true } } }
+            end)
+            stopped = pencere.time.after(0.2, function()
+                ran[#ran + 1] = "never"
+                return true
+            end)
+            -- At the time of the first: run after it, in the order they were made.
+            pencere.time.after(0.1, function()
+                ran[#ran + 1] = "b"
+                ran[#ran + 1] = tostring(stopped:cancel()) .. "/" .. tostring(stopped:cancel())
+                    .. "/" .. tostring(stopped:active())
+                return { redraw = true, editor = { e = { load = ", and another" } } }
+            end)
+        end
+    end,
+}
+"#,
+    );
+    assert_eq!(
+        rig.wake_due, None,
+        "a page with no timer asks to be woken for nothing"
+    );
+    rig.command("start");
+    // Set where the time was not known: the kit asks to be woken at once, to count from then.
+    assert_eq!(rig.wake_due, Some(rig.now));
+    let woken = rig.wakes();
+    assert_eq!(woken, 3, "placed, then a and b together, then c");
+    assert_eq!(shown(&rig, "ran "), "a b true/false/false c");
+    // What two timers returned at one wake went to the editor as one reply, in their order.
+    assert_eq!(rig.text("e"), "from a timer, and another");
+    // The page's own `handle` never heard of the wakes its timers took.
+    assert!(
+        !shown(&rig, "told ").contains("wake"),
+        "{}",
+        shown(&rig, "told ")
+    );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_timer_set_as_the_script_starts_ticks_with_no_event_and_the_page_hears_only_its_own_wake() {
+    let mut rig = Rig::open(
+        r#"
+local ticks = 0
+local own = {}
+local clock
+clock = pencere.time.every(0.5, function()
+    ticks += 1
+    if ticks == 3 then
+        -- The page's own wake, asked from a timer: its `handle` is told of it.
+        return { wake = 0.25 }
+    end
+    return true
+end)
+return {
+    render = function()
+        return pencere.div()
+            :child(pencere.text("ticks " .. ticks))
+            :child(pencere.text("own " .. table.concat(own, " ")))
+    end,
+    handle = function(event)
+        if event.type == "wake" then
+            own[#own + 1] = event.now == pencere.time.now() and "now" or "not now"
+            clock:cancel()
+            return true
+        end
+    end,
+}
+"#,
+    );
+    // The first page asked for it: nothing else could, for nothing of the person's comes.
+    assert_eq!(rig.wake_due, Some(0.0));
+    assert!(rig.wake(), "placed");
+    assert_eq!(shown(&rig, "ticks "), "0");
+    assert!(rig.wake());
+    assert_eq!(shown(&rig, "ticks "), "1");
+    // A host that held the page's wakes (the view was out of sight) and wakes it four periods
+    // late: the timer runs once, not once for each run it fell behind on.
+    rig.at(rig.now + 2.0);
+    assert!(rig.wake());
+    assert_eq!(shown(&rig, "ticks "), "2");
+    assert!(rig.wake());
+    assert_eq!(shown(&rig, "ticks "), "3");
+    assert_eq!(shown(&rig, "own "), "");
+    // The page's own wake: its `handle` is told, with the time it is given as `pencere.time.now()`.
+    assert!(rig.wake());
+    assert_eq!(shown(&rig, "own "), "now");
+    assert_eq!(
+        rig.wake_due, None,
+        "the clock was stopped and nothing is asked"
+    );
+    assert!(!rig.wake());
+    assert_eq!(shown(&rig, "ticks "), "3");
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_page_that_sets_no_timer_and_asks_no_wake_is_asked_nothing_new_and_told_nothing_new() {
+    let mut rig = Rig::open(
+        r#"
+local told = {}
+return {
+    render = function(size, now)
+        return pencere.div():size_full():command("go", "Go")
+            :child(pencere.editor("e", { gutter = false }):grow(1))
+            :child(pencere.text("told " .. table.concat(told, " ")))
+            :child(pencere.text(string.format("now %s", tostring(pencere.time.now() == now))))
+    end,
+    handle = function(event)
+        told[#told + 1] = event.type
+        return true
+    end,
+}
+"#,
+    );
+    rig.type_text("plain words");
+    rig.command("go");
+    rig.frame();
+    assert_eq!(rig.wake_due, None);
+    assert!(!rig.wake());
+    assert!(!shown(&rig, "told ").contains("wake"));
+    assert!(shown(&rig, "told ").contains("command"));
+    assert_eq!(shown(&rig, "now "), "true");
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_timer_that_fails_fails_the_page_at_its_line_and_a_wake_that_is_no_time_is_a_mistake() {
+    // An error in a timer is the page's, said with its line.
+    let mut rig = Rig::start(
+        "pencere.time.after(0.1, function()\n    error(\"the timer broke\")\nend)\nreturn { render = function() return pencere.div() end }",
+        true,
+    );
+    rig.wakes();
+    let Some(Fault::Failed(why)) = &rig.fault else {
+        panic!("the page failed: {:?}", rig.fault);
+    };
+    assert!(why.starts_with("script.lua:2: the timer broke"), "{why}");
+    // Set with what is not a time, a timer is a mistake where it is set.
+    for (set, what) in [
+        (
+            "pencere.time.after(-1, print)",
+            "pencere.time.after takes a number of seconds",
+        ),
+        (
+            "pencere.time.every(0, print)",
+            "the time between two runs is more than 0 seconds",
+        ),
+        ("pencere.time.after(1, 2)", "the function to run"),
+    ] {
+        let why = Rig::failing(&format!(
+            "local x = 1\n{set}\nreturn {{ render = function() return pencere.div() end }}"
+        ));
+        assert!(why.starts_with("script.lua:2:"), "{set}: {why}");
+        assert!(why.contains(what), "{set}: {why}");
+    }
+    // A reply's wake that is not a number of seconds fails the page, as a reply's mistakes do.
+    for wake in ["-1", "\"soon\"", "0/0"] {
+        let mut rig = Rig::start(
+            &format!(
+                r#"return {{
+    render = function() return pencere.div():command("go", "Go") end,
+    handle = function(event) if event.type == "command" then return {{ wake = {wake} }} end end,
+}}"#
+            ),
+            true,
+        );
+        rig.command("go");
+        let Some(Fault::Failed(why)) = &rig.fault else {
+            panic!("a wake of {wake} failed the page: {:?}", rig.fault);
+        };
+        assert!(
+            why.contains("wake is a number of seconds, 0 or more"),
+            "{why}"
+        );
+    }
 }

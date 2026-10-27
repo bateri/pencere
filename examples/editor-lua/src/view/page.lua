@@ -5,8 +5,8 @@
 -- * colours: SQL is a language of the kit's (`pencere.Syntax`), read a line at a time with a state
 --   carried from line to line (a block comment goes on over lines); the kit colours the lines in
 --   view (`viewport`) as a layer of decorations (`decorate = "syntax"`), reads again from the line
---   an edit touched until the state is what it was, and goes on in the frames after where there is
---   more than one call may do;
+--   an edit touched until the state is what it was, and goes on by itself in the frames after
+--   where there is more than one call may do (the kit's timer wakes the page for it);
 -- * folds: each statement of more than one line is a region that folds (a layer of its own);
 -- * completions: a popup anchored to the caret (`pencere.caret_of`), whose keys (↑ ↓ ↩ ⇥ Esc) are
 --   commands of the page only while it is open, and which puts the word in with a change against
@@ -238,9 +238,6 @@ end
 -- --- The page ------------------------------------------------------------------------------------
 
 local function render(size)
-	-- What is left of the colouring after the last event: the next frame is asked for while there
-	-- is more.
-	syntax:work()
 	local editor = b.editor(SQL, {
 		comment = { line = "--", block = { "/*", "*/" } },
 		pairs = "()''",
@@ -265,8 +262,7 @@ local function render(size)
 		end
 		editor = editor:child(list)
 	end
-	return b.div():size_full():child(editor):child(b.div():p(6):child(b.text(note):color("dim"))),
-		syntax:busy()
+	return b.div():size_full():child(editor):child(b.div():p(6):child(b.text(note):color("dim")))
 end
 
 -- What the page does of an event, the colours aside.

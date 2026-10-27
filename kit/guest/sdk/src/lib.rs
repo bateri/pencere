@@ -80,6 +80,10 @@ pub struct Frame {
     /// at that time, not at every frame until then: what a page needs to show that something it
     /// waits for has not come (a reading that stopped). Not read while `animating`.
     pub wake_at: Option<f64>,
+    /// The page asks to be woken this many seconds from now, as a reply's wake asks
+    /// ([`Reply::with_wake`]): [`Page::handle`] is told [`Event::Wake`] then, `render` is not
+    /// called for it. For a page that sets a timer while it draws, which has no reply to ask in.
+    pub wake: Option<f64>,
 }
 
 impl Frame {
@@ -89,6 +93,7 @@ impl Frame {
             root,
             animating: false,
             wake_at: None,
+            wake: None,
         }
     }
 }
@@ -222,7 +227,8 @@ pub trait Page: Sized + 'static {
     fn settle(&mut self, layout: &Layout) -> bool;
 
     /// The person did something (or the application's text field changed, or an entry of a menu
-    /// the page asked for was picked).
+    /// the page asked for was picked, or the time the page asked to be woken at came:
+    /// [`Event::Wake`], after a reply's [`Reply::with_wake`]).
     fn handle(&mut self, event: Event, layout: &Layout) -> Reply;
 
     /// The program that opened the page said something: one JSON object, as the program wrote

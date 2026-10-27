@@ -58,6 +58,29 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   reply to what the program said that asks to open a link is posted like one that fills a field. In
   Lua it is `link = "https://..."` in a reply; a `link` that is not a string is an error of the
   script.
+- **Wakes.** The interface's `reply` and `frame` have `wake` (appended): in how many seconds the
+  page asks to be woken; its `event` has `wake` (appended), the time it is woken at. A `wake` that
+  is not a number of seconds (below 0, not a number, infinite) is not a reply, or not a page. The
+  module keeps what a page asks, so that every host does the same: the seconds counted from the
+  time it asked at (`Program::now`, else the last frame's and what passed since), the earliest of
+  all its replies and frames asked standing, as `Update::wake`, told on every taking until the page
+  is woken; `Module::wake(now)` wakes it at a frame at or after that time (`Event::Wake`), once a
+  frame at most (one at a time no later than the last wake's, or before the time asked, is passed
+  over; of wakes that waited while it was busy the newest is the one), and a page drawn again for
+  what it did then is drawn at the wake's time. The `wake` of a reply or a frame the application
+  takes is none: the module's to keep. In Lua a reply's `wake = seconds` asks, and `handle` is told
+  `{ type = "wake", now = }`; a `wake` that is not a number of seconds, 0 or more, is an error of
+  the script.
+- `pencere.time`: timers, named as the program runner's. `pencere.time.after(seconds, fn)` and
+  `pencere.time.every(seconds, fn)` return a timer (`:cancel()`, whether it was waiting;
+  `:active()`), and `pencere.time.now()` is the time the host last gave the page (a frame's, a
+  wake's). The kit asks for the wakes its timers want with the page's replies and frames, runs the
+  ones due when the page is woken, in the order of their times and before the page's `handle` hears
+  of the wake (only where it asked a `wake` itself), and puts what each returns into the reply. A
+  timer set outside a wake counts from the next one, which is asked for at once (never early, for
+  the time the page last had may be old); `every` runs once for runs it fell behind on; an error in
+  a timer is the page's, with its line. A page that sets none and asks no `wake` is asked and told
+  nothing new.
 
 - The interface is `pencere:view@2.0.0`: overlays and anchors, texts of many looks, canvases,
   commands, dragging, roles and states, fills from one colour to another, and the middle button, keys
@@ -89,9 +112,12 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   `pencere.Syntax.new(language, editor, options)` keeps the state after each line, reads again
   after an edit only until the state is what it was, colours the lines in view and a margin (in
   characters) and takes away the rest, and reads at most `step` bytes a call (20 000), lines in view
-  far on coloured from a guess and read to in the frames after (`handle`, `work`, `busy`, `reply`,
-  `asks`). A token that reads nothing fails the page with the language's name and the line. A page
-  that does not use it has none of it.
+  far on coloured from a guess and read to in the frames after, by itself: a timer of its own wakes
+  the page a frame at a time while there is more, and hands what it finds to the editor with the
+  wake's reply, so that a large document is coloured to its end with no event of the person's
+  (`handle`, `reply`, and `work`, `busy`, `asks` for a page that wants them). A token that reads
+  nothing fails the page with the language's name and the line. A page that does not use it has
+  none of it.
 
 ### Changed
 

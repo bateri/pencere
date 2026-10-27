@@ -1,4 +1,4 @@
--- The page API, part 5: JSON, the text the page and its program write to each other in.
+-- The page API, part 6: JSON, the text the page and its program write to each other in.
 --
 -- `json.encode(value)` writes a value: a table with the keys 1..n is a list, any other is an
 -- object (keys in order, so that the same value is always the same text); an empty table is an

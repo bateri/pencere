@@ -174,6 +174,12 @@ pub enum Event {
         editor: Id,
         found: Found,
     },
+    /// The time the page asked to be woken at ([`Reply::wake`]) has come: `now` is the time of the
+    /// frame it is woken at, seconds on the clock the page is rendered by. Told only to a page that
+    /// asked, and at most once a frame; the page answers as it answers any event.
+    Wake {
+        now: f64,
+    },
 }
 
 /// The shape the pointer takes over the page.
@@ -259,6 +265,13 @@ pub struct Reply {
     /// drops any other link, and never tells the page what came of it. It is the host's, not a
     /// message to the program.
     pub link: Option<String>,
+    /// The page asks to be woken this many seconds from now (0: at the next frame): once the time
+    /// has come it is told [`Event::Wake`], and answers as it answers any event — the work a page
+    /// does over time (a long document read a piece at a time, a save after the person stops
+    /// typing) goes on with no event of the person's. Of the times a page asks, the earliest
+    /// stands, so that what one part of it asks is not put off by another; a wake that came is
+    /// gone, and the page asks again for another. A number of seconds: 0 or more, finite.
+    pub wake: Option<f64>,
 }
 
 impl Reply {
@@ -286,6 +299,14 @@ impl Reply {
     #[must_use]
     pub fn with_link(mut self, url: impl Into<String>) -> Self {
         self.link = Some(url.into());
+        self
+    }
+
+    /// The same reply, asking to be woken `seconds` from now ([`Reply::wake`]); where it asks
+    /// already, the earlier of the two.
+    #[must_use]
+    pub fn with_wake(mut self, seconds: f64) -> Self {
+        self.wake = Some(self.wake.map_or(seconds, |asked| asked.min(seconds)));
         self
     }
 }

@@ -164,7 +164,8 @@ impl ContainerList {
             | Event::Selection { .. }
             | Event::Viewport { .. }
             | Event::EditorRefused { .. }
-            | Event::Found { .. } => Reply::none(),
+            | Event::Found { .. }
+            | Event::Wake { .. } => Reply::none(),
             Event::MenuPick(index) => self.list.pick(index),
             Event::Scrolled(boxes) => self.list.scrolled(&boxes),
         }
@@ -266,6 +267,7 @@ impl Page for ContainerList {
             root,
             animating: self.list.animating() || self.more,
             wake_at: stale_at.filter(|_| !self.stale),
+            wake: None,
         }
     }
 

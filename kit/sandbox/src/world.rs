@@ -449,6 +449,7 @@ fn event_in(event: Event) -> wit::Event {
             current: found.current.map(place_in),
             more: found.more,
         }),
+        Event::Wake { now } => wit::Event::Wake(now),
     }
 }
 
@@ -1197,7 +1198,21 @@ fn frame_out(
         animating: frame.animating,
         // A time that is not one (NaN, an infinity) asks for nothing.
         wake_at: frame.wake_at.filter(|at| at.is_finite()),
+        wake: wake_out(frame.wake, "a frame")?,
     })
+}
+
+/// When a page asks to be woken (`reply.wake`, `frame.wake`), as it is handed on: a number of
+/// seconds from now, 0 or more. Anything else (below 0, not a number, infinite) is not what the page
+/// could have meant, and what carries it is not a reply, or not a page.
+fn wake_out(wake: Option<f64>, what: &str) -> Result<Option<f64>, Fault> {
+    match wake {
+        Some(seconds) if !(seconds.is_finite() && seconds >= 0.0) => Err(Fault::Malformed(
+            format!("{what} asks to be woken in {seconds} seconds (a number, 0 or more)"),
+        )),
+        // -0 is 0.
+        wake => Ok(wake.map(|seconds| seconds.max(0.0))),
+    }
 }
 
 fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
@@ -1272,6 +1287,7 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
         link: reply
             .link
             .filter(|url| pencere_wire::link::is_openable(url)),
+        wake: wake_out(reply.wake, "a reply")?,
         cursor: match reply.cursor {
             wit::Cursor::Arrow => Cursor::Arrow,
             wit::Cursor::Pointer => Cursor::Pointer,
@@ -2072,6 +2088,7 @@ mod tests {
                 commands: self.commands,
                 animating: false,
                 wake_at: None,
+                wake: None,
             }
         }
     }
@@ -2440,6 +2457,7 @@ mod tests {
             cursor: wit::Cursor::Arrow,
             editor,
             link: None,
+            wake: None,
         };
         let ask = |ask: wit::EditorAskKind| wit::EditorAsk { editor: 3, ask };
         let fold = || wit::Decoration {
@@ -2557,6 +2575,7 @@ mod tests {
             cursor: wit::Cursor::Pointer,
             editor: Vec::new(),
             link: None,
+            wake: None,
         };
         // A menu as a module writes it: the titles are one string and each entry names its part.
         // `None` is a line between entries.
@@ -2642,6 +2661,7 @@ mod tests {
             cursor: wit::Cursor::Arrow,
             editor: Vec::new(),
             link,
+            wake: None,
         };
         let read = |link: &str| {
             reply_out(reply(Some(link.to_owned())), &limits)
@@ -2672,6 +2692,54 @@ mod tests {
         let dropped = reply_out(reply(Some("ssh://host".into())), &limits).expect("a reply");
         assert!(dropped.redraw);
         assert_eq!(reply_out(reply(None), &limits).expect("a reply").link, None);
+    }
+
+    #[test]
+    fn a_wake_is_a_number_of_seconds_and_anything_else_is_not_a_reply_or_a_page() {
+        let reply = |wake: Option<f64>| wit::Reply {
+            redraw: false,
+            close: false,
+            menu: None,
+            keyboard: None,
+            fill: Vec::new(),
+            copy: Some("kept".into()),
+            cursor: wit::Cursor::Arrow,
+            editor: Vec::new(),
+            link: None,
+            wake,
+        };
+        let limits = ModuleLimits::default();
+        // What a module asks is handed on as it asked it, with the rest of the reply.
+        let woken = reply_out(reply(Some(0.25)), &limits).expect("a reply");
+        assert_eq!(woken.wake, Some(0.25));
+        assert_eq!(woken.copy.as_deref(), Some("kept"));
+        assert_eq!(
+            reply_out(reply(Some(0.0)), &limits).expect("a reply").wake,
+            Some(0.0)
+        );
+        let negative_zero = reply_out(reply(Some(-0.0)), &limits).expect("a reply");
+        assert!(negative_zero.wake.is_some_and(f64::is_sign_positive));
+        assert_eq!(reply_out(reply(None), &limits).expect("a reply").wake, None);
+        // A time that is not a number of seconds is the module's mistake: what carries it is not a
+        // reply, and the page is closed for it as for any reply that is not one.
+        for bad in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let Err(Fault::Malformed(why)) = reply_out(reply(Some(bad)), &limits) else {
+                panic!("a wake of {bad} is not a reply");
+            };
+            assert!(why.contains("asks to be woken"), "{why}");
+        }
+        // A frame asks the same way, held to the same rule.
+        let mut page = frame(vec![container(0)]);
+        page.wake = Some(2.0);
+        assert_eq!(frame_out(page, &limits).expect("a page").wake, Some(2.0));
+        let mut page = frame(vec![container(0)]);
+        page.wake = Some(-3.0);
+        assert!(matches!(frame_out(page, &limits), Err(Fault::Malformed(_))));
+        // And the time of a wake reaches the module as it was.
+        assert!(matches!(
+            event_in(Event::Wake { now: 12.5 }),
+            wit::Event::Wake(now) if now == 12.5
+        ));
     }
 
     #[test]

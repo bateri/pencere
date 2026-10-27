@@ -1226,9 +1226,9 @@ The first is put to the person; the second is dropped.
 This section is to the kinds `wasm` and `lua` what Sections 9.4 to 9.7 are to `web`: what the kind means,
 and what the host does for it. A kit view has no bridge of the host's own; it talks to its program in the
 six messages (Section 9.2) and nothing else. What it asks of the host itself (to be closed, text for the
-pasteboard, a link to open) is not among those messages: it is in what the view answers the host, by the
-rule of the kit, and never reaches the program. A view of the kind `wasm` or `lua` (Section 5.5) is one
-the host draws itself, in the terminal's font and theme, without a web view:
+pasteboard, a link to open, to be woken at a time) is not among those messages: it is in what the view
+answers the host, by the rule of the kit, and never reaches the program. A view of the kind `wasm` or
+`lua` (Section 5.5) is one the host draws itself, in the terminal's font and theme, without a web view:
 
 - a **WebAssembly view** (`wasm`): the entry of its bundle, whose media type is `application/wasm`,
   is a WebAssembly component (the component model's binary format) that the host runs in a sandbox

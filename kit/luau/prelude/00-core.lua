@@ -17,6 +17,8 @@
 --              between frames)
 --   lists      box:list(rows, make), pencere.list_window(id) (a long list in a box the host
 --              scrolls: only the rows near what is in view are made)
+--   time       pencere.time.after, pencere.time.every, pencere.time.now (timers, run when the host
+--              wakes the page: a reply's `wake`)
 --   languages  pencere.Syntax (a language that colours an editor's lines as they change)
 --   layout     pencere.layout (what is where on the page as it was last laid out)
 --   program    pencere.send, pencere.call, pencere.subscribe, pencere.cancel, pencere.json

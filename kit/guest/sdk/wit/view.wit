@@ -846,6 +846,11 @@ interface types {
         /// reading that stopped coming) is woken once at that time, not drawn at every frame
         /// until then. Not read while the page is `animating`; a time already past is now.
         wake-at: option<f64>,
+        /// The page asks to be woken this many seconds from now, as a reply's `wake` asks (it is
+        /// told `wake`; it is not rendered for it): what a page that sets a timer while it draws,
+        /// or before it was first drawn, has no reply to ask in. Read as a reply's is, the
+        /// earliest of the times asked standing.
+        wake: option<f64>,
     }
 
     enum button {
@@ -1084,6 +1089,10 @@ interface types {
         editor-refused(editor-refused),
         /// What an editor's search finds now.
         found(found),
+        /// The time the page asked to be woken at (the `wake` of a reply or a frame) has come:
+        /// `now`, seconds on the clock `render` is given. Told only to a page that asked, and at
+        /// most once a frame; the page answers as it answers anything else it is told.
+        wake(f64),
     }
 
     /// The shape the pointer takes over the page.
@@ -1330,6 +1339,12 @@ interface types {
         /// what came of it; the page is not closed for one it drops. It is not a message to the
         /// program.
         link: option<string>,
+        /// The page asks to be woken this many seconds from now (0 for the next frame): once the
+        /// time has come, the application tells it `wake` and it answers as it answers any event.
+        /// Of the times the page asks (in its replies and its frames) the earliest stands, and a
+        /// wake that came is gone: a page that wants another asks again. A value that is not a
+        /// number of seconds (below 0, not a number, infinite) is not a reply.
+        wake: option<f64>,
     }
 }
 

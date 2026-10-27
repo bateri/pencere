@@ -1,4 +1,4 @@
--- The page API, part 6: the page itself and its program.
+-- The page API, part 7: the page itself and its program.
 --
 -- A script returns the page, a table of the functions the application calls:
 --
@@ -42,6 +42,9 @@
 --       selection is exactly on, `current` (from 1, as a find widget shows it; nil for none), and
 --       `more` (the search stopped before the end: there may be more). Places are characters
 --       from 0, lines from 0.
+--       "wake" has the `now` it was woken at (seconds on `render`'s clock): the time the page asked
+--       to be woken at, with a reply's `wake`, has come. Told only to a page that asked, after the
+--       timers that were due ran (`pencere.time`).
 --   message(message) -> reply      (optional)
 --       The program said something that is not an answer to a call the page made or a push of a
 --       subscription it made (those go to the functions given to `pencere.call` and
@@ -55,7 +58,7 @@
 --     "resize_horizontal" | "resize_vertical" | "not_allowed" | "grab" | "grabbing" | "crosshair",
 --     keyboard = "page" | { field = name }, fill = { [name] = "text for that field", ... },
 --     menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" (a line), ... } },
---     editor = { [name] = ask, or { ask, ... } }, link = "https://..." }
+--     editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds }
 -- where an ask of an editor is one of:
 --   { load = "text", more = true }             a piece of the document (the first in place of all)
 --   { change = { { from =, to =, insert = }, ... }, base = version }
@@ -80,6 +83,9 @@
 -- host may ask the person first, drops any other address, and never tells the page what came of
 -- it. (It is not the `link` of a span, which only names a part of a text the pointer answers by:
 -- a page whose span says `:link("docs")` replies `{ link = url }` when that part is pressed.)
+-- `wake` asks the host to wake the page that many seconds from now (0 or more; 0: at the next
+-- frame): its `handle` is told { type = "wake", now = } then. The earliest of the times asked
+-- stands, and one that came is gone (`pencere.time` has the timers made on it).
 --
 -- What the page says to its program is JSON objects, the six messages of a view and its program:
 -- `pencere.call` asks the program to do something and answers once, `pencere.subscribe` asks to hear
@@ -89,6 +95,8 @@
 
 local host = pencere.host
 local json = pencere.json
+local time = pencere._time
+local merge = pencere._merge
 
 -- A call may say this many messages; the application closes a page that says more.
 local PER_CALL = 8
@@ -151,11 +159,7 @@ end
 -- `reply`, asking for the next frame as well: there is more to say than one call may, and a
 -- render says it on (and asks for the frame after it while there is more still).
 local function with_frame(reply)
-	if type(reply) == "table" then
-		reply.redraw = true
-		return reply
-	end
-	return true
+	return merge(reply, true)
 end
 
 -- Asks the program to do `method` (with `params`, a value) and answer once: `done(result, err)`
@@ -198,6 +202,7 @@ function pencere.start(returned)
 end
 
 function pencere.render(width, height, now, reduce_motion)
+	time.given(now)
 	pencere._lists.begin(height)
 	local root, animating, wake_at = page.render({ w = width, h = height }, now, reduce_motion)
 	pencere._lists.finish()
@@ -209,7 +214,8 @@ function pencere.render(width, height, now, reduce_motion)
 	end
 	rendered = true
 	local more = flush()
-	return root, (animating or more) and true or false, wake_at
+	-- A timer set as the page was drawn (or as the script started) has no reply to be asked in.
+	return root, (animating or more) and true or false, wake_at, time.asked()
 end
 
 function pencere.settle()
@@ -227,18 +233,23 @@ end
 function pencere.handle(event)
 	local reply = nil
 	local lists = false
-	if event.type == "scrolled" then
-		pencere.layout._heard(event.boxes)
-		lists = pencere._lists.scrolled(event.boxes)
-	end
-	if page.handle then
-		reply = page.handle(event)
+	if event.type == "wake" then
+		-- The timers that are due, then the page where it asked a wake itself.
+		reply = time.woken(event.now, page.handle)
+	else
+		if event.type == "scrolled" then
+			pencere.layout._heard(event.boxes)
+			lists = pencere._lists.scrolled(event.boxes)
+		end
+		if page.handle then
+			reply = time.taken(page.handle(event))
+		end
 	end
 	-- A long list scrolled near the end of the rows made is built again, whatever the page says.
 	if flush() or lists then
 		reply = with_frame(reply)
 	end
-	return reply
+	return time.finish(reply)
 end
 
 -- A message of the program: the answer to what the page asked is for the one who asked, the rest
@@ -247,7 +258,7 @@ function pencere.message(text)
 	heard = true
 	local message = json.decode(text)
 	if type(message) ~= "table" then
-		return nil
+		return time.finish(nil)
 	end
 	local reply = nil
 	local taken = false
@@ -265,7 +276,7 @@ function pencere.message(text)
 		if request then
 			taken = true
 			if request.on_value then
-				reply = request.on_value(message.push.value)
+				reply = time.taken(request.on_value(message.push.value))
 			end
 		end
 	elseif message.response then
@@ -274,7 +285,7 @@ function pencere.message(text)
 			taken = true
 			asked[message.response.id] = nil
 			if request.done then
-				reply = request.done(message.response.result, message.response.error)
+				reply = time.taken(request.done(message.response.result, message.response.error))
 			end
 		end
 	elseif message.progress then
@@ -282,17 +293,17 @@ function pencere.message(text)
 		if request then
 			taken = true
 			if request.progress then
-				reply = request.progress(message.progress)
+				reply = time.taken(request.progress(message.progress))
 			end
 		end
 	end
 	if not taken and page.message then
-		reply = page.message(message)
+		reply = time.taken(page.message(message))
 	end
 	if flush() then
 		reply = with_frame(reply)
 	end
-	return reply
+	return time.finish(reply)
 end
 
 function pencere.room()
@@ -300,10 +311,10 @@ function pencere.room()
 	flush()
 	local reply = nil
 	if page.room then
-		reply = page.room()
+		reply = time.taken(page.room())
 	end
 	if flush() then
 		reply = with_frame(reply)
 	end
-	return reply
+	return time.finish(reply)
 end

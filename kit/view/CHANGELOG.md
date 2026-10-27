@@ -57,6 +57,11 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 - **Links.** `Reply::link` asks the host to open an address in the person's browser, by the rule of
   a web page's `link` (`http` or `https`, printable ASCII, at most 8192 bytes; any other is dropped
   and the page is not told); `Reply::with_link` says it in a reply.
+- **Wakes.** `Reply::wake` asks the host to wake the page that many seconds from now, and
+  `Event::Wake { now }` is the wake, at the time of the frame it comes at: the work a page does
+  over time (a long document read a piece at a time, a save once the person stops typing) goes on
+  with no event of the person's. Of the times a page asks the earliest stands; `Reply::with_wake`
+  says it in a reply, the earlier of two where it is said twice.
 - **Long lists that keep up with the wheel.** `Built` is which rows of a long list a page builds as
   the host scrolls it: two views ahead of what is in view, the way the list goes, half a view behind
   (all of it the other way at an end of the list, which can only go back), and the same rows again

@@ -40,6 +40,9 @@ struct FrameJob {
     // When the page at rest wants to be rendered again (`has_wake_at`), on render's clock.
     bool has_wake_at;
     double wake_at;
+    // In how many seconds the page wants to be woken (`has_wake`): a timer set as it was drawn.
+    bool has_wake;
+    double wake;
 };
 int frame_call(lua_State* L);  // (root element, FrameJob*) -> nothing
 

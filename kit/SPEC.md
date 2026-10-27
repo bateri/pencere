@@ -34,7 +34,8 @@ button, keys that go up, the modifiers alone and files dropped on the page (Sect
 
 A script is Luau. What it can use besides the language is the base functions, `string`, `table`,
 `math`, `utf8`, `require` (Section 2.5), and `pencere`, the table the prelude fills. It has no files
-of the system's, no network, no clock but the one `render` is handed, and no randomness.
+of the system's, no network, no clock but the time `render` and a wake hand it (Section 2.3), and no
+randomness.
 
 A script **returns the page**, a table of the functions the host calls:
 
@@ -42,7 +43,7 @@ A script **returns the page**, a table of the functions the host calls:
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `render(size, now, reduce_motion) -> element[, animating[, wake_at]]` | The host draws. `size` is `{ w =, h = }` in points, `now` seconds on the host's clock, `reduce_motion` the person's setting. `animating` asks for the next frame at once; a page at rest costs no frames. `wake_at` (a time on `now`'s clock) asks a page at rest to be rendered once more then. |
 | `settle() -> boolean` (optional)                                      | The page was laid out: bring back what depends on the layout. `true` when something changed.                                                                                                                                                                                                     |
-| `handle(event) -> reply` (optional)                                   | The person did something. See Section 2.3.                                                                                                                                                                                                                                                       |
+| `handle(event) -> reply` (optional)                                   | The person did something, or the time the page asked to be woken at came. See Section 2.3.                                                                                                                                                                                                       |
 | `message(message) -> reply` (optional)                                | The program said something that no `pencere.call` or `pencere.subscribe` of the page was waiting for. `message` is the decoded JSON.                                                                                                                                                             |
 | `room() -> reply` (optional)                                          | The program has read enough that a message `pencere.send` answered `false` to may be sent again.                                                                                                                                                                                                 |
 
@@ -299,6 +300,23 @@ said), `editor_length(id)` and `editor_lines(id)`, `editor_text(id, from, to)` (
 a large document is read in pieces), `line_start(id, line)` and `line_of(id, at)`. A page reads in
 the `edit` event the text of the version the event is of.
 
+**Timers** run when the host wakes the page (a reply's `wake`, Section 2.3), and are named as the
+program runner's. `pencere.time.after(seconds, fn)` runs `fn` once, `seconds` (0 or more) from now;
+`pencere.time.every(seconds, fn)` every `seconds` (more than 0) from then on, once and not once for
+each for runs it fell behind on. Both return a timer: `:cancel()` stops it (`true` where it was still
+waiting) and `:active()` says whether it waits. `pencere.time.now()` is the time the host last gave
+the page, `render`'s `now` or a wake's (0 before any); it does not go on between them. The kit asks
+for the wakes its timers want with the page's replies and frames, and when the page is woken runs
+those that are due, in the order of their times (and of their making), before `handle` is told of the
+wake, which it is only where the page asked a `wake` itself. What `fn` returns is a reply, put
+together with the other timers' and the page's: every ask of an editor, in order; a frame where any
+wants one; of what says one thing (the keyboard, the pasteboard, a link) the last; the earliest wake.
+A timer set while the page is woken counts from the wake's time, and one it sets runs at a later
+wake, not at that one. A timer set anywhere else (an event, a message, `render`, the script's start)
+counts from the next wake, which the kit asks for at once: the time the page last had may be that of
+a frame long gone, so a timer is late by at most a frame and never early. An error in `fn` is the
+page's, with its line. A page that sets none and asks no `wake` is asked and told nothing new.
+
 **A language** that colours an editor is the page's, and `pencere.Syntax` makes one the way
 CodeMirror's `StreamLanguage` does. `pencere.Syntax.define { name =, start =, token =, copy =,
 equal =, blank =, styles = }` reads a line a token at a time: `token(stream, state)` takes at least
@@ -330,11 +348,12 @@ away what it coloured out of them. One call reads at most `step` bytes (20 000),
 first, and a line to its first 10 000 characters (the state after it is the state there). Where the
 lines in view are further on than a call reads to, they are coloured from the state the language
 starts in, and the calls after read on to them and colour again what that got wrong. What it asks
-of the editor goes in the page's reply (`syntax:reply(reply)`, which asks for the next frame as well
-while there is more to do; or `syntax:asks()`), and the page goes on with it in `render`
-(`syntax:work()`, with `syntax:busy()` as `animating`). `render` hands the editor nothing: what a
-frame finds to colour again goes with the page's next reply. It does nothing for a page that does
-not use it.
+of the editor goes in the page's reply (`syntax:reply(reply)`, its asks before the page's own; or
+`syntax:asks()`). While there is more to do (`syntax:busy()`) it goes on by itself, a call a frame:
+a timer of its own (`pencere.time.after(0, …)`) wakes the page, does the next call and hands what it
+found to the editor with the wake's reply, so that a large document is coloured to its end with no
+event of the person's (`syntax:work()` does a call at once, for a page that wants one). It does
+nothing for a page that does not use it.
 
 A long list builds only the rows near what is in view, and keeps the rest of its length with a spacer
 above and one below. `box:list(rows, make)` does all of it: in a box with a name that scrolls, a
@@ -403,6 +422,7 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 | `viewport`         | `editor`, `first`, `last`: the lines in view, for a page that colours only what is seen                                                                                                                                                                  |
 | `editor_refused`   | `editor`, `reason` (`"reversed"`, `"out-of-document"`, `"overlapping"`, `"stale-version"`, `"future-version"`, `"too-large"`, `"too-many-decorations"`, `"outside-range"`, `"bad-pattern"`, `"no-editor"`): what the page asked was not done, none of it |
 | `found`            | `editor`, `version`, `count` (at most 10 000), `current` (the match the main selection is exactly on, from 1; nil for none), `more` (there may be more than `count`): what its search finds (below)                                                      |
+| `wake`             | `now`: the time the page asked to be woken at (a reply's `wake`, below) has come, seconds on `render`'s clock; told only to a page that asked, after the timers that were due ran (Section 2.2)                                                          |
 
 `move`, `press` and `release` over an editor have `place`, `{ editor =, at = }`: the place of its
 document under the pointer (a word to say what it is of while the pointer rests on it, a name to go to
@@ -414,8 +434,9 @@ pasteboard), `cursor` (`"arrow"`, `"pointer"`, `"text"`, `"resize_horizontal"`, 
 `"not_allowed"`, `"grab"`, `"grabbing"` or `"crosshair"`), `keyboard` (`"page"` or `{ field = name }`),
 `fill` (`{ [name] = text }`: what fields are to hold from now on; a name that is not a field of the
 page is passed over), `menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" } }`,
-`link` (an address to open in the person's browser, below), and `editor = { [name] = ask, or { ask,
-... } }`, what the page asks of its editors, each ask one of:
+`link` (an address to open in the person's browser, below), `wake` (in how many seconds to wake the
+page, below), and `editor = { [name] = ask, or { ask, ... } }`, what the page asks of its editors,
+each ask one of:
 
 | Ask                                                                    | What                                                                                                                                                                               |
 | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -466,6 +487,23 @@ is not a string is an error of the script. The link is the host's, not a message
 is not a span's `link(id)` either, which names a part of a text for the pointer: a page opens what
 such a part stands for by answering its press with `{ link = url }`. (`wasm`: the `link` of `reply`
 in the interface, `Reply::with_link` in the Rust SDK.)
+
+A reply's **`wake`** asks the host to wake the page that many seconds from now (0 or more; 0 for the
+next frame). Once the time has come the host tells `handle` `{ type = "wake", now = }`, `now` the
+time of the frame it is woken at on `render`'s clock, and the page answers as it answers any event:
+the work a page does over time (a long document read a piece at a time, a save once the person stops
+typing, a search that waits for the typing to stop) goes on with no event of the person's, and what
+it finds reaches the editors, the keyboard or the pasteboard with the wake's reply. Of the times a
+page asks, in its replies and (for a timer set as it is drawn) its frames, the earliest stands, so
+that what one part of a page asks is not put off by another; a wake that came is gone, and a page
+that wants another asks again. The host wakes a page at most once a frame: a page that asks
+`wake = 0` each time it is woken is woken once a frame, as one that is `animating` is drawn. A
+`wake` that is not a number of seconds, 0 or more, is an error of the script. It is not `render`'s
+`wake_at`, which draws a page at rest again at a time: a wake calls `handle`, and its reply can ask
+what a frame cannot. In Lua the kit's timers ask it for the page (Section 2.2). (`wasm`: the `wake`
+of `reply` and of `frame` and the event `wake` in the interface, a value that is not a number of
+seconds a reply or a frame that is not one; `Reply::with_wake`, `Frame::wake` and `Event::Wake` in
+the Rust SDK.)
 
 ### 2.4 The program
 
@@ -577,6 +615,15 @@ Besides drawing what the engine lays out, a host:
   with as many questions open at once as for a page's; it drops any other and tells the page nothing
   either way (`pencere_host::session::Session::module_link`, which raises `Action::OpenLink` as a
   page's `link` does);
+- wakes a page at the time it asked to be woken at: the earliest of what its replies and frames
+  asked, which the sandbox keeps (`pencere_sandbox::Update::wake`, on render's clock). It arms one
+  wakeup for that time and, at the first frame at or after it, wakes the page with the frame's time
+  (`Module::wake`) before it asks for the frame's page. It wakes from the frame, never more than once
+  a frame however often a page asks (a page that asks again at once costs a frame's work, as an
+  `animating` one does), and never before the time or for nothing (the sandbox passes over such a
+  wake). While the view is not seen (its pane hidden, its window minimized or on another space), a
+  host MAY hold a page's wakes to one a second; it does not drop them: a wake held is given at the
+  next one it gives, or when the view is seen again;
 - scrolls the boxes that scroll (`Scrolls`): the wheel and the trackpad move the box under the
   pointer, as its system does (a gesture stays with the box it started on, and where the system does
   so a box pulled past its end springs back), its scroll bars are drawn as the system's are and can
