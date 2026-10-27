@@ -152,7 +152,8 @@ end
 
 -- Where each row of a list stands, which rows a window of it shows and how far to scroll to
 -- see one. Rows are counted from 1. A page that shows a long list builds only the rows in view
--- and keeps the rest of the list's length with a spacer above and one below.
+-- and keeps the rest of the list's length with a spacer above and one below; which rows to build
+-- as the list scrolls, and when to build them again, is `pencere.Built`'s.
 local Rows = {}
 Rows.__index = Rows
 pencere.Rows = Rows
@@ -165,46 +166,60 @@ function Rows.new(heights)
 		sum += math.max(height, 0)
 		tops[index + 1] = sum
 	end
-	return setmetatable({ tops = tops, trail = 0 }, Rows)
+	return Rows.from_tops(tops)
+end
+
+-- A list whose rows start where `tops` says: `tops[i]` is where row i starts, from 0, and the last
+-- is where the last row ends. The table is the list's, not a copy: a page that keeps the sums of a
+-- list that grows gives them as they are, and nothing is summed again.
+function Rows.from_tops(tops)
+	return setmetatable({ tops = tops, count = math.max(#tops - 1, 0), lead = 0, trail = 0 }, Rows)
+end
+
+-- A list of `count` rows each `height` high: as long as any list, as small as none.
+function Rows.even(count, height)
+	return setmetatable({ step = math.max(height, 0), count = math.max(count, 0), lead = 0, trail = 0 }, Rows)
 end
 
 -- The same list with `lead` points of room before the first row and `trail` after the last.
 function Rows:padded(lead, trail)
-	for index, top in ipairs(self.tops) do
-		self.tops[index] = top + lead
-	end
-	self.trail = trail
+	self.lead, self.trail = lead, trail
 	return self
 end
 
 function Rows:len()
-	return #self.tops - 1
+	return self.count
 end
 
 function Rows:is_empty()
-	return #self.tops == 1
+	return self.count == 0
 end
 
 -- The length of the whole list, with the room around the rows.
 function Rows:total()
-	return self.tops[#self.tops] + self.trail
+	return self:top(self.count + 1) + self.trail
 end
 
 -- Where row `index` starts (the list's length for a row past the end).
 function Rows:top(index)
-	return self.tops[math.min(index, #self.tops)]
+	index = math.min(index, self.count + 1)
+	if self.step then
+		return self.lead + (index - 1) * self.step
+	end
+	return self.lead + (self.tops[index] or 0)
 end
 
 function Rows:height(index)
 	return self:top(index + 1) - self:top(index)
 end
 
--- How many of the tops are not past `y` (`inclusive`) or are before it.
-local function count_before(tops, y, inclusive)
-	local low, high = 1, #tops + 1
+-- How many of the rows' tops (the end of the last one among them) are before `y`, or not past it
+-- where `inclusive`.
+local function count_before(rows, y, inclusive)
+	local low, high = 1, rows.count + 2
 	while low < high do
 		local middle = (low + high) // 2
-		local top = tops[middle]
+		local top = rows:top(middle)
 		if top < y or (inclusive and top == y) then
 			low = middle + 1
 		else
@@ -219,7 +234,7 @@ function Rows:at(y)
 	if self:is_empty() then
 		return nil
 	end
-	local after = count_before(self.tops, y, true)
+	local after = count_before(self, y, true)
 	return math.min(math.max(after, 1), self:len())
 end
 
@@ -235,7 +250,7 @@ function Rows:window(offset, view, overscan)
 		return self:len() + 1, self:len()
 	end
 	local first = self:at(from)
-	local last = math.min(count_before(self.tops, to, false), self:len())
+	local last = math.min(count_before(self, to, false), self:len())
 	return first, math.max(last, first - 1)
 end
 
@@ -251,6 +266,73 @@ function Rows:reveal(index, offset, view)
 		return math.min(math.max(bottom - view, 0), top)
 	end
 	return offset
+end
+
+-- How much of a list is built beyond what is in view, in views: more the way it goes than behind
+-- it, for the host scrolls what is built at once and the page builds what comes into view only a
+-- frame or two later. How near the end of what is built, the way the list goes, what is in view
+-- comes before the page is built again, in views.
+local AHEAD, BEHIND, NEAR = 1.5, 0.5, 0.75
+
+-- Which rows of a long list a page built, and which way the list goes: kept between frames (one
+-- for each list), so that the page builds a view and a half of rows ahead of what is in view and
+-- half a view behind it, and is built again only when what is in view comes within three quarters
+-- of a view of the end of what was built, the way the list goes: not at every turn of the wheel,
+-- and never short of what scrolling brings into view while it keeps up. `built:span` is the rows to
+-- build; `built:stale`, in a `scrolled` event, whether the list's new place means building again.
+local Built = {}
+Built.__index = Built
+pencere.Built = Built
+
+function Built.new()
+	-- `first`, `last` and `count`: the rows built last, and how many the list had then. `up`
+	-- and `seen`: whether the list last went up, and where it was then: the way is changed only
+	-- by a move, so that the build a move asked for, at the same place, finds the way it went.
+	return setmetatable({ first = nil, last = nil, count = nil, up = false, seen = 0 }, Built)
+end
+
+local function went(built, offset)
+	if offset ~= built.seen then
+		built.up = offset < built.seen
+		built.seen = offset
+	end
+end
+
+-- Whether, with the list `rows` at `offset` in a window of `view` points, the page is to be built
+-- again: what is in view is past what was built, or near its end the way the list goes, or the
+-- list is not as long as it was.
+function Built:stale(rows, offset, view)
+	went(self, offset)
+	if self.count == nil or self.count ~= rows:len() then
+		return true
+	end
+	local top, bottom = rows:top(self.first), rows:top(self.last + 1)
+	local more_above, more_below = self.first > 1, self.last < rows:len()
+	if (more_above and offset < top) or (more_below and offset + view > bottom) then
+		return true
+	end
+	local near = view * NEAR
+	if self.up then
+		return more_above and offset - near < top
+	end
+	return more_below and offset + view + near > bottom
+end
+
+-- The rows to build (the first and the last) with the list `rows` at `offset` in a window of
+-- `view` points: those built last while they still hold what is in view with room, else a new
+-- span around it, longer the way the list goes.
+function Built:span(rows, offset, view)
+	if not self:stale(rows, offset, view) then
+		return self.first, self.last
+	end
+	-- Before anything is built there is no way the list goes yet: as much is built both ways.
+	local before, after = AHEAD, AHEAD
+	if self.count ~= nil then
+		before, after = self.up and AHEAD or BEHIND, self.up and BEHIND or AHEAD
+	end
+	local first, last = rows:window(offset - view * before, view * (1 + before + after), 0)
+	self.first, self.last, self.count = first, last, rows:len()
+	return first, last
 end
 
 -- --- What the pointer and the keyboard are on ----------------------------------------------------

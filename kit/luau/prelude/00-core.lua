@@ -13,7 +13,8 @@
 --              pencere.mix("dim", "foreground", 0.5), and any of those with an opacity:
 --              pencere.alpha("accent", 0.5)
 --   pages      the script returns { render = ..., handle = ..., settle = ..., message = ..., room = ... }
---   memory     pencere.Ui, pencere.Fades, pencere.Rows (what a page remembers between frames)
+--   memory     pencere.Ui, pencere.Fades, pencere.Rows, pencere.Built (what a page remembers
+--              between frames)
 --   layout     pencere.layout (what is where on the page as it was last laid out)
 --   program    pencere.send, pencere.call, pencere.subscribe, pencere.cancel, pencere.json
 --

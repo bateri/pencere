@@ -22,6 +22,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   `bg_gradient`, `max_h`, `role`, `checked`, `selected`, `expanded`, `disabled`, `value`, `command`,
   `focused`, `draggable` and `drop_target`, `layout.drag_source` and `layout.drop_target`, the drag
   of `pencere.Ui`, and the events `key_up`, `mods`, `command` and `files`.
+- `pencere.Built`, which rows of a long list to build as the host scrolls it and whether a `scrolled`
+  box is to be built again, and `pencere.Rows.even` and `pencere.Rows.from_tops`, as the engine's
+  `Built` and `Rows` (see `pencere-view`).
 
 ### Changed
 
