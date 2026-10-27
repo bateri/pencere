@@ -241,6 +241,13 @@ impl<S: Store, E: Entropy> Session<S, E> {
         let url = serde_json::from_str::<Object<Link>>(text)
             .ok()
             .map(|message| message.0.link.0.url);
+        self.ask_link(url);
+    }
+
+    /// A view asks to open `url` (`None`: what it sent is not a link): the rule of a page's
+    /// `link` (specification §9.7), which a view the terminal draws itself is held to as well
+    /// (§9.8). The view is never answered.
+    pub(super) fn ask_link(&mut self, url: Option<String>) {
         let Phase::Live(live) = &mut self.phase else {
             return;
         };
@@ -263,8 +270,9 @@ impl<S: Store, E: Entropy> Session<S, E> {
     }
 
     /// The person's answer to [`Action::OpenLink`]: the host opens the link in the person's
-    /// browser if the person agreed, and does nothing otherwise. Either way the page is not
-    /// told, because whether the person agreed is not the page's to learn (specification §9.7).
+    /// browser if the person agreed, and does nothing otherwise. Either way the view is not
+    /// told, because whether the person agreed is not the view's to learn (specification §9.7,
+    /// §9.8).
     /// The terminal opens the link itself; this ends the question, so an answer to one that is
     /// not open, because the view has closed since, changes nothing.
     pub fn link_decision(&mut self, link: u32, allow: bool) {

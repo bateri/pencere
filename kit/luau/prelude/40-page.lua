@@ -55,7 +55,7 @@
 --     "resize_horizontal" | "resize_vertical" | "not_allowed" | "grab" | "grabbing" | "crosshair",
 --     keyboard = "page" | { field = name }, fill = { [name] = "text for that field", ... },
 --     menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" (a line), ... } },
---     editor = { [name] = ask, or { ask, ... } } }
+--     editor = { [name] = ask, or { ask, ... } }, link = "https://..." }
 -- where an ask of an editor is one of:
 --   { load = "text", more = true }             a piece of the document (the first in place of all)
 --   { change = { { from =, to =, insert = }, ... }, base = version }
@@ -75,6 +75,11 @@
 --     { from =, to =, color =, background =, weight =, italic =, strike =,
 --       underline = colour | { wavy = colour } }, or { from =, to =, line = colour },
 --     { from =, to =, gutter = colour }, { from =, to =, fold = true }
+-- `link` asks the host to open an address in the person's browser, as a web page's `link` asks:
+-- only an `http` or `https` address of printable ASCII without spaces, at most 8192 bytes; the
+-- host may ask the person first, drops any other address, and never tells the page what came of
+-- it. (It is not the `link` of a span, which only names a part of a text the pointer answers by:
+-- a page whose span says `:link("docs")` replies `{ link = url }` when that part is pressed.)
 --
 -- What the page says to its program is JSON objects, the six messages of a view and its program:
 -- `pencere.call` asks the program to do something and answers once, `pencere.subscribe` asks to hear

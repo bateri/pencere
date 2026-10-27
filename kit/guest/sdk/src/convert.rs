@@ -551,6 +551,7 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
             .collect(),
         copy: reply.copy,
         editor: reply.editor.into_iter().map(editor_ask).collect(),
+        link: reply.link,
         cursor: match reply.cursor {
             Cursor::Arrow => wit::Cursor::Arrow,
             Cursor::Pointer => wit::Cursor::Pointer,
@@ -1014,6 +1015,23 @@ mod tests {
     use super::*;
     use pencere_view::edit::{CommentTokens, Decorate, Decoration, IndentRules, Look};
     use pencere_view::{Element, div};
+
+    #[test]
+    fn a_link_crosses_as_the_page_said_it_and_the_application_holds_it_to_the_rule() {
+        // The page says the address as it is: which ones are opened is the application's to rule
+        // (a web page's `link`, the protocol's §9.7), so one it will drop crosses all the same.
+        let reply = to_wit_reply(
+            Reply::redraw()
+                .with_cursor(Cursor::Pointer)
+                .with_link("https://example.com/docs"),
+        );
+        assert_eq!(reply.link.as_deref(), Some("https://example.com/docs"));
+        assert!(reply.redraw);
+        assert!(matches!(reply.cursor, wit::Cursor::Pointer));
+        let reply = to_wit_reply(Reply::none().with_link("file:///etc/passwd"));
+        assert_eq!(reply.link.as_deref(), Some("file:///etc/passwd"));
+        assert_eq!(to_wit_reply(Reply::none()).link, None);
+    }
 
     #[test]
     fn how_an_editor_looks_crosses_as_the_page_said_it() {

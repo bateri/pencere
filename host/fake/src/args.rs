@@ -27,8 +27,9 @@ options:
                        object) right after the context; repeatable. The calls
                        wait until each topic has pushed once (or been cancelled),
                        and so does --then
-  --link URL           the page asks the host to open URL; repeatable. The
-                       stand-in person refuses
+  --link URL           the page asks the host to open URL (a web page by its
+                       bridge, a view the terminal draws itself in a reply);
+                       repeatable. The stand-in person refuses
   --cancel-after N     the page cancels each call that reports progress after
                        its Nth report, and each subscription after its Nth push
                        (default: it never cancels); a cancelled call counts as

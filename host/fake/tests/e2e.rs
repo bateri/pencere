@@ -1506,6 +1506,39 @@ fn the_rust_example_opens_answers_a_call_and_pushes_to_its_page() {
 }
 
 #[test]
+fn a_lua_view_asks_to_open_a_link_as_a_page_does_and_its_program_never_hears_of_it() {
+    // A view the terminal draws itself asks in a reply, not in a message: the session holds it to
+    // the rule of a page's `link` and puts it to the person, and the program is written nothing.
+    let run = run_rust_example(
+        &[
+            "--link",
+            "https://example.com/docs",
+            "--link",
+            "file:///etc/passwd",
+            "--call",
+            "nobody",
+            "--then",
+            "interrupt",
+        ],
+        &["--lua"],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "view: kind=lua version=2.0",
+        "view: -> link https://example.com/docs",
+        "view: -> link file:///etc/passwd",
+        "view: -> call id=1 nobody",
+        "host: refuses to open https://example.com/docs for the view",
+        "view: <- response id=1 error code=not-found",
+        "host: the person presses ^C",
+    ]);
+    run.never("refuses to open file:");
+    assert_eq!(run.count("refuses to open"), 1, "{}", run.text());
+    // Neither link reached the program as a `msg`.
+    run.never("link=");
+}
+
+#[test]
 fn the_rust_example_has_a_flood_of_readings_cancelled_and_ends_at_the_interrupt() {
     // The program pushes as fast as the terminal takes them; the page cancels after three.
     let run = run_rust_example(

@@ -253,6 +253,12 @@ pub struct Reply {
     /// What the page asks of its editors, in order: a piece of a document to load, changes,
     /// selections, colours and marks ([`EditorAsk`]), each with the editor's name.
     pub editor: Vec<(Id, EditorAsk)>,
+    /// A link the page asks the host to open in the person's browser, as a web page's `link`
+    /// message asks (specification §9.7, §9.8): an `http` or `https` address, every byte of it
+    /// printable ASCII without the space, at most 8192 bytes. The host may ask the person first,
+    /// drops any other link, and never tells the page what came of it. It is the host's, not a
+    /// message to the program.
+    pub link: Option<String>,
 }
 
 impl Reply {
@@ -273,6 +279,13 @@ impl Reply {
     #[must_use]
     pub fn with_cursor(mut self, cursor: Cursor) -> Self {
         self.cursor = cursor;
+        self
+    }
+
+    /// The same reply, asking the host to open `url` in the person's browser ([`Reply::link`]).
+    #[must_use]
+    pub fn with_link(mut self, url: impl Into<String>) -> Self {
+        self.link = Some(url.into());
         self
     }
 }

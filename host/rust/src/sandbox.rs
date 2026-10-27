@@ -870,12 +870,10 @@ pub fn content_security_policy(access: Option<&Access>, grant: &Grant) -> String
 }
 
 /// Whether `url` may be opened for a view on the person's machine: `http` and
-/// `https` only (specification §12.3).
+/// `https` only (specification §9.7, §12.3). The rule is `pencere_wire::link::is_openable`,
+/// which the kit's sandbox holds a kit view's links to as well.
 pub fn is_openable_link(url: &str) -> bool {
-    let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
-    (lower.starts_with("http://") || lower.starts_with("https://"))
-        && url.len() <= 8192
-        && url.bytes().all(|b| (0x21..0x7f).contains(&b))
+    pencere_wire::link::is_openable(url)
 }
 
 #[cfg(test)]

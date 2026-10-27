@@ -377,7 +377,8 @@ pasteboard), `cursor` (`"arrow"`, `"pointer"`, `"text"`, `"resize_horizontal"`, 
 `"not_allowed"`, `"grab"`, `"grabbing"` or `"crosshair"`), `keyboard` (`"page"` or `{ field = name }`),
 `fill` (`{ [name] = text }`: what fields are to hold from now on; a name that is not a field of the
 page is passed over), `menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" } }`,
-and `editor = { [name] = ask, or { ask, ... } }`, what the page asks of its editors, each ask one of:
+`link` (an address to open in the person's browser, below), and `editor = { [name] = ask, or { ask,
+... } }`, what the page asks of its editors, each ask one of:
 
 | Ask                                                                    | What                                                                                                                                                                               |
 | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -418,6 +419,16 @@ every place the main selection's text is, in the case written, or, where the mai
 caret, every place the word it is in is (the word `"select_next"` takes: a word by Unicode's rules,
 cut where a mark stands inside it), as a whole word; the search stays as it was. A document the
 person cannot change (`read_only`) is not replaced in.
+
+A reply's **`link`** asks the host to open an address in the person's browser, by the rule of a web
+page's `link` (protocol, Sections 9.7 and 9.8): only an `http` or `https` address, every byte of it
+printable ASCII without the space, at most 8192 bytes. The host may ask the person first, opens it on
+the person's machine, and never tells the page what came of it. Any other address is **dropped**, as a
+page's is: the page is not closed for it and not told, and the rest of the reply stands. A `link` that
+is not a string is an error of the script. The link is the host's, not a message to the program. It
+is not a span's `link(id)` either, which names a part of a text for the pointer: a page opens what
+such a part stands for by answering its press with `{ link = url }`. (`wasm`: the `link` of `reply`
+in the interface, `Reply::with_link` in the Rust SDK.)
 
 ### 2.4 The program
 
@@ -523,6 +534,12 @@ Besides drawing what the engine lays out, a host:
 - draws a run's `underline` and `strike` where its font puts those lines, in the run's colour, and
   sets an `italic` run in its face's italic;
 - takes the pointer's shape a reply asks for, and tells a press's `count` and a scroll across;
+- opens the link a reply asks to open as it opens a web page's `link` (protocol, Sections 9.7 and
+  9.8): only an `http` or `https` address of printable ASCII without the space, at most 8192 bytes, in
+  the person's browser on the person's machine, the person asked first where it asks for a page's,
+  with as many questions open at once as for a page's; it drops any other and tells the page nothing
+  either way (`pencere_host::session::Session::module_link`, which raises `Action::OpenLink` as a
+  page's `link` does);
 - scrolls the boxes that scroll (`Scrolls`): the wheel and the trackpad move the box under the
   pointer, as its system does (a gesture stays with the box it started on, and where the system does
   so a box pulled past its end springs back), its scroll bars are drawn as the system's are and can

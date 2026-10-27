@@ -476,6 +476,17 @@ impl Host {
     }
 
     fn react(&mut self, reaction: Reaction) {
+        // A link is the host's, not a message to the program: a web page asks with its bridge's
+        // `link`, a view the terminal draws itself with the `link` of a reply, and the session
+        // holds both to the same rule and asks the person the same way.
+        for url in &reaction.links {
+            if self.native {
+                self.session.module_link(url);
+            } else {
+                self.session
+                    .view_message(&serde_json::json!({ "link": { "url": url } }).to_string());
+            }
+        }
         for message in &reaction.send {
             // The page of a web view talks through the bridge, the module of a view the terminal
             // draws itself through the session's other door; the messages are the same six.

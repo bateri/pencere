@@ -2069,6 +2069,18 @@ int reply_call(lua_State* L) {
         out.copy.val = host_string(bytes, length);
     }
     lua_pop(L, 1);
+    // A link to open in the person's browser: the host holds it to the rule of a web page's
+    // `link` and drops one it may not open, so only what is not an address at all is an error.
+    get(L, 1, "link");
+    if (lua_type(L, -1) == LUA_TSTRING) {
+        size_t length = 0;
+        const char* bytes = lua_tolstring(L, -1, &length);
+        out.link.is_some = true;
+        out.link.val = host_string(bytes, length);
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "link is a string: the http or https address to open");
+    }
+    lua_pop(L, 1);
     get(L, 1, "menu");
     if (lua_type(L, -1) == LUA_TTABLE) {
         int menu = lua_gettop(L);

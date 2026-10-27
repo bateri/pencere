@@ -7,6 +7,19 @@ under this name) are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`Session::module_link`** (specification §9.8): a view the terminal draws itself asks to open a
+  link in the `link` of its reply, not in a message, and the terminal hands it here. It is held to
+  the rule of a page's `link` (§9.7) and put to the person the same way (`Action::OpenLink`,
+  answered with `link_decision`, as many questions open at once as for a page); any other link, or
+  one with no such view open, is dropped and counted as ignored. The view is never answered.
+
+### Changed
+
+- `sandbox::is_openable_link` is `pencere_wire::link::is_openable`, the one copy of the rule the
+  kit's sandbox holds a kit view's links to as well.
+
 ## [0.3.1] - 2026-10-26
 
 ### Fixed

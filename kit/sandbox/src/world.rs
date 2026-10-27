@@ -1266,6 +1266,12 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
         fill,
         copy: reply.copy.map(text).transpose()?,
         editor: editor_asks_out(reply.editor, limits)?,
+        // The rule of a web page's `link` (the protocol, §9.7): a link the host may not open is
+        // dropped, and the page is neither closed for it nor told. What is handed on is one the
+        // host's own session takes (`pencere_wire::link`), never more than 8192 bytes.
+        link: reply
+            .link
+            .filter(|url| pencere_wire::link::is_openable(url)),
         cursor: match reply.cursor {
             wit::Cursor::Arrow => Cursor::Arrow,
             wit::Cursor::Pointer => Cursor::Pointer,
@@ -2433,6 +2439,7 @@ mod tests {
             copy: None,
             cursor: wit::Cursor::Arrow,
             editor,
+            link: None,
         };
         let ask = |ask: wit::EditorAskKind| wit::EditorAsk { editor: 3, ask };
         let fold = || wit::Decoration {
@@ -2549,6 +2556,7 @@ mod tests {
             copy,
             cursor: wit::Cursor::Pointer,
             editor: Vec::new(),
+            link: None,
         };
         // A menu as a module writes it: the titles are one string and each entry names its part.
         // `None` is a line between entries.
@@ -2614,6 +2622,56 @@ mod tests {
             item.title.len = 1;
         }
         assert!(reply_out(reply(Some(inside), None), &limits).is_err());
+    }
+
+    #[test]
+    fn a_link_the_host_may_open_is_handed_on_and_any_other_is_dropped_without_failing_the_page() {
+        // A text of a reply is held to 64 bytes here: a link is held to the rule of a web page's
+        // `link`, not to that, and one past the rule is dropped, never a fault.
+        let limits = ModuleLimits {
+            text: 4,
+            ..ModuleLimits::default()
+        };
+        let reply = |link: Option<String>| wit::Reply {
+            redraw: true,
+            close: false,
+            menu: None,
+            keyboard: None,
+            fill: Vec::new(),
+            copy: None,
+            cursor: wit::Cursor::Arrow,
+            editor: Vec::new(),
+            link,
+        };
+        let read = |link: &str| {
+            reply_out(reply(Some(link.to_owned())), &limits)
+                .expect("a reply")
+                .link
+        };
+        let at_the_limit = format!("https://example.com/{}", "a".repeat(8192 - 20));
+        for good in [
+            "https://example.com/docs",
+            "HTTP://example.com",
+            at_the_limit.as_str(),
+        ] {
+            assert_eq!(read(good).as_deref(), Some(good));
+        }
+        for bad in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "mailto:a@example.com",
+            "https://example.com/a b",
+            "https://example.com/café",
+            "https://example.com/\n",
+            "",
+            &format!("{at_the_limit}a"),
+        ] {
+            assert_eq!(read(bad), None, "{bad:?}");
+        }
+        // Dropped, it leaves the rest of the reply as it was.
+        let dropped = reply_out(reply(Some("ssh://host".into())), &limits).expect("a reply");
+        assert!(dropped.redraw);
+        assert_eq!(reply_out(reply(None), &limits).expect("a reply").link, None);
     }
 
     #[test]

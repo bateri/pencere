@@ -54,6 +54,9 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   `EditorOptions::indent_guides` whether it draws the guides of the indent; `EditorColors` has
   `whitespace`, `indent_guides` and `active_indent_guide` (the guide of the block the main caret is
   in). An editor that says neither is as it was.
+- **Links.** `Reply::link` asks the host to open an address in the person's browser, by the rule of
+  a web page's `link` (`http` or `https`, printable ASCII, at most 8192 bytes; any other is dropped
+  and the page is not told); `Reply::with_link` says it in a reply.
 - **Long lists that keep up with the wheel.** `Built` is which rows of a long list a page builds as
   the host scrolls it: two views ahead of what is in view, the way the list goes, half a view behind
   (all of it the other way at an end of the list, which can only go back), and the same rows again

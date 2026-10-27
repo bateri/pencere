@@ -38,6 +38,10 @@ fn gist_limit() -> usize {
 pub struct Reaction {
     /// Messages for the host, as JSON text.
     pub send: Vec<String>,
+    /// Links the page asks the host to open. A web page asks with its bridge's `link` message, a
+    /// view the terminal draws itself with the `link` of its reply: the host is told either way,
+    /// and a view's link is never one of the messages to the program.
+    pub links: Vec<String>,
     /// The script is done (or had nothing to do).
     pub done: bool,
 }
@@ -156,7 +160,7 @@ impl ScriptedView {
         log::line("view", "-> close");
         Reaction {
             send: vec![json!({ "close": {} }).to_string()],
-            done: false,
+            ..Reaction::default()
         }
     }
 
@@ -220,14 +224,15 @@ impl ScriptedView {
             log::line("view", Self::sent("subscribe", id, &ask));
             send.push(request("subscribe", id, "topic", &ask));
         }
-        for url in std::mem::take(&mut self.links) {
+        let links = std::mem::take(&mut self.links);
+        for url in &links {
             log::line("view", format!("-> link {url}"));
-            send.push(json!({ "link": { "url": url } }).to_string());
         }
         let first = self.advance();
         send.extend(first.send);
         Reaction {
             send,
+            links,
             done: first.done,
         }
     }
@@ -250,8 +255,8 @@ impl ScriptedView {
             let first = !self.done;
             self.done = true;
             return Reaction {
-                send: Vec::new(),
                 done: first,
+                ..Reaction::default()
             };
         };
         let id = self.take_id();
@@ -259,7 +264,7 @@ impl ScriptedView {
         log::line("view", Self::sent("call", id, &ask));
         Reaction {
             send: vec![request("call", id, "method", &ask)],
-            done: false,
+            ..Reaction::default()
         }
     }
 
@@ -344,6 +349,7 @@ impl ScriptedView {
         Reaction {
             send,
             done: rest.done,
+            ..Reaction::default()
         }
     }
 
@@ -391,6 +397,7 @@ impl ScriptedView {
         Reaction {
             send,
             done: next.done,
+            ..Reaction::default()
         }
     }
 }
@@ -453,9 +460,9 @@ mod tests {
             [
                 json!({"subscribe": {"id": 1, "topic": "one"}}),
                 json!({"subscribe": {"id": 2, "topic": "two"}}),
-                json!({"link": {"url": "https://example.com/"}}),
             ]
         );
+        assert_eq!(begun.links, ["https://example.com/"]);
         assert!(
             view.receive(r#"{"push":{"id":2,"value":1}}"#)
                 .send

@@ -1225,7 +1225,9 @@ The first is put to the person; the second is dropped.
 
 This section is to the kinds `wasm` and `lua` what Sections 9.4 to 9.7 are to `web`: what the kind means,
 and what the host does for it. A kit view has no bridge of the host's own; it talks to its program in the
-six messages (Section 9.2) and nothing else. A view of the kind `wasm` or `lua` (Section 5.5) is one
+six messages (Section 9.2) and nothing else. What it asks of the host itself (to be closed, text for the
+pasteboard, a link to open) is not among those messages: it is in what the view answers the host, by the
+rule of the kit, and never reaches the program. A view of the kind `wasm` or `lua` (Section 5.5) is one
 the host draws itself, in the terminal's font and theme, without a web view:
 
 - a **WebAssembly view** (`wasm`): the entry of its bundle, whose media type is `application/wasm`,
@@ -1415,6 +1417,19 @@ host asks for it, like the rest:
 ```frame fixtures/to-host/file-image.frame
 <ESC>_pencere;file;id=3,d=2b965986578b523e5024f97f2cf9a3b1d4fc74ca149eeef172dfc74c0c84f4af;PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSIjODg4Ii8+PC9zdmc+Cg==<ESC>\
 ```
+
+**Links.** A kit view asks the host to open a link in the person's browser in what it answers the
+host (the `link` of a reply: `kit/SPEC.md`, Section 2.3), not in a message, and the host does with it
+what Section 9.7 says of a page's `link`. It MUST accept only a URL that begins with `http://` or
+`https://` (the scheme in either letter case), whose every byte is printable ASCII without the space
+(0x21 to 0x7E) and that is at most 8192 bytes long, drops any other, SHOULD ask the person, and opens
+an accepted one in the person's default browser on the person's machine, never on the machine the
+program runs on. A link it drops is not a failure of the view: the view is not closed for it, and it
+is not told, as it is not told whether the person agreed. A host MAY bound how many questions about
+links are open at once and drop the rest. The 8192 bytes are a part of that rule and not a limit of
+the table above: a link past them is dropped, the view goes on. (Informative: the addresses of the
+fixtures of a page's `link`, `fixtures/bridge/link*.json`, come to the same outcome as the link of a
+kit view's reply.)
 
 **Ending.** Section 10.2 runs as for any view: the view is not told and not waited for, it is stopped.
 A view that fails (a component traps, goes over a limit the host holds it to, a message of the view
@@ -1758,7 +1773,9 @@ navigation that only changes the fragment (`#…`) of the same document is not o
 and is allowed, and the loading of a frame that the policy lets the page nest (Section 12.1) is not a
 top-level navigation. `form-action 'none'` in the
 policy (Section 12.1) says the same of forms to the web view itself. The `link` message of the
-page is the only way out; what the host accepts and what it does with it is in Section 9.7.
+page is the only way out; what the host accepts and what it does with it is in Section 9.7. A view the
+host draws itself has no document to leave, and its only way out is the `link` of its reply, held to
+the same rule (Section 9.8).
 
 ### 12.4 Origin, limits, indication
 
@@ -1851,7 +1868,9 @@ it in a sandbox that gives it nothing it was not handed, and bounds its memory a
 (Section 12.4). The messages between it and its program are a stream anyone can write to while the
 view is open — the rule of the first paragraph applies, since a process that can write the pane's
 output can send a `msg` — so a view treats what its program says as untrusted, and a program what
-its view says. What the view says is never written to the program once the view is over. The words
+its view says. What the view says is never written to the program once the view is over. Its only way
+out is a link it asks the host to open, which the host holds to the rule of a page's `link` (Sections
+9.7 and 9.8). The words
 a failed view's `closed` carries (`message`) are the view's own and are printed by the program, not
 by the host: a program that prints them treats them as it treats any text from another party.
 

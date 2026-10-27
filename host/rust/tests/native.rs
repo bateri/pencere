@@ -14,6 +14,7 @@ mod common;
 
 use common::{Rig, TOKENS, kit_config};
 use pencere_host::bundle::Digest;
+use pencere_host::frame::Message;
 use pencere_host::session::{Action, Config, MAX_VIEW_MESSAGE, State, ViewKind, ViewStart};
 use serde_json::{Value, json};
 
@@ -897,4 +898,128 @@ fn the_words_of_a_failure_told_when_no_view_is_up_are_not_left_for_another_close
     let (wrote, _) = rig.take();
     let body: Value = serde_json::from_str(&wrote.last().unwrap().payload).unwrap();
     assert_eq!(body, json!({ "reason": "error", "code": "bundle" }));
+}
+
+/// The view asks to open `url` (the `link` of its reply): what the host wrote and did, and the
+/// diagnostics' counts of what was read and what was ignored, before and after.
+fn module_link(rig: &mut Rig, url: &str) -> (Vec<Message>, Vec<Action>, (u64, u64)) {
+    let before = *rig.host.diagnostics();
+    rig.host.module_link(url);
+    let (wrote, acted) = rig.take();
+    let after = *rig.host.diagnostics();
+    (
+        wrote,
+        acted,
+        (after.read - before.read, after.ignored - before.ignored),
+    )
+}
+
+#[test]
+fn every_link_of_the_bridge_fixtures_is_to_a_view_of_the_kit_what_it_is_to_a_page() {
+    // The rule of a page's `link` (§9.7) is the rule of the link of a kit view's reply (§9.8):
+    // each entry's address, given as a reply's link, comes to the entry's outcome.
+    let manifest = common::manifest();
+    let entries: Vec<&Value> = manifest["bridge"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["file"].as_str().unwrap().starts_with("bridge/link"))
+        .collect();
+    assert_eq!(entries.len(), 6);
+    for entry in entries {
+        let file = entry["file"].as_str().unwrap();
+        let message: Value = serde_json::from_slice(&common::file(file)).unwrap();
+        let url = message["link"]["url"].as_str().unwrap();
+        for kind in [ViewKind::Wasm, ViewKind::Lua] {
+            let mut rig = self::rig(&[kind]);
+            if kind == ViewKind::Lua {
+                script_up(&mut rig);
+            } else {
+                up(&mut rig, &json!({}));
+            }
+            rig.take();
+            let (wrote, acted, counts) = module_link(&mut rig, url);
+            assert!(wrote.is_empty(), "{file}: the program was written to");
+            match entry["outcome"].as_str().unwrap() {
+                "link" => {
+                    let [Action::OpenLink { url: asked, .. }] = acted.as_slice() else {
+                        panic!("{file}: {acted:?}");
+                    };
+                    assert_eq!(asked, entry["url"].as_str().unwrap(), "{file}");
+                    assert_eq!(counts, (1, 0), "{file}");
+                }
+                "dropped" => {
+                    assert!(acted.is_empty(), "{file}: {acted:?}");
+                    assert_eq!(counts, (0, 1), "{file}");
+                }
+                other => panic!("{file}: an outcome {other}"),
+            }
+            assert_eq!(rig.host.state(), State::Open);
+        }
+    }
+}
+
+#[test]
+fn a_kit_view_asks_about_a_link_as_a_page_does_and_is_never_answered() {
+    let mut rig = rig(&[ViewKind::Wasm, ViewKind::Web]);
+    up(&mut rig, &json!({}));
+    rig.take();
+    let (_, acted, _) = module_link(&mut rig, "https://example.com/docs");
+    let [Action::OpenLink { link, .. }] = acted.as_slice() else {
+        panic!("{acted:?}");
+    };
+    let link = *link;
+    // Whatever the person says, the view hears nothing and the program neither.
+    rig.host.link_decision(link, true);
+    rig.host.link_decision(link, false);
+    let (wrote, acted) = rig.take();
+    assert!(wrote.is_empty() && acted.is_empty());
+    // No more questions are open at once than for a page, and an answer makes room.
+    let mut asked = Vec::new();
+    for n in 0..pencere_host::session::MAX_OPEN_LINKS {
+        let (_, acted, _) = module_link(&mut rig, &format!("https://example.com/{n}"));
+        let [Action::OpenLink { link, .. }] = acted.as_slice() else {
+            panic!("{n}: {acted:?}");
+        };
+        asked.push(*link);
+    }
+    let (_, acted, counts) = module_link(&mut rig, "https://example.com/one-too-many");
+    assert!(acted.is_empty());
+    assert_eq!(counts, (0, 1));
+    rig.host.link_decision(asked[3], false);
+    let (_, acted, _) = module_link(&mut rig, "https://example.com/room");
+    assert_eq!(acted.len(), 1, "{acted:?}");
+}
+
+#[test]
+fn a_link_with_no_kit_view_open_or_from_a_host_that_opens_none_is_dropped() {
+    // A host that opens no links opens none for a kit view either.
+    let mut config = config(&[ViewKind::Wasm]);
+    config.open_links = false;
+    let mut rig = Rig::with(config);
+    up(&mut rig, &json!({}));
+    rig.take();
+    let (wrote, acted, counts) = module_link(&mut rig, "https://example.com");
+    assert!(wrote.is_empty() && acted.is_empty());
+    assert_eq!(counts, (0, 1));
+    // Before any view, after it, and while the view is a page (whose links come by its bridge).
+    let mut rig = self::rig(&[ViewKind::Wasm, ViewKind::Web]);
+    hello(&mut rig);
+    rig.take();
+    let (wrote, acted, counts) = module_link(&mut rig, "https://example.com");
+    assert!(wrote.is_empty() && acted.is_empty());
+    assert_eq!(counts, (0, 1));
+    let mut web = Rig::new();
+    web.up_web(None);
+    web.take();
+    let (wrote, acted, counts) = module_link(&mut web, "https://example.com");
+    assert!(wrote.is_empty() && acted.is_empty());
+    assert_eq!(counts, (0, 1));
+    let mut ended = self::rig(&[ViewKind::Wasm, ViewKind::Web]);
+    up(&mut ended, &json!({}));
+    ended.host.close_view();
+    ended.take();
+    let (wrote, acted, counts) = module_link(&mut ended, "https://example.com");
+    assert!(wrote.is_empty() && acted.is_empty());
+    assert_eq!(counts, (0, 1));
 }

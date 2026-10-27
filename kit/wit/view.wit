@@ -1323,6 +1323,13 @@ interface types {
         /// changes, its layers' names, what it finds) is at most 1 MiB, its decorations at most
         /// 20 000: a reply past them is not one.
         editor: list<editor-ask>,
+        /// A link the page asks the application to open in the person's browser, by the rule of
+        /// a web page's `link` (the protocol, sections 9.7 and 9.8): an `http` or `https`
+        /// address, every byte of it printable ASCII without the space, at most 8192 bytes. The
+        /// application may ask the person first, drops any other link and never tells the page
+        /// what came of it; the page is not closed for one it drops. It is not a message to the
+        /// program.
+        link: option<string>,
     }
 }
 

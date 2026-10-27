@@ -66,8 +66,8 @@ pub const MAX_LABEL_CHARS: usize = 100;
 /// the `closed` (specification §9.8): room for an error and the line it is on.
 pub const MAX_FAILURE_CHARS: usize = 500;
 
-/// The most questions about links that a page may have open at once (specification §9.7); the
-/// page's `link` messages beyond it are dropped.
+/// The most questions about links that a view may have open at once (specification §9.7, §9.8);
+/// the links it asks for beyond it (a page's `link` messages, a kit view's replies) are dropped.
 pub const MAX_OPEN_LINKS: usize = 8;
 
 /// The version of the bridge of a page (specification §5.5, §9.4) that this crate speaks: the
@@ -129,7 +129,8 @@ pub struct Config {
     pub limits: BundleLimits,
     /// What a page is told.
     pub view: ViewContext,
-    /// Whether the host opens the links of a page (its `link` messages, specification §9.7).
+    /// Whether the host opens the links a view asks for: a page's `link` messages (specification
+    /// §9.7) and the link of a kit view's reply ([`Session::module_link`], §9.8).
     pub open_links: bool,
     /// The kinds of view the host will open, each with the versions of its interface it speaks
     /// (specification §5.2): what its `welcome` offers of what the program's `hello` listed.
@@ -342,9 +343,10 @@ pub enum Action {
     /// Deliver this JSON object to the view: a message of the program, which the host has not
     /// read, or a `context` for a page.
     ToView(String),
-    /// A page asks to open this `http` or `https` link in the person's browser (specification
-    /// §9.7). The terminal asks the person if it wants and answers with
-    /// [`Session::link_decision`]; the page is never answered.
+    /// A view asks to open this `http` or `https` link in the person's browser: a page with its
+    /// `link` message (specification §9.7), a kit view with the link of its reply (§9.8,
+    /// [`Session::module_link`]). The terminal asks the person if it wants and answers with
+    /// [`Session::link_decision`]; the view is never answered.
     OpenLink {
         /// Identifies the request in the answer.
         link: u32,

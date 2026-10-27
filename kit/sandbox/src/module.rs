@@ -580,16 +580,17 @@ fn newest_of_each(boxes: Vec<(Id, Point)>) -> Vec<(Id, Point)> {
 
 /// What the page said back to something the program did: whether it wants to be drawn again
 /// (the page that follows the batch), and the rest of the reply (a menu, the keyboard, the
-/// pasteboard, the end), which is told now.
+/// pasteboard, a link, the end), which is told now.
 fn answered(reply: Reply, post: &Post<'_>) -> bool {
     let redraw = reply.redraw;
     // Whatever the reply asks of the host, it is posted: a page that hears its program puts what it
-    // heard in a field or an editor (a file it read, a completion, the mark of a mistake), and a reply
-    // that only redraws is the frame that follows.
+    // heard in a field or an editor (a file it read, a completion, the mark of a mistake), opens the
+    // address it was sent, and a reply that only redraws is the frame that follows.
     let asks = reply.close
         || reply.menu.is_some()
         || reply.keyboard.is_some()
         || reply.copy.is_some()
+        || reply.link.is_some()
         || !reply.fill.is_empty()
         || !reply.editor.is_empty();
     if asks {

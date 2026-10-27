@@ -1163,6 +1163,82 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_asks_to_open_a_link_and_only_one_the_host_may_open_reaches_it() {
+    let mut page = open_script(
+        r##"
+        return {
+            render = function()
+                return pencere.rich({ "see ", pencere.span("the docs"):link("docs") })
+            end,
+            handle = function(e)
+                if e.type == "key" and e.key == "d" then
+                    return { link = "https://example.com/docs" }
+                elseif e.type == "key" and e.key == "f" then
+                    return { redraw = true, cursor = "pointer", link = "file:///etc/passwd" }
+                elseif e.type == "key" and e.key == "n" then
+                    return { link = 5 }
+                end
+            end,
+            message = function(message) return { link = message.open } end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    let key = |page: &mut Open, character: char| {
+        let before = page.seen.replies.len();
+        page.module.event(Event::Input(Input::Key {
+            key: Key::Character(character),
+            mods: Mods::default(),
+        }));
+        until_seen(page, Duration::from_secs(10), |seen| {
+            seen.replies.len() > before
+        });
+        page.seen.replies.last().expect("an answer").reply.clone()
+    };
+    // An address the host may open reaches it as the reply's link, and nothing is said to the
+    // program: a link is the host's, not one of the six messages.
+    let opened = key(&mut page, 'd');
+    assert_eq!(opened.link.as_deref(), Some("https://example.com/docs"));
+    // One it may not open is dropped, as a web page's is; the rest of the reply stands, and the
+    // page is not closed for it.
+    let dropped = key(&mut page, 'f');
+    assert_eq!(dropped.link, None);
+    assert!(dropped.redraw);
+    assert_eq!(dropped.cursor, Cursor::Pointer);
+    // A reply to what the program said is the same: the address it sent is opened.
+    let before = page.seen.replies.len();
+    page.module
+        .message(r#"{"open":"https://example.com/from-the-program"}"#.into());
+    until_seen(&mut page, Duration::from_secs(10), |seen| {
+        seen.replies.len() > before
+    });
+    assert_eq!(
+        page.seen
+            .replies
+            .last()
+            .expect("an answer")
+            .reply
+            .link
+            .as_deref(),
+        Some("https://example.com/from-the-program")
+    );
+    assert!(page.seen.sent.is_empty(), "{:?}", page.seen.sent);
+    // What is not an address at all is the script's mistake.
+    page.module.event(Event::Input(Input::Key {
+        key: Key::Character('n'),
+        mods: Mods::default(),
+    }));
+    let update = page.until(Duration::from_secs(5), |u| u.closed.is_some());
+    let why = failed(&update);
+    assert!(why.contains("link is a string"), "{why}");
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the_engine_does() {
     use pencere_view::{
         AccessibleRole, Align, Command, Family, Shortcut, Side, rich, span, wire::Length,

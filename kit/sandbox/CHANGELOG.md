@@ -51,6 +51,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   (`editor-whitespace`: `none`, `boundary`, `selection`, `trailing`, `all`) and `indent-guides`, and
   its `editor-colors` `whitespace`, `indent-guides` and `active-indent-guide`, each appended. In Lua
   they are `whitespace = "boundary"`, `indent_guides = true` and the colours of the same names.
+- **Links.** The interface's `reply` has `link` (appended): an address the page asks the host to
+  open in the person's browser. The sandbox hands on only one the host may open, by the rule of a
+  web page's `link` (`pencere_wire::link::is_openable`: `http` or `https`, printable ASCII without
+  the space, at most 8192 bytes), as `Reply::link`, and drops any other without closing the page; a
+  reply to what the program said that asks to open a link is posted like one that fills a field. In
+  Lua it is `link = "https://..."` in a reply; a `link` that is not a string is an error of the
+  script.
 
 - The interface is `pencere:view@2.0.0`: overlays and anchors, texts of many looks, canvases,
   commands, dragging, roles and states, fills from one colour to another, and the middle button, keys

@@ -25,6 +25,9 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
   comments, the `indent`'s rules, `folds`, and the command `ToggleBlockComment`.
 - Which spaces and tabs an editor shows (`whitespace`) and its guides of the indent
   (`indent_guides`), and their colours, cross the interface.
+- A reply's link (`Reply::with_link`), an address the page asks the application to open in the
+  person's browser, crosses the interface as the page said it; which ones are opened is the
+  application's to rule.
 
 ## [0.3.1] - 2026-10-26
 
