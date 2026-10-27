@@ -553,7 +553,7 @@ interface types {
 
     /// How a caret is drawn.
     enum caret-shape {
-        /// A bar before the character, as tall as the text.
+        /// A bar before the character.
         bar,
         /// A block over the character (a space wide at the end of a line), the character drawn
         /// again on it in the caret's `text` colour.
@@ -562,11 +562,20 @@ interface types {
         underline,
     }
 
+    /// How tall a caret is.
+    enum caret-height {
+        /// As tall as its row, as the current line's ground is.
+        row,
+        /// As tall as the text: the room the row keeps above and below it left out.
+        text,
+    }
+
     /// How an editor's carets look. The application blinks them.
     record editor-caret {
         shape: caret-shape,
+        height: caret-height,
         /// How wide a bar is, and how thick a line under the character is, points (0.5 to 8;
-        /// 1.5 when none).
+        /// 2 when none).
         width: option<f32>,
         /// The caret's colour (the theme's cursor colour); off, and no caret is drawn.
         color: editor-tint,

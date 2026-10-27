@@ -343,7 +343,7 @@ impl Tint {
 /// How a caret is drawn.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum CaretShape {
-    /// A bar before the character, as tall as the text.
+    /// A bar before the character.
     #[default]
     Bar,
     /// A block over the character (a space wide at the end of a line), the character drawn again
@@ -353,11 +353,22 @@ pub enum CaretShape {
     Underline,
 }
 
+/// How tall a caret is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CaretHeight {
+    /// As tall as its row, as the current line's ground is (as Zed and VS Code draw it).
+    #[default]
+    Row,
+    /// As tall as the text: the room the row keeps above and below it left out.
+    Text,
+}
+
 /// How the carets look. The host blinks them.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Caret {
     pub shape: CaretShape,
-    /// How wide a bar is, and how thick the line of `Underline` is, points
+    pub height: CaretHeight,
+    /// How wide a bar is (2, as Zed draws it), and how thick the line of `Underline` is, points
     /// ([`limits::CARET_WIDTH`]); a block is as wide as its character.
     pub width: f32,
     /// The caret's colour (the theme's: its cursor colour); off, and no caret is drawn.
@@ -370,7 +381,8 @@ impl Default for Caret {
     fn default() -> Self {
         Self {
             shape: CaretShape::Bar,
-            width: 1.5,
+            height: CaretHeight::Row,
+            width: 2.0,
             color: Tint::Theme,
             text: Tint::Theme,
         }

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use pencere_view::edit::{
-    CaretShape, EditorOptions, LineHighlight, Look, Mark, Numbers, Underline,
+    CaretHeight, CaretShape, EditorOptions, LineHighlight, Look, Mark, Numbers, Underline,
 };
 use pencere_view::{
     Color, EditorRoom, EditorSlot, Figure, Font, Measure, Paint, Point, Quad, Rect, Role, Run,
@@ -540,15 +540,26 @@ impl View {
         let x = self.text_x() + row.x(into);
         let top = self.pad + row.index as f32 * self.row;
         let drawn = self.caret_box(buffer, &row, at, x, top);
-        Some(Rect::new(drawn.x, top + self.lead, drawn.w, self.line))
+        let (y, h) = self.caret_span(top);
+        Some(Rect::new(drawn.x, y, drawn.w, h))
+    }
+
+    /// Where a caret on the row whose top is `top` starts down, and how tall it is (pixels): the
+    /// row's, or its text's.
+    fn caret_span(&self, top: f32) -> (f32, f32) {
+        match self.options.caret.height {
+            CaretHeight::Row => (top, self.row),
+            CaretHeight::Text => (top + self.lead, self.line),
+        }
     }
 
     /// The caret's box at `at` on `row`, `x` where the place is across and `top` the row's top
-    /// (pixels): a bar or a block as tall as the text, or a line under it; a block and a line as
-    /// wide as the character there (a space at the end of a line).
+    /// (pixels): a bar or a block as tall as the row or the text, or a line under it; a block and
+    /// a line as wide as the character there (a space at the end of a line).
     fn caret_box(&self, buffer: &Buffer, row: &Row, at: usize, x: f32, top: f32) -> Rect {
         let caret = self.options.caret;
         let thick = (caret.width * self.scale).round().max(1.0);
+        let (y, h) = self.caret_span(top);
         let wide = || {
             let end = (row.base + row.to).min(grapheme_after(&buffer.text, at));
             if end > at {
@@ -558,11 +569,9 @@ impl View {
             }
         };
         match caret.shape {
-            CaretShape::Bar => Rect::new(x, top + self.lead, thick, self.line),
-            CaretShape::Block => Rect::new(x, top + self.lead, wide(), self.line),
-            CaretShape::Underline => {
-                Rect::new(x, top + self.lead + self.line - thick, wide(), thick)
-            }
+            CaretShape::Bar => Rect::new(x, y, thick, h),
+            CaretShape::Block => Rect::new(x, y, wide(), h),
+            CaretShape::Underline => Rect::new(x, y + h - thick, wide(), thick),
         }
     }
 
@@ -817,8 +826,9 @@ impl View {
                     {
                         let colors = (fade(color), text_color);
                         let opacity = slot.opacity;
+                        let place = (rect, row_y(row) + self.lead);
                         self.paint_under_block(
-                            buffer, row, at, rect, colors, opacity, text_clip, &mut out,
+                            buffer, row, at, place, colors, opacity, text_clip, &mut out,
                         );
                     }
                 }
@@ -1019,15 +1029,16 @@ impl View {
         }
     }
 
-    /// The character at `at` on `row` drawn again on the block caret `rect`: `colors` the block's
-    /// and the character's, in the weight and slant the page's looks give it there.
+    /// The character at `at` on `row` drawn again on the block caret `rect`, its text's top at
+    /// `text_y`: `colors` the block's and the character's, in the weight and slant the page's
+    /// looks give it there.
     #[allow(clippy::too_many_arguments)]
     fn paint_under_block(
         &self,
         buffer: &Buffer,
         row: &Row,
         at: usize,
-        rect: Rect,
+        (rect, text_y): (Rect, f32),
         (block, color): (Color, Color),
         opacity: f32,
         clip: Rect,
@@ -1056,7 +1067,7 @@ impl View {
             }
         }
         out.push(Paint::Text(Run {
-            origin: Point::new(rect.x, rect.y),
+            origin: Point::new(rect.x, text_y),
             text,
             font,
             color,

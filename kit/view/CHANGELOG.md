@@ -28,11 +28,11 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   times the font's size), the room around the text (`padding`), the rows kept about the caret when
   it scrolls (`scroll_margin`), what the line numbers count (`Numbers`: absolute, relative, hidden),
   where the caret's line is drawn (`LineHighlight`: across the text, the gutter or both), the caret
-  (`Caret`: a bar, a block or a line under the character, how wide, its colour and the colour of the
-  character under a block) and the colour of everything the editor draws besides the text
-  (`EditorColors`). Each colour is a `Tint`: the theme's, none, or the page's. What a page leaves
-  out is the default, today's look; `EditorOptions::held` takes each number into what an editor
-  takes (`edit::limits`).
+  (`Caret`: a bar, a block or a line under the character, as tall as the row or the text, how wide,
+  its colour and the colour of the character under a block) and the colour of everything the editor
+  draws besides the text (`EditorColors`). Each colour is a `Tint`: the theme's, none, or the
+  page's. What a page leaves out is the default, today's look; `EditorOptions::held` takes each
+  number into what an editor takes (`edit::limits`).
 - **Long lists that keep up with the wheel.** `Built` is which rows of a long list a page builds as
   the host scrolls it: two views ahead of what is in view, the way the list goes, half a view behind
   (all of it the other way at an end of the list, which can only go back), and the same rows again

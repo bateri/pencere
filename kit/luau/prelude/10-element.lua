@@ -351,8 +351,8 @@ end
 -- quotes that close themselves: "()[]{}" or { "()", "[]" }); how it looks: `line_height` (1.6
 -- times the font's size), `padding` (4 points), `scroll_margin` (rows kept about the caret, 0),
 -- `numbers` ("absolute", "relative", "hidden"), `current_line` (where the caret's line is drawn:
--- "text", "gutter", "all"), `caret = { shape = "bar" | "block" | "underline",
--- width = 1.5, color =, text = }` and `colors = { current_line, selection, selection_blurred,
+-- "text", "gutter", "all"), `caret = { shape = "bar" | "block" | "underline", height = "row" |
+-- "text", width = 2, color =, text = }` and `colors = { current_line, selection, selection_blurred,
 -- found, brackets, numbers, current_number, gutter, folds, folded, hint }`. A colour it does not
 -- say is the theme's; `false` draws none.
 local EDITOR_OPTIONS = {
@@ -370,7 +370,7 @@ local EDITOR_OPTIONS = {
 	scroll_margin = true,
 	numbers = true,
 	current_line = true,
-	caret = { shape = true, width = true, color = true, text = true },
+	caret = { shape = true, height = true, width = true, color = true, text = true },
 	colors = {
 		current_line = true,
 		selection = true,

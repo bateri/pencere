@@ -917,11 +917,14 @@ pencere_view_types_editor_tint_t tint_at(lua_State* L, int t, const char* name) 
 }
 
 const char* const kCaretShape[] = {"bar", "block", "underline"};
+const char* const kCaretHeight[] = {"row", "text"};
 const char* const kLineNumbers[] = {"absolute", "relative", "hidden"};
 const char* const kLineHighlight[] = {"text", "gutter", "all"};
 static_assert(PENCERE_VIEW_TYPES_CARET_SHAPE_BAR == 0 && PENCERE_VIEW_TYPES_CARET_SHAPE_BLOCK == 1 &&
                   PENCERE_VIEW_TYPES_CARET_SHAPE_UNDERLINE == 2,
               "kCaretShape is the order of caret-shape");
+static_assert(PENCERE_VIEW_TYPES_CARET_HEIGHT_ROW == 0 && PENCERE_VIEW_TYPES_CARET_HEIGHT_TEXT == 1,
+              "kCaretHeight is the order of caret-height");
 static_assert(PENCERE_VIEW_TYPES_LINE_NUMBERS_ABSOLUTE == 0 && PENCERE_VIEW_TYPES_LINE_NUMBERS_RELATIVE == 1 &&
                   PENCERE_VIEW_TYPES_LINE_NUMBERS_HIDDEN == 2,
               "kLineNumbers is the order of line-numbers");
@@ -932,7 +935,7 @@ static_assert(PENCERE_VIEW_TYPES_LINE_HIGHLIGHT_TEXT == 0 && PENCERE_VIEW_TYPES_
 // `meta.editor`: { wrap =, tab_width =, hard_tabs =, gutter =, read_only =, keys = "editor" | "page",
 // hint = "words", comment = "--", pairs = "()[]{}", line_height =, padding =, scroll_margin =,
 // numbers = "absolute" | "relative" | "hidden", current_line = "text" | "gutter" | "all",
-// caret = { shape =, width =, color =, text = },
+// caret = { shape =, height =, width =, color =, text = },
 // colors = { current_line =, … } }. What it does not say is the default (a gutter, tabs of four);
 // a number the interface takes as an option goes as none, and the host's default stands.
 pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arenas& arenas) {
@@ -975,6 +978,7 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
     int caret = lua_gettop(L);
     if (lua_type(L, caret) == LUA_TTABLE) {
         out.caret.shape = (uint8_t)word(L, caret, "shape", kCaretShape, 3, 0);
+        out.caret.height = (uint8_t)word(L, caret, "height", kCaretHeight, 2, 0);
         out.caret.width = optional_number(L, caret, "width");
         out.caret.color = tint_at(L, caret, "color");
         out.caret.text = tint_at(L, caret, "text");

@@ -7,8 +7,8 @@
 
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
-    Caret, CaretShape, Change, Decorate, Decoration, EditCommand, EditorAsk, EditorColors,
-    EditorOptions, Keys, LineHighlight, Mark, Numbers, Range, Tint,
+    Caret, CaretHeight, CaretShape, Change, Decorate, Decoration, EditCommand, EditorAsk,
+    EditorColors, EditorOptions, Keys, LineHighlight, Mark, Numbers, Range, Tint,
 };
 use pencere_view::{
     Command, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint, Point, Rect,
@@ -317,13 +317,13 @@ fn a_long_line_wraps_where_the_room_ends_after_a_space() {
     );
     host.settle();
     // `cccc` starts the second row: the caret two into it is 14 across, a row down, as tall as the
-    // text.
+    // row.
     let caret = host
         .editors
         .metrics(EDITOR)
         .and_then(|m| m.caret)
         .expect("a caret");
-    assert_eq!(caret, Rect::new(4.0 + 14.0, 4.0 + ROW + LEAD, 2.0, LINE));
+    assert_eq!(caret, Rect::new(4.0 + 14.0, 4.0 + ROW, 2.0, ROW));
     // A move up goes to the first row, by the place across.
     host.key(Key::Up, none());
     assert_eq!(host.ranges(), vec![Range::caret(2)]);
@@ -607,7 +607,7 @@ fn the_editor_is_drawn_in_its_place_its_caret_while_the_host_shows_it() {
     );
     let caret = list.items.iter().any(|item| {
         matches!(item, Paint::Quad(q) if q.fill.and_then(|f| f.role()) == Some(Role::Cursor)
-            && q.rect == Rect::new(4.0 + 11.0, 4.0 + LEAD, 2.0, LINE))
+            && q.rect == Rect::new(4.0 + 11.0, 4.0, 2.0, ROW))
     });
     assert!(caret, "the caret is after the `m`");
     let off = host.paint(false);
@@ -722,7 +722,7 @@ fn a_popup_on_the_caret_is_placed_again_when_the_caret_moves_with_no_frame_of_th
     host.load("abc\ndef");
     host.editors.set_focus(Some(EDITOR));
     let before = host.laid.bounds(POPUP).expect("the popup");
-    assert_eq!(before.y, 4.0 + LEAD + LINE);
+    assert_eq!(before.y, 4.0 + ROW);
     let laid = host.laid.clone();
     host.editors.key(&laid, Key::Right, none(), &mut Fake, 0.0);
     host.editors.key(&laid, Key::Right, none(), &mut Fake, 0.0);
@@ -782,8 +782,8 @@ fn the_page_says_how_tall_a_row_is_and_the_room_around_the_text() {
         .metrics(EDITOR)
         .and_then(|m| m.caret)
         .expect("a caret");
-    // `w` is 11 across, on the second row: the caret is as tall as the text, in the row's middle.
-    assert_eq!(caret, Rect::new(10.0 + 11.0, 10.0 + 30.0 + 7.0, 2.0, LINE));
+    // `w` is 11 across, on the second row: the caret is as tall as the row.
+    assert_eq!(caret, Rect::new(10.0 + 11.0, 10.0 + 30.0, 2.0, 30.0));
     // Past what an editor takes, a row is three times the font's size; not a number, the default.
     let held = EditorOptions {
         line_height: 9.0,
@@ -807,7 +807,7 @@ fn a_block_caret_is_as_wide_as_its_character_which_is_drawn_again_on_it() {
     }));
     host.load("mi");
     host.caret_at(0);
-    let block = Rect::new(4.0, 4.0 + LEAD, 11.0, LINE);
+    let block = Rect::new(4.0, 4.0, 11.0, ROW);
     assert!(host.quads().contains(&(block, Some(Role::Accent))));
     assert!(
         host.texts()
@@ -815,7 +815,7 @@ fn a_block_caret_is_as_wide_as_its_character_which_is_drawn_again_on_it() {
     );
     // At the end of the line it is a space wide, and over no character.
     host.caret_at(2);
-    let block = Rect::new(4.0 + 14.0, 4.0 + LEAD, 7.0, LINE);
+    let block = Rect::new(4.0 + 14.0, 4.0, 7.0, ROW);
     assert!(host.quads().contains(&(block, Some(Role::Accent))));
     assert!(
         !host
@@ -837,15 +837,50 @@ fn an_underline_caret_is_a_line_under_its_character_as_thick_as_the_page_says() 
     }));
     host.load("mi");
     host.caret_at(1);
-    let line = Rect::new(4.0 + 11.0, 4.0 + LEAD + LINE - 3.0, 3.0, 3.0);
+    let line = Rect::new(4.0 + 11.0, 4.0 + ROW - 3.0, 3.0, 3.0);
     assert!(host.quads().contains(&(line, Some(Role::Cursor))));
-    // What stands by the caret stands by the text it is under, not on it.
+    // What stands by the caret stands by its row, not on the text.
     let caret = host
         .editors
         .metrics(EDITOR)
         .and_then(|m| m.caret)
         .expect("a caret");
-    assert_eq!(caret, Rect::new(4.0 + 11.0, 4.0 + LEAD, 3.0, LINE));
+    assert_eq!(caret, Rect::new(4.0 + 11.0, 4.0, 3.0, ROW));
+}
+
+#[test]
+fn a_caret_as_tall_as_the_text_leaves_the_rows_room_above_and_below_it() {
+    let caret = |shape: CaretShape| {
+        let mut host = Host::new(page_with(EditorOptions {
+            caret: Caret {
+                shape,
+                height: CaretHeight::Text,
+                ..Caret::default()
+            },
+            ..plain()
+        }));
+        host.load("mi");
+        host.caret_at(1);
+        let anchor = host
+            .editors
+            .metrics(EDITOR)
+            .and_then(|m| m.caret)
+            .expect("a caret");
+        let drawn = host
+            .quads()
+            .into_iter()
+            .find(|(_, role)| *role == Some(Role::Cursor))
+            .map(|(rect, _)| rect)
+            .expect("the caret is drawn");
+        (drawn, anchor)
+    };
+    let text = Rect::new(4.0 + 11.0, 4.0 + LEAD, 2.0, LINE);
+    assert_eq!(caret(CaretShape::Bar), (text, text));
+    let under = Rect::new(4.0 + 11.0, 4.0 + LEAD + LINE - 2.0, 3.0, 2.0);
+    assert_eq!(
+        caret(CaretShape::Underline),
+        (under, Rect::new(4.0 + 11.0, 4.0 + LEAD, 3.0, LINE))
+    );
 }
 
 #[test]
