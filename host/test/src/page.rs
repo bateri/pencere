@@ -23,10 +23,7 @@ pub struct Open {
     /// The app's own program, when the page's program is that.
     pub app: Option<App>,
     /// How to open the page again with the same program.
-    pub remake: Box<
-        dyn Fn()
-            -> Result<pencere_drive::headless::Opening<pencere_drive::headless::Calls>, String>,
-    >,
+    pub remake: Option<Remake>,
     /// The program's words, for a failure: the file its `print` goes to.
     pub log: Option<std::path::PathBuf>,
     /// Where the pictures of the test go.
@@ -50,6 +47,11 @@ impl Drop for Open {
         self.close();
     }
 }
+
+/// How a page is made ready again with the settings it was opened with.
+pub type Remake = Box<
+    dyn Fn() -> Result<pencere_drive::headless::Opening<pencere_drive::headless::Calls>, String>,
+>;
 
 /// The handle Lua has of a page.
 #[derive(Clone)]
@@ -791,11 +793,16 @@ impl UserData for Handle {
                 .0
                 .try_borrow_mut()
                 .map_err(|_| words("the page is in use"))?;
+            let Some(remake) = open.remake.as_ref() else {
+                return Err(words(
+                    "reopen: a program on a pty shows its own view again to a page it opens: open the page again with `test.open`",
+                ));
+            };
+            let opening = remake().map_err(words)?;
             let page = open
                 .page
                 .take()
                 .ok_or_else(|| words("the page is over: the test that opened it has ended"))?;
-            let opening = (open.remake)().map_err(words)?;
             let peer = page.into_peer();
             let reopened = opening.peer(peer).open().map_err(|error| trouble(&error))?;
             open.page = Some(reopened);

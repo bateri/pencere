@@ -40,7 +40,9 @@ pub struct Options {
 pub fn find_root(start: &Path) -> Option<PathBuf> {
     let mut at = Some(start);
     while let Some(directory) = at {
-        if Project::find(directory, None).is_ok() {
+        // An app: a program in Lua, or the page of one in another language (a Cargo package, a
+        // TypeScript project) that the tests open with a stand-in or name the program of.
+        if Project::find(directory, None).is_ok() || directory.join("src/view/page.lua").is_file() {
             return Some(directory.to_path_buf());
         }
         at = directory.parent();

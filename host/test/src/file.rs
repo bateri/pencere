@@ -12,7 +12,7 @@ use pencere_cli::{Config, Env, Exit, Files, Module, Project, Runner, from_json, 
 use pencere_drive::headless::{Calls, Failure, Headless, Opening};
 use serde_json::{Value as Json, json};
 
-use crate::page::{Handle, Open};
+use crate::page::{Handle, Open, Remake};
 use crate::peer::Any;
 use crate::program::{App, Setting};
 
@@ -136,21 +136,22 @@ fn module_of(root: &Path, path: &Path) -> String {
 /// The files the test file's runtime has: the program's modules, the app's `test/` over them,
 /// and the entry that runs the file.
 fn files_of(job: &Job) -> Result<Files, String> {
-    let project = Project::find(&job.root, None)?;
-    let app = project.files();
     let mut files = BTreeMap::new();
-    let paths = app.paths().map_err(|error| error.to_string())?;
-    for path in paths {
-        // The pages and their pictures are the view's, not the program's: a test reaches the page
-        // through the app's view.
-        if path.starts_with("view/") || path.starts_with("assets/") {
-            continue;
-        }
-        if path.ends_with(".lua") || path.ends_with(".luau") {
-            let bytes = app
-                .read(&path)
-                .map_err(|error| format!("{path}: {error}"))?;
-            files.insert(path, bytes);
+    // The program's modules, if the program is in Lua: a program in another language has none.
+    if let Ok(project) = Project::find(&job.root, None) {
+        let app = project.files();
+        for path in app.paths().map_err(|error| error.to_string())? {
+            // The pages and their pictures are the view's, not the program's: a test reaches the
+            // page through the app's view.
+            if path.starts_with("view/") || path.starts_with("assets/") {
+                continue;
+            }
+            if path.ends_with(".lua") || path.ends_with(".luau") {
+                let bytes = app
+                    .read(&path)
+                    .map_err(|error| format!("{path}: {error}"))?;
+                files.insert(path, bytes);
+            }
         }
     }
     // The program's own entry is not a module: the entry here runs the tests.
@@ -532,19 +533,76 @@ fn finished(session: &Shared, ok: bool, message: Option<String>, trace: Option<S
 
 // ---- opening a page ------------------------------------------------------------------------
 
+/// The program an app has, which is what a page with no program named speaks to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Program {
+    /// Lua: run in this process, by the runtime of the command.
+    Lua,
+    /// A Cargo package: built once, and run on a pty.
+    Package,
+    /// Another language: it is named (`command`), or the page has a stand-in.
+    Other,
+}
+
+/// Where the files of the page are.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Page {
+    /// `src/view/` with `src/assets/`, as `pencere new` lays an app out.
+    Laid,
+    /// `src/view/` alone, the pictures in it (a TypeScript project's).
+    View,
+    /// The directory itself: the simple form, with `page.lua` beside `app.lua`.
+    Simple,
+}
+
 /// The app the test file is in, as the page and the program of it are found.
 struct Where {
     root: PathBuf,
-    laid: bool,
+    page: Page,
+    program: Program,
 }
 
-fn app_where(root: &Path) -> Result<Where, String> {
-    let project = Project::find(root, None)?;
-    drop(project);
-    Ok(Where {
+fn app_where(root: &Path) -> Where {
+    let program = if Project::find(root, None).is_ok() {
+        Program::Lua
+    } else if pencere_cli::is_package(root) {
+        Program::Package
+    } else {
+        Program::Other
+    };
+    let page = if root.join("src/view/page.lua").is_file() {
+        if root.join("src/assets").is_dir() {
+            Page::Laid
+        } else {
+            Page::View
+        }
+    } else {
+        Page::Simple
+    };
+    Where {
         root: root.to_path_buf(),
-        laid: root.join("src/program/app.lua").is_file(),
-    })
+        page,
+        program,
+    }
+}
+
+/// The program of a Cargo package, built (once for each package in a process) with Cargo.
+fn built(root: &Path) -> Result<PathBuf, String> {
+    static BUILT: std::sync::Mutex<BTreeMap<PathBuf, PathBuf>> =
+        std::sync::Mutex::new(BTreeMap::new());
+    let mut built = BUILT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(program) = built.get(root) {
+        return Ok(program.clone());
+    }
+    let name = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("app");
+    let program = pencere_cli::build_package(root, name, &["--quiet"])?;
+    built.insert(root.to_path_buf(), program.clone());
+    Ok(program)
 }
 
 /// What a page is opened with, from the options of `test.open`.
@@ -576,7 +634,7 @@ fn spec_of(session: &Shared, options: &Table) -> mlua::Result<Spec> {
             });
         (session.job.root.clone(), remaining)
     };
-    let place = app_where(&root).map_err(words)?;
+    let place = app_where(&root);
     let mut size = (800.0, 600.0);
     if let Some(list) = options.get::<Option<Table>>("size")? {
         size = (
@@ -595,9 +653,17 @@ fn spec_of(session: &Shared, options: &Table) -> mlua::Result<Spec> {
         }
     }
     Ok(Spec {
-        entry: options
-            .get::<Option<String>>("entry")?
-            .unwrap_or_else(|| "page.lua".to_owned()),
+        entry: options.get::<Option<String>>("entry")?.unwrap_or_else(|| {
+            // The simple form has its page beside `app.lua`, or in `view/`.
+            if place.page == Page::Simple
+                && !root.join("page.lua").is_file()
+                && root.join("view/page.lua").is_file()
+            {
+                "view/page.lua".to_owned()
+            } else {
+                "page.lua".to_owned()
+            }
+        }),
         script: options.get::<Option<String>>("script")?,
         component: options
             .get::<Option<String>>("component")?
@@ -623,16 +689,21 @@ impl Spec {
             let bytes =
                 std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
             Headless::component(bytes)
-        } else if self.place.laid {
-            Headless::bundle(
-                pencere_drive::headless::Files::app(&self.place.root),
-                &self.entry,
-            )
         } else {
-            Headless::bundle(
-                pencere_drive::headless::Files::dir(&self.place.root),
-                &self.entry,
-            )
+            match self.place.page {
+                Page::Laid => Headless::bundle(
+                    pencere_drive::headless::Files::app(&self.place.root),
+                    &self.entry,
+                ),
+                Page::View => Headless::bundle(
+                    pencere_drive::headless::Files::dir(self.place.root.join("src/view")),
+                    &self.entry,
+                ),
+                Page::Simple => Headless::bundle(
+                    pencere_drive::headless::Files::dir(&self.place.root),
+                    &self.entry,
+                ),
+            }
         };
         Ok(opening
             .size(self.size.0, self.size.1)
@@ -724,12 +795,12 @@ fn open(lua: &Lua, session: &Shared, options: &Table) -> mlua::Result<Handle> {
         }
     });
     let args = strings(options, "args")?;
-    let within = number(options, "within")?.unwrap_or(5.0);
-    let _ = within;
     let spec = Rc::new(spec);
-    let remake: Box<dyn Fn() -> Result<Opening<Calls>, String>> = {
+    // The page can be opened again with its program only where the program is this process's: a
+    // stand-in, or the app's own.
+    let mut remake: Option<Remake> = {
         let spec = Rc::clone(&spec);
-        Box::new(move || spec.opening())
+        Some(Box::new(move || spec.opening()))
     };
     let mut log = None;
     let mut app = None;
@@ -741,7 +812,19 @@ fn open(lua: &Lua, session: &Shared, options: &Table) -> mlua::Result<Handle> {
             .open()
             .map_err(|error| words(error.to_string()))?
     } else if let Some(command) = command {
+        remake = None;
         start_command(&command, &args, &env, cwd.as_deref(), &root, &spec)?
+    } else if spec.place.program == Program::Package {
+        // A program in Rust: built once, and run on a pty as a terminal runs it.
+        remake = None;
+        let program = built(&root).map_err(words)?;
+        let mut command = vec![program.display().to_string()];
+        command.extend(args.iter().cloned());
+        start_command(&command, &[], &env, cwd.as_deref(), &root, &spec)?
+    } else if spec.place.program == Program::Other {
+        return Err(words(
+            "the app's program is not in Lua or a Cargo package, so it is not run for you: open the page with `calls` (stand-in handlers) or name the program with `command = { \"deno\", \"run\", \"-A\", \"src/program/main.ts\" }`",
+        ));
     } else {
         let number = {
             let mut session = session.borrow_mut();
@@ -811,7 +894,7 @@ fn start_command(
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect();
     let mut program = Program::start_in(&parts, &environment, Some(cwd.unwrap_or(root)))
-        .map_err(|error| words(error.to_string()))?;
+        .map_err(|error| words(format!("{}: {error}", command.join(" "))))?;
     let opening =
         view_of(&mut program, Duration::from_secs(60)).map_err(|error| words(error.to_string()))?;
     opening

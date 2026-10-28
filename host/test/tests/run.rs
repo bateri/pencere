@@ -534,6 +534,185 @@ end)
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn a_program_that_lends_the_terminal_is_given_it_back_by_the_test_and_shows_its_page_again() {
+    let app = App::template("lending");
+    let _ = std::fs::remove_file(app.dir.join("test/page_test.lua"));
+    app.write(
+        "src/view/page.lua",
+        &PAGE
+            .replace("{{name}}", "demo")
+            .replace("\"hello\"", "\"edit\"")
+            .replace("b.text(\"Greet\")", "b.text(\"Edit\")"),
+    );
+    app.write(
+        "src/program/app.lua",
+        r#"local pencere = require("pencere")
+pencere.serve {
+	calls = {
+		edit = function()
+			local ended = pencere.handoff { "vim", "notes.txt" }
+			print("the editor ended", ended.code)
+			return { message = "edited" }
+		end,
+	},
+	topics = { clock = function() end },
+}
+"#,
+    );
+    app.write(
+        "test/lending_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("the terminal is lent to the editor and given back", function()
+	local page = test.open()
+	local ok, err = pcall(function()
+		page:get_by_role("button", { name = "Edit" }):click()
+	end)
+	expect(ok):to_be(false)
+	expect(tostring(err)):to_contain("lent the terminal to `vim`")
+	expect(page:lent()):to_equal({ program = "vim", args = { "notes.txt" } })
+	page:give_back(3)
+	page:wait_for(function()
+		return string.find(page:log(), "the editor ended\t3", 1, true) ~= nil
+	end)
+	page:reopen()
+	expect(page:lent()):to_be_nil()
+	expect(page):to_say("Press the button.")
+end)
+
+test("a page opened with a program on a pty is not reopened for it", function()
+	local page = test.open({ calls = {} })
+	page:reopen()
+	expect(page):to_say("Press the button.")
+end)
+"#,
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
+    assert!(text.contains("1..2"), "{text}");
+}
+
+/// The Rust example, built by Cargo into a directory of its own (so that this test run and the
+/// build the stand-in terminal's tests do take no lock from one another).
+fn containers_rust() -> PathBuf {
+    static BUILT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    BUILT
+        .get_or_init(|| {
+            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let target = root.join("target/pencere-test-examples");
+            let status = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+                .args([
+                    "build",
+                    "--quiet",
+                    "--offline",
+                    "-p",
+                    "containers-rust",
+                    "--target-dir",
+                ])
+                .arg(&target)
+                .current_dir(&root)
+                .status()
+                .expect("cargo runs");
+            assert!(status.success(), "containers-rust builds");
+            target.join("debug/containers-rust")
+        })
+        .clone()
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter, and builds the Rust example"]
+fn a_program_in_rust_on_a_pty_is_driven_as_the_one_in_lua_is() {
+    let binary = containers_rust();
+    let app = App::new(
+        "pty",
+        &[(
+            "test/rust_test.lua",
+            r#"local test = require("pencere.test")
+local expect = test.expect
+local pencere = require("pencere")
+
+test("the Rust example's page, with its program on a pty", function()
+	local page = test.open({
+		command = { pencere.env.get("CONTAINERS_RUST"), "--lua" },
+		size = { 900, 500 },
+	})
+	expect(page):to_say("Containers")
+	expect(page):to_say("shop")
+	page:press("down")
+	page:get_by_text("Pull"):click()
+	expect(page:get_by_text("Pull")):to_exist()
+	expect(page):to_say("Containers")
+end)
+
+test("a program that is not there is said", function()
+	local ok, err = pcall(test.open, { command = { "/no/such/program" } })
+	expect(ok):to_be(false)
+	expect(tostring(err)):to_contain("/no/such/program")
+end)
+"#,
+        )],
+    );
+    let binary = binary.display().to_string();
+    let (code, text) = app.run_with(&["--reporter", "tap"], &[("CONTAINERS_RUST", &binary)]);
+    assert_eq!(code, 0, "{text}");
+    assert!(text.contains("1..2"), "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter, and builds a Cargo package"]
+fn the_page_of_a_cargo_package_is_tested_with_the_program_it_builds_on_a_pty() {
+    // The package `pencere new --lang rust` makes, with the library taken from this checkout.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("the checkout");
+    let app = App::new("package", &[]);
+    let _ = std::fs::remove_file(app.dir.join("src/program/app.lua"));
+    app.write(
+        "Cargo.toml",
+        &include_str!("../../../cli/templates/rust/Cargo.toml.tmpl")
+            .replace("{{name}}", "package-app")
+            .replace(
+                "pencere = \"0.3\"",
+                &format!("pencere = {{ path = {:?} }}", root.join("program")),
+            ),
+    );
+    app.write(
+        "build.rs",
+        include_str!("../../../cli/templates/rust/build.rs"),
+    );
+    app.write(
+        "src/program/main.rs",
+        &include_str!("../../../cli/templates/rust/src/program/main.rs")
+            .replace("{{name}}", "package-app"),
+    );
+    app.write(
+        "src/view/page.lua",
+        &PAGE.replace("{{name}}", "package-app"),
+    );
+    app.write("src/assets/icon.svg", ICON);
+    app.write(
+        "test/page_test.lua",
+        &TEMPLATE_TEST.replace("{{name}}", "package-app"),
+    );
+    let target = root.join("target/pencere-test-package");
+    let (code, text) = app.run_with(
+        &["--reporter", "tap"],
+        &[
+            ("CARGO_TARGET_DIR", &target.display().to_string()),
+            ("CARGO_NET_OFFLINE", "true"),
+        ],
+    );
+    assert_eq!(code, 0, "{text}");
+    assert!(
+        text.contains("ok 3 - test/page_test.lua: the app's own program answers the page"),
+        "{text}"
+    );
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn the_example_app_is_tested_with_its_own_program_a_stand_in_and_the_editor() {
     let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
     for example in ["containers-lua", "editor-lua"] {

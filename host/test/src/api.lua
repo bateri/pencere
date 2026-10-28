@@ -686,6 +686,32 @@ end
 
 -- ---- opening ---------------------------------------------------------------------------------
 
+-- What a native raises comes with the library's label and where in Rust it was: the test is told
+-- the words, and the line of the test that made the call.
+local function plain(message)
+	message = string.gsub(tostring(message), "^runtime error: ", "")
+	message = string.gsub(message, "\nstack traceback:.*$", "")
+	return message
+end
+
+local function guarded(raw)
+	return setmetatable({}, {
+		__index = function(_, name)
+			local method = raw[name]
+			if type(method) ~= "function" then
+				return method
+			end
+			return function(_, ...)
+				local results = table.pack(pcall(method, raw, ...))
+				if results[1] then
+					return table.unpack(results, 2, results.n)
+				end
+				fail(plain(results[2]))
+			end
+		end,
+	})
+end
+
 function M.open(options)
 	options = options or {}
 	local merged = {}
@@ -716,8 +742,11 @@ function M.open(options)
 		end
 		merged.calls = wrapped
 	end
-	local raw = native.open(merged)
-	return setmetatable({ raw = raw, within = merged.within or 5 }, Page)
+	local ok, raw = pcall(native.open, merged)
+	if not ok then
+		fail(plain(raw))
+	end
+	return setmetatable({ raw = guarded(raw), within = merged.within or 5 }, Page)
 end
 
 -- ---- expect ----------------------------------------------------------------------------------
