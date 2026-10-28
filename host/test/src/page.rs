@@ -693,11 +693,11 @@ impl UserData for Handle {
                 match entry {
                     pencere_view::MenuEntry::Item {
                         title,
-                        key,
+                        keys,
                         enabled,
                     } => {
                         item.set("title", title.as_str())?;
-                        item.set("key", key.map(String::from))?;
+                        item.set("keys", keys.as_ref().map(|keys| format!("{keys:?}")))?;
                         item.set("enabled", *enabled)?;
                     }
                     pencere_view::MenuEntry::Separator => item.set("separator", true)?,
