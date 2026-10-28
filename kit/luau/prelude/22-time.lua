@@ -20,7 +20,7 @@
 -- timer runs while the page is woken: the timers that are due, in the order of their times (and
 -- of their making), before the page's own `handle` hears of the wake, which it does only where it
 -- asked a `wake` itself. What `fn` returns is a reply, put together with what the others and the
--- page return (`pencere._merge`), and what is put together is held to what one reply may hand the
+-- page return (`pencere.merge`), and what is put together is held to what one reply may hand the
 -- editors: the decorations past that wait for the next reply. A timer set while the page is woken
 -- counts from the time of the wake. One set anywhere else (an event, a message, `render`,
 -- `settle`, the script's start) counts from the next wake, which the kit asks for at once (for one
@@ -75,9 +75,8 @@ end
 -- Two replies (nil, true, false or a table) as one: everything both ask, the first's asks of an
 -- editor before the second's; a frame where either wants one, the page closed where either asks;
 -- where both say the one thing (the keyboard, the pasteboard, a menu, a link, the pointer's shape)
--- the second's; and the earlier of two wakes. Neither is changed. What a page's parts answer is
--- put together with it: a syntax's (`syntax:reply`), the timers' and the page's own.
-local function merge(first, second)
+-- the second's; and the earlier of two wakes. Neither is changed.
+local function merge_two(first, second)
 	if first == nil then
 		return second
 	elseif second == nil then
@@ -127,7 +126,19 @@ local function merge(first, second)
 	end
 	return out
 end
-pencere._merge = merge
+
+-- Any number of replies as one, put together in order as two are (`merge_two`); nil where every one
+-- is. None is changed. What a page's parts answer is put together with it: the timers' and the
+-- page's own, and a part's of the page that answers for itself (a module of the library, such as a
+-- syntax's `syntax:reply`).
+local function merge(...)
+	local out = nil
+	for index = 1, select("#", ...) do
+		out = merge_two(out, (select(index, ...)))
+	end
+	return out
+end
+pencere.merge = merge
 
 -- Whether an ask of an editor is a decorate, as the interpreter reads it (a load, a change, a
 -- selection or a reveal first).

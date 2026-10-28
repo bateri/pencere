@@ -2,7 +2,8 @@
 -- script's reach once it is wrapped) and the small things the rest is made of.
 --
 -- A script is Luau. What it can use besides the language is the base functions, `string`,
--- `table`, `math` and `utf8`, and `pencere`, the table this prelude fills:
+-- `table`, `math` and `utf8`, `require` (the other scripts of its bundle, and the kit's library:
+-- `require("@pencere/syntax")`), and `pencere`, the table this prelude fills:
 --
 --   elements   pencere.div(), pencere.text(), pencere.rich({ pencere.span(...), ... }),
 --              pencere.spark(), pencere.image(), pencere.canvas({ pencere.path()..., ... }),
@@ -18,8 +19,7 @@
 --   lists      box:list(rows, make), pencere.list_window(id) (a long list in a box the host
 --              scrolls: only the rows near what is in view are made)
 --   time       pencere.time.after, pencere.time.every, pencere.time.now (timers, run when the host
---              wakes the page: a reply's `wake`)
---   languages  pencere.Syntax (a language that colours an editor's lines as they change)
+--              wakes the page: a reply's `wake`), pencere.merge (two replies as one)
 --   layout     pencere.layout (what is where on the page as it was last laid out)
 --   program    pencere.send, pencere.call, pencere.subscribe, pencere.cancel, pencere.json
 --

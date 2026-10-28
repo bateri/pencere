@@ -471,3 +471,76 @@ fn what_is_typed_is_undone_in_groups_by_the_hosts_clock() -> Result<(), Error> {
     assert_eq!(page.editor_text("e").as_deref(), Some(""));
     Ok(())
 }
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_reads_what_its_ui_keeps_of_the_pointer_and_the_keyboard() -> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+        local ui = pencere.Ui.new()
+        local layout = pencere.layout
+        local function button(id)
+            return pencere.div():id(id):press(id):focusable():p(8):child(pencere.text(id))
+        end
+        return {
+            render = function()
+                return pencere.div():p(10):gap(10)
+                    :child(button("a"))
+                    :child(button("b"))
+                    :child(pencere.text(string.format("hover %s pressed %s focus %s",
+                        tostring(ui.hover), tostring(ui.pressed), tostring(ui.focus))))
+            end,
+            handle = function(event)
+                if event.type == "move" then
+                    return ui:point(layout, event)
+                elseif event.type == "leave" then
+                    return ui:point(layout, nil)
+                elseif event.type == "press" then
+                    ui:press(layout, event)
+                    return true
+                elseif event.type == "release" then
+                    ui:release(layout, event)
+                    return true
+                elseif event.type == "key" and event.key == "tab" then
+                    ui:focus_step(layout, event.mods.shift)
+                    return true
+                end
+            end,
+        }
+        "#,
+    )
+    .size(400.0, 300.0)
+    .open()?;
+    let shown = |page: &Headless| {
+        page.tree_words()
+            .into_iter()
+            .find(|words| words.starts_with("hover "))
+            .expect("the page says what its Ui keeps")
+    };
+    assert_eq!(shown(&page), "hover nil pressed nil focus nil");
+    page.hover("a")?;
+    assert_eq!(shown(&page), "hover a pressed nil focus nil");
+    let middle = |page: &Headless, name: &str| {
+        let bounds = page.bounds(name).expect("the button is laid out");
+        Point::new(bounds.x + bounds.w / 2.0, bounds.y + bounds.h / 2.0)
+    };
+    let at = middle(&page, "b");
+    page.move_to(at)?;
+    page.pointer(pencere_view::Input::Press {
+        at,
+        button: pencere_view::Button::Left,
+        mods: pencere_view::Mods::default(),
+        count: 1,
+    })?;
+    assert_eq!(shown(&page), "hover b pressed b focus b");
+    page.pointer(pencere_view::Input::Release {
+        at,
+        button: pencere_view::Button::Left,
+    })?;
+    assert_eq!(shown(&page), "hover b pressed nil focus b");
+    page.press("tab")?;
+    assert_eq!(shown(&page), "hover b pressed nil focus a");
+    page.leave()?;
+    assert_eq!(shown(&page), "hover nil pressed nil focus a");
+    Ok(())
+}

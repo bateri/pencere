@@ -1,16 +1,17 @@
--- The page API, part 5: a language that colours an editor as it changes.
+-- @pencere/syntax: a language that colours an editor as it changes.
 --
 -- The editor knows no language: the page colours its text with decorations (a layer of them,
--- `decorate`). `pencere.Syntax` is how a page does that the way CodeMirror's `StreamLanguage`
--- does, with its legacy modes: a language is a function that reads a line a token at a time
--- from a stream (`token(stream, state) -> name`) and a state carried from line to line (a block
--- comment, a string that goes on). The kit keeps the state at the end of every line, reads again
--- only from the first line a change touched until the state comes to what it was, colours only
--- the lines in view (and a margin), and does a bounded amount of work in each call, the rest in
--- the frames after it, by itself (a timer, `pencere.time`): a large document is coloured to its
--- end with no event of the person's. It does nothing for a page that does not use it.
+-- `decorate`). This module is how a page does that the way CodeMirror's `StreamLanguage` does,
+-- with its legacy modes: a language is a function that reads a line a token at a time from a
+-- stream (`token(stream, state) -> name`) and a state carried from line to line (a block comment,
+-- a string that goes on). It keeps the state at the end of every line, reads again only from the
+-- first line a change touched until the state comes to what it was, colours only the lines in view
+-- (and a margin), and does a bounded amount of work in each call, the rest in the frames after it,
+-- by itself (a timer, `pencere.time`): a large document is coloured to its end with no event of the
+-- person's. It does nothing for a page that does not use it.
 --
---   local sql = pencere.Syntax.define {
+--   local Syntax = require("@pencere/syntax")
+--   local sql = Syntax.define {
 --       name = "sql",
 --       start = function() return { comment = false } end,
 --       token = function(stream, state)
@@ -27,15 +28,18 @@
 --       end,
 --       styles = { comment = { color = "dim", italic = true }, number = { color = "warning" } },
 --   }
---   local syntax = pencere.Syntax.new(sql, "editor")
+--   local syntax = Syntax.new(sql, "editor")
 --
 --   handle = function(event) syntax:handle(event); return syntax:reply(respond(event)) end
 --
 -- A place the stream says (`pos`, `start`) is a byte of the line's text from 1, as `string.find`
--- counts; the kit makes characters of them for the editor.
+-- counts; the module makes characters of them for the editor.
+--
+-- It is written on the page API alone: `pencere.layout` to read the editor's text,
+-- `pencere.time` to go on by itself and `pencere.merge` to put its asks in the page's reply.
 
 local layout = pencere.layout
-local merge = pencere._merge
+local merge = pencere.merge
 
 -- A line is read to its first this many characters: a line of a minified file does not stall the
 -- page, and the state after it is the state at that character (CodeMirror's `MaxLineLength`). A
@@ -512,7 +516,6 @@ Language.__index = Language
 
 local Syntax = {}
 Syntax.__index = Syntax
-pencere.Syntax = Syntax
 
 -- The look of the token named `name` in `language` (false for none): the looks of its names (a name
 -- is several, apart: "keyword strong"), each found by itself or by what is before its last dot
@@ -566,7 +569,7 @@ end
 --            serves many languages; a name no style says is not coloured.
 function Syntax.define(spec)
 	if type(spec) ~= "table" then
-		error("pencere.Syntax.define takes a table: { name =, start =, token =, styles = }", 2)
+		error("Syntax.define takes a table: { name =, start =, token =, styles = }", 2)
 	end
 	if type(spec.name) ~= "string" then
 		error("a language has a name (a string)", 2)
@@ -763,18 +766,18 @@ end
 -- its events.
 function Syntax.new(language, editor, options)
 	if getmetatable(language) ~= Language then
-		error("pencere.Syntax.new takes a language (pencere.Syntax.define), then the name of an editor", 2)
+		error("Syntax.new takes a language (Syntax.define), then the name of an editor", 2)
 	end
 	if editor == nil then
-		error("pencere.Syntax.new takes a language, then the name of an editor", 2)
+		error("Syntax.new takes a language, then the name of an editor", 2)
 	end
 	options = options or {}
 	if type(options) ~= "table" then
-		error("the options of pencere.Syntax.new are a table: { layer =, step =, margin =, tab_width = }", 2)
+		error("the options of Syntax.new are a table: { layer =, step =, margin =, tab_width = }", 2)
 	end
 	for key in pairs(options) do
 		if not OPTION_KEYS[key] then
-			error("pencere.Syntax.new has no option " .. tostring(key) .. " (layer, step, margin, tab_width)", 2)
+			error("Syntax.new has no option " .. tostring(key) .. " (layer, step, margin, tab_width)", 2)
 		end
 	end
 	local layer = options.layer or "syntax"
@@ -1368,3 +1371,5 @@ function Syntax:handle(event)
 	self:work()
 	go_on(self)
 end
+
+return Syntax
