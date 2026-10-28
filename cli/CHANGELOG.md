@@ -29,6 +29,10 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`PENCERE_CALL_MS` for `pencere test`.** The time, in milliseconds, a call of the page may take
+  in a test: the kit's 250 ms (as a terminal holds a page) unless it is set. The limit is the wall
+  clock's, and a test of what a page shows and does should not fail for how quick a busy runner is;
+  a value that is not a whole number above zero is not read.
 - **`pencere test`.** Runs the tests of an app, written in Lua (`test/**/*_test.lua`,
   `require("pencere.test")`), against the page of the app under a host with no screen: its page
   engine, editors and interpreter, with a clock the test moves. The page's program is a stand-in
