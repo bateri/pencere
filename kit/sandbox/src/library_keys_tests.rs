@@ -151,11 +151,7 @@ fn the_platform_of_the_labels_is_the_keyboard_the_host_says_until_the_page_says_
         keys.set_platform("{platform}")
         check("said again", keys.platform(), "{platform}")
         "#,
-                if platform == "mac" {
-                    "⌘S"
-                } else {
-                    "Ctrl+S"
-                }
+                if platform == "mac" { "⌘S" } else { "Ctrl+S" }
             ),
         );
         assert_eq!(shown, ["ok"], "{platform}");
