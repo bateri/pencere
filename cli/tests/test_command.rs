@@ -43,7 +43,18 @@ fn run(command: &Path, args: &[&str], env: &[(&str, &Path)]) -> (i32, String, St
     for (name, value) in env {
         run.env(name, value);
     }
-    let output = run.output().expect("the command");
+    // On Linux a file just written may not be run yet: a test of another thread that forks in
+    // between holds the file open for writing until its child execs ("Text file busy").
+    let mut tries = 0;
+    let output = loop {
+        match run.output() {
+            Err(why) if why.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 50 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            done => break done.expect("the command"),
+        }
+    };
     (
         output.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&output.stdout).into_owned(),
