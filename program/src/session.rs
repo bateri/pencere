@@ -11,9 +11,9 @@
 //! program leaves.
 
 use std::cell::Cell;
-use std::collections::HashMap;
 use std::io;
 use std::panic;
+use std::process::{Command, ExitStatus};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::time::Instant;
@@ -21,15 +21,12 @@ use std::time::Instant;
 use pencere_wire::base64;
 use pencere_wire::bundle::Digest;
 use pencere_wire::frame::Message as Frame;
-use pencere_wire::messages::Message;
-use serde_json::Value;
 
 use crate::bundle::{Bundle, BundleError};
-use crate::control::{CloseResult, ReopenResult, Request};
-use crate::handlers::{
-    Call, Feed, Flag, Outbox, Subscription, ViewError, Work, fits, payload_of, read_message,
-    run_call, run_topic,
-};
+use crate::control::{CloseResult, HandOffResult, ReopenResult, Request};
+use crate::exchange::{Exchange, Toward, WORK_ROOM, WRITE_ROOM};
+use crate::foreground::{self, Job};
+use crate::handlers::{self, Outbox, Work};
 use crate::link::{Item, Reader, Writer};
 use crate::payload::{self, ByeReason, ClosedReason, FEATURE_DISMISS, Offer, OpenFields, Welcome};
 use crate::terminal::{
@@ -38,21 +35,10 @@ use crate::terminal::{
 use crate::view::Source;
 use crate::{Closed, EndedBy, Error, Kind, NoView, NoViewReason, Options, Outcome, Shown, View};
 
-/// How many calls of the view run at once. A view that asks for more is told `busy`.
-const MAX_CALLS: usize = 64;
-
-/// How many messages a handler can have waiting for the loop before it has to wait.
-const WORK_ROOM: usize = 256;
-
-/// How many bytes may wait to be written before the loop takes no more from the handlers.
-const WRITE_ROOM: usize = 1 << 20;
-
 thread_local! {
     /// This thread is the event loop of a `serve`: a panic on it gives the terminal back before
     /// anything is printed.
     static ON_THE_LOOP: Cell<bool> = const { Cell::new(false) };
-    /// This thread runs a handler: its panic is the call's error, not the program's.
-    static IN_A_HANDLER: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Where the conversation is.
@@ -71,6 +57,9 @@ enum Phase {
     /// There is no view and the terminal's answer to `CSI c` has not come: it is read, so that
     /// it does not reach the shell as typed text.
     Draining { until: Instant, no_view: NoView },
+    /// The terminal is lent to a command (§10.8): the program is a background job of the tty until
+    /// the command ends, and touches the tty for nothing, since a read of it would stop the program.
+    Lent,
     /// Done: `result` says how.
     Over,
 }
@@ -89,6 +78,109 @@ enum Then {
 enum Reply {
     Reopen(SyncSender<ReopenResult>),
     Close(SyncSender<CloseResult>),
+    HandOff(Box<HandingOff>),
+}
+
+/// Why a request of the program's was not acted on.
+#[derive(Clone, Copy)]
+enum Refusal {
+    /// The terminal does not list `dismiss`.
+    Unsupported,
+    /// There is no view to act on.
+    Unavailable,
+    /// The terminal is lent to a command already.
+    Busy,
+}
+
+impl Reply {
+    /// Answers a request that was not acted on, or that came to nothing.
+    fn refuse(self, why: Refusal) {
+        match self {
+            Self::Reopen(reply) => {
+                let _ = reply.send(match why {
+                    Refusal::Unsupported => ReopenResult::Unsupported,
+                    Refusal::Unavailable | Refusal::Busy => ReopenResult::Unavailable,
+                });
+            }
+            Self::Close(reply) => {
+                let _ = reply.send(match why {
+                    Refusal::Unsupported => CloseResult::Unsupported,
+                    Refusal::Unavailable | Refusal::Busy => CloseResult::Unavailable,
+                });
+            }
+            Self::HandOff(handing) => {
+                for reopen in handing.reopens {
+                    let _ = reopen.send(ReopenResult::Unavailable);
+                }
+                let _ = handing.reply.send(match why {
+                    Refusal::Unsupported => HandOffResult::Unsupported,
+                    Refusal::Unavailable => HandOffResult::Unavailable,
+                    Refusal::Busy => HandOffResult::Busy,
+                });
+            }
+        }
+    }
+}
+
+/// A hand-off of the terminal under way (§10.8): the command, then the command that has the
+/// terminal, then how it ended.
+struct HandingOff {
+    reply: SyncSender<HandOffResult>,
+    /// The command, until it is given the terminal.
+    command: Option<Command>,
+    /// The command that has the terminal.
+    job: Option<Job>,
+    /// How the command ended, or why it could not be started, once it has.
+    status: Option<io::Result<ExitStatus>>,
+    /// The signal that asked the program to end while the command had the terminal.
+    signal: Option<libc::c_int>,
+    /// The reopenings asked while the command had the terminal: the view that comes back is theirs.
+    reopens: Vec<SyncSender<ReopenResult>>,
+}
+
+impl HandingOff {
+    fn new(command: Command, reply: SyncSender<HandOffResult>) -> Self {
+        Self {
+            reply,
+            command: Some(command),
+            job: None,
+            status: None,
+            signal: None,
+            reopens: Vec::new(),
+        }
+    }
+
+    /// The terminal took the open of the view shown again.
+    fn returned(self) {
+        for reopen in self.reopens {
+            let _ = reopen.send(ReopenResult::Reopened);
+        }
+        let status = self
+            .status
+            .unwrap_or_else(|| Err(io::Error::other("the command did not run")));
+        let _ = self.reply.send(HandOffResult::Returned(status));
+    }
+
+    /// `serve` ends with `result` before the view is shown again.
+    fn settle(self, result: &Result<Outcome, Error>) {
+        let no_view = match result {
+            Ok(Outcome::NoView(no_view)) => Some(no_view.clone()),
+            _ => None,
+        };
+        for reopen in self.reopens {
+            let _ = reopen.send(match &no_view {
+                Some(no_view) => ReopenResult::NoView(no_view.clone()),
+                None => ReopenResult::Unavailable,
+            });
+        }
+        let _ = self.reply.send(match (no_view, self.status) {
+            (Some(no_view), status) => HandOffResult::NoView { status, no_view },
+            // The view was asked for again and ended as it opened, or the program failed: `serve`
+            // says which. The command had the terminal all the same.
+            (None, Some(status)) => HandOffResult::Returned(status),
+            (None, None) => HandOffResult::Unavailable,
+        });
+    }
 }
 
 /// Where a reopening or a closing is.
@@ -100,6 +192,8 @@ enum Stage {
     Asking,
     /// The new view has been asked for and the terminal has not taken the open.
     Opening,
+    /// A hand-off's: the view is gone and the command has the terminal.
+    Lent,
 }
 
 /// A reopening or a closing under way: the program asked to close the view, and has an answer
@@ -127,7 +221,7 @@ impl PanicHook {
             Arc::from(panic::take_hook());
         let chain = Arc::clone(&previous);
         panic::set_hook(Box::new(move |info| {
-            if IN_A_HANDLER.with(Cell::get) {
+            if handlers::on_a_handler_thread() {
                 // The call is answered with the panic's words; nothing is printed on the view's
                 // screen.
                 return;
@@ -153,6 +247,18 @@ impl Drop for PanicHook {
             let previous = Arc::clone(&self.previous);
             panic::set_hook(Box::new(move |info| previous(info)));
         }
+    }
+}
+
+/// The terminal's stream toward the view: a message of the six goes only while one is shown.
+struct Stream<'w> {
+    writer: &'w mut Writer,
+    showing: bool,
+}
+
+impl Toward for Stream<'_> {
+    fn tell(&mut self, payload: &str) -> bool {
+        self.showing && self.writer.message("msg", None, None, payload).is_ok()
     }
 }
 
@@ -190,8 +296,8 @@ struct Session<'a> {
     closed_reply: Option<SyncSender<CloseResult>>,
     /// The view is up on the terminal's side: what the view says is served.
     live: bool,
-    calls: HashMap<u64, Arc<Flag>>,
-    subscriptions: HashMap<u64, Arc<Feed>>,
+    /// What the view asks of the handlers, and what they answer.
+    exchange: Exchange,
     bye_sent: bool,
     finished: bool,
     result: Option<Result<Outcome, Error>>,
@@ -218,7 +324,7 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
     };
     let _hook = PanicHook::install();
     let (sender, work) = sync_channel(WORK_ROOM);
-    let outbox = Outbox::new(sender, Arc::clone(&pipe));
+    let outbox = Outbox::new(sender, Some(Arc::clone(&pipe)));
     let _bound = options
         .control
         .as_ref()
@@ -231,7 +337,7 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
         reader: Reader::new(),
         writer: Writer::new(terminal.output()),
         work,
-        outbox,
+        outbox: outbox.clone(),
         phase: Phase::Over,
         fence_answered: false,
         alternate: false,
@@ -246,8 +352,7 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
         change: None,
         closed_reply: None,
         live: false,
-        calls: HashMap::new(),
-        subscriptions: HashMap::new(),
+        exchange: Exchange::new(outbox),
         bye_sent: false,
         finished: false,
         result: None,
@@ -304,12 +409,14 @@ impl Session<'_> {
                 .next_deadline()
                 .map(|at| at.saturating_duration_since(Instant::now()));
             let output = self.writer.pending().then(|| self.terminal.output());
-            let ready = match terminal::wait(
-                self.terminal.input(),
-                output,
-                self.pipe.read_end(),
-                timeout,
-            ) {
+            // While the terminal is lent the program is a background job of the tty, which a read
+            // of it would stop: only the pipe is waited on.
+            let input = if matches!(self.phase, Phase::Lent) {
+                -1
+            } else {
+                self.terminal.input()
+            };
+            let ready = match terminal::wait(input, output, self.pipe.read_end(), timeout) {
                 Ok(ready) => ready,
                 Err(why) => {
                     self.over(Err(Error::Io(why)));
@@ -340,7 +447,7 @@ impl Session<'_> {
                 .as_ref()
                 .filter(|change| matches!(change.stage, Stage::Dismissing | Stage::Opening))
                 .map(|change| change.until),
-            Phase::Over => None,
+            Phase::Lent | Phase::Over => None,
         }
     }
 
@@ -379,7 +486,9 @@ impl Session<'_> {
         if let Some(signal) = terminal::take_signal() {
             self.interrupted(signal);
         }
-        if terminal::take_stop() && !matches!(self.phase, Phase::Over) {
+        // A stop while the terminal is lent is not the person's ⌃Z, which goes to the command, and
+        // a program that is not the tty's foreground cannot give it back.
+        if terminal::take_stop() && !matches!(self.phase, Phase::Over | Phase::Lent) {
             // Whatever is half written is finished first: the terminal's modes and screen are
             // given back between two frames, never inside one.
             let _ = self.writer.flush_within(FAREWELL);
@@ -401,6 +510,22 @@ impl Session<'_> {
                 })));
             }
             Phase::Showing => self.leave(Then::Signal(signal), ByeReason::Signal),
+            Phase::Lent => self.interrupted_while_lent(signal),
+        }
+    }
+
+    /// A signal while the terminal is lent: the command has the terminal and is waited for, and the
+    /// program ends its use of the view when it has ended. A hangup is passed on to the command, as
+    /// a shell passes its own on to its jobs: the terminal it has is gone too.
+    fn interrupted_while_lent(&mut self, signal: libc::c_int) {
+        let Some(handing) = self.hand_off_mut() else {
+            return;
+        };
+        handing.signal.get_or_insert(signal);
+        if signal == libc::SIGHUP
+            && let Some(job) = &handing.job
+        {
+            job.signal(libc::SIGHUP);
         }
     }
 
@@ -463,12 +588,7 @@ impl Session<'_> {
 
     /// What the view had asked is over with it: calls are cancelled, subscriptions stop.
     fn end_view(&mut self) {
-        for (_, call) in self.calls.drain() {
-            call.raise();
-        }
-        for (_, feed) in self.subscriptions.drain() {
-            feed.end();
-        }
+        self.exchange.end_view();
     }
 
     /// The terminal's view is gone, or the program no longer believes in it: nothing of it is
@@ -507,6 +627,7 @@ impl Session<'_> {
             Reply::Close(reply) => {
                 let _ = reply.send(CloseResult::Unavailable);
             }
+            Reply::HandOff(handing) => handing.settle(result),
         }
     }
 
@@ -570,6 +691,12 @@ impl Session<'_> {
                 self.over(result);
             }
             Phase::Leaving { then, .. } => self.settle(then),
+            // Nothing is read or written while the terminal is lent; were it to go then, the
+            // command, which has it, is told as of a hangup and waited for.
+            Phase::Lent => {
+                self.phase = Phase::Lent;
+                self.interrupted_while_lent(libc::SIGHUP);
+            }
         }
     }
 
@@ -658,7 +785,7 @@ impl Session<'_> {
                     self.left();
                 }
             }
-            Phase::Draining { .. } | Phase::Over => {}
+            Phase::Draining { .. } | Phase::Lent | Phase::Over => {}
         }
     }
 
@@ -714,8 +841,11 @@ impl Session<'_> {
         let Some(choice) = self.choose(&offer) else {
             return;
         };
-        // A closing or a reopening that was under way is over with the view it was about.
-        self.drop_change();
+        // A closing or a reopening that was under way is over with the view it was about; a hand-off
+        // whose command has ended goes on with the view the terminal asks for.
+        if !self.returning() {
+            self.drop_change();
+        }
         // What the old view had asked is over with it, and its token is the terminal's to have
         // forgotten: until the new open is out there is no view, and a `bye` with the dead token
         // would be nobody's.
@@ -730,15 +860,39 @@ impl Session<'_> {
     /// The program's reopening or closing is over without having come to anything: the caller
     /// is told there was nothing to do.
     fn drop_change(&mut self) {
-        match self.change.take().map(|change| change.reply) {
-            Some(Reply::Reopen(reply)) => {
-                let _ = reply.send(ReopenResult::Unavailable);
-            }
-            Some(Reply::Close(reply)) => {
-                let _ = reply.send(CloseResult::Unavailable);
-            }
-            None => {}
+        if let Some(change) = self.change.take() {
+            change.reply.refuse(Refusal::Unavailable);
         }
+    }
+
+    /// The hand-off under way, if one is.
+    fn hand_off_mut(&mut self) -> Option<&mut HandingOff> {
+        match &mut self.change {
+            Some(Change {
+                reply: Reply::HandOff(handing),
+                ..
+            }) => Some(handing),
+            _ => None,
+        }
+    }
+
+    /// A hand-off is under way whose command has not had the terminal back: a reopening asked now
+    /// is the view that comes back.
+    fn lending(&self) -> bool {
+        self.change.as_ref().is_some_and(|change| {
+            matches!(change.reply, Reply::HandOff(_))
+                && matches!(change.stage, Stage::Dismissing | Stage::Lent)
+        })
+    }
+
+    /// A hand-off is under way whose command has ended: the view is being shown again.
+    fn returning(&self) -> bool {
+        self.change
+            .as_ref()
+            .is_some_and(|change| match &change.reply {
+                Reply::HandOff(handing) => handing.status.is_some(),
+                _ => false,
+            })
     }
 
     /// Asks for the view with the token of a `welcome` (§6.3): the kind and the version chosen.
@@ -823,12 +977,12 @@ impl Session<'_> {
         };
         self.accepted = true;
         // The terminal took the open of the view the program asked for in place of the old one.
-        if let Some(Change {
-            reply: Reply::Reopen(reply),
-            ..
-        }) = self.change.take()
-        {
-            let _ = reply.send(ReopenResult::Reopened);
+        match self.change.take().map(|change| change.reply) {
+            Some(Reply::Reopen(reply)) => {
+                let _ = reply.send(ReopenResult::Reopened);
+            }
+            Some(Reply::HandOff(handing)) => handing.returned(),
+            Some(Reply::Close(_)) | None => {}
         }
         let mut sent: Vec<&str> = Vec::new();
         for hex in &missing {
@@ -853,117 +1007,15 @@ impl Session<'_> {
         if !self.live {
             return;
         }
-        // The view is not trusted: what is not one of its three messages is left.
-        let Some(request) = read_message(&message.payload) else {
-            return;
+        let mut stream = Stream {
+            writer: &mut self.writer,
+            showing: matches!(self.phase, Phase::Showing),
         };
-        match request {
-            Message::Call(call) => {
-                self.heard = true;
-                self.on_call(call.id, call.method, call.params);
-            }
-            Message::Subscribe(subscribe) => {
-                self.heard = true;
-                self.on_subscribe(subscribe.id, subscribe.topic, subscribe.params);
-            }
-            Message::Cancel(cancel) => {
-                self.heard = true;
-                self.on_cancel(cancel.id);
-            }
-            Message::Response(_) | Message::Push(_) | Message::Progress(_) => {}
-        }
-    }
-
-    /// Writes a message of the six toward the view; `false` when it was not (the view is gone, or
-    /// it is over a message's limit).
-    fn tell(&mut self, payload: &str) -> bool {
-        if !matches!(self.phase, Phase::Showing) || !fits(payload) {
-            return false;
-        }
-        self.writer.message("msg", None, None, payload).is_ok()
-    }
-
-    fn tell_failure(&mut self, id: u64, error: &ViewError) {
-        let message = Message::failure(id, error.code(), error.message().unwrap_or(""));
-        self.tell(&payload_of(&message));
-    }
-
-    fn on_call(&mut self, id: u64, method: String, params: Value) {
-        // An id that is out is not used again; a view that does is not following §9.2.
-        if self.calls.contains_key(&id) || self.subscriptions.contains_key(&id) {
-            return;
-        }
-        let Some(handler) = self.options.calls.get(&method) else {
-            self.tell_failure(
-                id,
-                &ViewError::with_message("not-found", "there is nothing to call by that name"),
-            );
-            return;
-        };
-        if self.calls.len() >= MAX_CALLS {
-            self.tell_failure(
-                id,
-                &ViewError::with_message("busy", "too many calls are being answered"),
-            );
-            return;
-        }
-        let handler = Arc::clone(handler);
-        let flag = Arc::new(Flag::new());
-        self.calls.insert(id, Arc::clone(&flag));
-        let call = Call::new(id, method, flag, self.outbox.clone());
-        let started = terminal::spawn_quiet(move || {
-            IN_A_HANDLER.with(|on| on.set(true));
-            run_call(&*handler, params, &call);
-        });
-        if started.is_err() {
-            self.calls.remove(&id);
-            self.tell_failure(
-                id,
-                &ViewError::with_message("internal", "the call could not be started"),
-            );
-        }
-    }
-
-    fn on_subscribe(&mut self, id: u64, topic: String, params: Value) {
-        if self.calls.contains_key(&id) || self.subscriptions.contains_key(&id) {
-            return;
-        }
-        let Some(handler) = self.options.topics.get(&topic) else {
-            self.tell_failure(
-                id,
-                &ViewError::with_message(
-                    "not-found",
-                    "there is nothing to subscribe to by that name",
-                ),
-            );
-            return;
-        };
-        let handler = Arc::clone(handler);
-        let feed = Arc::new(Feed::new(id, topic, self.outbox.clone()));
-        self.subscriptions.insert(id, Arc::clone(&feed));
-        let subscription = Subscription::new(feed);
-        let started = terminal::spawn_quiet(move || {
-            IN_A_HANDLER.with(|on| on.set(true));
-            run_topic(&*handler, params, &subscription);
-        });
-        if started.is_err()
-            && let Some(feed) = self.subscriptions.remove(&id)
+        if self
+            .exchange
+            .on_message(self.options, &message.payload, &mut stream)
         {
-            feed.end();
-            self.tell_failure(
-                id,
-                &ViewError::with_message("internal", "the subscription could not be started"),
-            );
-        }
-    }
-
-    /// The view gives up a call that is out, or ends a subscription; an id that is not out
-    /// changes nothing (§9.2).
-    fn on_cancel(&mut self, id: u64) {
-        if let Some(call) = self.calls.remove(&id) {
-            call.raise();
-        } else if let Some(feed) = self.subscriptions.remove(&id) {
-            feed.end();
+            self.heard = true;
         }
     }
 
@@ -981,69 +1033,49 @@ impl Session<'_> {
 
     fn on_work(&mut self, work: Work) {
         match work {
-            Work::Answer { id, result } => {
-                // Cancelled, or the view is over: the answer would be ignored.
-                let Some(flag) = self.calls.remove(&id) else {
-                    return;
-                };
-                if flag.is_raised() {
-                    return;
-                }
-                match result {
-                    Ok(value) => self.answer(id, value),
-                    Err(error) => self.tell_failure(id, &error),
-                }
-            }
-            Work::Progress { id, payload } => {
-                if self.calls.get(&id).is_some_and(|flag| !flag.is_raised()) {
-                    self.tell(&payload);
-                }
-            }
-            Work::Push { id, payload } => {
-                if self.subscriptions.contains_key(&id) {
-                    self.tell(&payload);
-                }
-            }
             Work::Control(request) => self.on_control(request),
-            Work::Started { id, result } => {
-                if let Err(error) = result
-                    && let Some(feed) = self.subscriptions.remove(&id)
-                {
-                    feed.end();
-                    self.tell_failure(id, &error);
-                }
+            Work::Returned(status) => self.returned(status),
+            work => {
+                let mut stream = Stream {
+                    writer: &mut self.writer,
+                    showing: matches!(self.phase, Phase::Showing),
+                };
+                self.exchange.on_work(work, &mut stream);
             }
         }
-    }
-
-    /// The response that ends a call with `result`: never `null`, nothing to say is `{}`.
-    fn answer(&mut self, id: u64, result: Value) {
-        let result = if result.is_null() {
-            Value::Object(serde_json::Map::new())
-        } else {
-            result
-        };
-        let payload = payload_of(&Message::answer(id, result));
-        if !fits(&payload) {
-            self.tell_failure(
-                id,
-                &ViewError::with_message(
-                    "message-too-long",
-                    "the result is over the limit of a message",
-                ),
-            );
-            return;
-        }
-        self.tell(&payload);
     }
 
     // ---- closing the view at the program's request (§10.8) --------------------------
 
     /// The program asks to close its view, or to show another in its place.
     fn on_control(&mut self, request: Request) {
+        // While a command has the terminal, or is about to, a reopening is the view that comes back:
+        // with the views it brings, and answered as that view comes back.
+        let request = match request {
+            Request::Reopen { views, reply } if self.lending() => {
+                if let Some(change) = &mut self.change {
+                    if views.is_some() {
+                        change.views = views;
+                    }
+                    if let Reply::HandOff(handing) = &mut change.reply {
+                        handing.reopens.push(reply);
+                    }
+                }
+                return;
+            }
+            request => request,
+        };
+        let lent = self
+            .change
+            .as_ref()
+            .is_some_and(|change| matches!(change.reply, Reply::HandOff(_)));
         let (reply, views) = match request {
             Request::Reopen { views, reply } => (Reply::Reopen(reply), views),
             Request::Close { reply } => (Reply::Close(reply), None),
+            Request::HandOff { command, reply } => (
+                Reply::HandOff(Box::new(HandingOff::new(command, reply))),
+                None,
+            ),
         };
         // There is a view to close only while one is opening or open and nothing else is being
         // done to it; and only a terminal that lists `dismiss` closes it (any other ignores the
@@ -1051,22 +1083,13 @@ impl Session<'_> {
         let unavailable =
             !matches!(self.phase, Phase::Showing) || self.token.is_none() || self.change.is_some();
         if unavailable || !self.dismiss {
-            match reply {
-                Reply::Reopen(reply) => {
-                    let _ = reply.send(if unavailable {
-                        ReopenResult::Unavailable
-                    } else {
-                        ReopenResult::Unsupported
-                    });
-                }
-                Reply::Close(reply) => {
-                    let _ = reply.send(if unavailable {
-                        CloseResult::Unavailable
-                    } else {
-                        CloseResult::Unsupported
-                    });
-                }
-            }
+            reply.refuse(if lent {
+                Refusal::Busy
+            } else if unavailable {
+                Refusal::Unavailable
+            } else {
+                Refusal::Unsupported
+            });
             return;
         }
         let Some(token) = self.token.clone() else {
@@ -1089,14 +1112,7 @@ impl Session<'_> {
                 });
             }
             Err(_) => {
-                match reply {
-                    Reply::Reopen(reply) => {
-                        let _ = reply.send(ReopenResult::Unavailable);
-                    }
-                    Reply::Close(reply) => {
-                        let _ = reply.send(CloseResult::Unavailable);
-                    }
-                }
+                reply.refuse(Refusal::Unavailable);
                 self.fail(Error::Io(io::Error::other("the dismiss cannot be written")));
             }
         }
@@ -1128,6 +1144,12 @@ impl Session<'_> {
                 self.closed_reply = Some(reply);
                 self.over(Ok(outcome));
             }
+            Reply::HandOff(handing) => {
+                change.reply = Reply::HandOff(handing);
+                change.stage = Stage::Lent;
+                self.change = Some(change);
+                self.lend();
+            }
             Reply::Reopen(reply) => {
                 if let Some(views) = change.views.take() {
                     self.reopened = Some(views);
@@ -1154,6 +1176,94 @@ impl Session<'_> {
                     }
                 }
             }
+        }
+    }
+
+    // ---- lending the terminal to a command (§10.8) -----------------------------------
+
+    /// The view the program closed for a hand-off is gone: the terminal is lent to the command,
+    /// as it is given back at the end (the screen, the modes), and the command is started as its
+    /// foreground job. A thread waits for it and wakes the loop when it has ended.
+    fn lend(&mut self) {
+        // What is waiting to be written goes out on the view's screen, before it is left; what a
+        // terminal that is not reading has not taken by then is dropped, since nothing may be
+        // written while the command has the terminal.
+        let _ = self.writer.flush_within(FAREWELL);
+        self.writer.forget_everything();
+        self.taken.lend();
+        self.alternate = false;
+        self.phase = Phase::Lent;
+        let tty = self.terminal.input();
+        let Some(command) = self
+            .hand_off_mut()
+            .and_then(|handing| handing.command.take())
+        else {
+            return;
+        };
+        let job = match foreground::start(command, tty) {
+            Ok(job) => job,
+            Err(why) => {
+                // The view is shown again, and the hand-off says why the command did not run.
+                self.returned(Err(why));
+                return;
+            }
+        };
+        if let Some(handing) = self.hand_off_mut() {
+            handing.job = Some(job.clone());
+        }
+        let outbox = self.outbox.clone();
+        let waited = job.clone();
+        let waiting = terminal::spawn_quiet(move || {
+            outbox.send(Work::Returned(waited.wait()));
+        });
+        if waiting.is_err() {
+            // No thread to wait on: the loop waits, having nothing to do while the command has the
+            // terminal but hear the signals, which it then hears after.
+            let status = job.wait();
+            self.returned(status);
+        }
+    }
+
+    /// The command the terminal was lent to has ended: the foreground and the modes are taken back
+    /// and the view is asked for again, as a reopening asks (the views a reopening brought in the
+    /// meantime, if one did). A signal that came while the command had the terminal ends the
+    /// program's use of the view instead.
+    fn returned(&mut self, status: io::Result<ExitStatus>) {
+        if !matches!(self.phase, Phase::Lent) {
+            return;
+        }
+        let Some(handing) = self.hand_off_mut() else {
+            return;
+        };
+        if let Some(job) = &handing.job {
+            job.take_back();
+        }
+        handing.status = Some(status);
+        let signal = handing.signal;
+        self.taken.take_back();
+        if let Some(signal) = signal {
+            self.over(Ok(Outcome::NoView(NoView {
+                reason: NoViewReason::Interrupted(signal),
+                code: None,
+                message: None,
+            })));
+            return;
+        }
+        if let Some(views) = self.change.as_mut().and_then(|change| change.views.take()) {
+            self.reopened = Some(views);
+        }
+        // A new token takes a `hello`, without the fence: the terminal is known (§10.8).
+        let hello = payload::hello(&self.offers());
+        let until = Instant::now() + self.options.reopen_timeout;
+        match self.writer.message("hello", None, None, &hello) {
+            Ok(id) => {
+                self.phase = Phase::Asking { hello: id, until };
+                if let Some(change) = &mut self.change {
+                    change.stage = Stage::Asking;
+                    change.until = until;
+                }
+            }
+            Err(_) => self.fail(Error::Io(io::Error::other("the hello cannot be written"))),
         }
     }
 

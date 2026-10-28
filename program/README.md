@@ -100,9 +100,14 @@ terminal is catching up, which is what keeps a feed that is faster than the term
 the memory.
 
 Calls run at the same time, so which of two calls that arrive together is answered first is
-not defined. A program that needs them in order, or needs the last of several to know about the
-others, says so itself (the example sums a payload the view sends in pieces, and its last piece
-waits for the rest).
+not defined. Those that must not overtake one another go in a lane:
+`Options::call_in("edits", "edit", handler)`. The calls of one lane run one at a time, in the order
+the view sent them, each once the one before it has been answered, while other lanes and the
+calls of `Options::call` go on; a call the view cancels before its turn does not run, and a
+handler that panics fails its own call and the lane goes on. A lane lasts as long as `serve`, so a
+call of a view shown again waits for a handler of the view before it that is still running. (The
+example takes the pieces of a payload the view sends in a lane, and the last one, which asks how
+much there was, comes after the others.)
 
 Anything a handler returns is JSON: the result of a call is `Serialize`, an error is a
 `ViewError` with a short `code` the view can act on and words for the person, and a handler that
@@ -117,6 +122,86 @@ or other kinds (the terminal keeps what it verified, so only what changed crosse
 `close()` closes the view and makes `serve` return `EndedBy::Program`, with the terminal given back
 first. Both need a terminal that lists `dismiss` in its `welcome`; with another they answer
 `Unsupported` and the view is untouched.
+
+## Lending the terminal to a command
+
+A program that runs a shell or an editor in its pane lends it the terminal:
+`control.hand_off(command)` closes the view, gives the terminal back as at the end (the screen,
+the modes), runs the command as the terminal's foreground job, in a process group of its own, as a
+shell runs one, and when it ends takes the terminal back and shows the view again, `serve` going
+on with the same handlers. `hand_off` returns a `HandOff`; its `wait` gives how the command ended
+(`HandOffResult::Returned`) once the view is back, or why the view did not come back
+(`HandOffResult::NoView`, and `serve` ends with it). What was on its way to the view goes out
+before it closes, and a handler that asks for a hand-off is waited for, so that its own answer
+does too:
+
+```rust,no_run
+use std::process::Command;
+use std::sync::{Arc, Mutex};
+
+use pencere::{HandOffResult, Options, ViewControl};
+use serde_json::json;
+
+let control = ViewControl::new();
+let lender = control.clone();
+// How the shell ended, for the view that comes back to ask.
+let last = Arc::new(Mutex::new(None));
+let kept = Arc::clone(&last);
+let options = Options::new()
+    .control(control)
+    .call("shell", move |_params, _call| {
+        let handoff = lender.hand_off(Command::new("bash"));
+        let kept = Arc::clone(&kept);
+        // Waited for on another thread: the view closes once this answer is out.
+        std::thread::spawn(move || {
+            if let HandOffResult::Returned(Ok(status)) = handoff.wait() {
+                *kept.lock().unwrap() = status.code();
+            }
+        });
+        Ok(json!("starting"))
+    })
+    .call("last", move |_params, _call| Ok(json!({ "code": *last.lock().unwrap() })));
+```
+
+`wait` returns as the terminal takes the open of the view shown again, on the thread that waits; a
+view that asks for the status at once may come before that thread has kept it, so a program that
+must have it then pushes it to a subscription when it has it, or has the call wait for it.
+
+A signal that asks the program to end while the command has the terminal is acted on once the
+command has ended (a hangup is passed on to it, as a shell passes its own on); `serve` then ends as
+for that signal. With no view up — before `serve`, after it, in its fallback — `hand_off` runs the
+command in the foreground all the same.
+
+## Without a terminal
+
+`Conversation::new(options)` serves the same handlers with no terminal and no pty, in the
+program's own process: `send` gives them a message of the view (the JSON text of a `call`, a
+`subscribe` or a `cancel`), and `receive(within)` or `try_receive()` takes what the program says
+back. Everything between is `serve`'s, by the same code: each call on a thread of its own or of its
+lane, the subscriptions and their cleanups, the limit of a message, a panic as the `internal` error
+of its call, and the pace of the reader, which a handler that pushes faster than it is read waits
+for. It is how a program's tests try its handlers by the rules they run by, and how a host that
+runs the page in the same process talks to the program.
+
+```rust
+use pencere::{Conversation, Options, Said};
+use serde_json::json;
+use std::time::Duration;
+
+let mut conversation = Conversation::new(
+    Options::new().call_in("edits", "edit", |params, _call| Ok(json!({ "version": params["version"] }))),
+);
+conversation.send(r#"{"call":{"id":1,"method":"edit","params":{"version":3}}}"#);
+match conversation.receive(Duration::from_secs(5)) {
+    Some(Said::Message(text)) => assert_eq!(text, r#"{"response":{"id":1,"result":{"version":3}}}"#),
+    other => panic!("{other:?}"),
+}
+```
+
+A conversation is a terminal that can close a view and answers at once: what the program asks of
+its `ViewControl` is what it says, `Said::Closed`, `Said::Reopened` and `Said::HandedOff`. No
+command runs; the `Lent` of a hand-off says how it ended (`lent.returned(status)`), and until then
+there is no view to hear.
 
 ## When there is no view
 

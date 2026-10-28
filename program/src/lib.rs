@@ -53,7 +53,11 @@
 //! The program must not print while the view is up: the terminal is the view's.
 //!
 //! A program that goes on after its view, or reloads the view as its files change, closes it and
-//! shows another with a [`ViewControl`] (§10.8).
+//! shows another with a [`ViewControl`] (§10.8); one that runs a shell or an editor in its pane
+//! lends it the terminal with [`ViewControl::hand_off`], and its view comes back when that ends.
+//!
+//! The same handlers are served with no terminal by a [`Conversation`]: for the program's tests,
+//! and for a host that runs the view in the same process.
 
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
@@ -66,6 +70,10 @@ struct ReadmeExamples;
 mod app;
 mod bundle;
 mod control;
+mod conversation;
+mod exchange;
+#[allow(unsafe_code)]
+mod foreground;
 mod handlers;
 mod link;
 mod payload;
@@ -85,12 +93,13 @@ use serde_json::Value;
 
 pub use app::{App, DEV_VARIABLE, build};
 pub use bundle::{Bundle, BundleError, File};
-pub use control::{CloseResult, ReopenResult, ViewControl};
+pub use control::{CloseResult, HandOff, HandOffResult, ReopenResult, ViewControl};
+pub use conversation::{Conversation, Lent, Said};
 pub use handlers::{Call, Subscription, ViewError};
 pub use terminal::Terminal;
 pub use view::{Access, Icon, IconTheme, Kind, Permission, View, WEB_VERSION};
 
-use handlers::{CallFn, TopicFn};
+use handlers::{CallFn, Method, TopicFn};
 use view::Source;
 
 /// What the program does when no view is shown.
@@ -103,7 +112,7 @@ pub struct Options {
     program: Option<String>,
     title: Option<String>,
     icons: Vec<Icon>,
-    calls: HashMap<String, Arc<CallFn>>,
+    calls: HashMap<String, Method>,
     topics: HashMap<String, Arc<TopicFn>>,
     fallback: Option<Fallback>,
     terminal: Option<Terminal>,
@@ -205,6 +214,9 @@ impl Options {
     ///
     /// The handler runs on a thread of its own, so it may take its time; it should look at
     /// [`Call::is_cancelled`] now and then, and may report its progress with [`Call::progress`].
+    /// The calls of the view run at the same time, so which of two that come together is answered
+    /// first is not defined; [`Options::call_in`] puts the calls that must not overtake one another
+    /// in a lane.
     #[must_use]
     pub fn call<T, F>(mut self, method: impl Into<String>, handler: F) -> Self
     where
@@ -213,14 +225,57 @@ impl Options {
     {
         self.calls.insert(
             method.into(),
-            Arc::new(move |params: Value, call: &Call| {
-                let result = handler(params, call)?;
-                serde_json::to_value(result).map_err(|why| {
-                    ViewError::with_message("internal", format!("the result is not JSON: {why}"))
-                })
-            }),
+            Method {
+                handler: Self::handler(handler),
+                lane: None,
+            },
         );
         self
+    }
+
+    /// Answers the calls of the view to `method` as [`Options::call`] does, in the lane `lane`: the
+    /// calls of one lane run one at a time, in the order the view sent them, each once the one
+    /// before it has been answered, on a thread of the lane's. Calls of other lanes, and those of
+    /// [`Options::call`], go on meanwhile. The lane is the program's word for what has to stay in
+    /// order: the edits of a document whose versions count up, the changes a language server is
+    /// told of.
+    ///
+    /// A call the view cancels before its turn does not run, and is not answered (§9.2: the view
+    /// ignores an answer after its `cancel`). A handler that panics is an `internal` error of its
+    /// call, and the lane goes on with the next.
+    #[must_use]
+    pub fn call_in<T, F>(
+        mut self,
+        lane: impl Into<String>,
+        method: impl Into<String>,
+        handler: F,
+    ) -> Self
+    where
+        T: Serialize,
+        F: Fn(Value, &Call) -> Result<T, ViewError> + Send + Sync + 'static,
+    {
+        self.calls.insert(
+            method.into(),
+            Method {
+                handler: Self::handler(handler),
+                lane: Some(lane.into().into()),
+            },
+        );
+        self
+    }
+
+    /// A handler of the program's, as `serve` holds it: what it returns made JSON.
+    fn handler<T, F>(handler: F) -> Arc<CallFn>
+    where
+        T: Serialize,
+        F: Fn(Value, &Call) -> Result<T, ViewError> + Send + Sync + 'static,
+    {
+        Arc::new(move |params: Value, call: &Call| {
+            let result = handler(params, call)?;
+            serde_json::to_value(result).map_err(|why| {
+                ViewError::with_message("internal", format!("the result is not JSON: {why}"))
+            })
+        })
     }
 
     /// Feeds the subscriptions of the view to `topic`. The handler is given the params of the
@@ -283,17 +338,17 @@ impl Options {
         self
     }
 
-    /// The hand the program closes the view with, or shows another in its place, while `serve`
-    /// runs (§10.8).
+    /// The hand the program closes the view with, shows another in its place, or lends the
+    /// terminal to a command with, while `serve` runs (§10.8).
     #[must_use]
     pub fn control(mut self, control: ViewControl) -> Self {
         self.control = Some(control);
         self
     }
 
-    /// How long a reopening or closing ([`ViewControl`]) waits on the terminal for each of its
-    /// answers: the `closed` of the `dismiss`, the `welcome` of the new `hello`, and the `need` or
-    /// `closed` of the new `open`. Ten seconds by default; a terminal that does not answer in time
+    /// How long a reopening, a closing or a hand-off ([`ViewControl`]) waits on the terminal for
+    /// each of its answers: the `closed` of the `dismiss`, the `welcome` of the new `hello`, and the
+    /// `need` or `closed` of the new `open`. Ten seconds by default; a terminal that does not answer in time
     /// is given up on ([`NoViewReason::Timeout`]), with a `bye` for the view it may still show.
     #[must_use]
     pub fn reopen_timeout(mut self, timeout: Duration) -> Self {
@@ -356,7 +411,8 @@ pub enum Error {
     Options(String),
     /// The files of a view are not a bundle that suits its kind.
     Bundle(BundleError),
-    /// Another `serve` has the terminal: a process has one terminal to show a view on.
+    /// Another `serve` has the terminal, or a command it was lent to with no `serve` running
+    /// ([`ViewControl::hand_off`]): a process has one terminal to show a view on.
     Busy,
     /// The terminal failed in a way that is nobody's to give up on.
     Io(io::Error),
@@ -498,10 +554,11 @@ pub enum NoViewReason {
     /// The terminal ended the open before the view ran (a bundle that did not verify, files that
     /// did not come in time).
     Failed,
-    /// A reopening or a closing ([`ViewControl`]) waited for the terminal's answer to its `dismiss`,
-    /// its new `hello` or its new `open` longer than [`Options::reopen_timeout`].
+    /// A reopening, a closing or a hand-off ([`ViewControl`]) waited for the terminal's answer to its
+    /// `dismiss`, its new `hello` or its new `open` longer than [`Options::reopen_timeout`].
     Timeout,
-    /// A signal (its number) ended the wait.
+    /// A signal (its number) ended the wait, or came while the terminal was lent to a command
+    /// ([`ViewControl::hand_off`]), so that no view was shown again.
     Interrupted(i32),
 }
 

@@ -28,15 +28,12 @@
 mod table;
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use pencere::{
-    Bundle, Call, EndedBy, Kind, NoViewReason, Options, Outcome, Subscription, View, ViewError,
-};
+use pencere::{Bundle, EndedBy, Kind, NoViewReason, Options, Outcome, Subscription, View};
 use serde_json::{Value, json};
 
 /// The view's module: built by `make guest`, which builds it before this program. Empty where the
@@ -153,8 +150,11 @@ fn shown(
             std::thread::spawn(move || report(&feed, flood, stalls_at));
             Ok(())
         })
-        // The view sends a large payload in pieces; the last one asks how much there was.
-        .call("upload", move |params, call| counted.take(&params, call))
+        // The view sends a large payload in pieces, in a lane: they are taken in the order they
+        // were sent, so the last one, which asks how much there was, comes after the others.
+        .call_in("upload", "upload", move |params, _call| {
+            Ok(counted.take(&params))
+        })
         // The terminal shows no view: the list as text. A refusal or a failure has its words.
         .fallback(|why| {
             if let Some(words) = &why.message {
@@ -221,47 +221,26 @@ fn report(feed: &Subscription, flood: bool, stall_at: Option<Instant>) {
     }
 }
 
-/// What the pieces of the payload the view sends have added up to. The pieces are calls, and calls
-/// run at the same time: the last one waits for the others before it says how much there was.
+/// What the pieces of the payload the view sends have added up to. The pieces are calls of one
+/// lane, taken one at a time in the order the view sent them: the last one, which says how much
+/// there was, is taken when the others have been.
 #[derive(Default)]
 struct Upload {
-    /// The size of the data of each piece, by its number.
-    pieces: Mutex<BTreeMap<u64, u64>>,
     bytes: AtomicU64,
 }
 
 impl Upload {
-    fn take(&self, params: &Value, call: &Call) -> Result<Value, ViewError> {
+    fn take(&self, params: &Value) -> Value {
         let data = params
             .get("data")
             .and_then(Value::as_str)
             .map_or(0, str::len) as u64;
-        let seq = params.get("seq").and_then(Value::as_u64).unwrap_or(0);
-        let last = params.get("last").and_then(Value::as_bool) == Some(true);
-        self.add(seq, data);
-        if !last {
-            return Ok(json!({}));
+        let bytes = self.bytes.fetch_add(data, Ordering::SeqCst) + data;
+        if params.get("last").and_then(Value::as_bool) == Some(true) {
+            json!({ "bytes": bytes })
+        } else {
+            json!({})
         }
-        // The pieces are numbered from 1, and the last one's number is how many there are.
-        while self.count() < seq {
-            if call.sleep(Duration::from_millis(5)) {
-                return Ok(json!({}));
-            }
-        }
-        Ok(json!({ "bytes": self.total() }))
-    }
-
-    fn add(&self, seq: u64, size: u64) {
-        let Ok(mut pieces) = self.pieces.lock() else {
-            return;
-        };
-        if pieces.insert(seq, size).is_none() {
-            self.bytes.fetch_add(size, Ordering::SeqCst);
-        }
-    }
-
-    fn count(&self) -> u64 {
-        self.pieces.lock().map_or(0, |pieces| pieces.len() as u64)
     }
 
     fn total(&self) -> u64 {

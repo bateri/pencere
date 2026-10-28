@@ -6,12 +6,51 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The answer to a call of a view that has been replaced (`ViewControl::reopen`, a terminal that
+  asks for the view again) is no longer written as the answer to the new view's call of the same
+  id: a view numbers its calls from 1, so the late answer of a handler that did not stop when its
+  view ended went to whichever call of the next view had its number. Progress, pushes and the start
+  of a subscription are told apart from the next view's the same way.
+
 ### Changed
 
 - A Lua app's page is offered as `lua` `2.0`, the version of the kit's page API it is now written
   against.
 
 ### Added
+
+- **A conversation in the same process.** `Conversation::new(options)` serves a program's handlers
+  with no terminal: `send` gives them a message of the view as JSON text, `receive` and
+  `try_receive` take what the program says (`Said::Message`, and the requests of its `ViewControl`
+  as `Said::Closed`, `Said::Reopened` and `Said::HandedOff`, whose `Lent` says how the command
+  that was not run ended). The threads, the lanes, the subscriptions, the limit of a message, a
+  panic as `internal` and the pace of the reader are `serve`'s, by the same code: what the view and
+  the handlers say to each other is one part of the library, which `serve` carries over the
+  terminal and a conversation hands to its holder.
+
+- **Calls in order.** `Options::call_in(lane, method, handler)` answers `method` in a lane: the
+  calls of one lane run one at a time, in the order the view sent them, on the lane's thread, while
+  other lanes and the calls of `Options::call` go on. A call cancelled before its turn does not run
+  and is not answered; a handler that panics is an `internal` error of its call and the lane goes
+  on. A lane lasts as long as `serve`: a call of a view shown again waits for a handler of the view
+  before it that is still running. A lane holds up to 256 calls; more are told `busy`. The limit of
+  64 calls answered at once is now that of the free calls alone: the calls of the lanes are counted
+  in their lanes.
+
+- **Lending the terminal to a command.** `ViewControl::hand_off(command)` closes the view, gives the
+  terminal back, runs the command as the terminal's foreground job (its own process group, the
+  tty's foreground, a stopped one continued), and when it ends takes the terminal back and shows
+  the view again, `serve` going on with the same options. It returns a `HandOff`, whose `wait`
+  gives a `HandOffResult`: how the command ended once the view is back, or why the view did not
+  come back (and `serve` ends with that). What was on its way to the view goes out before the view
+  closes, the answer of the handler that asked for the hand-off among it. A hangup while the
+  command has the terminal is passed on to it and ends `serve` once the command has ended; a
+  reopening asked meanwhile is the view that comes back. With no `serve` running the command runs
+  in the foreground all the same, and a `serve` started meanwhile is told `Error::Busy`. A command
+  that stops for reaching for a terminal it does not have the foreground of (the view's terminal is
+  not the program's controlling one) is ended as on a hangup rather than continued for ever.
 
 - **An app's files, carried and reloaded.** `pencere::build::app()`, called from `build.rs`,
   carries `src/view/` and `src/assets/` into the binary; `pencere::app!()` is them, an `App`, and

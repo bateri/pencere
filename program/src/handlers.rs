@@ -5,10 +5,12 @@
 //! it has got, the values of a subscription — goes to the event loop through a channel, and the
 //! loop is the one thread that writes to the terminal.
 
+use std::cell::Cell;
 use std::fmt;
+use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::SyncSender;
+use std::sync::mpsc::{Sender, SyncSender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -16,7 +18,8 @@ use pencere_wire::json;
 use pencere_wire::messages::{MAX_BYTES, Message};
 use serde_json::Value;
 
-use crate::terminal::Pipe;
+use crate::control::{self, Answering};
+use crate::terminal::{self, Pipe};
 
 /// An error a handler ends a call or a subscription with: the view gets `code` (a short name it
 /// can act on), and `message` if there is one (words for the person).
@@ -106,45 +109,57 @@ impl Flag {
     }
 }
 
+/// A request of a view: the number of the view that made it, and the id the view gave it. A view
+/// numbers its requests from 1, and the view shown after it does again, so what a handler has to
+/// say about a request names the view as well: an answer that comes after its view is over is not
+/// taken for the answer to the next view's request of the same id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Ask {
+    pub(crate) view: u64,
+    pub(crate) id: u64,
+}
+
 /// What a handler has for the event loop.
 pub(crate) enum Work {
     /// A call is answered.
     Answer {
-        id: u64,
+        ask: Ask,
         result: Result<Value, ViewError>,
     },
     /// How far a call has got: the payload of the `msg`.
-    Progress { id: u64, payload: String },
+    Progress { ask: Ask, payload: String },
     /// The handler of a topic returned.
     Started {
-        id: u64,
+        ask: Ask,
         result: Result<(), ViewError>,
     },
     /// A value of a subscription: the payload of the `msg`.
-    Push { id: u64, payload: String },
-    /// The program asks to close its view or to show another (§10.8).
+    Push { ask: Ask, payload: String },
+    /// The program asks to close its view, to show another, or to lend the terminal (§10.8).
     Control(crate::control::Request),
+    /// The command the terminal was lent to has ended: how, or why it could not be waited for.
+    Returned(std::io::Result<std::process::ExitStatus>),
 }
 
 /// The way from a handler's thread to the event loop: a channel with room for a few messages, so
 /// that a handler that says more than the terminal reads waits (see `Subscription::push`), and
-/// the pipe that wakes the loop.
+/// the pipe that wakes the loop when the loop waits on one (a conversation waits on the channel).
 #[derive(Clone)]
 pub(crate) struct Outbox {
     sender: SyncSender<Work>,
-    pipe: Arc<Pipe>,
+    pipe: Option<Arc<Pipe>>,
 }
 
 impl Outbox {
-    pub(crate) fn new(sender: SyncSender<Work>, pipe: Arc<Pipe>) -> Self {
+    pub(crate) fn new(sender: SyncSender<Work>, pipe: Option<Arc<Pipe>>) -> Self {
         Self { sender, pipe }
     }
 
     /// Hands `work` to the loop; whether it was taken (the loop is gone when it was not).
     pub(crate) fn send(&self, work: Work) -> bool {
         let sent = self.sender.send(work).is_ok();
-        if sent {
-            self.pipe.wake();
+        if sent && let Some(pipe) = &self.pipe {
+            pipe.wake();
         }
         sent
     }
@@ -177,7 +192,7 @@ pub(crate) fn read_message(payload: &str) -> Option<Message> {
 /// hand the call to the thread that answers it and wait there.
 #[derive(Clone)]
 pub struct Call {
-    id: u64,
+    ask: Ask,
     method: String,
     flag: Arc<Flag>,
     outbox: Outbox,
@@ -186,7 +201,7 @@ pub struct Call {
 impl fmt::Debug for Call {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Call")
-            .field("id", &self.id)
+            .field("id", &self.ask.id)
             .field("method", &self.method)
             .field("cancelled", &self.is_cancelled())
             .finish_non_exhaustive()
@@ -194,9 +209,9 @@ impl fmt::Debug for Call {
 }
 
 impl Call {
-    pub(crate) fn new(id: u64, method: String, flag: Arc<Flag>, outbox: Outbox) -> Self {
+    pub(crate) fn new(ask: Ask, method: String, flag: Arc<Flag>, outbox: Outbox) -> Self {
         Self {
-            id,
+            ask,
             method,
             flag,
             outbox,
@@ -227,11 +242,11 @@ impl Call {
         if self.is_cancelled() || !done.is_finite() || total.is_some_and(|t| !t.is_finite()) {
             return;
         }
-        let message = Message::progress(self.id, done, total, note.unwrap_or(""));
+        let message = Message::progress(self.ask.id, done, total, note.unwrap_or(""));
         let payload = payload_of(&message);
         if fits(&payload) {
             self.outbox.send(Work::Progress {
-                id: self.id,
+                ask: self.ask,
                 payload,
             });
         }
@@ -242,7 +257,7 @@ type Cleanup = Box<dyn FnOnce() + Send>;
 
 /// The state of a subscription that the loop and the handler's threads share.
 pub(crate) struct Feed {
-    id: u64,
+    ask: Ask,
     topic: String,
     flag: Flag,
     outbox: Outbox,
@@ -250,9 +265,9 @@ pub(crate) struct Feed {
 }
 
 impl Feed {
-    pub(crate) fn new(id: u64, topic: String, outbox: Outbox) -> Self {
+    pub(crate) fn new(ask: Ask, topic: String, outbox: Outbox) -> Self {
         Self {
-            id,
+            ask,
             topic,
             flag: Flag::new(),
             outbox,
@@ -285,7 +300,7 @@ pub struct Subscription {
 impl fmt::Debug for Subscription {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Subscription")
-            .field("id", &self.feed.id)
+            .field("id", &self.feed.ask.id)
             .field("topic", &self.feed.topic)
             .field("cancelled", &self.is_cancelled())
             .finish_non_exhaustive()
@@ -312,12 +327,12 @@ impl Subscription {
         if self.is_cancelled() {
             return false;
         }
-        let payload = payload_of(&Message::push(self.feed.id, value));
+        let payload = payload_of(&Message::push(self.feed.ask.id, value));
         if !fits(&payload) {
             return false;
         }
         self.feed.outbox.send(Work::Push {
-            id: self.feed.id,
+            ask: self.feed.ask,
             payload,
         })
     }
@@ -366,27 +381,100 @@ pub(crate) fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
 /// The handler of a call, as `serve` holds it.
 pub(crate) type CallFn = dyn Fn(Value, &Call) -> Result<Value, ViewError> + Send + Sync;
 
+/// A method the view may call: its handler, and the lane its calls run in, if they run in one.
+pub(crate) struct Method {
+    pub(crate) handler: Arc<CallFn>,
+    pub(crate) lane: Option<Arc<str>>,
+}
+
+thread_local! {
+    /// This thread runs handlers: a panic on it is the error of a call, not the program's.
+    static HANDLER_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether this thread runs handlers.
+pub(crate) fn on_a_handler_thread() -> bool {
+    HANDLER_THREAD.with(Cell::get)
+}
+
+/// Starts a thread that runs handlers: one that the program's signals are not delivered to.
+pub(crate) fn spawn_handler(body: impl FnOnce() + Send + 'static) -> io::Result<()> {
+    terminal::spawn_quiet(move || {
+        HANDLER_THREAD.with(|on| on.set(true));
+        body();
+    })
+}
+
+/// A call that waits for its turn in a lane.
+struct Turn {
+    handler: Arc<CallFn>,
+    params: Value,
+    call: Call,
+}
+
+/// A lane of calls ([`crate::Options::call_in`]): a thread that runs them one at a time, in the
+/// order they are queued. It lasts as long as what serves the view, not as long as one view, so a
+/// call of the view shown next waits for a handler of the view before that is still running. It
+/// ends when it is dropped, once the call it runs has been answered.
+pub(crate) struct Lane {
+    turns: Sender<Turn>,
+}
+
+impl Lane {
+    pub(crate) fn start() -> io::Result<Self> {
+        let (turns, waiting) = channel::<Turn>();
+        spawn_handler(move || {
+            for turn in waiting {
+                // Cancelled while it waited (or its view is over): it does not run, and is not
+                // answered (§9.2).
+                if turn.call.is_cancelled() {
+                    continue;
+                }
+                run_call(&*turn.handler, turn.params, &turn.call);
+            }
+        })?;
+        Ok(Self { turns })
+    }
+
+    /// Queues a call; whether the lane took it.
+    pub(crate) fn queue(&self, handler: Arc<CallFn>, params: Value, call: Call) -> bool {
+        self.turns
+            .send(Turn {
+                handler,
+                params,
+                call,
+            })
+            .is_ok()
+    }
+}
+
 /// The handler of a topic, as `serve` holds it.
 pub(crate) type TopicFn = dyn Fn(Value, &Subscription) -> Result<(), ViewError> + Send + Sync;
 
 /// Runs the handler of a call on this thread and hands the answer to the loop.
 pub(crate) fn run_call(handler: &CallFn, params: Value, call: &Call) {
+    let answering = Answering::start();
     let result = catch_unwind(AssertUnwindSafe(|| handler(params, call)))
         .unwrap_or_else(|panic| Err(ViewError::with_message("internal", panic_text(&*panic))));
+    drop(answering);
     call.outbox.send(Work::Answer {
-        id: call.id,
+        ask: call.ask,
         result,
     });
+    control::answered();
 }
 
 /// Runs the handler of a topic on this thread and hands its result to the loop.
 pub(crate) fn run_topic(handler: &TopicFn, params: Value, subscription: &Subscription) {
+    let answering = Answering::start();
     let result = catch_unwind(AssertUnwindSafe(|| handler(params, subscription)))
         .unwrap_or_else(|panic| Err(ViewError::with_message("internal", panic_text(&*panic))));
+    drop(answering);
     subscription.feed.outbox.send(Work::Started {
-        id: subscription.feed.id,
+        ask: subscription.feed.ask,
         result,
     });
+    control::answered();
 }
 
 #[cfg(test)]

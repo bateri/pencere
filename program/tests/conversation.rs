@@ -11,45 +11,18 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use pencere::{
     Bundle, CloseResult, EndedBy, Error, File, Kind, NoViewReason, Options, Outcome, ReopenResult,
     Terminal, View, ViewControl, ViewError,
 };
-use pencere_wire::frame::{Direction, Event, Message as Frame, StreamDecoder};
+use pencere_wire::frame::{Direction, Event, StreamDecoder};
 use serde_json::{Value, json};
 
 mod common;
 
 use common::*;
-
-/// Runs `serve` on a thread of the test.
-fn serve_on(
-    terminal: Terminal,
-    options: impl FnOnce(Options) -> Options + Send + 'static,
-) -> JoinHandle<Result<Outcome, Error>> {
-    std::thread::spawn(move || {
-        let base = Options::new()
-            .view(View::web(page()))
-            .program("test")
-            .title("Test");
-        pencere::serve(options(base).terminal(terminal))
-    })
-}
-
-fn finished(handle: JoinHandle<Result<Outcome, Error>>) -> Outcome {
-    let until = Instant::now() + WITHIN;
-    while !handle.is_finished() {
-        assert!(Instant::now() < until, "serve does not return");
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    handle
-        .join()
-        .expect("serve does not panic")
-        .expect("serve is not refused")
-}
 
 // ---- the way in ---------------------------------------------------------------------
 
@@ -603,150 +576,6 @@ fn a_terminal_that_asks_again_after_a_break_is_given_the_view_again() {
     finished(handle);
 }
 
-// ---- handlers ---------------------------------------------------------------------------
-
-#[test]
-fn a_call_that_takes_a_while_reports_its_progress_and_stops_when_it_is_cancelled() {
-    let _one = one_at_a_time();
-    let mut pane = Pane::new();
-    let stopped = Arc::new(AtomicBool::new(false));
-    let flag = Arc::clone(&stopped);
-    let handle = serve_on(pane.terminal(), move |options| {
-        options.call("slow", move |_params, call| {
-            for step in 1..=100 {
-                if call.sleep(Duration::from_millis(20)) {
-                    flag.store(true, Ordering::SeqCst);
-                    return Ok(json!(null));
-                }
-                call.progress(f64::from(step), Some(100.0), Some("step"));
-            }
-            Ok(json!({ "done": true }))
-        })
-    });
-    let (_, open) = pane.open_a_view(&web_views());
-    pane.send("need", Some(open.id), &json!({ "missing": [] }));
-    pane.send(
-        "msg",
-        None,
-        &json!({ "call": { "id": 1, "method": "slow" } }),
-    );
-    let progress: Value = serde_json::from_str(&pane.expect("msg").payload).expect("JSON");
-    assert_eq!(progress["progress"]["id"], 1);
-    assert_eq!(progress["progress"]["total"], 100.0);
-    assert_eq!(progress["progress"]["note"], "step");
-    pane.send("msg", None, &json!({ "cancel": { "id": 1 } }));
-    let until = Instant::now() + WITHIN;
-    while !stopped.load(Ordering::SeqCst) {
-        assert!(Instant::now() < until, "the handler was not told");
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    // What the handler returned after the cancel is not an answer.
-    std::thread::sleep(Duration::from_millis(100));
-    while let Some(frame) = pane.next_within(Duration::from_millis(100)) {
-        let message: Value = serde_json::from_str(&frame.payload).expect("JSON");
-        assert!(message.get("response").is_none(), "{message}");
-    }
-    pane.send("closed", None, &json!({ "reason": "user" }));
-    finished(handle);
-}
-
-#[test]
-fn a_handler_that_panics_is_an_internal_error_of_its_call_and_nothing_more() {
-    let _one = one_at_a_time();
-    let mut pane = Pane::new();
-    let handle = serve_on(pane.terminal(), |options| {
-        options
-            .call("boom", |_params, _call| -> Result<Value, ViewError> {
-                panic!("the container is gone")
-            })
-            .call("fine", |_params, _call| Ok(json!({ "ok": true })))
-    });
-    let (_, open) = pane.open_a_view(&web_views());
-    pane.send("need", Some(open.id), &json!({ "missing": [] }));
-    pane.send(
-        "msg",
-        None,
-        &json!({ "call": { "id": 1, "method": "boom" } }),
-    );
-    let reply: Value = serde_json::from_str(&pane.expect("msg").payload).expect("JSON");
-    assert_eq!(reply["response"]["error"]["code"], "internal");
-    assert_eq!(
-        reply["response"]["error"]["message"],
-        "the container is gone"
-    );
-    // The view goes on, and the screen was not written on.
-    pane.send(
-        "msg",
-        None,
-        &json!({ "call": { "id": 2, "method": "fine" } }),
-    );
-    let reply: Value = serde_json::from_str(&pane.expect("msg").payload).expect("JSON");
-    assert_eq!(reply["response"]["result"], json!({ "ok": true }));
-    assert!(!pane.text().contains("panicked"), "{:?}", pane.text());
-    pane.send("closed", None, &json!({ "reason": "user" }));
-    finished(handle);
-}
-
-#[test]
-fn a_result_over_the_limit_of_a_message_is_an_error_not_a_hang() {
-    let _one = one_at_a_time();
-    let mut pane = Pane::new();
-    let handle = serve_on(pane.terminal(), |options| {
-        options.call("big", |_params, _call| {
-            Ok(json!({ "text": "x".repeat(2 << 20) }))
-        })
-    });
-    let (_, open) = pane.open_a_view(&web_views());
-    pane.send("need", Some(open.id), &json!({ "missing": [] }));
-    pane.send(
-        "msg",
-        None,
-        &json!({ "call": { "id": 1, "method": "big" } }),
-    );
-    let reply: Value = serde_json::from_str(&pane.expect("msg").payload).expect("JSON");
-    assert_eq!(reply["response"]["error"]["code"], "message-too-long");
-    pane.send("closed", None, &json!({ "reason": "user" }));
-    finished(handle);
-}
-
-#[test]
-fn the_limit_of_a_message_is_counted_before_the_wire_escapes_it_in_both_directions() {
-    let _one = one_at_a_time();
-    let mut pane = Pane::new();
-    let handle = serve_on(pane.terminal(), |options| {
-        options.call("echo", |params, _call| Ok(params))
-    });
-    let (_, open) = pane.open_a_view(&web_views());
-    pane.send("need", Some(open.id), &json!({ "missing": [] }));
-    // 200 000 characters of two bytes are 400 000 as the view says them and 1 200 000 as the wire
-    // carries them: under the limit of a message, and over it as the wire has it. The call is
-    // read, and the answer, which is as long, is written.
-    let text = "\u{e9}".repeat(200_000);
-    pane.send(
-        "msg",
-        None,
-        &json!({ "call": { "id": 1, "method": "echo", "params": { "text": text } } }),
-    );
-    let reply: Value = serde_json::from_str(&pane.expect("msg").payload).expect("JSON");
-    assert_eq!(reply["response"]["result"]["text"], text.as_str());
-    // One that is over the limit as the view said it is not read at all.
-    let too_long = "x".repeat(1_100_000);
-    pane.send(
-        "msg",
-        None,
-        &json!({ "call": { "id": 2, "method": "echo", "params": { "text": too_long } } }),
-    );
-    pane.send(
-        "msg",
-        None,
-        &json!({ "call": { "id": 3, "method": "echo" } }),
-    );
-    let reply: Value = serde_json::from_str(&pane.expect("msg").payload).expect("JSON");
-    assert_eq!(reply["response"]["id"], 3, "{reply}");
-    pane.send("closed", None, &json!({ "reason": "user" }));
-    finished(handle);
-}
-
 // ---- when the program itself fails ------------------------------------------------------
 
 #[test]
@@ -854,27 +683,6 @@ fn where_there_is_no_tty_there_is_no_view() {
 }
 
 // ---- closing the view at the program's request (§10.8) ----------------------------------------
-
-/// Runs `call` on a thread of the test, so that the test can be the terminal while it waits.
-fn asking<T: Send + 'static>(call: impl FnOnce() -> T + Send + 'static) -> JoinHandle<T> {
-    std::thread::spawn(call)
-}
-
-fn joined<T>(handle: JoinHandle<T>) -> T {
-    let until = Instant::now() + WITHIN;
-    while !handle.is_finished() {
-        assert!(Instant::now() < until, "the call does not return");
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    handle.join().expect("the call does not panic")
-}
-
-/// A view is open and the terminal has taken it (`need` with nothing missing).
-fn shown(pane: &mut Pane) -> Frame {
-    let (_, open) = pane.open_a_view(&web_views());
-    pane.send("need", Some(open.id), &json!({ "missing": [] }));
-    open
-}
 
 #[test]
 fn the_view_the_program_closes_is_closed_by_the_program_and_the_terminal_is_given_back() {

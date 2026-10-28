@@ -11,9 +11,13 @@
 use std::collections::VecDeque;
 use std::os::fd::RawFd;
 use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use pencere::{Bundle, File, Terminal};
+use pencere::{
+    Bundle, Conversation, Error, File, Options, Outcome, ReopenResult, Said, Terminal, View,
+    ViewControl,
+};
 use pencere_wire::frame::{
     Direction, Event, Ids, Message as Frame, Outgoing, Split, StreamDecoder, encode,
 };
@@ -275,4 +279,233 @@ pub fn interrupt() {
 
 pub fn digest_of(bytes: &[u8]) -> String {
     pencere_wire::bundle::Digest::of(bytes).to_string()
+}
+
+/// Runs `serve` on a thread of the test.
+pub fn serve_on(
+    terminal: Terminal,
+    options: impl FnOnce(Options) -> Options + Send + 'static,
+) -> JoinHandle<Result<Outcome, Error>> {
+    std::thread::spawn(move || {
+        let base = Options::new()
+            .view(View::web(page()))
+            .program("test")
+            .title("Test");
+        pencere::serve(options(base).terminal(terminal))
+    })
+}
+
+/// How `serve` ended, once it has.
+pub fn finished(handle: JoinHandle<Result<Outcome, Error>>) -> Outcome {
+    let until = Instant::now() + WITHIN;
+    while !handle.is_finished() {
+        assert!(Instant::now() < until, "serve does not return");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    handle
+        .join()
+        .expect("serve does not panic")
+        .expect("serve is not refused")
+}
+
+/// Runs `call` on a thread of the test, so that the test can be the terminal while it waits.
+pub fn asking<T: Send + 'static>(call: impl FnOnce() -> T + Send + 'static) -> JoinHandle<T> {
+    std::thread::spawn(call)
+}
+
+/// What `asking`'s call came to, once it has.
+pub fn joined<T>(handle: JoinHandle<T>) -> T {
+    let until = Instant::now() + WITHIN;
+    while !handle.is_finished() {
+        assert!(Instant::now() < until, "the call does not return");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    handle.join().expect("the call does not panic")
+}
+
+/// A view is open and the terminal has taken it (`need` with nothing missing).
+pub fn shown(pane: &mut Pane) -> Frame {
+    let (_, open) = pane.open_a_view(&web_views());
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    open
+}
+
+/// Waits until `condition` holds.
+pub fn wait_for(what: &str, mut condition: impl FnMut() -> bool) {
+    let until = Instant::now() + WITHIN;
+    while !condition() {
+        assert!(Instant::now() < until, "{what}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+// ---- one view, on either side --------------------------------------------------------------
+
+/// The view the test plays, toward the program's handlers: through a terminal (`serve` on a pty),
+/// or in the same process (a `Conversation`). The scenarios of the six messages are written once
+/// against it and run both ways (`both_ways!`), which is what says that the two are served alike.
+pub trait Side: Sized {
+    /// The handlers `options` adds, served with a view up.
+    fn start(options: impl FnOnce(Options) -> Options + Send + 'static) -> Self;
+    /// The view says `message`, one of its three.
+    fn send(&mut self, message: &Value);
+    /// The next message of the six the program says, which has to come within `WITHIN`.
+    fn said(&mut self) -> Value;
+    /// Whether the program says nothing for `within`.
+    fn says_nothing_for(&mut self, within: Duration) -> bool;
+    /// What reached the screen, frames and the rest (nothing does, in the same process).
+    fn screen(&mut self) -> String;
+    /// The program shows its view again (`ViewControl::reopen`), and the new view is up.
+    fn reopened(&mut self);
+    /// The view ends.
+    fn end(self);
+}
+
+/// `serve` on a pty, the test the terminal.
+pub struct OnATerminal {
+    pane: Pane,
+    handle: Option<JoinHandle<Result<Outcome, Error>>>,
+    control: ViewControl,
+    _one: MutexGuard<'static, ()>,
+}
+
+impl Side for OnATerminal {
+    fn start(options: impl FnOnce(Options) -> Options + Send + 'static) -> Self {
+        let one = one_at_a_time();
+        let mut pane = Pane::new();
+        let control = ViewControl::new();
+        let given = control.clone();
+        let handle = serve_on(pane.terminal(), move |base| options(base.control(given)));
+        shown(&mut pane);
+        Self {
+            pane,
+            handle: Some(handle),
+            control,
+            _one: one,
+        }
+    }
+
+    fn send(&mut self, message: &Value) {
+        self.pane.send("msg", None, message);
+    }
+
+    fn said(&mut self) -> Value {
+        serde_json::from_str(&self.pane.expect("msg").payload).expect("JSON")
+    }
+
+    fn says_nothing_for(&mut self, within: Duration) -> bool {
+        self.pane.next_within(within).is_none()
+    }
+
+    fn screen(&mut self) -> String {
+        self.pane.text()
+    }
+
+    fn reopened(&mut self) {
+        let reopener = {
+            let control = self.control.clone();
+            asking(move || control.reopen(None))
+        };
+        let dismiss = self.pane.expect("dismiss");
+        self.pane
+            .send("closed", Some(dismiss.id), &json!({ "reason": "program" }));
+        let hello = self.pane.expect("hello");
+        self.pane.welcome(hello.id, TOKEN_2, &web_views());
+        let open = self.pane.expect("open");
+        self.pane
+            .send("need", Some(open.id), &json!({ "missing": [] }));
+        assert_eq!(
+            joined(reopener).expect("a reopening"),
+            ReopenResult::Reopened
+        );
+    }
+
+    fn end(mut self) {
+        self.pane.send("closed", None, &json!({ "reason": "user" }));
+        if let Some(handle) = self.handle.take() {
+            finished(handle);
+        }
+    }
+}
+
+/// A `Conversation`, the test the view in the same process.
+pub struct InProcess {
+    conversation: Conversation,
+    control: ViewControl,
+}
+
+impl InProcess {
+    pub fn conversation(&mut self) -> &mut Conversation {
+        &mut self.conversation
+    }
+}
+
+impl Side for InProcess {
+    fn start(options: impl FnOnce(Options) -> Options + Send + 'static) -> Self {
+        let control = ViewControl::new();
+        let conversation = Conversation::new(options(Options::new().control(control.clone())));
+        Self {
+            conversation,
+            control,
+        }
+    }
+
+    fn send(&mut self, message: &Value) {
+        self.conversation.send(&message.to_string());
+    }
+
+    fn said(&mut self) -> Value {
+        match self.conversation.receive(WITHIN) {
+            Some(Said::Message(text)) => serde_json::from_str(&text).expect("JSON"),
+            other => panic!("a message of the six: {other:?}"),
+        }
+    }
+
+    fn says_nothing_for(&mut self, within: Duration) -> bool {
+        self.conversation.receive(within).is_none()
+    }
+
+    fn screen(&mut self) -> String {
+        String::new()
+    }
+
+    fn reopened(&mut self) {
+        let reopener = {
+            let control = self.control.clone();
+            asking(move || control.reopen(None))
+        };
+        match self.conversation.receive(WITHIN) {
+            Some(Said::Reopened(None)) => {}
+            other => panic!("the view shown again: {other:?}"),
+        }
+        assert_eq!(
+            joined(reopener).expect("a reopening"),
+            ReopenResult::Reopened
+        );
+    }
+
+    fn end(self) {
+        drop(self.conversation);
+    }
+}
+
+/// Runs each scenario, a function generic over the [`Side`], on a terminal and in process: a
+/// module of the scenario's name with a test for each.
+#[macro_export]
+macro_rules! both_ways {
+    ($($scenario:ident),* $(,)?) => {
+        $(
+            mod $scenario {
+                #[test]
+                fn on_a_terminal() {
+                    super::$scenario::<$crate::common::OnATerminal>();
+                }
+
+                #[test]
+                fn in_process() {
+                    super::$scenario::<$crate::common::InProcess>();
+                }
+            }
+        )*
+    };
 }
