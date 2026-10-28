@@ -11,6 +11,11 @@ keywords = ["terminal", "pencere", "lua", "cli"]
 categories = ["command-line-utilities"]
 publish = false
 
+# The command's insides, for `pencere-test` alone (src/lib.rs says why it is a library).
+[lib]
+name = "pencere_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "pencere"
 path = "src/main.rs"

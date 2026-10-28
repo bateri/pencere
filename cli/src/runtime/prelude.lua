@@ -105,6 +105,12 @@ local function require_module(name)
 	if type(name) ~= "string" then
 		error("require takes the name of a module", 2)
 	end
+	-- A name the one who runs the app reserved (the runner of an app's tests has one) is found
+	-- before the app's own files, which cannot take it.
+	local reserved = native.modules[name]
+	if reserved ~= nil then
+		return reserved
+	end
 	local path = string.gsub(name, "%.", "/")
 	if loaded[path] ~= nil then
 		return loaded[path]

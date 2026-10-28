@@ -29,6 +29,13 @@ pub fn start(core: &Rc<Core>, on_data: Function, on_end: Option<Function>) -> ml
             "io.read_stdin: standard input is already being read (it ends or is stopped first)",
         ));
     }
+    // An app with an environment of its own has no standard input: it is empty, and ends at once.
+    if !core.world.is_process() {
+        if let Some(on_end) = on_end {
+            core.add_timer(std::time::Duration::ZERO, None, on_end);
+        }
+        return Ok(Handle { core: core.weak() });
+    }
     *core.stdin.borrow_mut() = Some(Stdin { on_data, on_end });
     Ok(Handle { core: core.weak() })
 }

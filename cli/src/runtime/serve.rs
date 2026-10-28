@@ -20,7 +20,7 @@ use super::events::{CallEvent, Event, SubscribeEvent};
 use crate::files::{ASSETS, Files, VIEW, is_page_script};
 
 /// The version of the page API this runner shows views of (`lua` 2.0).
-const VERSION: &str = "2.0";
+pub(super) const VERSION: &str = "2.0";
 
 /// The page of the kit and the web page of an app, where `pencere new` puts them: in `view/`.
 const PAGE: &str = "view/page.lua";
@@ -337,12 +337,24 @@ pub fn start(core: &Rc<Core>, options: Table, done: Function) -> mlua::Result<()
     if let Ok(mut plan) = core.plan.lock() {
         *plan = Some(ServePlan { views: specs });
     }
-    let thread = spawn(core, serving)?;
+    // Handed over: whoever holds the other end serves the view, and says when it is over. No thread
+    // is started, and so none is waited for when the app ends.
+    let thread = if let Some(hand) = &core.hand {
+        let served = super::Served::new(core.events.clone());
+        hand.send(super::Handed {
+            options: serving,
+            served,
+        })
+        .map_err(|_| super::fault("the view cannot be shown: nobody takes it"))?;
+        None
+    } else {
+        Some(spawn(core, serving)?)
+    };
     *core.serve.borrow_mut() = Some(ServeRun {
         calls,
         topics,
         done,
-        thread: Some(thread),
+        thread,
     });
     Ok(())
 }

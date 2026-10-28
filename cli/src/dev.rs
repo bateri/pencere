@@ -234,12 +234,7 @@ pub fn command(args: &[String]) -> ExitCode {
     }
     let changed = Arc::new(Mutex::new(changed));
     let status = loop {
-        let config = Config {
-            files: project.files(),
-            name: name.clone(),
-            args: Vec::new(),
-            log: Some(log.clone()),
-        };
+        let config = Config::process(project.files(), name.clone(), Vec::new(), Some(log.clone()));
         let runner = match Runner::new(config) {
             Ok(runner) => runner,
             Err(why) => {
