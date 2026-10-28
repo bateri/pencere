@@ -503,7 +503,7 @@ pasteboard), `cursor` (`"arrow"`, `"pointer"`, `"text"`, `"resize_horizontal"`, 
 on, and what is selected in them; `select` is `{ from =, to = }`, characters from 0 in either order,
 past the end the end, or `true` for all of it; a field given no `text` keeps what it holds, and one
 given no `select` has its caret where its system puts it after a text, at the end; a name that is
-not a field of the page is passed over), `menu = { at = { x =, y = }, entries = { { title =, keys =,
+not a field of the page is passed over, below), `menu = { at = { x =, y = }, entries = { { title =, keys =,
 enabled = }, "-" } }` (an entry's `keys` are written as a command's, `"ctrl+w"` or `"f2"`, and shown
 at the end of its line; `key`, the name it had, is read the same),
 `link` (an address to open in the person's browser, below), `wake` (in how many seconds to wake the
@@ -574,6 +574,16 @@ every place the main selection's text is, in the case written, or, where the mai
 caret, every place the word it is in is (the word `"select_next"` takes: a word by Unicode's rules,
 cut where a mark stands inside it), as a whole word; the search stays as it was. A document the
 person cannot change (`read_only`) is not replaced in.
+
+A reply's **`fill`** and its **`keyboard = { field = name }`** may name a field that the very page the
+reply comes with brings: a reply that opens a field (a find bar, a palette, a dialog) fills it and
+sends the keyboard to it in the same reply, as an element is focused when it comes. A field is the
+host's only once a frame has laid it out (Section 4), so what a reply asks of a field the host does
+not have yet waits for the next frame that lays the page out, and is done once the host has that
+frame's fields: in the order it was asked (a reply's texts, then its keyboard), and what is asked
+after it waits behind it, though it names a field the host has. A name that frame still does not
+have is passed over, as any name that is no field of the page is: its text is dropped and the
+keyboard goes to the page. A frame that is not drawn (the view is hidden) leaves it waiting.
 
 A reply's **`link`** asks the host to open an address in the person's browser, by the rule of a web
 page's `link` (protocol, Sections 9.7 and 9.8): only an `http` or `https` address, every byte of it
@@ -715,7 +725,12 @@ A host:
   its hint while it is empty, and tells the page what the person types into it, where the person
   clicks into one, and takes the texts a reply fills them with and what it selects in them; and,
   while one has the keyboard, gives the page the keys it has no use for there, as the kit's rule
-  says with the field's text and selection (`FieldState::takes`, Section 2.1);
+  says with the field's text and selection (`FieldState::takes`, Section 2.1); it takes what a
+  reply asks of a field (its text, its selection, the keyboard) only of a field it has put over the
+  page, and holds what a reply asks of one it has not until the next frame that lays the page out
+  has been laid and its fields put over the page, then takes it in the order it was asked
+  (Section 2.3: a reply that opens a field and fills it and sends the keyboard to it in one is
+  done as it says); a name that frame does not have either it passes over;
 - draws a run's `underline` and `strike` where its font puts those lines, in the run's colour, and
   sets an `italic` run in its face's italic;
 - takes the pointer's shape a reply asks for, and tells a press's `count` and a scroll across;

@@ -63,7 +63,7 @@ pub use peer::{Calls, Heard, Peer, Subscription};
 pub use pencere_wire::messages::Error as Failure;
 pub use serde_json::Value;
 
-use crate::{FrameAt, Host, Outline, Page, Route, Setup};
+use crate::{Field, FrameAt, Host, Outline, Page, Route, Setup};
 
 /// A frame of a host that draws sixty a second: how far apart [`Headless::advance`] draws the
 /// frames of a page that moves, and the soonest after one that the next is drawn.
@@ -325,6 +325,10 @@ struct Seen {
 struct Deliver<'a, P> {
     seen: &'a mut Seen,
     peer: &'a mut P,
+    /// The fields the host has put over the page: those of the last frame's outline. A real host
+    /// has a field of its own only once a frame has laid it out, so a text for another is passed
+    /// over, and the keyboard sent to one goes back to the page.
+    fields: &'a [Field],
 }
 
 impl<P: Peer> Host for Deliver<'_, P> {
@@ -342,15 +346,17 @@ impl<P: Peer> Host for Deliver<'_, P> {
     }
 
     fn fill(&mut self, field: Id, fill: Fill) {
-        self.seen.fields.entry(field).or_default().fill(&fill);
+        if self.fields.iter().any(|laid| laid.id == field) {
+            self.seen.fields.entry(field).or_default().fill(&fill);
+        }
     }
 
     fn keyboard(&mut self, to: Keyboard) {
         // An editor's is the drive's, and the drive has given it: a field of the host's that has it
         // is told apart from an editor when the keyboard is used.
         self.seen.field = match to {
-            Keyboard::Field(id) => Some(id),
-            Keyboard::Page => None,
+            Keyboard::Field(id) if self.fields.iter().any(|laid| laid.id == id) => Some(id),
+            Keyboard::Field(_) | Keyboard::Page => None,
         };
     }
 
@@ -644,6 +650,7 @@ impl<P: Peer> Headless<P> {
             drained.deliver(&mut Deliver {
                 seen: &mut self.seen,
                 peer: &mut self.peer,
+                fields: self.page.fields(),
             });
             // A program that owes the page an answer is given the time it takes, all of the
             // settling's patience at the most: one that says nothing in all of it never answered.
@@ -854,8 +861,19 @@ impl<P: Peer> Headless<P> {
             now: self.now(),
             reduce_motion: self.reduce_motion,
         };
-        self.list = self.page.frame(at).list;
+        let painted = self.page.frame(at);
+        self.list = painted.list;
         self.dirty = false;
+        // The fields this frame laid out are the host's now, and what replies asked of them before
+        // it is told them, in order.
+        let mut host = Deliver {
+            seen: &mut self.seen,
+            peer: &mut self.peer,
+            fields: self.page.fields(),
+        };
+        for held in painted.held {
+            held.deliver(&mut host);
+        }
         // The pictures drawn as a host draws them: their pixels asked for at the size they are
         // drawn at (an SVG is drawn at it), which the next settling waits for.
         if let Some(images) = self.page.images() {

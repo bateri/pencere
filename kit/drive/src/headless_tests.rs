@@ -399,6 +399,70 @@ return {
     Ok(())
 }
 
+/// A reply that opens a field and, in the same reply, fills it and sends the keyboard to it (a find
+/// bar, a palette): a host has the field only once the frame the reply asks for has laid it out, so
+/// the texts and the keyboard come with that frame, in the order the reply asked; a name that frame
+/// still has not is passed over, and what names a field that is there is done at once.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_reply_that_opens_a_field_fills_it_and_sends_the_keyboard_to_it() -> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local open = false
+return {
+    render = function()
+        local root = pencere.div():size_full()
+            :command("find", "Find", "ctrl+f")
+            :command("again", "Again", "ctrl+g")
+            :command("nothing", "Nothing", "ctrl+n")
+            :command("elsewhere", "Elsewhere", "ctrl+e")
+        if open then
+            root:child(pencere.div():text_field("q"):h(24):w(200))
+        end
+        return root
+    end,
+    handle = function(event)
+        if event.type ~= "command" then return end
+        if event.id == "find" then
+            open = true
+            return {
+                redraw = true,
+                fill = { q = { text = "needle", select = true }, ghost = "boo" },
+                keyboard = { field = "q" },
+            }
+        elseif event.id == "again" then
+            return { redraw = true, fill = { q = "hay" } }
+        elseif event.id == "nothing" then
+            return { redraw = true, keyboard = { field = "ghost" } }
+        elseif event.id == "elsewhere" then
+            return { redraw = true, keyboard = "page" }
+        end
+    end,
+}
+"#,
+    )
+    .open()?;
+    assert_eq!(page.field("q"), None);
+    page.press("ctrl+f")?;
+    assert_eq!(page.outline().fields.len(), 1);
+    assert_eq!(page.focus(), Focus::Field(Id::named("q")));
+    assert_eq!(page.field("q"), Some("needle"));
+    assert_eq!(page.field_selection("q"), Some(0..6));
+    // A name the frame does not have is passed over, as a host passes over what is no field of its
+    // own.
+    assert_eq!(page.field("ghost"), None);
+    // A field that is there is told at once, and the keyboard sent to one that never is goes to the
+    // page.
+    page.press("ctrl+g")?;
+    assert_eq!(page.field("q"), Some("hay"));
+    assert_eq!(page.focus(), Focus::Field(Id::named("q")));
+    page.press("ctrl+n")?;
+    assert_eq!(page.focus(), Focus::Page);
+    page.press("ctrl+e")?;
+    assert_eq!(page.focus(), Focus::Page);
+    Ok(())
+}
+
 /// The boxes that scroll are the host's to scroll: a box taken to a place is where the wheel over
 /// it took it, and the page is told where it went.
 #[test]

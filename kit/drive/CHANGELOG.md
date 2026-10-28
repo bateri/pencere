@@ -8,6 +8,17 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
+### Fixed
+
+- **A reply that opens a field can fill it and send the keyboard to it.** A host has a field only
+  once the frame that lays it out is drawn, and a reply's `fill` and `keyboard` were told to the
+  host before that frame: a find bar or a palette that opened with its text and the keyboard lost
+  both. `Page::drain` now holds what a reply asks of a field the outline does not name yet (and what
+  comes after it), and the frame that lays the page out gives it in `Painted::held`
+  (`Painted::deliver_held`, `Held::deliver`), after the host has the frame's fields, in the order it
+  was asked; a name that frame does not have either is passed over as before. The host with no
+  screen has a field only once a frame has laid it out, so its tests fail where a real host would.
+
 ### Added
 
 - **The system the host with no screen says it is.** `Opening::wall_clock(seconds, utc_offset)` is
