@@ -53,7 +53,8 @@
 //! The program must not print while the view is up: the terminal is the view's.
 //!
 //! A program that goes on after its view, or reloads the view as its files change, closes it and
-//! shows another with a [`ViewControl`] (§10.8).
+//! shows another with a [`ViewControl`] (§10.8); one that runs a shell or an editor in its pane
+//! lends it the terminal with [`ViewControl::hand_off`], and its view comes back when that ends.
 
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
@@ -66,6 +67,8 @@ struct ReadmeExamples;
 mod app;
 mod bundle;
 mod control;
+#[allow(unsafe_code)]
+mod foreground;
 mod handlers;
 mod link;
 mod payload;
@@ -85,7 +88,7 @@ use serde_json::Value;
 
 pub use app::{App, DEV_VARIABLE, build};
 pub use bundle::{Bundle, BundleError, File};
-pub use control::{CloseResult, ReopenResult, ViewControl};
+pub use control::{CloseResult, HandOff, HandOffResult, ReopenResult, ViewControl};
 pub use handlers::{Call, Subscription, ViewError};
 pub use terminal::Terminal;
 pub use view::{Access, Icon, IconTheme, Kind, Permission, View, WEB_VERSION};
@@ -283,17 +286,17 @@ impl Options {
         self
     }
 
-    /// The hand the program closes the view with, or shows another in its place, while `serve`
-    /// runs (§10.8).
+    /// The hand the program closes the view with, shows another in its place, or lends the
+    /// terminal to a command with, while `serve` runs (§10.8).
     #[must_use]
     pub fn control(mut self, control: ViewControl) -> Self {
         self.control = Some(control);
         self
     }
 
-    /// How long a reopening or closing ([`ViewControl`]) waits on the terminal for each of its
-    /// answers: the `closed` of the `dismiss`, the `welcome` of the new `hello`, and the `need` or
-    /// `closed` of the new `open`. Ten seconds by default; a terminal that does not answer in time
+    /// How long a reopening, a closing or a hand-off ([`ViewControl`]) waits on the terminal for
+    /// each of its answers: the `closed` of the `dismiss`, the `welcome` of the new `hello`, and the
+    /// `need` or `closed` of the new `open`. Ten seconds by default; a terminal that does not answer in time
     /// is given up on ([`NoViewReason::Timeout`]), with a `bye` for the view it may still show.
     #[must_use]
     pub fn reopen_timeout(mut self, timeout: Duration) -> Self {
@@ -498,10 +501,11 @@ pub enum NoViewReason {
     /// The terminal ended the open before the view ran (a bundle that did not verify, files that
     /// did not come in time).
     Failed,
-    /// A reopening or a closing ([`ViewControl`]) waited for the terminal's answer to its `dismiss`,
-    /// its new `hello` or its new `open` longer than [`Options::reopen_timeout`].
+    /// A reopening, a closing or a hand-off ([`ViewControl`]) waited for the terminal's answer to its
+    /// `dismiss`, its new `hello` or its new `open` longer than [`Options::reopen_timeout`].
     Timeout,
-    /// A signal (its number) ended the wait.
+    /// A signal (its number) ended the wait, or came while the terminal was lent to a command
+    /// ([`ViewControl::hand_off`]), so that no view was shown again.
     Interrupted(i32),
 }
 

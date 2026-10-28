@@ -266,6 +266,11 @@ pub(crate) fn take_stop() -> bool {
     STOPPED.swap(false, Ordering::SeqCst)
 }
 
+/// Whether a `serve` of this process has the terminal.
+pub(crate) fn in_use() -> bool {
+    IN_USE.load(Ordering::SeqCst)
+}
+
 /// Writes `bytes` to `fd` without ever waiting for room longer than `within`, a few bytes at a
 /// time: the way a program that has been asked to end says its last words. A terminal that is
 /// not reading (the pane's reader waits for its view to catch up) must not keep it from leaving.
@@ -338,7 +343,8 @@ pub(crate) fn discard_input(fd: RawFd) {
 }
 
 fn termios_of(which: &Slot) -> libc::termios {
-    // SAFETY: only called while `ARMED` is true, after the slot was written (see `Slot`).
+    // SAFETY: only called while `ARMED` is true, or by the `Taken` whose `take` wrote the slots
+    // before it was made: after the slot was written (see `Slot`).
     unsafe { (*which.0.get()).assume_init() }
 }
 
@@ -584,6 +590,29 @@ impl Taken {
         }
         self.restore_handlers();
         IN_USE.store(false, Ordering::SeqCst);
+    }
+
+    /// Lends the terminal to another program (a shell, an editor): the screen and the modes as they
+    /// were found, as when it is given back. The handlers of the signals stay, so that the program
+    /// hears a hangup while the other one has the terminal; and while it is lent nothing gives it
+    /// back again (`restore` does nothing), since the program is then a background job of the tty,
+    /// which a change of its modes would stop. [`Self::take_back`] ends the loan.
+    pub(crate) fn lend(&mut self) {
+        let output = OUTPUT_FD.load(Ordering::SeqCst);
+        if ALTERNATE.swap(false, Ordering::SeqCst) {
+            let _ = write_within(output, LEAVE_ALTERNATE, FAREWELL);
+        }
+        let _ = set_modes(self.input, &termios_of(&SAVED));
+        ARMED.store(false, Ordering::SeqCst);
+    }
+
+    /// Takes the terminal back from the program it was lent to: the modes of the protocol again,
+    /// and every path out gives them back as before. The alternate screen comes with the next view.
+    pub(crate) fn take_back(&mut self) {
+        crate::foreground::without_stops(|| {
+            let _ = set_modes(self.input, &termios_of(&RAW));
+        });
+        ARMED.store(true, Ordering::SeqCst);
     }
 
     /// The person asked to stop the program: the terminal is given back, the program stops, and

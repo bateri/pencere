@@ -11,9 +11,10 @@
 use std::collections::VecDeque;
 use std::os::fd::RawFd;
 use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use pencere::{Bundle, File, Terminal};
+use pencere::{Bundle, Error, File, Options, Outcome, Terminal, View};
 use pencere_wire::frame::{
     Direction, Event, Ids, Message as Frame, Outgoing, Split, StreamDecoder, encode,
 };
@@ -275,4 +276,62 @@ pub fn interrupt() {
 
 pub fn digest_of(bytes: &[u8]) -> String {
     pencere_wire::bundle::Digest::of(bytes).to_string()
+}
+
+/// Runs `serve` on a thread of the test.
+pub fn serve_on(
+    terminal: Terminal,
+    options: impl FnOnce(Options) -> Options + Send + 'static,
+) -> JoinHandle<Result<Outcome, Error>> {
+    std::thread::spawn(move || {
+        let base = Options::new()
+            .view(View::web(page()))
+            .program("test")
+            .title("Test");
+        pencere::serve(options(base).terminal(terminal))
+    })
+}
+
+/// How `serve` ended, once it has.
+pub fn finished(handle: JoinHandle<Result<Outcome, Error>>) -> Outcome {
+    let until = Instant::now() + WITHIN;
+    while !handle.is_finished() {
+        assert!(Instant::now() < until, "serve does not return");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    handle
+        .join()
+        .expect("serve does not panic")
+        .expect("serve is not refused")
+}
+
+/// Runs `call` on a thread of the test, so that the test can be the terminal while it waits.
+pub fn asking<T: Send + 'static>(call: impl FnOnce() -> T + Send + 'static) -> JoinHandle<T> {
+    std::thread::spawn(call)
+}
+
+/// What `asking`'s call came to, once it has.
+pub fn joined<T>(handle: JoinHandle<T>) -> T {
+    let until = Instant::now() + WITHIN;
+    while !handle.is_finished() {
+        assert!(Instant::now() < until, "the call does not return");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    handle.join().expect("the call does not panic")
+}
+
+/// A view is open and the terminal has taken it (`need` with nothing missing).
+pub fn shown(pane: &mut Pane) -> Frame {
+    let (_, open) = pane.open_a_view(&web_views());
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    open
+}
+
+/// Waits until `condition` holds.
+pub fn wait_for(what: &str, mut condition: impl FnMut() -> bool) {
+    let until = Instant::now() + WITHIN;
+    while !condition() {
+        assert!(Instant::now() < until, "{what}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }

@@ -343,7 +343,6 @@ pub fn start(core: &Rc<Core>, options: Table, done: Function) -> mlua::Result<()
         topics,
         done,
         thread: Some(thread),
-        options,
     });
     Ok(())
 }
@@ -458,28 +457,6 @@ fn spawn(core: &Rc<Core>, serving: Options) -> mlua::Result<JoinHandle<()>> {
             events.send(Event::Served(result));
         })
         .map_err(|why| super::fault(format!("the view cannot be started: {why}")))
-}
-
-/// Shows the view again with what `serve` was given, after the terminal was handed to a program:
-/// the same handlers, the files as they are now.
-pub fn serve_again(core: &Rc<Core>) -> mlua::Result<()> {
-    let options = core
-        .serve
-        .borrow()
-        .as_ref()
-        .map(|run| run.options.clone())
-        .ok_or_else(|| super::fault("there is no view to show again"))?;
-    let (serving, calls, topics, specs) = prepare(core, &options)?;
-    if let Ok(mut plan) = core.plan.lock() {
-        *plan = Some(ServePlan { views: specs });
-    }
-    let thread = spawn(core, serving)?;
-    if let Some(run) = core.serve.borrow_mut().as_mut() {
-        run.calls = calls;
-        run.topics = topics;
-        run.thread = Some(thread);
-    }
-    Ok(())
 }
 
 /// What the loop does with what another thread handed it.

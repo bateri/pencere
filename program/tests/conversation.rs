@@ -11,45 +11,18 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use pencere::{
     Bundle, CloseResult, EndedBy, Error, File, Kind, NoViewReason, Options, Outcome, ReopenResult,
     Terminal, View, ViewControl, ViewError,
 };
-use pencere_wire::frame::{Direction, Event, Message as Frame, StreamDecoder};
+use pencere_wire::frame::{Direction, Event, StreamDecoder};
 use serde_json::{Value, json};
 
 mod common;
 
 use common::*;
-
-/// Runs `serve` on a thread of the test.
-fn serve_on(
-    terminal: Terminal,
-    options: impl FnOnce(Options) -> Options + Send + 'static,
-) -> JoinHandle<Result<Outcome, Error>> {
-    std::thread::spawn(move || {
-        let base = Options::new()
-            .view(View::web(page()))
-            .program("test")
-            .title("Test");
-        pencere::serve(options(base).terminal(terminal))
-    })
-}
-
-fn finished(handle: JoinHandle<Result<Outcome, Error>>) -> Outcome {
-    let until = Instant::now() + WITHIN;
-    while !handle.is_finished() {
-        assert!(Instant::now() < until, "serve does not return");
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    handle
-        .join()
-        .expect("serve does not panic")
-        .expect("serve is not refused")
-}
 
 // ---- the way in ---------------------------------------------------------------------
 
@@ -855,27 +828,6 @@ fn where_there_is_no_tty_there_is_no_view() {
 
 // ---- closing the view at the program's request (§10.8) ----------------------------------------
 
-/// Runs `call` on a thread of the test, so that the test can be the terminal while it waits.
-fn asking<T: Send + 'static>(call: impl FnOnce() -> T + Send + 'static) -> JoinHandle<T> {
-    std::thread::spawn(call)
-}
-
-fn joined<T>(handle: JoinHandle<T>) -> T {
-    let until = Instant::now() + WITHIN;
-    while !handle.is_finished() {
-        assert!(Instant::now() < until, "the call does not return");
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    handle.join().expect("the call does not panic")
-}
-
-/// A view is open and the terminal has taken it (`need` with nothing missing).
-fn shown(pane: &mut Pane) -> Frame {
-    let (_, open) = pane.open_a_view(&web_views());
-    pane.send("need", Some(open.id), &json!({ "missing": [] }));
-    open
-}
-
 #[test]
 fn the_view_the_program_closes_is_closed_by_the_program_and_the_terminal_is_given_back() {
     let _one = one_at_a_time();
@@ -973,6 +925,63 @@ fn a_reopened_view_is_asked_for_with_a_new_hello_and_a_new_token_and_without_the
     };
     assert_eq!(closed.by, EndedBy::Signal(libc::SIGINT));
     modes_are_back(&pane);
+}
+
+#[test]
+fn the_answer_to_a_call_of_a_view_that_is_gone_is_not_the_next_views_answer_of_the_same_id() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    // A handler that does not look at `is_cancelled`, held until the test lets it answer.
+    let released: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let gate = Arc::clone(&released);
+    let handle = serve_on(pane.terminal(), move |options| {
+        options.control(given).call("hold", move |params, _call| {
+            let who = params["who"].as_str().unwrap_or("").to_owned();
+            while !gate.lock().expect("the gate").contains(&who) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Ok(json!({ "from": who }))
+        })
+    });
+    shown(&mut pane);
+    pane.send(
+        "msg",
+        None,
+        &json!({ "call": { "id": 1, "method": "hold", "params": { "who": "old" } } }),
+    );
+    let reopener = {
+        let control = control.clone();
+        asking(move || control.reopen(None))
+    };
+    let dismiss = pane.expect("dismiss");
+    pane.send("closed", Some(dismiss.id), &json!({ "reason": "program" }));
+    let hello = pane.expect("hello");
+    pane.welcome(hello.id, TOKEN_2, &web_views());
+    let open = pane.expect("open");
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    assert_eq!(
+        joined(reopener).expect("a reopening"),
+        ReopenResult::Reopened
+    );
+    // The new view numbers its calls from 1 again, and the old view's call is still being answered.
+    pane.send(
+        "msg",
+        None,
+        &json!({ "call": { "id": 1, "method": "hold", "params": { "who": "new" } } }),
+    );
+    released.lock().expect("the gate").push("old".into());
+    std::thread::sleep(Duration::from_millis(100));
+    released.lock().expect("the gate").push("new".into());
+    assert_eq!(
+        serde_json::from_str::<Value>(&pane.expect("msg").payload).expect("JSON"),
+        json!({ "response": { "id": 1, "result": { "from": "new" } } })
+    );
+    interrupt();
+    let bye = pane.expect("bye");
+    pane.send("closed", Some(bye.id), &json!({ "reason": "program" }));
+    finished(handle);
 }
 
 #[test]

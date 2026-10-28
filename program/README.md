@@ -118,6 +118,51 @@ or other kinds (the terminal keeps what it verified, so only what changed crosse
 first. Both need a terminal that lists `dismiss` in its `welcome`; with another they answer
 `Unsupported` and the view is untouched.
 
+## Lending the terminal to a command
+
+A program that runs a shell or an editor in its pane lends it the terminal:
+`control.hand_off(command)` closes the view, gives the terminal back as at the end (the screen,
+the modes), runs the command as the terminal's foreground job, in a process group of its own, as a
+shell runs one, and when it ends takes the terminal back and shows the view again, `serve` going
+on with the same handlers. `hand_off` returns a `HandOff`; its `wait` gives how the command ended
+(`HandOffResult::Returned`) once the view is back, or why the view did not come back
+(`HandOffResult::NoView`, and `serve` ends with it). What was on its way to the view goes out
+before it closes, and a handler that asks for a hand-off is waited for, so that its own answer
+does too:
+
+```rust,no_run
+use std::process::Command;
+use std::sync::{Arc, Mutex};
+
+use pencere::{HandOffResult, Options, ViewControl};
+use serde_json::json;
+
+let control = ViewControl::new();
+let lender = control.clone();
+// How the shell ended, for the view that comes back to ask.
+let last = Arc::new(Mutex::new(None));
+let kept = Arc::clone(&last);
+let options = Options::new()
+    .control(control)
+    .call("shell", move |_params, _call| {
+        let handoff = lender.hand_off(Command::new("bash"));
+        let kept = Arc::clone(&kept);
+        // Waited for on another thread: the view closes once this answer is out.
+        std::thread::spawn(move || {
+            if let HandOffResult::Returned(Ok(status)) = handoff.wait() {
+                *kept.lock().unwrap() = status.code();
+            }
+        });
+        Ok(json!("starting"))
+    })
+    .call("last", move |_params, _call| Ok(json!({ "code": *last.lock().unwrap() })));
+```
+
+A signal that asks the program to end while the command has the terminal is acted on once the
+command has ended (a hangup is passed on to it, as a shell passes its own on); `serve` then ends as
+for that signal. With no view up — before `serve`, after it, in its fallback — `hand_off` runs the
+command in the foreground all the same.
+
 ## When there is no view
 
 `serve` returns `Outcome::NoView` — after the fallback has run, and with the terminal as it was

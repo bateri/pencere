@@ -1658,6 +1658,16 @@ bundle or another. The host's store (Section 8.5) holds what it verified before,
 `need` lists only what is not there. A program SHOULD read the `closed` before it
 sends `hello`, so that the `closed` of the view that ended is not taken for a word about the next.
 
+A program that lends the terminal to another program for a while (a shell the person asked
+for, an editor on a file) closes its view this way first. It writes what it has for the view
+before the `dismiss`, the answer to the call that asked for the shell among it, since a `msg` it
+writes after is dropped (Section 10.1). When the `closed` has come it gives the terminal back
+as it does at its end (Sections 4.9 and 6.5), and the other program has it, the foreground of the
+tty with it, as a shell gives it to a command. When that program ends, the program takes the
+terminal again and asks for a view as above. Between the two the pane is idle, and what is typed
+and written there is the other program's, as for any program; to the host it is the end of one
+view and, later, the first open of another.
+
 ## 11. Terminal context
 
 ### 11.1 Host context

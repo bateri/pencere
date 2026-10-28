@@ -17,7 +17,7 @@ use serde_json::json;
 
 mod common;
 
-use common::{Pane, TOKEN, WITHIN, page, termios_of, web_views};
+use common::{Pane, TOKEN, WITHIN, page, termios_of, wait_for, web_views};
 
 const MARKER: &str = "PENCERE_SUSPEND_CHILD";
 
@@ -47,14 +47,6 @@ impl Drop for Program {
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
-    }
-}
-
-fn wait_for(what: &str, mut condition: impl FnMut() -> bool) {
-    let until = Instant::now() + WITHIN;
-    while !condition() {
-        assert!(Instant::now() < until, "{what}");
-        std::thread::sleep(Duration::from_millis(10));
     }
 }
 

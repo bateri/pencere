@@ -177,8 +177,6 @@ pub struct ServeRun {
     pub done: Function,
     /// The thread the library's `serve` runs on.
     pub thread: Option<JoinHandle<()>>,
-    /// What `serve` was given, to ask the library again (after a handoff of the terminal).
-    pub options: mlua::Table,
 }
 
 pub struct Core {
@@ -459,15 +457,6 @@ impl Core {
 
     fn handle(&self, event: Event) {
         super::serve::handle(self, event);
-    }
-
-    /// Takes what is waiting for the loop and handles what `keep` says to, dropping the rest.
-    pub fn drain(&self, keep: impl Fn(&Event) -> bool) {
-        for event in self.inbox.take() {
-            if keep(&event) {
-                self.handle(event);
-            }
-        }
     }
 
     // ---- processes -------------------------------------------------------------------

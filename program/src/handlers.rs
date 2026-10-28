@@ -16,6 +16,7 @@ use pencere_wire::json;
 use pencere_wire::messages::{MAX_BYTES, Message};
 use serde_json::Value;
 
+use crate::control::{self, Answering};
 use crate::terminal::Pipe;
 
 /// An error a handler ends a call or a subscription with: the view gets `code` (a short name it
@@ -106,24 +107,36 @@ impl Flag {
     }
 }
 
+/// A request of a view: the number of the view that made it, and the id the view gave it. A view
+/// numbers its requests from 1, and the view shown after it does again, so what a handler has to
+/// say about a request names the view as well: an answer that comes after its view is over is not
+/// taken for the answer to the next view's request of the same id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Ask {
+    pub(crate) view: u64,
+    pub(crate) id: u64,
+}
+
 /// What a handler has for the event loop.
 pub(crate) enum Work {
     /// A call is answered.
     Answer {
-        id: u64,
+        ask: Ask,
         result: Result<Value, ViewError>,
     },
     /// How far a call has got: the payload of the `msg`.
-    Progress { id: u64, payload: String },
+    Progress { ask: Ask, payload: String },
     /// The handler of a topic returned.
     Started {
-        id: u64,
+        ask: Ask,
         result: Result<(), ViewError>,
     },
     /// A value of a subscription: the payload of the `msg`.
-    Push { id: u64, payload: String },
-    /// The program asks to close its view or to show another (§10.8).
+    Push { ask: Ask, payload: String },
+    /// The program asks to close its view, to show another, or to lend the terminal (§10.8).
     Control(crate::control::Request),
+    /// The command the terminal was lent to has ended: how, or why it could not be waited for.
+    Returned(std::io::Result<std::process::ExitStatus>),
 }
 
 /// The way from a handler's thread to the event loop: a channel with room for a few messages, so
@@ -177,7 +190,7 @@ pub(crate) fn read_message(payload: &str) -> Option<Message> {
 /// hand the call to the thread that answers it and wait there.
 #[derive(Clone)]
 pub struct Call {
-    id: u64,
+    ask: Ask,
     method: String,
     flag: Arc<Flag>,
     outbox: Outbox,
@@ -186,7 +199,7 @@ pub struct Call {
 impl fmt::Debug for Call {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Call")
-            .field("id", &self.id)
+            .field("id", &self.ask.id)
             .field("method", &self.method)
             .field("cancelled", &self.is_cancelled())
             .finish_non_exhaustive()
@@ -194,9 +207,9 @@ impl fmt::Debug for Call {
 }
 
 impl Call {
-    pub(crate) fn new(id: u64, method: String, flag: Arc<Flag>, outbox: Outbox) -> Self {
+    pub(crate) fn new(ask: Ask, method: String, flag: Arc<Flag>, outbox: Outbox) -> Self {
         Self {
-            id,
+            ask,
             method,
             flag,
             outbox,
@@ -227,11 +240,11 @@ impl Call {
         if self.is_cancelled() || !done.is_finite() || total.is_some_and(|t| !t.is_finite()) {
             return;
         }
-        let message = Message::progress(self.id, done, total, note.unwrap_or(""));
+        let message = Message::progress(self.ask.id, done, total, note.unwrap_or(""));
         let payload = payload_of(&message);
         if fits(&payload) {
             self.outbox.send(Work::Progress {
-                id: self.id,
+                ask: self.ask,
                 payload,
             });
         }
@@ -242,7 +255,7 @@ type Cleanup = Box<dyn FnOnce() + Send>;
 
 /// The state of a subscription that the loop and the handler's threads share.
 pub(crate) struct Feed {
-    id: u64,
+    ask: Ask,
     topic: String,
     flag: Flag,
     outbox: Outbox,
@@ -250,9 +263,9 @@ pub(crate) struct Feed {
 }
 
 impl Feed {
-    pub(crate) fn new(id: u64, topic: String, outbox: Outbox) -> Self {
+    pub(crate) fn new(ask: Ask, topic: String, outbox: Outbox) -> Self {
         Self {
-            id,
+            ask,
             topic,
             flag: Flag::new(),
             outbox,
@@ -285,7 +298,7 @@ pub struct Subscription {
 impl fmt::Debug for Subscription {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Subscription")
-            .field("id", &self.feed.id)
+            .field("id", &self.feed.ask.id)
             .field("topic", &self.feed.topic)
             .field("cancelled", &self.is_cancelled())
             .finish_non_exhaustive()
@@ -312,12 +325,12 @@ impl Subscription {
         if self.is_cancelled() {
             return false;
         }
-        let payload = payload_of(&Message::push(self.feed.id, value));
+        let payload = payload_of(&Message::push(self.feed.ask.id, value));
         if !fits(&payload) {
             return false;
         }
         self.feed.outbox.send(Work::Push {
-            id: self.feed.id,
+            ask: self.feed.ask,
             payload,
         })
     }
@@ -371,22 +384,28 @@ pub(crate) type TopicFn = dyn Fn(Value, &Subscription) -> Result<(), ViewError> 
 
 /// Runs the handler of a call on this thread and hands the answer to the loop.
 pub(crate) fn run_call(handler: &CallFn, params: Value, call: &Call) {
+    let answering = Answering::start();
     let result = catch_unwind(AssertUnwindSafe(|| handler(params, call)))
         .unwrap_or_else(|panic| Err(ViewError::with_message("internal", panic_text(&*panic))));
+    drop(answering);
     call.outbox.send(Work::Answer {
-        id: call.id,
+        ask: call.ask,
         result,
     });
+    control::answered();
 }
 
 /// Runs the handler of a topic on this thread and hands its result to the loop.
 pub(crate) fn run_topic(handler: &TopicFn, params: Value, subscription: &Subscription) {
+    let answering = Answering::start();
     let result = catch_unwind(AssertUnwindSafe(|| handler(params, subscription)))
         .unwrap_or_else(|panic| Err(ViewError::with_message("internal", panic_text(&*panic))));
+    drop(answering);
     subscription.feed.outbox.send(Work::Started {
-        id: subscription.feed.id,
+        ask: subscription.feed.ask,
         result,
     });
+    control::answered();
 }
 
 #[cfg(test)]

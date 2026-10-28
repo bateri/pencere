@@ -9,6 +9,11 @@ All notable changes to the `pencere` command are recorded here. The format follo
 ### Changed
 
 - The runner shows the views of version `2.0` of the kit's page API (`lua` `2.0`).
+- `pencere.handoff` is the `pencere` library's hand-off: the same `serve` shows the view again
+  instead of a new one being started, the app's loop is no longer the one that waits for the view
+  to give the terminal back, and a hangup while the program has the terminal is passed on to it
+  and ends `serve` once it has ended. A change to the view's files under `pencere dev` while the
+  program has the terminal is the view that comes back.
 
 ### Added
 
