@@ -762,9 +762,21 @@ impl<P: Peer> Headless<P> {
                     waited: within,
                 });
             }
-            self.peer.wait(Duration::from_millis(20));
-            self.advance(FRAME)?;
+            self.tick()?;
         }
+    }
+
+    /// Gives a program that keeps its own time a moment to say something (at most twenty
+    /// milliseconds of the machine's time), takes what it said, and moves the clock a frame on:
+    /// one round of [`Headless::wait_for`], for a test that waits for what it looks for in its own
+    /// way.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::advance`].
+    pub fn tick(&mut self) -> Result<(), Error> {
+        self.peer.wait(Duration::from_millis(20));
+        self.advance(FRAME)
     }
 
     /// The earliest of the times the page itself asked for: to be woken at, or drawn at.
@@ -1350,6 +1362,16 @@ impl<P: Peer> Headless<P> {
         if !self.page.fields().iter().any(|held| held.id == field) {
             return Err(Error::NoSuch(name.to_owned()));
         }
+        self.fill_field(field, text)
+    }
+
+    /// The person types `text` into the host's field `field` (one of [`Headless::outline`]'s
+    /// fields), as [`Headless::fill`] does for one it names.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn fill_field(&mut self, field: Id, text: &str) -> Result<(), Error> {
         if self.focus() != Focus::Field(field) {
             self.seen.field = Some(field);
             self.page.focus(Some(field));
