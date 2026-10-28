@@ -10,10 +10,18 @@ publish = false
 
 [dependencies]
 pencere-host = { path = "../rust" }
+# The view a program opens, run for real under the host with no screen (`program`): the drive of a
+# page, and the sandbox's `Assets` its files are read through.
+pencere-drive = { path = "../../kit/drive" }
+pencere-sandbox = { path = "../../kit/sandbox" }
 serde_json = "1"
 # The pty and the poll: what a terminal does and the crate, which does no I/O,
 # leaves to it.
 libc = "0.2"
+
+[dev-dependencies]
+# The keys a test presses on a page run for real.
+pencere-view = { path = "../../kit/view" }
 
 [lints]
 workspace = true

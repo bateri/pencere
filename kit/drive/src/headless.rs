@@ -124,6 +124,8 @@ impl Program for Clock {
 pub enum Error {
     /// The page is gone, and why: it failed, or its module could not be made.
     Ended(Fault),
+    /// The page's view is over, and why: its program closed it, or ended ([`Peer::closed`]).
+    Closed(String),
     /// Something did not come within the patience the host was given ([`Opening::patience`]).
     Slow {
         what: &'static str,
@@ -160,6 +162,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Ended(why) => write!(f, "the page ended: {why}"),
+            Self::Closed(why) => write!(f, "the page's view is over: {why}"),
             Self::Slow { what, waited } => write!(f, "{what} within {waited:?}"),
             Self::Unsettled { rounds } => write!(
                 f,
@@ -271,6 +274,8 @@ struct Seen {
     diagnostics: Vec<String>,
     ended: Option<Fault>,
     sent: Vec<String>,
+    /// What the program said to the page.
+    received: Vec<String>,
     replies: Vec<Answer>,
 }
 
@@ -541,6 +546,7 @@ impl<P: Peer> Headless<P> {
     /// Settles the page, drawing the frames that come of it where `frames` (a view that is not seen
     /// draws none).
     fn take(&mut self, frames: bool) -> Result<(), Error> {
+        let settling = Instant::now();
         for _ in 0..ROUNDS {
             if let Some(why) = &self.seen.ended {
                 return Err(Error::Ended(why.clone()));
@@ -571,26 +577,36 @@ impl<P: Peer> Headless<P> {
                 seen: &mut self.seen,
                 peer: &mut self.peer,
             });
-            if self.peer.busy() {
-                self.peer.wait(self.patience);
-                if self.peer.busy() {
+            // A program that owes the page an answer is given the time it takes, all of the
+            // settling's patience at the most: one that says nothing in all of it never answered.
+            // Not while the page moves: what it waits for may be what the page goes on to say at a
+            // later frame, which only a clock that moves draws.
+            let waits = self.peer.busy() && !self.page.animating();
+            if waits {
+                let left = self.patience.saturating_sub(settling.elapsed());
+                if left.is_zero() {
                     return Err(Error::Slow {
                         what: "the program did not answer the page",
                         waited: self.patience,
                     });
                 }
+                self.peer.wait(left);
             }
             let said = self.peer.said();
             let posted = !said.is_empty();
             for message in said {
                 self.page.message(&message);
+                self.seen.received.push(message);
             }
             if let Some(why) = &self.seen.ended {
                 return Err(Error::Ended(why.clone()));
             }
+            if let Some(why) = self.peer.closed() {
+                return Err(Error::Closed(why));
+            }
             if framing {
                 self.frame();
-            } else if !posted {
+            } else if !posted && !waits {
                 // What the host was woken for is all taken.
                 while self.woken.try_recv().is_ok() {}
                 return Ok(());
@@ -709,6 +725,35 @@ impl<P: Peer> Headless<P> {
     pub fn refresh(&mut self) -> Result<(), Error> {
         self.page.refresh();
         self.settle()
+    }
+
+    /// Waits, as long as `within` of the machine's own time, for the page to come to what `done`
+    /// says of it — a frame drawn at a time a frame later each round, what its program says taken
+    /// as it comes: for a program in another process ([`Peer::wait`]), which speaks on the clock of
+    /// the machine and not on this host's.
+    ///
+    /// # Errors
+    ///
+    /// It did not come to it within the time ([`Error::Slow`]), or as [`Headless::settle`].
+    pub fn wait_for(
+        &mut self,
+        within: Duration,
+        mut done: impl FnMut(&Self) -> bool,
+    ) -> Result<(), Error> {
+        let began = Instant::now();
+        loop {
+            if done(self) {
+                return Ok(());
+            }
+            if began.elapsed() > within {
+                return Err(Error::Slow {
+                    what: "the page did not come to what was waited for",
+                    waited: within,
+                });
+            }
+            self.peer.wait(Duration::from_millis(20));
+            self.advance(FRAME)?;
+        }
     }
 
     /// The earliest of the times the page itself asked for: to be woken at, or drawn at.
@@ -1353,6 +1398,7 @@ impl<P: Peer> Headless<P> {
     /// As [`Headless::settle`].
     pub fn tell(&mut self, message: &str) -> Result<(), Error> {
         self.page.message(message);
+        self.seen.received.push(message.to_owned());
         self.settle()
     }
 
@@ -1564,6 +1610,11 @@ impl<P: Peer> Headless<P> {
     /// What the page said to its program, in order: JSON objects, as written.
     pub fn sent(&self) -> &[String] {
         &self.seen.sent
+    }
+
+    /// What the page's program said to it, in order: JSON objects, as written.
+    pub fn received(&self) -> &[String] {
+        &self.seen.received
     }
 
     /// Every reply of the page, in order, each with whether it answered the pointer — as the module

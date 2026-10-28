@@ -28,6 +28,11 @@ pub trait Peer {
     }
     /// Waits, at most `within`, for the program to say something it owes.
     fn wait(&mut self, _within: Duration) {}
+    /// Why the page's view is over, once it is: the program closed it, or ended. A program in this
+    /// process never closes it.
+    fn closed(&mut self) -> Option<String> {
+        None
+    }
 }
 
 /// A call the page made, as its program heard it.

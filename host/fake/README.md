@@ -69,3 +69,24 @@ answers only `CSI c`, and it keeps the pane's size as it was when the program st
 The end-to-end tests in `tests/e2e.rs` run the small programs of `tests/programs`,
 written against the TypeScript SDK, and the example written against the Rust library
 (`examples/containers-rust`), against it.
+
+## A program and its page, run for real
+
+The stand-in is a library too (`pencere_fake_host`): its pty, how it reads a pane, its store and
+its record are what the command is made of. With it, `program::open` starts a program on a pty as a
+terminal does, waits for the view of the kit it opens (a Lua script or a WebAssembly component),
+and runs that view for real in the kit's sandbox under `pencere-drive`'s host with no screen, the
+program its peer, the session between the two as a terminal has it. A test of a program and its
+page together:
+
+```rust
+let mut page = pencere_fake_host::program::open(&["target/debug/containers-rust", "--lua"])?
+    .size(1000.0, 600.0)
+    .open()?;
+page.wait_for(Duration::from_secs(30), |page| page.says("Containers"))?; // the program's own time
+page.press("down")?;
+```
+
+The program keeps its own time: what it says comes when it does, and `wait_for` waits for it. The
+host reads no more of the messages between the two than a terminal may, the name of their one member,
+to know that the program owes the page an answer, which a settling of a page at rest waits for.

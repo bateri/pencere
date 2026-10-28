@@ -15,10 +15,6 @@
 
 mod args;
 mod host;
-mod log;
-mod pty;
-mod screen;
-mod store;
 mod view;
 
 use std::io::{self, IsTerminal};
@@ -28,7 +24,8 @@ use std::time::{Duration, Instant};
 
 use args::{Args, Outcome, USAGE};
 use host::Host;
-use pty::{Output, Pty, Raw, Size};
+use pencere_fake_host::log;
+use pencere_fake_host::pty::{self, Output, Pty, Raw, Size};
 
 /// How often the loop looks at everything, whether or not poll had news.
 const TICK_MS: i32 = 50;

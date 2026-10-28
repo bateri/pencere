@@ -892,7 +892,10 @@ name = "pencere-fake-host"
 version = "0.0.0"
 dependencies = [
  "libc",
+ "pencere-drive",
  "pencere-host",
+ "pencere-sandbox",
+ "pencere-view",
  "serde_json",
 ]
 

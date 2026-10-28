@@ -141,6 +141,49 @@ return {
     Ok(())
 }
 
+/// The host's clock reaches the page's module ([`pencere_sandbox::Program::now`]): a timer set for
+/// five seconds runs when the clock is moved five seconds on, and no second of the machine's is
+/// waited for it.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_timer_of_five_seconds_runs_on_five_seconds_of_the_hosts_clock_and_none_of_the_machines()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local ran = "waits"
+return {
+    render = function()
+        return pencere.div():command("go", "Go"):child(pencere.text(ran))
+    end,
+    handle = function(event)
+        if event.type == "command" then
+            pencere.time.after(5, function()
+                ran = string.format("ran at %.1f", pencere.time.now())
+                return true
+            end)
+        end
+    end,
+}
+"#,
+    )
+    .at(100.0)
+    .open()?;
+    page.command("go")?;
+    let began = std::time::Instant::now();
+    page.advance(5.0)?;
+    assert_eq!(page.tree_words(), ["waits"], "a frame short");
+    // Counted, as the kit counts a timer set outside a wake, from the frame that placed it: a frame
+    // after the command.
+    page.advance(0.1)?;
+    assert_eq!(page.tree_words(), ["ran at 105.0"]);
+    assert!(
+        began.elapsed() < std::time::Duration::from_secs(4),
+        "the machine's time is not the page's: {:?}",
+        began.elapsed()
+    );
+    Ok(())
+}
+
 /// A page whose own frame says it moves for ever comes to rest at one time all the same, and is
 /// drawn at each frame as the clock moves.
 #[test]

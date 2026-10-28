@@ -2687,3 +2687,112 @@ fn a_kit_views_page_that_asks_to_be_closed_keeps_its_view_and_tells_the_program_
     );
     run.never("reason=view");
 }
+
+// ---- The view run for real, under the host with no screen ----------------------------------------
+
+use pencere_drive::headless::Headless;
+use pencere_fake_host::program::{self, Program};
+
+/// Whether the page shows a reading of the processor its program pushed (`12.3%`).
+fn shows_a_reading(page: &Headless<Program>) -> bool {
+    page.words()
+        .iter()
+        .any(|word| word.ends_with('%') && word.chars().next().is_some_and(|c| c.is_ascii_digit()))
+}
+
+/// The Rust example's Lua page, run for real: in the kit's sandbox, its program on a pty with the
+/// session between them as a terminal has it. The page subscribes and shows what the program
+/// pushes; ⇧U says four mebibytes to the program in chunks, and shows what the program counted.
+#[test]
+#[ignore = "heavy: compiles the interpreter and runs a program with its page; make check-heavy"]
+fn the_rust_examples_lua_page_runs_for_real_and_hears_its_program()
+-> Result<(), Box<dyn std::error::Error>> {
+    let binary = rust_example();
+    let binary = binary.to_string_lossy();
+    let mut page = program::open(&[&binary, "--lua"])?
+        .size(1000.0, 600.0)
+        .open()?;
+    assert!(
+        page.sent()
+            .iter()
+            .any(|said| said.contains(r#""subscribe""#)),
+        "{:?}",
+        page.sent()
+    );
+    // The page sends its payload to a program it has heard from.
+    page.wait_for(Duration::from_secs(30), |page| {
+        shows_a_reading(page)
+            && page
+                .received()
+                .iter()
+                .any(|said| said.contains(r#""push""#))
+    })?;
+    page.key(
+        pencere_view::Key::Character('U'),
+        pencere_view::Mods {
+            shift: true,
+            ..pencere_view::Mods::default()
+        },
+    )?;
+    page.wait_for(Duration::from_secs(120), |page| {
+        page.says("containers-rust counted 4194304 bytes")
+    })?;
+    Ok(())
+}
+
+/// The Rust example as `make guest` builds it, with the container list as a WebAssembly component:
+/// the component run for real, its readings shown as its program pushes them, its payload said and
+/// counted.
+#[test]
+#[ignore = "heavy: needs the page modules of `make guest` and runs a program; make check-heavy"]
+fn the_rust_examples_component_runs_for_real_and_hears_its_program()
+-> Result<(), Box<dyn std::error::Error>> {
+    let binary = root().join("kit/guest/dist/containers-rust");
+    assert!(
+        binary.is_file(),
+        "{} is not there: `make guest` builds it",
+        binary.display()
+    );
+    let binary = binary.to_string_lossy();
+    let mut page = program::open(&[&binary])?.size(1000.0, 600.0).open()?;
+    page.wait_for(Duration::from_secs(30), |page| {
+        shows_a_reading(page)
+            && page
+                .received()
+                .iter()
+                .any(|said| said.contains(r#""push""#))
+    })?;
+    assert!(page.says("Containers"), "{:?}", page.words());
+    // ⇧U, as the Lua page has it.
+    page.key(
+        pencere_view::Key::Character('U'),
+        pencere_view::Mods {
+            shift: true,
+            ..pencere_view::Mods::default()
+        },
+    )?;
+    page.wait_for(Duration::from_secs(120), |page| {
+        page.says("containers-rust counted 4194304 bytes")
+    })?;
+    Ok(())
+}
+
+/// The Lua example built into one file with the `pencere` command, its program run by the command's
+/// runner: the page asks the program for the list and shows it, and a button stops a container
+/// through the program, whose answer the page shows.
+#[test]
+#[ignore = "heavy: compiles the interpreter and runs a program with its page; make check-heavy"]
+fn the_lua_apps_page_runs_for_real_and_its_program_answers_it()
+-> Result<(), Box<dyn std::error::Error>> {
+    let app = lua_example();
+    let app = app.to_string_lossy();
+    let mut page = program::open(&[&app])?.size(1000.0, 500.0).open()?;
+    page.wait_for(Duration::from_secs(30), |page| page.says("nginx:1.27"))?;
+    assert_eq!(page.words_in("act web"), ["Stop"]);
+    page.click("act web")?;
+    page.wait_for(Duration::from_secs(30), |page| {
+        page.words_in("act web") == ["Start"]
+    })?;
+    assert!(page.words_in("row web").iter().any(|word| word == "exited"));
+    Ok(())
+}

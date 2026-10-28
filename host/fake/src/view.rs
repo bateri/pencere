@@ -20,7 +20,7 @@ use std::collections::VecDeque;
 use serde_json::{Map, Value, json};
 
 use crate::args::Ask;
-use crate::log;
+use pencere_fake_host::log;
 
 /// How much of a value the record shows, in characters. `PENCERE_FAKE_GIST=N` says another number: a
 /// test of a program that wants to read what it answered (the order of a listing) asks for all of it.

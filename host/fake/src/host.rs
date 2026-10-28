@@ -11,26 +11,19 @@
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
+use pencere_fake_host::log;
+use pencere_fake_host::pane::{self, DEVICE_ATTRIBUTES, Entropy, Pane, Piece};
+use pencere_fake_host::pty::{self, Modes};
+use pencere_fake_host::store::{DirStore, Keep};
 use pencere_host::bundle::MemoryStore;
 use pencere_host::frame::{Direction, Event, Message, StreamDecoder};
 use pencere_host::icon::{Icon, IconTheme};
-use pencere_host::message::HostInfo;
 use pencere_host::sandbox::Grant;
-use pencere_host::session::{
-    Action, Config, Observed, Offer, Session, Size, State, ViewKind, ViewStart,
-};
-use pencere_host::theme::{Rgb, Theme};
+use pencere_host::session::{Action, Observed, Session, State, ViewStart};
 use serde_json::Value;
 
 use crate::args::{Args, Ask, Then};
-use crate::log;
-use crate::pty::{self, Modes};
-use crate::screen::{Screen, Seen};
-use crate::store::{DirStore, Keep};
 use crate::view::{Reaction, ScriptedView};
-
-/// What a terminal answers to `CSI c`.
-const DEVICE_ATTRIBUTES: &[u8] = b"\x1b[?62;4c";
 
 /// The keystroke the person ends a program with.
 const INTERRUPT: u8 = 0x03;
@@ -47,36 +40,6 @@ const QUEUE_LIMIT: usize = 1 << 20;
 /// The most bytes of a payload the record reads. The crate reads a hostile stream
 /// with care; a line of the record is not worth a tree of sixteen mebibytes.
 const READ_LIMIT: usize = 64 * 1024;
-
-/// The version of the interface of a view the terminal draws itself (a WebAssembly component or a
-/// Lua script) that the stand-in speaks. It draws nothing: what a program is tried against is the
-/// conversation.
-const KIT_VERSION: &str = "2.0";
-
-/// A pixel is not a cell, but the view's container is told in pixels.
-const CELL_WIDTH: u32 = 8;
-const CELL_HEIGHT: u32 = 16;
-
-type Entropy = Box<dyn FnMut() -> [u8; 16]>;
-
-/// The operating system's random bytes, which the token is made of, from a
-/// descriptor opened before anything runs: a host that cannot get them has no
-/// token to give and does not start. Reading a descriptor that is open does not
-/// fail; if it ever did, stopping is better than a token that is not random.
-fn secure_bytes(mut urandom: std::fs::File) -> Entropy {
-    use std::io::Read;
-    Box::new(move || {
-        let mut bytes = [0u8; 16];
-        if let Err(error) = urandom.read_exact(&mut bytes) {
-            log::line(
-                "host",
-                format!("no secure random bytes for a token: {error}"),
-            );
-            std::process::exit(70);
-        }
-        bytes
-    })
-}
 
 pub struct Host {
     session: Session<Keep, Entropy>,
@@ -96,14 +59,13 @@ pub struct Host {
     view: Option<ScriptedView>,
     /// The view that runs is one the terminal draws itself, and its messages are the module's.
     native: bool,
-    screen: Screen,
+    /// How the program's output is read: cut where the host acts in step with it, its frames.
+    pane: Pane,
     on_alternate_screen: bool,
     /// The program has left the alternate screen: what it writes next is written on the screen
     /// it gave back, and the modes it leaves the tty in are the ones to look at.
     left_screen: bool,
     modes: Option<Modes>,
-    /// What the program's output holds, read once more for the record.
-    heard: StreamDecoder,
     /// What the session wrote into the pane's input, read for the record.
     said: StreamDecoder,
     /// Bytes for the pane's input that the tty has not taken yet. Everything
@@ -127,31 +89,10 @@ impl Host {
             Some(dir) => Keep::Directory(DirStore::open(dir)?),
             None => Keep::Memory(MemoryStore::new()),
         };
-        let theme = Theme::new(
-            Rgb(0x11, 0x13, 0x18),
-            Rgb(0xd8, 0xdb, 0xe2),
-            "Menlo, monospace",
-        );
-        let host = HostInfo {
-            name: "pencere-fake-host".to_owned(),
-            version: env!("CARGO_PKG_VERSION").to_owned(),
-        };
-        let mut config = Config::new(
-            host,
-            theme,
-            Size {
-                width: u32::from(size.cols) * CELL_WIDTH,
-                height: u32::from(size.rows) * CELL_HEIGHT,
-            },
-        );
         // A terminal that draws views itself opens them as bundles like pages; the stand-in
         // accepts the two kinds and plays their page as a script, with nothing drawn.
-        config
-            .views
-            .push(Offer::new(ViewKind::Wasm, &[KIT_VERSION]));
-        config.views.push(Offer::new(ViewKind::Lua, &[KIT_VERSION]));
         Ok(Self {
-            session: Session::new(config, store, secure_bytes(urandom)),
+            session: Session::new(pane::config(size), store, pane::entropy(urandom)),
             answering: args.answer,
             allow_network: args.allow_network,
             passthrough: args.passthrough,
@@ -164,11 +105,10 @@ impl Host {
             cancel_after: args.cancel_after,
             view: None,
             native: false,
-            screen: Screen::new(),
+            pane: Pane::new(),
             on_alternate_screen: false,
             left_screen: false,
             modes: None,
-            heard: StreamDecoder::new(Direction::ToHost),
             said: StreamDecoder::new(Direction::ToProgram),
             typed: Vec::new(),
             viewed: 0,
@@ -210,54 +150,49 @@ impl Host {
 
     // ---- the program's output --------------------------------------------
 
-    /// What the program wrote, with what the tty's modes were as it wrote it.
+    /// What the program wrote, with what the tty's modes were as it wrote it. Each message in it
+    /// is noted and then handed to the session, and what the session queued is done, before the
+    /// next one is read: the record is in the order things happen, whatever the tty put in one
+    /// read. A host that read the lot and then acted would write the program's `dismiss` ahead of
+    /// the view's reaction to the `response` before it.
     pub fn program_output(&mut self, bytes: &[u8], modes: Option<Modes>) {
         self.modes = modes;
         if self.passthrough {
             let mut out = io::stdout().lock();
             let _ = out.write_all(bytes).and_then(|()| out.flush());
         }
-        // The stream is cut where the terminal must act in step with it.
         let was_left = self.left_screen;
-        let mut start = 0;
-        for (at, &byte) in bytes.iter().enumerate() {
-            let Some(seen) = self.screen.advance(byte) else {
-                continue;
-            };
-            if let Some(part) = bytes.get(start..=at) {
-                self.segment(part);
-            }
-            start = at + 1;
-            match seen {
-                Seen::Query => {
-                    log::line("host", "answers CSI c");
-                    if self.typed.len() < QUEUE_LIMIT {
-                        self.typed.extend_from_slice(DEVICE_ATTRIBUTES);
-                    }
-                }
-                Seen::Alternate(on) => {
-                    self.on_alternate_screen = on;
-                    self.left_screen = !on;
-                    log::line(
-                        "screen",
-                        if on {
-                            "alternate screen on"
-                        } else {
-                            "alternate screen off"
-                        },
-                    );
+        let mut switched = false;
+        let mut pane = std::mem::take(&mut self.pane);
+        let written = pane.read(bytes, |piece| match piece {
+            Piece::Frame(event) => self.frame(event),
+            Piece::Query => {
+                log::line("host", "answers CSI c");
+                if self.typed.len() < QUEUE_LIMIT {
+                    self.typed.extend_from_slice(DEVICE_ATTRIBUTES);
                 }
             }
-        }
-        if let Some(rest) = bytes.get(start..) {
-            self.segment(rest);
-        }
+            Piece::Alternate(on) => {
+                switched = true;
+                self.on_alternate_screen = on;
+                self.left_screen = !on;
+                log::line(
+                    "screen",
+                    if on {
+                        "alternate screen on"
+                    } else {
+                        "alternate screen off"
+                    },
+                );
+            }
+        });
+        self.pane = pane;
         // What the program writes after it gave the screen back is written after it gave back
         // the tty's modes too, if it gives them back at all (§4.9): so this is where to look.
-        let after = if start == 0 {
-            was_left && !bytes.is_empty()
+        let after = if switched {
+            written
         } else {
-            bytes.len() > start
+            was_left && written
         };
         if self.left_screen && after {
             match modes {
@@ -273,36 +208,26 @@ impl Host {
         }
     }
 
-    /// A piece of the program's output, cut where the terminal must act in step with it. Each
-    /// message in it is noted and then handed to the session, and what the session queued is
-    /// done, before the next one is read: the record is in the order things happen, whatever
-    /// the tty put in one read. A host that read the lot and then acted would write the
-    /// program's `dismiss` ahead of the view's reaction to the `response` before it.
-    fn segment(&mut self, part: &[u8]) {
-        if part.is_empty() {
+    /// A frame of the program's (or one that was dropped): noted, then handed to the session, and
+    /// what the session queued done.
+    fn frame(&mut self, event: Event) {
+        self.noted(&event);
+        let Event::Message(message) = event else {
+            return;
+        };
+        if !self.answering {
             return;
         }
-        let mut events = Vec::new();
-        self.heard.feed(part, &mut events);
-        for event in events {
-            self.noted(&event);
-            let Event::Message(message) = event else {
-                continue;
-            };
-            if !self.answering {
-                continue;
-            }
-            // What the host can see of the pane, for the checks of §6.2 and §6.5:
-            // there is no shell here to ask about, so only the modes and the screen.
-            self.session.observe(Observed {
-                prompt_editing: false,
-                alternate_screen: Some(self.on_alternate_screen),
-                shell_in_foreground: None,
-                tty_canonical_or_echo: self.modes.map(|m| m.canonical || m.echo),
-            });
-            self.session.message(message);
-            self.settle();
-        }
+        // What the host can see of the pane, for the checks of §6.2 and §6.5: there is no shell
+        // here to ask about, so only the modes and the screen.
+        self.session.observe(Observed {
+            prompt_editing: false,
+            alternate_screen: Some(self.on_alternate_screen),
+            shell_in_foreground: None,
+            tty_canonical_or_echo: self.modes.map(|m| m.canonical || m.echo),
+        });
+        self.session.message(message);
+        self.settle();
     }
 
     /// The program's frames, for the record.

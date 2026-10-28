@@ -71,3 +71,8 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
   theme (`shot::Palette`); with no font each character is a box, and the picture is the same bytes
   on every machine. A page written in Rust opens under the host with no screen too
   (`Headless::spawn`).
+- **A program in another process.** `Peer::closed` (the program ended its view: `Error::Closed`),
+  `Headless::wait_for` (what a program that keeps its own time says, waited for) and
+  `Headless::received` (what the program said to the page). A settling waits for the answers a
+  busy program owes only while the page is at rest: a page that moves goes on at the frames of the
+  clock, and what the program waits for may be what it says at them.

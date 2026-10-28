@@ -112,11 +112,16 @@ timers, a search's `found`, a language read a piece at a time are as determined 
   `drop_files`, `resize`, `zoom`, `set_active`, `refresh`.
 - **The program:** a `Peer` hears what the page says and answers. `Calls` is a table of calls
   (`on(method, handler)`), whose topics a test pushes to (`push`) and whose calls with no handler
-  wait for the test to `answer` them; `tell` says anything to the page as the program.
+  wait for the test to `answer` them; `tell` says anything to the page as the program. A program in
+  another process (`pencere-fake-host`'s `program`: on a pty, as a terminal runs it) keeps its own
+  time: a settling of a page at rest waits for the answers it owes (`Peer::busy`), and
+  `wait_for(within, condition)` waits for what it says on its own; a program that ends its view
+  ends the page's (`Error::Closed`).
 - **What a person sees:** `words` (drawn, in order), `says`, `words_in(id)`, `tree_words`, `bounds`,
   `editor` (the document: text, selections, version, decorations), `editor_text`, `focus`,
   `field`, `outline` (fields, screen reader, tooltips, commands), `cursor`, `pasteboard`, `links`,
-  `menu`, `closed`, `diagnostics`, `ended`; and what went on: `sent`, `replies`, `told`, `list`,
+  `menu`, `closed`, `diagnostics`, `ended`; and what went on: `sent`, `received`, `replies`,
+  `told`, `list`,
   `laid`, `root`, `now`, `asks_at`.
 - **What went wrong** is an `Error` that says it in words: the page ended (`Ended`, a script's
   error with its file and line), something did not come in time (`Slow`), the page never came to
