@@ -36,6 +36,8 @@ mod headless_tests;
 #[cfg(all(test, feature = "program"))]
 mod in_process_tests;
 #[cfg(test)]
+mod library_fuzzy_tests;
+#[cfg(test)]
 mod library_languages_tests;
 #[cfg(test)]
 mod luau_editor_tests;

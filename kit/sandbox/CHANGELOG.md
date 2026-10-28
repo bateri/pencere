@@ -32,6 +32,14 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   readers is a module of its own, required only when one of its languages is loaded. SQL is `SQL`,
   `PostgreSQL` and `SQLite`, one reader telling the two databases' forms apart. The example
   `editor-lua` takes its SQL from it.
+- `@pencere/fuzzy`, a module of the kit's library: what a person types found in texts and ordered
+  as fzf's second algorithm scores it (a path's name before its directories, smart case in many
+  scripts, places in characters), a list at once (`filter`) or searched a slice a frame by itself
+  (`search`, `run`, `narrow`), the characters found drawn in a look (`spans`).
+- `@pencere/keys`, a module of the kit's library: keys written as a Mac writes them (`⇧⌘K`) or
+  another platform (`Ctrl+Shift+K`), as key caps, and matched against a key event as a command's are.
+  The platform is the page's to say (`set_platform`), a Mac's where it says none: the interface does
+  not tell a page its host's.
 - `pencere.merge(first, second, …)`: replies as one, as the kit puts together what a page's parts
   answer (every ask of an editor in order, a frame where either wants one, the earlier wake).
 - **A host that drives a page by hand can wait for it.** `Module::flush` waits, as long as it is

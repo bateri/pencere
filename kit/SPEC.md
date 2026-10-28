@@ -706,6 +706,86 @@ are operators and any other `?` is a parameter. Each of the three reads `--` and
 `languages.look(name)` is the look a token named `name` has by `styles`, as `language:look` finds it
 (Section 2.6, `@pencere/syntax`), or nil: for a page that colours code that is not in an editor.
 
+#### `@pencere/fuzzy`
+
+What a person types, found in texts the way a picker, a palette or a filter finds it
+(`local fuzzy = require("@pencere/fuzzy")`). A pattern is in a text where each of its characters is
+there, in order, with anything between them; a space in the pattern is not looked for. Of the ways
+it is there, the one that scores best is taken, as fzf's second algorithm scores it: a character
+scores more at the start of the text and of a word (after a space, after one of `/ \ : , ; |`, after
+any other character that is not a letter or a digit, a capital after a small letter, a digit after
+what is not one), a run more than the same characters apart, a gap costs, and a first character late
+in the text costs a point for each character before it, at most five.
+
+- `fuzzy.match(pattern, text, options)` is the score and the places of the pattern's characters
+  (characters of UTF-8 from 1, in order; a text that is not UTF-8 a byte a character; a text matched
+  in its first 64 KiB), or nil where it is not there; an empty pattern is in every text, with a score
+  of 0 and no places. `options.case` is `"smart"` (the default: a capital is told from its small
+  letter only where the pattern has a capital), `"ignore"` or `"respect"`; a letter is lowered by
+  Unicode's simple mapping for ASCII, Latin-1, Latin Extended-A, the letters in pairs of Latin
+  Extended-B and Latin Extended Additional, Greek, Cyrillic, Armenian and the full-width Latin
+  letters, and any other is compared as it is. With `options.path` the text is a path: a `/` and a
+  `\` are one character, a pattern with a `/` in it is matched against the whole path, and any other,
+  where it is in the path's last part (the name; a separator at the end left out), scores above any
+  match that is not. `options.highlight` says which places: `"best"` (the default), those that gave
+  the score, or `"first"`, where the pattern is first all there, from as late a first character as
+  that allows; the score is the same. A match whose table of scores would pass 32 768 places is
+  scored along the places `"first"` gives.
+- `fuzzy.filter(pattern, items, options)` is the items the pattern is in,
+  `{ { item =, index =, score =, positions = }, ... }`, a higher score first and of two the same the
+  earlier item; with an empty pattern every item in order. Its options are `match`'s and `text` (an
+  item's text where the items are not strings: a function of the item, or the name of its field; a
+  number is its digits) and `limit` (how many to keep at most: the best, kept as they are found). It
+  does all at once.
+- `fuzzy.search(pattern, items, options)` (the same options) goes through the items a list holds
+  when it is made a step at a time. `search:step(budget)` goes through at least one item, until what
+  it compared (bytes of text and places of the tables of scores) comes to `budget` (60 000 unless
+  said, some milliseconds), and says whether it is over; `search:results()` is the best so far, in
+  order (a list without a `limit` is sorted again as it grows: a long one is searched with a limit);
+  `search:progress()` how many items it went through and of how many; `search:done()` whether it goes
+  no further (it went through every item or was cancelled); `search:cancel()` stops it, keeping what
+  it found. `search:run(on_progress)` does a step at once and returns what `on_progress(search)`
+  returns for it (a reply, for the page to answer with), then goes on by itself, a step a frame: a
+  timer of its own (`pencere.time.after(0, …)`) wakes the page, does a step and tells `on_progress`,
+  whose reply is the wake's, until it is done or cancelled. `search:narrow(pattern)` is a search for
+  `pattern` in its place, with its items and options, and cancels it: where every text the new
+  pattern is in, the old one's is in as well (its characters in the new pattern's in order, told
+  apart in case no less), it goes only through what the old one found and the items it had not gone
+  through. An error a list's item gives (no text) is the caller's, at its line; in a step `run` goes
+  on with, the page's.
+- `fuzzy.spans(text, positions, look, from, to)` is the text as parts of a text of many looks
+  (`pencere.rich`): the characters at the places in `look`, what a `pencere.span` says (`color`,
+  `weight`, `italic`, `underline`, `strike`, `family`, `bg`, `link`;
+  `{ color = "accent", weight = 700 }` where none is given), the rest in the element's own look.
+  `from` and `to` (characters) take a part of the text, the places counted in the whole; places
+  outside it are passed over. It makes at most 1 024 parts, the rest plain in the last.
+
+#### `@pencere/keys`
+
+Keys as a page writes them (`"cmd+shift+k"`, Section 2.1), as a person reads them
+(`local keys = require("@pencere/keys")`).
+
+- `keys.parse(words)` is `pencere.keys(words)` with the key checked and named as a key event names
+  it (`"page_up"`, `"delete"`, `"enter"`, `"escape"`, `" "`, `"f1"` to `"f20"`, or one character), or
+  nil and why for words that are not keys.
+- `keys.caps(words, options)` is a cap for each key (`{ "⇧", "⌘", "K" }`), and
+  `keys.label(words, options)` the label: on a Mac the caps with nothing between (`"⇧⌘K"`), elsewhere
+  joined by `+` (`"Ctrl+Shift+K"`). `words` are words or what `keys.parse` made; words that are not
+  keys are an error at the caller's line. A Mac writes the modifiers in the order ⌃ ⌥ ⇧ ⌘ and the keys
+  `↑ ↓ ← →`, `⇞ ⇟` (page up, down), `↖ ↘` (home, end), `↩` (enter), `⎋` (escape), `⇥` (tab), `⌫`
+  (backspace), `⌦` (delete), `␣` (space); any other platform `Ctrl`, `Alt`, `Shift`, `Super` in that
+  order and `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Enter`, `Esc`, `Tab`,
+  `Backspace`, `Delete`, `Space`. Both write a function key `F5` and a letter as a capital (ASCII,
+  Latin-1, Latin Extended-A, Greek and Cyrillic; another character as it is). `cmd` is the command
+  key, matched as it is and never as control: elsewhere than on a Mac it is the system's logo key,
+  `Super`.
+- `options.platform` is `"mac"` or `"other"`; where it is not given it is `keys.platform()`, which
+  `keys.set_platform(name)` sets for the page and which is `"mac"`: the interface does not tell a page
+  its host's platform. When it does, the host's word is the default.
+- `keys.matches(event, words)` is whether a key event (`key` or `key_up`, or a table with no `type`)
+  is those keys: the same modifiers, no more and no fewer, and the same key, a character in either
+  case, as the host matches a command's keys; an event of another type is not.
+
 ## 3. Colours
 
 A colour is said in one of these ways, wherever one is taken:

@@ -32,6 +32,10 @@ mod guests_tests;
 #[cfg(test)]
 mod images_tests;
 #[cfg(test)]
+mod library_fuzzy_tests;
+#[cfg(test)]
+mod library_keys_tests;
+#[cfg(test)]
 mod library_languages_tests;
 #[cfg(test)]
 mod library_tests;
