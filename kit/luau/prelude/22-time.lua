@@ -14,6 +14,7 @@
 --   saving:cancel()             -- whether it was still waiting
 --   clock:active()              -- whether it is
 --   pencere.time.now()          -- the time the host last gave the page
+--   pencere.time.wall()         -- the time of day: Unix seconds, and the local offset
 --
 -- `after(seconds, fn)` runs `fn` once, `seconds` (0 or more) from now; `every(seconds, fn)` every
 -- `seconds` (more than 0) from now on, and once, not once for each, for runs it fell behind on. A
@@ -287,6 +288,14 @@ end
 -- The time the host last gave the page, seconds on its clock (0 before it gave any).
 function time.now()
 	return known
+end
+
+-- The time of day now, as the host's system says it: seconds of Unix time (since 1970-01-01
+-- 00:00:00 UTC), and how far the person's local time is ahead of UTC, seconds. Read as it is
+-- asked, it goes on within a call, unlike `time.now()`; it is no clock to time a page's work by
+-- (the person may set the system's clock), but what "4 minutes ago" and "14:32" are told from.
+function time.wall()
+	return pencere.host.wall_clock()
 end
 
 -- Stops the timer: whether it was still waiting (an `after` that ran is not).

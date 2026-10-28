@@ -53,13 +53,29 @@ local host = {
 	editor_text = pencere.editor_text,
 	line_start = pencere.line_start,
 	line_of = pencere.line_of,
+	wall_clock = pencere.wall_clock,
+	keyboard = pencere.keyboard,
 }
 pencere.send, pencere.hit, pencere.ids_at, pencere.bounds = nil, nil, nil, nil
 pencere.scroll_extent, pencere.scroll_to, pencere.focus_order, pencere.path_of = nil, nil, nil, nil
 pencere.drag_source, pencere.drop_target = nil, nil
 pencere.editor_version, pencere.editor_length, pencere.editor_lines = nil, nil, nil
 pencere.editor_text, pencere.line_start, pencere.line_of = nil, nil, nil
+pencere.wall_clock, pencere.keyboard = nil, nil
 pencere.host = host
+
+-- How the host's system makes and writes its keyboard shortcuts: "mac" (⌘ the main modifier, the
+-- keys written as signs, ⌘⇧K), "windows" (Ctrl the main one, the keys written as words,
+-- Ctrl+Shift+K) or "linux" (as Windows, the logo key Super). What a page shows of a shortcut, and
+-- which modifier it means by `mod` (`pencere.keys`), follow it.
+local convention = nil
+function pencere.keyboard()
+	-- The same every time it is asked: asked once.
+	if convention == nil then
+		convention = host.keyboard()
+	end
+	return convention
+end
 
 -- A colour with an opacity. Everywhere a colour is taken, a role's name, a "#rrggbb" value and a
 -- { light =, dark = } table do too; `colour` is any of the three, or one `pencere.mix` made (whose

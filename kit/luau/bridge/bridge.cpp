@@ -225,6 +225,25 @@ uint32_t checked_place(lua_State* state, int index, const char* what) {
     return (uint32_t)at;
 }
 
+// The time of day: seconds of Unix time, and the person's offset from UTC, seconds.
+int l_wall_clock(lua_State* state) {
+    pencere_view_system_wall_time_t wall = {};
+    pencere_view_system_wall_clock(&wall);
+    lua_pushnumber(state, wall.seconds);
+    lua_pushnumber(state, (double)wall.utc_offset);
+    return 2;
+}
+
+// How the application's system writes its keyboard shortcuts: "mac", "windows" or "linux".
+int l_keyboard(lua_State* state) {
+    static const char* const kConventions[] = {"mac", "windows", "linux"};
+    static_assert(PENCERE_VIEW_SYSTEM_KEY_CONVENTION_MAC == 0 && PENCERE_VIEW_SYSTEM_KEY_CONVENTION_LINUX == 2,
+                  "kConventions is the order of key-convention");
+    pencere_view_system_key_convention_t convention = pencere_view_system_keyboard();
+    lua_pushstring(state, convention <= 2 ? kConventions[convention] : "linux");
+    return 1;
+}
+
 int l_editor_version(lua_State* state) {
     uint64_t version = 0;
     if (pencere_view_layout_editor_version(bridge::id_of(state, 1), &version)) lua_pushnumber(state, (double)version);
@@ -602,6 +621,8 @@ void host_functions(lua_State* state) {
         {"editor_text", l_editor_text},
         {"line_start", l_line_start},
         {"line_of", l_line_of},
+        {"wall_clock", l_wall_clock},
+        {"keyboard", l_keyboard},
         {nullptr, nullptr},
     };
     lua_newtable(state);

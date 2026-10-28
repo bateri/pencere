@@ -451,6 +451,7 @@ fn node(node: Node, lists: &mut Lists) -> wit::Node {
             place: motion.place,
             enter: motion.enter.map(shift),
             exit: motion.exit.map(shift),
+            spin: motion.spin,
         }),
         tip: node.meta.tip.as_ref().map(|tip| wit::Tip {
             words: lists.words(&tip.words),

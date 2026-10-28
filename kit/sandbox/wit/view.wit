@@ -804,6 +804,9 @@ interface types {
         /// How it goes when it is no longer on the page: the application keeps drawing it as it
         /// was, while it goes, and it cannot be pressed meanwhile.
         exit: option<shift>,
+        /// It turns round, clockwise, a turn in this many seconds (more than 0), as long as it is
+        /// on the page: its picture or its canvas about its middle. Not under Reduce Motion.
+        spin: option<f32>,
     }
 
     /// What the application says of an element while the pointer rests on it: the tooltip of a
@@ -1538,6 +1541,35 @@ interface program {
     send: func(message: string) -> delivery;
 }
 
+/// What the module can ask of the system the application runs on: the time of day, and how the
+/// keys of its shortcuts are written.
+interface system {
+    /// The time of day, as the application's system says it.
+    record wall-time {
+        /// Seconds since 1970-01-01 00:00:00 UTC, leap seconds not counted (Unix time).
+        seconds: f64,
+        /// How far the person's local time is ahead of UTC now, seconds (behind it, below 0).
+        utc-offset: s32,
+    }
+
+    /// How the application's system makes and writes its keyboard shortcuts: which modifier is
+    /// the main one, and the words or signs of the keys.
+    enum key-convention {
+        /// A Mac's: ⌘ the main modifier, the keys written as signs (⌘⇧K).
+        mac,
+        /// Windows's: Ctrl the main modifier, the keys written as words (Ctrl+Shift+K), the logo
+        /// key Win.
+        windows,
+        /// Linux's, and any other system's: as Windows's, the logo key Super.
+        linux,
+    }
+
+    /// The time of day now: read as it is asked, so that it goes on within a call.
+    wall-clock: func() -> wall-time;
+    /// The keyboard of the application's system: the same every time it is asked.
+    keyboard: func() -> key-convention;
+}
+
 /// Why a module cannot go on. A module that stops says so before it does, so the person is told
 /// what happened and not only that the page is gone.
 interface diagnostics {
@@ -1600,6 +1632,7 @@ interface page {
 world view {
     import layout;
     import program;
+    import system;
     import diagnostics;
     import script;
     export page;

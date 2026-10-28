@@ -43,6 +43,10 @@ pub struct Motion {
     /// How it goes when it is no longer on the page: the host keeps drawing it, as it was, while
     /// it goes. It cannot be pressed meanwhile.
     pub exit: Option<Shift>,
+    /// It turns round and round, clockwise, a turn in this many seconds, for as long as it is on
+    /// the page (a spinner while something loads): its picture or its canvas turns about its
+    /// middle, its box and its place stay. It does not turn under Reduce Motion.
+    pub spin: Option<f32>,
 }
 
 impl Motion {
@@ -58,6 +62,7 @@ impl Motion {
             place: false,
             enter: None,
             exit: None,
+            spin: None,
         }
     }
 
@@ -107,6 +112,16 @@ impl Motion {
     pub const fn exit(self, to: Shift) -> Self {
         Self {
             exit: Some(to),
+            ..self
+        }
+    }
+
+    /// It turns round, clockwise, a turn in `seconds` (more than 0), for as long as it is on the
+    /// page ([`Motion::spin`]).
+    #[must_use]
+    pub const fn spin(self, seconds: f32) -> Self {
+        Self {
+            spin: Some(seconds),
             ..self
         }
     }
@@ -451,6 +466,22 @@ impl Motions {
         self.before(&mut root, now, still, &mut seen, &mut fresh, &mut moving);
         let mut laid = layout(root, viewport, scale, measure);
         self.after(&mut laid, now, still, first, &seen, &fresh, &mut moving);
+        // What spins turns with the clock, whatever else moves, and never under Reduce Motion: a
+        // spinner asks for every frame while it is on the page.
+        if !reduce_motion {
+            for node in &mut laid.nodes {
+                let Some(seconds) = node.meta.motion.and_then(|motion| motion.spin) else {
+                    continue;
+                };
+                if seconds > 0.0 && seconds.is_finite() && !node.hidden {
+                    let turns = now / f64::from(seconds);
+                    #[allow(clippy::cast_possible_truncation)]
+                    let part = (turns - turns.floor()) as f32;
+                    node.turn = part * 360.0;
+                    moving = true;
+                }
+            }
+        }
         self.moving = moving;
         laid
     }

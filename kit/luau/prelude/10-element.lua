@@ -472,6 +472,9 @@ local EASES = { linear = true, out = true, ["in-out"] = true, spring = true }
 --   place     moved among the others, it slides from where it was to where it is
 --   enter     how it comes in when it appears: { opacity =, dx =, dy =, seconds = }
 --   exit      how it goes when it is no longer on the page, the same
+--   spin      it turns round, clockwise, a turn in this many seconds, while it is on the page: its
+--             picture or its canvas about its middle (a spinner: `image("loader.svg"):motion({
+--             spin = 1 })`); with no id too, and not under Reduce Motion
 -- The element is followed by its id, so one with no id does not move. Nothing moves under Reduce
 -- Motion, on the frame the page changes size, or for what scrolling brings in or takes out.
 function Element:motion(motion)
@@ -481,6 +484,9 @@ function Element:motion(motion)
 	local seconds = motion.seconds or 0.2
 	if motion.ease ~= nil and not EASES[motion.ease] then
 		error('an ease is "out", "linear", "in-out" or "spring", not ' .. tostring(motion.ease), 2)
+	end
+	if motion.spin ~= nil and not (type(motion.spin) == "number" and motion.spin > 0 and motion.spin < math.huge) then
+		error("spin is the seconds of a turn, more than 0, not " .. tostring(motion.spin), 2)
 	end
 	local function shift(given)
 		if given == nil then
@@ -502,6 +508,7 @@ function Element:motion(motion)
 		place = motion.place == true,
 		enter = shift(motion.enter),
 		exit = shift(motion.exit),
+		spin = motion.spin,
 	}
 	return self
 end
@@ -573,7 +580,8 @@ local KEY_NAMES = {
 }
 
 -- Keys as a person writes them, "cmd+shift+k", "ctrl+enter", "f5", as { key =, mods = }. The key
--- `+` is written as itself: "cmd++".
+-- `+` is written as itself: "cmd++". `mod` is the main modifier of the host's system
+-- (`pencere.keyboard()`): "mod+s" is ⌘S on a Mac and Ctrl+S elsewhere.
 function pencere.keys(words)
 	if type(words) ~= "string" then
 		error("keys are written as words: \"cmd+k\", not " .. type(words), 2)
@@ -587,8 +595,11 @@ function pencere.keys(words)
 	local mods = { shift = false, control = false, alt = false, command = false }
 	for index = 1, #parts - 1 do
 		local held = MODIFIERS[string.lower(parts[index])]
+		if string.lower(parts[index]) == "mod" then
+			held = pencere.keyboard() == "mac" and "command" or "control"
+		end
 		if not held then
-			error("\"" .. parts[index] .. "\" is not a modifier (cmd, ctrl, alt or shift)", 2)
+			error("\"" .. parts[index] .. "\" is not a modifier (cmd, ctrl, alt, shift or mod)", 2)
 		end
 		mods[held] = true
 	end

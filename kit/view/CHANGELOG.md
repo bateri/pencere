@@ -16,6 +16,13 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **The time of day, the host's keyboard, and what spins.** `WallTime` (Unix seconds and the
+  person's offset from UTC) and `KeyConvention` (`Mac`, `Windows`, `Linux`, with `primary`, the main
+  modifier) are what a host says of its system; `Shortcut::parse_for` reads `mod` as that modifier
+  (`"mod+s"`). `Motion::spin(seconds)` turns an element's picture or canvas round, clockwise, a turn
+  in so many seconds, while it is on the page and not under Reduce Motion (`Motions` asks for every
+  frame meanwhile): a canvas is turned in its paths, a picture says how far (`Picture::turn`) for
+  the host to draw it turned.
 - **An editor's new commands and asks.** `EditCommand::{FoldAll, DeleteLines, SelectLine,
 DuplicateLinesUp, JoinLines, InsertBlankLine, SplitLine, TransposeChars, DeleteToLineStart,
 DeleteToLineEnd}`; `EditorAsk::Change` has `history` and `tag` (told back in `Edited::tag`);

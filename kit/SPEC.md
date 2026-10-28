@@ -36,7 +36,9 @@ colours one, `pencere.Syntax` (Section 2.2); and a reply's `link` and `wake`, wi
 use for, commands done by more than one set of keys and menus' entries with keys (Sections 2.1
 and 2.3); and an editor's changes kept out of its history and named, the place it reveals put where
 the page says, the other places of its selection marked, its `editor_ready` and the commands of
-whole lines (Sections 2.1 and 2.3). The kit's own sandbox opens `2.0` and no longer `1.0`.
+whole lines (Sections 2.1 and 2.3); the time of day and the host's keyboard, with `mod` (Sections
+2.1 and 2.2, and the interface's `system`), what spins, and the `null` members of what a page
+decodes (Sections 2.1 and 2.4). The kit's own sandbox opens `2.0` and no longer `1.0`.
 
 The regular expressions of a view (an editor's search, the rules of its indent) are in the syntax of
 Rust's `regex` crate, `1.x` at the release the kit pins (its `Cargo.lock`), and one may take at most
@@ -49,8 +51,8 @@ that an earlier refused) arrives with a new minor version of both kinds, as a la
 
 A script is Luau. What it can use besides the language is the base functions, `string`, `table`,
 `math`, `utf8`, `require` (Section 2.5), and `pencere`, the table the prelude fills. It has no files
-of the system's, no network, no clock but the time `render` and a wake hand it (Section 2.3), and no
-randomness.
+of the system's, no network, no clock but the time `render` and a wake hand it (Section 2.3) and the
+time of day its host says (Section 2.2), and no randomness.
 
 A script **returns the page**, a table of the functions the host calls:
 
@@ -174,7 +176,11 @@ and tells the page `{ type = "command", id = id }` when it is asked for there or
 place of the key. The keys are written as a person writes them: modifiers (`cmd`, `ctrl`, `alt`,
 `shift`) and a key (one character, or the name of a key the page reads) joined by `+`
 (`"cmd+shift+k"`, `"ctrl+enter"`, `"f5"`, `"cmd++"` for the key `+`); `pencere.keys(words)` reads
-them. A command that more than one set of keys does has a list of them
+them. `mod` is the main modifier of the host's system (CodeMirror's `Mod`, Electron's `CmdOrCtrl`):
+`"mod+s"` is ⌘S on a Mac and Ctrl+S elsewhere. `pencere.keyboard()` says how the host's system makes
+and writes its shortcuts: `"mac"` (⌘ the main modifier, the keys written as signs, ⌘⇧K),
+`"windows"` (Ctrl the main one, the keys written as words, Ctrl+Shift+K) or `"linux"` (as Windows,
+the logo key Super); what a page shows of a shortcut follows it. A command that more than one set of keys does has a list of them
 (`{ "ctrl+page_down", "ctrl+alt+right" }`), as an editor's keybindings do: each of them does it, and
 a list of the commands shows the first. A command can be done
 while the keyboard is on its element or inside it: the page says which element has the keyboard with
@@ -314,7 +320,10 @@ A **motion** says how a change of an element moves instead of jumping, as a styl
 default, `"linear"`, `"in-out"`, `"spring"`), and which of `color`, `opacity`, `size` (a width or
 height in points) and `place` (moved among the others, it slides there) follow a change; `enter` and
 `exit` (`{ opacity, dx, dy, seconds }`) say how it comes in when it appears and how it goes when it is
-gone. The host does the moving, frame by frame, and does not ask the page for the frames in between;
+gone. `spin` (seconds, more than 0) turns it round, clockwise, a turn in that many seconds, for as
+long as it is on the page and with no id too: its picture or its canvas turns about its middle, its
+box and its place stay, and the host draws a frame for each step (a spinner while something loads,
+`image("loader.svg"):motion({ spin = 1 })`). The host does the moving, frame by frame, and does not ask the page for the frames in between;
 the element is followed by its id, so one with no id does not move. Nothing moves under Reduce Motion,
 on the frame the page changes size, or for what scrolling brings into view or takes out of it. A row
 of a list is `motion({ place = true, enter = { dy = 6 }, exit = { dy = -3, seconds = 0.14 } })`; a
@@ -342,7 +351,11 @@ program runner's. `pencere.time.after(seconds, fn)` runs `fn` once, `seconds` (0
 `pencere.time.every(seconds, fn)` every `seconds` (more than 0) from then on, once and not once for
 each for runs it fell behind on. Both return a timer: `:cancel()` stops it (`true` where it was still
 waiting) and `:active()` says whether it waits. `pencere.time.now()` is the time the host last gave
-the page, `render`'s `now` or a wake's (0 before any); it does not go on between them. The kit asks
+the page, `render`'s `now` or a wake's (0 before any); it does not go on between them.
+`pencere.time.wall()` is the time of day, as the host's system says it: the seconds of Unix time
+(since 1970-01-01 00:00:00 UTC, leap seconds not counted) and how far the person's local time is
+ahead of UTC, seconds. It is read as it is asked and goes on within a call; it is what "4 minutes
+ago" and "14:32" are told from, and no clock to time a page's work by (the person may set it). The kit asks
 for the wakes its timers want with the page's replies and frames, and when the page is woken runs
 those that are due, in the order of their times (and of their making), before `handle` is told of the
 wake, which it is only where the page asked a `wake` itself. What `fn` returns is a reply, put
@@ -595,7 +608,13 @@ the Rust SDK.)
 What the page says to its program is the six messages of the protocol (Section 9.2):
 `pencere.call(method, params, done, progress)` asks and is answered once, `pencere.subscribe(topic,
 params, on_value)` asks to hear a topic, `pencere.cancel(id)` gives either up, `pencere.json` encodes
-and decodes JSON (arrays and objects nested up to 127 levels, the outermost counting as the first: protocol, Section 4.5). A message the program cannot take yet waits its turn (`pencere.send`, the raw word,
+and decodes JSON (arrays and objects nested up to 127 levels, the outermost counting as the first: protocol, Section 4.5).
+A member that is `null` holds nothing in what is decoded, as one that is not there does, so that
+`if changes.git then` reads both alike; where they mean different things, `pencere.json.has(object,
+key)` says whether the object had the key (`null` too) and `pencere.json.is_null(object, key)`
+whether it had it as `null`, for every object decoded, those of the program's messages included,
+while the page has set nothing at that key. What is decoded is encoded again as it was: its `null`
+members, and an empty list as a list. A message the program cannot take yet waits its turn (`pencere.send`, the raw word,
 says whether it took the message), and the host holds the page to the limits of Section 5.
 
 ### 2.5 The other scripts of the bundle
@@ -744,6 +763,13 @@ A host:
   page and comes back, or ends outside it, is followed to its end;
 - tells the page the middle button, the keys that go up after it was told they went down, the
   modifiers when they alone change, and the files dropped on the page from outside it;
+- says the time of day as its system does, with the person's offset from UTC (the interface's
+  `system.wall-clock`, `Program::wall_clock`: the sandbox's own default reads the system's clock and
+  knows no time zone, so a host that knows the person's says it), and how its system makes and
+  writes shortcuts (`system.keyboard`, `Program::keyboard`: `mac`, `windows` or `linux`);
+- draws a picture turned where its draw list says (`Picture::turn`, degrees clockwise about the
+  middle of its rectangle, cut at its rectangle turned with it): what spins (a canvas that spins is
+  turned before it reaches the host, and draws as any other);
 - puts an editor of its own (`pencere-editor`, the same in every host) in each editor's room
   (`Laid::editors`), tells the page each one it makes (`editor_ready`, its text posted first), keeps
   its document as long as an editor of that name is on the page, hidden or

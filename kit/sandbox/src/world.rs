@@ -17,9 +17,9 @@ use pencere_view::wire::{
 };
 use pencere_view::{
     AccessibleRole, Align, Anchor, Border, Button, Color, Command, Cursor, Ease, Element, Event,
-    Extent, Family, Fill, Gradient, Id, Input, Key, Keyboard, Laid, Menu, MenuEntry, Mix, Mods,
-    Motion, Path, Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift, Shortcut, Side,
-    Size, Source, Span, State, Stroke, Tip, Track,
+    Extent, Family, Fill, Gradient, Id, Input, Key, KeyConvention, Keyboard, Laid, Menu, MenuEntry,
+    Mix, Mods, Motion, Path, Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift,
+    Shortcut, Side, Size, Source, Span, State, Stroke, Tip, Track,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -65,6 +65,30 @@ impl pencere::view::program::Host for Host {
         }
         self.sent.push(message);
         Delivery::Accepted
+    }
+}
+
+impl pencere::view::system::Host for Host {
+    fn wall_clock(&mut self) -> pencere::view::system::WallTime {
+        let wall = self.program.wall_clock();
+        // A time that is no number of seconds is no time of day: the start of Unix time.
+        pencere::view::system::WallTime {
+            seconds: if wall.seconds.is_finite() {
+                wall.seconds
+            } else {
+                0.0
+            },
+            utc_offset: wall.utc_offset,
+        }
+    }
+
+    fn keyboard(&mut self) -> pencere::view::system::KeyConvention {
+        use pencere::view::system::KeyConvention as Wit;
+        match self.program.keyboard() {
+            KeyConvention::Mac => Wit::Mac,
+            KeyConvention::Windows => Wit::Windows,
+            KeyConvention::Linux => Wit::Linux,
+        }
     }
 }
 
@@ -1123,6 +1147,10 @@ fn motion_out(motion: wit::Motion) -> Motion {
         place: motion.place,
         enter: motion.enter.map(shift_out),
         exit: motion.exit.map(shift_out),
+        // A turn of no time, of less, or of no number of seconds is no turning.
+        spin: motion
+            .spin
+            .filter(|seconds| seconds.is_finite() && *seconds > 0.0),
     }
 }
 

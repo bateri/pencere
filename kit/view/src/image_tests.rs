@@ -347,3 +347,30 @@ fn a_hidden_image_asks_for_nothing_to_be_drawn() {
     let page = laid(root, &mut host, 100.0, 100.0, 1.0);
     assert!(pictures(&page.paint(&mut host)).is_empty());
 }
+
+/// A picture that spins is turned with the clock, about its middle, a turn in the seconds it says,
+/// and is laid out again at every frame while it is on the page; under Reduce Motion it is still.
+#[test]
+fn a_picture_that_spins_is_turned_with_the_clock_and_still_under_reduce_motion() {
+    use crate::{Id, Motion, Motions};
+    let page = || {
+        div().child(
+            image("loader.svg", Fit::Contain)
+                .size(16.0, 16.0)
+                .id(Id::new(1))
+                .motion(Motion::new(0.2).spin(2.0)),
+        )
+    };
+    let mut host = Images::with("loader.svg", 16.0, 16.0);
+    let mut motions = Motions::default();
+    let size = Size::new(100.0, 100.0);
+    let turn = |laid: &crate::Laid, host: &mut Images| pictures(&laid.paint(host))[0].turn;
+    let laid = motions.layout(page(), size, 1.0, &mut host, 0.5, false);
+    assert!((turn(&laid, &mut host) - 90.0).abs() < 0.01);
+    assert!(motions.moving());
+    let laid = motions.layout(page(), size, 1.0, &mut host, 3.0, false);
+    assert!((turn(&laid, &mut host) - 180.0).abs() < 0.01);
+    let laid = motions.layout(page(), size, 1.0, &mut host, 3.5, true);
+    assert_eq!(turn(&laid, &mut host), 0.0);
+    assert!(!motions.moving());
+}

@@ -8,6 +8,8 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Changed
 
+- A page can ask the time of day (`wall_clock`, a `WallTime`) and how the application's system
+  writes keys (`keyboard`, a `KeyConvention`); a motion's `spin` crosses the interface.
 - An editor's new commands, a change's `history` and `tag`, a reveal's `align`, an editor's
   `matches`, and the event `EditorReady` cross the interface; `Fill` and `FieldState` are exported.
 - A command's keys are a list (`Command::keys` adds one), a menu's entry has keys as a command does,

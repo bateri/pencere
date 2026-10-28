@@ -540,3 +540,124 @@ fn what_is_typed_is_undone_in_groups_by_the_hosts_clock() -> Result<(), Error> {
     assert_eq!(page.editor_text("e").as_deref(), Some(""));
     Ok(())
 }
+
+/// A member the program sent as `null` holds nothing, as one it left out does, and the page tells
+/// the two apart where they mean different things: `git: null` is a repository gone, no `git`
+/// nothing changed. An object read is written again with its `null`s.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_tells_a_member_that_is_null_from_one_that_is_not_there() -> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local said = {}
+local json = pencere.json
+return {
+    render = function()
+        return pencere.div():child(pencere.text(table.concat(said, "|")))
+    end,
+    message = function(message)
+        local changes = message.changes
+        said[#said + 1] = string.format("%s %s %s %s", tostring(changes.git ~= nil),
+            tostring(json.has(changes, "git")), tostring(json.is_null(changes, "git")),
+            json.encode(changes))
+        return true
+    end,
+}
+"#,
+    )
+    .open()?;
+    page.tell(r#"{"changes":{"git":null,"dirs":["a"]}}"#)?;
+    page.tell(r#"{"changes":{"dirs":[]}}"#)?;
+    page.tell(r#"{"changes":{"git":{"branch":"main"}}}"#)?;
+    assert_eq!(
+        page.tree_words().last().map(String::as_str),
+        Some(
+            r#"false true true {"dirs":["a"],"git":null}|false false false {"dirs":[]}|true true false {"git":{"branch":"main"}}"#
+        )
+    );
+    Ok(())
+}
+
+/// The time of day is the host's, and goes on with its clock; how the host's system writes its
+/// keys is the host's too, and `mod` is its main modifier.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_reads_the_time_of_day_and_the_keyboard_of_the_hosts_system() -> Result<(), Error> {
+    let script = r#"
+local said = "nothing"
+return {
+    render = function()
+        local seconds, offset = pencere.time.wall()
+        return pencere.div():size_full():command("save", "Save", "mod+s")
+            :child(pencere.text(string.format("%d %d %s %s", seconds, offset, pencere.keyboard(), said)))
+    end,
+    handle = function(event)
+        if event.type == "command" then
+            said = event.id
+            return true
+        end
+    end,
+}
+"#;
+    let mut page = Headless::script(script)
+        .wall_clock(1_000.0, 3 * 3600)
+        .keyboard(pencere_view::KeyConvention::Linux)
+        .open()?;
+    assert_eq!(page.tree_words(), ["1000 10800 linux nothing"]);
+    page.advance(5.0)?;
+    page.press("ctrl+s")?;
+    assert_eq!(page.tree_words(), ["1005 10800 linux save"]);
+    // A Mac's main modifier is command: the same words are other keys there.
+    let mut mac = Headless::script(script).open()?;
+    mac.press("ctrl+s")?;
+    assert_eq!(
+        mac.tree_words(),
+        [format!("{} 0 mac nothing", crate::headless::WALL_ORIGIN)]
+    );
+    mac.press("mod+s")?;
+    assert!(mac.tree_words()[0].ends_with("mac save"));
+    Ok(())
+}
+
+/// A picture that spins turns with the clock, a turn in the seconds it says, and is still under
+/// Reduce Motion.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_canvas_that_spins_turns_with_the_clock_and_not_under_reduce_motion() -> Result<(), Error> {
+    let script = r#"
+return {
+    render = function()
+        return pencere.div():size_full():child(
+            pencere.canvas({ pencere.path():move_to(10, 0):line_to(10, 5):stroke(1, "accent") })
+                :size(20, 20):motion({ spin = 2 }))
+    end,
+}
+"#;
+    let first = |page: &Headless| {
+        page.list().items.iter().find_map(|item| match item {
+            Paint::Figure(figure) => match figure.paths[0].segments[0] {
+                pencere_view::Segment::Move(at) => Some(at),
+                _ => None,
+            },
+            _ => None,
+        })
+    };
+    let mut page = Headless::script(script).open()?;
+    let start = first(&page).expect("a figure");
+    page.advance(0.5)?;
+    // A quarter of a turn: the point at the top of the middle is at its right.
+    let quarter = first(&page).expect("a figure");
+    assert!(
+        (start.x - 10.0).abs() < 0.01 && start.y.abs() < 0.01,
+        "{start:?}"
+    );
+    assert!(
+        (quarter.x - 20.0).abs() < 0.01 && (quarter.y - 10.0).abs() < 0.01,
+        "{quarter:?}"
+    );
+    let mut still = Headless::script(script).reduce_motion(true).open()?;
+    still.advance(0.5)?;
+    let at = first(&still).expect("a figure");
+    assert!((at.x - 10.0).abs() < 0.01 && at.y.abs() < 0.01, "{at:?}");
+    Ok(())
+}

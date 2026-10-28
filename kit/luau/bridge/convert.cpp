@@ -650,6 +650,7 @@ pencere_view_types_motion_t motion_at(lua_State* L, int index) {
     motion.place = flag(L, index, "place");
     motion.enter = optional_shift(L, index, "enter");
     motion.exit = optional_shift(L, index, "exit");
+    motion.spin = optional_number(L, index, "spin");
     return motion;
 }
 

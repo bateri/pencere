@@ -18,6 +18,16 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **A `null` member is told from an absent one.** `pencere.json.has(object, key)` and
+  `pencere.json.is_null(object, key)` say whether an object decoded had a key and whether as `null`,
+  for the program's messages too, while `if v.key then` reads both alike as before; what is decoded
+  is encoded again with its `null`s, and an empty list as a list (it was written as `{}`).
+- **The time of day and the host's keyboard.** The interface's `system` (`wall-clock`, `keyboard`)
+  is answered by `Program::wall_clock` (by default the system's clock in UTC: the sandbox knows no
+  time zone, a host that knows the person's says it) and `Program::keyboard` (by default the system
+  it is built for). A script reads them as `pencere.time.wall()` (seconds, offset) and
+  `pencere.keyboard()` (`"mac"`, `"windows"`, `"linux"`), and `pencere.keys` reads `mod` as the main
+  modifier. A motion's `spin` crosses the interface.
 - **An editor's new commands and asks across the interface.** The editor's new commands (`fold-all`,
   `delete-lines`, `select-line`, `duplicate-lines-up`, `join-lines`, `insert-blank-line`,
   `split-line`, `transpose-chars`, `delete-to-line-start`, `delete-to-line-end`), a change's

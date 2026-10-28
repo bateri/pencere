@@ -281,7 +281,7 @@ pub fn png(
                     canvas.bitmap(
                         bitmap.pixels(),
                         (bitmap.width, bitmap.height),
-                        figure.rect,
+                        (figure.rect, 0.0),
                         Rect::new(0.0, 0.0, 1.0, 1.0),
                         (None, 1.0),
                         figure.clip,
@@ -295,7 +295,7 @@ pub fn png(
                     canvas.bitmap(
                         bitmap.pixels(),
                         (bitmap.width, bitmap.height),
-                        picture.rect,
+                        (picture.rect, picture.turn),
                         picture.crop,
                         (picture.tint, picture.opacity),
                         picture.clip,
@@ -538,12 +538,13 @@ impl Canvas<'_> {
     }
 
     /// Premultiplied RGBA `pixels` of `size`, the part `crop` says (shares of it) drawn into
-    /// `rect`, in `tint` where there is one, `opacity` of it showing, cut at `clip`.
+    /// `rect`, turned `turn` degrees clockwise about its middle, in `tint` where there is one,
+    /// `opacity` of it showing, cut at `clip`.
     fn bitmap(
         &mut self,
         pixels: &[u8],
         (width, height): (u32, u32),
-        rect: Rect,
+        (rect, turn): (Rect, f32),
         crop: Rect,
         (tint, opacity): (Option<Color>, f32),
         clip: Rect,
@@ -578,6 +579,36 @@ impl Canvas<'_> {
         #[allow(clippy::cast_precision_loss)]
         let (cx, cy) = (crop.x * width as f32, crop.y * height as f32);
         let transform = Transform::from_row(sx, 0.0, 0.0, sy, rect.x - cx * sx, rect.y - cy * sy);
+        if turn != 0.0 {
+            // Turned about the middle of its box, and cut at the box turned with it.
+            let turned =
+                Transform::from_rotate_at(turn, rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
+            let mut mask = self.mask(clip);
+            if let (Some(mask), Some(room)) = (
+                mask.as_mut(),
+                tiny_skia::Rect::from_xywh(rect.x, rect.y, rect.w, rect.h),
+            ) {
+                mask.intersect_path(
+                    &PathBuilder::from_rect(room),
+                    FillRule::Winding,
+                    true,
+                    turned,
+                );
+            }
+            let paint = PixmapPaint {
+                opacity: opacity.clamp(0.0, 1.0),
+                ..PixmapPaint::default()
+            };
+            self.pixmap.draw_pixmap(
+                0,
+                0,
+                source,
+                &paint,
+                transform.post_concat(turned),
+                mask.as_ref(),
+            );
+            return;
+        }
         let Some(shown) = intersect(rect, clip) else {
             return;
         };

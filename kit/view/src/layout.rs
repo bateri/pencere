@@ -130,6 +130,9 @@ pub(crate) struct Node {
     pub overlay: bool,
     /// Nothing inside it is drawn outside it (it clips, or it scrolls).
     pub clips: bool,
+    /// How far its picture or its canvas is turned, degrees clockwise about its middle: where it
+    /// spins ([`crate::Motion::spin`]).
+    pub turn: f32,
 }
 
 /// A page laid out: every element's box, in the order they are painted.
@@ -456,6 +459,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             scroll: entry.scroll,
             overlay: entry.overlay,
             clips: entry.overflow != Overflow::Visible,
+            turn: 0.0,
         });
     }
     // `nodes`, `reach` and `inside` get one entry for every element: they are the same length.
@@ -738,6 +742,7 @@ fn empty(page: Rect) -> Node {
         scroll: (0.0, 0.0),
         overlay: false,
         clips: false,
+        turn: 0.0,
     }
 }
 

@@ -10,6 +10,11 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
 
 ### Added
 
+- **The system the host with no screen says it is.** `Opening::wall_clock(seconds, utc_offset)` is
+  the time of day when its clock reads 0 (`WALL_ORIGIN` in UTC unless said), going on with its
+  clock; `Opening::keyboard` says how its keys are written (a Mac's unless said), and
+  `Headless::press` reads `mod` by it. A picture of a page (`shot`) draws a picture turned where it
+  spins.
 - **An editor says it is ready.** A page is told `Event::EditorReady` for each editor the drive
   makes for its rooms, shown or hidden, its text posted first: a page of tabs loads each document as
   its editor comes, and asks nothing of an editor that is not there yet.
