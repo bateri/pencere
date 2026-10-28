@@ -280,7 +280,8 @@ end)
 - **A test that never ends** is cut off at its timeout (30 seconds, `--timeout`), and a file whose
   process dies costs that file; the files run on `--jobs` workers.
 
-An app of the simple form (its files packed as they lie) does not pack `test/`.
+An app of the simple form (its files packed as they lie) does not pack `test/`, so a program module
+of that form cannot live in a directory of that name.
 
 ## What it is, and is not
 

@@ -18,6 +18,9 @@ use crate::report::{self, FileResult, Pretty, Reporter, Status, Summary, Tap, Te
 /// test short itself, and this is for the one stuck in a call it cannot cut.
 const GRACE: Duration = Duration::from_secs(5);
 
+/// How long a worker that was asked to end is given before it is ended.
+const ASKED: Duration = Duration::from_secs(2);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Format {
     Pretty,
@@ -65,8 +68,12 @@ pub fn find_tests(directory: &Path, found: &mut Vec<PathBuf>) {
         if name.starts_with('.') {
             continue;
         }
-        if path.is_dir() {
-            find_tests(&path, found);
+        // A link to a directory is not followed: it may lead back to where it is.
+        let is_dir = std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_dir());
+        if is_dir {
+            if name != "node_modules" {
+                find_tests(&path, found);
+            }
         } else if name.ends_with("_test.lua") {
             found.push(path);
         }
@@ -111,6 +118,8 @@ struct Worker {
     /// When the test it is on must be over, with the grace.
     by: Option<Instant>,
     killed: bool,
+    /// When it was asked to end: if it has not by `ASKED`, it is made to.
+    asked_at: Option<Instant>,
 }
 
 enum Message {
@@ -166,6 +175,7 @@ fn spawn(
         file: None,
         by: None,
         killed: false,
+        asked_at: None,
     })
 }
 
@@ -471,7 +481,19 @@ fn execute(
         let now = Instant::now();
         for worker in &mut workers {
             if worker.by.is_some_and(|by| now > by) && !worker.killed {
+                // Asked first, as a terminal's hangup asks: the worker's handler ends the groups of
+                // the programs its app started before it ends itself, which a kill would leave be.
                 worker.killed = true;
+                worker.asked_at = Some(now);
+                let asked = i32::try_from(worker.child.id())
+                    // SAFETY: a signal to the process this one started.
+                    .is_ok_and(|pid| unsafe { libc::kill(pid, libc::SIGTERM) } == 0);
+                if !asked {
+                    let _ = worker.child.kill();
+                }
+            } else if worker.asked_at.is_some_and(|at| now > at + ASKED) {
+                // It did not end when asked (stuck where a signal handler cannot run it): ended.
+                worker.asked_at = None;
                 let _ = worker.child.kill();
             }
         }

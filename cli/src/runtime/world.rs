@@ -23,7 +23,12 @@ impl Env {
     /// The process's own environment and directory, as they are now: what a layer is laid over.
     pub fn of_process() -> std::io::Result<Self> {
         Ok(Self {
-            vars: std::env::vars().collect(),
+            // A variable that is not text is not one an app can read.
+            vars: std::env::vars_os()
+                .filter_map(|(name, value)| {
+                    Some((name.into_string().ok()?, value.into_string().ok()?))
+                })
+                .collect(),
             cwd: std::env::current_dir()?,
         })
     }
@@ -83,12 +88,7 @@ impl World {
         let Some(env) = &self.env else {
             return Command::new(program);
         };
-        // A relative path to a program is found from where the app is, as a path of the app's is.
-        let program = if program.contains('/') {
-            self.path(program).into_os_string()
-        } else {
-            program.into()
-        };
+        // A relative path to a program is found from the directory it starts in, as for a process.
         let mut command = Command::new(program);
         command.env_clear().envs(&env.vars).current_dir(&env.cwd);
         command

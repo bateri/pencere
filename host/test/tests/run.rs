@@ -379,6 +379,38 @@ fn a_file_that_never_finishes_loading_is_ended_with_its_process_and_the_run_goes
 }
 
 #[test]
+fn the_programs_a_stuck_test_started_are_ended_with_its_process() {
+    let app = App::new(
+        "children",
+        &[(
+            "test/children_test.lua",
+            r#"local test = require("pencere.test")
+local pencere = require("pencere")
+
+test("waits for a program for longer than it has", function()
+	pencere.process.spawn { argv = { "sleep", "31.77" } }
+	pencere.process.run { "sleep", "31.78" }
+end)
+"#,
+        )],
+    );
+    let (code, text) = tap(&app, &["--timeout", "0.5"]);
+    assert_eq!(code, 1, "{text}");
+    assert!(text.contains("timed_out: true"), "{text}");
+    for duration in ["31.77", "31.78"] {
+        let left = Command::new("pgrep")
+            .args(["-f", &format!("sleep {duration}")])
+            .output()
+            .expect("pgrep runs");
+        assert!(
+            String::from_utf8_lossy(&left.stdout).trim().is_empty(),
+            "sleep {duration} is still running: {}",
+            String::from_utf8_lossy(&left.stdout)
+        );
+    }
+}
+
+#[test]
 fn the_tests_of_an_app_see_its_program_and_its_own_helpers_before_them_and_never_a_file_that_takes_the_modules_name()
  {
     let app = App::new(
@@ -613,6 +645,50 @@ end)
     let (code, text) = tap(&app, &[]);
     assert_eq!(code, 0, "{text}");
     assert!(text.contains("1..2"), "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn a_program_that_closes_its_view_goes_on_after_its_serve_as_it_does_under_a_terminal() {
+    let app = App::template("closing");
+    let _ = std::fs::remove_file(app.dir.join("test/page_test.lua"));
+    app.write(
+        "src/view/page.lua",
+        &PAGE
+            .replace("{{name}}", "demo")
+            .replace("\"hello\"", "\"leave\"")
+            .replace("b.text(\"Greet\")", "b.text(\"Leave\")"),
+    );
+    app.write(
+        "src/program/app.lua",
+        r#"local pencere = require("pencere")
+local outcome = pencere.serve {
+	calls = {
+		leave = function()
+			pencere.close_view()
+			return { message = "bye" }
+		end,
+	},
+	topics = { clock = function() end },
+}
+print("serve ended", outcome.ended)
+"#,
+    );
+    app.write(
+        "test/closing_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("the program closes its view and goes on", function()
+	local page = test.open()
+	pcall(function() page:get_by_role("button", { name = "Leave" }):click() end)
+	page:wait_for(function() return string.find(page:log(), "serve ended\tprogram", 1, true) ~= nil end)
+	expect(page:closed() or true):to_be(true)
+end)
+"#,
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
 }
 
 /// The Rust example, built by Cargo into a directory of its own (so that this test run and the

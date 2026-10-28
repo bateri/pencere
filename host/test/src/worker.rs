@@ -26,6 +26,9 @@ pub fn main() -> ExitCode {
             eprintln!("pencere-test: the worker's channel cannot be set up");
             return ExitCode::from(70);
         }
+        // Not inherited: a program the app under test starts must not hold the channel open past the
+        // worker's end, or the coordinator would never see it end.
+        libc::fcntl(copy, libc::F_SETFD, libc::FD_CLOEXEC);
         std::fs::File::from_raw_fd(copy)
     };
     let channel = Rc::new(std::cell::RefCell::new(channel));

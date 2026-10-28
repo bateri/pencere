@@ -35,7 +35,7 @@ fn seconds(value: f64, what: &str) -> mlua::Result<Duration> {
 pub fn natives(lua: &Lua, core: &Rc<Core>) -> mlua::Result<Table> {
     let native = lua.create_table()?;
     native.set("fs", files(lua, &core.world)?)?;
-    native.set("path", paths(lua)?)?;
+    native.set("path", paths(lua, &core.world)?)?;
     native.set("env", environment(lua, &core.world)?)?;
     native.set("json", json(lua)?)?;
     native.set("hash", hash(lua)?)?;
@@ -489,7 +489,7 @@ fn files(lua: &Lua, world: &Rc<World>) -> mlua::Result<Table> {
 
 // ---- path ----------------------------------------------------------------------------------
 
-fn paths(lua: &Lua) -> mlua::Result<Table> {
+fn paths(lua: &Lua, world: &Rc<World>) -> mlua::Result<Table> {
     let table = lua.create_table()?;
     table.set("separator", "/")?;
     // path.join("a", "b", "/c") -> "/c": a part that starts with a separator starts again.
@@ -530,10 +530,11 @@ fn paths(lua: &Lua) -> mlua::Result<Table> {
                 .map_or_else(String::new, |ext| ext.to_string_lossy().into_owned()))
         })?,
     )?;
+    let at = Rc::clone(world);
     table.set(
         "absolute",
-        lua.create_function(|_, path: String| {
-            std::path::absolute(&path)
+        lua.create_function(move |_, path: String| {
+            std::path::absolute(at.path(&path))
                 .map(|path| path.display().to_string())
                 .map_err(|why| fail("path.absolute", &path, &why))
         })?,

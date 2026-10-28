@@ -926,6 +926,7 @@ fn an_environment_of_its_own_is_what_the_app_and_the_programs_it_runs_find() {
         local pencere = require("pencere")
         print(pencere.env.get("LAYERED"), pencere.env.get("HOME_OF_PROCESS"), pencere.os.home())
         print(pencere.fs.cwd() == pencere.env.get("WHERE"))
+        print(pencere.path.absolute("x") == pencere.env.get("WHERE") .. "/x")
         print(pencere.fs.read("note.txt"), pencere.fs.exists("note.txt"))
         pencere.fs.write("made.txt", "made")
         print(pencere.fs.read(pencere.env.get("WHERE") .. "/made.txt"))
@@ -956,7 +957,7 @@ fn an_environment_of_its_own_is_what_the_app_and_the_programs_it_runs_find() {
     assert_eq!(
         printed,
         format!(
-            "layer\tnil\t/the/layer/home\ntrue\nin the app's directory\ttrue\nmade\nlayer\n{shown}\nunset\nfalse\tnil\ntrue\n"
+            "layer\tnil\t/the/layer/home\ntrue\ntrue\nin the app's directory\ttrue\nmade\nlayer\n{shown}\nunset\nfalse\tnil\ntrue\n"
         )
     );
     assert_eq!(

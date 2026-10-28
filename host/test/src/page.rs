@@ -75,7 +75,15 @@ impl Handle {
             .page
             .as_mut()
             .ok_or_else(|| words("the page is over: the test that opened it has ended"))?;
-        f(page).map_err(|error| trouble(&error))
+        let done = f(page);
+        // The program closed its view: its `serve` returns, as it does under a terminal.
+        if let Err(Error::Closed(why)) = &done
+            && why.starts_with("the program closed its view")
+            && let Some(app) = open.app.as_mut()
+        {
+            app.end_view();
+        }
+        done.map_err(|error| trouble(&error))
     }
 
     /// Looks at the page.
@@ -423,9 +431,21 @@ impl UserData for Handle {
         });
         methods.add_method("double_click_at", |_, this, (x, y): (f64, f64)| {
             this.act(|page| {
+                use pencere_view::{Button, Input, Mods};
                 let at = point(to_f32(x), to_f32(y));
-                page.click_at(at)?;
-                page.click_at(at)
+                for count in [1, 2] {
+                    page.pointer(Input::Press {
+                        at,
+                        button: Button::Left,
+                        mods: Mods::default(),
+                        count,
+                    })?;
+                    page.pointer(Input::Release {
+                        at,
+                        button: Button::Left,
+                    })?;
+                }
+                Ok(())
             })
         });
         methods.add_method("right_click_at", |_, this, (x, y): (f64, f64)| {

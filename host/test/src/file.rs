@@ -189,7 +189,8 @@ fn collect(
         if name.starts_with('.') {
             continue;
         }
-        if path.is_dir() {
+        // A link to a directory is not followed: it may lead back to where it is.
+        if std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_dir()) {
             collect(base, &path, files)?;
         } else if name.ends_with(".lua") || name.ends_with(".luau") {
             let relative = path

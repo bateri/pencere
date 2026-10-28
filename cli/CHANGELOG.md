@@ -29,7 +29,7 @@ All notable changes to the `pencere` command are recorded here. The format follo
   the command runs the one beside it, or the release's of the same version (checked against its
   `SHA256SUMS`, kept in the cache), or the one `PENCERE_TEST` names. `pencere new` makes the first
   test (Lua and Rust projects; TypeScript with `--page lua`), and a simple-form app does not pack
-  `test/`.
+  `test/` (a program module of that form cannot live in a directory of that name).
 - **`pencere new --lang ts --page lua`.** A TypeScript project whose view is a page of the kit,
   the Lua project's page, with its first test.
 - **`pencere upgrade`.** Replaces the command with the newest release of it, as `install.sh` would

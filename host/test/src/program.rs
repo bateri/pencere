@@ -86,6 +86,11 @@ impl App {
         }
     }
 
+    /// The program's view is over, as the program closing it makes it: its `serve` returns.
+    pub fn end_view(&mut self) {
+        drop(self.served.take());
+    }
+
     /// Ends the program: its view is over, and it is asked to end if it goes on.
     pub fn stop(mut self) {
         drop(self.served.take());
