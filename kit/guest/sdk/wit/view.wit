@@ -694,6 +694,9 @@ interface types {
         /// is drawn as the others are). With the guides off and that one not, it alone is drawn.
         indent-guides: editor-tint,
         active-indent-guide: editor-tint,
+        /// The ground of the other places of the main selection's text (the theme's selection at
+        /// 40%).
+        matches: editor-tint,
     }
 
     /// How an editor is set up (`node.editor`): said every frame.
@@ -739,6 +742,22 @@ interface types {
         /// text around it, where it is not in a run of more than 1 000 such lines), on the first
         /// row of a line.
         indent-guides: bool,
+        /// Which other places of the main selection's text are marked where they are in view.
+        matches: editor-matches,
+    }
+
+    /// Which other places of the main selection's text an editor marks: those of a selection on
+    /// one line (at most 200 characters, not all spaces; where it is a whole word, the places it is
+    /// a whole word), in the case written, at most 100 in view, the selection itself not among
+    /// them. Only drawn.
+    enum editor-matches {
+        /// None.
+        none,
+        /// The other places of what is selected.
+        selection,
+        /// Those, and, where the main selection is a caret in a word, the other places that word
+        /// is, as whole words.
+        word,
     }
 
     /// How a move goes over its time.
@@ -1040,6 +1059,8 @@ interface types {
         version: u64,
         changes: list<change>,
         origin: origin,
+        /// The page's name for a change it asked for (its `change-set`'s `tag`); none for others.
+        tag: option<string>,
     }
 
     /// Where an editor's carets and selections are.
@@ -1141,6 +1162,15 @@ interface types {
         /// `now`, seconds on the clock `render` is given. Told only to a page that asked, and at
         /// most once a frame; the page answers as it answers anything else it is told.
         wake(f64),
+        /// The application made an editor the page named and laid out, hidden or not: what the page
+        /// asks of it is done from now on, and its text is posted before this is told.
+        editor-ready(editor-ready),
+    }
+
+    /// An editor the application has made, and the version of its document.
+    record editor-ready {
+        editor: id,
+        version: u64,
     }
 
     /// The shape the pointer takes over the page.
@@ -1254,6 +1284,31 @@ interface types {
         /// Each range put in the language's block comment, or taken out of it where it is in one; a
         /// caret's range is its line's text.
         toggle-block-comment,
+        /// Every region that folds and is in none that does, folded.
+        fold-all,
+        /// The lines of each range taken out with their breaks, the caret on the line that comes in
+        /// their place as far along it as it was.
+        delete-lines,
+        /// The lines of each range selected whole; a range that is whole lines already takes the
+        /// next one too.
+        select-line,
+        /// The lines of each range once more above them, the ranges on the copy.
+        duplicate-lines-up,
+        /// Each line of a range joined with the next (a caret's line with the one after it), the
+        /// later line's indent taken away and a space between them.
+        join-lines,
+        /// A line after each caret's line, indented as a line break at its end would indent it,
+        /// the caret on it.
+        insert-blank-line,
+        /// A line break at each caret, the caret staying before it.
+        split-line,
+        /// The characters on either side of each caret swapped (at the end of a line, the two
+        /// before it), the caret after them.
+        transpose-chars,
+        /// From each caret to the start of its line taken out, or the line break before it.
+        delete-to-line-start,
+        /// From each caret to the end of its line taken out, or the line break after it.
+        delete-to-line-end,
     }
 
     /// A line under some characters.
@@ -1308,6 +1363,11 @@ interface types {
         /// The version the changes are made against.
         base: u64,
         changes: list<change>,
+        /// They are undone as one; where false, not undone at all, and what can be undone is
+        /// carried over them (a file read again from disk keeps what was done to it before).
+        history: bool,
+        /// The page's name for them, told back in the `edited` of them.
+        tag: option<string>,
     }
 
     record select-ranges {
@@ -1319,6 +1379,20 @@ interface types {
     record reveal {
         version: u64,
         at: u32,
+        /// Where its row goes in the room.
+        align: reveal-align,
+    }
+
+    /// Where a place an editor reveals is put in its room.
+    enum reveal-align {
+        /// Scrolled only as far as it takes to show it, and not at all where it shows.
+        nearest,
+        /// Its row at the top of the room.
+        start,
+        /// Its row in the middle of the room.
+        center,
+        /// Its row at the bottom of the room.
+        end,
     }
 
     /// What the page asks of an editor.

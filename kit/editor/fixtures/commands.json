@@ -235,6 +235,45 @@
         { "do": "command", "command": "select_all" },
         { "do": "expect", "ranges": [[0, 5]] }
       ]
+    },
+    {
+      "about": "the commands of whole lines: deleting, selecting, copying up and joining them",
+      "text": "one\n  two\nthree",
+      "steps": [
+        { "do": "select", "ranges": [[6, 6]] },
+        { "do": "command", "command": "select_line" },
+        { "do": "expect", "ranges": [[4, 10]] },
+        { "do": "command", "command": "select_line" },
+        { "do": "expect", "ranges": [[4, 15]] },
+        { "do": "select", "ranges": [[1, 1]] },
+        { "do": "command", "command": "join_lines" },
+        { "do": "expect", "text": "one two\nthree", "ranges": [[3, 3]] },
+        { "do": "command", "command": "duplicate_lines_up" },
+        { "do": "expect", "text": "one two\none two\nthree", "ranges": [[3, 3]] },
+        { "do": "command", "command": "delete_lines" },
+        { "do": "expect", "text": "one two\nthree", "ranges": [[3, 3]] },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "one two\none two\nthree" }
+      ]
+    },
+    {
+      "about": "a blank line after the caret's, a break that leaves the caret, two characters swapped and a line cut to its end",
+      "text": "ab\ncd",
+      "steps": [
+        { "do": "select", "ranges": [[1, 1]] },
+        { "do": "command", "command": "insert_blank_line" },
+        { "do": "expect", "text": "ab\n\ncd", "ranges": [[3, 3]] },
+        { "do": "select", "ranges": [[1, 1]] },
+        { "do": "command", "command": "transpose_chars" },
+        { "do": "expect", "text": "ba\n\ncd", "ranges": [[2, 2]] },
+        { "do": "select", "ranges": [[5, 5]] },
+        { "do": "command", "command": "split_line" },
+        { "do": "expect", "text": "ba\n\nc\nd", "ranges": [[5, 5]] },
+        { "do": "command", "command": "delete_to_line_end" },
+        { "do": "expect", "text": "ba\n\ncd", "ranges": [[5, 5]] },
+        { "do": "command", "command": "delete_to_line_start" },
+        { "do": "expect", "text": "ba\n\nd", "ranges": [[4, 4]] }
+      ]
     }
   ]
 }

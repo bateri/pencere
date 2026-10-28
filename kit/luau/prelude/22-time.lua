@@ -145,15 +145,15 @@ local function bytes(value)
 end
 
 -- The text an ask hands an editor, bytes, as the host counts it: a load's, the inserts of a
--- change, the words of the commands that carry some (insert, find, replace, replace_all), the
--- name of a layer decorated.
+-- change and its tag, the words of the commands that carry some (insert, find, replace,
+-- replace_all), the name of a layer decorated.
 local function text_of(ask)
 	if type(ask) ~= "table" then
 		return 0
 	elseif ask.load ~= nil then
 		return bytes(ask.load)
 	elseif ask.change ~= nil then
-		local sum = 0
+		local sum = bytes(ask.tag)
 		if type(ask.change) == "table" then
 			for _, change in ipairs(ask.change) do
 				sum += type(change) == "table" and bytes(change.insert) or 0

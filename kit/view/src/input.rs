@@ -174,6 +174,15 @@ pub enum Event {
         editor: Id,
         found: Found,
     },
+    /// The host made the editor named `editor`: the page named it and it was laid out, hidden or
+    /// not, and what the page asks of it from now on is done. Its text is posted before it is
+    /// told (the version `version`, empty where the editor is new): a page loads a document into
+    /// an editor it has just made, or a tab's that is not in front, when it hears this — as a
+    /// component library tells a component that it is mounted.
+    EditorReady {
+        editor: Id,
+        version: u64,
+    },
     /// The time the page asked to be woken at ([`Reply::wake`]) has come: `now` is the time of the
     /// frame it is woken at, seconds on the clock the page is rendered by. Told only to a page that
     /// asked, and at most once a frame; the page answers as it answers any event.

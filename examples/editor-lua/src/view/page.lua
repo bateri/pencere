@@ -12,7 +12,7 @@
 --   commands of the page only while it is open, and which puts the word in with a change against
 --   the version it was made for (`change`, `base`);
 -- * the program: ⌘↩ sends the statement under the caret to the program, and shows what it says;
--- * a large document, loaded in pieces (`load`, `more`).
+-- * a large document, loaded in pieces (`load`, `more`) once the editor is made (`editor_ready`).
 
 local b = pencere
 local layout = b.layout
@@ -96,7 +96,6 @@ local composing = false
 -- What is to be loaded still, in pieces, and the size of a piece.
 local PIECE = 8 * 1024
 local pending = nil
-local loaded = false
 local note = "⌘↩ runs the statement under the caret."
 
 -- A sample to load: many statements, so that only what is in view is coloured.
@@ -268,13 +267,9 @@ end
 -- What the page does of an event, the colours aside.
 local function respond(event)
 	local kind = event.type
-	if kind == "viewport" and event.editor == SQL then
-		if not loaded then
-			loaded = true
-			pending = sample()
-			return { editor = { [SQL] = { next_piece() } } }
-		end
-		return nil
+	if kind == "editor_ready" and event.editor == SQL then
+		pending = sample()
+		return { editor = { [SQL] = { next_piece() } } }
 	elseif kind == "edit" and event.editor == SQL then
 		version = event.version
 		if event.origin == "load" then

@@ -7,7 +7,7 @@
 use pencere_sandbox::Fault;
 use pencere_view::edit::{
     Caret, CaretHeight, CaretShape, CommentTokens, EditorAsk, EditorColors, EditorOptions, Folds,
-    IndentRules, LineHighlight, Mark, Numbers, Origin, Tint, Whitespace,
+    IndentRules, LineHighlight, Mark, Matches, Numbers, Origin, Tint, Whitespace,
 };
 use pencere_view::{Event, Id, Key, Mods, Paint, Point, Role};
 
@@ -350,8 +350,9 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
                     scroll_margin = 3,
                     numbers = "relative",
                     current_line = "all",
+                    matches = "word",
                     caret = { shape = "block", height = "text", width = 3, color = "accent", text = { "magenta", 0.5 } },
-                    colors = { current_line = false, selection = "raised1", numbers = "dim" },
+                    colors = { current_line = false, selection = "raised1", numbers = "dim", matches = "info" },
                 }):grow(1))
             end,
         }
@@ -372,6 +373,7 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
             scroll_margin: 3,
             numbers: Numbers::Relative,
             current_line: LineHighlight::All,
+            matches: Matches::Word,
             caret: Caret {
                 shape: CaretShape::Block,
                 height: CaretHeight::Text,
@@ -383,6 +385,7 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
                 current_line: Tint::Off,
                 selection: Tint::Color(Role::Raised(1).solid()),
                 numbers: Tint::Color(Role::Dim.solid()),
+                matches: Tint::Color(Role::Info.solid()),
                 ..EditorColors::default()
             },
             ..EditorOptions::default()
@@ -1377,4 +1380,160 @@ fn a_timer_that_fails_fails_the_page_at_its_line_and_a_wake_that_is_no_time_is_a
             "{why}"
         );
     }
+}
+
+/// An editor the page names is made when the page is laid out, shown or hidden, and the page is
+/// told so with its text posted: the documents of a page of tabs are loaded as the editors come,
+/// the one in front and the hidden ones alike, with no guess at when the layout came.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_editor_says_it_is_ready_shown_or_hidden_and_takes_a_load_then() -> Result<(), Error> {
+    let page = open(
+        r#"
+        local said = {}
+        return {
+            render = function()
+                local hidden = pencere.editor("back"):grow(1):hidden()
+                return pencere.div():size_full()
+                    :child(pencere.editor("front"):grow(1))
+                    :child(hidden)
+                    :child(pencere.text(table.concat(said, "|")))
+            end,
+            handle = function(event)
+                if event.type == "editor_ready" then
+                    said[#said + 1] = event.editor .. " v" .. event.version .. " read "
+                        .. tostring(pencere.layout.editor_version(event.editor))
+                    return { redraw = true, editor = { [event.editor] = { load = event.editor .. " text" } } }
+                elseif event.type == "editor_refused" then
+                    said[#said + 1] = "refused " .. event.reason
+                    return true
+                end
+            end,
+        }
+        "#,
+    )?;
+    assert_eq!(text(&page, "front"), "front text");
+    assert_eq!(text(&page, "back"), "back text");
+    assert_eq!(
+        page.tree_words(),
+        vec!["front v0 read 0|back v0 read 0".to_owned()]
+    );
+    Ok(())
+}
+
+/// A change the page makes without a place in the history (a file read again from disk) is not
+/// undone, what the person did before it still is, over it; and the page's name for a change is
+/// told back with it.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_change_kept_out_of_the_history_leaves_what_was_done_before_it_to_undo() -> Result<(), Error> {
+    let mut page = open(
+        r#"
+        local said = {}
+        return {
+            render = function()
+                return pencere.div():size_full()
+                    :child(pencere.editor("e"):grow(1))
+                    :child(pencere.text(table.concat(said, "|")))
+            end,
+            handle = function(event)
+                if event.type == "editor_ready" then
+                    return { editor = { e = { load = "abc" } } }
+                elseif event.type == "edit" then
+                    said[#said + 1] = event.origin .. (event.tag and (":" .. event.tag) or "")
+                    return true
+                end
+            end,
+            message = function(message)
+                local at = pencere.layout.editor_length("e")
+                return { editor = { e = {
+                    change = { { from = at, to = at, insert = message.insert } },
+                    base = pencere.layout.editor_version("e"),
+                    history = false,
+                    tag = "disk",
+                } } }
+            end,
+        }
+        "#,
+    )?;
+    page.focus_editor("e")?;
+    page.type_text("x")?;
+    page.tell(r#"{"insert":"!"}"#)?;
+    assert_eq!(text(&page, "e"), "xabc!");
+    page.press("cmd+z")?;
+    assert_eq!(text(&page, "e"), "abc!");
+    page.press("cmd+shift+z")?;
+    assert_eq!(text(&page, "e"), "xabc!");
+    assert_eq!(
+        page.tree_words(),
+        vec!["load|person|page:disk|undo|redo".to_owned()]
+    );
+    Ok(())
+}
+
+/// A place revealed goes where the page asks in the room: as near as it takes (the default), at
+/// the top, in the middle or at the bottom; and the commands of whole lines are the page's to ask.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_place_is_revealed_where_the_page_asks_and_the_commands_of_lines_are_asked_by_name()
+-> Result<(), Error> {
+    let mut page = open(
+        r#"
+        local lines = {}
+        for n = 1, 400 do lines[n] = "line " .. n end
+        return {
+            render = function()
+                return pencere.div():size_full():child(pencere.editor("e", { gutter = false }):h(200))
+            end,
+            handle = function(event)
+                if event.type == "editor_ready" then
+                    return { editor = { e = { load = table.concat(lines, "\n") } } }
+                end
+            end,
+            message = function(message)
+                local version = pencere.layout.editor_version("e")
+                if message.command then
+                    return { editor = { e = { command = message.command } } }
+                end
+                return { editor = { e = {
+                    reveal = pencere.layout.line_start("e", message.line),
+                    version = version,
+                    align = message.align,
+                } } }
+            end,
+        }
+        "#,
+    )?;
+    let offset = |page: &Headless| {
+        page.laid()
+            .and_then(|laid| laid.scroll_extent(Id::named("e")))
+            .map_or(-1.0, |extent| extent.offset.y)
+    };
+    let row = page
+        .laid()
+        .and_then(|laid| laid.scroll_extent(Id::named("e")))
+        .map_or(0.0, |extent| extent.content.h / 400.0);
+    page.tell(r#"{"line":200,"align":"start"}"#)?;
+    let start = offset(&page);
+    assert!((start - 200.0 * row).abs() <= row, "{start} {row}");
+    page.tell(r#"{"line":200,"align":"center"}"#)?;
+    let center = offset(&page);
+    assert!((center - (200.5 * row - 100.0)).abs() <= row, "{center}");
+    page.tell(r#"{"line":200,"align":"end"}"#)?;
+    let end = offset(&page);
+    assert!((end - (201.0 * row - 200.0)).abs() <= row, "{end}");
+    // Already in view: the nearest way does not move it.
+    page.tell(r#"{"line":199}"#)?;
+    assert_eq!(offset(&page), end);
+    page.focus_editor("e")?;
+    page.caret_to("e", 0)?;
+    page.tell(r#"{"command":"delete_lines"}"#)?;
+    page.tell(r#"{"command":"select_line"}"#)?;
+    page.tell(r#"{"command":"fold_all"}"#)?;
+    assert!(text(&page, "e").starts_with("line 2\nline 3"));
+    assert_eq!(
+        page.editor("e").map(|buffer| buffer.ranges().to_vec()),
+        Some(vec![pencere_view::edit::Range::new(0, 7)])
+    );
+    Ok(())
 }

@@ -455,6 +455,16 @@ impl Buffer {
         changes: Vec<Change>,
         origin: Origin,
     ) -> Result<Vec<Done>, Refusal> {
+        self.apply_as(changes, origin, None)
+    }
+
+    /// As [`Buffer::apply`], the page's `tag` told with what was done.
+    fn apply_as(
+        &mut self,
+        changes: Vec<Change>,
+        origin: Origin,
+        tag: Option<String>,
+    ) -> Result<Vec<Done>, Refusal> {
         let len = self.text.len_chars();
         check(&changes, len)?;
         let changes: Vec<Change> = changes
@@ -503,6 +513,7 @@ impl Buffer {
             version: self.version,
             changes,
             origin,
+            tag,
         }));
         Ok(done)
     }
@@ -518,10 +529,23 @@ impl Buffer {
         now: f64,
         after: Option<(Vec<Range>, usize)>,
     ) -> Result<(), Refusal> {
+        self.edit_as(changes, origin, kind, now, after, None)
+    }
+
+    /// As [`Buffer::edit`], the page's `tag` told with what was done.
+    fn edit_as(
+        &mut self,
+        changes: Vec<Change>,
+        origin: Origin,
+        kind: Kind,
+        now: f64,
+        after: Option<(Vec<Range>, usize)>,
+        tag: Option<String>,
+    ) -> Result<(), Refusal> {
         let before = (self.ranges.clone(), self.main);
         let len_before = self.text.len_chars();
         let start = self.version;
-        let done = self.apply(changes, origin)?;
+        let done = self.apply_as(changes, origin, tag)?;
         if done.is_empty() {
             if let Some((ranges, main)) = after {
                 self.set_ranges(ranges, main);
@@ -653,17 +677,45 @@ impl Buffer {
     /// The page's changes, against the document at `base`: carried over what was done since and
     /// done, to be undone as one. The selections are carried over them.
     pub fn change(&mut self, base: u64, changes: Vec<Change>, now: f64) -> Result<(), Refusal> {
-        let result = self.page_change(base, changes, now);
+        self.change_as(base, changes, now, true, None)
+    }
+
+    /// As [`Buffer::change`], `tag` told back with what was done; where not `history`, not to be
+    /// undone at all: what can be undone and done again is carried over it as over any change
+    /// after it, and joins nothing.
+    pub fn change_as(
+        &mut self,
+        base: u64,
+        changes: Vec<Change>,
+        now: f64,
+        history: bool,
+        tag: Option<String>,
+    ) -> Result<(), Refusal> {
+        let result = self.page_change(base, changes, now, history, tag);
         result.map_err(|refusal| self.refuse(refusal))
     }
 
-    fn page_change(&mut self, base: u64, changes: Vec<Change>, now: f64) -> Result<(), Refusal> {
+    fn page_change(
+        &mut self,
+        base: u64,
+        changes: Vec<Change>,
+        now: f64,
+        history: bool,
+        tag: Option<String>,
+    ) -> Result<(), Refusal> {
         let len = self.log.len_at(base, self.text.len_chars())?;
         check(&changes, len)?;
         let since = self.log.since(base)?;
         let changes = rebase(changes, since.iter().copied());
+        if !history {
+            // Undoing goes back over it: each group is carried over what was done after it.
+            let done = self.apply_as(changes, Origin::Page, tag)?;
+            let steps = steps_done(&done);
+            self.map_ranges(&steps, Assoc::After);
+            return Ok(());
+        }
         self.undo.close();
-        self.edit(changes, Origin::Page, Kind::Other, now, None)?;
+        self.edit_as(changes, Origin::Page, Kind::Other, now, None, tag)?;
         self.undo.close();
         Ok(())
     }

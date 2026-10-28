@@ -8,6 +8,8 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Changed
 
+- An editor's new commands, a change's `history` and `tag`, a reveal's `align`, an editor's
+  `matches`, and the event `EditorReady` cross the interface; `Fill` and `FieldState` are exported.
 - A command's keys are a list (`Command::keys` adds one), a menu's entry has keys as a command does,
   and a reply's `fill` says what is selected in a field as well as what it holds (`Fill`), across
   the interface.

@@ -36,7 +36,7 @@ Places are characters (code points), from 0; a range is `[from, to]` (a selectio
 | `tab`         | The tab key.                                                                                                                                                                 |
 | `copy`, `cut` | What a copy (or a cut) takes is `gives`.                                                                                                                                     |
 | `command`     | An editing command: `command` is its name in `snake_case` (`delete_backward`, `move_lines_up`, `find` with `pattern`, `regex`, `case`, `move` with `movement` and `extend`). |
-| `change`      | The page's `changes` (`[from, to, insert]` each), against the version `base`.                                                                                                |
+| `change`      | The page's `changes` (`[from, to, insert]` each), against the version `base`; `history` `false` for one not to be undone, `tag` its name.                                    |
 | `page_select` | The page's selections `ranges`, in the places of `version`.                                                                                                                  |
 | `decorate`    | The page's decorations of `layer` for `from`–`to`, of `version`: `[from, to, kind]` each, a kind `style`, `line`, `gutter` or `fold`.                                        |
 | `load`        | A piece of the document the page loads, `text`; `more` says another follows.                                                                                                 |
@@ -62,7 +62,7 @@ Each key of an `expect` is checked where it is there:
 - `utf16` — `[place, units]` pairs: the place is that many units of UTF-16 into the text, both ways;
 - `bracket` — `[at, to]`: the bracket at (or before) `at` matches the one at `to` (`null`: none);
 - `notes` — what the editor told the page since the last `expect`, in order: `{ "edited": { "version",
-"origin", "changes" } }`, `{ "selection": { "ranges", "main", "composing" } }`,
+"origin", "tag", "changes" } }`, `{ "selection": { "ranges", "main", "composing" } }`,
   `{ "refused": "<reason>" }`, `{ "found": { "count", "current", "more" } }` (`current` from 1,
   left out for none). Every `expect` takes the notes, whether it checks them or not.
 

@@ -18,6 +18,14 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **An editor's new commands and asks across the interface.** The editor's new commands (`fold-all`,
+  `delete-lines`, `select-line`, `duplicate-lines-up`, `join-lines`, `insert-blank-line`,
+  `split-line`, `transpose-chars`, `delete-to-line-start`, `delete-to-line-end`), a change's
+  `history` and `tag` (the tag counted in what a reply may hand the editors, and told back in
+  `edited`), a reveal's `align`, an editor's `matches` and `colors.matches`, and the event
+  `editor-ready`; a script says them as `{ command = "join_lines" }`, `{ change =, base =, history =
+false, tag = "disk" }`, `{ reveal =, version =, align = "center" }`, `matches = "word"` and `{
+type = "editor_ready", editor =, version = }`.
 - **Fields, menus and commands as the engine has them now.** A reply's `fill` is a `field-fill` for
   each field (a text, what is selected, or both) and a script's `fill = { [name] = { text =, select
 = { from =, to = } or true } }` too (the old `{ [name] = text }` is read as it was); a command's

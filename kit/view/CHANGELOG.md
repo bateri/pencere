@@ -16,6 +16,13 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **An editor's new commands and asks.** `EditCommand::{FoldAll, DeleteLines, SelectLine,
+DuplicateLinesUp, JoinLines, InsertBlankLine, SplitLine, TransposeChars, DeleteToLineStart,
+DeleteToLineEnd}`; `EditorAsk::Change` has `history` and `tag` (told back in `Edited::tag`);
+  `EditorAsk::Reveal` has an `align` (`RevealAlign`); `EditorOptions::matches` (`Matches`) and
+  `EditorColors::matches` mark the other places of the main selection's text
+  (`limits::MATCH_LENGTH`, `limits::MATCHES_IN_VIEW`); `Event::EditorReady` tells a page an editor
+  it named was made.
 - **A command has as many keys as do it.** `Command::keys` is a list (`Command::keys(shortcut)` adds
   one; `done_by` asks whether a key is one of them), as an editor's keybindings are: each does it, a
   list shows the first, and keys a nearer command has are taken from a farther one's and its others

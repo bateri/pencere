@@ -502,6 +502,7 @@ impl Pair {
             | Event::Command(_)
             | Event::Files { .. }
             | Event::Pointer { .. }
+            | Event::EditorReady { .. }
             | Event::Edit { .. }
             | Event::Selection { .. }
             | Event::Viewport { .. }

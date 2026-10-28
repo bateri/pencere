@@ -129,6 +129,10 @@ pub struct Edited {
     pub version: u64,
     pub changes: Vec<Change>,
     pub origin: Origin,
+    /// The page's own name for a change it asked for ([`EditorAsk::Change`]'s `tag`): what it made
+    /// the change for, told back with it (a reload from disk, a format), as CodeMirror's
+    /// `userEvent` is. None for any other change.
+    pub tag: Option<String>,
 }
 
 /// Where the carets and the selections are: the ranges, in order and apart, and which of them is
@@ -383,8 +387,30 @@ pub struct EditorOptions {
     /// a line that wraps shows them on its first row. The guide of the block the main caret is in
     /// is drawn in its own colour while the editor has the keyboard ([`EditorColors`]).
     pub indent_guides: bool,
+    /// The other places the main selection's text is, marked where they are in view (CodeMirror's
+    /// `highlightSelectionMatches`, VS Code's selection highlight): only drawn, the selection as it
+    /// is ([`Matches`]).
+    pub matches: Matches,
     pub caret: Caret,
     pub colors: EditorColors,
+}
+
+/// Which other places of the main selection's text an editor marks ([`EditorOptions::matches`]).
+/// What is marked is the text of a main selection on one line, of at most
+/// [`limits::MATCH_LENGTH`] characters and not all spaces, in the case written, at most
+/// [`limits::MATCHES_IN_VIEW`] of them in view, the selection itself not among them; a selection
+/// that is a whole word (no letter, digit or `_` just before it or just after it) marks only the
+/// places where it is a whole word, and any other marks every place it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Matches {
+    /// None: a plain editor.
+    #[default]
+    None,
+    /// The other places of what is selected.
+    Selection,
+    /// Those, and, where the main selection is a caret in a word, the other places that word is,
+    /// as whole words.
+    Word,
 }
 
 impl Default for EditorOptions {
@@ -408,6 +434,7 @@ impl Default for EditorOptions {
             current_line: LineHighlight::Text,
             whitespace: Whitespace::None,
             indent_guides: false,
+            matches: Matches::None,
             caret: Caret::default(),
             colors: EditorColors::default(),
         }
@@ -567,6 +594,9 @@ pub struct EditorColors {
     /// as the others are). With the guides off and that one not, it alone is drawn.
     pub indent_guides: Tint,
     pub active_indent_guide: Tint,
+    /// The ground of the other places of the main selection's text ([`EditorOptions::matches`]):
+    /// the theme's selection at 40%.
+    pub matches: Tint,
 }
 
 /// Where a caret goes.
@@ -647,6 +677,36 @@ pub enum EditCommand {
     Unfold,
     ToggleFold,
     UnfoldAll,
+    /// Every region that folds and is in none that does, folded: the outermost (CodeMirror's
+    /// `foldAll`).
+    FoldAll,
+    /// The lines of each range taken out, line breaks and all; the caret goes to the line that
+    /// comes in their place, as far along it as it was (CodeMirror's `deleteLine`).
+    DeleteLines,
+    /// The lines of each range selected whole, with the break after them; a range that is whole
+    /// lines already takes the next line too (VS Code's `expandLineSelection`).
+    SelectLine,
+    /// The lines of each range once more above them; the ranges stay on the upper of the two, the
+    /// copy (`DuplicateLines` copies below).
+    DuplicateLinesUp,
+    /// Each line of a range joined with the line after it (a caret's with the next), the indent of
+    /// the later line taken away and one space between them where neither side has one or is
+    /// empty; the caret where they meet (VS Code's `joinLines`).
+    JoinLines,
+    /// A line after each caret's line, as indented as a line break there would make it, the caret
+    /// on it (CodeMirror's `insertBlankLine`).
+    InsertBlankLine,
+    /// A line break at each caret, the caret staying before it (CodeMirror's `splitLine`).
+    SplitLine,
+    /// The characters on either side of each caret swapped, the caret after them; at the end of a
+    /// line the two before it (CodeMirror's `transposeChars`).
+    TransposeChars,
+    /// From each caret to the start of its line taken out, or the line break before it where it is
+    /// at the start (CodeMirror's `deleteLineBoundaryBackward`).
+    DeleteToLineStart,
+    /// From each caret to the end of its line taken out, or the line break after it where it is at
+    /// the end (CodeMirror's `deleteToLineEnd`, Emacs's `kill-line`).
+    DeleteToLineEnd,
     /// Looks for `pattern` in the document and marks what it finds (a regular expression where
     /// `regex`, the words as they are where not; where `case` is false, in either case; where
     /// `word`, only a match with no letter, digit or `_` just before it or just after it), and
@@ -693,20 +753,48 @@ pub enum EditorAsk {
     /// undone before cannot be any more; while one goes on, the person cannot change the text.
     Load { text: String, more: bool },
     /// Changes against the version `base`: carried over what was done since, done, and undone as
-    /// one.
-    Change { base: u64, changes: Vec<Change> },
+    /// one — or, where not `history`, not undone at all (CodeMirror's `addToHistory: false`):
+    /// what can be undone is carried over them, as over the person's, so that a file read again
+    /// from disk keeps what was done to it before. `tag` is told back in the `edit` of it
+    /// ([`Edited::tag`]).
+    Change {
+        base: u64,
+        changes: Vec<Change>,
+        history: bool,
+        tag: Option<String>,
+    },
     /// The selections, in the places of `version` ([`Selection`]).
     Select {
         version: u64,
         ranges: Vec<Range>,
         main: usize,
     },
-    /// The place `at` (of `version`) scrolled into view.
-    Reveal { version: u64, at: usize },
+    /// The place `at` (of `version`) scrolled into view, where `align` says.
+    Reveal {
+        version: u64,
+        at: usize,
+        align: RevealAlign,
+    },
     /// What the person could have done with a key.
     Command(EditCommand),
     /// A layer's decorations for a range.
     Decorate(Decorate),
+}
+
+/// Where a place an editor reveals is put in its room ([`EditorAsk::Reveal`]), as CodeMirror's
+/// `scrollIntoView` and VS Code's `revealLine*` put it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum RevealAlign {
+    /// Scrolled only as far as it takes to show it (and the editor's `scroll_margin` about it),
+    /// and not at all where it shows: what a caret that moves asks.
+    #[default]
+    Nearest,
+    /// Its row at the top of the room, as far as the document goes.
+    Start,
+    /// Its row in the middle of the room: a place gone to from elsewhere.
+    Center,
+    /// Its row at the bottom of the room.
+    End,
 }
 
 /// Why an editor did not do what a page asked: what the page sent was not something it could
@@ -794,6 +882,10 @@ pub trait TextSnapshot: Send + Sync + std::fmt::Debug {
 /// of floors). Both the sandbox, which checks the shape of what a page sends, and the editor, which
 /// checks what it means for the document, read them here.
 pub mod limits {
+    /// The longest selection whose other places an editor marks ([`super::Matches`]), characters.
+    pub const MATCH_LENGTH: usize = 200;
+    /// The most other places of a selection an editor marks in view ([`super::Matches`]).
+    pub const MATCHES_IN_VIEW: usize = 100;
     /// The largest an editor's document may be, bytes of UTF-8.
     pub const DOCUMENT_BYTES: usize = 16 * 1024 * 1024;
     /// The largest the documents of a page's editors may be together, bytes.

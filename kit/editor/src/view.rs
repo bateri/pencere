@@ -14,8 +14,8 @@ use std::rc::Rc;
 use std::slice;
 
 use pencere_view::edit::{
-    CaretHeight, CaretShape, EditorOptions, LineHighlight, Look, Mark, Numbers, Range, Underline,
-    Whitespace,
+    CaretHeight, CaretShape, EditorOptions, LineHighlight, Look, Mark, Matches, Numbers, Range,
+    Underline, Whitespace,
 };
 use pencere_view::{
     Border, Color, EditorRoom, EditorSlot, Figure, Font, Measure, Paint, Point, Quad, Rect, Role,
@@ -708,6 +708,14 @@ impl View {
             ));
         }
         let found_ground = colors.found.or(Role::Warning.alpha(0.3));
+        // The other places of the main selection's text, under what was found and what is selected.
+        let matches = match (rows.first(), rows.last()) {
+            (Some(first), Some(last)) if self.options.matches != Matches::None => {
+                buffer.matches_in(first.base + first.from, last.base + last.to)
+            }
+            _ => Vec::new(),
+        };
+        let matches_ground = colors.matches.or(Role::Selection.alpha(0.4));
         let selected_ground = if focused {
             colors.selection.or(Role::Selection.solid())
         } else {
@@ -724,6 +732,13 @@ impl View {
                         fade(*color),
                         text_clip,
                     ));
+                }
+            }
+            if let Some(ground) = matches_ground {
+                for (start, end) in &matches {
+                    if let Some(rect) = self.span(row, *start, *end, false, origin_x, y) {
+                        out.push(quad(rect, fade(ground), text_clip));
+                    }
                 }
             }
             if let Some(ground) = found_ground {

@@ -5,8 +5,8 @@
 
 use pencere_view::edit::{
     CaretHeight, CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions,
-    Folds, Found, Keys, LineHighlight, Mark, Movement, Numbers, Origin, Range, Refusal, Selection,
-    Tint, Underline, Whitespace,
+    Folds, Found, Keys, LineHighlight, Mark, Matches, Movement, Numbers, Origin, Range, Refusal,
+    RevealAlign, Selection, Tint, Underline, Whitespace,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
@@ -674,6 +674,10 @@ pub fn from_wit_event(event: wit::Event) -> Event {
         | wit::Event::EditorRefused(_)
         | wit::Event::Found(_)) => editor_event(editor),
         wit::Event::Wake(now) => Event::Wake { now },
+        wit::Event::EditorReady(ready) => Event::EditorReady {
+            editor: Id::new(ready.editor),
+            version: ready.version,
+        },
     }
 }
 // --- An editor's options and what the page asks of its editors -----------------------------
@@ -763,6 +767,11 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
             Whitespace::All => wit::EditorWhitespace::All,
         },
         indent_guides: options.indent_guides,
+        matches: match options.matches {
+            Matches::None => wit::EditorMatches::None,
+            Matches::Selection => wit::EditorMatches::Selection,
+            Matches::Word => wit::EditorMatches::Word,
+        },
     }
 }
 
@@ -790,6 +799,7 @@ fn editor_colors(colors: &EditorColors) -> wit::EditorColors {
         whitespace: tint(colors.whitespace),
         indent_guides: tint(colors.indent_guides),
         active_indent_guide: tint(colors.active_indent_guide),
+        matches: tint(colors.matches),
     }
 }
 
@@ -888,15 +898,32 @@ fn editor_command(command: EditCommand) -> wit::EditorCommand {
         EditCommand::SelectFound => C::SelectFound,
         EditCommand::SelectOccurrences => C::SelectOccurrences,
         EditCommand::ToggleBlockComment => C::ToggleBlockComment,
+        EditCommand::FoldAll => C::FoldAll,
+        EditCommand::DeleteLines => C::DeleteLines,
+        EditCommand::SelectLine => C::SelectLine,
+        EditCommand::DuplicateLinesUp => C::DuplicateLinesUp,
+        EditCommand::JoinLines => C::JoinLines,
+        EditCommand::InsertBlankLine => C::InsertBlankLine,
+        EditCommand::SplitLine => C::SplitLine,
+        EditCommand::TransposeChars => C::TransposeChars,
+        EditCommand::DeleteToLineStart => C::DeleteToLineStart,
+        EditCommand::DeleteToLineEnd => C::DeleteToLineEnd,
     }
 }
 
 fn editor_ask((editor, ask): (Id, EditorAsk)) -> wit::EditorAsk {
     let ask = match ask {
         EditorAsk::Load { text, more } => wit::EditorAskKind::Load(wit::Load { text, more }),
-        EditorAsk::Change { base, changes } => wit::EditorAskKind::Change(wit::ChangeSet {
+        EditorAsk::Change {
+            base,
+            changes,
+            history,
+            tag,
+        } => wit::EditorAskKind::Change(wit::ChangeSet {
             base,
             changes: changes.into_iter().map(change).collect(),
+            history,
+            tag,
         }),
         EditorAsk::Select {
             version,
@@ -913,9 +940,15 @@ fn editor_ask((editor, ask): (Id, EditorAsk)) -> wit::EditorAsk {
                 .collect(),
             main: place(main),
         }),
-        EditorAsk::Reveal { version, at } => wit::EditorAskKind::Reveal(wit::Reveal {
+        EditorAsk::Reveal { version, at, align } => wit::EditorAskKind::Reveal(wit::Reveal {
             version,
             at: place(at),
+            align: match align {
+                RevealAlign::Nearest => wit::RevealAlign::Nearest,
+                RevealAlign::Start => wit::RevealAlign::Start,
+                RevealAlign::Center => wit::RevealAlign::Center,
+                RevealAlign::End => wit::RevealAlign::End,
+            },
         }),
         EditorAsk::Command(command) => wit::EditorAskKind::Command(editor_command(command)),
         EditorAsk::Decorate(decorate) => wit::EditorAskKind::Decorate(wit::Decorate {
@@ -983,6 +1016,7 @@ fn editor_event(event: wit::Event) -> Event {
                     wit::Origin::Redo => Origin::Redo,
                     wit::Origin::Load => Origin::Load,
                 },
+                tag: edited.tag,
             },
         },
         wit::Event::Selection(selection) => Event::Selection {
@@ -1189,6 +1223,8 @@ mod tests {
                     EditorAsk::Change {
                         base: 3,
                         changes: vec![Change::new(0, 2, "ğ")],
+                        history: false,
+                        tag: Some("disk".into()),
                     },
                 ),
                 (
@@ -1216,6 +1252,7 @@ mod tests {
         assert!(matches!(
             &asked[0].ask,
             wit::EditorAskKind::Change(set) if set.base == 3 && set.changes[0].insert == "ğ"
+                && !set.history && set.tag.as_deref() == Some("disk")
         ));
         let event = from_wit_event(wit::Event::Edit(wit::Edited {
             editor: 5,
@@ -1225,7 +1262,8 @@ mod tests {
                 to: 1,
                 insert: "x".into(),
             }],
-            origin: wit::Origin::Person,
+            origin: wit::Origin::Page,
+            tag: Some("format".into()),
         }));
         assert_eq!(
             event,
@@ -1234,8 +1272,19 @@ mod tests {
                 edited: Edited {
                     version: 4,
                     changes: vec![Change::new(1, 1, "x")],
-                    origin: Origin::Person,
+                    origin: Origin::Page,
+                    tag: Some("format".into()),
                 },
+            }
+        );
+        assert_eq!(
+            from_wit_event(wit::Event::EditorReady(wit::EditorReady {
+                editor: 5,
+                version: 0,
+            })),
+            Event::EditorReady {
+                editor: Id::new(5),
+                version: 0,
             }
         );
         let event = from_wit_event(wit::Event::Found(wit::Found {

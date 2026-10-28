@@ -8,7 +8,8 @@ use std::sync::Arc;
 use pencere_view::edit::{
     Caret, CaretHeight, CaretShape, Change, CommentTokens, Decorate, Decoration, EditCommand,
     EditorAsk, EditorColors, EditorOptions, Folds, IndentRules, Keys, LineHighlight, Look, Mark,
-    Movement, Numbers, Origin, Range, Refusal, Tint, Underline, Whitespace, limits,
+    Matches, Movement, Numbers, Origin, Range, Refusal, RevealAlign, Tint, Underline, Whitespace,
+    limits,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -403,6 +404,7 @@ fn event_in(event: Event) -> wit::Event {
                 Origin::Redo => wit::Origin::Redo,
                 Origin::Load => wit::Origin::Load,
             },
+            tag: edited.tag,
         }),
         Event::Selection { editor, selection } => wit::Event::Selection(wit::EditorSelection {
             editor: id_out(editor),
@@ -450,6 +452,10 @@ fn event_in(event: Event) -> wit::Event {
             more: found.more,
         }),
         Event::Wake { now } => wit::Event::Wake(now),
+        Event::EditorReady { editor, version } => wit::Event::EditorReady(wit::EditorReady {
+            editor: id_out(editor),
+            version,
+        }),
     }
 }
 
@@ -1466,6 +1472,11 @@ fn editor_options_out(
             wit::EditorWhitespace::All => Whitespace::All,
         },
         indent_guides: options.indent_guides,
+        matches: match options.matches {
+            wit::EditorMatches::None => Matches::None,
+            wit::EditorMatches::Selection => Matches::Selection,
+            wit::EditorMatches::Word => Matches::Word,
+        },
         current_line: match options.current_line {
             wit::LineHighlight::Text => LineHighlight::Text,
             wit::LineHighlight::Gutter => LineHighlight::Gutter,
@@ -1514,6 +1525,7 @@ fn editor_colors_out(colors: &wit::EditorColors) -> EditorColors {
         whitespace: tint_out(&colors.whitespace),
         indent_guides: tint_out(&colors.indent_guides),
         active_indent_guide: tint_out(&colors.active_indent_guide),
+        matches: tint_out(&colors.matches),
     }
 }
 
@@ -1543,8 +1555,12 @@ fn editor_asks_out(
             }
             wit::EditorAskKind::Change(set) => {
                 items = items.saturating_add(set.changes.len());
+                // The page's name for them is text it hands the editor, as the changes are.
+                text = text.saturating_add(set.tag.as_ref().map_or(0, String::len));
                 EditorAsk::Change {
                     base: set.base,
+                    history: set.history,
+                    tag: set.tag,
                     changes: set
                         .changes
                         .into_iter()
@@ -1574,6 +1590,12 @@ fn editor_asks_out(
             wit::EditorAskKind::Reveal(reveal) => EditorAsk::Reveal {
                 version: reveal.version,
                 at: place_out(reveal.at),
+                align: match reveal.align {
+                    wit::RevealAlign::Nearest => RevealAlign::Nearest,
+                    wit::RevealAlign::Start => RevealAlign::Start,
+                    wit::RevealAlign::Center => RevealAlign::Center,
+                    wit::RevealAlign::End => RevealAlign::End,
+                },
             },
             wit::EditorAskKind::Command(command) => {
                 let command = command_out(command);
@@ -1708,6 +1730,16 @@ fn command_out(command: wit::EditorCommand) -> EditCommand {
         C::SelectFound => EditCommand::SelectFound,
         C::SelectOccurrences => EditCommand::SelectOccurrences,
         C::ToggleBlockComment => EditCommand::ToggleBlockComment,
+        C::FoldAll => EditCommand::FoldAll,
+        C::DeleteLines => EditCommand::DeleteLines,
+        C::SelectLine => EditCommand::SelectLine,
+        C::DuplicateLinesUp => EditCommand::DuplicateLinesUp,
+        C::JoinLines => EditCommand::JoinLines,
+        C::InsertBlankLine => EditCommand::InsertBlankLine,
+        C::SplitLine => EditCommand::SplitLine,
+        C::TransposeChars => EditCommand::TransposeChars,
+        C::DeleteToLineStart => EditCommand::DeleteToLineStart,
+        C::DeleteToLineEnd => EditCommand::DeleteToLineEnd,
     }
 }
 
@@ -2525,6 +2557,7 @@ mod tests {
                 version: 5,
                 changes: vec![Change::new(1, 2, "ğ")],
                 origin: Origin::Undo,
+                tag: Some("disk".into()),
             },
         });
         let wit::Event::Edit(edited) = edited else {
@@ -2532,6 +2565,7 @@ mod tests {
         };
         assert_eq!((edited.editor, edited.version), (3, 5));
         assert!(matches!(edited.origin, wit::Origin::Undo));
+        assert_eq!(edited.tag.as_deref(), Some("disk"));
         let change = &edited.changes[0];
         assert_eq!(
             (change.from, change.to, change.insert.as_str()),
@@ -2627,6 +2661,9 @@ mod tests {
                         to: 1,
                         insert: "x".into(),
                     }],
+                    history: false,
+                    // Counted with the text: 3 + 1 + 2 + 1 of the 8 bytes.
+                    tag: Some("re".into()),
                 })),
                 ask(wit::EditorAskKind::Command(wit::EditorCommand::Undo)),
                 ask(wit::EditorAskKind::Decorate(wit::Decorate {
@@ -2654,7 +2691,9 @@ mod tests {
                     Id::new(3),
                     EditorAsk::Change {
                         base: 2,
-                        changes: vec![Change::new(0, 1, "x")]
+                        changes: vec![Change::new(0, 1, "x")],
+                        history: false,
+                        tag: Some("re".into()),
                     }
                 ),
                 (Id::new(3), EditorAsk::Command(EditCommand::Undo)),

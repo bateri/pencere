@@ -10,6 +10,9 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
 
 ### Added
 
+- **An editor says it is ready.** A page is told `Event::EditorReady` for each editor the drive
+  makes for its rooms, shown or hidden, its text posted first: a page of tabs loads each document as
+  its editor comes, and asks nothing of an editor that is not there yet.
 - **Fields as a system has them.** The host with no screen keeps a caret and a selection in each
   field: what a reply's `fill` selects is selected (`Headless::field_selection`), what is typed
   takes its place, the arrows move and select, ⌘A, ⌘C, ⌘X and ⌘V are the field's, and a key the
