@@ -9,6 +9,9 @@ under this name) are recorded here. The format follows
 
 ### Added
 
+- `Session::offer_dismiss(false)` makes a host that does not close a view at the program's request:
+  `dismiss` is left out of the `features` of its `welcome`s, and a `dismiss` that comes all the same
+  is ignored. (The stand-in terminal's `--no-dismiss`.)
 - **`Session::module_link`** (specification §9.8): a view the terminal draws itself asks to open a
   link in the `link` of its reply, not in a message, and the terminal hands it here. It is held to
   the rule of a page's `link` (§9.7) and put to the person the same way (`Action::OpenLink`,

@@ -60,9 +60,12 @@ for it and the program told so; a view the terminal draws itself is kept, for it
 message of the protocol and a program's view is the program's to end), the host starts
 the view again once, as after a reconnection, or nothing happens. A program that shows
 several views, as one that reloads its view does, takes the action at the Nth view
-(`--on-view`). `--no-host` plays a terminal that does not host pencere, `--allow-network`
-answers yes to the question a page's `access` raises, `--store` keeps verified files
-between runs, and `--help` lists the rest.
+(`--on-view`). `--no-host` plays a terminal that does not host pencere, `--no-dismiss` one
+that cannot close a view at the program's request (so a program's reopening, closing and
+hand-off are `Unsupported`), `--refuse-open N` refuses the Nth open by the host's policy (a
+view that does not come back after a hand-off or a reopening), `--allow-network` answers yes
+to the question a page's `access` raises, `--store` keeps verified files between runs, and
+`--help` lists the rest.
 
 It is not a terminal emulator: it draws nothing, tracks only the alternate screen and
 answers only `CSI c`, and it keeps the pane's size as it was when the program started.

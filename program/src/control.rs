@@ -160,7 +160,27 @@ pub(crate) enum Request {
     HandOff {
         command: Command,
         reply: SyncSender<HandOffResult>,
+        then: Option<OnReturn>,
     },
+}
+
+/// What the program does with how a command it lent the terminal to ended, before the view is
+/// shown again ([`ViewControl::hand_off_then`]).
+pub(crate) type OnReturn = Box<dyn FnOnce(&io::Result<ExitStatus>) + Send>;
+
+/// What is left of `then`, once: the thread that takes it first has it.
+fn taken(then: &Mutex<Option<OnReturn>>) -> Option<OnReturn> {
+    then.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+}
+
+/// Gives `then` how the command ended. A panic in it is the program's to say, not the loop's to die
+/// of: it is caught, and the view is shown again all the same.
+pub(crate) fn tell_then(then: Option<OnReturn>, ended: &io::Result<ExitStatus>) {
+    if let Some(then) = then {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| then(ended)));
+    }
 }
 
 /// A hand-off asked for by the handler of a call or a subscription, held until its answer is out.
@@ -343,11 +363,35 @@ impl ViewControl {
     /// The command's standard streams are what `command` says: by default the program's own, which
     /// are the terminal unless the program is a filter in a pipeline.
     pub fn hand_off(&self, command: Command) -> HandOff {
+        self.lend(command, None)
+    }
+
+    /// Lends the terminal to `command` as [`ViewControl::hand_off`] does, and gives `then` how it
+    /// ended (or why it could not be started) once it has, **before the view is shown again**: on
+    /// the library's thread, as the terminal is taken back, so that what the program keeps of it
+    /// is there for the first call of the view that comes back — a view that asks at once how the
+    /// shell it lent the pane to ended finds the answer. `then` is not called where the command
+    /// did not run (the hand-off is `Unsupported`, `Unavailable` or `Busy`, or the terminal did
+    /// not close the view); it should be brief (keep a value, send it on a channel), and a panic
+    /// in it is caught. The [`HandOff`] says how the hand-off went, as `hand_off`'s does.
+    pub fn hand_off_then(
+        &self,
+        command: Command,
+        then: impl FnOnce(&io::Result<ExitStatus>) + Send + 'static,
+    ) -> HandOff {
+        self.lend(command, Some(Box::new(then)))
+    }
+
+    fn lend(&self, command: Command, then: Option<OnReturn>) -> HandOff {
         let Some(outbox) = self.outbox() else {
-            return Self::run_with_no_view(command);
+            return Self::run_with_no_view(command, then);
         };
         let (reply, answer) = sync_channel(1);
-        let request = Request::HandOff { command, reply };
+        let request = Request::HandOff {
+            command,
+            reply,
+            then,
+        };
         if ANSWERING.with(Cell::get) {
             // The handler's answer is not out yet: the request follows it ([`answered`]).
             let ticket = TICKETS.fetch_add(1, Ordering::SeqCst);
@@ -381,7 +425,7 @@ impl ViewControl {
 
     /// A hand-off when this control is given to no `serve` that runs: the terminal is the
     /// program's, unless another `serve` has it.
-    fn run_with_no_view(command: Command) -> HandOff {
+    fn run_with_no_view(command: Command, then: Option<OnReturn>) -> HandOff {
         if LENT.swap(true, Ordering::SeqCst) {
             return HandOff::over(HandOffResult::Busy);
         }
@@ -395,11 +439,16 @@ impl ViewControl {
             LENT.store(false, Ordering::SeqCst);
         };
         let (reply, answer) = sync_channel(1);
+        // Held where the thread that waits takes it, or where this one does when there is no
+        // such thread: the command could not be started either way.
+        let then = Arc::new(Mutex::new(then));
+        let waited = Arc::clone(&then);
         let started = std::thread::Builder::new()
             .name("pencere-hand-off".into())
             .spawn(move || {
                 let ended = crate::foreground::run(command);
                 given_back();
+                tell_then(taken(&waited), &ended);
                 let _ = reply.send(HandOffResult::Returned(ended));
             });
         match started {
@@ -409,7 +458,9 @@ impl ViewControl {
             },
             Err(why) => {
                 given_back();
-                HandOff::over(HandOffResult::Returned(Err(why)))
+                let ended = Err(why);
+                tell_then(taken(&then), &ended);
+                HandOff::over(HandOffResult::Returned(ended))
             }
         }
     }

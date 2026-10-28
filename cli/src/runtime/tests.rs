@@ -900,3 +900,69 @@ fn an_app_has_an_icon_for_each_background_and_the_size_a_png_says_it_is() {
     assert!(sizes("assets/not.png").is_empty());
     assert!(sizes("assets/headless.png").is_empty());
 }
+
+/// The calls and the subscriptions of the view reach the loop in the order the view made them:
+/// the library hands them over on the thread that reads the view, and none waits for another's
+/// answer to be handed over.
+#[test]
+fn the_requests_of_the_view_reach_the_loop_in_the_order_the_view_made_them() {
+    use std::rc::Rc;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Mutex};
+
+    use mlua::{Lua, Table};
+    use pencere::{Conversation, ViewControl};
+
+    use super::core::{Core, Log};
+    use super::events::{Event, channel_pair};
+
+    let (events, inbox) = channel_pair().expect("a pipe");
+    let (_, unused) = channel_pair().expect("a pipe");
+    let core = Rc::new_cyclic(|me| {
+        Core::new(
+            Lua::new(),
+            events,
+            unused,
+            Files::packed(BTreeMap::from([(
+                "view/page.lua".to_owned(),
+                b"return { render = function() return pencere.div() end }".to_vec(),
+            )])),
+            Vec::new(),
+            "test".into(),
+            Log::new(None).expect("a log"),
+            ViewControl::new(),
+            Arc::new(Mutex::new(None)),
+            Arc::new(AtomicBool::new(false)),
+            me.clone(),
+        )
+    });
+    let options: Table = core
+        .lua()
+        .load("return { calls = { edit = function() end }, topics = { changes = function() end } }")
+        .eval()
+        .expect("the options");
+    let (serving, _, _, _) = super::serve::prepare(&core, &options).expect("prepared");
+    let mut conversation = Conversation::new(serving);
+    // As many as may be out at once and no more (64 calls): none is answered here.
+    for n in 1..=60 {
+        let message = if n % 10 == 0 {
+            format!(r#"{{"subscribe":{{"id":{n},"topic":"changes","params":{{"n":{n}}}}}}}"#)
+        } else {
+            format!(r#"{{"call":{{"id":{n},"method":"edit","params":{{"n":{n}}}}}}}"#)
+        };
+        assert!(conversation.send(&message));
+    }
+    let order: Vec<u64> = inbox
+        .take()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Call(call) => call.params["n"].as_u64(),
+            Event::Subscribe(subscribe) => subscribe.params["n"].as_u64().map(|n| n + 1000),
+            _ => None,
+        })
+        .collect();
+    let expected: Vec<u64> = (1..=60)
+        .map(|n| if n % 10 == 0 { n + 1000 } else { n })
+        .collect();
+    assert_eq!(order, expected);
+}

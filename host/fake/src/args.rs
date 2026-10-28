@@ -51,6 +51,13 @@ options:
                        remembers them between runs does (default: in memory)
   --no-host            act as a terminal that does not host pencere: answer
                        only the reply to CSI c
+  --no-dismiss         act as a terminal that cannot close a view at the
+                       program's request: `dismiss` is not in the welcome's
+                       features, and one the program sends is ignored
+  --refuse-open N      refuse the Nth open of a view the program asks for, as a
+                       terminal's own policy refuses one (`policy`), counting
+                       from 1 (a view shown again after a hand-off or a
+                       reopening is an open too); repeatable
   --allow-network      grant the origins and permissions a page asks for
                        (default: refuse them)
   --passthrough        copy what the program writes to this program's stdout
@@ -102,6 +109,10 @@ pub struct Args {
     pub passthrough: bool,
     pub size: Option<(u16, u16)>,
     pub limit: Duration,
+    /// The host closes a view at the program's request (`dismiss`).
+    pub dismiss: bool,
+    /// The opens the host refuses, counting from 1.
+    pub refuse_opens: Vec<u32>,
 }
 
 /// What parsing asks of `main`.
@@ -163,6 +174,8 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
         passthrough: false,
         size: None,
         limit: Duration::from_secs(30),
+        dismiss: true,
+        refuse_opens: Vec::new(),
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -174,8 +187,9 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
             "--no-host" => parsed.answer = false,
             "--allow-network" => parsed.allow_network = true,
             "--passthrough" => parsed.passthrough = true,
+            "--no-dismiss" => parsed.dismiss = false,
             "--call" | "--subscribe" | "--link" | "--cancel-after" | "--then" | "--on-view"
-            | "--store" | "--size" | "--limit" => {
+            | "--store" | "--size" | "--limit" | "--refuse-open" => {
                 let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
                 option(&mut parsed, &arg, &value)?;
             }
@@ -225,6 +239,7 @@ fn option(parsed: &mut Args, name: &str, value: &str) -> Result<(), String> {
             };
         }
         "--on-view" => parsed.on_view = count(name, value)?,
+        "--refuse-open" => parsed.refuse_opens.push(count(name, value)?),
         "--store" => parsed.store = Some(PathBuf::from(value)),
         "--size" => {
             parsed.size =
@@ -327,6 +342,19 @@ mod tests {
 
     #[test]
     fn the_action_can_wait_for_a_later_view() {
+        let Outcome::Run(args) = parsed(&[
+            "--no-dismiss",
+            "--refuse-open",
+            "2",
+            "--refuse-open",
+            "4",
+            "--",
+            "p",
+        ]) else {
+            panic!("a run");
+        };
+        assert!(!args.dismiss);
+        assert_eq!(args.refuse_opens, [2, 4]);
         let Outcome::Run(args) = parsed(&["--then", "interrupt", "--on-view", "2", "--", "p"])
         else {
             panic!("did not parse");
@@ -351,6 +379,7 @@ mod tests {
             &["--size", "80", "--", "p"],
             &["--on-view", "0", "--", "p"],
             &["--on-view", "two", "--", "p"],
+            &["--refuse-open", "0", "--", "p"],
             &["--wat", "--", "p"],
             &["--limit"],
         ] {

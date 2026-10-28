@@ -485,6 +485,8 @@ pub struct Session<S: Store, E: Entropy> {
     ended: bool,
     observed: Observed,
     allow_opens: bool,
+    /// Whether the host closes a view at the program's request (`dismiss`, §10.8).
+    dismiss: bool,
     phase: Phase,
     stream: StreamDecoder,
     body: BodyDecoder,
@@ -512,6 +514,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             ended: false,
             observed: Observed::default(),
             allow_opens: true,
+            dismiss: true,
             phase: Phase::Idle,
             stream: StreamDecoder::new(Direction::ToHost),
             body: BodyDecoder::new(Direction::ToHost),
@@ -589,6 +592,14 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// does not, an `open` is refused with `policy`.
     pub fn allow_opens(&mut self, allow: bool) {
         self.allow_opens = allow;
+    }
+
+    /// Sets whether the host closes a view at the program's request (`dismiss`, §10.8), which every
+    /// session does unless told: a host that does not leaves it out of the `features` of its
+    /// `welcome`s from now on, and a `dismiss` that comes all the same is ignored, the view staying
+    /// as it is.
+    pub fn offer_dismiss(&mut self, offer: bool) {
+        self.dismiss = offer;
     }
 
     /// The program ended: the terminal saw the command finish, the foreground
@@ -786,10 +797,14 @@ impl<S: Store, E: Entropy> Session<S, E> {
         token
     }
 
-    /// What the `welcome` says the host supports: closing a view at the program's request is
-    /// part of every session.
+    /// What the `welcome` says the host supports: closing a view at the program's request, unless
+    /// the host was told not to ([`Session::offer_dismiss`]).
     fn features(&self) -> &'static [&'static str] {
-        &[FEATURE_DISMISS]
+        if self.dismiss {
+            &[FEATURE_DISMISS]
+        } else {
+            &[]
+        }
     }
 
     /// What the host offers of `kind`, if it will open it: the configuration lists it.
@@ -1253,6 +1268,11 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// that opened the view (§10.8). The token is the same proof a `bye` gives and
     /// is read the same way.
     fn on_dismiss(&mut self, message: &Message) {
+        // A host that does not offer it does not do it (§5.2: a program uses only what is listed).
+        if !self.dismiss {
+            self.ignored();
+            return;
+        }
         let Some(dismiss) = crate::json::from_object::<Dismiss>(&message.payload) else {
             self.ignored();
             return;
