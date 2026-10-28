@@ -411,7 +411,8 @@ pub enum Error {
     Options(String),
     /// The files of a view are not a bundle that suits its kind.
     Bundle(BundleError),
-    /// Another `serve` has the terminal: a process has one terminal to show a view on.
+    /// Another `serve` has the terminal, or a command it was lent to with no `serve` running
+    /// ([`ViewControl::hand_off`]): a process has one terminal to show a view on.
     Busy,
     /// The terminal failed in a way that is nobody's to give up on.
     Io(io::Error),

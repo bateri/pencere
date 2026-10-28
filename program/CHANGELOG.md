@@ -35,7 +35,9 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   other lanes and the calls of `Options::call` go on. A call cancelled before its turn does not run
   and is not answered; a handler that panics is an `internal` error of its call and the lane goes
   on. A lane lasts as long as `serve`: a call of a view shown again waits for a handler of the view
-  before it that is still running. A lane holds up to 256 calls; more are told `busy`.
+  before it that is still running. A lane holds up to 256 calls; more are told `busy`. The limit of
+  64 calls answered at once is now that of the free calls alone: the calls of the lanes are counted
+  in their lanes.
 
 - **Lending the terminal to a command.** `ViewControl::hand_off(command)` closes the view, gives the
   terminal back, runs the command as the terminal's foreground job (its own process group, the

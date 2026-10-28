@@ -163,6 +163,10 @@ let options = Options::new()
     .call("last", move |_params, _call| Ok(json!({ "code": *last.lock().unwrap() })));
 ```
 
+`wait` returns as the terminal takes the open of the view shown again, on the thread that waits; a
+view that asks for the status at once may come before that thread has kept it, so a program that
+must have it then pushes it to a subscription when it has it, or has the call wait for it.
+
 A signal that asks the program to end while the command has the terminal is acted on once the
 command has ended (a hangup is passed on to it, as a shell passes its own on); `serve` then ends as
 for that signal. With no view up — before `serve`, after it, in its fallback — `hand_off` runs the
