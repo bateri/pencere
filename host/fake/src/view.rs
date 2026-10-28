@@ -44,6 +44,10 @@ pub struct Reaction {
     pub links: Vec<String>,
     /// The script is done (or had nothing to do).
     pub done: bool,
+    /// The page asks to be closed. A web page asks with its bridge's `close` message, a view the
+    /// terminal draws itself with the `close` of its reply, which is not a message at all: the host
+    /// decides what comes of it either way.
+    pub close: bool,
 }
 
 /// A request that is out: a call that has not been answered, or a subscription.
@@ -159,7 +163,7 @@ impl ScriptedView {
     pub fn close(&mut self) -> Reaction {
         log::line("view", "-> close");
         Reaction {
-            send: vec![json!({ "close": {} }).to_string()],
+            close: true,
             ..Reaction::default()
         }
     }
@@ -234,6 +238,7 @@ impl ScriptedView {
             send,
             links,
             done: first.done,
+            close: false,
         }
     }
 

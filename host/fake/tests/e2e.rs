@@ -2658,3 +2658,32 @@ fn an_app_that_hands_the_terminal_to_a_program_gets_it_back_and_shows_its_view_a
     let logged = fs::read_to_string(&log).expect("the log");
     assert!(logged.contains("child ended 7"), "{logged}");
 }
+
+// ---- A view the terminal draws itself, and its page's wish to be closed ------------------------
+
+/// A Lua view's page that asks to be closed is not closed for it, and nothing of its wish reaches
+/// the program: a view the terminal draws itself has no message of the host's own (§10.6), and a
+/// program's view is the program's to end. (A host once wrote the page's `close` to the program as
+/// if it were one of the six messages.)
+#[test]
+fn a_kit_views_page_that_asks_to_be_closed_keeps_its_view_and_tells_the_program_nothing() {
+    let run = run_rust_example(
+        &["--call", "list", "--then", "page-close", "--limit", "3"],
+        &["--lua"],
+    );
+    run.in_order(&[
+        "view: kind=lua version=2.0",
+        "view: -> call id=1 list",
+        "host: msg id=* call=1 list",
+        "view: -> close",
+        "host: keeps the view: a view the terminal draws itself is its program's to end",
+        "host: the time limit is up: kills the program",
+    ]);
+    assert_eq!(
+        run.count("host: msg id="),
+        1,
+        "only the call reached the program: {}",
+        run.text()
+    );
+    run.never("reason=view");
+}

@@ -55,7 +55,9 @@ Run it from a terminal and the program's keys are yours: ⌃C reaches the progra
 does in any terminal. Otherwise the script decides how the run ends (`--then`): when
 the page has what it waited for, ^C is typed into the pane, the program is killed with
 SIGKILL, the terminal goes away as when an ssh connection drops (the program is hung up
-and its tty fails), the person closes the view, the page asks to be closed, the host starts
+and its tty fails), the person closes the view, the page asks to be closed (a page is closed
+for it and the program told so; a view the terminal draws itself is kept, for its `close` is no
+message of the protocol and a program's view is the program's to end), the host starts
 the view again once, as after a reconnection, or nothing happens. A program that shows
 several views, as one that reloads its view does, takes the action at the Nth view
 (`--on-view`). `--no-host` plays a terminal that does not host pencere, `--allow-network`

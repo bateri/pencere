@@ -487,6 +487,23 @@ impl Host {
                     .view_message(&serde_json::json!({ "link": { "url": url } }).to_string());
             }
         }
+        // A page's wish to be closed: a web page's is the bridge's `close`, which the session ends
+        // the view for (the program told `closed` with reason `view`, §9.6). A view the terminal
+        // draws itself has no message of the host's own (§10.6): its reply's `close` is the
+        // terminal's to take or not, and a program's view is the program's to end — so it is not
+        // taken, and nothing of it reaches the program, which would read it as a message of the
+        // six.
+        if reaction.close {
+            if self.native {
+                log::line(
+                    "host",
+                    "keeps the view: a view the terminal draws itself is its program's to end",
+                );
+            } else {
+                self.session
+                    .view_message(&serde_json::json!({ "close": {} }).to_string());
+            }
+        }
         for message in &reaction.send {
             // The page of a web view talks through the bridge, the module of a view the terminal
             // draws itself through the session's other door; the messages are the same six.
