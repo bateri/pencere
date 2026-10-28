@@ -267,8 +267,9 @@ struct Seen {
     closed: bool,
     /// The host's field that has the keyboard, where one has it.
     field: Option<Id>,
-    /// A press went to a host's field: the moves and the release of it are the field's too.
-    in_field: bool,
+    /// A press the host took (a field's, or one that closed a menu): its moves and its release are
+    /// the host's too, and never the page's.
+    taken: bool,
     /// What the host's fields hold.
     fields: HashMap<Id, String>,
     diagnostics: Vec<String>,
@@ -1209,18 +1210,19 @@ impl<P: Peer> Headless<P> {
     ///
     /// As [`Headless::settle`].
     pub fn pointer(&mut self, input: Input) -> Result<(), Error> {
-        if self.seen.in_field {
+        if self.seen.taken {
             match input {
                 Input::Release { .. } => {
-                    self.seen.in_field = false;
+                    self.seen.taken = false;
                     return self.settle();
                 }
                 Input::Move(_) | Input::Leave => return self.settle(),
-                _ => self.seen.in_field = false,
+                _ => self.seen.taken = false,
             }
         }
         if let Input::Press { at, .. } = input {
             if self.seen.menu.take().is_some() {
+                self.seen.taken = true;
                 return self.settle();
             }
             let field = self
@@ -1230,7 +1232,7 @@ impl<P: Peer> Headless<P> {
                 .find(|field| contains(field.rect, at))
                 .map(|field| field.id);
             if let Some(field) = field {
-                self.seen.in_field = true;
+                self.seen.taken = true;
                 if self.focus() != Focus::Field(field) {
                     self.seen.field = Some(field);
                     self.page.focus(Some(field));

@@ -266,10 +266,16 @@ return {
         Some("picked 3")
     );
     assert_eq!(page.pick(0), Err(Error::NoMenu));
-    // Escape closes one, and nothing is picked.
+    // Escape closes one, and nothing is picked; so does a click elsewhere, which is not the page's,
+    // its release no more than its press.
     page.right_click("item")?;
     page.press("escape")?;
     assert!(page.menu().is_none());
+    page.right_click("item")?;
+    let told = page.told().len();
+    page.click_at(Point::new(400.0, 300.0))?;
+    assert!(page.menu().is_none());
+    assert_eq!(page.told().len(), told, "{:?}", &page.told()[told..]);
     Ok(())
 }
 
