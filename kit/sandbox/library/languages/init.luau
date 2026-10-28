@@ -83,7 +83,14 @@ local styles = {
 	changed = { color = "warning" },
 	invalid = { color = "error", underline = { wavy = "error" } },
 }
+-- Frozen to the bottom: a look's underline and a mixed colour are tables of their own.
 for _, look in styles do
+	for _, value in look do
+		-- A colour mixed from two is a table as well, and one may stand in more than one look.
+		if type(value) == "table" and not table.isfrozen(value) then
+			table.freeze(value)
+		end
+	end
 	table.freeze(look)
 end
 languages.styles = table.freeze(styles)

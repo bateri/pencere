@@ -45,9 +45,12 @@ fn listing(root: &Path) -> Result<String, String> {
         size += fs::metadata(&file)
             .map_err(|why| format!("{}: {why}", file.display()))?
             .len() as usize;
+        // Debug's quotes and escapes make a literal of Rust of any name a file can have.
+        let path = format!("@pencere/{module}");
+        let file = format!("/library/{module}");
         let _ = writeln!(
             out,
-            "    (\"@pencere/{module}\", include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/library/{module}\"))),"
+            "    ({path:?}, include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), {file:?}))),"
         );
     }
     out.push_str("];\n");

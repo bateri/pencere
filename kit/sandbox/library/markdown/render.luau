@@ -47,6 +47,9 @@ local COLOURED = 20000
 -- The most bytes a part of a text holds (a part may hold 64 KiB), and the most parts a text holds.
 local PART_BYTES = 32768
 local PARTS = 1000
+-- The parts a text may hold at all (the kit's SPEC, Section 4): the words past `PARTS` go in parts
+-- of PART_BYTES up to it.
+local MOST_PARTS = 1024
 -- How many lines of code one text of many looks holds.
 local CODE_LINES = 200
 -- How deep blocks are drawn inside one another: a tree of a page is at most 128 deep.
@@ -309,6 +312,7 @@ local function spans_of(parts, draw)
 			words = concat(rest)
 			look = {}
 		end
+		local last = false
 		while #words > PART_BYTES do
 			local cut = PART_BYTES
 			while cut > 1 do
@@ -318,11 +322,17 @@ local function spans_of(parts, draw)
 				end
 				cut -= 1
 			end
+			if #spans >= MOST_PARTS - 1 then
+				-- The last part a text may hold: what is past it is left out, and says so.
+				words = sub(words, 1, cut) .. "…"
+				last = true
+				break
+			end
 			spans[#spans + 1] = span(sub(words, 1, cut), look)
 			words = sub(words, cut + 1)
 		end
 		spans[#spans + 1] = span(words, look)
-		if #spans > PARTS then
+		if last or #spans > PARTS then
 			break
 		end
 	end

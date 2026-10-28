@@ -151,6 +151,12 @@ colours("JSX", [==[const el = <div className="a">{count} items</div>;]==], {
     { 1, "<div", "tag" }, { 1, "className", "attribute" }, { 1, '"a"', "string" },
     { 1, "</div", "tag" }, { 1, "items", "-" },
 })
+colours("JSX", [==[const el = <div className={`a ${b}`}>x</div>;
+const y = 1;]==], {
+    { 1, "className", "attribute" }, { 1, "${", "string.special" }, { 1, "}", "string.special" },
+    { 1, "}", "punctuation", 2 }, { 1, ">", "tag" },
+    { 1, "</div", "tag" }, { 2, "const", "keyword" }, { 2, "1", "number" },
+})
 colours("TypeScript", [==[interface Point { x: number; }
 @Component()
 export class Box<T> extends Base implements Shape {}
@@ -250,6 +256,7 @@ $x = new Foo();
         &[
             "JavaScript",
             "JSX",
+            "JSX",
             "TypeScript",
             "TSX",
             "Rust",
@@ -282,6 +289,12 @@ print(f"{x}", obj.attr)]==], {
     { 5, "return", "keyword" }, { 5, "3.14", "number" }, { 5, "# squared", "comment" },
     { 6, "class", "keyword" }, { 6, "Shape", "type" }, { 6, "Base", "type" }, { 6, "pass", "keyword" },
     { 7, 'f"{x}"', "string" }, { 7, "attr", "property" },
+})
+colours("Python", [==[pattern = re.compile(r"\"", r'\'')
+doc = r"""a \""" b"""
+x = 1]==], {
+    { 1, [[r"\""]], "string" }, { 1, [[r'\'']], "string" }, { 2, [[r"""a \""" b"""]], "string" },
+    { 3, "1", "number" },
 })
 colours("Ruby", [==[=begin
 docs
@@ -322,7 +335,7 @@ print(t.field, self, 0x10)]===], {
 })
 "##,
     );
-    all_ok(&said, &["Python", "Ruby", "Shell", "Lua"]);
+    all_ok(&said, &["Python", "Python", "Ruby", "Shell", "Lua"]);
 }
 
 #[test]
@@ -996,6 +1009,7 @@ local Syntax = require("@pencere/syntax")
 local ok = pcall(Syntax.define, { name = "x", start = function() return {} end, token = function(s) s:next() end, styles = languages.styles })
 say("define takes the styles: " .. tostring(ok))
 say(tostring(pcall(function() languages.styles.keyword = {} end)))
+say(tostring(pcall(function() languages.look("invalid").underline.wavy = "accent" end)))
 "##,
     );
     assert_eq!(
@@ -1009,6 +1023,7 @@ say(tostring(pcall(function() languages.styles.keyword = {} end)))
             "comment: color=dim>quiet italic=true",
             "unknown: nil",
             "define takes the styles: true",
+            "false",
             "false",
         ]
     );

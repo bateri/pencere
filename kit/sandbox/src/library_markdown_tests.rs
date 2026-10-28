@@ -1392,3 +1392,31 @@ fn a_language_says_the_look_its_styles_give_a_token_by_its_name() {
         ]
     );
 }
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_text_of_more_looks_than_a_text_may_hold_parts_is_held_to_the_parts_the_host_takes() {
+    // A paragraph of a thousand looks and more, then most of a mebibyte of plain words: the parts
+    // past the thousandth are cut to a size a part may hold, and no more of them than a text may
+    // have (1024) are made, the rest left out.
+    let update = first(
+        r#"
+        local markdown = require("@pencere/markdown")
+        local inlines = {}
+        for _ = 1, 1100 do
+            inlines[#inlines + 1] = { type = "emphasis", children = { { type = "text", text = "a" } } }
+            inlines[#inlines + 1] = { type = "text", text = " b " }
+        end
+        inlines[#inlines + 1] = { type = "text", text = string.rep("x", 900000) }
+        local tree = { type = "document", children = {
+            { type = "paragraph", line = 1, lines = 1, children = inlines },
+        } }
+        local element = markdown.render(tree)
+        return { render = function()
+            return pencere.div():size_full():child(element)
+        end }
+        "#,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None, "{}", failed(&update));
+}
