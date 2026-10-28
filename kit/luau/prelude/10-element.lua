@@ -343,8 +343,8 @@ end
 -- The box is the room of an editor of text the host puts there, named `id` (the element's own name
 -- when `id` is nil). The host keeps its document, edits it, lays out and draws its lines and
 -- scrolls them (as a box that scrolls: `pencere.layout.scroll_to(id, …)`); the page is told what
--- changed (`edit`, `selection`, `viewport`, `editor_refused`, and `found` while it searches) and
--- asks for what it wants in a reply (`editor = { [id] = … }`). Its document lives as long as an editor of its name is on the page,
+-- changed (`editor_ready` once it has made it, `edit`, `selection`, `viewport`, `editor_refused`,
+-- and `found` while it searches) and asks for what it wants in a reply (`editor = { [id] = … }`). Its document lives as long as an editor of its name is on the page,
 -- hidden or not. `options` (all optional): `wrap`, `tab_width` (4), `hard_tabs`, `gutter` (true),
 -- `read_only`, `keys` ("editor", or "page": every key the page's), `hint` (what it says while
 -- empty), `pairs` (the brackets and quotes that close themselves: "()[]{}" or { "()", "[]" }); what
@@ -360,10 +360,12 @@ end
 -- "text", "gutter", "all"), `whitespace` (which spaces and tabs it shows, as VS Code: "none",
 -- "boundary" (all but a space alone between words), "selection", "trailing" or "all"; a space is a
 -- dot, a tab an arrow, any other space a box), `indent_guides` (a thin line down each level of
--- indent, the caret's block's in its own colour), `caret = { shape = "bar" | "block" | "underline",
--- height = "row" | "text", width = 2, color =, text = }` and `colors = { current_line, selection,
--- selection_blurred, found, brackets, numbers, current_number, gutter, folds, folded, hint,
--- whitespace, indent_guides, active_indent_guide }`. A colour it does not say is the theme's;
+-- indent, the caret's block's in its own colour), `matches` (the other places of the main selection's
+-- text marked where they are in view: "none", "selection" (or true), or "word", the caret's word
+-- too), `caret = { shape = "bar" | "block" | "underline", height = "row" | "text", width = 2, color =,
+-- text = }` and `colors = { current_line, selection, selection_blurred, found, brackets, numbers,
+-- current_number, gutter, folds, folded, hint, whitespace, indent_guides, active_indent_guide,
+-- matches }`. A colour it does not say is the theme's;
 -- `false` draws none. A plain editor shows no spaces and no guides.
 local EDITOR_OPTIONS = {
 	wrap = true,
@@ -384,6 +386,7 @@ local EDITOR_OPTIONS = {
 	current_line = true,
 	whitespace = true,
 	indent_guides = true,
+	matches = true,
 	caret = { shape = true, height = true, width = true, color = true, text = true },
 	colors = {
 		current_line = true,
@@ -400,6 +403,7 @@ local EDITOR_OPTIONS = {
 		whitespace = true,
 		indent_guides = true,
 		active_indent_guide = true,
+		matches = true,
 	},
 }
 
@@ -468,6 +472,9 @@ local EASES = { linear = true, out = true, ["in-out"] = true, spring = true }
 --   place     moved among the others, it slides from where it was to where it is
 --   enter     how it comes in when it appears: { opacity =, dx =, dy =, seconds = }
 --   exit      how it goes when it is no longer on the page, the same
+--   spin      it turns round, clockwise, a turn in this many seconds, while it is on the page: its
+--             picture or its canvas about its middle (a spinner: `image("loader.svg"):motion({
+--             spin = 1 })`); with no id too, and not under Reduce Motion
 -- The element is followed by its id, so one with no id does not move. Nothing moves under Reduce
 -- Motion, on the frame the page changes size, or for what scrolling brings in or takes out.
 function Element:motion(motion)
@@ -477,6 +484,9 @@ function Element:motion(motion)
 	local seconds = motion.seconds or 0.2
 	if motion.ease ~= nil and not EASES[motion.ease] then
 		error('an ease is "out", "linear", "in-out" or "spring", not ' .. tostring(motion.ease), 2)
+	end
+	if motion.spin ~= nil and not (type(motion.spin) == "number" and motion.spin > 0 and motion.spin < math.huge) then
+		error("spin is the seconds of a turn, more than 0, not " .. tostring(motion.spin), 2)
 	end
 	local function shift(given)
 		if given == nil then
@@ -498,6 +508,7 @@ function Element:motion(motion)
 		place = motion.place == true,
 		enter = shift(motion.enter),
 		exit = shift(motion.exit),
+		spin = motion.spin,
 	}
 	return self
 end
@@ -558,38 +569,72 @@ local MODIFIERS = {
 	shift = "shift",
 }
 
--- Keys as a person writes them, "cmd+shift+k", "ctrl+enter", "f5", as { key =, mods = }.
+-- The names a key goes by besides the one the page is told.
+local KEY_NAMES = {
+	space = " ",
+	["return"] = "enter",
+	esc = "escape",
+	pageup = "page_up",
+	pagedown = "page_down",
+	del = "delete",
+}
+
+-- Keys as a person writes them, "cmd+shift+k", "ctrl+enter", "f5", as { key =, mods = }. The key
+-- `+` is written as itself: "cmd++". `mod` is the main modifier of the host's system
+-- (`pencere.keyboard()`): "mod+s" is ⌘S on a Mac and Ctrl+S elsewhere.
 function pencere.keys(words)
 	if type(words) ~= "string" then
 		error("keys are written as words: \"cmd+k\", not " .. type(words), 2)
 	end
 	local parts = string.split(words, "+")
+	-- A `+` at the end is the key, not the mark before it: "cmd++" splits to "cmd", "", "".
+	if #parts >= 2 and parts[#parts] == "" and parts[#parts - 1] == "" then
+		parts[#parts] = nil
+		parts[#parts] = "+"
+	end
 	local mods = { shift = false, control = false, alt = false, command = false }
 	for index = 1, #parts - 1 do
 		local held = MODIFIERS[string.lower(parts[index])]
+		if string.lower(parts[index]) == "mod" then
+			held = pencere.keyboard() == "mac" and "command" or "control"
+		end
 		if not held then
-			error("\"" .. parts[index] .. "\" is not a modifier (cmd, ctrl, alt or shift)", 2)
+			error("\"" .. parts[index] .. "\" is not a modifier (cmd, ctrl, alt, shift or mod)", 2)
 		end
 		mods[held] = true
 	end
 	local key = parts[#parts] or ""
 	if utf8.len(key) ~= 1 then
 		key = string.lower(key)
-		if key == "space" then
-			key = " "
-		elseif key == "return" then
-			key = "enter"
-		elseif key == "esc" then
-			key = "escape"
-		end
+		key = KEY_NAMES[key] or key
 	end
 	return { key = key, mods = mods }
 end
 
 -- Something the page can be told to do while the keyboard is on this element or inside it (on the
 -- page's outermost box: always), which the host lists and does by its keys; the page is told
--- { type = "command", id = id }. `keys` is written as a person writes them ("cmd+k"), or nil;
--- `enabled` is false for one that cannot be done now.
+-- { type = "command", id = id }. `keys` is written as a person writes them ("cmd+k"), a list of
+-- such (each does it; the first is the one a list shows: { "ctrl+page_down", "ctrl+alt+right" }),
+-- or nil; `enabled` is false for one that cannot be done now.
+-- The keys of a command: words, or a list of words, as a list of { key =, mods = }.
+local function keys_of(keys)
+	if keys == nil then
+		return nil
+	elseif type(keys) == "string" then
+		return { pencere.keys(keys) }
+	elseif type(keys) ~= "table" then
+		error("the keys of a command are words, \"cmd+k\", or a list of them, not " .. type(keys), 3)
+	end
+	local list = {}
+	for index, words in ipairs(keys) do
+		if type(words) ~= "string" then
+			error("the keys of a command are words, \"cmd+k\", or a list of them; key " .. index .. " is a " .. type(words), 3)
+		end
+		list[index] = pencere.keys(words)
+	end
+	return list
+end
+
 function Element:command(id, title, keys, enabled)
 	if id == nil then
 		error("a command is named: command(id, title, keys)", 2)
@@ -605,7 +650,7 @@ function Element:command(id, title, keys, enabled)
 	commands[#commands + 1] = {
 		id = id,
 		title = title,
-		keys = keys and pencere.keys(keys) or nil,
+		keys = keys_of(keys),
 		enabled = enabled ~= false,
 	}
 	return self

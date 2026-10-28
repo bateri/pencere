@@ -122,12 +122,13 @@ local function python_token(stream, state)
 		if prefix then
 			stream:match("[rRbBfFuU][rRbBfF]?")
 		end
-		local raw = prefix and string.find(prefix, "[rR]") ~= nil
+		-- A backslash keeps the next quote from closing a string, a raw string's too (in one it
+		-- stays a backslash: `r"\""` is the two characters `\"`).
 		if stream:match(q .. q .. q) then
-			return read_string(stream, state, q .. q .. q, not raw, true)
+			return read_string(stream, state, q .. q .. q, true, true)
 		end
 		stream:next()
-		return read_string(stream, state, q, not raw, false)
+		return read_string(stream, state, q, true, false)
 	end
 	if number(stream) then
 		stream:match("[jJlL]")

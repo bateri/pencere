@@ -86,6 +86,10 @@ pub struct Picture {
     /// the element asked for, taken in where the room that is drawn is smaller than its box.
     pub radii: [f32; 4],
     pub clip: Rect,
+    /// How far it is turned, degrees clockwise about the middle of `rect`: the host draws it
+    /// turned so (a spinner's, [`crate::Motion::spin`]), cut at `clip` as it is. 0 for one that is
+    /// not.
+    pub turn: f32,
 }
 
 impl Picture {
@@ -241,10 +245,25 @@ impl Laid {
                 }
                 Content::Canvas(paths) => {
                     if !paths.is_empty() {
+                        // A canvas that spins is turned here, about its middle in its own points:
+                        // the one rasteriser draws it, and a host draws nothing new for it.
+                        let scale = self.scale.max(f32::MIN_POSITIVE);
+                        let middle =
+                            Point::new(node.rect.w / scale / 2.0, node.rect.h / scale / 2.0);
                         list.items.push(Paint::Figure(Figure {
                             rect: node.rect,
                             scale: self.scale,
-                            paths: paths.iter().map(|path| path.faded(opacity)).collect(),
+                            paths: paths
+                                .iter()
+                                .map(|path| {
+                                    let path = path.faded(opacity);
+                                    if node.turn == 0.0 {
+                                        path
+                                    } else {
+                                        path.turned(node.turn, middle)
+                                    }
+                                })
+                                .collect(),
                             clip: node.clip.intersect(node.rect),
                         }));
                     }
@@ -394,6 +413,7 @@ fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
         opacity: node.opacity,
         radii: node.radii.map(|radius| radius.clamp(0.0, most)),
         clip: node.clip,
+        turn: node.turn,
     })
 }
 

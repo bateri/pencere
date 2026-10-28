@@ -87,6 +87,14 @@ local function reader(o)
 					state.str = nil
 					state.tpl = state.tpl or {}
 					state.tpl[#state.tpl + 1] = 0
+					if state.jsx or state.jsxd then
+						-- The template is in a tag of JSX: the tag waits while its `${…}` is read,
+						-- so that the `{` and `}` in it are the template's and its words not the
+						-- tag's.
+						state.held = state.held or {}
+						state.held[#state.tpl] = { jsx = state.jsx, jsxd = state.jsxd }
+						state.jsx, state.jsxd = nil, nil
+					end
 					state.last = nil
 					return "string.special"
 				end
@@ -300,6 +308,14 @@ local function reader(o)
 			elseif state.tpl then
 				local depth = state.tpl[#state.tpl]
 				if depth == 0 then
+					local held = state.held and state.held[#state.tpl]
+					if held then
+						state.held[#state.tpl] = nil
+						if next(state.held) == nil then
+							state.held = nil
+						end
+						state.jsx, state.jsxd = held.jsx, held.jsxd
+					end
 					table.remove(state.tpl)
 					if #state.tpl == 0 then
 						state.tpl = nil

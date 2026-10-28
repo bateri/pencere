@@ -95,11 +95,11 @@ pub use app::{App, DEV_VARIABLE, build};
 pub use bundle::{Bundle, BundleError, File};
 pub use control::{CloseResult, HandOff, HandOffResult, ReopenResult, ViewControl};
 pub use conversation::{Conversation, Lent, Said};
-pub use handlers::{Call, Subscription, ViewError};
+pub use handlers::{Answer, Call, Subscription, ViewError};
 pub use terminal::Terminal;
 pub use view::{Access, Icon, IconTheme, Kind, Permission, View, WEB_VERSION};
 
-use handlers::{CallFn, Method, TopicFn};
+use handlers::{CallFn, CallHandler, Method, TopicHandler};
 use view::Source;
 
 /// What the program does when no view is shown.
@@ -113,7 +113,7 @@ pub struct Options {
     title: Option<String>,
     icons: Vec<Icon>,
     calls: HashMap<String, Method>,
-    topics: HashMap<String, Arc<TopicFn>>,
+    topics: HashMap<String, TopicHandler>,
     fallback: Option<Fallback>,
     terminal: Option<Terminal>,
     control: Option<ViewControl>,
@@ -226,7 +226,35 @@ impl Options {
         self.calls.insert(
             method.into(),
             Method {
-                handler: Self::handler(handler),
+                handler: CallHandler::Thread(Self::handler(handler)),
+                lane: None,
+            },
+        );
+        self
+    }
+
+    /// Answers the calls of the view to `method` later, as a program with a loop of its own does
+    /// (an interpreter, an event loop): the handler is given each call on the thread that reads
+    /// the view, in the order the view sent them, with the [`Answer`] to it, hands them to the
+    /// loop and returns; the loop answers each when it can, from any thread, in any order. So the
+    /// loop sees the calls (and the subscriptions of [`Options::topic_deferred`]) in the order
+    /// the view made them, and none waits for another's answer.
+    ///
+    /// The handler must return at once and wait for nothing (the view is not read meanwhile, and
+    /// a `HandOff::wait` there would wait for itself); a call it answers before it returns is
+    /// answered as it returns. A handler that panics fails its call with `internal`; an `Answer`
+    /// dropped unanswered does too. The calls it is given count among those that may be out at
+    /// once, as [`Options::call`]'s do, and one the view cancels is not answered
+    /// ([`Call::is_cancelled`] says so).
+    #[must_use]
+    pub fn call_deferred<F>(mut self, method: impl Into<String>, handler: F) -> Self
+    where
+        F: Fn(Value, Call, Answer) + Send + Sync + 'static,
+    {
+        self.calls.insert(
+            method.into(),
+            Method {
+                handler: CallHandler::Deferred(Arc::new(handler)),
                 lane: None,
             },
         );
@@ -257,7 +285,7 @@ impl Options {
         self.calls.insert(
             method.into(),
             Method {
-                handler: Self::handler(handler),
+                handler: CallHandler::Thread(Self::handler(handler)),
                 lane: Some(lane.into().into()),
             },
         );
@@ -289,7 +317,24 @@ impl Options {
     where
         F: Fn(Value, &Subscription) -> Result<(), ViewError> + Send + Sync + 'static,
     {
-        self.topics.insert(topic.into(), Arc::new(handler));
+        self.topics
+            .insert(topic.into(), TopicHandler::Thread(Arc::new(handler)));
+        self
+    }
+
+    /// Feeds the subscriptions of the view to `topic` from a loop of the program's own, as
+    /// [`Options::call_deferred`] answers calls: the handler is given each subscription on the
+    /// thread that reads the view, in the order the view made it among the calls, with the
+    /// [`Answer`] that says whether it started; it hands them to the loop and returns, and the
+    /// loop pushes to the [`Subscription`] and answers from any thread. An error ends the
+    /// subscription with an error response.
+    #[must_use]
+    pub fn topic_deferred<F>(mut self, topic: impl Into<String>, handler: F) -> Self
+    where
+        F: Fn(Value, Subscription, Answer<()>) + Send + Sync + 'static,
+    {
+        self.topics
+            .insert(topic.into(), TopicHandler::Deferred(Arc::new(handler)));
         self
     }
 

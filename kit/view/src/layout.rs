@@ -130,6 +130,9 @@ pub(crate) struct Node {
     pub overlay: bool,
     /// Nothing inside it is drawn outside it (it clips, or it scrolls).
     pub clips: bool,
+    /// How far its picture or its canvas is turned, degrees clockwise about its middle: where it
+    /// spins ([`crate::Motion::spin`]).
+    pub turn: f32,
 }
 
 /// A page laid out: every element's box, in the order they are painted.
@@ -456,6 +459,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             scroll: entry.scroll,
             overlay: entry.overlay,
             clips: entry.overflow != Overflow::Visible,
+            turn: 0.0,
         });
     }
     // `nodes`, `reach` and `inside` get one entry for every element: they are the same length.
@@ -738,6 +742,7 @@ fn empty(page: Rect) -> Node {
         scroll: (0.0, 0.0),
         overlay: false,
         clips: false,
+        turn: 0.0,
     }
 }
 
@@ -1248,7 +1253,7 @@ impl Laid {
     /// What the page can be told to do now ([`crate::Element::command`]): the commands of the
     /// element the keyboard is on ([`crate::Element::focused`]) and of each box around it, out to
     /// the page's own, the nearest first. A command already listed by a nearer box is not listed
-    /// again, and neither is one whose keys a nearer one has.
+    /// again, and keys a nearer one has are not a farther one's.
     pub fn commands(&self) -> Vec<Command> {
         let focused = self
             .nodes
@@ -1272,13 +1277,11 @@ impl Laid {
                     continue;
                 }
                 let mut command = command.clone();
-                if let Some(keys) = command.keys {
-                    if taken.iter().any(|k| k.matches(keys.key, keys.mods)) {
-                        command.keys = None;
-                    } else {
-                        taken.push(keys);
-                    }
-                }
+                // Keys a nearer command has are that one's: this one keeps the rest of its own.
+                command
+                    .keys
+                    .retain(|keys| !taken.iter().any(|k| k.matches(keys.key, keys.mods)));
+                taken.extend(command.keys.iter().copied());
                 out.push(command);
             }
         }
@@ -1290,7 +1293,7 @@ impl Laid {
     pub fn command_for(&self, key: Key, mods: Mods) -> Option<Id> {
         self.commands()
             .into_iter()
-            .find(|command| command.keys.is_some_and(|keys| keys.matches(key, mods)))
+            .find(|command| command.done_by(key, mods))
             .filter(|command| command.enabled)
             .map(|command| command.id)
     }

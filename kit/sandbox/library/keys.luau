@@ -11,13 +11,13 @@
 --   keys.caps("cmd+enter")                -- { "⌘", "↩" }: one for each key cap drawn
 --   keys.matches(event, "cmd+k")          -- whether a key event is that shortcut
 --
--- The platform: the kit does not tell a page which platform its host runs on (the interface
--- carries no word of it). The labels are a Mac's, as Apple's guidelines write them (the modifiers
--- in the order ⌃⌥⇧⌘, then the key, with nothing between), unless the page says another platform
--- for one label (`options.platform`) or for all (`keys.set_platform("other")`): every host of the
--- kit today runs on macOS. When the kit's interface carries the host's word, that word will be the
--- default in place of "mac". On any other platform a label is the names of the keys joined by
--- `+`, in the order Ctrl, Alt, Shift, Super.
+-- The platform: the host's keyboard convention, as `pencere.keyboard()` says it ("mac", "windows" or
+-- "linux"), unless the page says another for one label (`options.platform`) or for all
+-- (`keys.set_platform("other")`); where the page API has no `pencere.keyboard` it is "mac". A Mac
+-- writes the modifiers in the order Apple's guidelines give (⌃⌥⇧⌘, then the key, with nothing
+-- between). On any other platform a label is the names of the keys joined by `+`, in the order
+-- Ctrl, Alt, Shift, then the logo key: Win on Windows, Super on Linux and for "other" (a platform a
+-- page does not name).
 --
 -- `cmd` is the command key. The kit reads `cmd`, `command`, `super` and `meta` as one modifier
 -- (`mods.command`) and a host matches it as it is, never as control: off a Mac it is the key with
@@ -59,6 +59,8 @@ end
 -- How each platform writes the modifiers, in its order, and the keys that are not characters.
 local MODIFIERS = {
 	mac = { { "control", "⌃" }, { "alt", "⌥" }, { "shift", "⇧" }, { "command", "⌘" } },
+	windows = { { "control", "Ctrl" }, { "alt", "Alt" }, { "shift", "Shift" }, { "command", "Win" } },
+	linux = { { "control", "Ctrl" }, { "alt", "Alt" }, { "shift", "Shift" }, { "command", "Super" } },
 	other = { { "control", "Ctrl" }, { "alt", "Alt" }, { "shift", "Shift" }, { "command", "Super" } },
 }
 local KEYS = {
@@ -78,7 +80,7 @@ local KEYS = {
 		delete = "⌦",
 		[" "] = "␣",
 	},
-	other = {
+	words = {
 		up = "Up",
 		down = "Down",
 		left = "Left",
@@ -97,8 +99,22 @@ local KEYS = {
 }
 local MODIFIER_NAMES = { "shift", "control", "alt", "command" }
 
--- The platform the labels are for, unless a call says another.
-local platform = "mac"
+-- Every platform but a Mac names its keys as words.
+local function keys_of_platform(name)
+	return name == "mac" and KEYS.mac or KEYS.words
+end
+
+-- The platform the labels are for, unless a call says another: the page's (`keys.set_platform`), or
+-- the host's, read when first asked (the page API may have none to ask).
+local platform = nil
+local function platform_default()
+	if platform == nil then
+		local asked = type(pencere.keyboard) == "function" and pencere.keyboard() or nil
+		return MODIFIERS[asked] and asked or "mac"
+	end
+	return platform
+end
+local PLATFORMS = 'a platform is "mac", "windows", "linux" or "other", not '
 
 -- --- Letters ---------------------------------------------------------------------------------
 
@@ -192,7 +208,7 @@ end
 
 local function platform_of(options, name, level)
 	if options == nil then
-		return platform
+		return platform_default()
 	end
 	if type(options) ~= "table" then
 		error(name .. " takes options as a table ({ platform = }), not a " .. type(options), level + 1)
@@ -204,9 +220,9 @@ local function platform_of(options, name, level)
 	end
 	local chosen = options.platform
 	if chosen == nil then
-		return platform
+		return platform_default()
 	elseif not MODIFIERS[chosen] then
-		error('a platform is "mac" or "other", not ' .. tostring(chosen), level + 1)
+		error(PLATFORMS .. tostring(chosen), level + 1)
 	end
 	return chosen
 end
@@ -224,7 +240,8 @@ end
 
 -- The keys as the platform writes them, one for each key cap: `{ "⇧", "⌘", "K" }` on a Mac,
 -- `{ "Ctrl", "Shift", "K" }` elsewhere. `words` are keys written as words or what `keys.parse`
--- made of them; `options.platform` is "mac" or "other" (`keys.platform()` where it says none).
+-- made of them; `options.platform` is "mac", "windows", "linux" or "other" (`keys.platform()` where
+-- it says none).
 function keys.caps(words, options)
 	local parsed = keys_of(words, "keys.caps", 2)
 	local chosen = platform_of(options, "keys.caps", 2)
@@ -235,7 +252,7 @@ function keys.caps(words, options)
 		end
 	end
 	local key = parsed.key
-	local cap = KEYS[chosen][key]
+	local cap = keys_of_platform(chosen)[key]
 	if cap == nil then
 		if string.match(key, "^f%d%d?$") then
 			cap = string.upper(key)
@@ -286,16 +303,17 @@ function keys.matches(event, words)
 	return utf8.len(key) == 1 and cased(key, SMALL) == cased(parsed.key, SMALL)
 end
 
--- The platform the labels are for: "mac" (every host of the kit today) unless the page said
--- another.
+-- The platform the labels are for: what the page said (`keys.set_platform`), else the host's
+-- keyboard convention (`pencere.keyboard()`: "mac", "windows" or "linux"), else "mac".
 function keys.platform()
-	return platform
+	return platform_default()
 end
 
--- Says the platform the labels are for, "mac" or "other": a page that knows better than the kit.
+-- Says the platform the labels are for, "mac", "windows", "linux" or "other": a page that knows
+-- better than its host, or has a setting for it.
 function keys.set_platform(name)
 	if not MODIFIERS[name] then
-		error('a platform is "mac" or "other", not ' .. tostring(name), 2)
+		error(PLATFORMS .. tostring(name), 2)
 	end
 	platform = name
 end

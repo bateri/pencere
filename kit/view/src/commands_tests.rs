@@ -81,7 +81,41 @@ fn the_commands_are_those_of_the_element_the_keyboard_is_on_and_of_the_boxes_aro
         vec![FILTER_FIND, DELETE, RENAME, QUIT, FIND]
     );
     // The page's find is listed, but its keys are the field's while the field has the keyboard.
-    assert_eq!(in_field.last().and_then(|command| command.keys), None);
+    assert_eq!(in_field.last().map(|command| command.keys.len()), Some(0));
+}
+
+#[test]
+fn a_command_with_two_sets_of_keys_keeps_those_a_nearer_one_does_not_have() {
+    let next = Id::new(20);
+    let other = Id::new(21);
+    let laid = lay(
+        div()
+            .id(Id::new(22))
+            .command(
+                Command::new(next, "Next Tab")
+                    .keys(keys("ctrl+page_down"))
+                    .keys(keys("ctrl+alt+right")),
+            )
+            .child(
+                div()
+                    .id(Id::new(23))
+                    .h(10.0)
+                    .focused(true)
+                    .command(Command::new(other, "Other").keys(keys("ctrl+page_down"))),
+            ),
+        100.0,
+        100.0,
+    );
+    let listed = laid.commands();
+    assert_eq!(ids(&listed), vec![other, next]);
+    assert_eq!(listed[1].keys, vec![keys("ctrl+alt+right")]);
+    let ctrl = Mods {
+        control: true,
+        ..Mods::default()
+    };
+    let ctrl_alt = Mods { alt: true, ..ctrl };
+    assert_eq!(laid.command_for(Key::PageDown, ctrl), Some(other));
+    assert_eq!(laid.command_for(Key::Right, ctrl_alt), Some(next));
 }
 
 #[test]

@@ -848,6 +848,9 @@ function Syntax.new(language, editor, options)
 		ok = {},
 		-- How many lines' states were kept since the last that were let go (`thin`).
 		grown = 0,
+		-- The first line an edit changed, where the reading went back to a state kept before it:
+		-- the lines read before it end as they did, and what was coloured of them stays.
+		unchanged = nil,
 		-- The lines in view ({ first, last }, as the editor said), the lines whose colours the
 		-- editor has (`painted`) and the lines the layer may have any in (`held`, { from, to }).
 		view = nil,
@@ -879,7 +882,7 @@ local function reset(self)
 	self.length = version and layout.editor_length(id) or 0
 	self.told_length = self.length
 	self.batch = nil
-	self.ends, self.valid, self.ok, self.grown = {}, 0, {}, 0
+	self.ends, self.valid, self.ok, self.grown, self.unchanged = {}, 0, {}, 0, nil
 	self.painted = {}
 	self.chunk = nil
 end
@@ -1100,7 +1103,10 @@ local function advance(self, first, last)
 		end
 		self.valid = to
 	else
-		if not same then
+		-- Before the first line an edit changed, a line read again from a state kept before it ends
+		-- as it did, though no state was kept to tell.
+		local unchanged = self.unchanged ~= nil and line + 1 <= self.unchanged
+		if not same and not unchanged then
 			-- The next line starts from another state (or one not kept to tell): its colours are
 			-- not right, nor what was read from it.
 			if set_end(self.painted, line + 1) then
@@ -1109,10 +1115,15 @@ local function advance(self, first, last)
 			if set_end(self.ok, line + 1) then
 				self.ok = set_remove(self.ok, line + 1, line + 2)
 			end
+		end
+		if not same then
 			-- A state the same as the one before it is kept once.
 			keep(self, line + 1, equal(after, before) and before or after)
 		end
 		self.valid = line + 1
+	end
+	if self.unchanged ~= nil and self.valid >= self.unchanged then
+		self.unchanged = nil
 	end
 	-- The state before the line read was the one the reading went on from: it goes where nothing
 	-- else keeps it.
@@ -1199,10 +1210,17 @@ local function thin(self, first, last)
 	self.grown = 0
 	-- The last line whose state stays: the first line's state is the language's start.
 	local kept = 0
+	local crossed = false
 	for index, line in ipairs(lines) do
-		if line > last + 1 and kept < first then
-			-- The window's own stay.
-			kept = last + 1
+		if line > last + 1 and not crossed then
+			-- The window's own stay: the last of them it has.
+			crossed = true
+			for window_line = last + 1, math.max(first, kept + 1), -1 do
+				if ends[window_line] ~= nil then
+					kept = window_line
+					break
+				end
+			end
 		end
 		local after = lines[index + 1] or valid
 		if line < first and first < after then
@@ -1390,10 +1408,14 @@ local function apply(self)
 		-- The lines after the change that were right were read from the line before them.
 		self.ok = set_add(self.ok, last + 1, valid + delta)
 	end
-	-- The reading goes on from the last state kept at or before the change.
+	-- The reading goes on from the last state kept at or before the change. Where that is before
+	-- the change and the lines before the change were read right, they end as they did.
 	local frontier = math.min(valid, first)
 	while frontier > 0 and ends[frontier] == nil do
 		frontier -= 1
+	end
+	if valid > first or self.unchanged ~= nil then
+		self.unchanged = math.min(self.unchanged or first, first)
 	end
 	self.valid = frontier
 	self.painted = set_edit(self.painted, first, last_before, delta)

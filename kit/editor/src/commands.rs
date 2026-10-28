@@ -25,16 +25,16 @@ struct Wrapped {
 
 /// What one range becomes: `insert` in place of `from..to`, and the range selected after it, as
 /// places into `insert` (anchor, head).
-struct Part {
-    from: usize,
-    to: usize,
-    insert: String,
-    select: (usize, usize),
+pub(crate) struct Part {
+    pub(crate) from: usize,
+    pub(crate) to: usize,
+    pub(crate) insert: String,
+    pub(crate) select: (usize, usize),
 }
 
 impl Part {
     /// `insert` in place of the range, the caret after it.
-    fn put(from: usize, to: usize, insert: String) -> Self {
+    pub(crate) fn put(from: usize, to: usize, insert: String) -> Self {
         let len = insert.chars().count();
         Self {
             from,
@@ -91,6 +91,30 @@ impl Buffer {
             EditCommand::Unfold => self.fold(Some(false)),
             EditCommand::ToggleFold => self.fold(None),
             EditCommand::UnfoldAll => self.decorations.folded.clear(),
+            EditCommand::FoldAll => self.fold_all(),
+            EditCommand::DeleteLines => self.delete_lines(now),
+            EditCommand::SelectLine => self.select_line(),
+            EditCommand::DuplicateLinesUp => self.duplicate_lines_up(now),
+            EditCommand::JoinLines => self.join_lines(now),
+            EditCommand::InsertBlankLine => self.insert_blank_line(now),
+            EditCommand::SplitLine => self.split_line(now),
+            EditCommand::TransposeChars => self.transpose_chars(now),
+            EditCommand::DeleteToLineStart => self.delete_with(now, |b, at| {
+                let start = b.line_start(b.line_of(at));
+                if start == at {
+                    at.saturating_sub(1)
+                } else {
+                    start
+                }
+            }),
+            EditCommand::DeleteToLineEnd => self.delete_with(now, |b, at| {
+                let end = b.line_end(b.line_of(at));
+                if end == at {
+                    (at + 1).min(b.len_chars())
+                } else {
+                    end
+                }
+            }),
             EditCommand::Find {
                 pattern,
                 regex,
@@ -108,12 +132,12 @@ impl Buffer {
     }
 
     /// Whether the person can change the text now.
-    fn writable(&self) -> bool {
+    pub(crate) fn writable(&self) -> bool {
         !self.options.read_only && !self.loading
     }
 
     /// One level of indent.
-    fn unit(&self) -> String {
+    pub(crate) fn unit(&self) -> String {
         if self.options.hard_tabs {
             "\t".to_owned()
         } else {
@@ -122,7 +146,20 @@ impl Buffer {
     }
 
     /// Makes `parts` (one for each range, in order) as the person's, of `kind`.
-    fn replace_parts(&mut self, parts: Vec<Part>, kind: Kind, now: f64) {
+    pub(crate) fn replace_parts(&mut self, parts: Vec<Part>, kind: Kind, now: f64) {
+        let main = self.main;
+        self.replace_parts_main(parts, kind, now, main);
+    }
+
+    /// As [`Buffer::replace_parts`], the main selection the one `parts[main]` makes (for parts
+    /// that are not one for each range).
+    pub(crate) fn replace_parts_main(
+        &mut self,
+        parts: Vec<Part>,
+        kind: Kind,
+        now: f64,
+        main: usize,
+    ) {
         let mut changes: Vec<Change> = Vec::with_capacity(parts.len());
         let mut ranges = Vec::with_capacity(parts.len());
         let mut gained: i128 = 0;
@@ -138,7 +175,6 @@ impl Buffer {
             gained += part.insert.chars().count() as i128 - (to - from) as i128;
             changes.push(Change::new(from, to, part.insert));
         }
-        let main = self.main;
         let _ = self.edit(changes, Origin::Person, kind, now, Some((ranges, main)));
     }
 
@@ -593,7 +629,7 @@ impl Buffer {
     }
 
     /// Deletes what each range selects, or from its caret to where `to` says.
-    fn delete_with(&mut self, now: f64, to: impl Fn(&Buffer, usize) -> usize) {
+    pub(crate) fn delete_with(&mut self, now: f64, to: impl Fn(&Buffer, usize) -> usize) {
         if !self.writable() {
             return;
         }
@@ -698,7 +734,7 @@ impl Buffer {
 
     /// The lines the ranges are on, in order, each once: a range that ends at the start of a line
     /// (a whole line selected, with its break) is not on that one.
-    fn lines(&self) -> Vec<(usize, usize)> {
+    pub(crate) fn lines(&self) -> Vec<(usize, usize)> {
         let mut blocks: Vec<(usize, usize)> = Vec::new();
         for range in &self.ranges {
             let first = self.text.line_of(range.start());

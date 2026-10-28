@@ -20,9 +20,11 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 use pencere_view::edit::{
-    EditCommand, Edited, EditorAsk, Found, Keys, Movement, Range, Refusal, Selection, limits,
+    EditCommand, Edited, EditorAsk, Found, Keys, Movement, Range, Refusal, RevealAlign, Selection,
+    limits,
 };
 use pencere_view::{
     DrawList, EditorMetrics, EditorRoom, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint, Point,
@@ -50,6 +52,9 @@ pub enum EditorEvent {
     /// What its search finds now: after every search asked for, and whenever the count, or the
     /// match the main selection is on, changed.
     Found { id: Id, found: Found },
+    /// The editor was made for a room the page laid out (shown or hidden): what the page asks of
+    /// it is done from now on. Told before anything else of it.
+    Ready { id: Id, version: u64 },
 }
 
 /// Where a key goes ([`Editors::key`]).
@@ -109,8 +114,8 @@ struct Editor {
     metrics: EditorMetrics,
     /// The lines in view the page was last told.
     told: Option<(usize, usize)>,
-    /// The main caret is to be brought into view.
-    reveal: Option<usize>,
+    /// A place to be brought into view, and where in the room.
+    reveal: Option<(usize, RevealAlign)>,
 }
 
 /// The editors of a page.
@@ -234,7 +239,17 @@ impl Editors {
         }
         self.order = rooms.iter().map(|room| room.id).collect();
         for room in &rooms {
-            let editor = self.editors.entry(room.id).or_default();
+            let editor = match self.editors.entry(room.id) {
+                Entry::Occupied(kept) => kept.into_mut(),
+                Entry::Vacant(room_of) => {
+                    let made = Editor::default();
+                    self.events.push(EditorEvent::Ready {
+                        id: room.id,
+                        version: made.buffer.version(),
+                    });
+                    room_of.insert(made)
+                }
+            };
             editor.buffer.set_options(room.options.clone());
             editor.view.set_room(room, self.scale, measure);
             editor.view.size_gutter(editor.buffer.len_lines());
@@ -272,8 +287,8 @@ impl Editors {
             self.events.push(match note {
                 Note::Edited(edited) => EditorEvent::Edited { id, edited },
                 Note::Selection(selection) => {
-                    editor.reveal =
-                        Some(selection.ranges.get(selection.main).map_or(0, |r| r.head));
+                    let head = selection.ranges.get(selection.main).map_or(0, |r| r.head);
+                    editor.reveal = Some((head, RevealAlign::Nearest));
                     EditorEvent::Selection { id, selection }
                 }
                 Note::Refused(refusal) => EditorEvent::Refused { id, refusal },
@@ -297,9 +312,9 @@ impl Editors {
             }
             editor.metrics = metrics;
         }
-        if let Some(at) = editor.reveal.take()
+        if let Some((at, align)) = editor.reveal.take()
             && let Some(caret) = editor.view.caret_of(&editor.buffer, at, measure)
-            && let Some(ask) = keep_in_view(&editor.view, id, caret, scale)
+            && let Some(ask) = keep_in_view(&editor.view, id, caret, scale, align)
         {
             self.scrolls.push(ask);
         }
@@ -801,9 +816,9 @@ impl Editors {
             });
             return;
         };
-        if let EditorAsk::Reveal { version, at } = ask {
+        if let EditorAsk::Reveal { version, at, align } = ask {
             match editor.buffer.carry(version, at) {
-                Ok(at) => editor.reveal = Some(at),
+                Ok(at) => editor.reveal = Some((at, align)),
                 Err(refusal) => self.events.push(EditorEvent::Refused { id, refusal }),
             }
             self.refresh(id, Some(laid), measure);
@@ -812,7 +827,12 @@ impl Editors {
         self.with(id, laid, measure, |buffer, rows| {
             let _ = match ask {
                 EditorAsk::Load { text, more } => buffer.load(&text, more),
-                EditorAsk::Change { base, changes } => buffer.change(base, changes, now),
+                EditorAsk::Change {
+                    base,
+                    changes,
+                    history,
+                    tag,
+                } => buffer.change_as(base, changes, now, history, tag),
                 EditorAsk::Select {
                     version,
                     ranges,
@@ -869,8 +889,16 @@ fn column_ranges(editor: &Editor, from: Point, to: Point, measure: &mut dyn Meas
         .collect()
 }
 
-/// Where to scroll the editor `id` so that `caret` (pixels of the content) shows, where it does not.
-fn keep_in_view(view: &View, id: Id, caret: Rect, scale: f32) -> Option<ScrollTo> {
+/// Where to scroll the editor `id` so that `caret` (pixels of the content) shows: where it does not
+/// (`Nearest`), or with its row at the top, the middle or the bottom of the room whatever shows
+/// now (the host takes a place past the end to the end).
+fn keep_in_view(
+    view: &View,
+    id: Id,
+    caret: Rect,
+    scale: f32,
+    align: RevealAlign,
+) -> Option<ScrollTo> {
     let s = scale.max(0.01);
     let (top, height) = (view.scroll.y, view.room.h);
     // The caret's whole row is kept in view, not only its caret, and as many rows about it as the
@@ -884,12 +912,13 @@ fn keep_in_view(view: &View, id: Id, caret: Rect, scale: f32) -> Option<ScrollTo
     let margin = f32::from(view.options.scroll_margin).min(((in_view - 1.0) / 2.0).floor())
         * view.row
         + view.pad;
-    let y = if above - margin < top {
-        Some((above - margin).max(0.0))
-    } else if below + margin > top + height {
-        Some(below + margin - height)
-    } else {
-        None
+    let y = match align {
+        RevealAlign::Start => Some((above - view.pad).max(0.0)),
+        RevealAlign::Center => Some(((above + below - height) / 2.0).max(0.0)),
+        RevealAlign::End => Some((below + view.pad - height).max(0.0)),
+        RevealAlign::Nearest if above - margin < top => Some((above - margin).max(0.0)),
+        RevealAlign::Nearest if below + margin > top + height => Some(below + margin - height),
+        RevealAlign::Nearest => None,
     };
     let x = if view.wrap {
         None
@@ -1017,6 +1046,10 @@ impl From<EditorEvent> for pencere_view::Event {
             },
             EditorEvent::Focus(id) => Event::Focus(id),
             EditorEvent::Found { id, found } => Event::Found { editor: id, found },
+            EditorEvent::Ready { id, version } => Event::EditorReady {
+                editor: id,
+                version,
+            },
         }
     }
 }

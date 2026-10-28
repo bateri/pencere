@@ -75,6 +75,11 @@ pub struct Host {
     /// The view has been started again once, as `--then restart` says.
     restarted: bool,
     waiting_since: Option<(State, Instant)>,
+    /// The opens the host refuses, counting from 1, and how many the program has asked for.
+    refuse_opens: Vec<u32>,
+    opens: u32,
+    /// The host closes a view at the program's request.
+    dismiss: bool,
 }
 
 impl Host {
@@ -86,8 +91,10 @@ impl Host {
         };
         // A terminal that draws views itself opens them as bundles like pages; the stand-in
         // accepts the two kinds and plays their page as a script, with nothing drawn.
+        let mut session = Session::new(pane::config(size), store, pane::entropy(urandom));
+        session.offer_dismiss(args.dismiss);
         Ok(Self {
-            session: Session::new(pane::config(size), store, pane::entropy(urandom)),
+            session,
             answering: args.answer,
             allow_network: args.allow_network,
             passthrough: args.passthrough,
@@ -110,6 +117,9 @@ impl Host {
             hang_up: false,
             restarted: false,
             waiting_since: None,
+            refuse_opens: args.refuse_opens.clone(),
+            opens: 0,
+            dismiss: args.dismiss,
         })
     }
 
@@ -213,7 +223,20 @@ impl Host {
         }
         self.session
             .observe(pane::observed(self.on_alternate_screen, self.modes));
+        // An open the host is told to refuse is refused by its own policy, as a terminal whose
+        // person said no would refuse it.
+        let refused = message.kind == "open" && {
+            self.opens += 1;
+            self.refuse_opens.contains(&self.opens)
+        };
+        if refused {
+            log::line("host", format!("refuses open {} by its policy", self.opens));
+            self.session.allow_opens(false);
+        }
         self.session.message(message);
+        if refused {
+            self.session.allow_opens(true);
+        }
         self.settle();
     }
 
@@ -237,6 +260,9 @@ impl Host {
                 }
                 if message.kind == "dismiss" {
                     log::line("host", "the program asks to close its view");
+                    if !self.dismiss {
+                        log::line("host", "does not close views for the program: ignored");
+                    }
                 }
             }
         }

@@ -25,7 +25,7 @@ mod scrolling;
 pub mod shot;
 mod waking;
 
-pub use host::{Drained, Host};
+pub use host::{Drained, Held, Host};
 pub use outline::{Field, Outline, Placement, Tip, ZOOM_TEXT};
 pub use page::{FrameAt, NoText, Page, PageEditors, Painted, Setup};
 pub use pencere_editor::Route;
@@ -39,6 +39,8 @@ mod in_process_tests;
 mod library_fuzzy_tests;
 #[cfg(test)]
 mod library_languages_tests;
+#[cfg(test)]
+mod library_markdown_tests;
 #[cfg(test)]
 mod luau_editor_tests;
 #[cfg(test)]

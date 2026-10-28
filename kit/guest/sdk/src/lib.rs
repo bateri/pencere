@@ -8,9 +8,9 @@
 //! and a page here is written the same way.
 //!
 //! The component imports **nothing but the page's interface** (`pencere:view`): a page cannot
-//! read a file, open a socket, ask the time or print — the application gives it what it needs
-//! as an event, and what it can ask of the application is the layout of the page it last
-//! drew ([`Layout`]). A panic ends the page, and says why on the way out. A page that a program
+//! read a file, open a socket or print — the application gives it what it needs as an event, and
+//! what it can ask of the application is the layout of the page it last drew ([`Layout`]), the
+//! time of day ([`wall_clock`]) and how its system writes keys ([`keyboard`]). A panic ends the page, and says why on the way out. A page that a program
 //! in the pane opened can also talk to that program: [`say`] sends it a message and
 //! [`Page::message`] hears the program's (the messages are those of [`messages`], the wire's own;
 //! the terminal only carries them). What the program can take is the
@@ -53,15 +53,17 @@ mod convert;
 use bindings::pencere::view::diagnostics as to_diagnostics;
 use bindings::pencere::view::layout as host;
 use bindings::pencere::view::program as to_program;
+use bindings::pencere::view::system as to_system;
 
 pub use pencere_view::edit;
 pub use pencere_view::wire;
 pub use pencere_view::{
     AccessibleRole, Align, Anchor, Border, Built, Button, Color, Command, Cursor, Drag, Dropped,
-    Element, Event, Extent, Fades, Family, Field, FieldKind, Fit, Gradient, Id, Image, Input, Key,
-    Keyboard, List, Menu, MenuEntry, Mix, Mods, Path, Place, Point, Queries, Rect, Reply, Rgba,
-    Role, Rows, ScrollTo, Segment, Shadow, Shortcut, Side, Size, Source, Span, State, Stroke,
-    Track, Ui, canvas, div, image, path, rich, spacer, span, spark, text,
+    Element, Event, Extent, Fades, Family, Field, FieldKind, FieldState, Fill, Fit, Gradient, Id,
+    Image, Input, Key, KeyConvention, Keyboard, List, Menu, MenuEntry, Mix, Mods, Path, Place,
+    Point, Queries, Rect, Reply, Rgba, Role, Rows, ScrollTo, Segment, Shadow, Shortcut, Side, Size,
+    Source, Span, State, Stroke, Track, Ui, WallTime, canvas, div, image, path, rich, spacer, span,
+    spark, text,
 };
 pub use pencere_wire::messages;
 
@@ -196,6 +198,29 @@ pub fn say(message: &str) -> bool {
 /// system does, and the page reads it from the layout ([`Extent::offset`]) or the event.
 pub fn scroll_to(ask: ScrollTo) {
     host::scroll_to(ask.id.number(), ask.x, ask.y, ask.animate);
+}
+
+/// The time of day now, as the application's system says it: seconds of Unix time and the
+/// person's offset from UTC ([`WallTime`]). Read as it is asked; what "4 minutes ago" is told from,
+/// and no clock to time the page's work by (the `now` of a frame is that).
+pub fn wall_clock() -> WallTime {
+    let wall = to_system::wall_clock();
+    WallTime {
+        seconds: wall.seconds,
+        utc_offset: wall.utc_offset,
+    }
+}
+
+/// How the application's system makes and writes its keyboard shortcuts ([`KeyConvention`]):
+/// which modifier is the main one ([`KeyConvention::primary`], what `mod` means to
+/// [`Shortcut::parse_for`]) and how the keys are written.
+pub fn keyboard() -> KeyConvention {
+    use to_system::KeyConvention as Wit;
+    match to_system::keyboard() {
+        Wit::Mac => KeyConvention::Mac,
+        Wit::Windows => KeyConvention::Windows,
+        Wit::Linux => KeyConvention::Linux,
+    }
 }
 
 fn point_in(at: Point) -> bindings::pencere::view::types::Point {

@@ -50,12 +50,12 @@ use pencere_sandbox::{
 };
 use pencere_view::edit::{EditCommand, EditorAsk, Range};
 use pencere_view::{
-    Button, DrawList, EditorMetrics, Element, Event, Font, Id, Input, Key, Laid, Measure, Metrics,
-    Mods, Motions, Phase, Place, Point, Rect, Reply, Role, ScrollTo, Size, div, text,
+    Button, DrawList, EditorMetrics, Element, Event, Font, Id, Input, Key, Keyboard, Laid, Measure,
+    Metrics, Mods, Motions, Phase, Place, Point, Rect, Reply, Role, ScrollTo, Size, div, text,
 };
 
 use crate::editing::{Editing, Told, in_a_room};
-use crate::host::Drained;
+use crate::host::{Drained, Held, Host};
 use crate::outline::{Field, Outline, Placement};
 use crate::scrolling::{HostScrolls, Scrolling};
 use crate::waking::Wakes;
@@ -134,6 +134,21 @@ pub struct FrameAt {
 pub struct Painted {
     pub list: DrawList,
     pub outline: Option<Outline>,
+    /// What replies asked of fields that this frame lays out (their texts and the keyboard), held
+    /// by [`Page::drain`] until the page had them: the host tells them to its fields once it has
+    /// put them over the page by `outline`, in order ([`Painted::deliver_held`]). A name the frame
+    /// does not have either is passed over, as the host passes over any name that is no field.
+    pub held: Vec<Held>,
+}
+
+impl Painted {
+    /// Hands what was held for this frame to `host`, in the order the replies asked it: after the
+    /// host has the fields `outline` names.
+    pub fn deliver_held(&mut self, host: &mut dyn Host) {
+        for held in std::mem::take(&mut self.held) {
+            held.deliver(host);
+        }
+    }
 }
 
 /// How long a resized view waits, at most, for the page of its new size: two frames at 60 Hz. The
@@ -200,6 +215,9 @@ struct State {
     redraw: bool,
     /// What the module said that the host has not taken.
     replies: Vec<Answer>,
+    /// What replies asked of fields the page had not laid out when the host took them, in order: a
+    /// frame that lays the page out gives it ([`Painted::held`]).
+    held: Vec<Held>,
     /// Why the module is gone, until the host has been told.
     ended: Option<Fault>,
     told_end: bool,
@@ -382,6 +400,7 @@ impl Page {
                 outline: Outline::default(),
                 redraw: false,
                 replies: Vec::new(),
+                held: Vec::new(),
                 ended: None,
                 told_end: false,
                 sent: Vec::new(),
@@ -699,8 +718,10 @@ impl Page {
         } else {
             state.ended.clone().inspect(|_| state.told_end = true)
         };
+        let mut replies = std::mem::take(&mut state.replies);
+        hold(&mut replies, &state.outline.fields, &mut state.held);
         Drained {
-            replies: std::mem::take(&mut state.replies),
+            replies,
             redraw: std::mem::take(&mut state.redraw),
             diagnostics: std::mem::take(&mut state.diagnostics),
             ended,
@@ -1045,9 +1066,18 @@ impl State {
         let outline = Outline::of(&laid, self.place);
         let changed = (outline != self.outline).then(|| outline.clone());
         self.outline = outline;
+        // The host has the fields this frame names once it has the outline: what replies asked of
+        // them goes with the frame, a name it does not have either passed over there. A line that
+        // stands in for a page names none, so what waits goes on waiting.
+        let held = if starting {
+            Vec::new()
+        } else {
+            std::mem::take(&mut self.held)
+        };
         Painted {
             list,
             outline: changed,
+            held,
         }
     }
 
@@ -1294,6 +1324,33 @@ fn into_page(input: Input, place: Placement) -> Input {
 }
 
 /// A reply of the page with its points in the host's.
+/// Takes out of `replies` what they ask of a field of the host's that `fields` (the outline the host
+/// has) does not name yet — the texts and the keyboard — and puts it, in order, in `held`. Once
+/// anything is held, what comes after it is held too, so that what a reply asked is done in the
+/// order it asked it.
+pub(crate) fn hold(replies: &mut [Answer], fields: &[Field], held: &mut Vec<Held>) {
+    let has = |id: Id| fields.iter().any(|field| field.id == id);
+    for Answer { reply, .. } in replies {
+        for (field, fill) in std::mem::take(&mut reply.fill) {
+            if held.is_empty() && has(field) {
+                reply.fill.push((field, fill));
+            } else {
+                held.push(Held::Fill(field, fill));
+            }
+        }
+        if let Some(to) = reply.keyboard {
+            let waits = match to {
+                Keyboard::Field(field) => !has(field),
+                Keyboard::Page => false,
+            };
+            if waits || !held.is_empty() {
+                reply.keyboard = None;
+                held.push(Held::Keyboard(to));
+            }
+        }
+    }
+}
+
 fn to_host(mut reply: Reply, place: Placement) -> Reply {
     if let Some(menu) = &mut reply.menu {
         let at = place.to_host(Rect::new(menu.at.x, menu.at.y, 0.0, 0.0));

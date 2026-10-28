@@ -214,7 +214,9 @@ program runs.
 
 Everything an app runs is a coroutine on one thread: a call of the view, a timer, a process's
 output. A function that waits (`process.run`, `time.sleep`, `serve`) suspends only its own, so a
-slow `docker stop` does not freeze the stats that are coming in. Other `.lua` files
+slow `docker stop` does not freeze the stats that are coming in. The calls and the subscriptions of
+the view start in the order the view made them, and none waits for another's answer: an `edit`
+the view sent after another is begun after it. Other `.lua` files
 of `src/program/` are modules (`require("api.files")` is `src/program/api/files.lua`), and the
 files of `assets/` go to the page of the kit with it.
 

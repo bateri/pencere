@@ -39,6 +39,7 @@ mod command;
 pub mod edit;
 mod element;
 mod fades;
+mod field;
 mod figure;
 mod geometry;
 mod id;
@@ -50,6 +51,7 @@ mod rich;
 mod rows;
 mod scrolls;
 mod style;
+mod system;
 mod text;
 mod ui;
 pub mod wire;
@@ -60,6 +62,7 @@ pub use element::{
     Element, FieldKind, Fit, Image, State, canvas, div, image, rich, spacer, spark, text,
 };
 pub use fades::{FADE_SECONDS, Fades};
+pub use field::{FieldState, Fill};
 pub use figure::{Path, Segment, Stroke, path};
 pub use geometry::{Point, Rect, Size};
 pub use id::Id;
@@ -71,6 +74,7 @@ pub use rich::{Span, span};
 pub use rows::{Built, List, Rows};
 pub use scrolls::{Bars, Phase, ScrollTo, Scrolls, Wheeled};
 pub use style::{Anchor, Border, Gradient, Shadow, Side, Track};
+pub use system::{KeyConvention, WallTime};
 pub use text::{Align, EditorMetrics, Family, Font, Measure, Metrics};
 pub use ui::{Drag, Dropped, Ui};
 

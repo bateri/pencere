@@ -109,6 +109,33 @@ call of a view shown again waits for a handler of the view before it that is sti
 example takes the pieces of a payload the view sends in a lane, and the last one, which asks how
 much there was, comes after the others.)
 
+A program with a loop of its own — an interpreter, an event loop — takes the requests in the order
+the view made them and answers each when it can: `Options::call_deferred(method, handler)` and
+`Options::topic_deferred(topic, handler)` give the handler each call or subscription on the thread
+that reads the view, in order, with an `Answer` to send from any thread later. The handler hands it
+to the loop and returns at once; none waits for another's answer, and the loop sees them in the
+order they were made.
+
+```rust
+use pencere::{Answer, Call, Options};
+use serde_json::{Value, json};
+use std::sync::mpsc::channel;
+use std::sync::Mutex;
+
+let (to_loop, from_view) = channel::<(Value, Answer)>();
+let to_loop = Mutex::new(to_loop);
+let options = Options::new().call_deferred("edit", move |params: Value, _call: Call, answer: Answer| {
+    let _ = to_loop.lock().unwrap().send((params, answer));
+});
+// The program's loop, elsewhere: each edit in the order the view sent it.
+std::thread::spawn(move || {
+    for (params, answer) in from_view {
+        answer.send(Ok(json!({ "version": params["version"] })));
+    }
+});
+# drop(options);
+```
+
 Anything a handler returns is JSON: the result of a call is `Serialize`, an error is a
 `ViewError` with a short `code` the view can act on and words for the person, and a handler that
 panics is an `internal` error of its call and nothing else.
@@ -139,7 +166,7 @@ does too:
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
-use pencere::{HandOffResult, Options, ViewControl};
+use pencere::{Options, ViewControl};
 use serde_json::json;
 
 let control = ViewControl::new();
@@ -150,22 +177,22 @@ let kept = Arc::clone(&last);
 let options = Options::new()
     .control(control)
     .call("shell", move |_params, _call| {
-        let handoff = lender.hand_off(Command::new("bash"));
         let kept = Arc::clone(&kept);
-        // Waited for on another thread: the view closes once this answer is out.
-        std::thread::spawn(move || {
-            if let HandOffResult::Returned(Ok(status)) = handoff.wait() {
-                *kept.lock().unwrap() = status.code();
-            }
+        // Kept before the view is shown again; the view closes once this answer is out.
+        let _ = lender.hand_off_then(Command::new("bash"), move |ended| {
+            *kept.lock().unwrap() = ended.as_ref().ok().and_then(|status| status.code());
         });
         Ok(json!("starting"))
     })
     .call("last", move |_params, _call| Ok(json!({ "code": *last.lock().unwrap() })));
 ```
 
-`wait` returns as the terminal takes the open of the view shown again, on the thread that waits; a
-view that asks for the status at once may come before that thread has kept it, so a program that
-must have it then pushes it to a subscription when it has it, or has the call wait for it.
+`hand_off_then` gives its function how the command ended (or why it could not be started) once it
+has, on the library's thread, **before the view is asked for again**: what it keeps is there for
+the first call of the view that comes back, which need wait for nothing. It should be brief (keep
+a value, send it on a channel); a panic in it is caught. `hand_off` is the same with nothing to
+call, and the `HandOff` of either says how it went: its `wait` returns as the terminal takes the
+open of the view shown again, or why the view did not come back (`HandOffResult::NoView`).
 
 A signal that asks the program to end while the command has the terminal is acted on once the
 command has ended (a hangup is passed on to it, as a shell passes its own on); `serve` then ends as

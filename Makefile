@@ -27,9 +27,15 @@ check:
 	cargo fmt --all -- --check
 	cargo fmt --manifest-path kit/guest/Cargo.toml --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
+	# What the tests that start cargo build (the example program, the `pencere` command) is built
+	# first, as they build it, and the tests are run by tools/cargo-test.mjs: a `cargo test` that is
+	# alive holds cargo's locks while its tests run, and a cargo a test starts then waits for it for
+	# ever — and, the package cache being shared, so does every other checkout's.
+	cargo build --quiet -p containers-rust
+	cargo build --quiet -p pencere-cli
 	# The tests' standard input is no terminal, as on a runner: a test of an app with no terminal
 	# would otherwise ask the terminal make runs in for a view, and one that answers changes it.
-	cargo test --workspace --all-targets </dev/null
+	node tools/cargo-test.mjs --workspace --all-targets
 	# The features of `pencere-drive`: the pictures of a page (`shot`), which nothing of the workspace
 	# asks for, with no font of the system's — a picture made with no font is the same bytes on every
 	# system, and the one checked in is what it is held to — and a program in the same process
@@ -38,7 +44,7 @@ check:
 	cargo clippy -p pencere-drive --all-targets -- -D warnings
 	cargo clippy -p pencere-drive --features shot --all-targets -- -D warnings
 	cargo clippy -p pencere-drive --all-features --all-targets -- -D warnings
-	cargo test -p pencere-drive --all-features --all-targets </dev/null
+	node tools/cargo-test.mjs -p pencere-drive --all-features --all-targets
 	npx prettier --check .
 	npx vitest run --passWithNoTests
 
@@ -108,8 +114,10 @@ guest:
 # interpreter, with the scripts of the example), and lints the page modules for the target they
 # run on. Needs rustup with the wasm32 target (see `guest`); `luau` (Docker) is not part of it.
 check-heavy: guest
-	cargo test --workspace --all-targets -- --ignored </dev/null
-	cargo test -p pencere-drive --all-features --lib -- --ignored shot_tests in_process_tests </dev/null
+	cargo build --quiet -p containers-rust
+	cargo build --quiet -p pencere-cli
+	node tools/cargo-test.mjs --workspace --all-targets -- --ignored
+	node tools/cargo-test.mjs -p pencere-drive --all-features --lib -- --ignored shot_tests in_process_tests
 	$(GUEST_CARGO) clippy --manifest-path kit/guest/Cargo.toml --all-targets --target wasm32-unknown-unknown -- -D warnings
 
 # The interpreter of the scripting language (`kit/sandbox/luau/luau.wasm`): Luau, the bridge that

@@ -788,6 +788,8 @@ fn the_documents_of_a_page_together_are_held_to_what_a_page_may() {
         EditorAsk::Change {
             base: 1,
             changes: vec![Change::new(1, 1, large)],
+            history: true,
+            tag: None,
         },
         &mut Fake,
         0.0,
