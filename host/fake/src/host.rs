@@ -12,14 +12,14 @@ use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
 use pencere_fake_host::log;
-use pencere_fake_host::pane::{self, DEVICE_ATTRIBUTES, Entropy, Pane, Piece};
+use pencere_fake_host::pane::{self, DEVICE_ATTRIBUTES, Entropy, Pane, Piece, Typing};
 use pencere_fake_host::pty::{self, Modes};
 use pencere_fake_host::store::{DirStore, Keep};
 use pencere_host::bundle::MemoryStore;
 use pencere_host::frame::{Direction, Event, Message, StreamDecoder};
 use pencere_host::icon::{Icon, IconTheme};
 use pencere_host::sandbox::Grant;
-use pencere_host::session::{Action, Observed, Session, State, ViewStart};
+use pencere_host::session::{Action, Session, State, ViewStart};
 use serde_json::Value;
 
 use crate::args::{Args, Ask, Then};
@@ -68,13 +68,8 @@ pub struct Host {
     modes: Option<Modes>,
     /// What the session wrote into the pane's input, read for the record.
     said: StreamDecoder,
-    /// Bytes for the pane's input that the tty has not taken yet. Everything
-    /// the pane is typed goes through here, so that nothing lands inside a frame
-    /// (specification §4.8).
-    typed: Vec<u8>,
-    /// How many of the bytes in `typed` are what a view said (`Action::WriteView`), at most: the
-    /// session bounds them (`Session::backlog`).
-    viewed: usize,
+    /// Bytes for the pane's input that the tty has not taken yet, with which a view said.
+    typed: Typing,
     kill: bool,
     hang_up: bool,
     /// The view has been started again once, as `--then restart` says.
@@ -110,8 +105,7 @@ impl Host {
             left_screen: false,
             modes: None,
             said: StreamDecoder::new(Direction::ToProgram),
-            typed: Vec::new(),
-            viewed: 0,
+            typed: Typing::default(),
             kill: false,
             hang_up: false,
             restarted: false,
@@ -123,19 +117,18 @@ impl Host {
 
     /// Bytes for the pane's input that are waiting for the tty.
     pub fn pending(&self) -> &[u8] {
-        &self.typed
+        self.typed.bytes()
     }
 
     /// The tty took `count` of them.
     pub fn typed(&mut self, count: usize) {
-        self.typed.drain(..count.min(self.typed.len()));
-        self.viewed = self.viewed.min(self.typed.len());
+        self.typed.taken(count);
     }
 
     /// The person typed these into this terminal; they go to the pane as they
     /// are, after whatever is already waiting.
     pub fn person_typed(&mut self, bytes: &[u8]) {
-        self.typed.extend_from_slice(bytes);
+        self.typed.type_in(bytes);
     }
 
     /// Whether the host wants the program killed, once.
@@ -169,7 +162,7 @@ impl Host {
             Piece::Query => {
                 log::line("host", "answers CSI c");
                 if self.typed.len() < QUEUE_LIMIT {
-                    self.typed.extend_from_slice(DEVICE_ATTRIBUTES);
+                    self.typed.type_in(DEVICE_ATTRIBUTES);
                 }
             }
             Piece::Alternate(on) => {
@@ -218,14 +211,8 @@ impl Host {
         if !self.answering {
             return;
         }
-        // What the host can see of the pane, for the checks of §6.2 and §6.5: there is no shell
-        // here to ask about, so only the modes and the screen.
-        self.session.observe(Observed {
-            prompt_editing: false,
-            alternate_screen: Some(self.on_alternate_screen),
-            shell_in_foreground: None,
-            tty_canonical_or_echo: self.modes.map(|m| m.canonical || m.echo),
-        });
+        self.session
+            .observe(pane::observed(self.on_alternate_screen, self.modes));
         self.session.message(message);
         self.settle();
     }
@@ -271,8 +258,9 @@ impl Host {
         }
     }
 
-    /// Puts what the session wrote into the pane's input, and into the record.
-    fn write(&mut self, bytes: &[u8]) {
+    /// Puts what the session wrote into the pane's input (a view's words where `view`), and into
+    /// the record.
+    fn write(&mut self, bytes: &[u8], view: bool) {
         let mut events = Vec::new();
         self.said.feed(bytes, &mut events);
         for event in &events {
@@ -280,23 +268,25 @@ impl Host {
                 log::line("host", describe_host(message));
             }
         }
-        self.typed.extend_from_slice(bytes);
+        if view {
+            self.typed.view_said(bytes);
+        } else {
+            self.typed.type_in(bytes);
+        }
     }
 
     fn act(&mut self, action: Action) {
         match action {
             Action::WriteView(bytes) => {
                 // What a view says is held only up to the bound (§4.8): past it the session
-                // closes the view, and what was held of its words goes.
-                if self.session.backlog(self.viewed + bytes.len()) {
-                    self.viewed += bytes.len();
-                    self.write(&bytes);
+                // closes the view, and what was held of its words and not begun goes.
+                if self.session.backlog(self.typed.said() + bytes.len()) {
+                    self.write(&bytes, true);
                 } else {
-                    self.typed.truncate(self.typed.len() - self.viewed);
-                    self.viewed = 0;
+                    self.typed.drop_said();
                 }
             }
-            Action::Write(bytes) => self.write(&bytes),
+            Action::Write(bytes) => self.write(&bytes, false),
             Action::Consent(consent) => {
                 let grant = if self.allow_network {
                     consent.grant_all()
@@ -454,7 +444,7 @@ impl Host {
             Then::Wait => log::line("view", "has nothing more to do"),
             Then::Interrupt => {
                 log::line("host", "the person presses ^C");
-                self.typed.push(INTERRUPT);
+                self.typed.type_in(&[INTERRUPT]);
             }
             Then::Kill => {
                 log::line("host", "kills the program with SIGKILL");
@@ -476,7 +466,7 @@ impl Host {
             }
             Then::Restart if self.restarted => {
                 log::line("host", "the person presses ^C");
-                self.typed.push(INTERRUPT);
+                self.typed.type_in(&[INTERRUPT]);
             }
             Then::Restart => {
                 self.restarted = true;

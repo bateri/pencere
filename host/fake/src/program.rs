@@ -18,12 +18,12 @@
 //!
 //! The host is a terminal's in every way but the screen: the program's `hello` is welcomed, its
 //! `open` checked and its files verified by the session, its messages carried to the page and the
-//! page's to it. It reads no more of them than a host may — the name of their one member — to know
-//! that the program still owes the page an answer (more `call`s went to it than `response`s came
-//! back), which the host with no screen waits for. A view the page asks to close is not closed by
+//! page's to it. Of them it reads the name of their one member and the number they belong to, and
+//! nothing of what they say, to know which of the page's calls the program still owes an answer
+//! (a `call` out, no `response` and no `cancel` of it yet), which the host with no screen waits for. A view the page asks to close is not closed by
 //! it: a program's view is the program's to end. The program is killed when the page is let go of.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -32,10 +32,10 @@ use pencere_drive::headless::{Headless, Opening, Peer};
 use pencere_host::bundle::MemoryStore;
 use pencere_host::frame::Event;
 use pencere_host::sandbox::Grant;
-use pencere_host::session::{Action, Observed, Session, ViewKind};
+use pencere_host::session::{Action, Session, ViewKind};
 use pencere_sandbox::Assets;
 
-use crate::pane::{self, DEVICE_ATTRIBUTES, Entropy, Pane, Piece};
+use crate::pane::{self, DEVICE_ATTRIBUTES, Entropy, Pane, Piece, Typing};
 use crate::pty::{self, Modes, Output, Pty};
 
 /// The most reads of the pane in one turn.
@@ -101,29 +101,33 @@ pub struct Program {
     pane: Pane,
     alternate: bool,
     modes: Option<Modes>,
-    /// Bytes for the program's input that the tty has not taken yet, and how many of them are what
-    /// the view said (the session bounds those).
-    typed: Vec<u8>,
-    viewed: usize,
+    /// Bytes for the program's input that the tty has not taken yet, with which the view said.
+    typed: Typing,
     /// What the program said to its view that the page has not been told.
     said: Vec<String>,
     started: Option<Started>,
     /// Why the view is over, once it is.
     closed: Option<String>,
     ended: bool,
-    /// How many of the page's calls the program has not answered yet, by the names of the messages.
-    owed: usize,
+    /// The page's calls the program has not answered yet, by their numbers.
+    owed: BTreeSet<u64>,
     buffer: Vec<u8>,
 }
 
-/// The name of the one member of a message: all a host reads of the messages of a program and its
-/// view.
-fn member(text: &str) -> Option<String> {
+/// The name of the one member of a message and the number it belongs to: all a host reads of the
+/// messages of a program and its view, to know which of the page's calls the program owes an
+/// answer to.
+fn heading(text: &str) -> Option<(String, Option<u64>)> {
     let value: serde_json::Value = serde_json::from_str(text).ok()?;
     let members = value.as_object()?;
-    (members.len() == 1)
-        .then(|| members.keys().next().cloned())
-        .flatten()
+    if members.len() != 1 {
+        return None;
+    }
+    let (name, body) = members.iter().next()?;
+    Some((
+        name.clone(),
+        body.get("id").and_then(serde_json::Value::as_u64),
+    ))
 }
 
 /// Starts `command` on a pty as a terminal would, waits for it to open a view the terminal draws
@@ -176,13 +180,12 @@ impl Program {
             pane: Pane::new(),
             alternate: false,
             modes: None,
-            typed: Vec::new(),
-            viewed: 0,
+            typed: Typing::default(),
             said: Vec::new(),
             started: None,
             closed: None,
             ended: false,
-            owed: 0,
+            owed: BTreeSet::new(),
             buffer: vec![0; 64 * 1024],
         })
     }
@@ -212,16 +215,10 @@ impl Program {
     /// (after waiting at most `wait` for it) and done.
     fn turn(&mut self, wait: Duration) {
         if !self.typed.is_empty() {
-            match self.pty.write(&self.typed) {
-                Ok(taken) => {
-                    self.typed.drain(..taken.min(self.typed.len()));
-                    self.viewed = self.viewed.min(self.typed.len());
-                }
+            match self.pty.write(self.typed.bytes()) {
+                Ok(taken) => self.typed.taken(taken),
                 // The program is gone: nobody reads what is left.
-                Err(_) => {
-                    self.typed.clear();
-                    self.viewed = 0;
-                }
+                Err(_) => self.typed.clear(),
             }
         }
         let wait = i32::try_from(wait.as_millis()).unwrap_or(i32::MAX);
@@ -256,17 +253,13 @@ impl Program {
         let mut pane = std::mem::take(&mut self.pane);
         pane.read(bytes, |piece| match piece {
             Piece::Frame(Event::Message(message)) => {
-                self.session.observe(Observed {
-                    prompt_editing: false,
-                    alternate_screen: Some(self.alternate),
-                    shell_in_foreground: None,
-                    tty_canonical_or_echo: self.modes.map(|m| m.canonical || m.echo),
-                });
+                self.session
+                    .observe(pane::observed(self.alternate, self.modes));
                 self.session.message(message);
                 self.settle();
             }
             Piece::Frame(_) => {}
-            Piece::Query => self.typed.extend_from_slice(DEVICE_ATTRIBUTES),
+            Piece::Query => self.typed.type_in(DEVICE_ATTRIBUTES),
             Piece::Alternate(on) => self.alternate = on,
         });
         self.pane = pane;
@@ -301,17 +294,14 @@ impl Program {
         match action {
             Action::WriteView(bytes) => {
                 // What a view says is held only up to the bound (§4.8): past it the session closes
-                // the view, and what was held of its words goes.
-                if self.session.backlog(self.viewed + bytes.len()) {
-                    self.viewed += bytes.len();
-                    self.typed.extend_from_slice(&bytes);
+                // the view, and what was held of its words and not begun goes.
+                if self.session.backlog(self.typed.said() + bytes.len()) {
+                    self.typed.view_said(&bytes);
                 } else {
-                    let kept = self.typed.len().saturating_sub(self.viewed);
-                    self.typed.truncate(kept);
-                    self.viewed = 0;
+                    self.typed.drop_said();
                 }
             }
-            Action::Write(bytes) => self.typed.extend_from_slice(&bytes),
+            Action::Write(bytes) => self.typed.type_in(&bytes),
             // Nobody is asked: what a page asks to reach is not given.
             Action::Consent(consent) => self.session.consent(consent.id, Grant::none()),
             Action::StartView(start) => {
@@ -335,7 +325,7 @@ impl Program {
                             .map(|served| (file.path.clone(), served))
                     })
                     .collect();
-                self.owed = 0;
+                self.owed.clear();
                 self.started = Some(Started {
                     kind: start.kind,
                     entry: manifest.entry().to_owned(),
@@ -343,8 +333,10 @@ impl Program {
                 });
             }
             Action::ToView(text) => {
-                if member(&text).as_deref() == Some("response") {
-                    self.owed = self.owed.saturating_sub(1);
+                if let Some((name, Some(id))) = heading(&text)
+                    && name == "response"
+                {
+                    self.owed.remove(&id);
                 }
                 self.said.push(text);
             }
@@ -366,7 +358,7 @@ impl Program {
 impl Program {
     /// How many of the page's calls the program has not answered yet.
     pub fn owed(&self) -> usize {
-        self.owed
+        self.owed.len()
     }
 
     /// Bytes for the program's input that the tty has not taken yet.
@@ -377,10 +369,14 @@ impl Program {
 
 impl Peer for Program {
     fn heard(&mut self, message: &str) {
-        match member(message).as_deref() {
-            Some("call") => self.owed += 1,
-            // A call given up may never be answered.
-            Some("cancel") => self.owed = self.owed.saturating_sub(1),
+        match heading(message) {
+            Some((name, Some(id))) if name == "call" => {
+                self.owed.insert(id);
+            }
+            // A call given up may never be answered (a subscription's number is none of them).
+            Some((name, Some(id))) if name == "cancel" => {
+                self.owed.remove(&id);
+            }
             _ => {}
         }
         self.session.module_message(message);
@@ -394,7 +390,7 @@ impl Peer for Program {
     }
 
     fn busy(&mut self) -> bool {
-        self.owed > 0 && self.closed.is_none()
+        !self.owed.is_empty() && self.closed.is_none()
     }
 
     fn wait(&mut self, within: Duration) {

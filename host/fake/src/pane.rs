@@ -7,12 +7,13 @@
 //! The stand-in terminal (the `pencere-fake-host` command) and a program whose view is run for
 //! real ([`crate::program`]) read a pane the same way, here.
 
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Read;
 
 use pencere_host::frame::{Direction, Event, StreamDecoder};
 use pencere_host::message::HostInfo;
-use pencere_host::session::{Config, Offer, Size, ViewKind};
+use pencere_host::session::{Config, Observed, Offer, Size, ViewKind};
 use pencere_host::theme::{Rgb, Theme};
 
 use crate::log;
@@ -143,5 +144,151 @@ impl Pane {
         for event in events {
             each(Piece::Frame(event));
         }
+    }
+}
+
+/// What a terminal can see of the pane when the program says something, for the checks of §6.2
+/// and §6.5: there is no shell here to ask about, so only the screen and the tty's modes.
+pub fn observed(alternate_screen: bool, modes: Option<pty::Modes>) -> Observed {
+    Observed {
+        prompt_editing: false,
+        alternate_screen: Some(alternate_screen),
+        shell_in_foreground: None,
+        tty_canonical_or_echo: modes.map(|m| m.canonical || m.echo),
+    }
+}
+
+/// Bytes for the pane's input, in the order they go, with which of them a view said
+/// (`Action::WriteView`): everything the pane is typed goes through here, so that nothing lands
+/// inside a frame (§4.8). The session bounds what a view says that waits ([`Typing::said`]); past
+/// the bound the terminal drops the view's bytes it has not begun to write, and keeps its own.
+#[derive(Debug, Default)]
+pub struct Typing {
+    bytes: Vec<u8>,
+    /// The parts of `bytes`, first first: how many bytes each, and whether a view said it.
+    parts: VecDeque<Part>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Part {
+    len: usize,
+    view: bool,
+    /// Some of it was written already.
+    begun: bool,
+}
+
+impl Typing {
+    /// What waits for the tty, in order.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
+    /// The terminal's own bytes (a frame of the session's, an answer, a key of the person's).
+    pub fn type_in(&mut self, bytes: &[u8]) {
+        self.push(bytes, false);
+    }
+
+    /// What a view said, held while the session's bound allows it.
+    pub fn view_said(&mut self, bytes: &[u8]) {
+        self.push(bytes, true);
+    }
+
+    fn push(&mut self, bytes: &[u8], view: bool) {
+        if bytes.is_empty() {
+            return;
+        }
+        self.bytes.extend_from_slice(bytes);
+        self.parts.push_back(Part {
+            len: bytes.len(),
+            view,
+            begun: false,
+        });
+    }
+
+    /// The bytes of what views said that wait: what the session bounds.
+    pub fn said(&self) -> usize {
+        self.parts
+            .iter()
+            .filter(|part| part.view)
+            .map(|part| part.len)
+            .sum()
+    }
+
+    /// The tty took the first `count` bytes.
+    pub fn taken(&mut self, count: usize) {
+        let mut left = count.min(self.bytes.len());
+        self.bytes.drain(..left);
+        while left > 0 {
+            let Some(part) = self.parts.front_mut() else {
+                break;
+            };
+            if part.len <= left {
+                left -= part.len;
+                self.parts.pop_front();
+            } else {
+                part.len -= left;
+                part.begun = true;
+                left = 0;
+            }
+        }
+    }
+
+    /// Nobody reads any more: nothing waits.
+    pub fn clear(&mut self) {
+        self.bytes.clear();
+        self.parts.clear();
+    }
+
+    /// A view said more than its program reads: what views said that has not begun to be written
+    /// goes, and the rest stays in its order.
+    pub fn drop_said(&mut self) {
+        let mut kept = Vec::with_capacity(self.bytes.len());
+        let mut at = 0;
+        self.parts.retain(|part| {
+            let keep = !part.view || part.begun;
+            if keep {
+                kept.extend_from_slice(self.bytes.get(at..at + part.len).unwrap_or_default());
+            }
+            at += part.len;
+            keep
+        });
+        self.bytes = kept;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What a view said goes past the bound with the terminal's own bytes after it: the view's
+    /// that were not begun go, the terminal's answer to `CSI c` after them stays, and so does the
+    /// part of the view's already half written.
+    #[test]
+    fn a_views_bytes_are_dropped_and_the_terminals_own_kept_wherever_they_are() {
+        let mut typing = Typing::default();
+        typing.view_said(b"aaaa");
+        typing.type_in(b"Q");
+        typing.view_said(b"bb");
+        assert_eq!(typing.said(), 6);
+        typing.taken(2);
+        assert_eq!(typing.bytes(), b"aaQbb");
+        typing.drop_said();
+        assert_eq!(
+            typing.bytes(),
+            b"aaQ",
+            "the begun part and the terminal's own"
+        );
+        assert_eq!(typing.said(), 2);
+        typing.taken(3);
+        assert!(typing.is_empty());
+        assert_eq!(typing.said(), 0);
     }
 }

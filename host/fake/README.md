@@ -88,5 +88,6 @@ page.press("down")?;
 ```
 
 The program keeps its own time: what it says comes when it does, and `wait_for` waits for it. The
-host reads no more of the messages between the two than a terminal may, the name of their one member,
-to know that the program owes the page an answer, which a settling of a page at rest waits for.
+host reads nothing of what the messages between the two say — the name of their one member and the
+number they belong to — to know which of the page's calls the program owes an answer, which a
+settling of a page at rest waits for.
