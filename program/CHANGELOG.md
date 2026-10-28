@@ -32,7 +32,7 @@ handler)` and `Options::topic_deferred(topic, handler)` give a program with a lo
   interpreter, an event loop) each call and subscription on the thread that reads the view, in
   order, with an `Answer` it sends from any thread when it can (`Answer<()>` says whether a
   subscription started); none waits for another's answer. An answer given before the handler returns
-  is sent as it returns; one dropped, or a handler that panics, fails its request with `internal`.
+  is sent as it returns; one dropped, or a handler that panics, fails its request with `internal` (or the error `Answer::unanswered` says, as `unavailable` for a loop that may end with requests owed).
 - **A conversation in the same process.** `Conversation::new(options)` serves a program's handlers
   with no terminal: `send` gives them a message of the view as JSON text, `receive` and
   `try_receive` take what the program says (`Said::Message`, and the requests of its `ViewControl`

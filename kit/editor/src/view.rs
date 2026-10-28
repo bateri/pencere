@@ -32,6 +32,13 @@ const SHAPED: usize = 4096;
 /// How many rows above and below those in view are laid out.
 const AROUND: usize = 4;
 
+/// What the other places of the main selection's text were found for: the version of the
+/// document, the main selection, the text in view and the editor's `matches`.
+type MatchesOf = (u64, Range, usize, usize, Matches);
+
+/// The other places found, and what for.
+type FoundMatches = (MatchesOf, Rc<Vec<(usize, usize)>>);
+
 /// A line measured: where each of its graphemes starts across, and where it ends.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Shaped {
@@ -129,6 +136,10 @@ pub(crate) struct View {
     /// colours.
     pub options: EditorOptions,
     shaped: RefCell<HashMap<String, Rc<Shaped>>>,
+    /// The other places of the main selection's text last found, and for what: the version, the
+    /// main selection and the text in view. A frame that changes none of them (the caret's blink,
+    /// a spinner) does not look again.
+    matches: RefCell<Option<FoundMatches>>,
     /// The row each line starts at, and after the last the number of rows; hidden lines take none.
     tops: Vec<usize>,
     /// What `tops` was counted for.
@@ -167,6 +178,7 @@ impl Default for View {
             pad: 4.0,
             options: EditorOptions::default(),
             shaped: RefCell::new(HashMap::new()),
+            matches: RefCell::new(None),
             tops: vec![0, 1],
             counted: None,
             rows: Vec::new(),
@@ -711,9 +723,19 @@ impl View {
         // The other places of the main selection's text, under what was found and what is selected.
         let matches = match (rows.first(), rows.last()) {
             (Some(first), Some(last)) if self.options.matches != Matches::None => {
-                buffer.matches_in(first.base + first.from, last.base + last.to)
+                let (from, to) = (first.base + first.from, last.base + last.to);
+                let of = (buffer.version(), main, from, to, self.options.matches);
+                let mut kept = self.matches.borrow_mut();
+                match kept.as_ref() {
+                    Some((was, found)) if *was == of => Rc::clone(found),
+                    _ => {
+                        let found = Rc::new(buffer.matches_in(from, to));
+                        *kept = Some((of, Rc::clone(&found)));
+                        found
+                    }
+                }
             }
-            _ => Vec::new(),
+            _ => Rc::new(Vec::new()),
         };
         let matches_ground = colors.matches.or(Role::Selection.alpha(0.4));
         let selected_ground = if focused {
@@ -735,7 +757,7 @@ impl View {
                 }
             }
             if let Some(ground) = matches_ground {
-                for (start, end) in &matches {
+                for (start, end) in matches.iter() {
                     if let Some(rect) = self.span(row, *start, *end, false, origin_x, y) {
                         out.push(quad(rect, fade(ground), text_clip));
                     }

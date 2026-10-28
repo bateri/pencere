@@ -395,6 +395,8 @@ pub(super) fn prepare(
             // Handed to the loop as it comes, in the order the view sent it: the loop sees the
             // calls in that order, and answers each when its handler does.
             serving = serving.call_deferred(name.clone(), move |params, call: Call, reply| {
+                // A call the app ends without answering is one the view may ask again.
+                let reply = reply.unanswered(ViewError::with_message("unavailable", "no answer"));
                 let handed = events.hand(Event::Call(CallEvent {
                     method: method.clone(),
                     params,
@@ -421,7 +423,9 @@ pub(super) fn prepare(
             let events = core.events.clone();
             serving = serving.topic_deferred(
                 name.clone(),
-                move |params, subscription: Subscription, started| {
+                move |params, subscription: Subscription, started: pencere::Answer<()>| {
+                    let started =
+                        started.unanswered(ViewError::with_message("unavailable", "no answer"));
                     let id = SUBSCRIPTIONS.fetch_add(1, Ordering::SeqCst);
                     let ended = events.clone();
                     subscription.on_end(move || {

@@ -13,7 +13,7 @@ impl Buffer {
     /// as the editor's `matches` option says: the text of a selection on one line, of at most
     /// [`limits::MATCH_LENGTH`] characters and not all spaces, or with [`Matches::Word`] the word a
     /// caret is in; a whole word only where it is a whole word, in the case written; at most
-    /// [`limits::MATCHES_IN_VIEW`], the selection itself not among them.
+    /// [`limits::MATCHES_IN_VIEW`], the selection itself and what a fold hides not among them.
     pub fn matches_in(&self, from: usize, to: usize) -> Vec<(usize, usize)> {
         let mode = self.options.matches;
         if mode == Matches::None {
@@ -48,6 +48,14 @@ impl Buffer {
             return Vec::new();
         };
         let length = needle.chars().count();
+        // What a fold hides is not in view: its places are not marked, nor counted.
+        let hidden = self.hidden_lines();
+        let shown = |at: usize| {
+            let line = self.text.line_of(at);
+            !hidden
+                .iter()
+                .any(|(first, last)| (*first..=*last).contains(&line))
+        };
         let mut out = Vec::new();
         let (mut byte, mut place) = (0, from);
         for (at, _) in hay.match_indices(needle.as_str()) {
@@ -58,6 +66,9 @@ impl Buffer {
                 continue;
             }
             if whole && !(outside(edge(found.0)) && outside(self.text.char_at(found.1))) {
+                continue;
+            }
+            if !shown(found.0) {
                 continue;
             }
             out.push(found);
@@ -99,6 +110,19 @@ mod tests {
             "a part of a word, wherever it is"
         );
         assert_eq!(marked(text, Matches::None, (4, 9)), []);
+    }
+
+    #[test]
+    fn what_a_fold_hides_is_not_marked() {
+        let mut buffer = Buffer::new("x\n  x\n  x\nx x").expect("a document");
+        buffer.set_options(EditorOptions {
+            matches: Matches::Selection,
+            folds: pencere_view::edit::Folds::Indent,
+            ..EditorOptions::default()
+        });
+        assert!(buffer.fold_at(0, Some(true)));
+        buffer.select(vec![Range::new(10, 11)], 0);
+        assert_eq!(buffer.matches_in(0, 13), [(0, 1), (12, 13)]);
     }
 
     #[test]

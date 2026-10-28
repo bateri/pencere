@@ -1179,6 +1179,70 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
     );
 }
 
+/// A menu's entry has keys written as a command's (`keys`); one a page wrote as `key` before is
+/// read as keys where it is some, and as its first character where it is not, as it was.
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_gives_a_menus_entries_their_keys_and_reads_an_old_key_as_it_was() {
+    use pencere_view::{MenuEntry, Shortcut};
+    let mut page = open_script(
+        r##"
+        return {
+            render = function() return pencere.div() end,
+            handle = function(e)
+                if e.type == "press" then
+                    return { menu = { at = { x = 1, y = 1 }, entries = {
+                        { title = "Close", keys = "ctrl+w" },
+                        { title = "Rename", key = "f2" },
+                        { title = "Old", key = "⌘W" },
+                        "-",
+                    } } }
+                end
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    page.module.event(Event::Input(Input::Press {
+        at: Point::new(1.0, 1.0),
+        button: Button::Left,
+        mods: Mods::default(),
+        count: 1,
+    }));
+    until_seen(&mut page, Duration::from_secs(10), |seen| {
+        seen.replies
+            .iter()
+            .any(|answer| answer.reply.menu.is_some())
+    });
+    let menu = page
+        .seen
+        .replies
+        .iter()
+        .find_map(|answer| answer.reply.menu.clone())
+        .expect("a menu");
+    let keys: Vec<Option<Shortcut>> = menu
+        .entries
+        .iter()
+        .map(|entry| match entry {
+            MenuEntry::Item { keys, .. } => *keys,
+            MenuEntry::Separator => None,
+        })
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            Shortcut::parse("ctrl+w"),
+            Shortcut::parse("f2"),
+            Some(Shortcut::new(Key::Character('⌘'), Mods::default())),
+            None,
+        ]
+    );
+}
+
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
 fn a_script_asks_to_open_a_link_and_only_one_the_host_may_open_reaches_it() {

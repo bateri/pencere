@@ -20,6 +20,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 use pencere_view::edit::{
     EditCommand, Edited, EditorAsk, Found, Keys, Movement, Range, Refusal, RevealAlign, Selection,
@@ -238,15 +239,17 @@ impl Editors {
         }
         self.order = rooms.iter().map(|room| room.id).collect();
         for room in &rooms {
-            if !self.editors.contains_key(&room.id) {
-                let made = Editor::default();
-                self.events.push(EditorEvent::Ready {
-                    id: room.id,
-                    version: made.buffer.version(),
-                });
-                self.editors.insert(room.id, made);
-            }
-            let editor = self.editors.entry(room.id).or_default();
+            let editor = match self.editors.entry(room.id) {
+                Entry::Occupied(kept) => kept.into_mut(),
+                Entry::Vacant(room_of) => {
+                    let made = Editor::default();
+                    self.events.push(EditorEvent::Ready {
+                        id: room.id,
+                        version: made.buffer.version(),
+                    });
+                    room_of.insert(made)
+                }
+            };
             editor.buffer.set_options(room.options.clone());
             editor.view.set_room(room, self.scale, measure);
             editor.view.size_gutter(editor.buffer.len_lines());

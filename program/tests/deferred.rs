@@ -80,6 +80,9 @@ fn an_answer_given_at_once_one_dropped_and_a_panic_each_end_their_call<S: Side>(
                 answer.send(Ok(params));
             })
             .call_deferred("dropped", |_params: Value, _call: Call, _answer: Answer| {})
+            .call_deferred("owed", |_params: Value, _call: Call, answer: Answer| {
+                drop(answer.unanswered(ViewError::with_message("unavailable", "the loop ended")));
+            })
             .call_deferred("panics", |_params: Value, _call: Call, _answer: Answer| {
                 panic!("the loop is gone");
             })
@@ -96,6 +99,10 @@ fn an_answer_given_at_once_one_dropped_and_a_panic_each_end_their_call<S: Side>(
     let dropped = view.said();
     assert_eq!(dropped["response"]["id"], 2);
     assert_eq!(dropped["response"]["error"]["code"], "internal");
+    view.send(&call(5, "owed", &json!(null)));
+    let owed = view.said();
+    assert_eq!(owed["response"]["error"]["code"], "unavailable");
+    assert_eq!(owed["response"]["error"]["message"], "the loop ended");
     view.send(&call(3, "panics", &json!(null)));
     let panicked = view.said();
     assert_eq!(panicked["response"]["error"]["code"], "internal");

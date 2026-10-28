@@ -879,6 +879,47 @@ pencere_view_types_shortcut_t shortcut_of_words(lua_State* L, int words) {
     return out;
 }
 
+// The keys a menu's entry wrote as `key`, the name it had: read as keys where they are, and where
+// they are not, its first character as a page that wrote them before was shown (a page that says
+// nothing new is read as it was, and its reply is not failed for words the kit now reads).
+pencere_view_types_shortcut_t shortcut_or_character(lua_State* L, int words) {
+    lua_getglobal(L, "pencere");
+    lua_rawgetfield(L, -1, "keys");
+    lua_remove(L, -2);
+    lua_pushvalue(L, words);
+    if (lua_pcall(L, 1, 1, 0) == 0) {
+        int keys = lua_gettop(L);
+        get(L, keys, "key");
+        size_t length = 0;
+        const char* name = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
+        bool known = false;
+        for (int at = 0; at < 13 && !known; at++) known = strcmp(name, kKeys[at]) == 0;
+        if (!known && name[0] == 'f' && length >= 2 && length <= 3) {
+            int number = atoi(name + 1);
+            known = number >= 1 && number <= 20;
+        }
+        if (!known) {
+            std::string one = repaired(name, length);
+            uint32_t cp = one.empty() ? 0 : first_character(one);
+            size_t first = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+            known = !one.empty() && first == one.size();
+        }
+        lua_pop(L, 1);
+        if (known) {
+            pencere_view_types_shortcut_t out = shortcut_at(L, keys);
+            lua_pop(L, 1);
+            return out;
+        }
+    }
+    lua_pop(L, 1);
+    size_t length = 0;
+    const char* bytes = lua_tolstring(L, words, &length);
+    pencere_view_types_shortcut_t out = {};
+    out.key.tag = PENCERE_VIEW_TYPES_KEY_CHARACTER;
+    out.key.val.character = first_character(repaired(bytes, length));
+    return out;
+}
+
 // The commands of an element at `list`: `{ id =, title =, keys = { { key =, mods = {...} }, ... },
 // enabled = }`.
 pencere_view_types_slice_t commands_at(lua_State* L, int list, Arenas& arenas) {
@@ -2259,12 +2300,15 @@ int reply_call(lua_State* L) {
                     // The keys that do the same, written as a command's: `keys`, or `key` as a
                     // page wrote it before (one character is keys too).
                     get(L, entry_index, "keys");
-                    if (lua_isnil(L, -1)) {
+                    bool legacy = lua_isnil(L, -1);
+                    if (legacy) {
                         lua_pop(L, 1);
                         get(L, entry_index, "key");
                     }
                     if (lua_type(L, -1) == LUA_TSTRING && lua_objlen(L, -1) > 0) {
-                        entry.val.item.keys = {true, shortcut_of_words(L, lua_gettop(L))};
+                        int words = lua_gettop(L);
+                        entry.val.item.keys = {true, legacy ? shortcut_or_character(L, words)
+                                                            : shortcut_of_words(L, words)};
                     } else if (!lua_isnil(L, -1) && !(lua_type(L, -1) == LUA_TSTRING)) {
                         luaL_error(L, "the keys of a menu's entry are written as words: \"ctrl+w\"");
                     }

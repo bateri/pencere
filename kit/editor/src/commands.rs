@@ -147,6 +147,19 @@ impl Buffer {
 
     /// Makes `parts` (one for each range, in order) as the person's, of `kind`.
     pub(crate) fn replace_parts(&mut self, parts: Vec<Part>, kind: Kind, now: f64) {
+        let main = self.main;
+        self.replace_parts_main(parts, kind, now, main);
+    }
+
+    /// As [`Buffer::replace_parts`], the main selection the one `parts[main]` makes (for parts
+    /// that are not one for each range).
+    pub(crate) fn replace_parts_main(
+        &mut self,
+        parts: Vec<Part>,
+        kind: Kind,
+        now: f64,
+        main: usize,
+    ) {
         let mut changes: Vec<Change> = Vec::with_capacity(parts.len());
         let mut ranges = Vec::with_capacity(parts.len());
         let mut gained: i128 = 0;
@@ -162,7 +175,6 @@ impl Buffer {
             gained += part.insert.chars().count() as i128 - (to - from) as i128;
             changes.push(Change::new(from, to, part.insert));
         }
-        let main = self.main;
         let _ = self.edit(changes, Origin::Person, kind, now, Some((ranges, main)));
     }
 

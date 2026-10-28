@@ -171,6 +171,16 @@ impl Buffer {
         for (first, last) in self.lines() {
             let last = if last == first { first + 1 } else { last };
             if last >= count {
+                // The last line, with nothing after it to join: its carets stay where they are.
+                for range in &self.ranges {
+                    if self.text.line_of(range.head) >= first {
+                        if range.head == self.main().head {
+                            main = ranges.len();
+                        }
+                        let moved = |at: usize| usize::try_from(at as isize + gained).unwrap_or(0);
+                        ranges.push(Range::new(moved(range.anchor), moved(range.head)));
+                    }
+                }
                 continue;
             }
             let mut caret = 0;
@@ -224,6 +234,12 @@ impl Buffer {
             .iter()
             .map(|range| self.text.line_of(range.head))
             .collect();
+        // One caret for each line, the main one on the main caret's line.
+        let main_line = self.text.line_of(self.main().head);
+        let main = lines
+            .iter()
+            .position(|line| *line == main_line)
+            .unwrap_or(0);
         let parts = lines
             .into_iter()
             .map(|line| {
@@ -247,7 +263,7 @@ impl Buffer {
             })
             .collect();
         self.undo.close();
-        self.replace_parts(parts, Kind::Other, now);
+        self.replace_parts_main(parts, Kind::Other, now, main);
         self.undo.close();
     }
 
@@ -406,6 +422,21 @@ mod tests {
         assert_eq!(buffer.ranges(), [Range::caret(14)]);
         let (text, ranges) = after("ab", &[(1, 1)], EditCommand::SplitLine);
         assert_eq!((text.as_str(), ranges), ("a\nb", vec![Range::caret(1)]));
+    }
+
+    #[test]
+    fn the_main_caret_stays_the_main_one_where_carets_share_a_line_or_one_has_nothing_to_join() {
+        let mut blank = buffer("a\nb\nc", &[(0, 0), (1, 1), (4, 4)]);
+        blank.select(vec![Range::caret(0), Range::caret(1), Range::caret(4)], 2);
+        blank.command(EditCommand::InsertBlankLine, 0.0);
+        assert_eq!(blank.text(), "a\n\nb\nc\n");
+        assert_eq!(blank.main(), Range::caret(7));
+        let mut join = buffer("a\n b\nc", &[(0, 0), (6, 6)]);
+        join.select(vec![Range::caret(0), Range::caret(6)], 1);
+        join.command(EditCommand::JoinLines, 0.0);
+        assert_eq!(join.text(), "a b\nc");
+        assert_eq!(join.ranges(), [Range::caret(1), Range::caret(5)]);
+        assert_eq!(join.main(), Range::caret(5));
     }
 
     #[test]

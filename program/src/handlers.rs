@@ -13,7 +13,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Sender, SyncSender, channel};
+use std::sync::mpsc::{Sender, SyncSender, TrySendError, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -156,6 +156,28 @@ pub(crate) struct Outbox {
 impl Outbox {
     pub(crate) fn new(sender: SyncSender<Work>, pipe: Option<Arc<Pipe>>) -> Self {
         Self { sender, pipe }
+    }
+
+    /// Hands `work` to the loop without waiting for room: where the channel is full, a thread of
+    /// its own waits for it. An answer is given from any thread, the loop's own too (a program
+    /// whose loop is the one that reads the view, as a conversation's may be), which must not wait
+    /// for itself; there are no more of them than the calls that may be out.
+    pub(crate) fn send_without_waiting(&self, work: Work) {
+        match self.sender.try_send(work) {
+            Ok(()) => {
+                if let Some(pipe) = &self.pipe {
+                    pipe.wake();
+                }
+            }
+            Err(TrySendError::Full(work)) => {
+                let outbox = self.clone();
+                // No thread to wait on: the answer is lost, as it is when the loop is gone.
+                let _ = terminal::spawn_quiet(move || {
+                    outbox.send(work);
+                });
+            }
+            Err(TrySendError::Disconnected(_)) => {}
+        }
     }
 
     /// Hands `work` to the loop; whether it was taken (the loop is gone when it was not).
@@ -422,6 +444,8 @@ pub struct Answer<T = Value> {
     /// The start of a subscription, not the answer to a call.
     start: bool,
     sent: bool,
+    /// What the view is told where it is dropped unanswered.
+    unanswered: Option<ViewError>,
     of: PhantomData<fn(T)>,
 }
 
@@ -449,8 +473,18 @@ impl<T> Answer<T> {
             outbox,
             start,
             sent: false,
+            unanswered: None,
             of: PhantomData,
         }
+    }
+
+    /// The error the view is told where this is dropped unanswered, in place of `internal`: a
+    /// program whose loop may end with requests still owed says they are `unavailable`, and the
+    /// view may ask again.
+    #[must_use]
+    pub fn unanswered(mut self, error: ViewError) -> Self {
+        self.unanswered = Some(error);
+        self
     }
 
     fn give(&mut self, result: Result<Value, ViewError>) {
@@ -477,7 +511,7 @@ impl<T> Answer<T> {
             _ => Some(work),
         });
         if let Some(work) = away {
-            self.outbox.send(work);
+            self.outbox.send_without_waiting(work);
         }
     }
 }
@@ -515,10 +549,10 @@ impl Answer<()> {
 impl<T> Drop for Answer<T> {
     fn drop(&mut self) {
         if !self.sent {
-            self.give(Err(ViewError::with_message(
-                "internal",
-                "the program did not answer",
-            )));
+            let error = self.unanswered.take().unwrap_or_else(|| {
+                ViewError::with_message("internal", "the program did not answer")
+            });
+            self.give(Err(error));
         }
     }
 }
@@ -527,11 +561,7 @@ impl<T> Drop for Answer<T> {
 /// words of the panic it died of.
 pub(crate) fn run_deferred(ask: Ask, body: impl FnOnce()) -> Result<Option<Work>, String> {
     let outer = INLINE.with(|slot| slot.borrow_mut().replace((ask, None)));
-    // While it runs this thread runs a handler: a panic in it is the error of its request, and
-    // not the program's, which would give the terminal back.
-    let was = HANDLER_THREAD.with(|on| on.replace(true));
-    let ran = catch_unwind(AssertUnwindSafe(body));
-    HANDLER_THREAD.with(|on| on.set(was));
+    let ran = as_a_handler(body);
     let held = INLINE.with(|slot| std::mem::replace(&mut *slot.borrow_mut(), outer));
     match ran {
         Ok(()) => Ok(held.and_then(|(_, work)| work)),
@@ -542,6 +572,15 @@ pub(crate) fn run_deferred(ask: Ask, body: impl FnOnce()) -> Result<Option<Work>
 thread_local! {
     /// This thread runs handlers: a panic on it is the error of a call, not the program's.
     static HANDLER_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Runs `body`, the program's code, on this thread as a handler runs: a panic in it is caught and
+/// is its own, not the program's (which would give the terminal back, as on the loop's thread).
+pub(crate) fn as_a_handler<R>(body: impl FnOnce() -> R) -> std::thread::Result<R> {
+    let was = HANDLER_THREAD.with(|on| on.replace(true));
+    let ran = catch_unwind(AssertUnwindSafe(body));
+    HANDLER_THREAD.with(|on| on.set(was));
+    ran
 }
 
 /// Whether this thread runs handlers.

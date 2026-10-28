@@ -179,7 +179,7 @@ fn taken(then: &Mutex<Option<OnReturn>>) -> Option<OnReturn> {
 /// of: it is caught, and the view is shown again all the same.
 pub(crate) fn tell_then(then: Option<OnReturn>, ended: &io::Result<ExitStatus>) {
     if let Some(then) = then {
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| then(ended)));
+        let _ = crate::handlers::as_a_handler(|| then(ended));
     }
 }
 

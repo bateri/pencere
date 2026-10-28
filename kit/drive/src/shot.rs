@@ -583,18 +583,19 @@ impl Canvas<'_> {
             // Turned about the middle of its box, and cut at the box turned with it.
             let turned =
                 Transform::from_rotate_at(turn, rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
-            let mut mask = self.mask(clip);
-            if let (Some(mask), Some(room)) = (
-                mask.as_mut(),
+            // Nothing shows where the clip or the box is no room at all.
+            let (Some(mut mask), Some(room)) = (
+                self.mask(clip),
                 tiny_skia::Rect::from_xywh(rect.x, rect.y, rect.w, rect.h),
-            ) {
-                mask.intersect_path(
-                    &PathBuilder::from_rect(room),
-                    FillRule::Winding,
-                    true,
-                    turned,
-                );
-            }
+            ) else {
+                return;
+            };
+            mask.intersect_path(
+                &PathBuilder::from_rect(room),
+                FillRule::Winding,
+                true,
+                turned,
+            );
             let paint = PixmapPaint {
                 opacity: opacity.clamp(0.0, 1.0),
                 ..PixmapPaint::default()
@@ -605,7 +606,7 @@ impl Canvas<'_> {
                 source,
                 &paint,
                 transform.post_concat(turned),
-                mask.as_ref(),
+                Some(&mask),
             );
             return;
         }
