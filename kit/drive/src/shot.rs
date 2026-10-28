@@ -368,13 +368,17 @@ impl Canvas<'_> {
         let fill = quad
             .fill
             .or(quad.gradient.map(pencere_view::Gradient::middle));
-        if let (Some(fill), Some(path)) = (fill, rounded(shown, quad.radii)) {
+        // The box's own corners, cut where its clip cuts it: a box a scrolled list half hides
+        // keeps its corners where they are and is cut straight at the edge.
+        let whole = shown == quad.rect;
+        if let (Some(fill), Some(path)) = (fill, rounded(quad.rect, quad.radii)) {
+            let mask = if whole { None } else { self.mask(quad.clip) };
             self.pixmap.fill_path(
                 &path,
                 &ink(self.palette.resolve(fill)),
                 FillRule::Winding,
                 Transform::identity(),
-                None,
+                mask.as_ref(),
             );
         }
         if let Some(border) = quad.border {

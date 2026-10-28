@@ -14,8 +14,8 @@ use serde_json::Value;
 /// A peer in this process ([`Calls`]) answers at once, while it hears. A program in another process
 /// answers when it has: [`Peer::busy`] says it still owes the page an answer, and the host gives it
 /// [`Peer::wait`] before it takes what it said. **A peer that stands for a host and not for the
-/// program** (one that carries the page's words to a real program) reads no more of them than a host
-/// may — the name of the message's one member — and counts what it is owed by those names.
+/// program** (one that carries the page's words to a real program) reads nothing of what they say:
+/// the name of a message's one member and the number it belongs to tell it which calls are owed.
 pub trait Peer {
     /// The page said `message` to its program.
     fn heard(&mut self, message: &str);

@@ -113,6 +113,29 @@ fn a_list_drawn_with_no_font_is_the_same_picture_everywhere() {
     assert_ne!(light, drawn);
 }
 
+/// A rounded box its clip cuts keeps its corners where they are and is cut straight at the clip.
+#[test]
+fn a_rounded_box_cut_by_its_clip_is_cut_straight_and_keeps_its_own_corners() {
+    let list = DrawList {
+        items: vec![Paint::Quad(Quad {
+            rect: Rect::new(0.0, 0.0, 40.0, 40.0),
+            radii: [8.0; 4],
+            fill: Some(Role::Accent.solid()),
+            gradient: None,
+            border: None,
+            shadow: None,
+            clip: Rect::new(0.0, 0.0, 40.0, 20.0),
+        })],
+    };
+    let drawn = png(&list, (40, 40), &Fonts::none(), None, Palette::Dark).expect("a picture");
+    let pixmap = Pixmap::decode_png(&drawn).expect("a PNG");
+    let at = |x: u32, y: u32| pixmap.pixel(x, y).map(|pixel| pixel.red());
+    let ground = at(39, 39);
+    assert_ne!(at(0, 19), ground, "no corner where the clip cuts it");
+    assert_eq!(at(0, 0), ground, "its own corner, rounded");
+    assert_eq!(at(20, 25), ground, "nothing past the clip");
+}
+
 #[test]
 fn a_picture_of_no_pixels_is_not_one_and_a_file_that_is_no_font_is_said_to_be_none() {
     assert_eq!(

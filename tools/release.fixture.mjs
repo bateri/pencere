@@ -122,6 +122,7 @@ export function fixture({ programVersion = "0.2.0" } = {}) {
     "pencere-view": "../view",
     "pencere-editor": "../editor",
     "pencere-sandbox": "../sandbox",
+    "pencere-wire": "../../wire",
   });
   crate("program", "pencere", programVersion, { "pencere-wire": "../wire" });
   crate("cli", "pencere-cli", "0.1.0", { pencere: "../program", "pencere-wire": "../wire" });
@@ -330,7 +331,7 @@ const ASKS = {
   "pencere-host": ["pencere-wire"],
   "pencere-editor": ["pencere-view"],
   "pencere-sandbox": ["pencere-view"],
-  "pencere-drive": ["pencere-view", "pencere-editor", "pencere-sandbox"],
+  "pencere-drive": ["pencere-view", "pencere-editor", "pencere-sandbox", "pencere-wire"],
   "pencere-page": ["pencere-view", "pencere-wire"],
   pencere: ["pencere-wire"],
 };

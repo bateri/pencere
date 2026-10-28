@@ -449,6 +449,8 @@ impl Images {
     ///
     /// **Not for a frame**, which never waits for an image: for a host that wants the page whole
     /// before it looks (a test, a picture of the page) and waits for the wake while this says so.
+    /// A file that waits for room (the view's pixels at their budget) is not on its way: it is
+    /// tried again when it is asked for after [`ImageLimits::idle`], on the system's clock.
     pub fn busy(&self) -> bool {
         self.lock().entries.values().any(|entry| match entry {
             Entry::Pending

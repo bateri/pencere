@@ -530,8 +530,12 @@ impl Page {
     }
 
     /// The host's text is this much larger than the kit's own ([`Placement::zoom_for`]): the page is
-    /// drawn that much larger, and laid out again.
+    /// drawn that much larger, and laid out again. What is not a size (none, less, not a number)
+    /// changes nothing.
     pub fn set_zoom(&mut self, zoom: f32) {
+        if !(zoom.is_finite() && zoom > 0.0) {
+            return;
+        }
         let state = &mut self.state;
         if state.place.zoom != zoom {
             state.place.zoom = zoom;

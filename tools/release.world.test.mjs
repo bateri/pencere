@@ -87,7 +87,7 @@ describe("release.mjs rehearse of the crates", () => {
       "publish --dry-run -p pencere-view",
       `publish --dry-run -p pencere-editor ${patch("pencere-view", "kit/view")}`,
       `publish --dry-run -p pencere-sandbox ${patch("pencere-view", "kit/view")}`,
-      `publish --dry-run -p pencere-drive ${patch("pencere-view", "kit/view")} ${patch("pencere-editor", "kit/editor")} ${patch("pencere-sandbox", "kit/sandbox")}`,
+      `publish --dry-run -p pencere-drive ${patch("pencere-view", "kit/view")} ${patch("pencere-editor", "kit/editor")} ${patch("pencere-sandbox", "kit/sandbox")} ${patch("pencere-wire", "wire")}`,
       `publish --dry-run -p pencere-page --manifest-path kit/guest/Cargo.toml ${patch("pencere-view", "kit/view")} ${patch("pencere-wire", "wire")}`,
       `publish --dry-run -p pencere ${patch("pencere-wire", "wire")}`,
     ]);

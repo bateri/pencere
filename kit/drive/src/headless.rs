@@ -65,8 +65,9 @@ const ROUNDS: usize = 1000;
 /// The most frames [`Headless::idle`] draws before it says the page never stopped asking for them.
 const IDLE_FRAMES: usize = 10_000;
 
-/// Text measured with no fonts: every character `advance` points across and a line `line` points
-/// high, whatever the font. By default 7 and 16.
+/// Text measured with no fonts: every character `advance` pixels across and a line `line` pixels
+/// high, whatever the font and the scale (the engine measures text in the pixels it lays it out in:
+/// at a scale of 1, points). By default 7 and 16.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Fixed {
     pub advance: f32,

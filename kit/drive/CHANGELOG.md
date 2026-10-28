@@ -76,3 +76,7 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
   `Headless::received` (what the program said to the page). A settling waits for the answers a
   busy program owes only while the page is at rest: a page that moves goes on at the frames of the
   clock, and what the program waits for may be what it says at them.
+- **What a host with no screen is held to.** `Files` gives a file the media type its program gives
+  it (`pencere_wire::bundle::media_type_of`), and `Files::app` carries what the program's bundle
+  carries: the scripts of `src/view/`, the pictures of `src/assets/`, nothing hidden.
+  `Page::set_zoom` changes nothing for what is not a size.

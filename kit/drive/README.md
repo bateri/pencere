@@ -102,7 +102,7 @@ timers, a search's `found`, a language read a piece at a time are as determined 
 
 - **Opening:** `Headless::script(source)`, `bundle(files, entry)`, `app(dir)` (`Files::app`: a pencere
   app's `src/view/` with `src/assets/` under `assets/`), `component(bytes)`; then `size`, `scale`,
-  `measure` (`Fixed`, 7 × 16 points a character, unless said), `peer`, `limits`, `assets`, `blink`,
+  `measure` (`Fixed`, 7 × 16 pixels a character, unless said), `peer`, `limits`, `assets`, `blink`,
   `at`, `patience`, `reduce_motion`, and `open`.
 - **What a person does:** `key`, `press("cmd+shift+k")`, `type_text` (a key at a time), `insert_text`
   (what an input method commits), `paste`, `compose`, `unmark`; `click`, `double_click`,
