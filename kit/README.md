@@ -69,6 +69,7 @@ the directory [`sandbox/library`](sandbox/library).
 | `@pencere/languages` | The languages an editor reads, as CodeMirror's `language-data` knows them: a description of each (its names, how a file in it is told), and the language (its colours for `@pencere/syntax` and what an editor is told of it) built when a page loads it |
 | `@pencere/fuzzy`     | What a person types found in texts as fzf and VS Code find it: scored and ordered, a list at once or a slice a frame, the matched characters as parts of a rich text                                                                                     |
 | `@pencere/keys`      | Keys a page writes (`"cmd+shift+k"`) as a Mac writes them (`⇧⌘K`) or another platform (`Ctrl+Shift+K`), as key caps, and matched against a key event as the host matches a command's                                                                     |
+| `@pencere/markdown`  | Markdown (CommonMark and GitHub's extensions) read into a tree and drawn as elements: a document kept for a text that changes is read again only where it changed, and a long one is drawn a view at a time                                              |
 
 [`SPEC.md`](SPEC.md), Section 2.6, says what each module does.
 

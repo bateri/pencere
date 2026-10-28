@@ -40,6 +40,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   another platform (`Ctrl+Shift+K`), as key caps, and matched against a key event as a command's are.
   The platform is the page's to say (`set_platform`), a Mac's where it says none: the interface does
   not tell a page its host's.
+- `@pencere/markdown`, a module of the kit's library: Markdown (CommonMark 0.31.2 with GitHub's
+  tables, task lists, strikethrough and bare links) read into a tree of blocks and inlines that say
+  their lines, and drawn as elements in the theme's roles (links that answer a press, code coloured
+  by `@pencere/languages`). A document kept for a text that changes is read again only from the
+  block a change touched, a large one over several frames, and a long one is drawn a view at a time.
 - `pencere.merge(first, second, …)`: replies as one, as the kit puts together what a page's parts
   answer (every ask of an editor in order, a frame where either wants one, the earlier wake).
 - **A host that drives a page by hand can wait for it.** `Module::flush` waits, as long as it is

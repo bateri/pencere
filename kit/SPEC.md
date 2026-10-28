@@ -563,6 +563,9 @@ MUST give a script the library of its own kit's version; the kit's sandbox does
   another, and reaches no script of the bundle: a path past the library's root is an error. A
   script of the bundle reaches the library through the alias alone, as no path of a bundle has an
   `@` in it.
+- A module made of several files has the others as its parts (`@pencere/languages/sql`): they can
+  be required, but they are not the library's interface, and what they are may change with any
+  version of the kit.
 - A name the library has nothing at is an error, raised at the line of the `require`, that says so
   (`the kit's library has no module "x"`). A module runs once in a page, as a script of the bundle
   does. An error at a line of it says the module and the line (`@pencere/syntax:12: …`); an error it
@@ -785,6 +788,81 @@ Keys as a page writes them (`"cmd+shift+k"`, Section 2.1), as a person reads the
 - `keys.matches(event, words)` is whether a key event (`key` or `key_up`, or a table with no `type`)
   is those keys: the same modifiers, no more and no fewer, and the same key, a character in either
   case, as the host matches a command's keys; an event of another type is not.
+
+#### `@pencere/markdown`
+
+`@pencere/markdown` (with `local markdown = require("@pencere/markdown")`) reads Markdown and draws
+it. The dialect is CommonMark (0.31.2) with GitHub's extensions (GFM): tables, their columns aligned
+as the delimiter row says (`\|` a pipe in a cell); task lists; strikethrough (`~` or `~~`); and the
+links that need no brackets (`www.…`, `http://…`, `https://…`, `ftp://…`, an address of mail). HTML in
+the text, a block of it or a tag in a line, is kept as the text it is and drawn so, never run. A
+reference to a character is the character HTML names (every name of WHATWG's list, and numbers).
+
+`markdown.parse(text)` is the tree of the text, read at once:
+`{ type = "document", children = { block, ... } }`. Every block says the lines of the text it came
+from: `line` (from 1) and `lines`. A block is a `heading` (`level`, `children`), a `paragraph`
+(`children`), a `quote` (`children`), a `list` (`ordered`, `start`, `tight`, `children`: its items),
+an `item` (`checked`: nil, or true or false for a task; `children`), `code` (`language`: the first word
+of its fence's info, or nil; `info`; `text`, its last line break left out), `html` (`text`), a `rule`
+or a `table` (`align`: a list of `"left"`, `"center"`, `"right"` or false; `head`: a list of cells;
+`rows`: a list of lists of cells; a cell is a list of inlines). An inline is `text` (`text`),
+`emphasis`, `strong` or `strike` (`children`), `code` (`text`), a `link` (`href`, `title`,
+`children`), an `image` (`src`, `title`, `alt`: its description as plain text), `html` (`text`), a
+`softbreak` or a `hardbreak`. An address is written as commonmark.js writes it: a byte an address may
+not hold, or one that is not printable ASCII, is `%XX`.
+
+`markdown.render(document, options)` is the element of a document, a column of its blocks: a
+paragraph a text of many looks that wraps; a heading such a text, bold, in the size `headings` gives
+its level (`{ 22, 18, 16, 14.5, 13.5, 13 }`), with the role of a heading; a list a column of rows, a
+marker and the item's blocks (a task's marker a checkbox); a quote its blocks beside a bar; a table a
+grid with a column for each of its columns (at most 64); a block of code a box in the terminal's
+font; HTML a box of its text; a rule a line. Its `options` are each optional: `id`, the start of the
+names of its elements (`"markdown"`); `colors`, roles of the theme: `text` (its words; the box's
+where nil), `quiet` (`"dim"`), `link` (`"accent"`), `code` (`"raised2"`), `head` (`"raised1"`),
+`quote` and `rule` (`"border"`); `gap`, the points between blocks (12); `size`, the size of the text
+the page sets, for what it works out before the layout (13); `link`, `code`, `image` and
+`languages`, below; and `limit`, the most elements it makes (10 000), what is past it left out and
+an "…" in its place. An option it has no such name for, or one of the wrong kind, fails the page at
+the line of the page's call. Two draws on one page have different ids.
+
+A link is a part of a text named `<id>/link/<n>`. Given the page's events, `markdown.handle(event)`
+answers a click on a link (the left button pressed and let go on it) with what `link(href)` returns:
+by default `{ link = href }` for an `http` or `https` address, nil for any other; it answers nil to
+every other event. `markdown.href(id)` is the address of the link of that name, for a page that finds
+what was clicked its own way. An image is its description, as words of the text, since a page reaches
+only the pictures of its bundle; where `image(src, alt, title)` is given, an image is the element it
+returns, and the text around it stands in a row that wraps. A block of code is the element
+`code(language, text)` returns; where that is not given, the block is coloured line by line by the
+language `languages` finds (`find(word)`, then `load(description)`, which returns `{ syntax = }`, as
+`@pencere/languages` does; by default that module, looked for when code is first drawn), a token in
+the look `syntax:look(name)` gives. A draw colours at most 20 000 bytes of code and draws the rest
+plain.
+
+`markdown.document()` is a document kept for a text that changes.
+
+- `doc:set(text)` reads again what changed. It starts at the block before the first line that
+  changed, where that line may go on with that block (the line right after it, or, after blank lines,
+  a list or code indented; a table whose header was the last line of a paragraph is read with that
+  paragraph), and otherwise at the line after that block. It reads until, in the lines it did not
+  change, a block begins at a line where one began before; the blocks after that are the ones it had,
+  moved by the lines the change added or took. A change inside a fence, a list or a quote so reads
+  that block again, and no more; where a definition of a link changes, the blocks that looked up its
+  label have their inlines read again.
+- One call reads at most 20 000 bytes (a line and a block cost besides their bytes). The rest is read
+  by a timer of its own (`pencere.time.after(0, …)`), a call a frame, each asking for a frame, while
+  `doc:busy()`; `doc:work()` does a call's work at once. Until it is done, `doc:tree()` is the
+  document as far as it is read; `doc:reread()` is how many lines and blocks the last change was read
+  in, so far.
+- `doc:render(options)` is `markdown.render`'s element of it: a block that is as it was, drawn with
+  the same options, is the element it was. Code left plain for want of what a draw colours is
+  coloured in the draws after, and a frame is asked for each.
+- `doc:list(id, options)` is a box named `id` that scrolls and holds the blocks as a long list
+  (`box:list`, Section 2.2), which the page sizes with the builders after it
+  (`doc:list("preview"):size_full()`). A block is a row named `<id>/block/<n>`, as tall as it is
+  likely to be until the layout says; `doc:settle()`, which the page's `settle` returns, reads how tall
+  the rows made came out, and is true where one changed. `doc:reveal(line)` scrolls the list to the
+  block that holds line `line` of the text, and again as the layout says where that block stands. A
+  document's id is `markdown<n>` unless the options say otherwise.
 
 ## 3. Colours
 
