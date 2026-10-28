@@ -77,6 +77,9 @@ An app built by `pencere build` runs by itself:
 targets: aarch64-apple-darwin x86_64-apple-darwin aarch64-unknown-linux-musl x86_64-unknown-linux-musl
 ";
 
+/// The version of the command, which the runner of tests that is released with it says too.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// What the binary does: run the app inside it, or, with none, be the command.
 pub fn main() -> ExitCode {
     if let Some(payload) = payload::own() {

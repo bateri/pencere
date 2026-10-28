@@ -1,7 +1,7 @@
 [package]
 name = "pencere-test"
 description = "The runner of an app's tests: a page of the kit under the host with no screen, with the program it has, driven from Lua as a person drives it"
-version = "0.2.2"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -16,8 +16,9 @@ path = "src/main.rs"
 
 [dependencies]
 # The runtime an app's program runs in, the Lua of a test file in the same one, and the files of an
-# app: the command's insides, shared with this runner alone (they are released together).
-pencere-cli = { path = "../../cli", version = "0.2.2" }
+# app: the command's insides, shared with this runner alone. They are released together, so this
+# is no dependency by version, and the runner says the command's version (`pencere_cli::VERSION`).
+pencere-cli = { path = "../../cli" }
 # The page under the host with no screen, with the program of the app in this process (`program`)
 # and the pictures of a failure (`shot`).
 pencere-drive = { path = "../../kit/drive", version = "0.3.1", features = ["program", "shot"] }

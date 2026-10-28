@@ -115,7 +115,7 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         Some("--version") => {
-            println!("pencere-test {}", env!("CARGO_PKG_VERSION"));
+            println!("pencere-test {}", pencere_cli::VERSION);
             return ExitCode::SUCCESS;
         }
         _ => {}
