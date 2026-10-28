@@ -5,18 +5,20 @@ What a terminal needs to show the views of kind `wasm` and `lua` of
 A view of these kinds is a WebAssembly component or a Lua script in a sandbox that reaches nothing
 but the interface here; the terminal lays out what it hands out and draws it.
 
-| Directory            | Crate                             | What it is                                                                                                   |
-| -------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| [`view`](view)       | `pencere-view`                    | The page engine: elements, style, layout (flexbox and grid), the draw list. Depends on the layout crate only |
-| [`editor`](editor)   | `pencere-editor`                  | The editor of text a host puts in an editor's room: document, carets, undo, input method, layout and drawing |
-| [`sandbox`](sandbox) | `pencere-sandbox`                 | Runs a component or a script under limits and hands out pages. The one door to the WebAssembly runtime       |
-| [`wit`](wit)         |                                   | The interface a component speaks: `pencere:view`                                                             |
-| [`SPEC.md`](SPEC.md) |                                   | What the kit's views are written against: the Lua page API, the colours and the sandbox floors               |
-| [`luau`](luau)       |                                   | The sources of the interpreter for scripts: Luau, the bridge to the interface and the Lua page API           |
-| [`guest`](guest)     | `pencere-page` and the test pages | Another workspace, built for `wasm32`: the SDK a page module is written with, and modules to try it on       |
+| Directory            | Crate                             | What it is                                                                                                       |
+| -------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| [`view`](view)       | `pencere-view`                    | The page engine: elements, style, layout (flexbox and grid), the draw list. Depends on the layout crate only     |
+| [`editor`](editor)   | `pencere-editor`                  | The editor of text a host puts in an editor's room: document, carets, undo, input method, layout and drawing     |
+| [`sandbox`](sandbox) | `pencere-sandbox`                 | Runs a component or a script under limits and hands out pages. The one door to the WebAssembly runtime           |
+| [`drive`](drive)     | `pencere-drive`                   | Drives a page as every host does: what the person does in, its frames, editors, scrolling, replies and wakes out |
+| [`wit`](wit)         |                                   | The interface a component speaks: `pencere:view`                                                                 |
+| [`SPEC.md`](SPEC.md) |                                   | What the kit's views are written against: the Lua page API, the colours and the sandbox floors                   |
+| [`luau`](luau)       |                                   | The sources of the interpreter for scripts: Luau, the bridge to the interface and the Lua page API               |
+| [`guest`](guest)     | `pencere-page` and the test pages | Another workspace, built for `wasm32`: the SDK a page module is written with, and modules to try it on           |
 
-The page language and the sandbox know nothing of a window, a font or a renderer. A terminal
-measures text for the engine (`pencere_view::Measure`), resolves the colours of a page in its own
+The page language, the sandbox and the drive know nothing of a window, a font or a renderer. The
+drive does what the specification (Section 4) asks of every host but what only a host can do; a
+terminal measures text for the engine (`pencere_view::Measure`), resolves the colours of a page in its own
 theme (a role in the theme, a value in the form that goes with its brightness), keeps text readable
 against the grounds the draw list names under it, and turns the draw list into what it draws.
 

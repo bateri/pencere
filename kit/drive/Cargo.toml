@@ -1,0 +1,27 @@
+[package]
+name = "pencere-drive"
+description = "The drive of a page of pencere's native views: what the person does told to the page, its frames laid out with its editors and its scrolling, its replies and wakes handed to the host — and a host with no screen, to test a page with"
+version = "0.3.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["terminal", "pencere", "ui", "testing"]
+categories = ["gui", "development-tools::testing"]
+# The tests of `src/` read the example pages of the repository, which a crate does not carry.
+include = [
+    "src/**", "!src/*_tests.rs",
+    "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE",
+]
+
+[dependencies]
+# The page engine: what a page is, how it is laid out, scrolled and moved, and what it says back.
+pencere-view = { path = "../view", version = "0.3.1" }
+# The editor of text the host puts in each editor's room: the drive keeps the page's editors.
+pencere-editor = { path = "../editor", version = "0.3.1" }
+# The sandbox the page runs in, and its images: the drive tells it and takes what it puts out.
+pencere-sandbox = { path = "../sandbox", version = "0.3.1" }
+
+[lints]
+workspace = true

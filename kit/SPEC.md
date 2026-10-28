@@ -634,7 +634,11 @@ commands to an element, and the limits on pictures). A view that stays within th
 opens on every host. The values of this repository's implementation are the defaults of
 `ModuleLimits` in `kit/sandbox/src/sandbox.rs`.
 
-Besides drawing what the engine lays out, a host:
+Besides drawing what the engine lays out, a host does what follows. This repository's drive
+(`pencere-drive`, `kit/drive`) does it for a host, all but what only the host can do: measure and
+draw text in its fonts, draw in its renderer and theme, turn its keys into the kit's, and be its
+system's input method, pasteboard, pointer, fields, menus, browser, screen reader, clock and program.
+A host:
 
 - puts one field of its own over each text field of the page (`Laid::fields`), of its kind, saying
   its hint while it is empty, and tells the page what the person types into it, where the person

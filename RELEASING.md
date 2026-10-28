@@ -6,7 +6,7 @@ of one line does not release another.
 | Line             | What                                    | Channel        | Tag                       |
 | ---------------- | --------------------------------------- | -------------- | ------------------------- |
 | `sdk-typescript` | `@pencere/sdk` (`sdk/typescript`)       | npm            | `sdk-typescript-v<x.y.z>` |
-| `crates`         | seven crates, one version for all       | crates.io      | `crates-v<x.y.z>`         |
+| `crates`         | eight crates, one version for all       | crates.io      | `crates-v<x.y.z>`         |
 | `cli`            | the `pencere` command, four executables | GitHub release | `cli-v<x.y.z>`            |
 
 The specification is dated by hand (see [The specification](#the-specification)).
@@ -65,7 +65,7 @@ branch and publishes nothing.
 
 They share one version because they ask for each other by version. They are published in this
 order, each after the ones it depends on: `pencere-wire`, `pencere-host`, `pencere-view`,
-`pencere-editor`, `pencere-sandbox`, `pencere-page`, `pencere` (`tools/lines.mjs`). A crate with no change of its own
+`pencere-editor`, `pencere-sandbox`, `pencere-drive`, `pencere-page`, `pencere` (`tools/lines.mjs`). A crate with no change of its own
 gets "Released with the other crates; no change of its own." in its changelog.
 
 Each crate is dry-run on its own, with its dependencies patched to the repository, because none of
@@ -103,8 +103,8 @@ None of these is a secret.
   would otherwise create it empty and publish without asking.
 - **npm**, `@pencere/sdk`: trusted publisher GitHub Actions, `bateri/pencere`, `release.yml`,
   environment `release`; tokens disallowed.
-- **crates.io**, each of the seven crates (`pencere-wire`, `pencere-host`, `pencere-view`,
-  `pencere-editor`, `pencere-sandbox`, `pencere-page`, `pencere`): trusted publisher GitHub, `bateri/pencere`,
+- **crates.io**, each of the eight crates (`pencere-wire`, `pencere-host`, `pencere-view`,
+  `pencere-editor`, `pencere-sandbox`, `pencere-drive`, `pencere-page`, `pencere`): trusted publisher GitHub, `bateri/pencere`,
   `release.yml`, environment `release`. A crate without it is refused with `403 … The provided
 access token is not valid for crate …` when its turn comes, after the ones before it went out;
   run the workflow again for the line once it is set.

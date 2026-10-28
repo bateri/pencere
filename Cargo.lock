@@ -846,6 +846,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pencere-drive"
+version = "0.3.1"
+dependencies = [
+ "pencere-editor",
+ "pencere-sandbox",
+ "pencere-view",
+]
+
+[[package]]
 name = "pencere-editor"
 version = "0.3.1"
 dependencies = [

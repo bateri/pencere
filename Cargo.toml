@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["wire", "kit/view", "kit/editor", "kit/sandbox", "examples/containers-page", "examples/containers-rust", "program", "host/rust", "host/fake", "cli"]
+members = ["wire", "kit/view", "kit/editor", "kit/sandbox", "kit/drive", "examples/containers-page", "examples/containers-rust", "program", "host/rust", "host/fake", "cli"]
 
 # The page modules (`kit/guest/`) are built for another target with another toolchain and have
 # their own workspace and lockfile; this workspace never builds them.

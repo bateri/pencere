@@ -75,7 +75,7 @@ export const RELEASED = `# Changelog
 `;
 
 /**
- * A copy of the repository's shape: the SDK, the seven crates and the command at `0.1.0` (the
+ * A copy of the repository's shape: the SDK, the eight crates and the command at `0.1.0` (the
  * program library at `programVersion`, as it is on crates.io's side of the story) with something
  * unreleased in every changelog, the crates asking for each other by path and version, and the
  * workspace of the page modules of its own beside them.
@@ -92,9 +92,15 @@ export function fixture({ programVersion = "0.2.0" } = {}) {
   write(
     root,
     "Cargo.toml",
-    `[workspace]\nresolver = "3"\nmembers = ["wire", "host/rust", "kit/view", "kit/editor", "kit/sandbox", "program", "cli"]\nexclude = ["kit/guest"]\n\n[workspace.package]\nversion = "0.0.0"\nedition = "2024"\n`,
+    `[workspace]\nresolver = "3"\nmembers = ["wire", "host/rust", "kit/view", "kit/editor", "kit/sandbox", "kit/drive", "program", "cli"]\nexclude = ["kit/guest"]\n\n[workspace.package]\nversion = "0.0.0"\nedition = "2024"\n`,
   );
-  const versions = { "pencere-wire": "0.1.0", "pencere-view": "0.1.0", pencere: programVersion };
+  const versions = {
+    "pencere-wire": "0.1.0",
+    "pencere-view": "0.1.0",
+    "pencere-editor": "0.1.0",
+    "pencere-sandbox": "0.1.0",
+    pencere: programVersion,
+  };
   const crate = (dir, name, version, dependencies = {}) => {
     const asks = Object.entries(dependencies)
       .map(([other, path]) => `${other} = { path = "${path}", version = "${versions[other]}" }\n`)
@@ -112,6 +118,11 @@ export function fixture({ programVersion = "0.2.0" } = {}) {
   crate("kit/view", "pencere-view", "0.1.0");
   crate("kit/editor", "pencere-editor", "0.1.0", { "pencere-view": "../view" });
   crate("kit/sandbox", "pencere-sandbox", "0.1.0", { "pencere-view": "../view" });
+  crate("kit/drive", "pencere-drive", "0.1.0", {
+    "pencere-view": "../view",
+    "pencere-editor": "../editor",
+    "pencere-sandbox": "../sandbox",
+  });
   crate("program", "pencere", programVersion, { "pencere-wire": "../wire" });
   crate("cli", "pencere-cli", "0.1.0", { pencere: "../program", "pencere-wire": "../wire" });
   // The page modules: the SDK asks for the engine and the wire by path and version too.
@@ -319,6 +330,7 @@ const ASKS = {
   "pencere-host": ["pencere-wire"],
   "pencere-editor": ["pencere-view"],
   "pencere-sandbox": ["pencere-view"],
+  "pencere-drive": ["pencere-view", "pencere-editor", "pencere-sandbox"],
   "pencere-page": ["pencere-view", "pencere-wire"],
   pencere: ["pencere-wire"],
 };

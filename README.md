@@ -112,7 +112,8 @@ Early: everything is `0.x`, and a minor release may still break. The repository 
   [`host/rust`](host/rust)), and the part of the wire it shares with programs (crate
   `pencere-wire`, [`wire`](wire));
 - the kit a terminal draws native views with: the page engine, the sandbox that runs a component
-  or a Lua script, the interpreter and the SDK a page is written with ([`kit`](kit));
+  or a Lua script, the drive that does to a page what every host does, the interpreter and the SDK a
+  page is written with ([`kit`](kit));
 - a stand-in terminal that plays the host, for trying a program and for tests
   ([`host/fake`](host/fake));
 - an example program with a web view to try it all with ([`examples/containers`](examples/containers)),

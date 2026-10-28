@@ -33,7 +33,7 @@ const lockOf = (pkg) =>
   text(repo, pkg.manifest === undefined ? "Cargo.lock" : "kit/guest/Cargo.lock");
 
 describe("the repository's lines", () => {
-  it("are the three, and the crates are the seven in the order they are published", () => {
+  it("are the three, and the crates are the eight in the order they are published", () => {
     expect(Object.keys(LINES)).toEqual(["sdk-typescript", "crates", "cli"]);
     expect(members.map((pkg) => pkg.name)).toEqual([
       "pencere-wire",
@@ -41,6 +41,7 @@ describe("the repository's lines", () => {
       "pencere-view",
       "pencere-editor",
       "pencere-sandbox",
+      "pencere-drive",
       "pencere-page",
       "pencere",
     ]);
@@ -195,7 +196,7 @@ describe("release.mjs prepare", () => {
   });
 
   describe("of the crates", () => {
-    it("moves all seven to one version, though one of them is there already, and nothing else", () => {
+    it("moves all eight to one version, though one of them is there already, and nothing else", () => {
       const root = fixture();
       const done = release(root, "prepare", "crates", "0.2.0");
       expect(done.err).toBe("");
@@ -222,6 +223,7 @@ describe("release.mjs prepare", () => {
       expect(text(root, "program/Cargo.toml")).toContain(asks("pencere-wire", "../wire"));
       expect(text(root, "kit/sandbox/Cargo.toml")).toContain(asks("pencere-view", "../view"));
       expect(text(root, "kit/editor/Cargo.toml")).toContain(asks("pencere-view", "../view"));
+      expect(text(root, "kit/drive/Cargo.toml")).toContain(asks("pencere-sandbox", "../sandbox"));
       // The command's, which is not one of the crates, and the page modules' workspace.
       expect(text(root, "cli/Cargo.toml")).toContain(asks("pencere-wire", "../wire"));
       expect(text(root, "cli/Cargo.toml")).toContain(asks("pencere", "../program"));

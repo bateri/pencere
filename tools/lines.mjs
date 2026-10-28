@@ -66,6 +66,11 @@ export const LINES = {
         ],
       },
       {
+        dir: "kit/drive",
+        name: "pencere-drive",
+        entries: ["src/lib.rs"],
+      },
+      {
         dir: "kit/guest/sdk",
         name: "pencere-page",
         // The page modules have a workspace of their own, built for another target.

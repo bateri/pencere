@@ -1,0 +1,71 @@
+# pencere-drive
+
+The drive of a page of [pencere](https://github.com/bateri/pencere)'s native views. A page of the kit
+is a WebAssembly component or a Lua script in a sandbox (`pencere-sandbox`) that hands out a tree of
+boxes and lines of text (`pencere-view`) and answers what the person does. Between the two stands
+what the kit's specification (`kit/SPEC.md`, Section 4) asks of every host: the page laid out with
+its editors (`pencere-editor`) in their rooms, its boxes scrolled, a key sent to the page's command
+for it, to an editor or to the page, its replies done, its wakes given, what it says to its program
+carried. This crate is that, written once, so that every terminal does it the same way.
+
+It depends on the engine, the editor and the sandbox, and on no platform, no renderer, no font
+library and no terminal (`make check`).
+
+## A host's loop
+
+```rust
+use pencere_drive::{FrameAt, Host, Page, Setup};
+
+// The page, its text measured by the host's own measure (the object that measures is the object
+// that draws). `woken` is called from other threads; it only has the host's main thread look.
+let mut page = Page::script(script, Setup { measure: Box::new(my_measure), ..Setup::default() }, woken);
+
+// What the person does, in the host's points.
+page.input(input);                 // the pointer, a key where no editor has the keyboard
+let route = page.key(key, mods);   // a key: the page's command, an editor's, the text, the page's
+page.wheel(at, dx, dy, phase);     // the box under the pointer scrolls, at once
+
+// When woken, or after telling it something: what it said, done in the order every host does it.
+page.drain().deliver(&mut my_host); // impl Host: pasteboard, pointer, fields, link, menu, program…
+
+// A frame, when the host draws one: the draw list in pixels, with the editors drawn in.
+let painted = page.frame(FrameAt { size, scale, now, reduce_motion });
+// The next one: now if `page.animating()`, else at `page.wake_at()`.
+```
+
+The host never waits for the page: it tells it, and takes what came back when it is woken. A page at
+rest costs nothing — no frame, no wake.
+
+## What is the drive's and what is the host's
+
+Every part of what bateri's pane did to drive a page is in one column of this table.
+
+| What                                                                                                                                                           | Where                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| The module started, its first page waited for with a line in its place, its end told once                                                                      | `Page::component`, `script`, `spawn`; `Drained::ended`                   |
+| Taking what the module put out: pages, replies, what it said to its program, scrolls it asked, wakes                                                           | `Page::drain`, `Page::frame`                                             |
+| Laying the page out at a size and scale, laid out again only when it or its images changed                                                                     | `Page::frame`                                                            |
+| Asking the module for a page: a new size (waiting a little for it), the next step of a moving one, its time                                                    | `Page::frame`                                                            |
+| Moving what says a `motion` between the module's frames                                                                                                        | `Page::frame` (`Motions`)                                                |
+| Scrolling: the wheel on the box under the pointer, the bars before the page, the page's `scroll_to`, telling where boxes went                                  | `Page::wheel`, `Page::input`, `Scrolling`                                |
+| A key that does a command told as the command; a command picked from the host's list                                                                           | `Page::input`, `Page::key`, `Page::command`                              |
+| The editors: made for their rooms, the replies' asks and keyboard done, the layout again for a caret an overlay stands by, drawn in their places               | `Page::frame`                                                            |
+| The pointer over an editor (caret, drag, the keyboard taken back), the place under it told the page                                                            | `Page::input`                                                            |
+| A key to an editor (the page's command first, the editor's, the text), typing, pasting, an input method in UTF-16, a press that ends what it composes          | `Page::key`, `PageEditors`                                               |
+| The texts of the editors posted before the events that tell of them                                                                                            | `Page` (every edit)                                                      |
+| A caret's blink on the frames' clock, still with less motion, dark away from the keyboard                                                                      | `Page::frame`, `Page::set_active`, `Setup::blink`                        |
+| Wakes: at the first frame at their time, once a frame; a second apart while not seen, none lost                                                                | `Page::frame`, `Page::wake_unseen`, `Drained::wake`                      |
+| The page's images: decoded off the thread, their sizes in the layout, a frame when they come, a word for one refused                                           | `Page` (`Images`), `Drained::diagnostics`                                |
+| The page placed in the host's view (a strip above it, drawn larger): every point in and out turned                                                             | `Placement`, `Page::set_zoom`                                            |
+| The fields, what a screen reader says, the tooltips and the commands, told when they change                                                                    | `Painted::outline`, `Page::outline`                                      |
+| What the page said, handed over in the order a host does it                                                                                                    | `Drained::deliver`, `Host`                                               |
+| One clock for the frames, the editors and the scrolling: the host's where its program has one                                                                  | `Setup::program` (`Program::now`)                                        |
+| **The host's:** measuring and drawing text in its fonts, the draw list in its renderer and theme (colours, the contrast floor, figures and images as textures) | the host (`Setup::measure`, `Page::images`)                              |
+| **The host's:** its keyboard (its keys turned into `Key` and `Mods`), its input method, its own shortcuts                                                      | the host (`Page::key`, `PageEditors`)                                    |
+| **The host's:** its pasteboard, its pointer's shapes, its text fields over the page, its menus, its browser and the question asked first, its screen reader    | the host (`Host`, `Painted::outline`)                                    |
+| **The host's:** the clock that draws frames and the one that wakes a view not seen                                                                             | the host (`Page::animating`, `Page::wake_at`, `Page::wake_unseen`)       |
+| **The host's:** the program and the session it speaks through, what it can take of what the page says                                                          | the host (`Setup::program`, `Page::message`, `Page::room`, `Host::send`) |
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE).
