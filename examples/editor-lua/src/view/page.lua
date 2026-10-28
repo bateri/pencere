@@ -2,12 +2,13 @@
 -- page makes a language of. It is a page of the kit's page API, and an example of every hook the
 -- editor gives a page:
 --
--- * colours: SQL is a language of the kit's library (`@pencere/syntax`), read a line at a time
---   with a state carried from line to line (a block comment goes on over lines); the library
---   colours the lines in view (`viewport`) as a layer of decorations (`decorate = "syntax"`), reads
---   again from the line an edit touched until the state is what it was, and goes on by itself in
---   the frames after where there is more than one call may do (the kit's timer wakes the page for
---   it);
+-- * the language: SQL is the kit's (`@pencere/languages`): what the editor is told of it (its
+--   comments, the rules of its indent, the brackets that close themselves) is the language's
+--   `config`, and its colours its `syntax`, read a line at a time with a state carried from line to
+--   line (a block comment, a string goes on over lines) by `@pencere/syntax`, which colours the
+--   lines in view (`viewport`) as a layer of decorations (`decorate = "syntax"`), reads again from
+--   the line an edit touched until the state is what it was, and goes on by itself in the frames
+--   after where there is more than one call may do (the kit's timer wakes the page for it);
 -- * folds: each statement of more than one line is a region that folds (a layer of its own);
 -- * completions: a popup anchored to the caret (`pencere.caret_of`), whose keys (↑ ↓ ↩ ⇥ Esc) are
 --   commands of the page only while it is open, and which puts the word in with a change against
@@ -16,6 +17,7 @@
 -- * a large document, loaded in pieces (`load`, `more`).
 
 local Syntax = require("@pencere/syntax")
+local languages = require("@pencere/languages")
 
 local b = pencere
 local layout = b.layout
@@ -25,6 +27,14 @@ local POPUP = "completions"
 
 -- --- The language ------------------------------------------------------------------------------
 
+local language = languages.load("SQL")
+local syntax = Syntax.new(language.syntax, SQL)
+
+-- What the editor is told: the language's, and the page's word for an empty editor.
+local options = table.clone(language.config)
+options.hint = "Write SQL…"
+
+-- The words the popup offers, the page's own.
 local KEYWORDS = {
 	"select", "from", "where", "group", "by", "order", "having", "limit", "offset", "insert",
 	"into", "values", "update", "set", "delete", "create", "table", "drop", "alter", "join",
@@ -32,63 +42,6 @@ local KEYWORDS = {
 	"distinct", "count", "sum", "avg", "min", "max", "case", "when", "then", "else", "end",
 	"begin", "commit", "rollback", "union", "all", "exists", "between", "like",
 }
-local IS_KEYWORD = {}
-for _, word in KEYWORDS do
-	IS_KEYWORD[word] = true
-end
-
-local LOOKS = {
-	keyword = { color = "accent", weight = 700 },
-	string = { color = "success" },
-	number = { color = "warning" },
-	comment = { color = "dim", italic = true },
-}
-
--- What the state carries from line to line: whether a block comment is open.
-local language = Syntax.define({
-	name = "sql",
-	start = function()
-		return { comment = false }
-	end,
-	token = function(stream, state)
-		if state.comment then
-			if stream:skip_to("*/") then
-				stream:match("%*/")
-				state.comment = false
-			else
-				stream:skip_to_end()
-			end
-			return "comment"
-		end
-		if stream:eat_space() then
-			return nil
-		end
-		if stream:match("%-%-") then
-			stream:skip_to_end()
-			return "comment"
-		end
-		if stream:match("/%*") then
-			state.comment = true
-			return "comment"
-		end
-		-- A string ends at its quote, or with the line.
-		if stream:match("'[^']*'?") then
-			return "string"
-		end
-		if stream:match("%d[%d%.]*") then
-			return "number"
-		end
-		local word = stream:match("[%a_][%w_]*")
-		if word then
-			return IS_KEYWORD[string.lower(word)] and "keyword" or nil
-		end
-		stream:next()
-		return nil
-	end,
-	styles = LOOKS,
-})
-
-local syntax = Syntax.new(language, SQL)
 
 -- --- The document ------------------------------------------------------------------------------
 
@@ -241,11 +194,7 @@ end
 -- --- The page ------------------------------------------------------------------------------------
 
 local function render(size)
-	local editor = b.editor(SQL, {
-		comment = { line = "--", block = { "/*", "*/" } },
-		pairs = "()''",
-		hint = "Write SQL…",
-	}):grow(1):bg("raised1"):focused(true)
+	local editor = b.editor(SQL, options):grow(1):bg("raised1"):focused(true)
 		:command("run", "Run the statement", "cmd+enter")
 	if popup then
 		editor = editor

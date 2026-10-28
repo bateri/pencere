@@ -48,7 +48,7 @@ pub(crate) fn open_script_for(
 }
 
 /// The first thing a script's page is: the page, or why it is closed.
-fn first(script: &str, limits: ModuleLimits) -> Update {
+pub(crate) fn first(script: &str, limits: ModuleLimits) -> Update {
     let mut page = open_script(script, limits);
     page.module.render(SIZE, 0.0, false);
     page.until(Duration::from_secs(20), |u| {
