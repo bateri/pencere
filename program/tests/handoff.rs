@@ -422,13 +422,71 @@ fn a_hangup_while_the_command_has_the_terminal_is_passed_on_and_ends_serve_once_
 }
 
 #[test]
-fn with_no_view_up_the_command_runs_all_the_same() {
+fn with_no_view_up_the_command_runs_all_the_same_and_has_the_terminal() {
     let _one = one_at_a_time();
     // A control given to no `serve`, as in a fallback: the terminal is the program's.
     let control = ViewControl::new();
-    let mut command = shell("exit 5");
+    let mut command = shell("sleep 0.3; exit 5");
     command.stdin(Stdio::null());
-    assert_eq!(code_of(control.hand_off(command).wait()), Some(5));
+    let lending = control.hand_off(command);
+    // A `serve` started while the command has the terminal is told it is taken, and so is another
+    // hand-off.
+    let pane = Pane::new();
+    assert!(matches!(
+        pencere::serve(
+            Options::new()
+                .view(View::web(page()))
+                .terminal(pane.terminal())
+        ),
+        Err(pencere::Error::Busy)
+    ));
+    assert!(matches!(
+        control.hand_off(shell("exit 0")).wait(),
+        HandOffResult::Busy
+    ));
+    assert_eq!(code_of(lending.wait()), Some(5));
+}
+
+#[test]
+fn a_command_that_stops_is_continued_and_one_that_reaches_for_a_terminal_it_has_not_is_ended() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let handle = serve_on(pane.terminal(), move |options| options.control(given));
+    shown(&mut pane);
+    // A stop, as ⌃Z gives a program that is not a shell: it is continued, and ends as it would
+    // have.
+    let lending = {
+        let control = control.clone();
+        asking(move || control.hand_off(shell("kill -STOP $$; exit 6")).wait())
+    };
+    dismissed(&mut pane, TOKEN);
+    let open = shown_again(&mut pane, &web_views());
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    assert_eq!(code_of(joined(lending)), Some(6));
+    // Stopped for reaching for a terminal it is not the foreground of (the pty is not the test's
+    // controlling terminal): it could never go on, and is ended as on a hangup.
+    let lending = {
+        let control = control.clone();
+        asking(move || control.hand_off(shell("kill -TTIN $$; exit 0")).wait())
+    };
+    let dismiss = pane.expect("dismiss");
+    pane.send("closed", Some(dismiss.id), &json!({ "reason": "program" }));
+    let hello = pane.expect("hello");
+    pane.welcome(hello.id, TOKEN, &web_views());
+    let open = pane.expect("open");
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    match joined(lending) {
+        HandOffResult::Returned(Ok(status)) => {
+            assert_eq!(status.signal(), Some(libc::SIGHUP), "{status:?}");
+        }
+        other => panic!("a command ended by the hangup: {other:?}"),
+    }
+    interrupt();
+    let bye = pane.expect("bye");
+    pane.send("closed", Some(bye.id), &json!({ "reason": "program" }));
+    finished(handle);
 }
 
 // ---- the foreground ----------------------------------------------------------------------
@@ -450,6 +508,15 @@ fn handoff_child() {
         .view(View::web(page()))
         .program("handoff")
         .control(control)
+        // A program that is not there: its child took the foreground before it failed to start.
+        .call("missing", {
+            let lender = lender.clone();
+            move |_params, _call| {
+                let handoff = lender.hand_off(Command::new("no-such-program-here"));
+                std::thread::spawn(move || handoff.wait());
+                Ok(json!("scheduled"))
+            }
+        })
         .call("shell", move |_params, _call| {
             let handoff = lender.hand_off(shell("read line; echo \"got $line\"; exit 4"));
             let set = Arc::clone(&set);
@@ -521,6 +588,22 @@ fn the_command_has_the_foreground_of_the_terminal_and_the_program_takes_it_back(
     let program = Program(command.spawn().expect("the program starts"));
 
     shown(&mut pane);
+    // The foreground comes back to the program after a command that could not start: otherwise
+    // its read of the answer to its new `hello` would stop it.
+    pane.send(
+        "msg",
+        None,
+        &json!({ "call": { "id": 1, "method": "missing" } }),
+    );
+    assert_eq!(
+        json_of(&pane.expect("msg")),
+        json!({ "response": { "id": 1, "result": "scheduled" } })
+    );
+    dismissed(&mut pane, TOKEN);
+    let hello = pane.expect("hello");
+    pane.welcome(hello.id, TOKEN, &web_views());
+    let open = pane.expect("open");
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
     pane.send(
         "msg",
         None,

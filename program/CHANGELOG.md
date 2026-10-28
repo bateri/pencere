@@ -45,8 +45,10 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   come back (and `serve` ends with that). What was on its way to the view goes out before the view
   closes, the answer of the handler that asked for the hand-off among it. A hangup while the
   command has the terminal is passed on to it and ends `serve` once the command has ended; a
-  reopening asked meanwhile is the view that comes back. With no view up the command runs in the
-  foreground all the same.
+  reopening asked meanwhile is the view that comes back. With no `serve` running the command runs
+  in the foreground all the same, and a `serve` started meanwhile is told `Error::Busy`. A command
+  that stops for reaching for a terminal it does not have the foreground of (the view's terminal is
+  not the program's controlling one) is ended as on a hangup rather than continued for ever.
 
 - **An app's files, carried and reloaded.** `pencere::build::app()`, called from `build.rs`,
   carries `src/view/` and `src/assets/` into the binary; `pencere::app!()` is them, an `App`, and

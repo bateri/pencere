@@ -691,13 +691,11 @@ impl Session<'_> {
                 self.over(result);
             }
             Phase::Leaving { then, .. } => self.settle(then),
-            // The tty is not read while it is lent; a write that fails then is the terminal's end.
+            // Nothing is read or written while the terminal is lent; were it to go then, the
+            // command, which has it, is told as of a hangup and waited for.
             Phase::Lent => {
-                self.over(Ok(Outcome::NoView(NoView {
-                    reason: NoViewReason::NoHost,
-                    code: None,
-                    message: None,
-                })));
+                self.phase = Phase::Lent;
+                self.interrupted_while_lent(libc::SIGHUP);
             }
         }
     }
@@ -1187,8 +1185,11 @@ impl Session<'_> {
     /// as it is given back at the end (the screen, the modes), and the command is started as its
     /// foreground job. A thread waits for it and wakes the loop when it has ended.
     fn lend(&mut self) {
-        // What is waiting to be written goes out on the view's screen, before it is left.
+        // What is waiting to be written goes out on the view's screen, before it is left; what a
+        // terminal that is not reading has not taken by then is dropped, since nothing may be
+        // written while the command has the terminal.
         let _ = self.writer.flush_within(FAREWELL);
+        self.writer.forget_everything();
         self.taken.lend();
         self.alternate = false;
         self.phase = Phase::Lent;
@@ -1208,11 +1209,12 @@ impl Session<'_> {
             }
         };
         if let Some(handing) = self.hand_off_mut() {
-            handing.job = Some(job);
+            handing.job = Some(job.clone());
         }
         let outbox = self.outbox.clone();
+        let waited = job.clone();
         let waiting = terminal::spawn_quiet(move || {
-            outbox.send(Work::Returned(job.wait()));
+            outbox.send(Work::Returned(waited.wait()));
         });
         if waiting.is_err() {
             // No thread to wait on: the loop waits, having nothing to do while the command has the

@@ -30,9 +30,8 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::io;
 use std::process::{Command, ExitStatus};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::control::{Bound, Request};
@@ -58,7 +57,9 @@ pub enum Said {
     /// The program lent the terminal to a command ([`crate::ViewControl::hand_off`]), which a
     /// conversation does not run: what the view had asked is over, nothing is heard until the
     /// [`Lent`] says how the command ended (or is dropped), and what is sent from then on is the
-    /// view's shown again.
+    /// view's shown again. A reopening the program asks for meanwhile is that view, as it is for
+    /// `serve`: when it brings other kinds of view, they are said ([`Said::Reopened`]) as the view
+    /// comes back.
     HandedOff(Lent),
 }
 
@@ -68,10 +69,13 @@ pub enum Said {
 #[derive(Debug)]
 pub struct Lent {
     command: Box<Command>,
-    reply: Option<SyncSender<HandOffResult>>,
-    /// Raised when the view is shown again.
-    over: Arc<AtomicBool>,
+    /// How the command ended, for the conversation to tell the program.
+    loan: Loan,
+    told: bool,
 }
+
+/// How a command a conversation did not run ended, once the holder of its [`Lent`] has said.
+type Loan = Arc<Mutex<Option<io::Result<ExitStatus>>>>;
 
 impl Lent {
     /// The command the program asked to run.
@@ -87,9 +91,9 @@ impl Lent {
     }
 
     fn finish(&mut self, status: io::Result<ExitStatus>) {
-        if let Some(reply) = self.reply.take() {
-            self.over.store(true, Ordering::SeqCst);
-            let _ = reply.send(HandOffResult::Returned(status));
+        if !self.told {
+            self.told = true;
+            *self.loan.lock().unwrap_or_else(PoisonError::into_inner) = Some(status);
         }
     }
 }
@@ -122,8 +126,8 @@ pub struct Conversation {
     waiting: usize,
     /// The view is up: the program has not closed it.
     open: bool,
-    /// Raised once the view is shown again after a hand-off, while there is one.
-    lent: Option<Arc<AtomicBool>>,
+    /// The hand-off under way, while there is one.
+    lent: Option<Lending>,
     /// The program's control is the conversation's until the view is closed, as it is `serve`'s
     /// until `serve` ends.
     bound: Option<Bound>,
@@ -137,6 +141,16 @@ impl fmt::Debug for Conversation {
             .field("waiting", &self.said.len())
             .finish_non_exhaustive()
     }
+}
+
+/// A hand-off under way in a conversation: the program waits for the holder of the [`Lent`].
+struct Lending {
+    loan: Loan,
+    reply: SyncSender<HandOffResult>,
+    /// The reopenings asked meanwhile, answered as the view comes back.
+    reopens: Vec<SyncSender<ReopenResult>>,
+    /// The kinds of view the last of them brings.
+    views: Option<Vec<View>>,
 }
 
 /// The conversation's queue, toward the view: a message of the six goes only while a view is up.
@@ -184,6 +198,7 @@ impl Conversation {
     /// one of the three, is over the size or the depth of a message, or comes while there is no
     /// view (it was closed, or the terminal is lent) is left.
     pub fn send(&mut self, message: &str) -> bool {
+        self.settle_lent();
         if !self.up() {
             return false;
         }
@@ -208,15 +223,37 @@ impl Conversation {
     /// A view is up: the program has not closed it, and has not lent the terminal, or the
     /// command it lent it to has ended.
     fn up(&self) -> bool {
-        self.open
-            && self
-                .lent
-                .as_ref()
-                .is_none_or(|over| over.load(Ordering::SeqCst))
+        self.open && self.lent.is_none()
+    }
+
+    /// A hand-off whose `Lent` has said how the command ended is over: the program is told, and the
+    /// view is up again (with the kinds a reopening brought meanwhile, said as it comes back).
+    fn settle_lent(&mut self) {
+        let ended = self.lent.as_ref().and_then(|lending| {
+            lending
+                .loan
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take()
+        });
+        let Some(status) = ended else {
+            return;
+        };
+        let Some(lending) = self.lent.take() else {
+            return;
+        };
+        for reopen in lending.reopens {
+            let _ = reopen.send(ReopenResult::Reopened);
+        }
+        if lending.views.is_some() {
+            self.said.push_back(Said::Reopened(lending.views));
+        }
+        let _ = lending.reply.send(HandOffResult::Returned(status));
     }
 
     fn next(&mut self, until: Option<Instant>) -> Option<Said> {
         loop {
+            self.settle_lent();
             self.take_work();
             if let Some(said) = self.said.pop_front() {
                 if let Said::Message(text) = &said {
@@ -265,44 +302,55 @@ impl Conversation {
     /// The program asks to close its view, to show another, or to lend the terminal: done at
     /// once, as by a terminal that lists `dismiss` and answers at once, and said.
     fn on_control(&mut self, request: Request) {
-        let lent = self.open && !self.up();
+        self.settle_lent();
         match request {
-            Request::Close { reply } => {
-                if !self.up() {
-                    let _ = reply.send(CloseResult::Unavailable);
-                    return;
+            // While the terminal is lent, a reopening is the view that comes back.
+            Request::Reopen { views, reply } if self.open && self.lent.is_some() => {
+                if let Some(lending) = &mut self.lent {
+                    if views.is_some() {
+                        lending.views = views;
+                    }
+                    lending.reopens.push(reply);
                 }
+            }
+            Request::Reopen { reply, .. } if !self.up() => {
+                let _ = reply.send(ReopenResult::Unavailable);
+            }
+            Request::Reopen { views, reply } => {
+                self.exchange.end_view();
+                let _ = reply.send(ReopenResult::Reopened);
+                self.said.push_back(Said::Reopened(views));
+            }
+            Request::Close { reply } if !self.up() => {
+                let _ = reply.send(CloseResult::Unavailable);
+            }
+            Request::Close { reply } => {
                 self.exchange.end_view();
                 self.open = false;
                 self.bound = None;
                 let _ = reply.send(CloseResult::Closed);
                 self.said.push_back(Said::Closed);
             }
-            Request::Reopen { views, reply } => {
-                if !self.up() {
-                    let _ = reply.send(ReopenResult::Unavailable);
-                    return;
-                }
-                self.exchange.end_view();
-                let _ = reply.send(ReopenResult::Reopened);
-                self.said.push_back(Said::Reopened(views));
+            Request::HandOff { reply, .. } if !self.up() => {
+                let _ = reply.send(if self.open {
+                    HandOffResult::Busy
+                } else {
+                    HandOffResult::Unavailable
+                });
             }
             Request::HandOff { command, reply } => {
-                if !self.up() {
-                    let _ = reply.send(if lent {
-                        HandOffResult::Busy
-                    } else {
-                        HandOffResult::Unavailable
-                    });
-                    return;
-                }
                 self.exchange.end_view();
-                let over = Arc::new(AtomicBool::new(false));
-                self.lent = Some(Arc::clone(&over));
+                let loan: Loan = Arc::new(Mutex::new(None));
+                self.lent = Some(Lending {
+                    loan: Arc::clone(&loan),
+                    reply,
+                    reopens: Vec::new(),
+                    views: None,
+                });
                 self.said.push_back(Said::HandedOff(Lent {
                     command: Box::new(command),
-                    reply: Some(reply),
-                    over,
+                    loan,
+                    told: false,
                 }));
             }
         }

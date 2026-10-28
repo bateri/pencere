@@ -339,6 +339,12 @@ fn a_hand_off_is_said_after_the_answer_of_the_handler_that_asked_and_the_reader_
     assert!(conversation.receive(Duration::from_millis(100)).is_none());
     assert!(matches!(joined(second), HandOffResult::Busy));
     lent.returned(ExitStatus::from_raw(7 << 8));
+    // The view shown again is heard, and the program told how the command ended.
+    assert!(conversation.send(&call(3, "ping", &json!(null)).to_string()));
+    assert!(matches!(
+        conversation.receive(WITHIN),
+        Some(Said::Message(_))
+    ));
     wait_for("the hand-off to be over", || {
         result.lock().expect("the slot").is_some()
     });
@@ -346,12 +352,6 @@ fn a_hand_off_is_said_after_the_answer_of_the_handler_that_asked_and_the_reader_
         Some(HandOffResult::Returned(Ok(status))) => assert_eq!(status.code(), Some(7)),
         other => panic!("the command's status: {other:?}"),
     }
-    // The view shown again is heard.
-    assert!(conversation.send(&call(3, "ping", &json!(null)).to_string()));
-    assert!(matches!(
-        conversation.receive(WITHIN),
-        Some(Said::Message(_))
-    ));
     // A hand-off whose `Lent` is dropped was not run.
     let third = {
         let control = control.clone();
@@ -361,6 +361,7 @@ fn a_hand_off_is_said_after_the_answer_of_the_handler_that_asked_and_the_reader_
         panic!("the hand-off");
     };
     drop(lent);
+    assert!(conversation.try_receive().is_none());
     match joined(third) {
         HandOffResult::Returned(Err(why)) => {
             assert_eq!(why.kind(), std::io::ErrorKind::Unsupported);
@@ -411,4 +412,37 @@ fn a_handler_that_says_more_than_is_read_waits_for_the_reader() {
     assert!(read_one > unread, "{read_one} after {unread}");
     assert!(read_one < unread + 1000, "{read_one} after {unread}");
     drop(conversation);
+}
+
+#[test]
+fn a_reopening_while_the_terminal_is_lent_is_the_view_that_comes_back() {
+    let control = ViewControl::new();
+    let mut conversation = Conversation::new(Options::new().control(control.clone()));
+    let lending = {
+        let control = control.clone();
+        asking(move || control.hand_off(Command::new("vi")).wait())
+    };
+    let Some(Said::HandedOff(lent)) = conversation.receive(WITHIN) else {
+        panic!("the hand-off");
+    };
+    // The files of the view change while the command has the terminal.
+    let page = pencere::Bundle::single("page.lua", &b"return {}"[..]).expect("a bundle");
+    let reopening = {
+        let control = control.clone();
+        asking(move || control.reopen(Some(vec![View::new(Kind::Lua, &["2.0"], page)])))
+    };
+    assert!(conversation.receive(Duration::from_millis(100)).is_none());
+    lent.returned(ExitStatus::from_raw(0));
+    match conversation.receive(WITHIN) {
+        Some(Said::Reopened(Some(views))) => assert_eq!(views.len(), 1),
+        other => panic!("the view that comes back, with its kinds: {other:?}"),
+    }
+    assert_eq!(
+        joined(reopening).expect("a reopening"),
+        ReopenResult::Reopened
+    );
+    match joined(lending) {
+        HandOffResult::Returned(Ok(status)) => assert_eq!(status.code(), Some(0)),
+        other => panic!("the command's status: {other:?}"),
+    }
 }

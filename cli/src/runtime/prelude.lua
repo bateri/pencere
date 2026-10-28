@@ -363,7 +363,9 @@ module.close_view = guarded(native.close_view)
 -- handoff{ "zsh", "-l" } (or { argv =, cwd =, env = }) gives the terminal to a program, and takes it
 -- back when it ends: the view is closed and the terminal given back, the program runs with it in the
 -- foreground, as a shell runs a command, and then the same `serve` shows its view again. Gives
--- `{ code =, signal = }`. Needs a terminal that can close a view for the program.
+-- `{ code =, signal = }`. Needs a terminal that can close a view for the program; with no view up the
+-- program runs all the same. As for close_view, ask for it after the answer of the call that decided
+-- it has gone (`time.after(0, ...)`), or the page's own answer is lost with the view.
 module.handoff = guarded(native.handoff)
 
 -- Ends the app now, with this status (0 unless told).

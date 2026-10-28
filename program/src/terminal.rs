@@ -266,9 +266,17 @@ pub(crate) fn take_stop() -> bool {
     STOPPED.swap(false, Ordering::SeqCst)
 }
 
-/// Whether a `serve` of this process has the terminal.
-pub(crate) fn in_use() -> bool {
-    IN_USE.load(Ordering::SeqCst)
+/// Takes the terminal for a command the program lends it to while no `serve` has it: whether it
+/// was free. Until [`release`], a `serve` is told the terminal is taken (`Error::Busy`).
+pub(crate) fn claim() -> bool {
+    IN_USE
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+}
+
+/// The terminal [`claim`] took is free again.
+pub(crate) fn release() {
+    IN_USE.store(false, Ordering::SeqCst);
 }
 
 /// Writes `bytes` to `fd` without ever waiting for room longer than `within`, a few bytes at a

@@ -107,7 +107,6 @@ pub enum HandOffResult {
 /// A hand-off of the terminal that is under way: [`ViewControl::hand_off`]. Dropping it does not
 /// stop the hand-off; [`HandOff::wait`] waits for it to be over.
 #[derive(Debug)]
-#[must_use = "a hand-off goes on when it is dropped; `wait` says how it went"]
 pub struct HandOff {
     answer: Receiver<HandOffResult>,
     /// The number of the hand-off when it waits, on this thread, for the handler that asked for it
@@ -217,8 +216,10 @@ pub(crate) fn answered() {
 }
 
 /// The program's hand on the view `serve` shows. Give it to [`Options::control`]; until `serve`
-/// has a view, and once it has ended, `reopen` and `close` answer `Unavailable` (and `hand_off`
-/// runs its command with no view to close). It can be cloned and sent to the threads that call it.
+/// has a view, and once it has ended, `reopen`, `close` and `hand_off` answer `Unavailable` —
+/// except that `hand_off` runs its command, with no view to close, when no `serve` runs at all
+/// (before `serve` is called, after it returns, in its fallback). It can be cloned and sent to the
+/// threads that call it.
 #[derive(Clone, Default)]
 pub struct ViewControl {
     bound: Arc<Mutex<Option<(u64, Outbox)>>>,
@@ -331,9 +332,11 @@ impl ViewControl {
     /// asked while the command has the terminal ([`ViewControl::reopen`] with other views, as when
     /// the files of the view change) is the view that comes back.
     ///
-    /// With no view up — before `serve`, after it, in its fallback — the command runs in the
-    /// foreground of the program's controlling terminal all the same, and there is no view to show
-    /// again. A signal that asks the program to end while the command has the terminal is acted on
+    /// When no `serve` runs — before it is called, after it returns, in its fallback — the command
+    /// runs in the foreground of the program's controlling terminal all the same, and there is no
+    /// view to show again; a `serve` started meanwhile is told the terminal is taken
+    /// ([`Error::Busy`]). While a `serve` is asking for its first view there is no view to close
+    /// yet, and the answer is `Unavailable`. A signal that asks the program to end while the command has the terminal is acted on
     /// when the command has ended (a hangup is passed on to it, as a shell passes its own on to its
     /// jobs): `serve` then ends as it does for the signal, with no view shown again.
     ///
@@ -379,18 +382,24 @@ impl ViewControl {
     /// A hand-off when this control is given to no `serve` that runs: the terminal is the
     /// program's, unless another `serve` has it.
     fn run_with_no_view(command: Command) -> HandOff {
-        if crate::terminal::in_use() {
-            return HandOff::over(HandOffResult::Unavailable);
-        }
         if LENT.swap(true, Ordering::SeqCst) {
             return HandOff::over(HandOffResult::Busy);
         }
+        // The terminal is the command's until it ends: a `serve` started meanwhile is told so.
+        if !crate::terminal::claim() {
+            LENT.store(false, Ordering::SeqCst);
+            return HandOff::over(HandOffResult::Unavailable);
+        }
+        let given_back = || {
+            crate::terminal::release();
+            LENT.store(false, Ordering::SeqCst);
+        };
         let (reply, answer) = sync_channel(1);
         let started = std::thread::Builder::new()
             .name("pencere-hand-off".into())
             .spawn(move || {
                 let ended = crate::foreground::run(command);
-                LENT.store(false, Ordering::SeqCst);
+                given_back();
                 let _ = reply.send(HandOffResult::Returned(ended));
             });
         match started {
@@ -399,7 +408,7 @@ impl ViewControl {
                 parked: None,
             },
             Err(why) => {
-                LENT.store(false, Ordering::SeqCst);
+                given_back();
                 HandOff::over(HandOffResult::Returned(Err(why)))
             }
         }

@@ -11,15 +11,19 @@ use std::io;
 use std::os::fd::{FromRawFd as _, OwnedFd, RawFd};
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::process::{Command, ExitStatus};
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// A command that has the terminal.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct Job {
     pid: libc::pid_t,
     /// The tty the command was given, or -1.
     tty: RawFd,
     /// The process group that had the tty's foreground before: the one it is given back to.
     before: libc::pid_t,
+    /// The command's status has been taken: its number may be another process's from then on, and
+    /// nothing is sent to it. Held while the status is taken and while a signal is sent.
+    reaped: Arc<Mutex<bool>>,
 }
 
 /// Starts `command` in a process group of its own, with the foreground of `tty` (when `tty` is the
@@ -45,23 +49,51 @@ pub(crate) fn start(mut command: Command, tty: RawFd) -> io::Result<Job> {
             Ok(())
         });
     }
-    // `spawn` returns once the child has run what is above and the program is running.
-    let child = command.spawn()?;
+    // `spawn` returns once the child has run what is above and the program is running, or has
+    // failed to be (a program that is not there).
+    let child = match command.spawn() {
+        Ok(child) => child,
+        Err(why) => {
+            // The child may have taken the foreground before its program failed to start: it is
+            // given back, or the program would be a background job of a tty nobody has.
+            give_foreground(tty, before);
+            return Err(why);
+        }
+    };
     let pid = libc::pid_t::try_from(child.id()).map_err(io::Error::other)?;
     // Waited for by `Job::wait`, which also sees it stop; dropping the handle does not wait.
     drop(child);
-    Ok(Job { pid, tty, before })
+    Ok(Job {
+        pid,
+        tty,
+        before,
+        reaped: Arc::new(Mutex::new(false)),
+    })
 }
 
 impl Job {
     /// Waits for the command to end: how it did. One that is stopped (⌃Z reaches a program that is
     /// not a shell) is continued, since the program that gave it the terminal has nothing else to
-    /// give it to.
+    /// give it to; one that is stopped for reaching for a terminal it does not have the foreground
+    /// of (the program's terminal is not its controlling one) is ended as on a hangup, and if it
+    /// reaches again, killed, since it can never go on.
     pub(crate) fn wait(&self) -> io::Result<ExitStatus> {
+        let mut reached = 0;
         loop {
-            let mut status = 0;
-            // SAFETY: waits for a child of ours, a stopped one included.
-            let got = unsafe { libc::waitpid(self.pid, &raw mut status, libc::WUNTRACED) };
+            // Waits for the command to stop or end without taking its status, so that until the
+            // status is taken below, under the lock, its number stays its own (a zombie's), and a
+            // signal sent to it meanwhile reaches nothing else.
+            // SAFETY: a siginfo_t of ours for the call to fill.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            // SAFETY: waits for a child of ours, and fills `info`.
+            let got = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    libc::id_t::try_from(self.pid).map_err(io::Error::other)?,
+                    &raw mut info,
+                    libc::WEXITED | libc::WSTOPPED | libc::WNOWAIT,
+                )
+            };
             if got < 0 {
                 let why = io::Error::last_os_error();
                 if why.kind() == io::ErrorKind::Interrupted {
@@ -69,34 +101,73 @@ impl Job {
                 }
                 return Err(why);
             }
+            let mut reaped = self.reaped.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut status = 0;
+            // SAFETY: takes the status of a child of ours that has one to give.
+            let taken = unsafe {
+                libc::waitpid(self.pid, &raw mut status, libc::WUNTRACED | libc::WNOHANG)
+            };
+            if taken < 0 {
+                let why = io::Error::last_os_error();
+                if why.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(why);
+            }
+            if taken == 0 {
+                continue;
+            }
             if libc::WIFSTOPPED(status) {
+                drop(reaped);
+                match libc::WSTOPSIG(status) {
+                    libc::SIGTTIN | libc::SIGTTOU => {
+                        reached += 1;
+                        if reached > 1 {
+                            self.signal(libc::SIGKILL);
+                        } else {
+                            self.signal(libc::SIGHUP);
+                        }
+                    }
+                    _ => {}
+                }
                 self.signal(libc::SIGCONT);
                 continue;
             }
+            *reaped = true;
             return Ok(ExitStatus::from_raw(status));
         }
     }
 
-    /// Sends `signal` to the command's process group: a hangup the program heard is passed on, as a
-    /// shell passes its own to its jobs.
+    /// Sends `signal` to the command's process group, while the command has not been reaped: a
+    /// hangup the program heard is passed on, as a shell passes its own to its jobs.
     pub(crate) fn signal(&self, signal: libc::c_int) {
-        // SAFETY: a signal to the process group of a child of ours, or to the child itself if it
-        // has no group of its own.
+        let reaped = self.reaped.lock().unwrap_or_else(PoisonError::into_inner);
+        if *reaped {
+            return;
+        }
+        // SAFETY: a signal to the process group of a child of ours that has not been reaped, or to
+        // the child itself if it has no group of its own.
         unsafe {
             if libc::kill(-self.pid, signal) != 0 {
                 libc::kill(self.pid, signal);
             }
         }
+        drop(reaped);
     }
 
     /// Gives the tty's foreground back to the process group that had it before the command.
     pub(crate) fn take_back(&self) {
-        if self.before > 0 {
-            without_stops(|| {
-                // SAFETY: gives the foreground of a tty we hold to a process group of our session.
-                unsafe { libc::tcsetpgrp(self.tty, self.before) };
-            });
-        }
+        give_foreground(self.tty, self.before);
+    }
+}
+
+/// Gives the foreground of `tty` to the process group `group`, when there was one.
+fn give_foreground(tty: RawFd, group: libc::pid_t) {
+    if group > 0 {
+        without_stops(|| {
+            // SAFETY: gives the foreground of a tty we hold to a process group of our session.
+            unsafe { libc::tcsetpgrp(tty, group) };
+        });
     }
 }
 
