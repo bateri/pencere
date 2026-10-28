@@ -151,6 +151,9 @@ pub struct Laid {
     /// its box from the top-left of the editor's content as it is when nothing is scrolled, pixels
     /// ([`crate::Measure::editor`]).
     pub(crate) carets: Vec<(usize, Id, Rect)>,
+    /// The ranges the page named in the editors: the editor's place in `nodes`, the range's name
+    /// ([`Id::anchor`]) and its box in the content.
+    pub(crate) ranges: Vec<(usize, Id, Rect)>,
     /// What the overlays of the page are anchored to.
     pub(crate) anchored: Vec<Id>,
     /// An editor with an overlay anchored to its caret was scrolled since the page was laid out:
@@ -363,6 +366,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             size: viewport,
             scale,
             carets: Vec::new(),
+            ranges: Vec::new(),
             anchored: Vec::new(),
             stale: false,
         };
@@ -474,6 +478,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     // An editor's room scrolls over what the host's editor laid out, and its caret is where the
     // editor last put it.
     let mut carets = Vec::new();
+    let mut ranges = Vec::new();
     for index in 0..nodes.len() {
         let Some(node) = nodes.get_mut(index) else {
             continue;
@@ -485,6 +490,12 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             continue;
         };
         let zones = measure.zones(id);
+        for (name, rect) in measure.anchors(id) {
+            if rect.x.is_finite() && rect.y.is_finite() && rect.w.is_finite() && rect.h.is_finite()
+            {
+                ranges.push((index, name, rect));
+            }
+        }
         let (room, scroll) = (node.rect, node.scroll);
         place_zones(&mut nodes, index, &zones, room, scroll);
         let Some(node) = nodes.get_mut(index) else {
@@ -511,7 +522,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     }
     let anchored = anchors.iter().map(|(_, anchor)| anchor.to).collect();
     for (index, anchor) in anchors {
-        place_beside(&mut nodes, &carets, index, anchor, page, scale);
+        place_beside(&mut nodes, (&carets, &ranges), index, anchor, page, scale);
     }
     for node in &mut nodes {
         if let Content::Rich(rich) = &mut node.content {
@@ -524,6 +535,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         size: viewport,
         scale,
         carets,
+        ranges,
         anchored,
         stale: false,
     }
@@ -633,12 +645,16 @@ fn lay_rich(rich: &mut Rich, width: f32, measure: &mut dyn Measure) {
     rich.lines = lines;
 }
 
+/// What an editor says of a box in its content: the editor's place in the nodes, the box's name
+/// (the caret's, a range's) and the box.
+type Boxed = (usize, Id, Rect);
+
 /// Moves the overlay at `index`, and what is inside it, beside the element its anchor names: on
 /// the side asked where the page has the room, on the other where it has not (and there it has),
 /// and along that side as far as it takes to stay on the page.
 fn place_beside(
     nodes: &mut [Node],
-    carets: &[(usize, Id, Rect)],
+    (carets, ranges): (&[Boxed], &[Boxed]),
     index: usize,
     anchor: Anchor,
     page: Rect,
@@ -664,9 +680,35 @@ fn place_beside(
         }
         caret_on_page(nodes, found)
     };
-    let Some(to) = element.or_else(caret) else {
-        return;
+    // A range of an editor's text the page named: where it is on the page, and whether any of it is
+    // in the room (one that scrolled out of it takes what stands by it along: it is not shown).
+    let range = || {
+        let found = ranges.iter().find(|(_, id, _)| *id == anchor.to)?;
+        let room = nodes.get(found.0)?;
+        if room.hidden {
+            return None;
+        }
+        let rect = caret_on_page(nodes, found)?;
+        let seen = room.rect.intersect(room.clip);
+        Some((rect, rect.y < seen.bottom() && rect.bottom() > seen.y))
     };
+    let (to, seen) = match element.or_else(caret) {
+        Some(to) => (to, true),
+        None => match range() {
+            Some(found) => found,
+            None => return,
+        },
+    };
+    if !seen {
+        let mut end = index + 1;
+        while end < nodes.len() && is_inside_of(nodes, end, index) {
+            end += 1;
+        }
+        for node in nodes.get_mut(index..end).unwrap_or_default() {
+            node.hidden = true;
+        }
+        return;
+    }
     let gap = anchor.gap * scale;
     // Where it starts along the side of the element, kept on the page.
     let along = |start: f32, length: f32, mine: f32, room: f32| {
@@ -1204,7 +1246,11 @@ impl Laid {
         let rect = match self.named(id) {
             Some(node) => node.rect,
             None => {
-                let caret = self.carets.iter().find(|(_, caret, _)| *caret == id)?;
+                let caret = self
+                    .carets
+                    .iter()
+                    .chain(&self.ranges)
+                    .find(|(_, caret, _)| *caret == id)?;
                 caret_on_page(&self.nodes, caret)?
             }
         };
@@ -1452,7 +1498,13 @@ impl Laid {
             (Content::Editor(_), Some(id)) => Some(id),
             _ => None,
         };
-        if editor.is_some_and(|id| self.anchored.contains(&id.caret())) {
+        if editor.is_some_and(|id| {
+            self.anchored.contains(&id.caret())
+                || self
+                    .ranges
+                    .iter()
+                    .any(|(at, name, _)| *at == index && self.anchored.contains(name))
+        }) {
             self.stale = true;
         }
         // What is inside a box follows it in the paint order, the overlays aside (they come after
@@ -1887,6 +1939,11 @@ pub trait Queries {
     }
     /// The line the place `at` is on.
     fn line_of(&self, _editor: Id, _at: usize) -> Option<usize> {
+        None
+    }
+    /// The word at the place `at` (or the run of marks or of spaces), by the rule a double click
+    /// has: its range.
+    fn word_at(&self, _editor: Id, _at: usize) -> Option<(usize, usize)> {
         None
     }
 }

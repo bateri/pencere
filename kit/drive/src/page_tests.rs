@@ -1466,3 +1466,40 @@ fn what_replies_ask_of_fields_not_yet_laid_is_held_in_order() {
         ]
     );
 }
+
+/// A page with an editor that hears of the pointer's rest.
+const REST_PAGE: &str = r#"
+return {
+	render = function()
+		return pencere.div():size_full():child(
+			pencere.editor("code", { gutter = false, events = { "hover" } }):size_full())
+	end,
+	handle = function(event)
+		if event.type == "editor_ready" then
+			return { editor = { code = { { load = "alpha beta" } } } }
+		end
+		return nil
+	end,
+}
+"#;
+
+/// The pointer coming to a word of an editor that hears of its rest says no frame is wanted, and the
+/// time it is told at is the host's clock to arm: the drain says so (`wake`), and `wake_at` has it.
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+fn the_pointer_coming_to_a_word_an_editor_hears_of_tells_the_host_to_arm_its_clock() {
+    let mut rig = script_rig(REST_PAGE);
+    rig.page.frame(frame_at(0.0));
+    rig.first();
+    rig.settle();
+    let _ = rig.page.drain();
+    assert_eq!(rig.page.wake_at(), None);
+    rig.page.input(Input::Move(Point::new(12.0, 32.0 + 10.0)));
+    let drained = rig.page.drain();
+    assert!(drained.wake && !drained.redraw, "{drained:?}");
+    assert!(rig.page.wake_at().is_some(), "the time the rest is told at");
+    // And it goes when the pointer does.
+    rig.page.input(Input::Leave);
+    let _ = rig.page.drain();
+    assert_eq!(rig.page.wake_at(), None);
+}

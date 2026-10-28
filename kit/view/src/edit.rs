@@ -196,6 +196,10 @@ pub enum Mark {
     Ruler(RulerMark),
     /// A gap for the page to draw in, after the line the range starts on ([`Zone`]).
     Zone(Zone),
+    /// The range has a name the page can stand something by: [`Id::anchor`] is its box
+    /// ([`pencere_view::EditorMetrics`] says where, for an overlay anchored to it), as an editor's
+    /// caret is. A name is an editor's alone: a later decoration of the name is the one that stands.
+    Anchor(String),
     /// The range can be folded away: its first line stays, the lines after it down to the one the
     /// range ends on are hidden while it is folded. Whether it is, is the editor's (the person
     /// folds and unfolds); where it can be, is the page's.
@@ -315,6 +319,11 @@ pub struct Column {
     /// What shows, faint, in the cell the pointer is over where nothing stands in the column yet: a
     /// breakpoint to be put (VS Code's faded red dot).
     pub hover: Option<Preview>,
+    /// How much room the numbers keep to their left, points ([`limits::COLUMN`]; of `"numbers"`
+    /// alone, in the width the editor makes of its own: a column of a width the page says is as wide
+    /// as that): none is the editor's padding where the column is the first, so that the numbers do
+    /// not stand against the room's edge, and none where another column is before it.
+    pub pad: Option<f32>,
 }
 
 /// Which things the pointer does in a column the page hears of: it hears the rare ones only, the
@@ -349,6 +358,7 @@ impl Column {
             width: None,
             events: None,
             hover: None,
+            pad: None,
         }
     }
 
@@ -431,6 +441,10 @@ pub struct Look {
     pub italic: Option<bool>,
     pub underline: Option<Underline>,
     pub strike: bool,
+    /// What the page calls it: told with the pointer's resting over it ([`HoverEvent::hits`]), so
+    /// that a page finds the diagnostic or the link under the pointer without searching its own
+    /// lists.
+    pub id: Option<String>,
 }
 
 /// A line under some characters.
@@ -625,6 +639,73 @@ pub struct EditorOptions {
     pub marks: MarkLooks,
     pub caret: Caret,
     pub colors: EditorColors,
+    /// What of the pointer and the keys the page hears of beyond the rest ([`EditorEvents`]).
+    pub events: EditorEvents,
+    /// How the pointer's resting over the text is told ([`HoverOptions`]).
+    pub hover: HoverOptions,
+}
+
+/// Which events of its own an editor tells the page: none unless the page asks, as the rare things
+/// are, and those that come at the rate of the pointer's moving are never told.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EditorEvents {
+    /// The pointer rested over a word or left it ([`HoverEvent`]).
+    pub hover: bool,
+}
+
+/// How long the pointer rests before it is told of ([`EditorOptions::hover`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HoverOptions {
+    /// Seconds the pointer rests over a word before the page is told ([`limits::HOVER_DELAY`]);
+    /// VS Code's `editor.hover.delay` (300 ms) and Zed's `hover_popover_delay`.
+    pub delay: f32,
+}
+
+impl Default for HoverOptions {
+    fn default() -> Self {
+        Self { delay: 0.3 }
+    }
+}
+
+/// The pointer rested over a word of an editor's text, or left it ([`EditorEvents::hover`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct HoverEvent {
+    pub editor: Id,
+    pub kind: HoverKind,
+    /// The place under the pointer, and the word (or run of marks) it is on: its range.
+    pub at: usize,
+    pub from: usize,
+    pub to: usize,
+    /// The line of `at`, from 0.
+    pub line: usize,
+    /// The decorations with a name (`id`) that hold `at`: the layer, the name and the range of each,
+    /// the later over the earlier.
+    pub hits: Vec<HoverHit>,
+    /// The word's box, points of the page: where a card is stood.
+    pub rect: Rect,
+    /// The modifiers held as the drive last knew.
+    pub mods: Mods,
+    /// The document's version the places are of.
+    pub version: u64,
+}
+
+/// What the pointer did of resting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum HoverKind {
+    /// It stayed the delay over a word.
+    Dwell,
+    /// It went from a word it was told of: at once, so that a page that keeps its card where the
+    /// pointer goes next (the card's own box) decides how long.
+    Leave,
+}
+
+/// A decoration with a name under the pointer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HoverHit {
+    pub layer: String,
+    pub id: String,
+    pub from: usize,
+    pub to: usize,
 }
 
 /// The measures of the gutter's bars and of the overview ruler's marks, points.
@@ -693,6 +774,8 @@ impl Default for EditorOptions {
             marks: MarkLooks::default(),
             caret: Caret::default(),
             colors: EditorColors::default(),
+            events: EditorEvents::default(),
+            hover: HoverOptions::default(),
         }
     }
 }
@@ -717,6 +800,7 @@ impl EditorOptions {
         self.marks.bar = hold(self.marks.bar, limits::MARK_WIDTH, default.marks.bar);
         self.marks.hover = hold(self.marks.hover, limits::MARK_WIDTH, default.marks.hover);
         self.marks.ruler = hold(self.marks.ruler, limits::MARK_WIDTH, default.marks.ruler);
+        self.hover.delay = hold(self.hover.delay, limits::HOVER_DELAY, default.hover.delay);
         self
     }
 }
@@ -1138,6 +1222,9 @@ pub trait TextSnapshot: Send + Sync + std::fmt::Debug {
     fn line_start(&self, line: usize) -> Option<usize>;
     /// The line the character at `at` is on (`at` may be the end); `None` past the end.
     fn line_of(&self, at: usize) -> Option<usize>;
+    /// The word at `at`, or the run of marks or of spaces, by the rule a double click has: its
+    /// range; `None` for a place past the end.
+    fn word_range(&self, at: usize) -> Option<(usize, usize)>;
 }
 
 /// The limits an editor holds a page to: what every host gives at least (the specification's table
@@ -1184,6 +1271,10 @@ pub mod limits {
     pub const COLUMNS: usize = 8;
     /// The most rows a zone may take.
     pub const ZONE_ROWS: usize = 200;
+    /// The most names of ranges an editor holds ([`crate::edit::Mark::Anchor`]).
+    pub const ANCHORS: usize = 64;
+    /// What the pointer's rest may be, seconds.
+    pub const HOVER_DELAY: std::ops::RangeInclusive<f32> = 0.0..=10.0;
     /// How wide a bar, or a mark of the overview ruler, may be, points.
     pub const MARK_WIDTH: std::ops::RangeInclusive<f32> = 1.0..=16.0;
 }

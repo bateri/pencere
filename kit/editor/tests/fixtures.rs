@@ -299,6 +299,7 @@ fn kind_of(mark: &Mark) -> &'static str {
         Mark::Fold => "fold",
         Mark::Ruler(_) => "ruler",
         Mark::Zone(_) => "zone",
+        Mark::Anchor(_) => "anchor",
     }
 }
 

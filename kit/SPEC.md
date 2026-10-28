@@ -38,7 +38,9 @@ keys (Sections 2.1 and 2.3); and an editor's changes kept out of its history and
 reveals put where the page says, the other places of its selection marked, its `editor_ready` and
 the commands of whole lines (Sections 2.1 and 2.3); the time of day and the host's keyboard, with
 `mod` (Sections 2.1 and 2.2, and the interface's `system`), what spins, and the `null` members of
-what a page decodes (Sections 2.1 and 2.4). The kit's own sandbox opens `2.0` and no longer `1.0`.
+what a page decodes (Sections 2.1 and 2.4); and the pointer's rest over a word of an editor, the names
+of ranges of its text that an overlay stands by, and the names of its styles (Sections 2.1, 2.3 and
+2.6). The kit's own sandbox opens `2.0` and no longer `1.0`.
 
 The regular expressions of a view (an editor's search, the rules of its indent) are in the syntax of
 Rust's `regex` crate, `1.x` at the release the kit pins (its `Cargo.lock`), and one may take at most
@@ -255,8 +257,10 @@ theme's colours:
 | `padding`                                            | the room kept around the text, points (0 to 64)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | 4                                          |
 | `scroll_margin`                                      | the rows kept between the caret and the top or the bottom of the room when the editor scrolls to the caret (at most half the rows in view)                                                                                                                                                                                                                                                                                                                                                                                         | 0                                          |
 | `numbers`                                            | what the numbers of the lines count: `"absolute"`, `"relative"` (the caret's line its own number, every other line how many lines it is from it, a folded region one line) or `"hidden"` (the gutter keeps its marks and fold buttons)                                                                                                                                                                                                                                                                                             | `"absolute"`                               |
-| `gutters`                                            | the gutter's columns, from the left, by name: the editor's `"marks"` (the dots), `"numbers"` and `"folds"` (the buttons that fold) are there where the page says none, in that order, and a page lists the ones it wants, with its own among them (`{ name =, width =, events =, hover = }`, below); one it leaves out is not there                                                                                                                                                                                                |
+| `gutters`                                            | the gutter's columns, from the left, by name: the editor's `"marks"` (the dots), `"numbers"` and `"folds"` (the buttons that fold) are there where the page says none, in that order, and a page lists the ones it wants, with its own among them (`{ name =, width =, events =, hover =, pad = }`, below); one it leaves out is not there                                                                                                                                                                                         |
 | `marks`                                              | `{ bar =, hover =, ruler = }`: how wide a bar of the gutter is (3 points), how wide one the pointer is over is (6) and how wide the overview ruler is (4); 1 to 16                                                                                                                                                                                                                                                                                                                                                                 |
+| `events`                                             | what an editor tells the page of its own, as a list of words: `"hover"` is the pointer's rest over a word and its going from it (`hover` event, below); none unless asked, for the rare things are told and what comes at the rate of the pointer's moving is not                                                                                                                                                                                                                                                                  | none                                       |
+| `hover`                                              | `{ delay = }`: how long the pointer rests over a word before the page is told of it, seconds (0 to 10; VS Code's `editor.hover.delay`, Zed's `hover_popover_delay`)                                                                                                                                                                                                                                                                                                                                                                | `{ delay = 0.3 }`                          |
 | `current_line`                                       | where the ground of the main caret's line is drawn: `"text"`, `"gutter"` or `"all"` (both); its colour is `colors.current_line`                                                                                                                                                                                                                                                                                                                                                                                                    | `"text"`                                   |
 | `whitespace`                                         | which spaces and tabs are shown, as VS Code's `renderWhitespace`: `"none"`, `"boundary"` (all but a space alone between two words), `"selection"` (those in what is selected), `"trailing"` (those after the last word of a line, every one of a line with no words) or `"all"`                                                                                                                                                                                                                                                    | `"none"`                                   |
 | `indent_guides`                                      | a thin line down each level of indent, the block the main caret is in having its own colour while the editor has the keyboard                                                                                                                                                                                                                                                                                                                                                                                                      | false                                      |
@@ -311,7 +315,13 @@ A place in a document is a **character** (a code point) counted from 0, and a li
 with every change of the document, whoever made it. The caret of an editor has a name of its own,
 `pencere.caret_of(id)`: an overlay anchored to it stands by the caret (`:anchor(pencere.caret_of("sql"),
 "below")`, a popup of completions, which goes above it where there is no room below), and
-`pencere.layout.bounds` says where it is. A popup's keys (↑ ↓ ↩ ⇥ Esc) are commands of the page
+`pencere.layout.bounds` says where it is. A range of the text has a name too, where the page gives
+it one (`{ from =, to =, anchor = "name" }`, Section 2.3): `pencere.range_of(id, name)` is what an overlay
+stands beside as it stands beside the caret, and `pencere.layout.bounds` its box (from where the range
+starts across, as wide as its first row's part of it is, from the top of that row to the bottom of its
+last); the overlay is not shown while no part of the range is in the room, and is placed again when the
+text, the range or the scroll moves it. A name belongs to its editor, an editor holds at most 64, and
+of a name said twice the later is the one; a name the page took away is no box. A popup's keys (↑ ↓ ↩ ⇥ Esc) are commands of the page
 written only while the popup is open (a command that is there and not `enabled` is a key for the
 page, and so not the editor's).
 
@@ -347,7 +357,9 @@ that can be dragged, and that what is dragged can be put down on). They are defi
 The text of an editor is read at once, from what the host posted of it before it told the page of
 the version it is: `pencere.layout.editor_version(id)` (the version read, the one the last `edit`
 said), `editor_length(id)` and `editor_lines(id)`, `editor_text(id, from, to)` (at most 1 MiB a read;
-a large document is read in pieces), `line_start(id, line)` and `line_of(id, at)`. A page reads in
+a large document is read in pieces), `line_start(id, line)`, `line_of(id, at)` and `word_at(id, at)` (the word at a place, or the run of
+marks or of spaces, as a double click takes it: its `from` and `to`; nil past the end of the text, so that a
+page that asks for what is at its caret asks of the word the pointer rests on by the same rule). A page reads in
 the `edit` event the text of the version the event is of.
 
 **Timers** run when the host wakes the page (a reply's `wake`, Section 2.3), and are named as the
@@ -439,28 +451,29 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 
 `handle` is given `{ type = ..., ... }` in the page's points:
 
-| `type`             | Members                                                                                                                                                                                                                                                                                                         |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `move`, `leave`    | `x`, `y` (`leave` has none)                                                                                                                                                                                                                                                                                     |
-| `press`, `release` | `x`, `y`, `button` (`"left"`, `"right"` or `"middle"`), and for `press` `mods` and `count` (2 for the second of a double click, as the system counts them)                                                                                                                                                      |
-| `scroll`           | `x`, `y`, `dx`, `dy`: a wheel no box the host scrolls took, the points the content would move left and up by (for a page that does something of its own with the wheel)                                                                                                                                         |
-| `scrolled`         | `boxes`: the boxes the host scrolled, each `{ id =, x =, y = }`, how far it is scrolled now                                                                                                                                                                                                                     |
-| `key`              | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"delete"`, `"f1"` to `"f20"`, or the character), `mods`                                                                                                            |
-| `text`             | `field` (its name) and `text`: what a field holds now, after the person changed it (not after the page's own `fill`)                                                                                                                                                                                            |
-| `focus`            | `field`: the field the person clicked into, or nil when the keyboard went back to the page of itself (not said when it went where the page sent it)                                                                                                                                                             |
-| `menu`             | `index` (from 1) of the entry picked from the menu the page asked for                                                                                                                                                                                                                                           |
-| `key_up`           | `key` and `mods`, as `key`: a key the page was told of went up                                                                                                                                                                                                                                                  |
-| `mods`             | `mods`: the modifiers held changed, with no other key                                                                                                                                                                                                                                                           |
-| `command`          | `id`: the command asked for, from the host's list or by its keys (the key is not told as well)                                                                                                                                                                                                                  |
-| `files`            | `x`, `y`, `paths`: files dropped on the page from outside it, their paths as the host's system writes them                                                                                                                                                                                                      |
-| `edit`             | `editor`, `version` (what the document came to), `origin` (`"person"`, `"compose"`, `"page"`, `"undo"`, `"redo"`, `"load"`), `tag` (the page's name for a change it asked for with one), `changes` (`{ { from =, to =, insert = }, ... }`, in the places of the version before, in order)                       |
-| `selection`        | `editor`, `version`, `ranges` (`{ { anchor =, head = }, ... }`), `main` (from 1), `composing` (an input method is composing at the main caret; the host does none of the page's commands then)                                                                                                                  |
-| `viewport`         | `editor`, `first`, `last`: the lines in view, for a page that colours only what is seen                                                                                                                                                                                                                         |
-| `editor_refused`   | `editor`, `reason` (`"reversed"`, `"out-of-document"`, `"overlapping"`, `"stale-version"`, `"future-version"`, `"too-large"`, `"too-many-decorations"`, `"outside-range"`, `"bad-pattern"`, `"no-editor"`): what the page asked was not done, none of it                                                        |
-| `found`            | `editor`, `version`, `count` (at most 10 000), `current` (the match the main selection is exactly on, from 1; nil for none), `more` (there may be more than `count`): what its search finds (below)                                                                                                             |
-| `wake`             | `now`: the time the page asked to be woken at (a reply's `wake`, below) has come, seconds on `render`'s clock; told only to a page that asked, after the timers that were due ran (Section 2.2)                                                                                                                 |
-| `gutter`           | `editor`, `column`, `line` (from 0), `kind` (`"press"`, `"enter"`, `"leave"`), `button`, `count`, `mods` (of a press), `marker` (`{ id =, layer =, from =, to = }`, nil where the cell is empty) and `cell` (`{ x =, y =, w =, h = }`, the page's points): the pointer in a gutter column that hears it (below) |
-| `editor_ready`     | `editor`, `version`: the host made the editor, as the page was laid out with it, shown or hidden; its text is posted before this is told, and what the page asks of it is done from now on. A page loads a document into an editor it has just made (a tab's that is not in front too) when it hears this       |
+| `type`             | Members                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `move`, `leave`    | `x`, `y` (`leave` has none)                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `press`, `release` | `x`, `y`, `button` (`"left"`, `"right"` or `"middle"`), and for `press` `mods` and `count` (2 for the second of a double click, as the system counts them)                                                                                                                                                                                                                                                                                   |
+| `scroll`           | `x`, `y`, `dx`, `dy`: a wheel no box the host scrolls took, the points the content would move left and up by (for a page that does something of its own with the wheel)                                                                                                                                                                                                                                                                      |
+| `scrolled`         | `boxes`: the boxes the host scrolled, each `{ id =, x =, y = }`, how far it is scrolled now                                                                                                                                                                                                                                                                                                                                                  |
+| `key`              | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"delete"`, `"f1"` to `"f20"`, or the character), `mods`                                                                                                                                                                                                                                         |
+| `text`             | `field` (its name) and `text`: what a field holds now, after the person changed it (not after the page's own `fill`)                                                                                                                                                                                                                                                                                                                         |
+| `focus`            | `field`: the field the person clicked into, or nil when the keyboard went back to the page of itself (not said when it went where the page sent it)                                                                                                                                                                                                                                                                                          |
+| `menu`             | `index` (from 1) of the entry picked from the menu the page asked for                                                                                                                                                                                                                                                                                                                                                                        |
+| `key_up`           | `key` and `mods`, as `key`: a key the page was told of went up                                                                                                                                                                                                                                                                                                                                                                               |
+| `mods`             | `mods`: the modifiers held changed, with no other key                                                                                                                                                                                                                                                                                                                                                                                        |
+| `command`          | `id`: the command asked for, from the host's list or by its keys (the key is not told as well)                                                                                                                                                                                                                                                                                                                                               |
+| `files`            | `x`, `y`, `paths`: files dropped on the page from outside it, their paths as the host's system writes them                                                                                                                                                                                                                                                                                                                                   |
+| `edit`             | `editor`, `version` (what the document came to), `origin` (`"person"`, `"compose"`, `"page"`, `"undo"`, `"redo"`, `"load"`), `tag` (the page's name for a change it asked for with one), `changes` (`{ { from =, to =, insert = }, ... }`, in the places of the version before, in order)                                                                                                                                                    |
+| `selection`        | `editor`, `version`, `ranges` (`{ { anchor =, head = }, ... }`), `main` (from 1), `composing` (an input method is composing at the main caret; the host does none of the page's commands then)                                                                                                                                                                                                                                               |
+| `viewport`         | `editor`, `first`, `last`: the lines in view, for a page that colours only what is seen                                                                                                                                                                                                                                                                                                                                                      |
+| `editor_refused`   | `editor`, `reason` (`"reversed"`, `"out-of-document"`, `"overlapping"`, `"stale-version"`, `"future-version"`, `"too-large"`, `"too-many-decorations"`, `"outside-range"`, `"bad-pattern"`, `"no-editor"`): what the page asked was not done, none of it                                                                                                                                                                                     |
+| `found`            | `editor`, `version`, `count` (at most 10 000), `current` (the match the main selection is exactly on, from 1; nil for none), `more` (there may be more than `count`): what its search finds (below)                                                                                                                                                                                                                                          |
+| `wake`             | `now`: the time the page asked to be woken at (a reply's `wake`, below) has come, seconds on `render`'s clock; told only to a page that asked, after the timers that were due ran (Section 2.2)                                                                                                                                                                                                                                              |
+| `gutter`           | `editor`, `column`, `line` (from 0), `kind` (`"press"`, `"enter"`, `"leave"`), `button`, `count`, `mods` (of a press), `marker` (`{ id =, layer =, from =, to = }`, nil where the cell is empty) and `cell` (`{ x =, y =, w =, h = }`, the page's points): the pointer in a gutter column that hears it (below)                                                                                                                              |
+| `hover`            | `editor`, `kind` (`"dwell"`, `"leave"`), `at` (the place under the pointer), `from`, `to` (the word it is on, or the run of marks: a double click's), `line`, `hits` (`{ { layer =, id =, from =, to = }, … }`: the styles with an `id` that hold `at`), `word` (its box, the page's points) , `mods` and `version`: in an editor with `events = { "hover" }`, the pointer rested `hover.delay` over a word, or went from one it was told of |
+| `editor_ready`     | `editor`, `version`: the host made the editor, as the page was laid out with it, shown or hidden; its text is posted before this is told, and what the page asks of it is done from now on. A page loads a document into an editor it has just made (a tab's that is not in front too) when it hears this                                                                                                                                    |
 
 `move`, `press` and `release` over an editor have `place`, `{ editor =, at = }`: the place of its
 document under the pointer (a word to say what it is of while the pointer rests on it, a name to go to
@@ -493,9 +506,11 @@ each ask one of:
 A layer is named by the page (`"syntax"`, `"diagnostics"`, `"folds"`): the colours of what is in view
 are sent without taking the errors away. A decoration is `{ from =, to =, color =, background =,
 weight =, italic =, strike =, underline = colour or { wavy = colour } }` (a look), `{ from =, to =,
-line = colour }` (a ground for each line it touches), `{ from =, to =, gutter = colour, … }` (a
+line = colour }` (a ground for each line it touches; a look may say an `id`, which the `hits` of a rest
+over it tell), `{ from =, to =, gutter = colour, … }` (a
 marker in a column of the gutter, below), `{ from =, to =, ruler = colour, lane = }` (a mark on the
-overview ruler, below), `{ from =, to =, zone = name, height = points }` (a gap for the page, below) or
+overview ruler, below), `{ from =, to =, zone = name, height = points }` (a gap for the page, below),
+`{ from =, to =, anchor = name }` (a name for the range: `pencere.range_of`, Section 2.1) or
 `{ from =, to =, fold = true }` (a region that folds: its first line stays; whether it is folded is the
 person's). Decorations of an older version are carried over the changes made
 since. What the editor cannot do is refused and the page told why (`editor_refused`): a range the wrong
@@ -506,7 +521,9 @@ come, a document larger than an editor may hold.
 order it wants (`gutters = { "numbers", { name = "breakpoints", width = 14 }, "marks", "folds" }`);
 the three the editor has (`"marks"`, the column of dots, `"numbers"` and `"folds"`) are there in that
 order where it says none, and one the page leaves out is not there (no `"folds"`, no buttons that
-fold). A column of its own has a `width` (points, as wide as the dots' where none is said) and says
+fold). The numbers keep to their left the editor's padding where they are the first column, so that
+they do not stand against the edge of the room (`pad = points` says another; none after another
+column). A column of its own has a `width` (points, as wide as the dots' where none is said) and says
 what of the pointer the page hears of it: `events = { "press", "menu", "hover" }` (a column of the
 page's hears the first two by default, `false` or `{}` nothing). A press of the main button in a
 column that hears it is the page's alone, `gutter` with `kind = "press"`: the line is not selected,
@@ -546,14 +563,29 @@ lane = }` puts a mark there where the range's lines are in the document, at leas
 
 A **zone** is a gap an editor keeps open after a line for the page to put something in (VS Code's zone
 widget, CodeMirror's block widget): `{ from =, to =, zone = name, height = points }` after the line the
-range starts on, `height` taken up in whole rows (at most 200). The text after it goes down by it and
-the content grows; the rows, the numbers, the scrolling and the ruler count it. What stands in it is
+range starts on, `height` points tall exactly (at most 200 rows' worth). The text after it goes down by
+it and the content grows; the numbers, the scrolling and the ruler count it (a mark of the ruler is the
+rows of its own lines, not the gap after). What stands in it is
 an element of the page, a child of the editor's element that says it is the zone's,
 `element:zone(name)`: it is laid out as a box as wide as the room and as tall as the page says (the
 same as the zone's `height`), put where the gap is, and goes up and down with the text as it
 scrolls (not across, with a long line: it stays where the room starts): it is cut by the room, answers the pointer and the keyboard as any element, and is
 in the outline. It is on the page only while the editor has the gap (a zone is carried over the
 changes as its decoration is, and goes with it).
+
+The pointer's **rest** is told to a page that asks (`events = { "hover" }`): when it stays `hover.delay`
+(0.3 s) over a word (the run a double click takes; not over spaces, the gutter, a gap, or past the end of
+a line) the page is told `hover` with `kind = "dwell"` and the word's range and box, and the `hits`: the
+styles with an `id` that hold the place under it (a diagnostic, a link), so that the page does not search
+its own lists. It is told once however the pointer moves within the word; when the pointer goes from a
+word it was told of the page is told `kind = "leave"` at once (what a card does then, how long it waits
+and whether the pointer came onto it is the page's: `@pencere/ui`'s `popover` does it, below). A scroll,
+a key, a press, an edit, a window that no longer has the keyboard and a button held (a drag) end a rest, tell
+the `leave` where there was a `dwell`, and tell nothing more until the pointer moves again. An answer
+that comes late is written with the `version` the event carries: the editor carries it over what was
+typed meanwhile as it does any decoration. The page reads the word at its own caret by the same rule
+(`pencere.layout.word_at`), so that a command that does what the pointer's rest does (Show Hover) answers
+as the rest does.
 
 A change kept out of the history is how a page puts in what came from elsewhere (a file changed on
 disk, a reformat) and keeps what the person can undo. It sends what changed and not the whole text:
@@ -913,15 +945,20 @@ Keys as a page writes them (`"cmd+shift+k"`, Section 2.1), as a person reads the
 - `keys.caps(words, options)` is a cap for each key (`{ "⇧", "⌘", "K" }`), and
   `keys.label(words, options)` the label: on a Mac the caps with nothing between (`"⇧⌘K"`), elsewhere
   joined by `+` (`"Ctrl+Shift+K"`). `words` are words or what `keys.parse` made; words that are not
-  keys are an error at the caller's line. A Mac writes the modifiers in the order ⌃ ⌥ ⇧ ⌘ and the keys
-  `↑ ↓ ← →`, `⇞ ⇟` (page up, down), `↖ ↘` (home, end), `↩` (enter), `⎋` (escape), `⇥` (tab), `⌫`
-  (backspace), `⌦` (delete), `␣` (space); any other platform `Ctrl`, `Alt`, `Shift`, `Super` (`Win` on Windows) in that
-  order and `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Enter`, `Esc`, `Tab`,
-  `Backspace`, `Delete`, `Space`. Both write a function key `F5` and a letter as a capital (ASCII,
+  keys are an error at the caller's line. A Mac writes the modifiers in the order ⌃ ⌥ ⇧ ⌘ and the
+  arrows `↑ ↓ ← →`; the other keys that are not characters it writes as words, as any other platform
+  does (`Enter`, `Esc`, `Tab`, `Backspace`, `Delete`, `Space`, `Home`, `End`, `PageUp`, `PageDown`),
+  unless the page asks for their glyphs (`options.symbols`, below): `⇞ ⇟` (page up, down), `↖ ↘`
+  (home, end), `↩` (enter), `⎋` (escape), `⇥` (tab), `⌫` (backspace), `⌦` (delete), `␣` (space). Any
+  other platform writes `Ctrl`, `Alt`, `Shift`, `Super` (`Win` on Windows) in that order and `Up`,
+  `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Enter`, `Esc`, `Tab`, `Backspace`,
+  `Delete`, `Space`. Both write a function key `F5` and a letter as a capital (ASCII,
   Latin-1, Latin Extended-A, Greek and Cyrillic; another character as it is). `cmd` is the command
   key, matched as it is and never as control: elsewhere than on a Mac it is the system's logo key,
   `Super` (`Win` on Windows). `mod+…` is the host's main modifier (Section 2.1): `⌘` on a Mac, `Ctrl`
   elsewhere.
+- `options.symbols` is whether a Mac writes the glyphs of the keys above (false where it is not given,
+  unless `keys.set_symbols(true)` said so for the page; `keys.symbols()` says which).
 - `options.platform` is `"mac"`, `"windows"`, `"linux"` or `"other"` (a platform a page does not name:
   written as Linux is); where it is not given it is `keys.platform()`, which `keys.set_platform(name)`
   sets for the page and which is the host's keyboard convention, `pencere.keyboard()` (Section 2.2),
@@ -1023,6 +1060,16 @@ place, or, where none is given, one the context keeps by the name for as long as
 "compact" })`), never in values; the host keeps their words readable. A component inside another
   says its action to the one around it first, which may take it for its own; one it does not take is
   the page's.
+- A `popover` stands by an element (`anchor = "name"`), by the caret of an editor
+  (`anchor = pencere.caret_of(editor)`) or by a range of its text (`anchor = pencere.range_of(editor,
+name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"away"` (a press outside it
+  that is not on its anchor) and, by an editor, `"edit"`, `"caret"` (the selection moved), `"scroll"` (the
+  lines in view changed) and `"leave"`; by an editor all of them, by an element the first two. `"leave"`
+  waits `hide_delay` (0.3 seconds): the card stays if the pointer came onto it or rested on another word
+  in that time (the page forwards the editor's `hover` events and its `wake` to `u:handle`, as it
+  forwards every event). `focus = true` writes the commands `up`, `down`, `page_up` and `page_down`
+  (while it is open) which scroll the card's body, and the keyboard stays in the editor. A card of a
+  range that is not in the room is not shown.
 - `button`, `icon_button`, `toggle`, `badge`, `kbd`, `rule`, `banner`; `input`, `segments`, `tabs`;
   `modal`, `dialog`, `toasts`, `menu` (the host's), `popover`; `list`, `palette`, `completions`, `tree`,
   `grid`; `split`, `status`; `find_bar`. `ui.commands(list)` writes the page's commands once for the host, the
@@ -1175,8 +1222,11 @@ A host:
   gives it its keys), and tells its screen reader the editor as one;
 - scrolls an editor's room as it scrolls a box, over the content the editor laid out, keeps the
   caret in view where the editor asks, and tells the page the lines in view; where a caret an
-  overlay is anchored to moves, or an editor with one scrolls, it lays the page's last tree out again
-  without asking the page;
+  overlay is anchored to moves (or to a range of its text the page named, which also moves with the
+  text), or an editor with one scrolls, it lays the page's last tree out again without asking the page,
+  and does not show an overlay whose range is out of the room;
+- times the pointer's rest over a word of an editor that hears of it on its own clock, as it does the
+  caret's blink (`Page::wake_at` has the time), and tells the page `hover` once, and its leaving;
 - posts the page the text of each editor before it tells the page of the version it is (the copy
   costs nothing that grows with the document), and holds a reply to what one may hand the editors
   (1 MiB of text, 20 000 decorations) and the editors to the floors of the protocol (Section 9.8).

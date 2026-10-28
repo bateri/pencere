@@ -53,6 +53,10 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Added
 
+- The pointer's rest (`Event::Hover`), the names of ranges (`Mark::Anchor`) and of styles
+  (`Look::id`), `EditorOptions::events` and `hover`, `Column::pad` and `Queries::word_at` cross the
+  interface.
+
 - **Editors.** A page writes an editor (`div().editor(id, options)`), reads what it tells (`Event::Edit`,
   `Selection`, `Viewport`, `EditorRefused`, `Pointer`), asks of it in a reply (`Reply::editor`) and
   reads its text through `Layout` (`editor_text`, `line_start`, …); `edit` is re-exported.

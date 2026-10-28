@@ -10,11 +10,22 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Fixed
 
+- A gap kept open for the page (`Mark::Zone`) is as tall as its `height`, not as tall as the whole
+  rows that hold it: the text after it follows at once, with no band under what stands in it.
+
 - A box's bars answer the pointer only where nothing is drawn over them: under a dialog or a popup
   (an overlay, or anything after the box in the paint order) a bar was lit by the pointer and took
   its press, which was the dialog's.
 
 ### Added
+
+- **The pointer's rest, the names of ranges and of styles.** `EditorOptions::events` (`hover`) and
+  `hover` (`delay`, 0.3 s, `limits::HOVER_DELAY`), `Event::Hover(HoverEvent)` (`Dwell`, `Leave`, the
+  word's range and box, the `hits` of the styles with a name under it), `Look::id`, `Mark::Anchor` (a
+  name for a range, at most `limits::ANCHORS` to an editor), `Id::anchor(name)` (what an overlay is
+  anchored to, as to `Id::caret`), `Measure::anchors` (their boxes in the content),
+  `Queries::word_at` and `TextSnapshot::word_range`, and `Column::pad` (the room the numbers keep
+  to their left). An overlay anchored to a range that is out of the room is not shown.
 
 - **The gutter is a row of named columns, its markers have shapes, and an editor has an overview
   ruler and zones.** `EditorOptions::gutters` (`Column`: `name`, `width`, `events`, `hover`) lists the

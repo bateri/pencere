@@ -8,7 +8,24 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
+### Fixed
+
+- A gap kept open for the page is as tall as the page said and its text follows at once: the rows
+  that hold it are whole, what they hold more is taken back below, so that no band is left under what
+  stands in it (the rows in view, the places, the ruler and the scrolling count in pixels).
+- A mark on the overview ruler is as tall as the rows of its own lines: the gap kept open after its
+  last line was counted as its.
+
 ### Added
+
+- **The pointer's rest over a word** (`Editors::rest`, `rest_due`, `tick`, `end_rest`): told once after
+  `hover.delay`, and its leaving, to a page that asked (`EditorEvent::Hover`); a scroll, a key, a
+  press, an edit or a drag ends it and none is told until the pointer moves again; `Editors::word_at`
+  is the word by the rule a double click has.
+- **Names for ranges** (`Mark::Anchor`, `Editors::anchors`, `Buffer::anchors`): the box of a range
+  (from where it starts across its first row, from the top of that row to the bottom of its last) is
+  where an overlay stands, moves with the text, and is not shown out of the room.
+- The numbers keep room to their left where they are the first column of the gutter (`Column::pad`).
 
 - **A gutter of named columns, markers in them, an overview ruler and zones.** The columns the page
   lists are laid out in its order (the numbers, the dots and the buttons that fold as they were

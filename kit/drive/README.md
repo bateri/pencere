@@ -120,8 +120,9 @@ its own.
   `right_click`, `click_in(id, x, y)`, `click_at`, `hover`, `move_to`, `leave`, `drag`,
   `drag_between`, `wheel`, `wheel_at`, `scroll_to`, `pointer` (any input); `focus_editor`, `select`,
   `caret_to`, `edit(EditCommand)`; `click_gutter(editor, column, line, button)`,
-  `hover_gutter(editor, column, line)` and, for where things are, `gutter_cell` and `zone` (an editor's
-  gutter cells and the gaps it keeps open for the page); `command`, `pick`, `pick_titled`, `fill` (a host's text field),
+  `hover_gutter(editor, column, line)`, `dwell(id, x, y)` (the pointer rests over a word of an editor that
+  hears of it, as long as it takes to be told) and, for where things are, `gutter_cell`, `zone` and
+  `anchor_rect` (an editor's gutter cells, the gaps it keeps open for the page and the ranges it names); `command`, `pick`, `pick_titled`, `fill` (a host's text field),
   `drop_files`, `resize`, `zoom`, `set_active`, `refresh`.
 - **The program:** a `Peer` hears what the page says and answers. `Calls` is a table of calls
   (`on(method, handler)`), whose topics a test pushes to (`push`) and whose calls with no handler

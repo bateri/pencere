@@ -203,4 +203,15 @@ impl TextSnapshot for Snapshot {
     fn line_of(&self, at: usize) -> Option<usize> {
         self.rope.try_char_to_line(at).ok()
     }
+
+    fn word_range(&self, at: usize) -> Option<(usize, usize)> {
+        (at <= self.rope.len_chars()).then(|| {
+            crate::segments::run_at(
+                &Text {
+                    rope: self.rope.clone(),
+                },
+                at,
+            )
+        })
+    }
 }

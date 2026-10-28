@@ -123,6 +123,7 @@ end
 --   scrolled(u, id, props, state, part, key, box)     a box of it was scrolled
 --   editor(u, id, props, state, event)                an event of the editor `props.editor`
 --   away(u, id, props, state, event, hit)             a button went down outside it (a popover closes)
+--   wake(u, id, props, state, event)                  the time a reply of it asked to be woken at has come
 --   dismiss(u, id, props, state)                      escape came to it as the layer in front: what it says
 --                                                     of that (`{ kind = "dismiss" }` where it says nothing)
 --   action(u, id, props, state, action)               an action of a component inside it
@@ -297,6 +298,21 @@ end
 -- The pointer is over `id` or over something inside it: a tab, or its button that closes it.
 function Ctx:within(id)
 	return self.pointer.hover == id or self.hover_path[id] == true
+end
+
+-- The pointer is over `id` or what is in it, whether or not any of it answers the pointer (a card
+-- that is only read): as the page was last laid out, at the place the pointer last was.
+function Ctx:over(id)
+	local at = self.at
+	if at == nil then
+		return false
+	end
+	for _, name in layout.ids_at(at) do
+		if name == id then
+			return true
+		end
+	end
+	return false
 end
 
 -- A button went down on `id` and is held there.
@@ -729,6 +745,7 @@ local EDITOR_EVENTS = {
 	found = true,
 	editor_ready = true,
 	gutter = true,
+	hover = true,
 }
 
 -- Gives the event to the component it is for: the reply, the actions that came of it for the page,
@@ -738,6 +755,7 @@ function Ctx:handle(event)
 	local kind = event.type
 	if kind == "move" or kind == "leave" then
 		local at = kind == "move" and { x = event.x, y = event.y } or nil
+		self.at = at
 		if self.pointer:point(layout, at) then
 			out.reply = merge(out.reply, true)
 			local mount, part, key = self:_owner(self.pointer.hover)
@@ -877,6 +895,16 @@ function Ctx:handle(event)
 					self:_emit(out, front, action)
 				else
 					self:_emit(out, front, { kind = "dismiss" })
+				end
+			end
+		end
+	elseif kind == "wake" then
+		for _, mount in self.mounts do
+			if mount.spec.wake then
+				local reply, action = call(self, mount, "wake", event)
+				if reply ~= nil then
+					out.reply = merge(out.reply, reply)
+					self:_emit(out, mount, action)
 				end
 			end
 		end

@@ -1320,6 +1320,7 @@ give it more:
 | Text one reply hands the view's editors, and text one read of an editor answers with     | 1 MiB                  |
 | Decorations one reply sends the view's editors                                           | 20 000                 |
 | Layers of decorations of one editor, and decorations of all its layers                   | 16, and 200 000        |
+| Names of ranges of one editor's text                                                     | 64                     |
 | Versions back a change or a decoration of an editor may be made against                  | 1 024                  |
 
 A view that goes over a limit it is held to is closed as one that fails (below). The limits of an

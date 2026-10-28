@@ -47,8 +47,14 @@
 --       gutter that hears the pointer, the `editor`, the `column`, the `line` (from 0), the `kind`
 --       ("press", "enter", "leave"), the `button`, `count` and modifiers of a press, the `marker`
 --       under the pointer (`{ id =, layer =, from =, to = }`; nil where the cell is empty: the page
---       may put one there) and the `cell` ({ x =, y =, w =, h = }, the page's points). Places are
---       characters from 0, lines from 0.
+--       may put one there) and the `cell` ({ x =, y =, w =, h = }, the page's points); "hover", in an
+--       editor with `events = { "hover" }`, when the pointer has rested `hover.delay` (0.3) seconds
+--       over a word (`kind = "dwell"`: the `editor`, the place `at` under it, the word's `from`
+--       and `to`, its `line`, the `hits` ({ { layer =, id =, from =, to = }, ... }: the styles with
+--       an `id` that hold `at`), the `word`'s box ({ x =, y =, w =, h = }, the page's points),
+--       the modifiers held and the `version` the places are of) and when it goes from a word it was
+--       told of (`kind = "leave"`, at once, the same fields). Places are characters from 0, lines
+--       from 0.
 --       "wake" has the `now` it was woken at (seconds on `render`'s clock): the time the page asked
 --       to be woken at, with a reply's `wake`, has come. Told only to a page that asked, after the
 --       timers that were due ran (`pencere.time`).
@@ -88,7 +94,8 @@
 --     "split_line", "transpose_chars", "delete_to_line_start", "delete_to_line_end", …
 --   { decorate = "layer", version =, from =, to =, decorations = { d, ... } }, each `d`
 --     { from =, to =, color =, background =, weight =, italic =, strike =,
---       underline = colour | { wavy = colour } }, or { from =, to =, line = colour },
+--       underline = colour | { wavy = colour }, id = "name" } (the `id` is told in the `hits` of a
+--       "hover" over it), or { from =, to =, line = colour },
 --     { from =, to =, gutter = colour, column = "marks", shape = "dot" | "bar" | "above" | "below"
 --       | "image", image = "assets/x.svg", id =, label =, cursor =, hover = colour, pressed = colour }
 --     (a marker in a column of the gutter: a dot by the first line, a bar along every line of the
@@ -96,7 +103,8 @@
 --     `from == to` is fine), a tinted picture of the bundle; `label` is what a screen reader says
 --     of it and what the host says while the pointer rests on it), { from =, to =, ruler = colour,
 --     lane = "full" | "left" | "center" | "right" } (a mark on the overview ruler),
---     { from =, to =, zone = "name", height = points } (a gap kept open after the line the range
+--     { from =, to =, anchor = "name" } (the range has a name an overlay can stand beside,
+--     `pencere.range_of(editor, name)`), { from =, to =, zone = "name", height = points } (a gap kept open after the line the range
 --     starts on, for the page's element that is `:zone("name")` of the editor), { from =, to =,
 --     fold = true }
 -- `link` asks the host to open an address in the person's browser, as a web page's `link` asks:

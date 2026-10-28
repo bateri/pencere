@@ -5,9 +5,9 @@
 
 use pencere_view::edit::{
     CaretHeight, CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions,
-    Folds, Found, GutterEvent, GutterHit, GutterKind, GutterShape, Keys, LineHighlight, Mark,
-    Matches, Movement, Numbers, Origin, Range, Refusal, RevealAlign, RulerLane, Selection, Tint,
-    Underline, Whitespace,
+    Folds, Found, GutterEvent, GutterHit, GutterKind, GutterShape, HoverEvent, HoverHit, HoverKind,
+    Keys, LineHighlight, Mark, Matches, Movement, Numbers, Origin, Range, Refusal, RevealAlign,
+    RulerLane, Selection, Tint, Underline, Whitespace,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
@@ -680,7 +680,8 @@ pub fn from_wit_event(event: wit::Event) -> Event {
         | wit::Event::Viewport(_)
         | wit::Event::EditorRefused(_)
         | wit::Event::Found(_)
-        | wit::Event::EditorGutter(_)) => editor_event(editor),
+        | wit::Event::EditorGutter(_)
+        | wit::Event::EditorHover(_)) => editor_event(editor),
         wit::Event::Wake(now) => Event::Wake { now },
         wit::Event::EditorReady(ready) => Event::EditorReady {
             editor: Id::new(ready.editor),
@@ -795,12 +796,19 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
                     shape: gutter_shape(&preview.shape),
                     color: color(preview.color),
                 }),
+                pad: column.pad,
             })
             .collect(),
         marks: wit::MarkLooks {
             bar: Some(options.marks.bar),
             hover: Some(options.marks.hover),
             ruler: Some(options.marks.ruler),
+        },
+        events: wit::EditorEvents {
+            hover: options.events.hover,
+        },
+        hover: wit::HoverOptions {
+            delay: Some(options.hover.delay),
         },
     }
 }
@@ -859,6 +867,7 @@ fn mark(mark: Mark) -> wit::Mark {
                 Underline::Wavy(c) => wit::Underline::Wavy(color(c)),
             }),
             strike: look.strike,
+            id: look.id,
         }),
         Mark::Line(c) => wit::Mark::Line(color(c)),
         Mark::Gutter(gutter) => wit::Mark::Gutter(wit::GutterMark {
@@ -885,6 +894,7 @@ fn mark(mark: Mark) -> wit::Mark {
             id: zone.id.number(),
             height: zone.height,
         }),
+        Mark::Anchor(name) => wit::Mark::Anchor(name),
     }
 }
 
@@ -1062,6 +1072,30 @@ fn editor_event(event: wit::Event) -> Event {
                 to: unplace(hit.to),
             }),
             rect: Rect::new(gutter.cell.x, gutter.cell.y, gutter.cell.w, gutter.cell.h),
+        }),
+        wit::Event::EditorHover(hover) => Event::Hover(HoverEvent {
+            editor: Id::new(hover.editor),
+            kind: match hover.kind {
+                wit::HoverKind::Dwell => HoverKind::Dwell,
+                wit::HoverKind::Leave => HoverKind::Leave,
+            },
+            at: unplace(hover.at),
+            from: unplace(hover.from),
+            to: unplace(hover.to),
+            line: unplace(hover.line),
+            hits: hover
+                .hits
+                .into_iter()
+                .map(|hit| HoverHit {
+                    layer: hit.layer,
+                    id: hit.id,
+                    from: unplace(hit.from),
+                    to: unplace(hit.to),
+                })
+                .collect(),
+            rect: Rect::new(hover.word.x, hover.word.y, hover.word.w, hover.word.h),
+            mods: mods(hover.mods),
+            version: hover.version,
         }),
         wit::Event::EditorPointer(pointer) => Event::Pointer {
             input: match pointer.input {

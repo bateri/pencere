@@ -7,10 +7,10 @@ use std::sync::Arc;
 
 use pencere_view::edit::{
     Caret, CaretHeight, CaretShape, Change, Column, ColumnEvents, CommentTokens, Decorate,
-    Decoration, EditCommand, EditorAsk, EditorColors, EditorOptions, Folds, GutterKind, GutterMark,
-    GutterShape, IndentRules, Keys, LineHighlight, Look, Mark, MarkLooks, Matches, Movement,
-    Numbers, Origin, Preview, Range, Refusal, RevealAlign, RulerLane, RulerMark, Tint, Underline,
-    Whitespace, Zone, limits,
+    Decoration, EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds,
+    GutterKind, GutterMark, GutterShape, HoverKind, HoverOptions, IndentRules, Keys, LineHighlight,
+    Look, Mark, MarkLooks, Matches, Movement, Numbers, Origin, Preview, Range, Refusal,
+    RevealAlign, RulerLane, RulerMark, Tint, Underline, Whitespace, Zone, limits,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -288,6 +288,15 @@ impl pencere::view::layout::Host for Host {
         let text = self.texts.get(&Id::new(editor))?;
         u32::try_from(text.line_of(usize::try_from(at).ok()?)?).ok()
     }
+
+    fn word_at(&mut self, editor: u64, at: u32) -> Option<wit::WordRange> {
+        let text = self.texts.get(&Id::new(editor))?;
+        let (from, to) = text.word_range(usize::try_from(at).ok()?)?;
+        Some(wit::WordRange {
+            from: u32::try_from(from).ok()?,
+            to: u32::try_from(to).ok()?,
+        })
+    }
 }
 
 fn id_out(id: Id) -> u64 {
@@ -511,6 +520,30 @@ fn event_in(event: Event) -> wit::Event {
                 to: place_in(hit.to),
             }),
             cell: rect_of(gutter.rect),
+        }),
+        Event::Hover(hover) => wit::Event::EditorHover(wit::EditorHover {
+            editor: id_out(hover.editor),
+            kind: match hover.kind {
+                HoverKind::Dwell => wit::HoverKind::Dwell,
+                HoverKind::Leave => wit::HoverKind::Leave,
+            },
+            at: place_in(hover.at),
+            from: place_in(hover.from),
+            to: place_in(hover.to),
+            line: place_in(hover.line),
+            hits: hover
+                .hits
+                .into_iter()
+                .map(|hit| wit::HoverHit {
+                    layer: hit.layer,
+                    id: hit.id,
+                    from: place_in(hit.from),
+                    to: place_in(hit.to),
+                })
+                .collect(),
+            word: rect_of(hover.rect),
+            mods: mods_in(hover.mods),
+            version: hover.version,
         }),
     }
 }
@@ -1570,6 +1603,12 @@ fn editor_options_out(
             ruler: options.marks.ruler.unwrap_or(default.marks.ruler),
         },
         colors: editor_colors_out(&options.colors),
+        events: EditorEvents {
+            hover: options.events.hover,
+        },
+        hover: HoverOptions {
+            delay: options.hover.delay.unwrap_or(default.hover.delay),
+        },
     }
     .held())
 }
@@ -1742,6 +1781,7 @@ fn mark_out(mark: &wit::Mark) -> Mark {
                 wit::Underline::Wavy(color) => Underline::Wavy(color_out(color)),
             }),
             strike: look.strike,
+            id: look.id.clone(),
         }),
         wit::Mark::Line(color) => Mark::Line(color_out(color)),
         wit::Mark::Gutter(mark) => Mark::Gutter(gutter_mark_out(mark)),
@@ -1759,6 +1799,7 @@ fn mark_out(mark: &wit::Mark) -> Mark {
             id: Id::new(zone.id),
             height: pt(zone.height).clamp(0.0, 4096.0),
         }),
+        wit::Mark::Anchor(name) => Mark::Anchor(name.clone()),
     }
 }
 
@@ -1811,6 +1852,8 @@ fn mark_text(mark: &wit::Mark) -> usize {
                     _ => 0,
                 }
         }
+        wit::Mark::Style(look) => look.id.as_ref().map_or(0, String::len),
+        wit::Mark::Anchor(name) => name.len(),
         _ => 0,
     }
 }
@@ -1840,6 +1883,7 @@ fn gutter_column_out(column: &wit::GutterColumn) -> Result<Column, Fault> {
             shape: shape_out(&preview.shape),
             color: color_out(&preview.color),
         }),
+        pad: column.pad.filter(|pad| pad.is_finite()),
     })
 }
 
@@ -2694,6 +2738,18 @@ mod tests {
         }
         fn line_of(&self, at: usize) -> Option<usize> {
             (at <= self.0.len()).then(|| self.0.iter().take(at).filter(|c| **c == '\n').count())
+        }
+        fn word_range(&self, at: usize) -> Option<(usize, usize)> {
+            let word = |at: usize| self.0.get(at).is_some_and(|c| c.is_alphanumeric());
+            if !word(at) {
+                return None;
+            }
+            let from = (0..at).rev().take_while(|n| word(*n)).last().unwrap_or(at);
+            let to = (at..self.0.len())
+                .take_while(|n| word(*n))
+                .last()
+                .map_or(at, |n| n + 1);
+            Some((from, to))
         }
     }
 

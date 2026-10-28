@@ -8,9 +8,9 @@
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
     Caret, CaretHeight, CaretShape, Change, Column, ColumnEvents, Decorate, Decoration,
-    EditCommand, EditorAsk, EditorColors, EditorOptions, Folds, Found, GutterKind, GutterMark,
-    GutterShape, Keys, LineHighlight, Look, Mark, Numbers, Preview, Range, RulerLane, RulerMark,
-    Tint, Whitespace, Zone,
+    EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds, Found, GutterKind,
+    GutterMark, GutterShape, HoverKind, Keys, LineHighlight, Look, Mark, Numbers, Preview, Range,
+    RulerLane, RulerMark, Tint, Whitespace, Zone,
 };
 use pencere_view::{
     Button, Command, Cursor, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint,
@@ -94,7 +94,8 @@ impl Host {
         }
         self.now += 0.1;
         self.frame();
-        if self.editors.wants_layout() {
+        // The tree again where a caret or a range an overlay stands by moved, as a host does.
+        if self.editors.wants_layout() || self.laid.wants_layout() {
             self.frame();
         }
     }
@@ -1777,7 +1778,10 @@ fn the_caret_s_line_is_drawn_across_the_text_the_gutter_or_both_as_the_page_says
 fn columns() -> EditorOptions {
     EditorOptions {
         gutters: vec![
-            Column::new("numbers"),
+            Column {
+                pad: Some(0.0),
+                ..Column::new("numbers")
+            },
             Column {
                 width: Some(6.0),
                 ..Column::new("changes")
@@ -1786,6 +1790,39 @@ fn columns() -> EditorOptions {
         ],
         ..EditorOptions::default()
     }
+}
+
+#[test]
+fn the_numbers_keep_room_to_their_left_where_they_are_the_first_column_and_the_page_may_say_how_much()
+ {
+    let first = |pad: Option<f32>, others: Vec<Column>| {
+        let mut gutters = vec![Column {
+            pad,
+            ..Column::new("numbers")
+        }];
+        gutters.extend(others);
+        let mut host = Host::new(page_with(EditorOptions {
+            gutters,
+            ..EditorOptions::default()
+        }));
+        host.load("a\nb\nc\nd\ne\nf\ng\nh\ni\nj");
+        // Where the text starts is where the gutter ends; `j` is the tenth, two digits.
+        let texts = host.texts();
+        let number = texts.iter().find(|(text, _, _)| text == "10").expect("10");
+        let code = texts.iter().find(|(text, _, _)| text == "j").expect("j");
+        (number.1.x, code.1.x)
+    };
+    let (number, code) = first(Some(0.0), vec![]);
+    // The two digits stand against the edge of the room where the page keeps none.
+    assert_eq!(number, 0.0);
+    let (said, none_said) = first(None, vec![]);
+    assert_eq!((said, none_said), (4.0, code + 4.0));
+    let (at, ten) = first(Some(10.0), vec![]);
+    assert_eq!((at, ten), (10.0, code + 10.0));
+    // After another column there is none unless it is said.
+    let (_, after) = first(None, vec![Column::new("folds")]);
+    let (_, after_zero) = first(Some(0.0), vec![Column::new("folds")]);
+    assert_eq!(after, after_zero + 4.0);
 }
 
 fn marker(shape: GutterShape, column: &str) -> GutterMark {
@@ -2307,6 +2344,92 @@ fn a_zone_opens_a_gap_after_its_line_that_the_text_after_goes_down_by_and_scroll
 }
 
 #[test]
+fn a_zone_is_as_tall_as_the_page_said_and_not_as_the_rows_that_hold_it() {
+    let zone = Id::named("peek");
+    let height = 1.5 * ROW;
+    let page = move || {
+        div().child(
+            div()
+                .editor(EDITOR, columns())
+                .size_full()
+                .child(div().id(zone).zone(zone).h(height).bg(Role::Red.solid())),
+        )
+    };
+    let mut host = Host::new(page);
+    host.load("a\nb\nc");
+    let before = host.editors.metrics(EDITOR).expect("laid out").content.h;
+    host.decorate(
+        "peek",
+        vec![Decoration::new(2, 2, Mark::Zone(Zone { id: zone, height }))],
+    );
+    let after = host.editors.metrics(EDITOR).expect("laid out").content.h;
+    assert_eq!(after - before, height);
+    assert_eq!(
+        host.editors.zones(EDITOR),
+        vec![(zone, Rect::new(0.0, 4.0 + 2.0 * ROW, 400.0, height))]
+    );
+    // `c` follows the gap at once.
+    let c = host
+        .texts()
+        .iter()
+        .find(|(text, _, _)| text == "c")
+        .map(|(_, at, _)| at.y)
+        .expect("c");
+    assert_eq!(c, 4.0 + 2.0 * ROW + height + 2.0);
+    // A press where `c` is finds `c` (what is over the gap is the page's).
+    let at_c = Point::new(30.0, 4.0 + 2.0 * ROW + height + 8.0);
+    assert!(host.press(at_c, none(), 1));
+    host.editors.release();
+    assert!(host.editors.buffer(EDITOR).expect("it").main().head >= 4);
+}
+
+#[test]
+fn a_mark_on_the_ruler_stops_where_the_rows_of_its_line_do_and_the_gap_after_it_is_not_its_own() {
+    let zone = Id::named("peek");
+    let page = move || {
+        div().child(
+            div()
+                .editor(EDITOR, columns())
+                .size_full()
+                .child(div().id(zone).zone(zone).h(3.0 * ROW).bg(Role::Red.solid())),
+        )
+    };
+    let mut host = Host::new(page);
+    let lines: Vec<String> = (0..10).map(|n| format!("l{n}")).collect();
+    host.load(&lines.join("\n"));
+    let ruler = Mark::Ruler(RulerMark {
+        color: Role::Blue.solid(),
+        lane: RulerLane::Full,
+    });
+    // Line 2 (offset 6) is the mark's, the gap is after it: 10 rows of text and 3 of the gap.
+    host.decorate("ruler", vec![Decoration::new(6, 6, ruler)]);
+    let marked = |host: &mut Host| -> Rect {
+        host.quads()
+            .iter()
+            .filter(|(_, role)| *role == Some(Role::Blue))
+            .map(|(rect, _)| *rect)
+            .next()
+            .expect("a mark")
+    };
+    let without = marked(&mut host);
+    host.decorate(
+        "peek",
+        vec![Decoration::new(
+            6,
+            6,
+            Mark::Zone(Zone {
+                id: zone,
+                height: 3.0 * ROW,
+            }),
+        )],
+    );
+    let with = marked(&mut host);
+    // One row of 13: as tall as the room is for them, and no taller for the gap.
+    assert!((with.h - 200.0 / 13.0).abs() < 0.01, "{with:?}");
+    assert!(without.h > with.h);
+}
+
+#[test]
 fn what_stands_in_a_zone_scrolls_with_the_text_and_is_cut_by_the_room() {
     let zone = Id::named("peek");
     let page = move || {
@@ -2492,4 +2615,293 @@ fn what_the_pointer_is_over_is_found_again_when_the_text_scrolls_under_it() {
             .collect::<Vec<_>>(),
         vec![(GutterKind::Leave, 2), (GutterKind::Enter, 5)]
     );
+}
+
+// --- What the pointer rests on, and the ranges the page named ------------------------------------
+
+/// An editor with no gutter that tells the page of the pointer's rests.
+fn hearing() -> EditorOptions {
+    EditorOptions {
+        events: EditorEvents { hover: true },
+        ..plain()
+    }
+}
+
+impl Host {
+    /// The pointer moved to `at` (or went), and the frame of `seconds` later is drawn.
+    fn rest(&mut self, at: Option<Point>) {
+        let laid = self.laid.clone();
+        self.editors.rest(&laid, at, none(), self.now, &mut Fake);
+    }
+
+    /// `seconds` pass and the frame is drawn: what the editors tell is what is returned.
+    fn wait(&mut self, seconds: f64) -> Vec<pencere_view::edit::HoverEvent> {
+        self.now += seconds;
+        let laid = self.laid.clone();
+        self.editors.tick(&laid, self.now);
+        self.editors
+            .take_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                EditorEvent::Hover(hover) => Some(hover),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+#[test]
+fn the_pointer_resting_on_a_word_is_told_once_after_the_delay_and_its_going_at_once() {
+    let mut host = Host::new(page_with(hearing()));
+    host.load("alpha beta\ngamma");
+    host.editors.set_focus(None);
+    // Over `alpha` (x 4 to 35).
+    host.rest(Some(Point::new(10.0, 10.0)));
+    let due = host.editors.rest_due().expect("it is due");
+    assert!((due - (host.now + 0.3)).abs() < 1e-6, "{due}");
+    assert!(host.wait(0.29).is_empty());
+    let told = host.wait(0.02);
+    assert_eq!(told.len(), 1);
+    let dwell = &told[0];
+    assert_eq!(dwell.kind, HoverKind::Dwell);
+    assert_eq!((dwell.from, dwell.to, dwell.at, dwell.line), (0, 5, 0, 0));
+    assert_eq!(dwell.rect, Rect::new(4.0, 4.0, 31.0, ROW));
+    assert_eq!(
+        dwell.version,
+        host.editors.buffer(EDITOR).expect("it").version()
+    );
+    // Not again, and no more to wake for.
+    assert!(host.wait(1.0).is_empty());
+    assert_eq!(host.editors.rest_due(), None);
+    // Moving within the word is nothing; to another, the first's leaving and no more.
+    host.rest(Some(Point::new(20.0, 12.0)));
+    assert!(host.wait(0.0).is_empty());
+    host.rest(Some(Point::new(50.0, 10.0)));
+    let told = host.wait(0.0);
+    assert_eq!(told.len(), 1);
+    assert_eq!(
+        (told[0].kind, told[0].from, told[0].to),
+        (HoverKind::Leave, 0, 5)
+    );
+    // The second word was not rested on long enough: leaving it tells nothing.
+    host.rest(None);
+    assert!(host.wait(1.0).is_empty());
+    assert_eq!(host.editors.rest_due(), None);
+}
+
+#[test]
+fn nothing_rests_on_a_gap_past_the_end_of_a_line_a_space_or_a_drag_and_a_page_that_does_not_hear_is_told_none()
+ {
+    let mut host = Host::new(page_with(hearing()));
+    host.load("alpha beta\ngamma");
+    host.editors.set_focus(None);
+    // Past the end of `gamma`, below the last line, on the space between the words.
+    for at in [(300.0, 30.0), (30.0, 150.0), (36.0, 10.0)] {
+        host.rest(Some(Point::new(at.0, at.1)));
+        assert_eq!(host.editors.rest_due(), None, "{at:?}");
+        assert!(host.wait(1.0).is_empty(), "{at:?}");
+    }
+    // With a button held (a drag) it does not rest.
+    assert!(host.press(Point::new(8.0, 10.0), none(), 1));
+    host.rest(Some(Point::new(10.0, 10.0)));
+    assert_eq!(host.editors.rest_due(), None);
+    host.editors.release();
+    host.rest(Some(Point::new(10.0, 10.0)));
+    assert!(host.editors.rest_due().is_some());
+    // The page that asked for none is told none.
+    let mut host = Host::new(page_with(plain()));
+    host.load("alpha");
+    host.rest(Some(Point::new(10.0, 10.0)));
+    assert_eq!(host.editors.rest_due(), None);
+    assert!(host.wait(1.0).is_empty());
+}
+
+#[test]
+fn a_key_a_press_an_edit_or_a_scroll_ends_the_rest_and_none_comes_before_the_pointer_moves() {
+    let long: Vec<String> = (0..40).map(|n| format!("word{n}")).collect();
+    let text = long.join("\n");
+    let at = Point::new(10.0, 10.0);
+    // A key, after the page was told: its leaving, and nothing more until the pointer moves.
+    let mut host = Host::new(page_with(hearing()));
+    host.load(&text);
+    host.rest(Some(at));
+    assert_eq!(host.wait(0.4).len(), 1);
+    host.editors.set_focus(Some(EDITOR));
+    host.key(Key::Right, none());
+    let told = host.wait(0.0);
+    assert_eq!(
+        told.iter().map(|t| t.kind).collect::<Vec<_>>(),
+        [HoverKind::Leave]
+    );
+    assert!(host.wait(2.0).is_empty());
+    host.rest(Some(at));
+    assert_eq!(host.wait(0.4).len(), 1);
+    // A press before the delay: nothing is told of it at all.
+    host.rest(None);
+    host.wait(0.0);
+    host.rest(Some(at));
+    assert!(host.wait(0.1).is_empty());
+    assert!(host.press(Point::new(60.0, 10.0), none(), 1));
+    host.editors.release();
+    assert!(host.wait(2.0).is_empty());
+    // An edit under the pointer ends it.
+    host.rest(Some(at));
+    assert_eq!(host.wait(0.4).len(), 1);
+    let laid = host.laid.clone();
+    host.editors.type_text(&laid, "x", &mut Fake, host.now);
+    host.settle();
+    let told = host.wait(0.0);
+    assert!(
+        told.iter().all(|t| t.kind == HoverKind::Leave) && told.len() == 1,
+        "{told:?}"
+    );
+    // The text scrolled under a pointer that has not moved: its rest ends, and it is told again once
+    // it moves.
+    host.rest(Some(at));
+    assert_eq!(host.wait(0.4).len(), 1);
+    host.scrolls.ask(pencere_view::ScrollTo {
+        id: EDITOR,
+        x: None,
+        y: Some(100.0),
+        animate: false,
+    });
+    host.settle();
+    let told = host.wait(0.0);
+    assert_eq!(
+        told.iter().map(|t| t.kind).collect::<Vec<_>>(),
+        [HoverKind::Leave]
+    );
+    assert!(host.wait(2.0).is_empty());
+    host.rest(Some(at));
+    assert_eq!(host.wait(0.4).len(), 1);
+}
+
+fn naming() -> impl Fn() -> Element {
+    move || {
+        div().child(
+            div().editor(EDITOR, plain()).size_full().child(
+                div()
+                    .id(POPUP)
+                    .size(60.0, 40.0)
+                    .bg(Role::Red.solid())
+                    .anchor(EDITOR.anchor("here"), Side::Below),
+            ),
+        )
+    }
+}
+
+#[test]
+fn a_range_the_page_named_is_a_box_an_overlay_stands_by_and_follows_the_text_and_the_scroll() {
+    let lines: Vec<String> = (0..40).map(|n| format!("line {n}")).collect();
+    let mut host = Host::new(naming());
+    host.load(&lines.join("\n"));
+    let name =
+        |from: usize, to: usize| vec![Decoration::new(from, to, Mark::Anchor("here".into()))];
+    // `line 2`'s `ne 2`: lines are 7 characters with their break, `line 2` starts at 14.
+    host.decorate("names", name(16, 20));
+    let boxed = host
+        .laid
+        .bounds(EDITOR.anchor("here"))
+        .expect("the range is a box");
+    // After `li` (3 + 3) and the room's 4, two rows down; `ne 2` is four characters of 7.
+    assert_eq!(
+        (boxed.x, boxed.y, boxed.h),
+        (4.0 + 3.0 + 3.0, 4.0 + 2.0 * ROW, ROW)
+    );
+    assert_eq!(boxed.w, 28.0);
+    // The overlay is under it.
+    let popup = host.laid.bounds(POPUP).expect("the popup");
+    assert_eq!((popup.x, popup.y), (boxed.x, boxed.bottom()));
+    // A line added above: the box and the overlay go down with it, in a layout of the same tree.
+    host.editors.set_focus(Some(EDITOR));
+    host.caret_at(0);
+    let laid = host.laid.clone();
+    host.editors.type_text(&laid, "x\n", &mut Fake, host.now);
+    host.settle();
+    let moved = host.laid.bounds(EDITOR.anchor("here")).expect("the box");
+    assert_eq!(moved.y, boxed.y + ROW);
+    assert_eq!(host.laid.bounds(POPUP).expect("popup").y, moved.bottom());
+    // Scrolled out of the room, what stands by it is not shown; back in, it is.
+    let shown = |host: &mut Host| {
+        host.quads()
+            .iter()
+            .any(|(_, role)| *role == Some(Role::Red))
+    };
+    assert!(shown(&mut host));
+    host.scrolls.ask(pencere_view::ScrollTo {
+        id: EDITOR,
+        x: None,
+        y: Some(600.0),
+        animate: false,
+    });
+    host.settle();
+    assert!(!shown(&mut host));
+    host.scrolls.ask(pencere_view::ScrollTo {
+        id: EDITOR,
+        x: None,
+        y: Some(0.0),
+        animate: false,
+    });
+    host.settle();
+    assert!(shown(&mut host));
+    // A name said again is the later's; one the page took away is no box, and the overlay is not
+    // placed by it.
+    host.decorate("more", name(40, 44));
+    let later = host.laid.bounds(EDITOR.anchor("here")).expect("the later");
+    assert_ne!(later, moved);
+    host.decorate("names", vec![]);
+    host.decorate("more", vec![]);
+    assert!(host.laid.bounds(EDITOR.anchor("here")).is_none());
+    // The word at a place is the double click's: `line` of the text now `x`, a break, `line 0`.
+    assert_eq!(host.editors.word_at(EDITOR, 3), Some((2, 6)));
+    assert_eq!(host.editors.word_at(EDITOR, 1_000_000), None);
+}
+
+#[test]
+fn a_decoration_with_a_name_is_told_in_the_hits_of_the_rest_over_it_and_names_are_held_to_64() {
+    let mut host = Host::new(page_with(hearing()));
+    host.load("alpha beta");
+    host.editors.set_focus(None);
+    let named = |from: usize, to: usize, id: &str| {
+        Decoration::new(
+            from,
+            to,
+            Mark::Style(Look {
+                id: Some(id.into()),
+                ..Look::default()
+            }),
+        )
+    };
+    host.decorate("diagnostics", vec![named(0, 5, "e1"), named(2, 3, "e2")]);
+    host.decorate(
+        "links",
+        vec![Decoration::new(6, 10, Mark::Style(Look::default()))],
+    );
+    host.rest(Some(Point::new(10.0, 10.0)));
+    let told = host.wait(0.4);
+    assert_eq!(told.len(), 1);
+    let ids: Vec<(&str, &str)> = told[0]
+        .hits
+        .iter()
+        .map(|hit| (hit.layer.as_str(), hit.id.as_str()))
+        .collect();
+    assert_eq!(ids, [("diagnostics", "e1")]);
+    // Over `beta`, whose style has no name: no hits.
+    host.rest(Some(Point::new(50.0, 10.0)));
+    let told = host.wait(0.4);
+    assert_eq!(
+        told.last().map(|t| (t.kind, t.hits.len())),
+        Some((HoverKind::Dwell, 0))
+    );
+    // More than 64 names are refused.
+    let many: Vec<Decoration> = (0..65)
+        .map(|n| Decoration::new(0, 1, Mark::Anchor(format!("a{n}"))))
+        .collect();
+    host.decorate("many", many);
+    let refused = host
+        .editors
+        .take_events()
+        .into_iter()
+        .any(|event| matches!(event, EditorEvent::Refused { .. }));
+    assert!(refused);
 }

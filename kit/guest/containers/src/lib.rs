@@ -173,6 +173,7 @@ impl ContainerList {
             | Event::Found { .. }
             | Event::EditorReady { .. }
             | Event::Gutter(_)
+            | Event::Hover(_)
             | Event::Wake { .. } => Reply::none(),
             Event::MenuPick(index) => self.list.pick(index),
             Event::Scrolled(boxes) => self.list.scrolled(&boxes),

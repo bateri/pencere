@@ -160,7 +160,8 @@ fn the_platform_of_the_labels_is_the_keyboard_the_host_says_until_the_page_says_
 
 #[test]
 #[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
-fn a_mac_writes_the_modifiers_in_apples_order_and_the_keys_as_its_glyphs() {
+fn a_mac_writes_the_modifiers_in_apples_order_and_the_keys_as_words_unless_it_is_asked_for_glyphs()
+{
     let shown = checked(
         r#"
         check("platform", keys.platform(), "mac")
@@ -168,18 +169,36 @@ fn a_mac_writes_the_modifiers_in_apples_order_and_the_keys_as_its_glyphs() {
         check("either order", keys.label("shift+cmd+k"), "⇧⌘K")
         check("all four", keys.label("cmd+shift+alt+ctrl+a"), "⌃⌥⇧⌘A")
         check("caps", keys.caps("cmd+shift+k"), { "⇧", "⌘", "K" })
+        -- The arrows are arrows; the keys that are no characters are words, as the page's own text
+        -- writes them, unless the page asks for their glyphs.
+        local shown = {
+            ["cmd+enter"] = "⌘Enter", ["alt+backspace"] = "⌥Backspace", delete = "Delete", escape = "Esc",
+            tab = "Tab", ["shift+tab"] = "⇧Tab", ["cmd+space"] = "⌘Space", up = "↑", down = "↓", left = "←",
+            right = "→", page_up = "PageUp", page_down = "PageDown", home = "Home", ["end"] = "End",
+            f5 = "F5", ["cmd+f12"] = "⌘F12", ["cmd+/"] = "⌘/", ["cmd+,"] = "⌘,", ["ctrl+1"] = "⌃1",
+            ["cmd+ş"] = "⌘Ş", ["cmd+ö"] = "⌘Ö", ["alt+ж"] = "⌥Ж", ["cmd+K"] = "⌘K",
+        }
+        for words, label in pairs(shown) do
+            check(words, keys.label(words), label)
+        end
         local glyphs = {
             ["cmd+enter"] = "⌘↩", ["alt+backspace"] = "⌥⌫", delete = "⌦", escape = "⎋", tab = "⇥",
             ["shift+tab"] = "⇧⇥", ["cmd+space"] = "⌘␣", up = "↑", down = "↓", left = "←", right = "→",
             page_up = "⇞", page_down = "⇟", home = "↖", ["end"] = "↘", f5 = "F5", ["cmd+f12"] = "⌘F12",
-            ["cmd+/"] = "⌘/", ["cmd+,"] = "⌘,", ["ctrl+1"] = "⌃1", ["cmd+ş"] = "⌘Ş", ["cmd+ö"] = "⌘Ö",
-            ["alt+ж"] = "⌥Ж", ["cmd+K"] = "⌘K",
         }
         for words, label in pairs(glyphs) do
-            check(words, keys.label(words), label)
+            check(words .. " as glyphs", keys.label(words, { symbols = true }), label)
         end
+        check("caps as glyphs", keys.caps("cmd+enter", { symbols = true }), { "⌘", "↩" })
+        check("caps as words", keys.caps("cmd+enter"), { "⌘", "Enter" })
+        -- A page that would have them everywhere says so once; a call may still say another.
+        keys.set_symbols(true)
+        check("set", { keys.symbols(), keys.label("cmd+enter") }, { true, "⌘↩" })
+        check("one call", keys.label("cmd+enter", { symbols = false }), "⌘Enter")
+        keys.set_symbols(false)
+        check("back", keys.label("cmd+enter"), "⌘Enter")
         -- What keys.parse made is taken as the words are.
-        check("parsed", keys.label(keys.parse("ctrl+alt+delete")), "⌃⌥⌦")
+        check("parsed", keys.label(keys.parse("ctrl+alt+delete")), "⌃⌥Delete")
         "#,
     );
     assert_eq!(shown, ["ok"]);
@@ -272,7 +291,7 @@ fn keys_given_wrong_are_an_error_at_the_callers_line() {
         ),
         (
             r#"keys.label("cmd+k", { os = "mac" })"#,
-            "keys.label has no option os (platform)",
+            "keys.label has no option os (platform, symbols)",
         ),
         (
             r#"keys.matches(nil, "cmd+k")"#,

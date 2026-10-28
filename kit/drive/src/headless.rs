@@ -1237,6 +1237,30 @@ impl<P: Peer> Headless<P> {
             .map(|(_, rect)| rect)
     }
 
+    /// Where the range the page named `name` in the editor named `editor` is, the host's points, as
+    /// of the last frame; none where there is no such range or it is not on a line that shows.
+    pub fn anchor_rect(&self, editor: &str, name: &str) -> Option<Rect> {
+        self.page.anchor_rect(Id::named(editor), name)
+    }
+
+    /// The pointer moves to `x`, `y` points from the top-left corner of the element named `name` and
+    /// rests there as long as an editor that hears of it takes to tell the page (the clock moves on
+    /// to it, a frame at the time): what a person's pointer does over a word.
+    ///
+    /// # Errors
+    ///
+    /// No such element ([`Error::NoSuch`]), or as [`Headless::settle`].
+    pub fn dwell(&mut self, name: &str, x: f32, y: f32) -> Result<(), Error> {
+        let bounds = self
+            .bounds(name)
+            .ok_or_else(|| Error::NoSuch(name.to_owned()))?;
+        self.pointer(Input::Move(Point::new(bounds.x + x, bounds.y + y)))?;
+        match self.page.rest_due() {
+            Some(due) => self.advance((due - self.now()).max(0.0)),
+            None => Ok(()),
+        }
+    }
+
     /// The person clicks `x`, `y` points from the top-left corner of the element named `name`.
     ///
     /// # Errors

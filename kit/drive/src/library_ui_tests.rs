@@ -283,7 +283,7 @@ end
 "#,
     )?;
     let words = page.words();
-    for word in ["12", "draft", "⇧", "⌘", "K", "⌃↩"] {
+    for word in ["12", "draft", "⇧", "⌘", "K", "⌃Enter"] {
         assert!(words.contains(&word), "{word} in {words:?}");
     }
     Ok(())
@@ -1019,6 +1019,120 @@ end
         !page.says("Hello"),
         "the anchor's own press toggles it, and does not close then open it"
     );
+    Ok(())
+}
+
+/// A page with an editor and a card by the word the pointer rests on: the card is a popover that stands
+/// by the range the page named, goes at what its `dismiss` lists, and waits `hide_delay` after the
+/// pointer left the word.
+const CARD: &str = r#"
+local ui = require("@pencere/ui")
+local text = "alpha beta\ngamma delta"
+local u = ui.new()
+local card = nil
+local version = 0
+local function layer()
+	return { decorate = "card", version = version, from = 0, to = #text, decorations = card and {
+		{ from = card.from, to = card.to, anchor = "card" } } or {} }
+end
+local function render(size, now, reduce_motion)
+	u:begin(size, now, reduce_motion)
+	local root = pencere.div():size_full():child(
+		pencere.editor("code", { gutter = false, events = { "hover" }, hover = { delay = 0.2 } }):size_full())
+	if card then
+		root:child(u:popover("card", { anchor = pencere.range_of("code", "card"), focus = true,
+			dismiss = card.dismiss }, pencere.div():p(8):child(pencere.text("About " .. card.word))))
+	end
+	return u:finish(root)
+end
+local function handle(event)
+	local reply, actions = u:handle(event)
+	if event.type == "editor_ready" then
+		return pencere.merge(reply, { editor = { code = { { load = text } } } })
+	elseif event.type == "edit" then
+		version = event.version
+	elseif event.type == "hover" and event.kind == "dwell" then
+		card = { from = event.from, to = event.to, dismiss = DISMISS,
+			word = pencere.layout.editor_text("code", event.from, event.to) }
+		return pencere.merge(reply, { redraw = true, editor = { code = { layer() } } })
+	end
+	for _, act in actions do
+		if act.from == "card" and act.kind == "dismiss" then
+			card = nil
+			reply = pencere.merge(reply, { redraw = true, editor = { code = { layer() } } })
+		end
+	end
+	return reply
+end
+return { render = render, handle = handle, settle = function() return u:settle() end }
+"#;
+
+fn card_page(dismiss: &str) -> Result<Headless, Error> {
+    Headless::script(format!("DISMISS = {dismiss}\n{CARD}"))
+        .size(800.0, 500.0)
+        .open()
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_popover_by_a_range_of_an_editor_waits_for_the_pointer_to_come_back_and_goes_when_the_text_changes()
+-> Result<(), Error> {
+    let mut page = card_page("nil")?;
+    page.dwell("code", 12.0, 12.0)?;
+    page.advance(0.3)?;
+    assert!(page.says("About alpha"), "{:?}", page.words());
+    let word = page.anchor_rect("code", "card").expect("the range");
+    let card = page.bounds("card").expect("the card");
+    assert_eq!(card.x, word.x);
+    assert!(card.y >= word.bottom(), "{card:?} {word:?}");
+    // The pointer goes off the word: the card stays the delay.
+    page.move_to(pencere_view::Point::new(600.0, 400.0))?;
+    page.advance(0.2)?;
+    assert!(page.says("About alpha"), "the card waits");
+    page.advance(0.2)?;
+    assert!(!page.says("About alpha"), "and goes: {:?}", page.words());
+    // The pointer goes onto the card in that time: it stays.
+    page.dwell("code", 12.0, 12.0)?;
+    page.advance(0.3)?;
+    assert!(page.says("About alpha"));
+    page.move_to(pencere_view::Point::new(600.0, 400.0))?;
+    page.advance(0.1)?;
+    page.hover("card")?;
+    page.advance(0.5)?;
+    assert!(page.says("About alpha"), "the pointer is on the card");
+    // And goes off the card: then it goes after the delay... the card's own leaving is the page's
+    // to tell; the text changing under it is the library's.
+    page.focus_editor("code")?;
+    page.insert_text("x")?;
+    assert!(
+        !page.says("About alpha"),
+        "an edit closes it: {:?}",
+        page.words()
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_popover_that_lists_what_dismisses_it_is_dismissed_by_that_alone() -> Result<(), Error> {
+    let mut page = card_page(r#"{ "escape" }"#)?;
+    page.dwell("code", 12.0, 12.0)?;
+    page.advance(0.3)?;
+    assert!(page.says("About alpha"));
+    page.move_to(pencere_view::Point::new(600.0, 400.0))?;
+    page.advance(1.0)?;
+    assert!(page.says("About alpha"), "leaving does not close it");
+    page.focus_editor("code")?;
+    page.insert_text("x")?;
+    assert!(page.says("About alpha"), "nor does an edit");
+    let why = failing(
+        r#"
+view = function(u)
+    return u:popover("card", { anchor = pencere.range_of("code", "x"), dismiss = { "never" } }, pencere.text("x"))
+end
+"#,
+    );
+    assert!(why.contains("is dismissed by"), "{why}");
     Ok(())
 }
 

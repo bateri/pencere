@@ -753,6 +753,21 @@ interface types {
         gutters: list<gutter-column>,
         /// The measures of the gutter's bars and of the overview ruler's marks.
         marks: mark-looks,
+        /// Which events of its own the editor tells the page.
+        events: editor-events,
+        /// How long the pointer rests before it is told.
+        hover: hover-options,
+    }
+
+    /// The events an editor tells beyond the rest: none unless the page asks.
+    record editor-events {
+        /// The pointer rested over a word, or left it (`editor-hover`).
+        hover: bool,
+    }
+
+    record hover-options {
+        /// Seconds (0 to 10) the pointer rests over a word before the page is told; none: 0.3.
+        delay: option<f32>,
     }
 
     /// One column of an editor's gutter.
@@ -765,6 +780,10 @@ interface types {
         events: option<column-events>,
         /// What shows, faint, in the cell the pointer is over where nothing stands yet.
         hover: option<gutter-preview>,
+        /// Points (0 to 64) the numbers keep to their left, of `numbers` alone, in the width the
+        /// editor makes of its own; none: the editor's padding where the column is the first,
+        /// none where another is before it.
+        pad: option<f32>,
     }
 
     record column-events {
@@ -1217,6 +1236,48 @@ interface types {
         editor-ready(editor-ready),
         /// The pointer did something in a gutter column that takes events.
         editor-gutter(editor-gutter),
+        /// The pointer rested over a word of an editor that asked to hear of it, or left it.
+        editor-hover(editor-hover),
+    }
+
+    /// A word of an editor's text, or a run of marks: its range, characters.
+    record word-range {
+        %from: u32,
+        to: u32,
+    }
+
+    /// The pointer resting over a word of an editor's text.
+    record editor-hover {
+        editor: id,
+        kind: hover-kind,
+        /// The place under the pointer, and the word (or run of marks) it is on: its range.
+        at: u32,
+        %from: u32,
+        to: u32,
+        /// The line of `at`, from 0.
+        line: u32,
+        /// The styles with a name that hold `at`, the later over the earlier.
+        hits: list<hover-hit>,
+        /// The word's box, in the page's points.
+        word: rect,
+        /// The modifiers held as the application last knew.
+        mods: mods,
+        /// The version of the document the places are of.
+        version: u64,
+    }
+
+    enum hover-kind {
+        /// The pointer stayed the delay over the word.
+        dwell,
+        /// It went from a word it was told of.
+        leave,
+    }
+
+    record hover-hit {
+        layer: string,
+        id: string,
+        %from: u32,
+        to: u32,
     }
 
     /// The pointer in a gutter column of an editor, as the column says the page hears it.
@@ -1409,6 +1470,9 @@ interface types {
         italic: option<bool>,
         underline: option<underline>,
         strike: bool,
+        /// What the page calls it, told in the `hits` of an `editor-hover` where the pointer rests
+        /// on it.
+        id: option<string>,
     }
 
     /// What a decoration marks.
@@ -1425,6 +1489,9 @@ interface types {
         ruler(ruler-mark),
         /// A gap kept open after the line the range starts on, for an element of the page.
         zone(zone),
+        /// The range has a name (at most 64 to an editor; of a name said twice the later is the
+        /// one): an overlay is anchored to it (`range-of`), as to the caret.
+        anchor(string),
     }
 
     /// A marker in a gutter column: where it stands is the decoration's range.
@@ -1618,7 +1685,7 @@ interface types {
 /// What the module can ask of the page as the application last laid it out. The answers come
 /// from that layout, which may be a frame behind the tree the module has handed out since.
 interface layout {
-    use types.{id, point, rect, extent};
+    use types.{id, point, rect, extent, word-range};
 
     /// The element under `at` that answers the pointer: the topmost.
     hit: func(at: point) -> option<id>;
@@ -1657,6 +1724,8 @@ interface layout {
     line-start: func(editor: id, line: u32) -> option<u32>;
     /// The line the place `at` is on.
     line-of: func(editor: id, at: u32) -> option<u32>;
+    /// The word (or run of marks) at the place `at`, by the rule a double click has: its range.
+    word-at: func(editor: id, at: u32) -> option<word-range>;
 }
 
 /// What the module can say to the program that opened the page, if one did.

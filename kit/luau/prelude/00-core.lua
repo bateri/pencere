@@ -53,6 +53,7 @@ local host = {
 	editor_text = pencere.editor_text,
 	line_start = pencere.line_start,
 	line_of = pencere.line_of,
+	word_at = pencere.word_at,
 	wall_clock = pencere.wall_clock,
 	keyboard = pencere.keyboard,
 }
@@ -60,7 +61,7 @@ pencere.send, pencere.hit, pencere.ids_at, pencere.bounds = nil, nil, nil, nil
 pencere.scroll_extent, pencere.scroll_to, pencere.focus_order, pencere.path_of = nil, nil, nil, nil
 pencere.drag_source, pencere.drop_target = nil, nil
 pencere.editor_version, pencere.editor_length, pencere.editor_lines = nil, nil, nil
-pencere.editor_text, pencere.line_start, pencere.line_of = nil, nil, nil
+pencere.editor_text, pencere.line_start, pencere.line_of, pencere.word_at = nil, nil, nil, nil
 pencere.wall_clock, pencere.keyboard = nil, nil
 pencere.host = host
 
@@ -253,9 +254,29 @@ function layout.line_of(editor, at)
 	return host.line_of(editor, at)
 end
 
+-- The word at the place `at` (or the run of marks, or of spaces) as a double click takes it: its
+-- `from` and `to` (the end not in it); nil for an editor or a place it has not. The rule is the
+-- editor's own, so that a page that asks of a word at the caret (Show Hover, Go to Definition) asks
+-- of the same one the pointer rests on.
+function layout.word_at(editor, at)
+	return host.word_at(editor, at)
+end
+
 -- The caret of the editor named `editor`: what an overlay stands beside
 -- (`:anchor(pencere.caret_of("sql"), "below")`, a popup of completions) and what
 -- `layout.bounds` says the box of. A name of the editor's own, which no name of the page's is.
 function pencere.caret_of(editor)
 	return { caret = editor }
+end
+
+-- The range the page named `name` in the editor named `editor` (a decoration
+-- `{ from =, to =, anchor = name }`): what an overlay stands beside as it does by the caret
+-- (`:anchor(pencere.range_of("sql", "hover"), "below")`) and what `layout.bounds` says the box of,
+-- from the start of the range across its first row and down its last. An overlay whose range is
+-- not in the room, or is gone, is not shown. A name is an editor's alone.
+function pencere.range_of(editor, name)
+	if type(name) ~= "string" then
+		error("range_of takes the editor's name and the range's: range_of(editor, name)", 2)
+	end
+	return { anchor = editor, name = name }
 end

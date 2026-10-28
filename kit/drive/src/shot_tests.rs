@@ -296,3 +296,75 @@ fn the_example_with_a_gutter_of_its_own_is_pictured_with_its_markers_and_its_zon
     }
     Ok(())
 }
+
+/// What an editor of numbers, a zone and the keys' caps look like where they were wrong: a numbers
+/// column that is the first of the gutter with one, two and three digits (it keeps room to its left),
+/// a gap of a peek no taller than its element (no band under it), a mark on the ruler that stops at
+/// its line's rows with a gap after it, and the caps of a Mac's keys written as words.
+/// `PENCERE_SHOTS=defects` writes them to `target/numbers-{1,2,3}.png`, in the terminal's font of a
+/// Mac, for an eye to check.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn numbers_of_one_two_and_three_digits_keep_room_and_a_gap_is_as_tall_as_its_element()
+-> Result<(), Error> {
+    let fonts = match std::env::var("PENCERE_SHOTS").as_deref() {
+        Ok("defects") => Fonts::none()
+            .terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc").expect("Menlo"))
+            .expect("a font"),
+        _ => Fonts::none(),
+    };
+    for (digits, lines) in [(1, 9), (2, 99), (3, 999)] {
+        let source = format!(
+            r#"
+local b = pencere
+local keys = require("@pencere/keys")
+local text = {{}}
+for n = 1, {lines} do text[n] = "line " .. n end
+local joined = table.concat(text, "\n")
+local function start_of(line)
+	local at = 0
+	for n = 1, line do at += #text[n] + 1 end
+	return at
+end
+local function render()
+	return b.div():size_full():col():gap(8)
+		:child(b.editor("code", {{ gutters = {{ "numbers", {{ name = "changes", width = 6 }}, "folds" }} }}):grow(1):min_h(0)
+			:child(b.div():id("peek"):zone("peek"):h(33):bg("raised2"):border(1, "border")
+				:child(b.text("a peek 33 tall")))
+		)
+		:child(b.text(keys.label("cmd+enter") .. "  " .. keys.label("esc") .. "  " .. keys.label("cmd+shift+k")))
+end
+local function handle(event)
+	if event.type == "editor_ready" then
+		return {{ editor = {{ code = {{ {{ load = joined }} }} }} }}
+	elseif event.type == "edit" then
+		return {{ editor = {{ code = {{
+			{{ decorate = "peek", version = event.version, from = 0, to = #joined, decorations = {{
+				{{ from = start_of(2), to = start_of(2), zone = "peek", height = 33 }},
+				{{ from = start_of(2), to = start_of(2), ruler = "blue", lane = "full" }},
+			}} }},
+		}} }} }}
+	end
+	return nil
+end
+return {{ render = render, handle = handle }}
+"#
+        );
+        let page = Headless::script(source)
+            .measure(fonts.clone())
+            .size(360.0, 220.0)
+            .scale(2.0)
+            .open()?;
+        let gap = page.zone("code", "peek").expect("the gap is open");
+        assert_eq!(
+            gap.h, 33.0,
+            "{digits} digits: the gap is as tall as its element"
+        );
+        let drawn = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+        if std::env::var("PENCERE_SHOTS").as_deref() == Ok("defects") {
+            let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+            std::fs::write(target.join(format!("numbers-{digits}.png")), &drawn).expect("written");
+        }
+    }
+    Ok(())
+}

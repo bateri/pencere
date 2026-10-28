@@ -94,7 +94,9 @@ fn nothing_a_page_sends_breaks_the_editor() {
                 let (from, to) = (dice.place(len), dice.place(len));
                 let decorations = (0..dice.below(5))
                     .map(|_| {
-                        let mark = if dice.below(2) == 0 {
+                        let mark = if dice.below(3) == 0 {
+                            Mark::Anchor(format!("a{}", dice.below(3)))
+                        } else if dice.below(2) == 0 {
                             Mark::Fold
                         } else {
                             Mark::Gutter(pencere_view::edit::GutterMark::dot(

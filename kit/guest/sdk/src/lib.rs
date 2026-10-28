@@ -176,6 +176,11 @@ impl Queries for Layout {
     fn line_of(&self, editor: Id, at: usize) -> Option<usize> {
         host::line_of(editor.number(), u32::try_from(at).ok()?).map(|n| n as usize)
     }
+
+    fn word_at(&self, editor: Id, at: usize) -> Option<(usize, usize)> {
+        host::word_at(editor.number(), u32::try_from(at).ok()?)
+            .map(|word| (word.from as usize, word.to as usize))
+    }
 }
 
 /// Says something to the program that opened the page: one JSON object, written as text (a

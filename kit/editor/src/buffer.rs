@@ -296,6 +296,11 @@ impl Buffer {
             .collect()
     }
 
+    /// The ranges the page named, by name ([`Mark::Anchor`]).
+    pub fn anchors(&self) -> Vec<(String, usize, usize)> {
+        self.decorations.anchors()
+    }
+
     /// The names of the layers of decorations, in the order they came: what
     /// [`Buffer::decorations_in`] says a decoration's layer is by.
     pub fn layer_names(&self) -> Vec<String> {

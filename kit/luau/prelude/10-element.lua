@@ -362,8 +362,11 @@ end
 -- hover = { shape = "dot", color = … } }`: `events` says what of the pointer the page hears of the
 -- column (a page's column: presses of both buttons; `false`: nothing; a press there selects nothing
 -- and folds nothing), `hover` what shows, faint, in the cell the pointer is over where nothing
--- stands), `marks = { bar = 3, hover = 6, ruler = 4 }` (how wide a bar, a bar the pointer is over
--- and the overview ruler are), `current_line` (where the caret's line is drawn:
+-- stands; `pad` the points the `"numbers"` keep to their left: the padding where they are the first
+-- column, none after another), `marks = { bar = 3, hover = 6, ruler = 4 }` (how wide a bar, a bar the pointer is over
+-- and the overview ruler are), `events = { "hover" }` (what of its own the editor tells the page:
+-- the pointer's rest over a word and its going from it, once `hover = { delay = 0.3 }` seconds have
+-- passed), `current_line` (where the caret's line is drawn:
 -- "text", "gutter", "all"), `whitespace` (which spaces and tabs it shows, as VS Code: "none",
 -- "boundary" (all but a space alone between words), "selection", "trailing" or "all"; a space is a
 -- dot, a tab an arrow, any other space a box), `indent_guides` (a thin line down each level of
@@ -392,6 +395,8 @@ local EDITOR_OPTIONS = {
 	numbers = true,
 	gutters = true,
 	marks = { bar = true, hover = true, ruler = true },
+	events = true,
+	hover = { delay = true },
 	current_line = true,
 	whitespace = true,
 	indent_guides = true,

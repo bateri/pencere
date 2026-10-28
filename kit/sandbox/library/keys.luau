@@ -7,6 +7,8 @@
 --
 --   local keys = require("@pencere/keys")
 --   keys.label("cmd+shift+k")             -- "⇧⌘K"
+--   keys.label("cmd+enter")               -- "⌘Enter"
+--   keys.label("cmd+enter", { symbols = true })   -- "⌘↩"
 --   keys.label("ctrl+alt+delete", { platform = "other" })   -- "Ctrl+Alt+Delete"
 --   keys.caps("cmd+enter")                -- { "⌘", "↩" }: one for each key cap drawn
 --   keys.matches(event, "cmd+k")          -- whether a key event is that shortcut
@@ -15,7 +17,10 @@
 -- "linux"), unless the page says another for one label (`options.platform`) or for all
 -- (`keys.set_platform("other")`); where the page API has no `pencere.keyboard` it is "mac". A Mac
 -- writes the modifiers in the order Apple's guidelines give (⌃⌥⇧⌘, then the key, with nothing
--- between). On any other platform a label is the names of the keys joined by `+`, in the order
+-- between), and the arrows as arrows; the other keys that are not characters it writes as words
+-- (Enter, Space, Esc, Tab, Backspace, Delete, Home, End, PageUp, PageDown), as the page's own text
+-- does, unless the page says it would have their glyphs (↩ ⎋ ⇥ ⌫ ⌦ ␣ ⇞ ⇟ ↖ ↘:
+-- `options.symbols`, or `keys.set_symbols(true)` for all). On any other platform a label is the names of the keys joined by `+`, in the order
 -- Ctrl, Alt, Shift, then the logo key: Win on Windows, Super on Linux and for "other" (a platform a
 -- page does not name).
 --
@@ -64,11 +69,15 @@ local MODIFIERS = {
 	other = { { "control", "Ctrl" }, { "alt", "Alt" }, { "shift", "Shift" }, { "command", "Super" } },
 }
 local KEYS = {
+	-- What a Mac writes whatever the page says: the arrows.
 	mac = {
 		up = "↑",
 		down = "↓",
 		left = "←",
 		right = "→",
+	},
+	-- The glyphs of the keys a Mac writes as words unless the page asks for them.
+	glyphs = {
 		page_up = "⇞",
 		page_down = "⇟",
 		home = "↖",
@@ -99,9 +108,30 @@ local KEYS = {
 }
 local MODIFIER_NAMES = { "shift", "control", "alt", "command" }
 
--- Every platform but a Mac names its keys as words.
-local function keys_of_platform(name)
-	return name == "mac" and KEYS.mac or KEYS.words
+-- The words of the keys, and on a Mac the arrows as they are (and the other keys as glyphs where
+-- the page asks for them).
+local CACHE = {}
+local function keys_of_platform(name, symbols)
+	local kind = name == "mac" and (symbols and "mac-glyphs" or "mac") or "words"
+	local found = CACHE[kind]
+	if found == nil then
+		found = {}
+		for key, word in pairs(KEYS.words) do
+			found[key] = word
+		end
+		if name == "mac" then
+			for key, arrow in pairs(KEYS.mac) do
+				found[key] = arrow
+			end
+			if symbols then
+				for key, glyph in pairs(KEYS.glyphs) do
+					found[key] = glyph
+				end
+			end
+		end
+		CACHE[kind] = found
+	end
+	return found
 end
 
 -- The platform the labels are for, unless a call says another: the page's (`keys.set_platform`), or
@@ -115,6 +145,9 @@ local function platform_default()
 	return platform
 end
 local PLATFORMS = 'a platform is "mac", "windows", "linux" or "other", not '
+-- Whether a Mac writes Enter, Esc and the other keys that are not characters as glyphs: no, unless
+-- the page says so (`keys.set_symbols`, or `options.symbols` for one call).
+local symbols = false
 
 -- --- Letters ---------------------------------------------------------------------------------
 
@@ -206,25 +239,31 @@ local function keys_of(given, name, level)
 	error(name .. ' takes keys written as words ("cmd+k") or what keys.parse made of them, not a ' .. kind, level + 1)
 end
 
-local function platform_of(options, name, level)
+local function options_of(options, name, level)
 	if options == nil then
-		return platform_default()
+		return platform_default(), symbols
 	end
 	if type(options) ~= "table" then
-		error(name .. " takes options as a table ({ platform = }), not a " .. type(options), level + 1)
+		error(name .. " takes options as a table ({ platform =, symbols = }), not a " .. type(options), level + 1)
 	end
 	for key in next, options do
-		if key ~= "platform" then
-			error(name .. " has no option " .. tostring(key) .. " (platform)", level + 1)
+		if key ~= "platform" and key ~= "symbols" then
+			error(name .. " has no option " .. tostring(key) .. " (platform, symbols)", level + 1)
 		end
 	end
 	local chosen = options.platform
 	if chosen == nil then
-		return platform_default()
+		chosen = platform_default()
 	elseif not MODIFIERS[chosen] then
 		error(PLATFORMS .. tostring(chosen), level + 1)
 	end
-	return chosen
+	local glyphs = options.symbols
+	if glyphs == nil then
+		glyphs = symbols
+	elseif type(glyphs) ~= "boolean" then
+		error(name .. " takes symbols as true or false, not a " .. type(glyphs), level + 1)
+	end
+	return chosen, glyphs
 end
 
 -- Keys written as words, `"cmd+shift+k"`, read: `{ key =, mods = { shift =, control =, alt =,
@@ -241,10 +280,12 @@ end
 -- The keys as the platform writes them, one for each key cap: `{ "⇧", "⌘", "K" }` on a Mac,
 -- `{ "Ctrl", "Shift", "K" }` elsewhere. `words` are keys written as words or what `keys.parse`
 -- made of them; `options.platform` is "mac", "windows", "linux" or "other" (`keys.platform()` where
--- it says none).
+-- it says none); `options.symbols` is whether a Mac writes ↩ ⎋ ⇥ ⌫ ⌦ ␣ ⇞ ⇟ ↖ ↘ for Enter, Esc,
+-- Tab, Backspace, Delete, Space, PageUp, PageDown, Home and End (false where it says none, unless
+-- `keys.set_symbols(true)`).
 function keys.caps(words, options)
 	local parsed = keys_of(words, "keys.caps", 2)
-	local chosen = platform_of(options, "keys.caps", 2)
+	local chosen, glyphs = options_of(options, "keys.caps", 2)
 	local caps = {}
 	for _, modifier in ipairs(MODIFIERS[chosen]) do
 		if parsed.mods[modifier[1]] then
@@ -252,7 +293,7 @@ function keys.caps(words, options)
 		end
 	end
 	local key = parsed.key
-	local cap = keys_of_platform(chosen)[key]
+	local cap = keys_of_platform(chosen, glyphs)[key]
 	if cap == nil then
 		if string.match(key, "^f%d%d?$") then
 			cap = string.upper(key)
@@ -268,8 +309,8 @@ end
 -- elsewhere (options as `keys.caps`).
 function keys.label(words, options)
 	local parsed = keys_of(words, "keys.label", 2)
-	local chosen = platform_of(options, "keys.label", 2)
-	return table.concat(keys.caps(parsed, { platform = chosen }), chosen == "mac" and "" or "+")
+	local chosen, glyphs = options_of(options, "keys.label", 2)
+	return table.concat(keys.caps(parsed, { platform = chosen, symbols = glyphs }), chosen == "mac" and "" or "+")
 end
 
 -- Whether the key event `event` (`{ type = "key", key =, mods = }`, or a `key_up`) is the
@@ -316,6 +357,20 @@ function keys.set_platform(name)
 		error(PLATFORMS .. tostring(name), 2)
 	end
 	platform = name
+end
+
+-- Says whether a Mac writes the keys that are not characters (Enter, Esc, Tab, Backspace, Delete,
+-- Space, PageUp, PageDown, Home, End) as glyphs, for the whole page: false until a page says so.
+function keys.set_symbols(on)
+	if type(on) ~= "boolean" then
+		error("keys.set_symbols takes true or false, not a " .. type(on), 2)
+	end
+	symbols = on
+end
+
+-- Whether a Mac writes those keys as glyphs.
+function keys.symbols()
+	return symbols
 end
 
 return keys

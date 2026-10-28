@@ -99,6 +99,14 @@ pub trait Measure {
     fn zones(&mut self, _id: Id) -> Vec<(Id, Rect)> {
         Vec::new()
     }
+
+    /// The ranges of the editor named `id` that the page named ([`crate::edit::Mark::Anchor`]): each
+    /// by its [`Id::anchor`] and its box in the content (pixels, as the caret's: from the top-left
+    /// corner of the content as it is when nothing is scrolled). A host with no editors answers
+    /// none.
+    fn anchors(&mut self, _id: Id) -> Vec<(Id, Rect)> {
+        Vec::new()
+    }
 }
 
 /// What an editor has laid out of its document ([`Measure::editor`]), pixels.

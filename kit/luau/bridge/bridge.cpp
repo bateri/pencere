@@ -295,6 +295,18 @@ int l_line_of(lua_State* state) {
     return 1;
 }
 
+int l_word_at(lua_State* state) {
+    uint64_t editor = bridge::id_of(state, 1);
+    pencere_view_types_word_range_t word = {};
+    if (pencere_view_layout_word_at(editor, checked_place(state, 2, "a place"), &word)) {
+        lua_pushnumber(state, word.from);
+        lua_pushnumber(state, word.to);
+        return 2;
+    }
+    lua_pushnil(state);
+    return 1;
+}
+
 // --- Loading the other scripts of the bundle -------------------------------------------------------
 //
 // `require` is Luau's own require-by-string (the `Luau.Require` library), pointed at the bundle the
@@ -663,6 +675,7 @@ void host_functions(lua_State* state) {
         {"editor_text", l_editor_text},
         {"line_start", l_line_start},
         {"line_of", l_line_of},
+        {"word_at", l_word_at},
         {"wall_clock", l_wall_clock},
         {"keyboard", l_keyboard},
         {nullptr, nullptr},

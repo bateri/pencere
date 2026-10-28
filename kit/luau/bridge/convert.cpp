@@ -1047,7 +1047,7 @@ pencere_view_types_gutter_shape_t gutter_shape_at(lua_State* L, int t) {
 
 // One column of the gutter, at the absolute index `t`: its name ("numbers", "folds", "marks" are
 // the editor's), or `{ name =, width =, events = { "press", "menu", "hover" } | false, hover = {
-// shape =, image =, color = } }`.
+// shape =, image =, color = }, pad = points }`.
 pencere_view_types_gutter_column_t gutter_column_at(lua_State* L, int t) {
     pencere_view_types_gutter_column_t out = {};
     if (lua_type(L, t) == LUA_TSTRING) {
@@ -1057,9 +1057,10 @@ pencere_view_types_gutter_column_t gutter_column_at(lua_State* L, int t) {
         return out;
     }
     if (lua_type(L, t) != LUA_TTABLE)
-        luaL_error(L, "a gutter column is its name, or a table { name =, width =, events =, hover = }");
+        luaL_error(L, "a gutter column is its name, or a table { name =, width =, events =, hover =, pad = }");
     out.name = string_of(L, t, "name");
     out.width = optional_number(L, t, "width");
+    out.pad = optional_number(L, t, "pad");
     get(L, t, "events");
     int events = lua_gettop(L);
     if (lua_type(L, events) == LUA_TTABLE) {
@@ -1244,6 +1245,29 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
         out.marks.ruler = optional_number(L, marks, "ruler");
     } else if (!lua_isnil(L, marks)) {
         luaL_error(L, "the marks of an editor are a table: { bar =, hover =, ruler = }");
+    }
+    lua_pop(L, 1);
+    // events = { "hover" }: what of its own the editor tells the page; hover = { delay = seconds }.
+    get(L, t, "events");
+    int told = lua_gettop(L);
+    if (lua_type(L, told) == LUA_TTABLE) {
+        for (size_t at = 1; at <= (size_t)lua_objlen(L, told); at++) {
+            lua_rawgeti(L, told, (int)at);
+            const char* said = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "";
+            if (strcmp(said, "hover") == 0) out.events.hover = true;
+            else luaL_error(L, "an editor tells of \"hover\", not \"%s\"", said);
+            lua_pop(L, 1);
+        }
+    } else if (!lua_isnil(L, told)) {
+        luaL_error(L, "the events of an editor are a list of words: { \"hover\" }");
+    }
+    lua_pop(L, 1);
+    get(L, t, "hover");
+    int rest = lua_gettop(L);
+    if (lua_type(L, rest) == LUA_TTABLE) {
+        out.hover.delay = optional_number(L, rest, "delay");
+    } else if (!lua_isnil(L, rest)) {
+        luaL_error(L, "the hover of an editor is a table: { delay = seconds }");
     }
     lua_pop(L, 1);
     out.caret.color.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
@@ -1560,7 +1584,27 @@ uint64_t id_of(lua_State* L, int index) {
         // The caret of an editor (`pencere.caret_of`): { caret = the editor's name }, the id the
         // engine's `Id::caret` makes of it.
         lua_rawgetfield(L, index, "caret");
-        if (lua_isnil(L, -1)) luaL_error(L, "an element is named by a string or a whole number");
+        if (lua_isnil(L, -1)) {
+            lua_pop(L, 1);
+            // A range of an editor's text the page named (`pencere.range_of`): { anchor = the editor's
+            // name, name = the range's }, the id the engine's `Id::anchor` makes of them.
+            lua_rawgetfield(L, index, "anchor");
+            if (lua_isnil(L, -1)) luaL_error(L, "an element is named by a string or a whole number");
+            uint64_t editor = id_of(L, lua_gettop(L));
+            lua_pop(L, 1);
+            lua_rawgetfield(L, index, "name");
+            if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "the name of a range is a string");
+            size_t length = 0;
+            const char* bytes = lua_tolstring(L, -1, &length);
+            uint64_t named = fnv(bytes, length);
+            lua_pop(L, 1);
+            const uint64_t role = 0xa7;
+            auto mix = [&](uint64_t of) {
+                uint64_t mixed = (of ^ ((role + 1) << 56)) * 0x9e3779b97f4a7c15ull;
+                return mixed ^ (mixed >> 29);
+            };
+            return mix(editor) ^ mix(named);
+        }
         uint64_t editor = id_of(L, lua_gettop(L));
         lua_pop(L, 1);
         const uint64_t role = 0xc7;
@@ -1968,6 +2012,41 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             lua_setfield(L, -2, "cell");
             break;
         }
+        case PENCERE_VIEW_TYPES_EVENT_EDITOR_HOVER: {
+            // { editor =, kind = "dwell" | "leave", at =, from =, to =, line = (from 0), hits = { { layer =,
+            // id =, from =, to = }, … }, word = { x =, y =, w =, h = }, mods…, version = }
+            const auto& hover = event.val.editor_hover;
+            set_word(L, "type", "hover");
+            push_id(L, hover.editor);
+            lua_setfield(L, -2, "editor");
+            set_word(L, "kind", hover.kind == PENCERE_VIEW_TYPES_HOVER_KIND_LEAVE ? "leave" : "dwell");
+            set_place(L, "at", hover.at);
+            set_place(L, "from", hover.from);
+            set_place(L, "to", hover.to);
+            set_number(L, "line", (double)hover.line);
+            lua_createtable(L, (int)hover.hits.len, 0);
+            for (size_t at = 0; at < hover.hits.len; at++) {
+                const auto& hit = hover.hits.ptr[at];
+                lua_createtable(L, 0, 4);
+                lua_pushlstring(L, (const char*)hit.layer.ptr, hit.layer.len);
+                lua_setfield(L, -2, "layer");
+                lua_pushlstring(L, (const char*)hit.id.ptr, hit.id.len);
+                lua_setfield(L, -2, "id");
+                set_place(L, "from", hit.from);
+                set_place(L, "to", hit.to);
+                lua_rawseti(L, -2, (int)at + 1);
+            }
+            lua_setfield(L, -2, "hits");
+            lua_createtable(L, 0, 4);
+            set_number(L, "x", hover.word.x);
+            set_number(L, "y", hover.word.y);
+            set_number(L, "w", hover.word.w);
+            set_number(L, "h", hover.word.h);
+            lua_setfield(L, -2, "word");
+            set_mods(L, hover.mods);
+            set_number(L, "version", (double)hover.version);
+            break;
+        }
         case PENCERE_VIEW_TYPES_EVENT_EDITOR_READY:
             // { editor =, version = }: the host made the editor; its text is posted.
             set_word(L, "type", "editor_ready");
@@ -2133,6 +2212,18 @@ pencere_view_types_decoration_t decoration_at(lua_State* L, int t) {
         out.mark.val.ruler.lane = (uint8_t)word(L, t, "lane", kRulerLanes, 4, 0);
         return out;
     }
+    get(L, t, "anchor");
+    if (lua_type(L, -1) == LUA_TSTRING) {
+        size_t length = 0;
+        const char* bytes = lua_tolstring(L, -1, &length);
+        out.mark.tag = PENCERE_VIEW_TYPES_MARK_ANCHOR;
+        out.mark.val.anchor = host_string(bytes, length);
+        lua_pop(L, 1);
+        return out;
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "the name of a range is a string: { from =, to =, anchor = \"name\" }");
+    }
+    lua_pop(L, 1);
     get(L, t, "zone");
     if (!lua_isnil(L, -1)) {
         out.mark.tag = PENCERE_VIEW_TYPES_MARK_ZONE;
@@ -2153,6 +2244,15 @@ pencere_view_types_decoration_t decoration_at(lua_State* L, int t) {
     }
     look.italic = optional_flag(L, t, "italic");
     look.strike = flag(L, t, "strike");
+    get(L, t, "id");
+    if (lua_type(L, -1) == LUA_TSTRING) {
+        size_t length = 0;
+        const char* bytes = lua_tolstring(L, -1, &length);
+        look.id = {true, host_string(bytes, length)};
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "the id of a style is a string");
+    }
+    lua_pop(L, 1);
     // A colour is a straight line; { wavy = colour } is a wavy one.
     get(L, t, "underline");
     int underline = lua_gettop(L);

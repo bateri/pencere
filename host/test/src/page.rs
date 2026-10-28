@@ -495,6 +495,18 @@ impl UserData for Handle {
                 None => Ok(Value::Nil),
             },
         );
+        methods.add_method(
+            "anchor_rect",
+            |lua, this, (editor, name): (String, String)| match this
+                .look(|page| page.anchor_rect(&editor, &name))?
+            {
+                Some(rect) => Ok(Value::Table(rect_table(lua, rect)?)),
+                None => Ok(Value::Nil),
+            },
+        );
+        methods.add_method("dwell", |_, this, (name, x, y): (String, f64, f64)| {
+            this.act(|page| page.dwell(&name, to_f32(x), to_f32(y)))
+        });
         methods.add_method("click_at", |_, this, (x, y): (f64, f64)| {
             this.act(|page| page.click_at(point(to_f32(x), to_f32(y))))
         });

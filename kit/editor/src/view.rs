@@ -106,8 +106,19 @@ impl Row {
     }
 }
 
+/// The word under the pointer ([`View::word_under`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Word {
+    /// The character the pointer is over.
+    pub at: usize,
+    pub from: usize,
+    pub to: usize,
+    /// Its box, pixels of the content.
+    pub rect: Rect,
+}
+
 /// What the rows of the lines were counted for: the version, the lines hidden, the width of the text.
-type Counted = (u64, Vec<(usize, usize)>, u32, Vec<(usize, usize, Id)>);
+type Counted = (u64, Vec<(usize, usize)>, u32, Vec<(usize, u32, Id)>);
 
 /// An editor's layout.
 #[derive(Debug)]
@@ -150,11 +161,15 @@ pub(crate) struct View {
     tops: Vec<usize>,
     /// What `tops` was counted for.
     counted: Option<Counted>,
-    /// The gaps kept open for the page, in order of their lines: the line each is after, how many
-    /// rows it takes, and its name.
-    zones: Vec<(usize, usize, Id)>,
+    /// The gaps kept open for the page, in order of their lines: the line each is after, how tall
+    /// it is (pixels, as the page said) and its name.
+    zones: Vec<(usize, f32, Id)>,
     /// How many rows of gaps are after each line that has any (a line folded away has none).
     zone_rows: HashMap<usize, usize>,
+    /// How much higher than `index * row` the rows of each line are drawn (pixels, from the top of
+    /// the content, lines counted as `tops`): the gaps take whole rows, and what a row takes more
+    /// than the gap is tall is taken back after it. Empty where no gap has such a remainder.
+    shrinks: Vec<f32>,
     /// The rows laid out: those in view and some about them.
     pub rows: Vec<Row>,
     /// How many characters the longest line has, and of which version.
@@ -197,6 +212,7 @@ impl Default for View {
             counted: None,
             zones: Vec::new(),
             zone_rows: HashMap::new(),
+            shrinks: Vec::new(),
             rows: Vec::new(),
             widest: None,
             measured: 0.0,
@@ -286,7 +302,7 @@ impl View {
     /// How large the content is.
     pub fn content(&self) -> Size {
         let rows = self.tops.last().copied().unwrap_or(1).max(1);
-        let height = rows as f32 * self.row + 2.0 * self.pad;
+        let height = self.y_of(rows) + 2.0 * self.pad;
         let width = if self.wrap {
             self.room.w
         } else {
@@ -403,13 +419,13 @@ impl View {
     pub fn count(&mut self, buffer: &Buffer) {
         let hidden = merged(buffer.hidden_lines());
         // The gaps the page keeps open: whole rows, after a line that shows.
-        let zones: Vec<(usize, usize, Id)> = if self.row > 0.0 {
+        let zones: Vec<(usize, f32, Id)> = if self.row > 0.0 {
             buffer
                 .zones()
                 .into_iter()
                 .map(|(line, zone)| {
-                    let rows = (zone.height.max(0.0) * self.scale / self.row).ceil() as usize;
-                    (line, rows.min(limits::ZONE_ROWS), zone.id)
+                    let most = limits::ZONE_ROWS as f32 * self.row;
+                    (line, (zone.height.max(0.0) * self.scale).min(most), zone.id)
                 })
                 .collect()
         } else {
@@ -419,7 +435,10 @@ impl View {
             buffer.version(),
             hidden.clone(),
             self.text_width().round() as u32,
-            zones.clone(),
+            zones
+                .iter()
+                .map(|(line, height, id)| (*line, height.to_bits(), *id))
+                .collect::<Vec<_>>(),
         );
         if self.counted.as_ref() == Some(&key) {
             return;
@@ -427,14 +446,19 @@ impl View {
         let lines = buffer.len_lines();
         let mut tops = Vec::with_capacity(lines + 1);
         let mut row = 0;
-        let mut gaps: HashMap<usize, usize> = HashMap::new();
-        for (line, rows, _) in &zones {
-            *gaps.entry(*line).or_default() += rows;
+        // A line's gaps are as tall as the page said, one after the other; they take the rows that
+        // hold them, and what is left of the last is taken back below.
+        let mut heights: HashMap<usize, f32> = HashMap::new();
+        for (line, height, _) in &zones {
+            *heights.entry(*line).or_default() += height;
         }
         let mut shown_gaps = HashMap::new();
+        let mut shrinks = Vec::with_capacity(lines + 1);
+        let mut shrink = 0.0_f32;
         let mut folds = hidden.iter().peekable();
         for line in 0..lines {
             tops.push(row);
+            shrinks.push(shrink);
             while folds.peek().is_some_and(|(_, last)| *last < line) {
                 folds.next();
             }
@@ -443,13 +467,17 @@ impl View {
                 .is_some_and(|(first, last)| line >= *first && line <= *last);
             if !hidden {
                 row += self.rows_of(buffer, line);
-                if let Some(rows) = gaps.get(&line) {
+                if let Some(height) = heights.get(&line) {
+                    let rows = (height / self.row).ceil() as usize;
                     row += rows;
-                    shown_gaps.insert(line, *rows);
+                    shrink += rows as f32 * self.row - height;
+                    shown_gaps.insert(line, rows);
                 }
             }
         }
         tops.push(row);
+        shrinks.push(shrink);
+        self.shrinks = if shrink > 0.0 { shrinks } else { Vec::new() };
         self.tops = tops;
         self.zones = zones;
         self.zone_rows = shown_gaps;
@@ -476,8 +504,8 @@ impl View {
     /// one that is after a line folded away is nowhere.
     pub fn zone_boxes(&self) -> Vec<(Id, Rect)> {
         let mut out = Vec::new();
-        let mut last: Option<(usize, usize)> = None;
-        for (line, rows, id) in &self.zones {
+        let mut last: Option<(usize, f32)> = None;
+        for (line, height, id) in &self.zones {
             let (Some(top), Some(next)) = (self.tops.get(*line), self.tops.get(*line + 1)) else {
                 continue;
             };
@@ -486,19 +514,13 @@ impl View {
             }
             let used = match last {
                 Some((at, used)) if at == *line => used,
-                _ => 0,
+                _ => 0.0,
             };
-            let start = next - self.zone_rows(*line) + used;
             out.push((
                 *id,
-                Rect::new(
-                    0.0,
-                    self.pad + start as f32 * self.row,
-                    self.room.w,
-                    *rows as f32 * self.row,
-                ),
+                Rect::new(0.0, self.line_bottom(*line) + used, self.room.w, *height),
             ));
-            last = Some((*line, used + rows));
+            last = Some((*line, used + height));
         }
         out
     }
@@ -547,9 +569,11 @@ impl View {
         self.scroll = scroll;
         for _ in 0..2 {
             self.count(buffer);
-            let first = ((scroll.y - self.pad) / self.row).floor().max(0.0) as usize;
+            let first = self.row_at(scroll.y - self.pad);
+            // The rows in the room may be more than it is tall in rows: the gaps are taken back what
+            // they are not tall.
+            let last = self.row_at(scroll.y - self.pad + self.room.h) + AROUND + 1;
             let first = first.saturating_sub(AROUND);
-            let last = first + (self.room.h / self.row).ceil() as usize + 2 * AROUND + 1;
             let mut rows = Vec::new();
             let mut line = self.line_at_row(first);
             let mut guessed_wrong = false;
@@ -623,7 +647,7 @@ impl View {
         let (row, into) = self.row_of(buffer, at, measure)?;
         Some(Point::new(
             self.text_x() + row.x(into),
-            self.pad + row.index as f32 * self.row,
+            self.pad + self.y_of(row.index),
         ))
     }
 
@@ -633,10 +657,85 @@ impl View {
     pub fn caret_of(&self, buffer: &Buffer, at: usize, measure: &mut dyn Measure) -> Option<Rect> {
         let (row, into) = self.row_of(buffer, at, measure)?;
         let x = self.text_x() + row.x(into);
-        let top = self.pad + row.index as f32 * self.row;
+        let top = self.pad + self.y_of(row.index);
         let drawn = self.caret_box(buffer, &row, at, x, top);
         let (y, h) = self.caret_span(top);
         Some(Rect::new(drawn.x, y, drawn.w, h))
+    }
+
+    /// The word (or the run of marks the double click takes) the pointer at `point` (pixels of the
+    /// content) is over: the place it is on, the range of the run and its box (pixels of the
+    /// content). `None` over the gutter, past the end of a line, in a gap kept open for the page and
+    /// over a run of spaces.
+    pub fn word_under(
+        &self,
+        buffer: &Buffer,
+        point: Point,
+        measure: &mut dyn Measure,
+    ) -> Option<Word> {
+        if self.row <= 0.0 || point.x < self.text_x() || point.y < self.pad {
+            return None;
+        }
+        let row = self.row_at(point.y - self.pad);
+        if row >= self.total() {
+            return None;
+        }
+        let line = self.line_at_row(row);
+        if row >= self.own_end(line) {
+            return None;
+        }
+        let place = self.place_at(buffer, point, measure);
+        let (found, into) = self.row_of(buffer, place, measure)?;
+        let here = self.text_x() + found.x(into);
+        let (start, end) = (buffer.line_start(line), buffer.line_end(line));
+        // The character the pointer is over: the one before the place where it is left of it, the
+        // one after where it is not.
+        let char_at = if point.x < here {
+            place.checked_sub(1).filter(|at| *at >= start)?
+        } else {
+            (place < end).then_some(place)?
+        };
+        let (from, to) = buffer.word_range(char_at);
+        if to <= from || buffer.slice(from, to)?.chars().all(char::is_whitespace) {
+            return None;
+        }
+        let boxed = self.range_box(buffer, from, to, measure)?;
+        Some(Word {
+            at: char_at,
+            from,
+            to,
+            rect: boxed,
+        })
+    }
+
+    /// The box of the range `from..to`, pixels of the content: from where it starts across, as wide
+    /// as its first row's part of it is, from the top of its first row to the bottom of its last. A
+    /// range that is a place is as wide as a caret; `None` where its start is not on a line that
+    /// shows (one folded away).
+    pub fn range_box(
+        &self,
+        buffer: &Buffer,
+        from: usize,
+        to: usize,
+        measure: &mut dyn Measure,
+    ) -> Option<Rect> {
+        let (first, into) = self.row_of(buffer, from, measure)?;
+        let x = self.text_x() + first.x(into);
+        let top = self.pad + self.y_of(first.index);
+        let (last, last_into) = self.row_of(buffer, to.max(from), measure)?;
+        let bottom = self.pad + self.y_of(last.index) + self.row;
+        let end = if last.index == first.index {
+            self.text_x() + last.x(last_into)
+        } else {
+            self.text_x() + first.x(first.to.max(into))
+        };
+        let thick = (self.options.caret.width * self.scale).round().max(1.0);
+        Some(Rect::new(
+            x,
+            top,
+            (end - x).max(thick),
+            (bottom - top).max(self.row),
+        ))
     }
 
     /// Where a caret on the row whose top is `top` starts down, and how tall it is (pixels): the
@@ -673,8 +772,7 @@ impl View {
     /// The place under `point` (pixels of the content): on the row it is on (the first or the last
     /// where it is above or below them all), the boundary nearest it across.
     pub fn place_at(&self, buffer: &Buffer, point: Point, measure: &mut dyn Measure) -> usize {
-        let row = ((point.y - self.pad) / self.row).floor();
-        let row = if row < 0.0 { 0 } else { row as usize };
+        let row = self.row_at(point.y - self.pad);
         self.place_on_row(buffer, row.min(self.total() - 1), point.x, measure)
     }
 
@@ -717,7 +815,7 @@ impl View {
         let top = self.scroll.y - self.pad;
         let bottom = top + self.room.h;
         let shown = |row: &&Row| {
-            let y = row.index as f32 * self.row;
+            let y = self.y_of(row.index);
             y + self.row > top && y < bottom
         };
         let first = self.rows.iter().find(shown).map_or(0, |row| row.line);
@@ -760,7 +858,7 @@ impl View {
         let gutter_clip = slot.clip.intersect(gutter);
         let origin_x = room.x + self.text_x() - slot.scroll.x;
         let origin_y = room.y + self.pad - slot.scroll.y;
-        let row_y = |row: &Row| origin_y + row.index as f32 * self.row;
+        let row_y = |row: &Row| origin_y + self.y_of(row.index);
         let quad = |rect: Rect, fill: Color, clip: Rect| {
             Paint::Quad(Quad {
                 rect,
@@ -1542,7 +1640,7 @@ impl View {
         let numbers = self.cols.iter().find(|col| col.kind == Kind::Numbers);
         let folding = self.cols.iter().find(|col| col.kind == Kind::Folds);
         for row in rows.iter().filter(|row| row.from == 0) {
-            let y = origin_y + row.index as f32 * self.row;
+            let y = origin_y + self.y_of(row.index);
             let text_y = y + self.lead;
             let current = row.line == main_line;
             if let Some(col) = numbers {
@@ -1630,22 +1728,72 @@ impl View {
 
     /// The bottom of line `line`'s own rows, pixels of the content.
     pub fn line_bottom(&self, line: usize) -> f32 {
-        self.line_top(line + 1) - self.zone_rows(line) as f32 * self.row
+        self.pad + self.y_of(self.own_end(line))
     }
 
     /// The top of line `line`, pixels of the content.
     pub fn line_top(&self, line: usize) -> f32 {
-        self.pad + self.tops.get(line).copied().unwrap_or(0) as f32 * self.row
+        self.pad + self.y_of(self.tops.get(line).copied().unwrap_or(0))
     }
 
     /// The top of line `line` (pixels of the page, `origin_y` the content's top).
     fn top_of(&self, origin_y: f32, line: usize) -> f32 {
-        origin_y + self.tops.get(line).copied().unwrap_or(0) as f32 * self.row
+        origin_y + self.y_of(self.tops.get(line).copied().unwrap_or(0))
     }
 
     /// Where line `line`'s own rows end: the gaps kept open after it are below.
     fn end_of(&self, origin_y: f32, line: usize) -> f32 {
-        self.top_of(origin_y, line + 1) - self.zone_rows(line) as f32 * self.row
+        origin_y + self.y_of(self.own_end(line))
+    }
+
+    /// The row line `line`'s own rows end at: the gaps kept open after it are below.
+    fn own_end(&self, line: usize) -> usize {
+        self.tops
+            .get(line + 1)
+            .copied()
+            .unwrap_or(0)
+            .saturating_sub(self.zone_rows(line))
+    }
+
+    /// The top of row `index`, pixels from the top of the content (its padding left out): the rows
+    /// one under the other, less what the gaps before it took more than they are tall.
+    fn y_of(&self, index: usize) -> f32 {
+        index as f32 * self.row - self.shrink_at(index)
+    }
+
+    /// What the rows from `index` on are drawn higher than `index * row`, pixels.
+    fn shrink_at(&self, index: usize) -> f32 {
+        let (Some(last), true) = (self.shrinks.last(), self.tops.last().is_some()) else {
+            return 0.0;
+        };
+        if index >= self.tops.last().copied().unwrap_or(0) {
+            return *last;
+        }
+        let line = self.line_at_row(index);
+        self.shrinks.get(line).copied().unwrap_or(*last)
+    }
+
+    /// The row at `y` pixels from the top of the content, its padding left out: the first for a
+    /// place above them all, and a row of a gap where one is.
+    fn row_at(&self, y: f32) -> usize {
+        if y <= 0.0 {
+            return 0;
+        }
+        if self.shrinks.is_empty() {
+            return (y / self.row).floor() as usize;
+        }
+        // The rows are one under the other, so the first one that starts below `y` is found by
+        // halving.
+        let (mut low, mut high) = (0, self.total().max(1));
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if self.y_of(middle) <= y {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        low.saturating_sub(1)
     }
 
     /// The markers of column `col`, with the layer each is of and its decoration, in the order they
@@ -1936,7 +2084,7 @@ impl View {
             return;
         }
         let s = self.scale.max(0.01);
-        let total = self.total() as f32;
+        let total = self.y_of(self.total()).max(1.0);
         let room = slot.rect;
         let width = (self.options.marks.ruler * s).round().max(3.0);
         let strip = room.right() - width - 2.0 * s;
@@ -1945,8 +2093,9 @@ impl View {
                 continue;
             };
             let (top, end) = self.ruler_rows(buffer, item);
-            let y = room.y + room.h * top as f32 / total;
-            let h = (room.h * (end - top) as f32 / total).max((2.0 * s).round());
+            let (y_top, y_end) = (self.y_of(top), self.y_of(end));
+            let y = room.y + room.h * y_top / total;
+            let h = (room.h * (y_end - y_top) / total).max((2.0 * s).round());
             let third = (width / 3.0).floor().max(1.0);
             let (x, w) = match mark.lane {
                 RulerLane::Full => (strip, width),
@@ -1998,7 +2147,15 @@ impl View {
             };
             let own = match kind {
                 Kind::Numbers if self.options.numbers == Numbers::Hidden => 0.0,
-                Kind::Numbers => digits as f32 * self.digit + self.pad,
+                Kind::Numbers => {
+                    let left = column
+                        .pad
+                        .map_or(if x == 0.0 { self.pad } else { 0.0 }, |points| {
+                            (points.clamp(*limits::COLUMN.start(), *limits::COLUMN.end()) * s)
+                                .round()
+                        });
+                    left + digits as f32 * self.digit + self.pad
+                }
                 Kind::Folds => (self.line * 0.8).round(),
                 Kind::Marks | Kind::Page => (self.line * 0.6).round(),
             };
@@ -2024,7 +2181,7 @@ impl View {
         if !self.gutter_shown || x < 0.0 || x >= self.gutter {
             return None;
         }
-        let row = ((y - self.pad) / self.row).floor().max(0.0) as usize;
+        let row = self.row_at(y - self.pad);
         // Below the last row there is no line, nor in a gap kept open for the page.
         if row >= self.total() {
             return None;
@@ -2087,7 +2244,8 @@ impl View {
             first
         };
         let top = self.tops.get(first).copied().unwrap_or(0);
-        let end = self.tops.get(last + 1).copied().unwrap_or(top);
+        // The gaps kept open after the last line are not its rows.
+        let end = self.own_end(last);
         (top, end.max(top))
     }
 }

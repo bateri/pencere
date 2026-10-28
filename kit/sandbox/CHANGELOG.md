@@ -18,6 +18,16 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **The pointer's rest, names for ranges and styles cross the interface** (`editor-hover`,
+  `editor-events`, `hover-options`, `mark.anchor`, `look.id`, `layout.word-at`, `gutter-column.pad`),
+  and the page API has `events = { "hover" }`, `hover = { delay = }`, `{ anchor = "name" }`,
+  `pencere.range_of(editor, name)`, `pencere.layout.word_at(editor, at)` and a style's `id`.
+- **`@pencere/ui`'s `popover` stands by the caret or a range of an editor** and closes at what its
+  `dismiss` lists (`escape`, `away`, `edit`, `caret`, `scroll`, `leave`), waiting `hide_delay` (0.3 s)
+  for the pointer to come back before `leave`; `focus = true` scrolls the card with ↑ ↓ ⇞ ⇟.
+  `u:handle` tells a component a `wake` it asked for (`spec.wake`), and `u:over(id)` whether the pointer
+  is over an element that does not answer it.
+
 - **The gutter's columns, markers, ruler marks and zones, and the event of the pointer in a column,
   across the interface and in Lua.** `gutters = { "numbers", { name =, width =, events =, hover = } }`
   and `marks = { bar =, hover =, ruler = }` in an editor's options, `colors.mark_hover`; decorations
@@ -198,6 +208,10 @@ type = "editor_ready", editor =, version = }`.
   language's name and the line. A page that does not require it has none of it.
 
 ### Changed
+
+- **`@pencere/keys` writes the keys that are no characters as words on a Mac too** (`Enter`, `Esc`,
+  `Tab`, `Backspace`, `Delete`, `Space`, `Home`, `End`, `PageUp`, `PageDown`; the arrows and ⌘⇧⌥⌃ stay
+  signs); the glyphs (`↩ ⎋ ⇥ ⌫ ⌦ ␣ ⇞ ⇟ ↖ ↘`) are `options.symbols = true` or `keys.set_symbols(true)`.
 
 - A component written against `pencere:view@1.0.0` is refused, in words that name both versions.
 - The application scrolls a page's boxes, not the page: a style says no offset (`scroll-x` and

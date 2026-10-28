@@ -21,6 +21,10 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
 
 ### Added
 
+- **The pointer's rest is timed on the frames' clock** (`Page::wake_at` has `rest_due`; the drive
+  keeps the modifiers it was told of), `Page::anchor_rect`, and the headless host and `pencere test`
+  can `dwell(element, x, y)` and say where a range the page named is (`anchor_rect`).
+
 - **The gutter and the pointer's shape.** Every pointer move is the editors' as well (the marker
   under it is lit, the page told of a cell it came to and went from where its column hears that,
   with no frame for a move that changed nothing), and a press of another button is told to a column

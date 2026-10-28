@@ -1930,3 +1930,129 @@ fn a_press_on_a_bar_opens_a_zone_the_pages_element_stands_in_and_scrolls_with_th
     assert!(page.bounds("peek").is_none());
     Ok(())
 }
+
+// --- What the pointer rests on -----------------------------------------------------------------------
+
+/// A page that shows a card by the word the pointer rests on, as a page of a language server's
+/// client does: it hears of the rest (`hover`), names the word's range, and puts a card beside it.
+const HOVER: &str = r#"
+local b = pencere
+local text = "alpha beta\ngamma delta"
+local card = nil
+local version = 0
+
+local function layer(from, to)
+	return { decorate = "card", version = version, from = 0, to = #text, decorations = card and {
+		{ from = card.from, to = card.to, anchor = "card" },
+	} or {} }
+end
+
+local function render()
+	local root = b.div():size_full():child(
+		b.editor("code", { gutter = false, events = { "hover" }, hover = { delay = 0.5 } }):size_full()
+	)
+	if card then
+		root:child(b.div():id("card"):w(120):h(40):bg("raised2")
+			:anchor(pencere.range_of("code", "card"), "below")
+			:child(b.text("card " .. card.word)))
+	end
+	return root
+end
+
+local function handle(event)
+	if event.type == "editor_ready" then
+		return { editor = { code = { { load = text } } } }
+	elseif event.type == "edit" then
+		version = event.version
+		return { editor = { code = { { decorate = "diagnostics", version = version, from = 0, to = #text,
+			decorations = { { from = 0, to = 5, underline = { wavy = "error" }, id = "e1" } } } } } }
+	elseif event.type == "hover" and event.kind == "dwell" then
+		card = { from = event.from, to = event.to,
+			word = pencere.layout.editor_text("code", event.from, event.to) .. #event.hits }
+		return { redraw = true, editor = { code = { layer() } } }
+	elseif event.type == "hover" and event.kind == "leave" then
+		card = nil
+		return { redraw = true, editor = { code = { layer() } } }
+	end
+	return nil
+end
+
+return { render = render, handle = handle }
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_that_hears_of_the_rest_puts_a_card_by_the_word_and_takes_it_away_when_the_pointer_goes()
+-> Result<(), Error> {
+    let mut page = open(HOVER)?;
+    // The pointer is over `alpha` (4 in from the room's edge, a letter is some 7 wide).
+    page.dwell("code", 12.0, 12.0)?;
+    assert!(page.says("card alpha1"), "{:?}", page.words());
+    let word = page
+        .anchor_rect("code", "card")
+        .expect("the range is a box");
+    let card = page.bounds("card").expect("the card");
+    assert_eq!((card.x, card.y), (word.x, word.bottom()));
+    // The rest was told with the styles of an `id` that hold the place: the one that is under.
+    let told = page
+        .told()
+        .iter()
+        .find_map(|event| match event {
+            Event::Hover(hover) if hover.kind == pencere_view::edit::HoverKind::Dwell => {
+                Some(hover)
+            }
+            _ => None,
+        })
+        .expect("a rest");
+    assert_eq!((told.from, told.to), (0, 5));
+    assert_eq!(told.hits.len(), 1);
+    assert_eq!(told.hits[0].id, "e1");
+    // The word at a place, by the same rule the pointer's rest uses.
+    // On `beta`: the card for the first goes, and one for the second comes.
+    page.dwell("code", 60.0, 12.0)?;
+    assert!(page.says("card beta0"), "{:?}", page.words());
+    assert!(!page.says("card alpha1"));
+    // Off the page: the card goes.
+    page.leave()?;
+    page.advance(0.1)?;
+    assert!(!page.says("card beta0"), "{:?}", page.words());
+    assert_eq!(page.anchor_rect("code", "card"), None);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_word_at_a_place_is_the_double_clicks_and_an_option_the_editor_has_not_is_an_error()
+-> Result<(), Error> {
+    let page = open(
+        r#"
+local b = pencere
+local said = nil
+return {
+	render = function()
+		return b.div():size_full():child(b.editor("code", { gutter = false }):size_full()):child(b.text(said or "none"))
+	end,
+	handle = function(event)
+		if event.type == "editor_ready" then
+			return { editor = { code = { { load = "foo.bar  baz" } } } }
+		elseif event.type == "edit" then
+			local a, z = pencere.layout.word_at("code", 5)
+			local c, d = pencere.layout.word_at("code", 8)
+			said = a .. "-" .. z .. " " .. c .. "-" .. d .. " " .. tostring(pencere.layout.word_at("code", 99))
+			return { redraw = true }
+		end
+		return nil
+	end,
+}
+"#,
+    )?;
+    // `bar` is 4 to 7; a place in the spaces is their run, 7 to 9; none past the end.
+    assert!(page.says("4-7 7-9 nil"), "{:?}", page.words());
+    let why = failing(
+        r#"
+return { render = function() return pencere.editor("code", { hover = 1, hovr = {} }) end }
+"#,
+    );
+    assert!(why.contains("an editor has no option hovr"), "{why}");
+    Ok(())
+}

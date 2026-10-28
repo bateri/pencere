@@ -12,6 +12,9 @@ pub struct Id(u64);
 /// The role of an editor's name that is its caret's ([`Id::caret`]): one no page has a use for.
 const CARET: u8 = 0xc7;
 
+/// The role of an editor's name that a range of its text is named by ([`Id::anchor`]).
+const ANCHOR: u8 = 0xa7;
+
 impl Id {
     /// The id with this number.
     pub const fn new(number: u64) -> Self {
@@ -43,6 +46,14 @@ impl Id {
     #[must_use]
     pub const fn caret(self) -> Self {
         self.role(CARET)
+    }
+
+    /// The range named `name` of the editor named this ([`crate::edit::Mark::Anchor`]): what an
+    /// overlay is anchored to, as to [`Id::caret`], and what [`crate::Laid::bounds`] says the box of,
+    /// while the editor has the room and the range is on a line that shows.
+    #[must_use]
+    pub fn anchor(self, name: &str) -> Self {
+        Self(self.role(ANCHOR).0 ^ Self::named(name).role(ANCHOR).0)
     }
 
     /// An id related to this one — the same element in another role (a row, and the fade of

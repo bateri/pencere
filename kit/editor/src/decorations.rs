@@ -15,6 +15,8 @@ pub(crate) struct Layer {
     pub rulers: bool,
     /// The same for the gaps kept open for the page.
     pub zones: bool,
+    /// The same for the names of ranges.
+    pub anchors: bool,
 }
 
 /// An editor's decorations, and its folded regions.
@@ -62,22 +64,40 @@ impl Decorations {
         if others + kept.len() + items.len() > limits::DECORATIONS {
             return Err(Refusal::TooManyDecorations);
         }
+        let named = |items: &[Decoration]| {
+            items
+                .iter()
+                .filter(|item| matches!(item.mark, Mark::Anchor(_)))
+                .count()
+        };
+        let other_names: usize = self
+            .layers
+            .iter()
+            .filter(|layer| layer.name != name)
+            .map(|layer| named(&layer.items))
+            .sum();
+        if other_names + named(&kept) + named(&items) > limits::ANCHORS {
+            return Err(Refusal::TooManyDecorations);
+        }
         let mut all = kept;
         all.append(&mut items);
         all.sort_by_key(|item| (item.from, item.to));
         let rulers = all.iter().any(|item| matches!(item.mark, Mark::Ruler(_)));
         let zones = all.iter().any(|item| matches!(item.mark, Mark::Zone(_)));
+        let anchors = all.iter().any(|item| matches!(item.mark, Mark::Anchor(_)));
         match at.and_then(|at| self.layers.get_mut(at)) {
             Some(layer) => {
                 layer.items = all;
                 layer.rulers = rulers;
                 layer.zones = zones;
+                layer.anchors = anchors;
             }
             None => self.layers.push(Layer {
                 name: name.to_owned(),
                 items: all,
                 rulers,
                 zones,
+                anchors,
             }),
         }
         self.layers.retain(|layer| !layer.items.is_empty());
@@ -171,6 +191,24 @@ impl Decorations {
             })
             .collect();
         out.sort_by_key(|(at, _)| *at);
+        out
+    }
+
+    /// The ranges the page named, by name, each with its range: of a name said more than once, the
+    /// one in the layer that came last (and, in it, the one that starts last).
+    pub fn anchors(&self) -> Vec<(String, usize, usize)> {
+        let mut out: Vec<(String, usize, usize)> = Vec::new();
+        for layer in self.layers.iter().filter(|layer| layer.anchors) {
+            for item in &layer.items {
+                let Mark::Anchor(name) = &item.mark else {
+                    continue;
+                };
+                match out.iter_mut().find(|(known, _, _)| known == name) {
+                    Some(found) => *found = (name.clone(), item.from, item.to),
+                    None => out.push((name.clone(), item.from, item.to)),
+                }
+            }
+        }
         out
     }
 

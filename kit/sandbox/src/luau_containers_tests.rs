@@ -504,6 +504,7 @@ impl Pair {
             | Event::Pointer { .. }
             | Event::EditorReady { .. }
             | Event::Gutter(_)
+            | Event::Hover(_)
             | Event::Edit { .. }
             | Event::Selection { .. }
             | Event::Viewport { .. }

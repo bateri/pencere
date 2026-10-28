@@ -342,22 +342,90 @@ end
 
 local SIDES = { above = true, below = true, left = true, right = true }
 
--- `body` in a card that stands beside an element (`anchor`: its name, or `pencere.caret_of(editor)`),
--- on `side` of it ("below" by default) `gap` points away. It leaves the page as it is, the keyboard
--- where it is: escape, and a press outside it (not on its anchor), say `{ kind = "dismiss" }`.
+-- What closes a popover: escape, a press outside it, and, of one that stands by an editor's text,
+-- the text changing under it, the caret moving, the editor scrolling, and the pointer leaving the
+-- word it rested on (after `hide_delay`, unless it went onto the card, or came to rest on another
+-- word, meanwhile).
+local DISMISSALS = { escape = true, away = true, edit = true, caret = true, scroll = true, leave = true }
+local EDITOR_DISMISSALS = { "escape", "away", "edit", "caret", "scroll", "leave" }
+local ELEMENT_DISMISSALS = { "escape", "away" }
+-- How long the pointer may be off the word before the card goes, seconds (VS Code's
+-- `editor.hover.hidingDelay` and Zed's `hover_popover_hiding_delay`).
+local HIDE_DELAY = 0.3
+-- Which way each key scrolls the body of a card that has the focus: a line (this many points) or a
+-- page of it (nine tenths of it).
+local SCROLLS = { up = -1, down = 1, page_up = -1, page_down = 1 }
+local LINE = 40
+
+-- The editor an anchor stands by: the name `pencere.caret_of` or `pencere.range_of` was given, nil
+-- of an element's name.
+local function editor_of(anchor)
+	if type(anchor) == "table" then
+		return anchor.caret or anchor.anchor
+	end
+	return nil
+end
+
+-- What closes this popover, as a set.
+local function dismissals(props)
+	local list = props.dismiss or (editor_of(props.anchor) ~= nil and EDITOR_DISMISSALS or ELEMENT_DISMISSALS)
+	local set = {}
+	for _, word in list do
+		set[word] = true
+	end
+	return set
+end
+
+-- `body` in a card that stands beside an element (`anchor`: its name), the caret of an editor
+-- (`pencere.caret_of(editor)`) or a range of its text (`pencere.range_of(editor, name)`), on `side`
+-- of it ("below" by default) `gap` points away. It leaves the page as it is, the keyboard where it is,
+-- and says `{ kind = "dismiss" }` at what `dismiss` lists ("escape", "away" (a press outside it, not
+-- on its anchor), and of an editor's: "edit", "caret", "scroll", "leave"; all of them where it stands
+-- by an editor, the first two by an element). `hide_delay` (0.3) is how long the pointer may be off the
+-- word it rested on before "leave" does: it may come onto the card, or rest on another word, within
+-- it. `focus = true` is the card whose body the keys ↑ ↓ ⇞ ⇟ scroll (commands of the page, while it is
+-- open) and Escape closes, with the keyboard staying in the editor.
 local Popover = core.component("popover", {
 	check = function(props)
-		if type(props.anchor) ~= "string" then
-			return "a popover stands by an element: popover(id, { anchor = <name of an element> }, body)"
+		local anchor = props.anchor
+		if type(anchor) ~= "string" and editor_of(anchor) == nil then
+			return "a popover stands by an element, the caret or a range of an editor: popover(id, { anchor = <name of an element>, pencere.caret_of(editor) or pencere.range_of(editor, name) }, body)"
 		end
 		if props.side ~= nil and not SIDES[props.side] then
 			return 'a popover\'s side is "above", "below", "left" or "right", not ' .. tostring(props.side)
 		end
+		if props.dismiss ~= nil then
+			if type(props.dismiss) ~= "table" then
+				return 'a popover\'s dismiss is a list of "escape", "away", "edit", "caret", "scroll" and "leave"'
+			end
+			for _, word in props.dismiss do
+				if not DISMISSALS[word] then
+					return 'a popover is dismissed by "escape", "away", "edit", "caret", "scroll" or "leave", not '
+						.. tostring(word)
+				end
+			end
+		end
+		if props.hide_delay ~= nil and (type(props.hide_delay) ~= "number" or props.hide_delay < 0) then
+			return "a popover's hide_delay is a number of seconds"
+		end
 		return nil
+	end,
+	state = function()
+		-- When the pointer left the word the card is for, while the card waits to go.
+		return { leaving = nil }
 	end,
 	view = function(u, id, props)
 		local t = u.theme
 		u:layer(id, { modal = false })
+		local body = props.body
+		if props.focus then
+			local scroller = u:part(id, "body")
+			body = pencere.div():id(scroller):scroll():max_h(props.max_height or 320):child(body)
+			u:root_command(u:part(id, "up"), "Scroll Up", "up")
+			u:root_command(u:part(id, "down"), "Scroll Down", "down")
+			u:root_command(u:part(id, "page_up"), "Scroll Page Up", "page_up")
+			u:root_command(u:part(id, "page_down"), "Scroll Page Down", "page_down")
+		end
 		local card = pencere.div()
 			:anchor(props.anchor, props.side or "below", { gap = props.gap or 4, align = props.align })
 			:id(id)
@@ -366,23 +434,69 @@ local Popover = core.component("popover", {
 			:border(1, t.line)
 			:shadow(0, 8, 24, alpha("shadow", 0.4))
 			:motion({ seconds = 0.12, enter = { opacity = 0, seconds = 0.12 } })
-			:child(props.body)
+			:child(body)
 		if props.width ~= nil then
 			card:w(props.width)
 		end
 		return card
 	end,
 	away = function(_, _, props, _, _, hit)
-		if hit ~= nil and hit == props.anchor then
+		if not dismissals(props).away or (hit ~= nil and hit == props.anchor) then
 			return nil
 		end
 		return true, { kind = "dismiss" }
+	end,
+	dismiss = function(_, _, props)
+		if dismissals(props).escape then
+			return true, { kind = "dismiss" }
+		end
+		return false
+	end,
+	editor = function(_, _, props, state, event)
+		local set = dismissals(props)
+		local kind = event.type
+		if (kind == "edit" and set.edit) or (kind == "selection" and set.caret) or (kind == "viewport" and set.scroll) then
+			return true, { kind = "dismiss" }
+		elseif kind == "hover" and set.leave then
+			if event.kind == "leave" then
+				state.leaving = pencere.time.now()
+				return { wake = state.leaving + (props.hide_delay or HIDE_DELAY) }
+			end
+			-- Another word was rested on: the card is the page's to move to it.
+			state.leaving = nil
+		end
+		return nil
+	end,
+	wake = function(u, id, props, state, event)
+		local leaving = state.leaving
+		if leaving == nil or event.now < leaving + (props.hide_delay or HIDE_DELAY) - 1e-6 then
+			return nil
+		end
+		state.leaving = nil
+		if u:over(id) then
+			return false
+		end
+		return true, { kind = "dismiss" }
+	end,
+	-- The keys of a card that has the focus scroll its body.
+	command = function(u, id, _, _, part)
+		local body = u:name(id, "body")
+		local extent = layout.scroll_extent(body)
+		if extent == nil or SCROLLS[part] == nil then
+			return nil
+		end
+		local height = extent.view or 0
+		local step = SCROLLS[part] * (string.sub(part, 1, 4) == "page" and height * 0.9 or LINE)
+		local top = layout.scroll_offset(body) or 0
+		layout.scroll_to(body, { y = math.max(math.min(top + step, (extent.content or 0) - height), 0) })
+		return true
 	end,
 })
 
 function core.Ctx:popover(id, props, body)
 	props = table.clone(props or {})
 	props.body = body
+	props.editor = editor_of(props.anchor)
 	return Popover(self, id, props)
 end
 

@@ -23,8 +23,8 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
 use pencere_view::edit::{
-    EditCommand, Edited, EditorAsk, Found, GutterEvent, GutterHit, GutterKind, Keys, Movement,
-    Range, Refusal, RevealAlign, Selection, limits,
+    EditCommand, Edited, EditorAsk, Found, GutterEvent, GutterHit, GutterKind, HoverEvent, Keys,
+    Movement, Range, Refusal, RevealAlign, Selection, limits,
 };
 use pencere_view::{
     Button, Cursor, DrawList, EditorMetrics, EditorRoom, Font, Id, Key, Laid, Measure, Metrics,
@@ -57,6 +57,8 @@ pub enum EditorEvent {
     Ready { id: Id, version: u64 },
     /// The pointer did something in a gutter column the page hears of.
     Gutter(GutterEvent),
+    /// The pointer rested over a word the page hears of, or left it.
+    Hover(HoverEvent),
 }
 
 /// Where a key goes ([`Editors::key`]).
@@ -120,6 +122,9 @@ struct Editor {
     reveal: Option<(usize, RevealAlign)>,
     /// The gaps kept open for the page, as last told to the layout.
     zones: Vec<(Id, Rect)>,
+    /// The ranges the page named, by their names ([`Id::anchor`]) and their boxes in the content, as
+    /// last told to the layout.
+    anchors: Vec<(Id, Rect)>,
 }
 
 /// The editors of a page.
@@ -137,6 +142,8 @@ pub struct Editors {
     /// Where the pointer last was, points of the page: what it is over is found again when the
     /// page is laid out (a scroll, an edit and a fold move what is under it).
     pointer: Option<Point>,
+    /// What the pointer rests on ([`Editors::rest`]).
+    hovering: hover::Hovering,
     drag: Option<Drag>,
     scale: f32,
 }
@@ -166,6 +173,10 @@ impl Measure for Measured<'_> {
 
     fn zones(&mut self, id: Id) -> Vec<(Id, Rect)> {
         self.editors.zones(id)
+    }
+
+    fn anchors(&mut self, id: Id) -> Vec<(Id, Rect)> {
+        self.editors.anchors(id)
     }
 }
 
@@ -204,6 +215,16 @@ impl Editors {
     }
 
     /// The editor named `id`'s document, where there is one.
+    /// The ranges the page named in editor `id`, each by its name and its box in the content (pixels;
+    /// [`Measure::anchors`]).
+    pub fn anchors(&self, id: Id) -> Vec<(Id, Rect)> {
+        self.editors
+            .get(&id)
+            .filter(|editor| editor.shown)
+            .map(|editor| editor.anchors.clone())
+            .unwrap_or_default()
+    }
+
     pub fn buffer(&self, id: Id) -> Option<&Buffer> {
         self.editors.get(&id).map(|editor| &editor.buffer)
     }
@@ -443,6 +464,7 @@ impl Editors {
     /// column that hears menus it is told to the page; nothing else of an editor answers it. Whether
     /// it was one.
     pub fn press_other(&mut self, laid: &Laid, at: Point, button: Button, mods: Mods) -> bool {
+        self.end_rest();
         let Some((id, point)) = self.under(laid, at) else {
             return false;
         };
@@ -477,6 +499,7 @@ impl Editors {
         if self.pointer.is_some() {
             self.hover(laid, self.pointer);
         }
+        self.check_rest();
     }
 
     /// What the pointer is over, found again where it last was: the shape it has there.
@@ -562,6 +585,23 @@ impl Editors {
             editor.zones = zones;
             self.relayout = true;
         }
+        let anchors: Vec<(Id, Rect)> = editor
+            .buffer
+            .anchors()
+            .into_iter()
+            .filter_map(|(name, from, to)| {
+                Some((
+                    id.anchor(&name),
+                    editor.view.range_box(&editor.buffer, from, to, measure)?,
+                ))
+            })
+            .collect();
+        if anchors != editor.anchors {
+            // A range that moved, came or went is where an overlay stands by it is to be put again, and
+            // what the layout knows of it (`Laid::bounds`) is to be found again.
+            self.relayout = true;
+            editor.anchors = anchors;
+        }
         let main = editor.buffer.main().head;
         let metrics = EditorMetrics {
             caret: editor.view.caret_of(&editor.buffer, main, measure),
@@ -630,6 +670,7 @@ impl Editors {
         measure: &mut dyn Measure,
         now: f64,
     ) -> Route {
+        self.end_rest();
         let Some(id) = self.focus else {
             return Route::NotEditor;
         };
@@ -932,6 +973,7 @@ impl Editors {
         count: u32,
         measure: &mut dyn Measure,
     ) -> bool {
+        self.end_rest();
         let Some((id, point)) = self.under(laid, at) else {
             return false;
         };
@@ -1348,6 +1390,9 @@ impl From<EditorEvent> for pencere_view::Event {
                 version,
             },
             EditorEvent::Gutter(event) => Event::Gutter(event),
+            EditorEvent::Hover(event) => Event::Hover(event),
         }
     }
 }
+
+mod hover;

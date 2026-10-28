@@ -233,6 +233,9 @@ struct State {
     again: bool,
     /// When the caret of the editor with the keyboard next blinks, on the frames' clock.
     blink_at: Option<f64>,
+    /// The modifiers held as far as the drive knows: what the host last said of them, or of a key or
+    /// a press (the host's `flagsChanged` is not heard while another window is in front).
+    mods: Mods,
     /// Where the elements of the page that move were: the host moves them between the module's
     /// frames, laying the same page out again at each frame while one moves.
     motions: Motions,
@@ -411,6 +414,7 @@ impl Page {
                 cursor_over: None,
                 again: false,
                 blink_at: None,
+                mods: Mods::default(),
                 motions: Motions::default(),
             },
         }
@@ -435,6 +439,13 @@ impl Page {
             self.editors().unmark();
         }
         let state = &mut self.state;
+        match input {
+            Input::Mods(mods)
+            | Input::Key { mods, .. }
+            | Input::KeyUp { mods, .. }
+            | Input::Press { mods, .. } => state.mods = mods,
+            _ => {}
+        }
         let place = state.place;
         let now = state.clock.now();
         let (took, redraw) = state.scrolls.pointer(&into_page(input, place), now);
@@ -455,7 +466,13 @@ impl Page {
         let input = into_page(input, place);
         // Over an editor, the pointer is the editor's as well, and the page is told the place under
         // it; after what the editor told (the keyboard it took, the caret it put).
+        let due = self.state.editing.editors.rest_due();
         let (under, left) = self.pointer_in_editors(&input);
+        // The time a rest is told at is the host's clock to arm, and the pointer's move alone says
+        // no frame is wanted: the host is told (`Drained::wake`).
+        if self.state.editing.editors.rest_due() != due {
+            self.state.rewake = true;
+        }
         let state = &mut self.state;
         state.cursor_over = match input {
             Input::Move(at) | Input::Press { at, .. } | Input::Release { at, .. } => state
@@ -609,6 +626,11 @@ impl Page {
     /// person's window: an editor's caret is drawn, and blinks, only then.
     pub fn set_active(&mut self, active: bool) {
         let state = &mut self.state;
+        if !active {
+            // The pointer's rest, and the modifiers, are of a window that has the keyboard.
+            state.mods = Mods::default();
+            state.editing.editors.end_rest();
+        }
         let was = state.editing.blink;
         state.editing.blink.set_active(active);
         if state.editing.blink != was && state.editing.editors.focused().is_some() {
@@ -702,6 +724,7 @@ impl Page {
             state.wakes.waiting(),
             state.scrolls.wake_at(state.clock.frame),
             state.blink_at,
+            state.editing.editors.rest_due(),
         ]
         .into_iter()
         .flatten()
@@ -828,6 +851,20 @@ impl Page {
             .collect()
     }
 
+    /// The box of the range the page named `name` in the page's editor named `id`, in the host's
+    /// points, as of the last frame; none where there is no such range or it is not on a line that
+    /// shows.
+    pub fn anchor_rect(&self, id: Id, name: &str) -> Option<Rect> {
+        let laid = self.state.laid.as_ref()?;
+        Some(self.state.place.to_host(laid.bounds(id.anchor(name))?))
+    }
+
+    /// The time the pointer's rest over a word is told at, on the frames' clock, where it rests on
+    /// one an editor that hears of it ([`pencere_view::edit::EditorEvents::hover`]) has.
+    pub fn rest_due(&self) -> Option<f64> {
+        self.state.editing.editors.rest_due()
+    }
+
     /// The editor with the keyboard.
     pub fn focused_editor(&self) -> Option<Id> {
         self.state.editing.editors.focused()
@@ -863,8 +900,14 @@ impl Page {
     /// one that had it, back to the page, as a press outside a field does. The place under the
     /// pointer, where it is over an editor, and whether the page is to be told the keyboard left.
     fn pointer_in_editors(&mut self, input: &Input) -> (Option<Place>, bool) {
+        let mods = self.state.mods;
         if matches!(input, Input::Leave) {
-            self.edit(false, |editors, laid, _, _| editors.hover(laid, None));
+            self.state.mods = Mods::default();
+            let mods = Mods::default();
+            self.edit(false, |editors, laid, measure, now| {
+                editors.hover(laid, None);
+                editors.rest(laid, None, mods, now, measure);
+            });
             return (None, false);
         }
         if !matches!(
@@ -873,7 +916,7 @@ impl Page {
         ) {
             return (None, false);
         }
-        let done = self.edit(false, |editors, laid, measure, _| {
+        let done = self.edit(false, |editors, laid, measure, now| {
             let mut left = false;
             let at = match *input {
                 Input::Press {
@@ -898,6 +941,7 @@ impl Page {
                 Input::Move(at) => {
                     editors.drag_to(laid, at, measure);
                     editors.hover(laid, Some(at));
+                    editors.rest(laid, Some(at), mods, now, measure);
                     at
                 }
                 Input::Release { at, button } => {
