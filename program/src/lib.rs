@@ -93,7 +93,7 @@ pub use handlers::{Call, Subscription, ViewError};
 pub use terminal::Terminal;
 pub use view::{Access, Icon, IconTheme, Kind, Permission, View, WEB_VERSION};
 
-use handlers::{CallFn, TopicFn};
+use handlers::{CallFn, Method, TopicFn};
 use view::Source;
 
 /// What the program does when no view is shown.
@@ -106,7 +106,7 @@ pub struct Options {
     program: Option<String>,
     title: Option<String>,
     icons: Vec<Icon>,
-    calls: HashMap<String, Arc<CallFn>>,
+    calls: HashMap<String, Method>,
     topics: HashMap<String, Arc<TopicFn>>,
     fallback: Option<Fallback>,
     terminal: Option<Terminal>,
@@ -208,6 +208,9 @@ impl Options {
     ///
     /// The handler runs on a thread of its own, so it may take its time; it should look at
     /// [`Call::is_cancelled`] now and then, and may report its progress with [`Call::progress`].
+    /// The calls of the view run at the same time, so which of two that come together is answered
+    /// first is not defined; [`Options::call_in`] puts the calls that must not overtake one another
+    /// in a lane.
     #[must_use]
     pub fn call<T, F>(mut self, method: impl Into<String>, handler: F) -> Self
     where
@@ -216,14 +219,57 @@ impl Options {
     {
         self.calls.insert(
             method.into(),
-            Arc::new(move |params: Value, call: &Call| {
-                let result = handler(params, call)?;
-                serde_json::to_value(result).map_err(|why| {
-                    ViewError::with_message("internal", format!("the result is not JSON: {why}"))
-                })
-            }),
+            Method {
+                handler: Self::handler(handler),
+                lane: None,
+            },
         );
         self
+    }
+
+    /// Answers the calls of the view to `method` as [`Options::call`] does, in the lane `lane`: the
+    /// calls of one lane run one at a time, in the order the view sent them, each once the one
+    /// before it has been answered, on a thread of the lane's. Calls of other lanes, and those of
+    /// [`Options::call`], go on meanwhile. The lane is the program's word for what has to stay in
+    /// order: the edits of a document whose versions count up, the changes a language server is
+    /// told of.
+    ///
+    /// A call the view cancels before its turn does not run, and is not answered (§9.2: the view
+    /// ignores an answer after its `cancel`). A handler that panics is an `internal` error of its
+    /// call, and the lane goes on with the next.
+    #[must_use]
+    pub fn call_in<T, F>(
+        mut self,
+        lane: impl Into<String>,
+        method: impl Into<String>,
+        handler: F,
+    ) -> Self
+    where
+        T: Serialize,
+        F: Fn(Value, &Call) -> Result<T, ViewError> + Send + Sync + 'static,
+    {
+        self.calls.insert(
+            method.into(),
+            Method {
+                handler: Self::handler(handler),
+                lane: Some(lane.into().into()),
+            },
+        );
+        self
+    }
+
+    /// A handler of the program's, as `serve` holds it: what it returns made JSON.
+    fn handler<T, F>(handler: F) -> Arc<CallFn>
+    where
+        T: Serialize,
+        F: Fn(Value, &Call) -> Result<T, ViewError> + Send + Sync + 'static,
+    {
+        Arc::new(move |params: Value, call: &Call| {
+            let result = handler(params, call)?;
+            serde_json::to_value(result).map_err(|why| {
+                ViewError::with_message("internal", format!("the result is not JSON: {why}"))
+            })
+        })
     }
 
     /// Feeds the subscriptions of the view to `topic`. The handler is given the params of the

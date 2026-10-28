@@ -100,9 +100,14 @@ terminal is catching up, which is what keeps a feed that is faster than the term
 the memory.
 
 Calls run at the same time, so which of two calls that arrive together is answered first is
-not defined. A program that needs them in order, or needs the last of several to know about the
-others, says so itself (the example sums a payload the view sends in pieces, and its last piece
-waits for the rest).
+not defined. Those that must not overtake one another go in a lane:
+`Options::call_in("edits", "edit", handler)`. The calls of one lane run one at a time, in the order
+the view sent them, each once the one before it has been answered, while other lanes and the
+calls of `Options::call` go on; a call the view cancels before its turn does not run, and a
+handler that panics fails its own call and the lane goes on. A lane lasts as long as `serve`, so a
+call of a view shown again waits for a handler of the view before it that is still running. (The
+example takes the pieces of a payload the view sends in a lane, and the last one, which asks how
+much there was, comes after the others.)
 
 Anything a handler returns is JSON: the result of a call is `Serialize`, an error is a
 `ViewError` with a short `code` the view can act on and words for the person, and a handler that

@@ -12,6 +12,7 @@
 
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::io;
 use std::panic;
 use std::process::{Command, ExitStatus};
@@ -29,8 +30,8 @@ use crate::bundle::{Bundle, BundleError};
 use crate::control::{CloseResult, HandOffResult, ReopenResult, Request};
 use crate::foreground::{self, Job};
 use crate::handlers::{
-    Ask, Call, Feed, Flag, Outbox, Subscription, ViewError, Work, fits, payload_of, read_message,
-    run_call, run_topic,
+    self, Ask, Call, CallFn, Feed, Flag, Lane, Outbox, Subscription, ViewError, Work, fits,
+    payload_of, read_message, run_call, run_topic,
 };
 use crate::link::{Item, Reader, Writer};
 use crate::payload::{self, ByeReason, ClosedReason, FEATURE_DISMISS, Offer, OpenFields, Welcome};
@@ -43,6 +44,10 @@ use crate::{Closed, EndedBy, Error, Kind, NoView, NoViewReason, Options, Outcome
 /// How many calls of the view run at once. A view that asks for more is told `busy`.
 const MAX_CALLS: usize = 64;
 
+/// How many calls of the view one lane holds, the one that runs among them. A view that asks for
+/// more is told `busy`.
+const MAX_IN_A_LANE: usize = 256;
+
 /// How many messages a handler can have waiting for the loop before it has to wait.
 const WORK_ROOM: usize = 256;
 
@@ -53,8 +58,6 @@ thread_local! {
     /// This thread is the event loop of a `serve`: a panic on it gives the terminal back before
     /// anything is printed.
     static ON_THE_LOOP: Cell<bool> = const { Cell::new(false) };
-    /// This thread runs a handler: its panic is the call's error, not the program's.
-    static IN_A_HANDLER: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Where the conversation is.
@@ -237,7 +240,7 @@ impl PanicHook {
             Arc::from(panic::take_hook());
         let chain = Arc::clone(&previous);
         panic::set_hook(Box::new(move |info| {
-            if IN_A_HANDLER.with(Cell::get) {
+            if handlers::on_a_handler_thread() {
                 // The call is answered with the panic's words; nothing is printed on the view's
                 // screen.
                 return;
@@ -264,6 +267,14 @@ impl Drop for PanicHook {
             panic::set_hook(Box::new(move |info| previous(info)));
         }
     }
+}
+
+/// A call of the view that has not been answered.
+struct Outstanding {
+    /// Raised when the view cancels it or is over.
+    flag: Arc<Flag>,
+    /// The lane it runs in, if its method has one.
+    lane: Option<Arc<str>>,
 }
 
 struct Session<'a> {
@@ -302,8 +313,10 @@ struct Session<'a> {
     live: bool,
     /// The number of the view whose requests are served: what an earlier view asked is over.
     view: u64,
-    calls: HashMap<u64, Arc<Flag>>,
+    calls: HashMap<u64, Outstanding>,
     subscriptions: HashMap<u64, Arc<Feed>>,
+    /// The lanes that have had calls, by name: they last as long as `serve`.
+    lanes: HashMap<Arc<str>, Lane>,
     bye_sent: bool,
     finished: bool,
     result: Option<Result<Outcome, Error>>,
@@ -361,6 +374,7 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
         view: 1,
         calls: HashMap::new(),
         subscriptions: HashMap::new(),
+        lanes: HashMap::new(),
         bye_sent: false,
         finished: false,
         result: None,
@@ -599,7 +613,7 @@ impl Session<'_> {
     fn end_view(&mut self) {
         self.view += 1;
         for (_, call) in self.calls.drain() {
-            call.raise();
+            call.flag.raise();
         }
         for (_, feed) in self.subscriptions.drain() {
             feed.end();
@@ -1064,38 +1078,66 @@ impl Session<'_> {
         if self.calls.contains_key(&id) || self.subscriptions.contains_key(&id) {
             return;
         }
-        let Some(handler) = self.options.calls.get(&method) else {
+        let Some(entry) = self.options.calls.get(&method) else {
             self.tell_failure(
                 id,
                 &ViewError::with_message("not-found", "there is nothing to call by that name"),
             );
             return;
         };
-        if self.calls.len() >= MAX_CALLS {
-            self.tell_failure(
-                id,
-                &ViewError::with_message("busy", "too many calls are being answered"),
-            );
+        let lane = entry.lane.clone();
+        let out = self.calls.values().filter(|call| call.lane == lane).count();
+        let (room, why) = match lane {
+            None => (MAX_CALLS, "too many calls are being answered"),
+            Some(_) => (MAX_IN_A_LANE, "too many calls wait in their lane"),
+        };
+        if out >= room {
+            self.tell_failure(id, &ViewError::with_message("busy", why));
             return;
         }
-        let handler = Arc::clone(handler);
+        let handler = Arc::clone(&entry.handler);
         let flag = Arc::new(Flag::new());
-        self.calls.insert(id, Arc::clone(&flag));
+        self.calls.insert(
+            id,
+            Outstanding {
+                flag: Arc::clone(&flag),
+                lane: lane.clone(),
+            },
+        );
         let ask = Ask {
             view: self.view,
             id,
         };
         let call = Call::new(ask, method, flag, self.outbox.clone());
-        let started = terminal::spawn_quiet(move || {
-            IN_A_HANDLER.with(|on| on.set(true));
-            run_call(&*handler, params, &call);
-        });
+        let started = match lane {
+            None => handlers::spawn_handler(move || run_call(&*handler, params, &call)),
+            Some(lane) => self.queue(lane, handler, params, call),
+        };
         if started.is_err() {
             self.calls.remove(&id);
             self.tell_failure(
                 id,
                 &ViewError::with_message("internal", "the call could not be started"),
             );
+        }
+    }
+
+    /// Queues a call in its lane, which is started with its first call.
+    fn queue(
+        &mut self,
+        lane: Arc<str>,
+        handler: Arc<CallFn>,
+        params: Value,
+        call: Call,
+    ) -> io::Result<()> {
+        let started = match self.lanes.entry(lane) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(Lane::start()?),
+        };
+        if started.queue(handler, params, call) {
+            Ok(())
+        } else {
+            Err(io::Error::other("the lane is gone"))
         }
     }
 
@@ -1121,10 +1163,7 @@ impl Session<'_> {
         let feed = Arc::new(Feed::new(ask, topic, self.outbox.clone()));
         self.subscriptions.insert(id, Arc::clone(&feed));
         let subscription = Subscription::new(feed);
-        let started = terminal::spawn_quiet(move || {
-            IN_A_HANDLER.with(|on| on.set(true));
-            run_topic(&*handler, params, &subscription);
-        });
+        let started = handlers::spawn_handler(move || run_topic(&*handler, params, &subscription));
         if started.is_err()
             && let Some(feed) = self.subscriptions.remove(&id)
         {
@@ -1140,7 +1179,7 @@ impl Session<'_> {
     /// changes nothing (§9.2).
     fn on_cancel(&mut self, id: u64) {
         if let Some(call) = self.calls.remove(&id) {
-            call.raise();
+            call.flag.raise();
         } else if let Some(feed) = self.subscriptions.remove(&id) {
             feed.end();
         }
@@ -1171,10 +1210,10 @@ impl Session<'_> {
                 result,
             } => {
                 // Cancelled, or the view is over: the answer would be ignored.
-                let Some(flag) = self.calls.remove(&id) else {
+                let Some(call) = self.calls.remove(&id) else {
                     return;
                 };
-                if flag.is_raised() {
+                if call.flag.is_raised() {
                     return;
                 }
                 match result {
@@ -1186,7 +1225,11 @@ impl Session<'_> {
                 ask: Ask { id, .. },
                 payload,
             } => {
-                if self.calls.get(&id).is_some_and(|flag| !flag.is_raised()) {
+                if self
+                    .calls
+                    .get(&id)
+                    .is_some_and(|call| !call.flag.is_raised())
+                {
                     self.tell(&payload);
                 }
             }

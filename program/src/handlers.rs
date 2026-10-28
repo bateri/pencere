@@ -5,10 +5,12 @@
 //! it has got, the values of a subscription — goes to the event loop through a channel, and the
 //! loop is the one thread that writes to the terminal.
 
+use std::cell::Cell;
 use std::fmt;
+use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::SyncSender;
+use std::sync::mpsc::{Sender, SyncSender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -17,7 +19,7 @@ use pencere_wire::messages::{MAX_BYTES, Message};
 use serde_json::Value;
 
 use crate::control::{self, Answering};
-use crate::terminal::Pipe;
+use crate::terminal::{self, Pipe};
 
 /// An error a handler ends a call or a subscription with: the view gets `code` (a short name it
 /// can act on), and `message` if there is one (words for the person).
@@ -378,6 +380,73 @@ pub(crate) fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
 
 /// The handler of a call, as `serve` holds it.
 pub(crate) type CallFn = dyn Fn(Value, &Call) -> Result<Value, ViewError> + Send + Sync;
+
+/// A method the view may call: its handler, and the lane its calls run in, if they run in one.
+pub(crate) struct Method {
+    pub(crate) handler: Arc<CallFn>,
+    pub(crate) lane: Option<Arc<str>>,
+}
+
+thread_local! {
+    /// This thread runs handlers: a panic on it is the error of a call, not the program's.
+    static HANDLER_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether this thread runs handlers.
+pub(crate) fn on_a_handler_thread() -> bool {
+    HANDLER_THREAD.with(Cell::get)
+}
+
+/// Starts a thread that runs handlers: one that the program's signals are not delivered to.
+pub(crate) fn spawn_handler(body: impl FnOnce() + Send + 'static) -> io::Result<()> {
+    terminal::spawn_quiet(move || {
+        HANDLER_THREAD.with(|on| on.set(true));
+        body();
+    })
+}
+
+/// A call that waits for its turn in a lane.
+struct Turn {
+    handler: Arc<CallFn>,
+    params: Value,
+    call: Call,
+}
+
+/// A lane of calls ([`crate::Options::call_in`]): a thread that runs them one at a time, in the
+/// order they are queued. It lasts as long as what serves the view, not as long as one view, so a
+/// call of the view shown next waits for a handler of the view before that is still running. It
+/// ends when it is dropped, once the call it runs has been answered.
+pub(crate) struct Lane {
+    turns: Sender<Turn>,
+}
+
+impl Lane {
+    pub(crate) fn start() -> io::Result<Self> {
+        let (turns, waiting) = channel::<Turn>();
+        spawn_handler(move || {
+            for turn in waiting {
+                // Cancelled while it waited (or its view is over): it does not run, and is not
+                // answered (§9.2).
+                if turn.call.is_cancelled() {
+                    continue;
+                }
+                run_call(&*turn.handler, turn.params, &turn.call);
+            }
+        })?;
+        Ok(Self { turns })
+    }
+
+    /// Queues a call; whether the lane took it.
+    pub(crate) fn queue(&self, handler: Arc<CallFn>, params: Value, call: Call) -> bool {
+        self.turns
+            .send(Turn {
+                handler,
+                params,
+                call,
+            })
+            .is_ok()
+    }
+}
 
 /// The handler of a topic, as `serve` holds it.
 pub(crate) type TopicFn = dyn Fn(Value, &Subscription) -> Result<(), ViewError> + Send + Sync;

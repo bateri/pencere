@@ -21,6 +21,13 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **Calls in order.** `Options::call_in(lane, method, handler)` answers `method` in a lane: the
+  calls of one lane run one at a time, in the order the view sent them, on the lane's thread, while
+  other lanes and the calls of `Options::call` go on. A call cancelled before its turn does not run
+  and is not answered; a handler that panics is an `internal` error of its call and the lane goes
+  on. A lane lasts as long as `serve`: a call of a view shown again waits for a handler of the view
+  before it that is still running. A lane holds up to 256 calls; more are told `busy`.
+
 - **Lending the terminal to a command.** `ViewControl::hand_off(command)` closes the view, gives the
   terminal back, runs the command as the terminal's foreground job (its own process group, the
   tty's foreground, a stopped one continued), and when it ends takes the terminal back and shows
