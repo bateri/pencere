@@ -55,6 +55,9 @@
 //! A program that goes on after its view, or reloads the view as its files change, closes it and
 //! shows another with a [`ViewControl`] (§10.8); one that runs a shell or an editor in its pane
 //! lends it the terminal with [`ViewControl::hand_off`], and its view comes back when that ends.
+//!
+//! The same handlers are served with no terminal by a [`Conversation`]: for the program's tests,
+//! and for a host that runs the view in the same process.
 
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
@@ -67,6 +70,8 @@ struct ReadmeExamples;
 mod app;
 mod bundle;
 mod control;
+mod conversation;
+mod exchange;
 #[allow(unsafe_code)]
 mod foreground;
 mod handlers;
@@ -89,6 +94,7 @@ use serde_json::Value;
 pub use app::{App, DEV_VARIABLE, build};
 pub use bundle::{Bundle, BundleError, File};
 pub use control::{CloseResult, HandOff, HandOffResult, ReopenResult, ViewControl};
+pub use conversation::{Conversation, Lent, Said};
 pub use handlers::{Call, Subscription, ViewError};
 pub use terminal::Terminal;
 pub use view::{Access, Icon, IconTheme, Kind, Permission, View, WEB_VERSION};

@@ -21,6 +21,15 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **A conversation in the same process.** `Conversation::new(options)` serves a program's handlers
+  with no terminal: `send` gives them a message of the view as JSON text, `receive` and
+  `try_receive` take what the program says (`Said::Message`, and the requests of its `ViewControl`
+  as `Said::Closed`, `Said::Reopened` and `Said::HandedOff`, whose `Lent` says how the command
+  that was not run ended). The threads, the lanes, the subscriptions, the limit of a message, a
+  panic as `internal` and the pace of the reader are `serve`'s, by the same code: what the view and
+  the handlers say to each other is one part of the library, which `serve` carries over the
+  terminal and a conversation hands to its holder.
+
 - **Calls in order.** `Options::call_in(lane, method, handler)` answers `method` in a lane: the
   calls of one lane run one at a time, in the order the view sent them, on the lane's thread, while
   other lanes and the calls of `Options::call` go on. A call cancelled before its turn does not run

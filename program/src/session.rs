@@ -11,8 +11,6 @@
 //! program leaves.
 
 use std::cell::Cell;
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::io;
 use std::panic;
 use std::process::{Command, ExitStatus};
@@ -23,16 +21,12 @@ use std::time::Instant;
 use pencere_wire::base64;
 use pencere_wire::bundle::Digest;
 use pencere_wire::frame::Message as Frame;
-use pencere_wire::messages::Message;
-use serde_json::Value;
 
 use crate::bundle::{Bundle, BundleError};
 use crate::control::{CloseResult, HandOffResult, ReopenResult, Request};
+use crate::exchange::{Exchange, Toward, WORK_ROOM, WRITE_ROOM};
 use crate::foreground::{self, Job};
-use crate::handlers::{
-    self, Ask, Call, CallFn, Feed, Flag, Lane, Outbox, Subscription, ViewError, Work, fits,
-    payload_of, read_message, run_call, run_topic,
-};
+use crate::handlers::{self, Outbox, Work};
 use crate::link::{Item, Reader, Writer};
 use crate::payload::{self, ByeReason, ClosedReason, FEATURE_DISMISS, Offer, OpenFields, Welcome};
 use crate::terminal::{
@@ -40,19 +34,6 @@ use crate::terminal::{
 };
 use crate::view::Source;
 use crate::{Closed, EndedBy, Error, Kind, NoView, NoViewReason, Options, Outcome, Shown, View};
-
-/// How many calls of the view run at once. A view that asks for more is told `busy`.
-const MAX_CALLS: usize = 64;
-
-/// How many calls of the view one lane holds, the one that runs among them. A view that asks for
-/// more is told `busy`.
-const MAX_IN_A_LANE: usize = 256;
-
-/// How many messages a handler can have waiting for the loop before it has to wait.
-const WORK_ROOM: usize = 256;
-
-/// How many bytes may wait to be written before the loop takes no more from the handlers.
-const WRITE_ROOM: usize = 1 << 20;
 
 thread_local! {
     /// This thread is the event loop of a `serve`: a panic on it gives the terminal back before
@@ -269,12 +250,16 @@ impl Drop for PanicHook {
     }
 }
 
-/// A call of the view that has not been answered.
-struct Outstanding {
-    /// Raised when the view cancels it or is over.
-    flag: Arc<Flag>,
-    /// The lane it runs in, if its method has one.
-    lane: Option<Arc<str>>,
+/// The terminal's stream toward the view: a message of the six goes only while one is shown.
+struct Stream<'w> {
+    writer: &'w mut Writer,
+    showing: bool,
+}
+
+impl Toward for Stream<'_> {
+    fn tell(&mut self, payload: &str) -> bool {
+        self.showing && self.writer.message("msg", None, None, payload).is_ok()
+    }
 }
 
 struct Session<'a> {
@@ -311,12 +296,8 @@ struct Session<'a> {
     closed_reply: Option<SyncSender<CloseResult>>,
     /// The view is up on the terminal's side: what the view says is served.
     live: bool,
-    /// The number of the view whose requests are served: what an earlier view asked is over.
-    view: u64,
-    calls: HashMap<u64, Outstanding>,
-    subscriptions: HashMap<u64, Arc<Feed>>,
-    /// The lanes that have had calls, by name: they last as long as `serve`.
-    lanes: HashMap<Arc<str>, Lane>,
+    /// What the view asks of the handlers, and what they answer.
+    exchange: Exchange,
     bye_sent: bool,
     finished: bool,
     result: Option<Result<Outcome, Error>>,
@@ -343,7 +324,7 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
     };
     let _hook = PanicHook::install();
     let (sender, work) = sync_channel(WORK_ROOM);
-    let outbox = Outbox::new(sender, Arc::clone(&pipe));
+    let outbox = Outbox::new(sender, Some(Arc::clone(&pipe)));
     let _bound = options
         .control
         .as_ref()
@@ -356,7 +337,7 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
         reader: Reader::new(),
         writer: Writer::new(terminal.output()),
         work,
-        outbox,
+        outbox: outbox.clone(),
         phase: Phase::Over,
         fence_answered: false,
         alternate: false,
@@ -371,10 +352,7 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
         change: None,
         closed_reply: None,
         live: false,
-        view: 1,
-        calls: HashMap::new(),
-        subscriptions: HashMap::new(),
-        lanes: HashMap::new(),
+        exchange: Exchange::new(outbox),
         bye_sent: false,
         finished: false,
         result: None,
@@ -608,16 +586,9 @@ impl Session<'_> {
 
     // ---- ending ------------------------------------------------------------------
 
-    /// What the view had asked is over with it: calls are cancelled, subscriptions stop, and what
-    /// their handlers still have to say is about a view that is gone.
+    /// What the view had asked is over with it: calls are cancelled, subscriptions stop.
     fn end_view(&mut self) {
-        self.view += 1;
-        for (_, call) in self.calls.drain() {
-            call.flag.raise();
-        }
-        for (_, feed) in self.subscriptions.drain() {
-            feed.end();
-        }
+        self.exchange.end_view();
     }
 
     /// The terminal's view is gone, or the program no longer believes in it: nothing of it is
@@ -1038,150 +1009,15 @@ impl Session<'_> {
         if !self.live {
             return;
         }
-        // The view is not trusted: what is not one of its three messages is left.
-        let Some(request) = read_message(&message.payload) else {
-            return;
+        let mut stream = Stream {
+            writer: &mut self.writer,
+            showing: matches!(self.phase, Phase::Showing),
         };
-        match request {
-            Message::Call(call) => {
-                self.heard = true;
-                self.on_call(call.id, call.method, call.params);
-            }
-            Message::Subscribe(subscribe) => {
-                self.heard = true;
-                self.on_subscribe(subscribe.id, subscribe.topic, subscribe.params);
-            }
-            Message::Cancel(cancel) => {
-                self.heard = true;
-                self.on_cancel(cancel.id);
-            }
-            Message::Response(_) | Message::Push(_) | Message::Progress(_) => {}
-        }
-    }
-
-    /// Writes a message of the six toward the view; `false` when it was not (the view is gone, or
-    /// it is over a message's limit).
-    fn tell(&mut self, payload: &str) -> bool {
-        if !matches!(self.phase, Phase::Showing) || !fits(payload) {
-            return false;
-        }
-        self.writer.message("msg", None, None, payload).is_ok()
-    }
-
-    fn tell_failure(&mut self, id: u64, error: &ViewError) {
-        let message = Message::failure(id, error.code(), error.message().unwrap_or(""));
-        self.tell(&payload_of(&message));
-    }
-
-    fn on_call(&mut self, id: u64, method: String, params: Value) {
-        // An id that is out is not used again; a view that does is not following §9.2.
-        if self.calls.contains_key(&id) || self.subscriptions.contains_key(&id) {
-            return;
-        }
-        let Some(entry) = self.options.calls.get(&method) else {
-            self.tell_failure(
-                id,
-                &ViewError::with_message("not-found", "there is nothing to call by that name"),
-            );
-            return;
-        };
-        let lane = entry.lane.clone();
-        let out = self.calls.values().filter(|call| call.lane == lane).count();
-        let (room, why) = match lane {
-            None => (MAX_CALLS, "too many calls are being answered"),
-            Some(_) => (MAX_IN_A_LANE, "too many calls wait in their lane"),
-        };
-        if out >= room {
-            self.tell_failure(id, &ViewError::with_message("busy", why));
-            return;
-        }
-        let handler = Arc::clone(&entry.handler);
-        let flag = Arc::new(Flag::new());
-        self.calls.insert(
-            id,
-            Outstanding {
-                flag: Arc::clone(&flag),
-                lane: lane.clone(),
-            },
-        );
-        let ask = Ask {
-            view: self.view,
-            id,
-        };
-        let call = Call::new(ask, method, flag, self.outbox.clone());
-        let started = match lane {
-            None => handlers::spawn_handler(move || run_call(&*handler, params, &call)),
-            Some(lane) => self.queue(lane, handler, params, call),
-        };
-        if started.is_err() {
-            self.calls.remove(&id);
-            self.tell_failure(
-                id,
-                &ViewError::with_message("internal", "the call could not be started"),
-            );
-        }
-    }
-
-    /// Queues a call in its lane, which is started with its first call.
-    fn queue(
-        &mut self,
-        lane: Arc<str>,
-        handler: Arc<CallFn>,
-        params: Value,
-        call: Call,
-    ) -> io::Result<()> {
-        let started = match self.lanes.entry(lane) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => entry.insert(Lane::start()?),
-        };
-        if started.queue(handler, params, call) {
-            Ok(())
-        } else {
-            Err(io::Error::other("the lane is gone"))
-        }
-    }
-
-    fn on_subscribe(&mut self, id: u64, topic: String, params: Value) {
-        if self.calls.contains_key(&id) || self.subscriptions.contains_key(&id) {
-            return;
-        }
-        let Some(handler) = self.options.topics.get(&topic) else {
-            self.tell_failure(
-                id,
-                &ViewError::with_message(
-                    "not-found",
-                    "there is nothing to subscribe to by that name",
-                ),
-            );
-            return;
-        };
-        let handler = Arc::clone(handler);
-        let ask = Ask {
-            view: self.view,
-            id,
-        };
-        let feed = Arc::new(Feed::new(ask, topic, self.outbox.clone()));
-        self.subscriptions.insert(id, Arc::clone(&feed));
-        let subscription = Subscription::new(feed);
-        let started = handlers::spawn_handler(move || run_topic(&*handler, params, &subscription));
-        if started.is_err()
-            && let Some(feed) = self.subscriptions.remove(&id)
+        if self
+            .exchange
+            .on_message(self.options, &message.payload, &mut stream)
         {
-            feed.end();
-            self.tell_failure(
-                id,
-                &ViewError::with_message("internal", "the subscription could not be started"),
-            );
-        }
-    }
-
-    /// The view gives up a call that is out, or ends a subscription; an id that is not out
-    /// changes nothing (§9.2).
-    fn on_cancel(&mut self, id: u64) {
-        if let Some(call) = self.calls.remove(&id) {
-            call.flag.raise();
-        } else if let Some(feed) = self.subscriptions.remove(&id) {
-            feed.end();
+            self.heard = true;
         }
     }
 
@@ -1199,83 +1035,16 @@ impl Session<'_> {
 
     fn on_work(&mut self, work: Work) {
         match work {
-            // About a view that is gone: its requests are over with it.
-            Work::Answer { ask, .. }
-            | Work::Progress { ask, .. }
-            | Work::Started { ask, .. }
-            | Work::Push { ask, .. }
-                if ask.view != self.view => {}
-            Work::Answer {
-                ask: Ask { id, .. },
-                result,
-            } => {
-                // Cancelled, or the view is over: the answer would be ignored.
-                let Some(call) = self.calls.remove(&id) else {
-                    return;
-                };
-                if call.flag.is_raised() {
-                    return;
-                }
-                match result {
-                    Ok(value) => self.answer(id, value),
-                    Err(error) => self.tell_failure(id, &error),
-                }
-            }
-            Work::Progress {
-                ask: Ask { id, .. },
-                payload,
-            } => {
-                if self
-                    .calls
-                    .get(&id)
-                    .is_some_and(|call| !call.flag.is_raised())
-                {
-                    self.tell(&payload);
-                }
-            }
-            Work::Push {
-                ask: Ask { id, .. },
-                payload,
-            } => {
-                if self.subscriptions.contains_key(&id) {
-                    self.tell(&payload);
-                }
-            }
             Work::Control(request) => self.on_control(request),
             Work::Returned(status) => self.returned(status),
-            Work::Started {
-                ask: Ask { id, .. },
-                result,
-            } => {
-                if let Err(error) = result
-                    && let Some(feed) = self.subscriptions.remove(&id)
-                {
-                    feed.end();
-                    self.tell_failure(id, &error);
-                }
+            work => {
+                let mut stream = Stream {
+                    writer: &mut self.writer,
+                    showing: matches!(self.phase, Phase::Showing),
+                };
+                self.exchange.on_work(work, &mut stream);
             }
         }
-    }
-
-    /// The response that ends a call with `result`: never `null`, nothing to say is `{}`.
-    fn answer(&mut self, id: u64, result: Value) {
-        let result = if result.is_null() {
-            Value::Object(serde_json::Map::new())
-        } else {
-            result
-        };
-        let payload = payload_of(&Message::answer(id, result));
-        if !fits(&payload) {
-            self.tell_failure(
-                id,
-                &ViewError::with_message(
-                    "message-too-long",
-                    "the result is over the limit of a message",
-                ),
-            );
-            return;
-        }
-        self.tell(&payload);
     }
 
     // ---- closing the view at the program's request (§10.8) --------------------------

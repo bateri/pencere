@@ -168,6 +168,37 @@ command has ended (a hangup is passed on to it, as a shell passes its own on); `
 for that signal. With no view up — before `serve`, after it, in its fallback — `hand_off` runs the
 command in the foreground all the same.
 
+## Without a terminal
+
+`Conversation::new(options)` serves the same handlers with no terminal and no pty, in the
+program's own process: `send` gives them a message of the view (the JSON text of a `call`, a
+`subscribe` or a `cancel`), and `receive(within)` or `try_receive()` takes what the program says
+back. Everything between is `serve`'s, by the same code: each call on a thread of its own or of its
+lane, the subscriptions and their cleanups, the limit of a message, a panic as the `internal` error
+of its call, and the pace of the reader, which a handler that pushes faster than it is read waits
+for. It is how a program's tests try its handlers by the rules they run by, and how a host that
+runs the page in the same process talks to the program.
+
+```rust
+use pencere::{Conversation, Options, Said};
+use serde_json::json;
+use std::time::Duration;
+
+let mut conversation = Conversation::new(
+    Options::new().call_in("edits", "edit", |params, _call| Ok(json!({ "version": params["version"] }))),
+);
+conversation.send(r#"{"call":{"id":1,"method":"edit","params":{"version":3}}}"#);
+match conversation.receive(Duration::from_secs(5)) {
+    Some(Said::Message(text)) => assert_eq!(text, r#"{"response":{"id":1,"result":{"version":3}}}"#),
+    other => panic!("{other:?}"),
+}
+```
+
+A conversation is a terminal that can close a view and answers at once: what the program asks of
+its `ViewControl` is what it says, `Said::Closed`, `Said::Reopened` and `Said::HandedOff`. No
+command runs; the `Lent` of a hand-off says how it ended (`lent.returned(status)`), and until then
+there is no view to hear.
+
 ## When there is no view
 
 `serve` returns `Outcome::NoView` — after the fallback has run, and with the terminal as it was

@@ -143,23 +143,23 @@ pub(crate) enum Work {
 
 /// The way from a handler's thread to the event loop: a channel with room for a few messages, so
 /// that a handler that says more than the terminal reads waits (see `Subscription::push`), and
-/// the pipe that wakes the loop.
+/// the pipe that wakes the loop when the loop waits on one (a conversation waits on the channel).
 #[derive(Clone)]
 pub(crate) struct Outbox {
     sender: SyncSender<Work>,
-    pipe: Arc<Pipe>,
+    pipe: Option<Arc<Pipe>>,
 }
 
 impl Outbox {
-    pub(crate) fn new(sender: SyncSender<Work>, pipe: Arc<Pipe>) -> Self {
+    pub(crate) fn new(sender: SyncSender<Work>, pipe: Option<Arc<Pipe>>) -> Self {
         Self { sender, pipe }
     }
 
     /// Hands `work` to the loop; whether it was taken (the loop is gone when it was not).
     pub(crate) fn send(&self, work: Work) -> bool {
         let sent = self.sender.send(work).is_ok();
-        if sent {
-            self.pipe.wake();
+        if sent && let Some(pipe) = &self.pipe {
+            pipe.wake();
         }
         sent
     }
