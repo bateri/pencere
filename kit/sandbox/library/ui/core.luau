@@ -899,7 +899,9 @@ function Ctx:handle(event)
 		for _, box in event.boxes do
 			local mount, part, key = self:_owner(box.id)
 			if mount then
-				out.reply = merge(out.reply, (call(self, mount, "scrolled", part, key, box)))
+				local reply, action = call(self, mount, "scrolled", part, key, box)
+				out.reply = merge(out.reply, reply)
+				self:_emit(out, mount, action)
 			end
 		end
 	elseif EDITOR_EVENTS[kind] then

@@ -96,6 +96,11 @@ fn keys_at(page: &Headless) -> String {
     page.words_in("where").join("")
 }
 
+/// Whether the words on the page, as one text, say `text`: a text of many looks is many words.
+fn said(page: &Headless, text: &str) -> bool {
+    page.words().concat().contains(text)
+}
+
 /// What a screen reader is told of the element named `name`.
 fn accessible<'a>(page: &'a Headless, name: &str) -> &'a pencere_view::Accessible {
     let id = pencere_view::Id::named(name);
@@ -1013,6 +1018,580 @@ end
     assert!(
         !page.says("Hello"),
         "the anchor's own press toggles it, and does not close then open it"
+    );
+    Ok(())
+}
+
+// --- The lists ----------------------------------------------------------------------------------------
+
+const LIST: &str = r#"
+S.items = {}
+for index = 1, 200 do
+    table.insert(S.items, { key = "k" .. index, title = "Item " .. index })
+end
+S.state = { cursor = nil, marks = {} }
+view = function(u)
+    return pencere.div():size_full():gap(4)
+        :child(u:button("before", { title = "Before" }))
+        :child(u:list("results", { items = S.items, state = S.state, height = 24, multi = true,
+            keys = S.vim and { j = "down", k = "up" } or nil,
+            count = S.count }))
+end
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_list_builds_the_rows_in_view_and_is_chosen_and_opened_with_the_pointer() -> Result<(), Error> {
+    let mut page = open(LIST)?;
+    assert!(page.bounds("results/row/k1").is_some());
+    assert!(
+        page.bounds("results/row/k150").is_none(),
+        "only the rows near what is in view are built"
+    );
+    assert_eq!(
+        accessible(&page, "results/row/k1").role,
+        AccessibleRole::MenuItem
+    );
+    page.click("results/row/k2")?;
+    assert_eq!(log(&page), ["results select how=pointer key=k2"]);
+    assert!(accessible(&page, "results/row/k2").state.selected);
+    page.double_click("results/row/k3")?;
+    assert!(
+        log(&page).contains(&"results open how=pointer key=k3".to_string()),
+        "{:?}",
+        log(&page)
+    );
+    page.right_click("results/row/k4")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("results menu key=k4")
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_list_with_the_keyboard_goes_by_the_arrow_keys_and_keeps_the_row_in_view() -> Result<(), Error>
+{
+    let mut page = open(LIST)?;
+    page.press("tab")?;
+    page.press("tab")?;
+    assert_eq!(keys_at(&page), "keys at results in page");
+    page.press("down")?;
+    page.press("down")?;
+    assert_eq!(
+        log(&page),
+        [
+            "results select how=key key=k1",
+            "results select how=key key=k2"
+        ]
+    );
+    page.press("enter")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("results open how=key key=k2")
+    );
+    page.press("end")?;
+    page.settle()?;
+    let list = page.bounds("results").expect("the list");
+    let last = page
+        .bounds("results/row/k200")
+        .expect("the last row is built when it is the cursor");
+    assert!(
+        last.y >= list.y && last.y + last.h <= list.y + list.h + 0.5,
+        "{last:?} in {list:?}"
+    );
+    page.press("home")?;
+    page.settle()?;
+    assert!(page.bounds("results/row/k1").is_some());
+    page.press("page_down")?;
+    let moved = log(&page).last().cloned().unwrap();
+    assert!(
+        moved.starts_with("results select how=key key=k") && !moved.ends_with("k2"),
+        "{moved}"
+    );
+    page.press("space")?;
+    assert!(
+        log(&page).last().unwrap().starts_with("results mark"),
+        "{:?}",
+        log(&page).last()
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_list_is_given_the_keys_a_page_maps_and_asks_for_rows_it_has_not_read() -> Result<(), Error> {
+    let mut page = open(&LIST.replace("S.items = {}", "S.vim = true\nS.items = {}"))?;
+    page.press("tab")?;
+    page.press("tab")?;
+    page.press("j")?;
+    page.press("j")?;
+    page.press("k")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("results select how=key key=k1")
+    );
+    let mut lazy = open(
+        &LIST
+            .replace("for index = 1, 200 do", "for index = 1, 30 do")
+            .replace("S.state =", "S.count = 1000\nS.state ="),
+    )?;
+    lazy.scroll_to("results", 2000.0)?;
+    let asked = log(&lazy)
+        .into_iter()
+        .find(|line| line.starts_with("results need"))
+        .expect("a need");
+    assert!(
+        asked.contains("first=") && asked.contains("last="),
+        "{asked}"
+    );
+    Ok(())
+}
+
+// --- A palette ----------------------------------------------------------------------------------------
+
+const PALETTE: &str = r#"
+S.open = false
+S.items = {
+    { key = "save", title = "Save File", hint = "File", keys = "mod+s" },
+    { key = "save_all", title = "Save All Files", hint = "File" },
+    { key = "close", title = "Close Tab", hint = "View", keys = "mod+w" },
+    { key = "find", title = "Find in Files", hint = "Search", keys = "mod+shift+f" },
+    { key = "off", title = "Turned Off", enabled = false },
+}
+S.state = { query = "", cursor = nil }
+view = function(u)
+    local root = pencere.div():gap(8):child(u:button("open", { title = "Open" }))
+    if S.open then
+        root:child(u:palette("palette", { items = S.items, state = S.state, label = "Command palette",
+            hint = "Type a command", footer = { { keys = "enter", title = "Run" } } }))
+    end
+    return root
+end
+on_action = function(act)
+    if act.from == "open" then
+        S.open = true
+    elseif act.from == "palette" and (act.kind == "pick" or act.kind == "dismiss") then
+        S.open = false
+    end
+end
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_palette_finds_by_what_is_typed_moves_with_the_arrows_and_picks_with_enter() -> Result<(), Error>
+{
+    let mut page = open(PALETTE)?;
+    page.click("open")?;
+    page.step()?;
+    page.advance(0.3)?;
+    assert_eq!(
+        page.focus(),
+        Focus::Field(pencere_view::Id::named("palette/input/field"))
+    );
+    assert_eq!(
+        page.outline().fields[0].label.as_deref(),
+        Some("Command palette")
+    );
+    assert!(said(&page, "Save File") && said(&page, "Close Tab"));
+    assert!(
+        accessible(&page, "palette/list/row/save").state.selected,
+        "the first is chosen"
+    );
+    page.type_text("sf")?;
+    page.advance(0.3)?;
+    assert!(said(&page, "Save File") && said(&page, "Save All Files"));
+    assert!(
+        !page.says("Close Tab"),
+        "what the query is not in is not shown"
+    );
+    page.press("down")?;
+    assert!(
+        accessible(&page, "palette/list/row/save_all")
+            .state
+            .selected
+    );
+    page.press("enter")?;
+    page.step()?;
+    assert_eq!(
+        log(&page)
+            .iter()
+            .filter(|line| line.starts_with("palette pick"))
+            .count(),
+        1,
+        "{:?}",
+        log(&page)
+    );
+    assert!(!page.says("Command palette"));
+    assert_eq!(page.focus(), Focus::Page);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_palette_picks_with_a_click_gives_up_with_escape_and_says_back_in_an_empty_field()
+-> Result<(), Error> {
+    let mut page = open(PALETTE)?;
+    page.click("open")?;
+    page.step()?;
+    page.advance(0.3)?;
+    page.press("backspace")?;
+    assert_eq!(log(&page).last().map(String::as_str), Some("palette back"));
+    page.type_text("c")?;
+    page.press("backspace")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("palette query text="),
+        "{:?}",
+        log(&page)
+    );
+    page.click("palette/list/row/find")?;
+    assert!(
+        log(&page)
+            .iter()
+            .any(|line| line.starts_with("palette pick")),
+        "{:?}",
+        log(&page)
+    );
+    page.click("open")?;
+    page.step()?;
+    page.advance(0.3)?;
+    page.click_in("palette/card", 4.0, 4.0)?;
+    page.press("escape")?;
+    page.step()?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("palette dismiss")
+    );
+    page.click("open")?;
+    page.step()?;
+    page.advance(0.3)?;
+    page.type_text("zzzz")?;
+    page.advance(0.3)?;
+    assert!(page.says("No results"));
+    page.press("enter")?;
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_palette_searches_a_long_list_a_step_at_a_frame() -> Result<(), Error> {
+    let mut page = open(
+        &PALETTE
+            .replace(
+                "S.state = { query = \"\", cursor = nil }",
+                "for index = 1, 6000 do table.insert(S.items, { key = \"i\" .. index, title = \"Entry number \" .. index }) end\nS.state = { query = \"\", cursor = nil }",
+            ),
+    )?;
+    page.click("open")?;
+    page.step()?;
+    page.advance(0.3)?;
+    page.type_text("number 5999")?;
+    page.advance(1.0)?;
+    assert!(
+        said(&page, "Entry ") && said(&page, "5999"),
+        "{:?}",
+        page.words()
+    );
+    Ok(())
+}
+
+// --- Completions --------------------------------------------------------------------------------------
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn completions_stand_by_the_caret_and_take_their_keys_only_while_they_are_open() -> Result<(), Error>
+{
+    let mut page = open(
+        r#"
+S.items = {}
+view = function(u)
+    return pencere.div():size_full():gap(6)
+        :child(u:button("show", { title = "Show" }))
+        :child(pencere.editor("doc", {}):w_full():h(120))
+        :child(u:completions("complete", { editor = "doc", items = S.items }))
+end
+on_action = function(act)
+    if act.from == "show" then
+        S.items = { { key = "print", title = "print" }, { key = "pairs", title = "pairs" }, { key = "pcall", title = "pcall" } }
+    elseif act.from == "complete" then
+        S.items = {}
+    end
+end
+"#,
+    )?;
+    let keys_of = |page: &Headless| -> Vec<String> {
+        page.outline()
+            .commands
+            .iter()
+            .map(|command| command.title.clone())
+            .collect()
+    };
+    assert!(
+        keys_of(&page).is_empty(),
+        "no keys of its own while there is nothing to complete"
+    );
+    page.click("show")?;
+    page.focus_editor("doc")?;
+    page.advance(0.3)?;
+    assert!(page.says("pairs"));
+    assert!(
+        keys_of(&page)
+            .iter()
+            .any(|title| title == "Next completion")
+    );
+    page.press("down")?;
+    assert!(accessible(&page, "complete/list/row/pairs").state.selected);
+    page.press("enter")?;
+    assert_eq!(log(&page).last().map(String::as_str), Some("complete pick"));
+    assert!(!page.says("pairs"));
+    assert!(keys_of(&page).is_empty());
+    Ok(())
+}
+
+// --- Tree, split, status ------------------------------------------------------------------------------
+
+const TREE: &str = r#"
+S.kids = {
+    src = { "src/a.lua", "src/lib", "src/z.lua" },
+    ["src/lib"] = { "src/lib/x.lua", "src/lib/y.lua" },
+}
+S.state = { expanded = {}, cursor = nil }
+view = function(u)
+    return pencere.div():size_full()
+        :child(u:tree("files", { roots = { "src" }, state = S.state, height = 24,
+            children = function(key) return S.kids[key] end,
+            item = function(key) return { title = string.match(key, "[^/]+$"), badge = key == "src/z.lua" and "M" or nil } end,
+            keys = S.vim and { j = "down", k = "up", h = "left", l = "right" } or nil }))
+end
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_tree_opens_and_closes_folders_with_the_pointer_and_the_arrow_keys() -> Result<(), Error> {
+    let mut page = open(TREE)?;
+    assert!(page.says("src") && !page.says("a.lua"));
+    assert_eq!(
+        accessible(&page, "files/list/row/src").role,
+        AccessibleRole::Button
+    );
+    assert_eq!(
+        accessible(&page, "files/list/row/src").state.expanded,
+        Some(false)
+    );
+    page.click("files/chevron/src")?;
+    assert_eq!(log(&page), ["files expand key=src open=true"]);
+    assert!(page.says("a.lua") && page.says("lib"));
+    assert_eq!(
+        accessible(&page, "files/list/row/src").state.expanded,
+        Some(true)
+    );
+    assert_eq!(
+        accessible(&page, "files/list/row/src/a.lua").state.expanded,
+        None
+    );
+    // A press on a file chooses it, a second opens it.
+    page.click("files/list/row/src/a.lua")?;
+    page.double_click("files/list/row/src/z.lua")?;
+    assert!(
+        log(&page).contains(&"files select how=pointer key=src/a.lua".to_string()),
+        "{:?}",
+        log(&page)
+    );
+    assert!(
+        log(&page).contains(&"files open how=pointer key=src/z.lua".to_string()),
+        "{:?}",
+        log(&page)
+    );
+    // A press on a folder opens it.
+    page.click("files/list/row/src/lib")?;
+    assert!(page.says("x.lua"));
+    page.press("left")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("files expand key=src/lib open=false")
+    );
+    assert!(!page.says("x.lua"));
+    page.press("left")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("files select how=key key=src")
+    );
+    page.press("right")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("files select how=key key=src/a.lua"),
+        "right on an open folder goes into it"
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_tree_is_moved_with_the_keys_a_page_maps() -> Result<(), Error> {
+    let mut page = open(&TREE.replace("S.state =", "S.vim = true\nS.state ="))?;
+    page.click("files/list/row/src")?;
+    assert!(page.says("a.lua") && !page.says("x.lua"));
+    page.press("j")?;
+    page.press("j")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("files select how=key key=src/lib")
+    );
+    page.press("l")?;
+    assert!(page.says("x.lua"));
+    page.press("h")?;
+    assert!(!page.says("x.lua"));
+    page.press("k")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("files select how=key key=src/a.lua")
+    );
+    Ok(())
+}
+
+const SPLIT: &str = r#"
+S.side = { size = 240 }
+S.drawer = false
+view = function(u)
+    S.side.drawer = S.drawer
+    return pencere.div():size_full():gap(0)
+        :child(u:button("toggle", { title = "Toggle" }))
+        :child(pencere.div():grow(1):min_h(0):child(
+            u:split("side", { state = S.side, min = 160, max = 400, narrow_below = S.narrow, label = "Sidebar width",
+                side = S.edge,
+                first = pencere.div():id("first"):size_full():child(pencere.text("Sidebar")),
+                second = pencere.div():id("second"):size_full():child(pencere.text("Main")) })))
+end
+on_action = function(act)
+    if act.from == "toggle" then
+        S.drawer = not S.drawer
+    elseif act.from == "side" and act.kind == "drawer" then
+        S.drawer = act.open
+    end
+end
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_split_is_dragged_held_between_its_limits_and_sized_with_the_arrow_keys() -> Result<(), Error> {
+    let mut page = open(SPLIT)?;
+    assert_eq!(page.bounds("first").expect("pane").w, 240.0);
+    let handle = accessible(&page, "side/handle").clone();
+    assert_eq!(handle.role, AccessibleRole::Slider);
+    assert_eq!(handle.words, "Sidebar width");
+    assert_eq!(handle.state.value.as_deref(), Some("240 pt"));
+    page.drag_between(
+        pencere_view::Point::new(handle.rect.x + 3.0, 200.0),
+        pencere_view::Point::new(handle.rect.x + 63.0, 200.0),
+    )?;
+    assert_eq!(page.bounds("first").expect("pane").w, 300.0);
+    let said = log(&page);
+    assert!(
+        said.iter().any(|line| line == "side resize size=300"),
+        "{said:?}"
+    );
+    assert_eq!(
+        said.last().map(String::as_str),
+        Some("side resized size=300")
+    );
+    page.drag_between(
+        pencere_view::Point::new(handle.rect.x + 63.0, 200.0),
+        pencere_view::Point::new(handle.rect.x + 900.0, 200.0),
+    )?;
+    assert_eq!(
+        page.bounds("first").expect("pane").w,
+        400.0,
+        "held at its limit"
+    );
+    page.click("side/handle")?;
+    page.press("left")?;
+    assert_eq!(page.bounds("first").expect("pane").w, 384.0);
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("side resized size=384")
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_split_that_is_narrow_gives_its_sized_pane_as_a_drawer_over_the_other() -> Result<(), Error> {
+    let mut page = open(&SPLIT.replace("S.drawer = false", "S.drawer = false\nS.narrow = 1000"))?;
+    assert!(page.says("Main") && !page.says("Sidebar"));
+    assert!(page.bounds("side/handle").is_none());
+    page.click("toggle")?;
+    page.advance(0.3)?;
+    assert!(page.says("Sidebar"));
+    page.click("side/scrim")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("side drawer open=false")
+    );
+    page.advance(0.3)?;
+    assert!(!page.says("Sidebar"));
+    page.click("toggle")?;
+    page.advance(0.3)?;
+    page.press("escape")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("side drawer open=false")
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_split_sized_at_its_end_grows_the_other_way() -> Result<(), Error> {
+    let mut page = open(&SPLIT.replace("S.drawer = false", "S.drawer = false\nS.edge = \"end\""))?;
+    assert_eq!(page.bounds("second").expect("pane").w, 240.0);
+    let handle = accessible(&page, "side/handle").clone();
+    page.drag_between(
+        pencere_view::Point::new(handle.rect.x + 3.0, 200.0),
+        pencere_view::Point::new(handle.rect.x - 37.0, 200.0),
+    )?;
+    assert_eq!(page.bounds("second").expect("pane").w, 280.0);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_status_bar_answers_its_items_and_drops_the_least_important_where_it_is_narrow()
+-> Result<(), Error> {
+    let source = r#"
+view = function(u)
+    return u:status("status", {
+        start = { { key = "branch", words = "main", icon = "dot", press = true, priority = 9 } },
+        center = { { key = "saved", words = "Saved", priority = 1 } },
+        finish = {
+            { key = "pos", words = "Ln 12, Col 4", press = true, priority = 6, tip = "Go to line", keys = "ctrl+g" },
+            { key = "lang", words = "Lua", priority = 3 },
+            { key = "enc", words = "UTF-8 with a very long name", priority = 2 },
+        },
+    })
+end
+"#;
+    let mut page = open(source)?;
+    assert!(page.says("main") && page.says("Saved") && page.says("Lua"));
+    page.click("status/item/pos")?;
+    assert_eq!(log(&page), ["status press key=pos"]);
+    assert_eq!(
+        accessible(&page, "status/item/branch").role,
+        AccessibleRole::Button
+    );
+    let narrow = Headless::script(page_of(source))
+        .size(320.0, 200.0)
+        .open()?;
+    assert!(
+        narrow.says("main") && narrow.says("Ln 12, Col 4"),
+        "{:?}",
+        narrow.words()
+    );
+    assert!(
+        !narrow.says("Saved") && !narrow.says("UTF-8 with a very long name"),
+        "{:?}",
+        narrow.words()
     );
     Ok(())
 }

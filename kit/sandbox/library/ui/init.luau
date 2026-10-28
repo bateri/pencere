@@ -34,6 +34,8 @@ local basic = require("@self/basic")
 local controls = require("@self/controls")
 local layers = require("@self/layers")
 local commands = require("@self/commands")
+local lists = require("@self/lists")
+local structure = require("@self/structure")
 
 local ui = {}
 
@@ -47,7 +49,7 @@ ui.toast = layers.toast
 ui.toasts_prune = layers.toasts_prune
 
 -- The components, as methods of the context.
-for _, parts in { basic, controls, { dialog = layers.dialog, toasts = layers.toasts } } do
+for _, parts in { basic, controls, { dialog = layers.dialog, toasts = layers.toasts }, { list = lists.list, palette = lists.palette, completions = lists.completions }, structure } do
 	for name, component in parts do
 		core.Ctx[name] = component
 	end

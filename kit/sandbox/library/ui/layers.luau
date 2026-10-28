@@ -33,7 +33,7 @@ function layers.shell(u, id, options, body)
 	local width = math.min(options.width or 480, math.max(u.size.w - 2 * EDGE, 120))
 	local top = options.top or math.max(math.min(u.size.h * 0.18, 140), EDGE)
 	local card = pencere.div()
-		:press(u:part(id, "card"))
+		:id(u:part(id, "card"))
 		:w(width)
 		:no_shrink()
 		:bg(t.popup)
@@ -42,9 +42,8 @@ function layers.shell(u, id, options, body)
 		:shadow(t.elevation.dx, t.elevation.dy, t.elevation.blur, t.elevation.color)
 		:motion({ seconds = 0.14, enter = { opacity = 0, dy = -8, seconds = 0.14 } })
 		:child(body)
-	if options.label ~= nil then
-		card:label(options.label)
-	end
+	-- The card has no label: a screen reader would say it in place of what is inside. The scrim, which is
+	-- a button to it, says what it closes.
 	return pencere.div()
 		:overlay()
 		:inset(0, 0, 0, 0)
@@ -56,24 +55,29 @@ function layers.shell(u, id, options, body)
 				:absolute()
 				:inset(0, 0, 0, 0)
 				:press(u:part(id, "scrim"))
+				:label("Close" .. (options.label and (" " .. options.label) or ""))
 				:bg(t.scrim)
 				:motion({ seconds = 0.14, enter = { opacity = 0, seconds = 0.14 } })
 		)
 		:child(card)
 end
 
--- What a click does on the parts of a shell: the scrim gives up (unless `dismiss` is false), the card
--- swallows it.
-local function shell_click(part, props, answer)
-	if part == "scrim" then
-		if props.dismiss == false then
-			return false
-		end
-		return true, answer
-	elseif part == "card" then
+-- What a click does on a shell: a click on the scrim gives up (unless `dismiss` is false), but not one that
+-- is on the card, which no element of the page answers: the card is no element that answers the pointer
+-- (a screen reader would not hear what is inside one that does), so the scrim hears it, and the card's
+-- place says it is not its own.
+local function shell_click(u, id, part, props, answer, event)
+	if part ~= "scrim" and part ~= "card" then
+		return nil
+	end
+	local card = layout.bounds(u:name(id, "card"))
+	if card ~= nil and event ~= nil and event.x >= card.x and event.x < card.x + card.w and event.y >= card.y and event.y < card.y + card.h then
 		return false
 	end
-	return nil
+	if props.dismiss == false then
+		return false
+	end
+	return true, answer
 end
 layers.shell_click = shell_click
 
@@ -84,8 +88,8 @@ local Modal = core.component("modal", {
 	view = function(u, id, props)
 		return layers.shell(u, id, props, props.body)
 	end,
-	click = function(_, _, props, _, part)
-		return shell_click(part, props, { kind = "dismiss" })
+	click = function(u, id, props, _, part, _, event)
+		return shell_click(u, id, part, props, { kind = "dismiss" }, event)
 	end,
 	dismiss = function(_, _, props)
 		if props.dismiss == false then
@@ -163,8 +167,8 @@ local Dialog = core.component("dialog", {
 		body:child(row)
 		return layers.shell(u, id, { width = props.width or 420, label = props.title, initial = initial }, body)
 	end,
-	click = function(_, _, _, _, part)
-		return shell_click(part, {}, { kind = "answer" })
+	click = function(u, id, _, _, part, _, event)
+		return shell_click(u, id, part, {}, { kind = "answer" }, event)
 	end,
 	dismiss = function()
 		return true, { kind = "answer" }
@@ -365,9 +369,6 @@ local Popover = core.component("popover", {
 			:child(props.body)
 		if props.width ~= nil then
 			card:w(props.width)
-		end
-		if props.label ~= nil then
-			card:label(props.label)
 		end
 		return card
 	end,

@@ -230,7 +230,7 @@ fn the_gallery_of_components_is_pictured_in_a_dark_and_a_light_theme() -> Result
     };
     let page = Headless::app(&gallery)
         .measure(fonts.clone())
-        .size(720.0, 880.0)
+        .size(760.0, 900.0)
         .scale(2.0)
         .open()?;
     let dark = page.shot_in(&fonts, Palette::Dark).expect("a picture");

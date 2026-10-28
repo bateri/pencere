@@ -26,12 +26,32 @@ local S = {
 	asking = false,
 	popover = false,
 	toasts = {},
+	palette = false,
+	pal = { query = "", cursor = nil },
+	list = { cursor = "r3", marks = {} },
+	files = { expanded = { src = true }, cursor = "src/main.lua" },
+	side = { size = 190 },
 }
+
+local FILES = {
+	[""] = { "src", "README.md" },
+	src = { "src/main.lua", "src/lib", "src/notes.md" },
+	["src/lib"] = { "src/lib/util.lua", "src/lib/ui.lua" },
+}
+
+local ROWS = {}
+for index = 1, 400 do
+	table.insert(ROWS, { key = "r" .. index, title = "Result " .. index, hint = "line " .. index * 3 })
+end
 
 local cmds = ui.commands({
 	{ id = "ask", title = "Ask a question", group = "Gallery", keys = "mod+shift+d" },
 	{ id = "toast", title = "Show a toast", group = "Gallery" },
+	{ id = "palette", title = "Command palette", group = "Gallery", keys = "mod+shift+p", global = true },
+	{ id = "close_tab", title = "Close tab", group = "View", keys = "mod+w" },
+	{ id = "find", title = "Find in files", group = "Search", keys = "mod+shift+f" },
 })
+local items = cmds:items()
 
 local function heading(words)
 	return pencere.text(words):text_size(11):weight(700):color("quiet")
@@ -106,6 +126,21 @@ local function fields()
 		} })))
 end
 
+local function lists()
+	return pencere.div():gap(8)
+		:child(pencere.div():h(150):row():gap(8)
+			:child(pencere.div():grow(1):min_w(0):border(1, "border"):rounded(6):clip():child(
+				u:list("results", { items = ROWS, state = S.list, height = 24, inset = 2 })))
+			:child(pencere.div():w(150):border(1, "border"):rounded(6):clip():child(
+				u:tree("files", {
+					roots = { "src" },
+					children = function(key) return FILES[key] end,
+					item = function(key) return { title = string.match(key, "[^/]+$"), badge = key == "src/notes.md" and "M" or nil } end,
+					state = S.files,
+				}))))
+		:child(row():child(u:button("palette", { title = "Palette", keys = "mod+shift+p" })))
+end
+
 local function layers()
 	local line = row()
 		:child(u:button("ask", { title = "Ask", keys = "mod+shift+d" }))
@@ -166,6 +201,17 @@ local function act(action)
 		end
 	elseif action.from == "more" then
 		return u:menu("gallery-menu", { { key = "copy", title = "Copy", keys = "mod+c" }, "-", { key = "gone", title = "Delete" } }, { near = "more" })
+	elseif action.from == "palette" and action.kind == "press" or (action.from == "commands" and action.id == "palette") then
+		S.palette = true
+	elseif action.from == "palette" and (action.kind == "pick" or action.kind == "dismiss") then
+		S.palette = false
+		if action.item then
+			S.last = "palette picked " .. action.item.title
+		end
+	elseif action.from == "files" and action.kind == "expand" then
+		return true
+	elseif action.from == "side" and action.kind == "resized" then
+		return true
 	elseif action.from == "hint" or (action.from == "hint-card" and action.kind == "dismiss") then
 		S.popover = not S.popover
 	end
@@ -175,31 +221,53 @@ end
 return {
 	render = function(size, now, reduce_motion)
 		u:begin(size, now, reduce_motion)
-		local root = pencere.div()
+		local main = pencere.div()
 			:id("gallery")
 			:size_full()
 			:scroll()
 			:p(16)
 			:gap(18)
-			:bg("background")
-			:color("foreground")
 			:child(pencere.text("Components"):text_size(16):weight(700))
-			:child(u:tabs("tabs", { items = S.tabs, active = S.active, reorder = true }))
 			:child(section("BUTTONS", buttons()))
 			:child(section("ICON BUTTONS", icons()))
 			:child(section("TOGGLES", toggles()))
 			:child(section("BADGES AND KEYS", badges()))
 			:child(section("BANNER", banner()))
 			:child(section("FIELDS AND CHOICES", fields()))
+			:child(section("LISTS AND TREES", lists()))
 			:child(section("LAYERS", layers()))
 			:child(u:rule("x"))
 			:child(pencere.text("Last: " .. S.last):id("last"):color("dim"))
+		local root = pencere.div()
+			:size_full()
+			:bg("background")
+			:color("foreground")
+			:child(u:tabs("tabs", { items = S.tabs, active = S.active, reorder = true }))
+			:child(pencere.div():grow(1):min_h(0):child(
+				u:split("side", {
+					state = S.side,
+					min = 140,
+					max = 320,
+					label = "Sidebar width",
+					first = pencere.div():size_full():bg("raised1"):p(10):child(pencere.text("SIDEBAR"):text_size(11):weight(700):color("quiet")),
+					second = main,
+				})
+			))
+			:child(u:status("status", {
+				start = { { key = "branch", words = "main", icon = "dot", priority = 9 } },
+				center = { { key = "last", words = S.last, priority = 1 } },
+				finish = { { key = "pos", words = "Ln 12, Col 4", press = true, priority = 5, tip = "Go to line" }, { key = "lang", words = "Lua", priority = 3 } },
+			}))
 		if S.asking then
 			root:child(u:dialog("unsaved", {
 				title = "Save changes to notes.md?",
 				message = "Your changes will be lost if you do not save them.",
 				actions = { { key = "drop", title = "Don't Save", danger = true }, { key = "save", title = "Save", primary = true } },
 			}))
+		end
+		if S.palette then
+			root:child(u:palette("palette", { items = items, state = S.pal, label = "Command palette", hint = "Type a command",
+				footer = { { keys = "enter", title = "Run" }, { keys = "escape", title = "Close" } } }))
 		end
 		if S.popover then
 			root:child(u:popover("hint-card", { anchor = "hint" }, pencere.div():p(10):child(pencere.text("A card by its button"))))
