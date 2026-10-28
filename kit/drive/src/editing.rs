@@ -65,11 +65,16 @@ impl Editing {
         }
     }
 
-    /// Takes what `reply` asks of the editors out of it, to be done at the next frame, and gives
-    /// the keyboard where it says (`Keyboard::Field` of an editor; a field or the page is none of
-    /// them). Whether there was anything for the editors.
-    pub(crate) fn take_reply(&mut self, reply: &mut Reply) -> bool {
-        let asks = std::mem::take(&mut reply.editor);
+    /// Takes what `reply` asks of the editors out of it (a copy of it, where the reply is to be
+    /// `kept` whole), to be done at the next frame, and gives the keyboard where it says
+    /// (`Keyboard::Field` of an editor; a field or the page is none of them). Whether there was
+    /// anything for the editors.
+    pub(crate) fn take_reply(&mut self, reply: &mut Reply, kept: bool) -> bool {
+        let asks = if kept {
+            reply.editor.clone()
+        } else {
+            std::mem::take(&mut reply.editor)
+        };
         let any = !asks.is_empty();
         self.asks.extend(asks);
         match reply.keyboard {

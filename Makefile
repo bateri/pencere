@@ -38,8 +38,9 @@ check:
 # the engine knows nothing of the wire or of a terminal, the editor knows the engine and the text, the
 # sandbox knows the engine, the wire (for the size of a message and the rule of a link), the runtime
 # and regular expressions (for the rules of an editor's indent), the drive knows the engine, the
-# editor and the sandbox and nothing of a platform or a font, and the page modules know the SDK and
-# the engine.
+# editor, the sandbox and the messages of a program and its view (for the program of a page under its
+# host with no screen) and nothing of a platform or a font, and the page modules know the SDK and the
+# engine.
 audit:
 	@fail=0; \
 	if [ "$$(cargo tree -p pencere-view -e normal --depth 1 --prefix none | tail -n +2 | sed 's/ .*//' | sort -u)" != "taffy" ]; then echo "audit: pencere-view depends on something besides the layout crate (taffy) — the page engine depends on its layout crate alone"; fail=1; fi; \
@@ -50,7 +51,7 @@ audit:
 	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(pencere-editor|ropey) "; then echo "audit: pencere-sandbox links the editor or its rope — a page reads an editor's text through the copy the host posts it (pencere_view::edit::TextSnapshot), and the sandbox knows the engine alone"; fail=1; fi; \
 	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(pencere-host|containers-|objc2|dispatch2|block2|metal|wgpu|winit)"; then echo "audit: pencere-sandbox links to a crate of this repository past the page engine and the wire, or to a platform library — the sandbox depends on the engine, the wire (for the size of a message and the rule of a link), the runtime and regular expressions alone"; fail=1; fi; \
 	if grep -rnE "objc2|dispatch2|block2|wgpu|winit|pencere_host" kit/sandbox/src | grep -v ":[[:space:]]*//"; then echo "audit: a platform call or a crate of the terminal's is named in the source of pencere-sandbox"; fail=1; fi; \
-	if [ -n "$$(cargo tree -p pencere-drive -e normal --depth 1 --prefix none | tail -n +2 | sed 's/ .*//' | sort -u | grep -vxE 'pencere-view|pencere-editor|pencere-sandbox')" ]; then echo "audit: pencere-drive depends on something besides the engine, the editor and the sandbox (pencere-view, pencere-editor, pencere-sandbox)"; fail=1; fi; \
+	if [ -n "$$(cargo tree -p pencere-drive -e normal --depth 1 --prefix none | tail -n +2 | sed 's/ .*//' | sort -u | grep -vxE 'pencere-view|pencere-editor|pencere-sandbox|pencere-wire|serde_json')" ]; then echo "audit: pencere-drive depends on something besides the engine, the editor, the sandbox, and the messages of a program and its view with their values (pencere-view, pencere-editor, pencere-sandbox, pencere-wire, serde_json)"; fail=1; fi; \
 	if cargo tree -p pencere-drive -e normal --prefix none | tail -n +2 | grep -E "^(pencere-host|containers-|objc2|dispatch2|block2|metal|wgpu|winit|fontdb|fontdue|rustybuzz|ttf-parser|harfrust|skrifa|read-fonts|swash|fontconfig|freetype|font-types|cosmic-text) "; then echo "audit: pencere-drive links a crate of the terminal side, a platform library or a font library — the host measures and draws a page's text, the drive does neither"; fail=1; fi; \
 	if grep -rnE "objc2|dispatch2|block2|wgpu|winit|pencere_host" kit/drive/src | grep -v ":[[:space:]]*//"; then echo "audit: a platform call or a crate of the terminal side is named in the source of pencere-drive"; fail=1; fi; \
 	if cargo tree --workspace -e normal -i wasmtime --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-sandbox "; then echo "audit: the WebAssembly runtime is linked by a crate other than pencere-sandbox — one door to it"; fail=1; fi; \

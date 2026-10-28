@@ -8,7 +8,8 @@ its editors (`pencere-editor`) in their rooms, its boxes scrolled, a key sent to
 for it, to an editor or to the page, its replies done, its wakes given, what it says to its program
 carried. This crate is that, written once, so that every terminal does it the same way.
 
-It depends on the engine, the editor and the sandbox, and on no platform, no renderer, no font
+It depends on the engine, the editor and the sandbox (and the messages of a program and its view,
+for the program of a page under its host with no screen), and on no platform, no renderer, no font
 library and no terminal (`make check`).
 
 ## A host's loop
@@ -65,6 +66,90 @@ Every part of what bateri's pane did to drive a page is in one column of this ta
 | **The host's:** its pasteboard, its pointer's shapes, its text fields over the page, its menus, its browser and the question asked first, its screen reader    | the host (`Host`, `Painted::outline`)                                    |
 | **The host's:** the clock that draws frames and the one that wakes a view not seen                                                                             | the host (`Page::animating`, `Page::wake_at`, `Page::wake_unseen`)       |
 | **The host's:** the program and the session it speaks through, what it can take of what the page says                                                          | the host (`Setup::program`, `Page::message`, `Page::room`, `Host::send`) |
+
+## A host with no screen
+
+`headless` is a host of this crate's drive with no screen: a page run as a terminal runs it (the
+kit's interpreter, the kit's editors, the drive), with a clock that moves only when the test moves
+it, a person whose hands are methods, and eyes that read what the page shows as words. It is what an
+app tests its view with.
+
+```rust
+use pencere_drive::headless::{Calls, Headless};
+use serde_json::json;
+
+let mut page = Headless::app("examples/containers-lua") // src/view/page.lua and its files
+    .size(900.0, 500.0)
+    .peer(Calls::new().on("list", |_| {
+        Ok(json!({ "containers": [{ "id": "c1", "name": "api", "image": "api:1", "state": "running" }] }))
+    }))
+    .open()?;
+assert!(page.says("api"));
+page.click("act c1")?; // by the element's id: its middle, where a click reaches it
+assert_eq!(page.methods(), ["list", "toggle"]); // no handler: it waits for the test's answer
+page.press("cmd+enter")?; // keys as a page writes a command's
+page.advance(1.5)?; // every frame and wake on the way, at its time
+```
+
+**Every method is done when it returns, and nothing is waited for by the clock.** The page is told,
+then settled: the sandbox says when the module has done all it was told (`Module::flush`), the images
+say when they are decoded (`Images::busy`), the replies are done as a host does them, the program
+answers, and the frames that come of it are drawn — at the time the clock shows. Time moves only by
+`advance` (every frame the page wants on the way: sixty a second while it moves, at its times, a
+caret's blink), `step` (to the next time the page asked for), `idle` (until it asks for nothing) and
+`hide` (the view out of sight: no frame, the page woken a second apart at the soonest). The kit's
+timers, a search's `found`, a language read a piece at a time are as determined as the rest.
+
+- **Opening:** `Headless::script(source)`, `bundle(files, entry)`, `app(dir)` (`Files::app`: a pencere
+  app's `src/view/` with `src/assets/` under `assets/`), `component(bytes)`; then `size`, `scale`,
+  `measure` (`Fixed`, 7 × 16 points a character, unless said), `peer`, `limits`, `assets`, `blink`,
+  `at`, `patience`, `reduce_motion`, and `open`.
+- **What a person does:** `key`, `press("cmd+shift+k")`, `type_text` (a key at a time), `insert_text`
+  (what an input method commits), `paste`, `compose`, `unmark`; `click`, `double_click`,
+  `right_click`, `click_in(id, x, y)`, `click_at`, `hover`, `move_to`, `leave`, `drag`,
+  `drag_between`, `wheel`, `wheel_at`, `scroll_to`, `pointer` (any input); `focus_editor`, `select`,
+  `caret_to`, `edit(EditCommand)`; `command`, `pick`, `pick_titled`, `fill` (a host's text field),
+  `drop_files`, `resize`, `zoom`, `set_active`, `refresh`.
+- **The program:** a `Peer` hears what the page says and answers. `Calls` is a table of calls
+  (`on(method, handler)`), whose topics a test pushes to (`push`) and whose calls with no handler
+  wait for the test to `answer` them; `tell` says anything to the page as the program.
+- **What a person sees:** `words` (drawn, in order), `says`, `words_in(id)`, `tree_words`, `bounds`,
+  `editor` (the document: text, selections, version, decorations), `editor_text`, `focus`,
+  `field`, `outline` (fields, screen reader, tooltips, commands), `cursor`, `pasteboard`, `links`,
+  `menu`, `closed`, `diagnostics`, `ended`; and what went on: `sent`, `replies`, `told`, `list`,
+  `laid`, `root`, `now`, `asks_at`.
+- **What went wrong** is an `Error` that says it in words: the page ended (`Ended`, a script's
+  error with its file and line), something did not come in time (`Slow`), the page never came to
+  rest (`Unsettled`, `Restless`), no element of that id (`NoSuch`), one a click does not reach
+  (`Unreachable`), no editor, no menu, no such entry, a menu open, no such command, no such key.
+
+### What sqlpen's rig was, here
+
+| sqlpen's `Rig`                           | the host with no screen                                                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `open_with(size, db, options)`           | `Headless::app(dir)` or `bundle(files, entry)` / `script(source)`, `.size(w, h)`, `.peer(calls)`, `.open()` |
+| `lay_out`                                | the drive's, in every frame `settle` draws                                                                  |
+| `tell` (the editors' events to the page) | the drive's; what the page was told: `told()`                                                               |
+| `answer` (the page's calls)              | the `Peer`: `Calls::on(method, handler)`; a call with no handler waits for `answer(method, result)`         |
+| `absorb`                                 | `settle`'s                                                                                                  |
+| `run`                                    | `settle()`, which every method does; no 400 ms of quiet is waited for                                       |
+| `command(id)`                            | `command(id)`                                                                                               |
+| `key(key, mods) -> Route`                | `key(key, mods) -> Result<Route, Error>`, `press("cmd+enter")`                                              |
+| `type_text(text)` (in one piece)         | `insert_text(text)`                                                                                         |
+| `type_letters(text)`                     | `type_text(text)` (a key at a time)                                                                         |
+| `caret_to(at)`                           | `caret_to(editor, at)`                                                                                      |
+| `select(from, to)`                       | `select(editor, from, to)`                                                                                  |
+| `fold()`                                 | `edit(EditCommand::ToggleFold)`                                                                             |
+| `scroll(id, y)`                          | `scroll_to(id, y)`                                                                                          |
+| `shot(name)`                             | —                                                                                                           |
+| `text()`                                 | `editor_text(editor)`                                                                                       |
+| `words()` (the page's tree)              | `tree_words()`; what is drawn: `words()`                                                                    |
+| `says(words)`                            | `says(text)` (drawn words)                                                                                  |
+| `methods()`                              | `methods()`; every call: `peer().calls()`                                                                   |
+| `press_at_column(id, column, count)`     | `click_in(id, x, y)` (where in the element), `double_click(id)`                                             |
+| `press(id, count)`                       | `click(id)`, `double_click(id)`                                                                             |
+| the pointer's shape (`cursor`)           | `cursor()`                                                                                                  |
+| `now`                                    | `now()`; moved by `advance`, `step`, `idle`, `hide`                                                         |
 
 ## License
 

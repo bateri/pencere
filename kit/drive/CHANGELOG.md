@@ -46,3 +46,23 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
 - **One clock.** The frames, the editors (what is undone together) and the scrolling between frames
   run on the host's clock where its program keeps one (`Program::now`), so that a host whose clock is
   driven by hand drives everything the page does.
+- **Editors without the pointer.** `PageEditors::focus`, `select` and `command`: the keyboard put in
+  an editor, a selection made and an editor's own command done the way a screen reader or a host's
+  menu does them. `Page::key` sends a key to the editor with the keyboard first and to the page where
+  none has it, and a press ends what an input method composes (what it composed stays): a host lets
+  its own system forget it, and does nothing else for it.
+- **For a host that drives a page by hand.** `Page::unsettled` (the last frame left a layout for the
+  next, not motion), `Page::asks_at` (the times the page itself asked for, not the caret's blink),
+  `Page::refresh` (the page asked for itself again), `Page::record` (every event told and every reply
+  whole kept: `Page::told`, `Drained::replies`), `Page::module`. An animating page is asked for its
+  next step at a later time only: a frame built again at one time asks for nothing more.
+- **A host with no screen** (`headless`): a page run as a terminal runs it, with a clock that moves
+  only when the test moves it (`advance`, `step`, `idle`, `hide`: every frame and wake on the way, at
+  its time), a person whose hands are methods (keys, typing, an input method, the pasteboard, clicks
+  by an element's id, drags, the wheel, a box scrolled to a place, menus, fields, files, commands)
+  and eyes that read what the page shows (the words drawn, an element's words, an editor's document,
+  the keyboard's place, the pointer's shape, the pasteboard, the links, the menu, what was said to
+  the program and told the page). Every method settles the page before it returns, waiting for
+  nothing by the clock: the sandbox says when the page has done what it was told, the images when
+  they are decoded. The program is a `Peer`; `Calls` is a table of calls in this process. A page's
+  files come from a directory (`Files`, `Files::app`). What cannot be done is an `Error` in words.

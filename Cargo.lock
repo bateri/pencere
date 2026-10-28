@@ -852,6 +852,8 @@ dependencies = [
  "pencere-editor",
  "pencere-sandbox",
  "pencere-view",
+ "pencere-wire",
+ "serde_json",
 ]
 
 [[package]]

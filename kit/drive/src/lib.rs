@@ -16,6 +16,7 @@
 //! The crate knows no window, no renderer, no font and no terminal.
 
 mod editing;
+pub mod headless;
 mod host;
 mod outline;
 mod page;
@@ -28,5 +29,9 @@ pub use page::{FrameAt, NoText, Page, PageEditors, Painted, Setup};
 pub use pencere_editor::Route;
 pub use scrolling::Scrolling;
 
+#[cfg(test)]
+mod headless_tests;
+#[cfg(test)]
+mod luau_editor_tests;
 #[cfg(test)]
 mod page_tests;

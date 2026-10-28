@@ -59,8 +59,9 @@ wasmtime = { version = "38", default-features = false, features = [
 # The page the tests compare a module's with: the container list, written once and run natively
 # here as the module runs in the sandbox.
 containers-page = { path = "../../examples/containers-page" }
-# The host's editors, which the tests of a page with an editor drive as a host does: a test needs
-# them and the sandbox itself never does (`make check` keeps them out of what it links).
+# The host's editors, whose rules of indent a test holds the sandbox's to (the two compile them
+# alike); the sandbox itself never links them (`make check`). A page driven with its editors is
+# `pencere-drive`'s to test.
 pencere-editor = { path = "../editor" }
 
 [lints]

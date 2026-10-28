@@ -44,6 +44,7 @@ use pencere_sandbox::{
     Answer, Assets, Fault, ImageLimits, Images, Module, ModuleLimits, Program, Runner, Script,
     Unbounded,
 };
+use pencere_view::edit::{EditCommand, EditorAsk, Range};
 use pencere_view::{
     Button, DrawList, EditorMetrics, Element, Event, Font, Id, Input, Key, Laid, Measure, Metrics,
     Mods, Motions, Phase, Place, Point, Rect, Reply, Role, ScrollTo, Size, div, text,
@@ -177,8 +178,11 @@ struct State {
     wakes: Wakes,
     /// That time changed in a drain, which the host has not been told of ([`Drained::wake`]).
     rewake: bool,
-    /// The viewport (points) and the scale the module was last asked for a page for.
+    /// The viewport (points) and the scale the module was last asked for a page for, and the time.
     asked: Option<(Size, f32)>,
+    asked_at: Option<f64>,
+    /// Every event the page was told, where the host keeps them ([`Page::record`]).
+    told: Option<Vec<Event>>,
     /// Where the page stands in the host's view.
     place: Placement,
     /// The fields and what a screen reader says, as last told, in the host's points.
@@ -349,6 +353,8 @@ impl Page {
                 wakes: Wakes::default(),
                 rewake: false,
                 asked: None,
+                asked_at: None,
+                told: None,
                 place: setup.placement,
                 outline: Outline::default(),
                 redraw: false,
@@ -397,7 +403,7 @@ impl Page {
                 .as_ref()
                 .and_then(|laid| laid.command_for(key, mods))
         {
-            state.module.event(Event::Command(command));
+            state.event(Event::Command(command));
             return;
         }
         let input = into_page(input, place);
@@ -406,9 +412,9 @@ impl Page {
         let (under, left) = self.pointer_in_editors(&input);
         let state = &mut self.state;
         if left {
-            state.module.event(Event::Focus(None));
+            state.event(Event::Focus(None));
         }
-        state.module.event(match under {
+        state.event(match under {
             Some(place) => Event::Pointer { input, place },
             None => Event::Input(input),
         });
@@ -457,7 +463,7 @@ impl Page {
         };
         // What no box took is the page's.
         if left.x != 0.0 || left.y != 0.0 {
-            state.module.event(Event::Input(Input::Scroll {
+            state.event(Event::Input(Input::Scroll {
                 at: page_at,
                 dx: left.x,
                 dy: left.y,
@@ -467,7 +473,7 @@ impl Page {
 
     /// The text of the host's field named `field` changed: the person typed, pasted or deleted.
     pub fn text(&mut self, field: Id, text: &str) {
-        self.state.module.event(Event::Text {
+        self.state.event(Event::Text {
             field,
             text: text.to_owned(),
         });
@@ -483,25 +489,25 @@ impl Page {
             state.editing.person_moved_keyboard();
             state.redraw = true;
         }
-        state.module.event(Event::Focus(field));
+        state.event(Event::Focus(field));
     }
 
     /// The person picked the `index`th entry of the menu the last reply asked for.
     pub fn pick(&mut self, index: usize) {
-        self.state.module.event(Event::MenuPick(index));
+        self.state.event(Event::MenuPick(index));
     }
 
     /// The person asked for the command named `id`, from the host's list of what the page can be
     /// told to do ([`Outline::commands`]). The keys of a command are not told here: the drive tells
     /// the page the command in place of a key it is told that does one.
     pub fn command(&mut self, id: Id) {
-        self.state.module.event(Event::Command(id));
+        self.state.event(Event::Command(id));
     }
 
     /// Files were dropped on the page at `at`, in the host's points: their paths.
     pub fn files(&mut self, at: Point, paths: Vec<String>) {
         let at = self.state.place.to_page(at);
-        self.state.module.event(Event::Files { at, paths });
+        self.state.event(Event::Files { at, paths });
     }
 
     /// The program that opened the page said something: one JSON object, as it wrote it.
@@ -580,6 +586,52 @@ impl Page {
             || state.motions.moving()
             || state.scrolls.moving(state.clock.frame)
             || state.again
+    }
+
+    /// Asks the page for itself again at the next frame, though nothing the drive knows of changed:
+    /// what a host does when its view is shown anew, or a test that reads what the page shows of
+    /// what changed in it with no reply that asked for a frame.
+    pub fn refresh(&mut self) {
+        self.state.asked = None;
+        self.state.redraw = true;
+    }
+
+    /// Whether the frame just drawn left work for the next one that is not motion — a layout an
+    /// editor asked for, a scroll to keep its caret in view — which a frame at the same time does. A
+    /// host that draws frames by its clock need not ask: [`Page::animating`] says it too; a host
+    /// that drives the page by hand and moves time itself draws the next frame at once for it, and
+    /// draws none for what only moves.
+    pub fn unsettled(&self) -> bool {
+        self.state.again
+    }
+
+    /// The earliest of the times the page itself asked for, on the frames' clock: to be drawn at
+    /// (its frame's `wake_at`) or woken at (a reply's `wake`). Not the caret's blink nor the scroll
+    /// bars', which are the drive's ([`Page::wake_at`] has every one).
+    pub fn asks_at(&self) -> Option<f64> {
+        let state = &self.state;
+        [state.draw_at, state.wakes.waiting()]
+            .into_iter()
+            .flatten()
+            .reduce(f64::min)
+    }
+
+    /// Whether the drive keeps, from now on, every event it tells the page ([`Page::told`]) and
+    /// every reply whole ([`Drained::replies`] with what they asked of the editors, which the drive
+    /// otherwise takes out of them as it does it): what a host that tests a page reads. Off unless
+    /// asked; turned off, what was kept goes.
+    pub fn record(&mut self, record: bool) {
+        match (record, self.state.told.is_some()) {
+            (true, false) => self.state.told = Some(Vec::new()),
+            (false, true) => self.state.told = None,
+            _ => {}
+        }
+    }
+
+    /// The events the drive told the page since it was asked to keep them ([`Page::record`]), in
+    /// order: what the person did, the editors' events, the boxes scrolled, the commands.
+    pub fn told(&self) -> &[Event] {
+        self.state.told.as_deref().unwrap_or_default()
     }
 
     /// The time a frame of the page at rest is next wanted at, on the frames' clock: the earliest of
@@ -763,6 +815,14 @@ impl Page {
 }
 
 impl State {
+    /// Tells the module what the person did, or what came of it: the one way an event goes to it.
+    fn event(&mut self, event: Event) {
+        if let Some(told) = &mut self.told {
+            told.push(event.clone());
+        }
+        self.module.event(event);
+    }
+
     /// Takes what the module has put out into what the page keeps. `building`: a frame is being
     /// laid out and drawn from what is taken, so it is that frame that shows it — the host is not
     /// told to draw another for it (the wake that came with it finds nothing new to say). The drain,
@@ -798,7 +858,8 @@ impl State {
         for mut answer in update.replies {
             // What it asks of the editors is done at the next frame, once they are made for the
             // page it came with: a frame is worth drawing.
-            if self.editing.take_reply(&mut answer.reply) && !building {
+            let keep = self.told.is_some();
+            if self.editing.take_reply(&mut answer.reply, keep) && !building {
                 self.redraw = true;
             }
             answer.reply = to_host(answer.reply, place);
@@ -822,7 +883,7 @@ impl State {
     fn tell_scrolled(&mut self) {
         let moved = self.scrolls.scrolls.take_moved();
         if !moved.is_empty() {
-            self.module.event(Event::Scrolled(moved));
+            self.event(Event::Scrolled(moved));
         }
     }
 
@@ -837,7 +898,7 @@ impl State {
         if !told.events.is_empty() {
             self.module.texts(told.texts);
             for event in told.events {
-                self.module.event(event);
+                self.event(event);
             }
         }
         self.asks.extend(told.scrolls);
@@ -878,10 +939,15 @@ impl State {
         }
         // A page for this size, the next step of one that is moving and the page whose time has
         // come; a page that is none of these is not asked for.
+        // A page that moves is asked for its next step at a later time: a frame built again at the
+        // time it was asked for (a host that draws twice in a tick, one driven by hand) would be
+        // given the page it has, an event that changed it having made it again already.
         let due = self.draw_at.is_some_and(|draw| at.now >= draw);
+        let moving = self.animating && self.asked_at.is_none_or(|asked| at.now > asked);
         let resized = self.asked.is_some_and(|asked| asked != (size, scale));
-        if self.asked != Some((size, scale)) || self.animating || due {
+        if self.asked != Some((size, scale)) || moving || due {
             self.asked = Some((size, scale));
+            self.asked_at = Some(at.now);
             self.draw_at = None;
             self.module.render(size, at.now, at.reduce_motion);
         }
@@ -1018,13 +1084,51 @@ impl PageEditors<'_> {
                 editors.key(laid, key, mods, measure, now)
             })
             .unwrap_or(Route::NotEditor);
-        let module = &self.page.state.module;
+        let state = &mut self.page.state;
         match route {
-            Route::Command(id) => module.event(Event::Command(id)),
-            Route::Page => module.event(Event::Input(Input::Key { key, mods })),
+            Route::Command(id) => state.event(Event::Command(id)),
+            Route::Page => state.event(Event::Input(Input::Key { key, mods })),
             _ => {}
         }
         route
+    }
+
+    /// The person put the keyboard in the editor named `id` some way other than a press in it (the
+    /// tab key, a screen reader), or took it back to the page (`None`): the caret stays where it was.
+    pub fn focus(&mut self, id: Option<Id>) {
+        self.page.state.editing.person_moved_keyboard();
+        self.page
+            .edit(true, |editors, _, _, _| editors.set_focus(id));
+    }
+
+    /// The person selected `ranges` (each where it starts and where it ends, in characters of the
+    /// document as it is) of the editor named `id`, the first the main one, some way other than the
+    /// pointer and the keys — a screen reader, the host's own command — and the editor's is the
+    /// keyboard.
+    pub fn select(&mut self, id: Id, ranges: Vec<Range>) {
+        self.page.state.editing.person_moved_keyboard();
+        self.page.edit(true, |editors, laid, measure, now| {
+            editors.set_focus(Some(id));
+            let Some(version) = editors.buffer(id).map(Buffer::version) else {
+                return;
+            };
+            let ask = EditorAsk::Select {
+                version,
+                ranges,
+                main: 0,
+            };
+            editors.ask(laid, id, ask, measure, now);
+        });
+    }
+
+    /// The person had the editor with the keyboard do `command`, as a key of its own or an entry of
+    /// the host's menus does (fold the region the caret is in, undo, move by a word).
+    pub fn command(&mut self, command: EditCommand) {
+        self.page.edit(true, |editors, laid, measure, now| {
+            if let Some(id) = editors.focused() {
+                editors.ask(laid, id, EditorAsk::Command(command), measure, now);
+            }
+        });
     }
 
     /// Text typed, from the system's handling of text: in place of what an input method composed,
