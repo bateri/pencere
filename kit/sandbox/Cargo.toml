@@ -11,11 +11,12 @@ keywords = ["terminal", "pencere", "wasm", "sandbox"]
 categories = ["wasm", "gui"]
 # The tests of `src/` read the scripts of `kit/luau`, the page modules of `kit/guest` and the
 # containers example, none of which a crate carries; `wit/` is the crate's own copy of the
-# interface (`make check` keeps it equal to `kit/wit/view.wit`).
+# interface (`make check` keeps it equal to `kit/wit/view.wit`), and `library/` the kit's library
+# of Luau, which the crate gives scripts.
 include = [
     "src/**", "!src/*_tests.rs", "!src/fixtures/**",
-    "wit/**", "luau/luau.wasm", "luau/inputs.sha256", "licenses/**",
-    "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE",
+    "wit/**", "luau/luau.wasm", "luau/inputs.sha256", "licenses/**", "library/**",
+    "build.rs", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE",
 ]
 
 [dependencies]

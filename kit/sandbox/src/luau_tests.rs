@@ -1880,3 +1880,43 @@ fn a_long_list_asked_to_its_end_is_built_at_the_end_it_has_now() {
         grown.last()
     );
 }
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn replies_put_together_ask_all_they_ask_in_order_and_the_earliest_wake() {
+    let update = first(
+        r#"
+        local merge = pencere.merge
+        local one = { editor = { e = { decorate = "a" } }, fill = { name = "one", note = "1" },
+            keyboard = "page", wake = 2 }
+        local two = { editor = { e = { { decorate = "b" }, { decorate = "c" } }, f = { decorate = "d" } },
+            fill = { name = "two" }, wake = 0.5, copy = "text" }
+        local three = { keyboard = { field = "name" }, wake = 1, redraw = false }
+        local out = merge(one, nil, two, true, three)
+        local said = {}
+        for _, ask in ipairs(out.editor.e) do
+            said[#said + 1] = ask.decorate
+        end
+        said[#said + 1] = out.editor.f.decorate
+        said[#said + 1] = out.fill.name .. "/" .. out.fill.note
+        said[#said + 1] = out.keyboard.field
+        said[#said + 1] = out.copy
+        said[#said + 1] = tostring(out.wake)
+        said[#said + 1] = tostring(out.redraw)
+        -- None of them is changed.
+        said[#said + 1] = one.fill.name .. " " .. tostring(one.redraw) .. " " .. #two.editor.e
+        -- Replies that are no tables.
+        said[#said + 1] = tostring(merge()) .. " " .. tostring(merge(nil, nil)) .. " "
+            .. tostring(merge(false, nil)) .. " " .. tostring(merge(nil, false, true))
+        return { render = function()
+            return pencere.text(table.concat(said, ","))
+        end }
+        "#,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None, "{}", failed(&update));
+    assert_eq!(
+        words(&update.frame.expect("a page").root),
+        ["a,b,c,d,two/1,name,text,0.5,true,one nil 2,nil nil false true"]
+    );
+}

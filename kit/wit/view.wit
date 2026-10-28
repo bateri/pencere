@@ -1453,8 +1453,8 @@ interface diagnostics {
     fail: func(message: string);
 }
 
-/// What a module that is a language's interpreter is given to run: the program's own text, and
-/// the other scripts of the bundle it came in.
+/// What a module that is a language's interpreter is given to run: the program's own text, the
+/// other scripts of the bundle it came in, and the modules of the kit's library.
 interface script {
     /// The path of the script in its bundle, as the bundle's manifest names it. The same every
     /// time it is asked. A script that loads another one finds it from here.
@@ -1466,13 +1466,16 @@ interface script {
 
     /// Whether the bundle has a script at `path`: a file the manifest types `text/x-lua`, with
     /// the path written as the manifest writes it. False for what is not in the bundle, what is
-    /// of another type and any string that is not a path a manifest lists; never an error.
+    /// of another type and any string that is not a path a manifest lists; never an error. A path
+    /// that starts with `@pencere/` (which no path of a bundle can) is a module of the kit's
+    /// library, which the application has itself, at its kit's version, whatever the bundle.
     has-module: func(path: string) -> bool;
 
     /// The bytes of the script at `path` (see `has-module`), as the program sent them, or why
     /// they are not given, in words for the person who wrote the script. A bundle can have more
     /// script than the application runs: what the module has been given in all, `source`
-    /// included, is held to a limit, and past it this says so.
+    /// included, is held to a limit, and past it this says so. A module of the kit's library is
+    /// the kit's, and is not counted with them.
     module: func(path: string) -> result<list<u8>, string>;
 }
 

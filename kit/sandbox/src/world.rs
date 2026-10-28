@@ -26,6 +26,7 @@ use wasmtime::Store;
 use wasmtime::component::{Component, HasSelf, Linker};
 
 use crate::images::Assets;
+use crate::library;
 use crate::luau::Script;
 use crate::module::{Frame, Runner};
 use crate::sandbox::{self, Fault, Host, ModuleLimits, Program};
@@ -90,10 +91,14 @@ impl pencere::view::script::Host for Host {
     }
 
     fn has_module(&mut self, path: String) -> bool {
-        self.bundle_script(&path).is_some()
+        self.library_module(&path).is_some() || self.bundle_script(&path).is_some()
     }
 
     fn module(&mut self, path: String) -> Result<Vec<u8>, String> {
+        // The kit's own: not the page's, and not counted with its scripts.
+        if let Some(source) = self.library_module(&path) {
+            return Ok(source.as_bytes().to_vec());
+        }
         let Some(bundle) = self.bundle_script(&path) else {
             return Err(format!(
                 "{path:?} is not a script of the bundle (a file the manifest types {LUA_MEDIA_TYPE})"
@@ -115,6 +120,12 @@ impl pencere::view::script::Host for Host {
 }
 
 impl Host {
+    /// The module of the kit's library at `path` (`@pencere/…`), for a page that is a script.
+    fn library_module(&self, path: &str) -> Option<&'static str> {
+        self.script.as_ref()?;
+        library::source(path)
+    }
+
     /// The bundle, if `path` is a script of it: a path the manifest could list, typed as Lua.
     /// A module's `require` is text a script wrote, so nothing but the manifest's word on a
     /// well-formed path is taken for a script.

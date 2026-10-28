@@ -542,14 +542,15 @@ fn a_page_says_which_spaces_and_tabs_its_editor_shows_and_whether_its_indent_has
     Ok(())
 }
 
-// --- A language of the kit's (`pencere.Syntax`) ---------------------------------------------------
+// --- A language of the kit's library (`@pencere/syntax`) -----------------------------------------
 
-/// A language of C's block comments, strings and numbers, for the tests of `pencere.Syntax`. It
+/// A language of C's block comments, strings and numbers, for the tests of `@pencere/syntax`. It
 /// counts the lines it reads (`read`) and the most one call of the page read (`most`, with
 /// `counted`).
 const C_LIKE: &str = r#"
+local Syntax = require("@pencere/syntax")
 local read, most = 0, 0
-local language = pencere.Syntax.define({
+local language = Syntax.define({
     name = "c",
     start = function()
         return { comment = false }
@@ -617,7 +618,7 @@ end
 /// The syntax goes on by itself (its timer wakes the page): `render` does nothing for it.
 fn coloured(document: &str, options: &str) -> String {
     let page = r#"
-local syntax = pencere.Syntax.new(language, "e", OPTIONS)
+local syntax = Syntax.new(language, "e", OPTIONS)
 -- Each call's reading counted, the calls of the syntax's own timer as well.
 local work = syntax.work
 function syntax:work()
@@ -898,7 +899,8 @@ fn a_syntax_reads_nothing_for_an_event_that_is_not_its_editors_edit_or_view() ->
 /// A language of letters and what is not, which gives every character of `a1a1…` a decoration of its
 /// own: a line of 10 000 characters is 10 000 decorations, half what one reply may hand the editors.
 const DENSE: &str = r#"
-local dense = pencere.Syntax.define({
+local Syntax = require("@pencere/syntax")
+local dense = Syntax.define({
     name = "dense",
     start = function()
         return {}
@@ -935,8 +937,8 @@ fn two_syntaxes_and_the_page_that_ask_more_than_a_reply_may_at_one_wake_hand_it_
     let mut page = open(&format!(
         "{DENSE}{}",
         r#"
-local a = pencere.Syntax.new(dense, "a")
-local b = pencere.Syntax.new(dense, "b")
+local a = Syntax.new(dense, "a")
+local b = Syntax.new(dense, "b")
 local loaded, marked = {}, false
 local line = string.rep("a1", 5000)
 local document = table.concat({ line, line, line, line }, "\n")
@@ -999,7 +1001,7 @@ fn a_syntax_holds_at_most_half_a_reply_however_many_decorations_a_line_has() -> 
     let mut page = open(&format!(
         "{DENSE}{}",
         r#"
-local syntax = pencere.Syntax.new(dense, "e")
+local syntax = Syntax.new(dense, "e")
 local loaded = false
 return {
     render = function()
@@ -1032,7 +1034,8 @@ return {
 fn a_token_that_reads_nothing_fails_the_page_with_its_languages_name_and_its_line() {
     let why = failing(
         r#"
-        local language = pencere.Syntax.define({
+        local Syntax = require("@pencere/syntax")
+        local language = Syntax.define({
             name = "stuck",
             start = function() return {} end,
             token = function(stream)
@@ -1042,7 +1045,7 @@ fn a_token_that_reads_nothing_fails_the_page_with_its_languages_name_and_its_lin
                 stream:next()
             end,
         })
-        local syntax = pencere.Syntax.new(language, "e")
+        local syntax = Syntax.new(language, "e")
         local loaded = false
         return {
             render = function()
@@ -1071,7 +1074,7 @@ fn a_language_reads_a_line_from_a_stream_as_codemirrors_does() -> Result<(), Err
     let page = open(
         r#"
         local seen = {}
-        local language = pencere.Syntax.define({
+        local language = require("@pencere/syntax").define({
             name = "probe",
             start = function() return { n = 0 } end,
             token = function(stream, state)

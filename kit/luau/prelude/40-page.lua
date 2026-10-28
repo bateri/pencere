@@ -97,7 +97,7 @@
 local host = pencere.host
 local json = pencere.json
 local time = pencere._time
-local merge = pencere._merge
+local merge = pencere.merge
 
 -- A call may say this many messages; the application closes a page that says more.
 local PER_CALL = 8

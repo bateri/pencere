@@ -11,7 +11,7 @@ dist/editor-lua      # the view, in a terminal that hosts pencere views and thei
 
 The editor is the terminal's (`pencere.editor`): the document, the carets, undoing, the input
 method and the drawing are its own. The page makes a language of it with the hooks the kit gives:
-it colours the lines in view with a language of the kit's (`pencere.Syntax`: SQL, its block
+it colours the lines in view with a language of the kit's library (`@pencere/syntax`: SQL, its block
 comments carried from line to line), makes each statement of more than one line a region that
 folds, opens a popup of completions by the caret, and sends the statement under the caret to the
 program with ⌘↩. It loads a large sample in pieces when it opens.

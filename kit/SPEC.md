@@ -30,9 +30,10 @@ what an element is to a screen reader and its state, fills from one colour to an
 button, keys that go up, the modifiers alone and files dropped on the page (Sections 2.1 to 2.3 and
 4); editors of text (Sections 2.1 and 2.3, and the host's part in Section 4), with their search and
 what it finds (`found`), what a page says of its language (its comments, the rules of its indent,
-folding by the indent), the spaces, tabs and guides of the indent they show, and a language that
-colours one, `pencere.Syntax` (Section 2.2); and a reply's `link` and `wake`, with the kit's timers,
-`pencere.time` (Sections 2.2 and 2.3). The kit's own sandbox opens `2.0` and no longer `1.0`.
+folding by the indent), the spaces, tabs and guides of the indent they show; a reply's `link` and
+`wake`, with the kit's timers, `pencere.time` (Sections 2.2 and 2.3); and the kit's library, with a
+language that colours an editor, `@pencere/syntax` (Section 2.6). The kit's own sandbox opens `2.0`
+and no longer `1.0`.
 
 The regular expressions of a view (an editor's search, the rules of its indent) are in the syntax of
 Rust's `regex` crate, `1.x` at the release the kit pins (its `Cargo.lock`), and one may take at most
@@ -44,7 +45,8 @@ that an earlier refused) arrives with a new minor version of both kinds, as a la
 ## 2. The Lua page API
 
 A script is Luau. What it can use besides the language is the base functions, `string`, `table`,
-`math`, `utf8`, `require` (Section 2.5), and `pencere`, the table the prelude fills. It has no files
+`math`, `utf8`, `require` (the other scripts of its bundle and the kit's library: Sections 2.5 and
+2.6), and `pencere`, the table the prelude fills. It has no files
 of the system's, no network, no clock but the time `render` and a wake hand it (Section 2.3), and no
 randomness.
 
@@ -340,50 +342,7 @@ decoration after it for the same editor, so that what a layer is given last is w
 are made against a version, which the editor carries over what is done in between. Nothing else
 waits: a load, a change, a selection or a command goes when the page asks it, and an ask too large
 for a reply by itself goes as it is, for the host to refuse (Section 4: the page fails, as a
-module's would).
-
-**A language** that colours an editor is the page's, and `pencere.Syntax` makes one the way
-CodeMirror's `StreamLanguage` does. `pencere.Syntax.define { name =, start =, token =, copy =,
-equal =, blank =, styles = }` reads a line a token at a time: `token(stream, state)` takes at least
-a character from the stream and says the name of its style, or nil, and the state carries what a
-line leaves open to the next (`start()` is the state before the first line; `copy` and `equal` copy
-and compare two, by default tables all the way down; `blank(state)` is told of a line with nothing
-on it). `styles` gives a name a look, a decoration's (`color`, `background`, `weight`, `italic`,
-`underline`, `strike`): a name may be several apart (`"keyword strong"`, the later's look over the
-earlier's), a dotted one falls back to what is before its last dot (`"string.special"` to
-`"string"`), and one no style says is not coloured. The stream is the line, its `\r` left out
-(`string`), and where it is (`pos`, and `start` where the token began, bytes from 1): `sol()`,
-`eol()`, `peek()` and `next()` (a character is a whole UTF-8 sequence), `eat(match)` and
-`eat_while(match)` (a character is itself, a longer string a Lua pattern the character matches, a
-function says yes or no), `eat_space()`, `skip_to_end()`, `skip_to(text)`, `backup(count)`
-(characters), `column()` and `indentation()` (a tab to its next stop), `match(pattern, consume,
-case_insensitive)` (a Lua pattern read where the stream is: the text matched or its captures, taken
-unless `consume` is false) and `current()`. A `token` that takes nothing fails the page, as any
-error of the language's does, in words that say the language's name and the line
-(`sql: line 12: …`). `language:tokens(text, state, tab_width)` is a line's tokens in characters, for
-a text that is not in an editor (`state` the state before it, `start()`'s where nil; `tab_width` what
-a tab is to the stream's columns, 4).
-
-`pencere.Syntax.new(language, id, { layer =, step =, margin =, tab_width = })` colours the editor
-`id` with it. It keeps the state after each line of the document and is given every event of the
-page (`syntax:handle(event)`): an `edit` makes it read again from the first line the change touched
-until a line ends in the state it ended in before, a `viewport` says what to colour, and for those
-two it does a call's work at once; any other event (the pointer moving, a key) costs it nothing,
-what is left being its timer's. It colours the
-lines in view and `margin` lines on each side (as many as are in view) in the layer `layer`
-(`"syntax"`), in characters, a line again only where it or the state before it changed, and takes
-away what it coloured out of them. One call reads at most `step` bytes (20 000), the lines to colour
-first, and a line to its first 10 000 characters (the state after it is the state there), and it
-holds at most 10 000 decorations for the page, half of what a reply may hand the editors (a line
-that would take it past that waits for the next call). Where the
-lines in view are further on than a call reads to, they are coloured from the state the language
-starts in, and the calls after read on to them and colour again what that got wrong. What it asks
-of the editor goes in the page's reply (`syntax:reply(reply)`, its asks before the page's own; or
-`syntax:asks()`). While there is more to do (`syntax:busy()`) it goes on by itself, a call a frame:
-a timer of its own (`pencere.time.after(0, …)`) wakes the page, does the next call and hands what it
-found to the editor with the wake's reply, so that a large document is coloured to its end with no
-event of the person's (`syntax:work()` does a call at once, for a page that wants one). It does
-nothing for a page that does not use it.
+module's would). How replies are put together is `pencere.merge`'s (Section 2.3).
 
 A long list builds only the rows near what is in view, and keeps the rest of its length with a spacer
 above and one below. `box:list(rows, make)` does all of it: in a box with a name that scrolls, a
@@ -422,6 +381,15 @@ last told or asked; `pencere.layout.scroll_to(id, { y =, x =, animate = })` asks
 it (a way not given stays where it is, past the end is the end, `animate` glides there unless the
 person asked for less motion), done before the next frame is laid out. A box with no id does not
 scroll.
+
+A page reads what its `Ui` keeps as fields: `ui.hover`, the id of the pressable element the pointer
+is over; `ui.pressed`, the one a button went down on and is held on (nil when none is); and
+`ui.focus`, the element the keyboard is on (nil before any). It changes them through the methods:
+`point(layout, at)` (the pointer moved, or left with `at` nil), `press` and `release` (a button went
+down and came up: `release` gives the element clicked), `focus_on(id)`, `focus_step(layout, back)`
+(to the next element that takes the keyboard, or the one before), and `key_path(layout)` is where a
+key goes, the focused element and the named ones around it. Each that takes the pointer says
+whether anything it keeps changed, so a page draws a frame only for what it sees.
 
 `Ui` keeps a drag: `press` on an element that can be dragged begins one, `point` makes it a drag once
 the pointer has moved `pencere.DRAG_START` (4) points and follows it, `dragging()` is
@@ -538,6 +506,16 @@ of `reply` and of `frame` and the event `wake` in the interface, a value that is
 seconds a reply or a frame that is not one; `Reply::with_wake`, `Frame::wake` and `Event::Wake` in
 the Rust SDK.)
 
+**Replies put together.** A page made of parts that answer apart (its timers, a module of the
+library, its own `handle`) answers with one reply: `pencere.merge(first, second, …)` is that reply,
+the replies (each nil, `true`, `false` or a table) put together in the order given and none of them
+changed. It asks everything they ask: the asks of an editor, of each editor in the order of the
+replies; the texts of `fill`, by name, the later's where two name one field; a frame where any
+wants one (`true`, `redraw`) and the page closed where any asks; of what says one thing (`keyboard`,
+`copy`, `cursor`, `menu`, `link`) the last that says it; and the earliest `wake`. Of replies none of
+which is a table, it is `true` where any is `true`, nil where every one is nil, and `false`
+otherwise. This is how the kit puts together what its timers and the page answer (Section 2.2).
+
 ### 2.4 The program
 
 What the page says to its program is the six messages of the protocol (Section 9.2):
@@ -558,11 +536,11 @@ that the editors and the language server of Luau read the paths as they are mean
   or the script `name/init.luau` or `name/init.lua`, and it is one of them, or an error. An `init`
   script is the module of its directory; within it `./` is relative to the directory's parent, and
   `@self/` is the directory itself (`require("@self/child")`).
-- The bundle is the whole world. A path that goes out of the root of the bundle with `../`, an
-  absolute path, a path with no `./` or `../`, an alias other than `@self` (there is no
-  configuration file to define one), a file that is in the bundle but is not typed `text/x-lua`,
-  and a name the bundle has nothing at are all errors, raised at the line of the `require`, that
-  say the path. `require` reads no file of the system.
+- The bundle is the whole world, with the kit's library beside it (Section 2.6). A path that goes
+  out of the root of the bundle with `../`, an absolute path, a path with no `./` or `../`, an alias
+  other than `@self` and `@pencere` (there is no configuration file to define one), a file that is
+  in the bundle but is not typed `text/x-lua`, and a name the bundle has nothing at are all errors,
+  raised at the line of the `require`, that say the path. `require` reads no file of the system.
 - A script runs once per page, in a thread with globals of its own like the entry's, when it is
   first required, and what it returns (exactly one value) is what every `require` of it returns.
   A script that requires itself through others is an error that names the chain
@@ -571,6 +549,73 @@ that the editors and the language server of Luau read the paths as they are mean
   (`screens/logs.lua:12: ...`); the entry's say its path as well.
 - The text of the scripts a page loads, the entry's too, is held to the size of a script together
   (the floor of Section 4: 4 MiB): a `require` past it is an error that says so.
+
+### 2.6 The kit's library
+
+`require("@pencere/<name>")` is a module of the **kit's library**: Luau that the kit writes on this
+page API alone (Sections 2.1 to 2.5, and nothing of the interpreter's besides), at the kit's
+version, for what every page would otherwise write again. A host that runs the kit's interpreter
+MUST give a script the library of its own kit's version; the kit's sandbox does
+(`pencere_sandbox::library`). A page needs nothing else to use it, and MAY write its own instead.
+
+- The alias is `@pencere`, in any letter case, as Luau's aliases are. A module of the library
+  requires another with `@pencere/`, `./` or `@self/`, as the scripts of a bundle require one
+  another, and reaches no script of the bundle: a path past the library's root is an error. A
+  script of the bundle reaches the library through the alias alone, as no path of a bundle has an
+  `@` in it.
+- A name the library has nothing at is an error, raised at the line of the `require`, that says so
+  (`the kit's library has no module "x"`). A module runs once in a page, as a script of the bundle
+  does. An error at a line of it says the module and the line (`@pencere/syntax:12: …`); an error it
+  raises for what its caller gave it says the caller's line.
+- The modules do not count toward the size of a script (Section 4: 4 MiB). The kit holds them to
+  1 MiB together.
+- The kit's parts are in four layers: the host, the prelude, the library and the app
+  ([`README.md`](README.md), "Where a part of the kit goes"). What a layer uses is below it: a
+  module of the library is what an app could have written on the page API, and requires no script
+  of an app; the prelude requires no module of the library.
+
+#### `@pencere/syntax`
+
+A language that colours an editor is the page's, and `@pencere/syntax` makes one the way
+CodeMirror's `StreamLanguage` does. `Syntax.define { name =, start =, token =, copy =, equal =,
+blank =, styles = }` (with `local Syntax = require("@pencere/syntax")`) reads a line a token at a
+time: `token(stream, state)` takes at least a character from the stream and says the name of its
+style, or nil, and the state carries what a line leaves open to the next (`start()` is the state
+before the first line; `copy` and `equal` copy and compare two, by default tables all the way down;
+`blank(state)` is told of a line with nothing on it). `styles` gives a name a look, a decoration's
+(`color`, `background`, `weight`, `italic`, `underline`, `strike`): a name may be several apart
+(`"keyword strong"`, the later's look over the earlier's), a dotted one falls back to what is before
+its last dot (`"string.special"` to `"string"`), and one no style says is not coloured. The stream is
+the line, its `\r` left out (`string`), and where it is (`pos`, and `start` where the token began,
+bytes from 1): `sol()`, `eol()`, `peek()` and `next()` (a character is a whole UTF-8 sequence),
+`eat(match)` and `eat_while(match)` (a character is itself, a longer string a Lua pattern the
+character matches, a function says yes or no), `eat_space()`, `skip_to_end()`, `skip_to(text)`,
+`backup(count)` (characters), `column()` and `indentation()` (a tab to its next stop),
+`match(pattern, consume, case_insensitive)` (a Lua pattern read where the stream is: the text matched
+or its captures, taken unless `consume` is false) and `current()`. A `token` that takes nothing fails
+the page, as any error of the language's does, in words that say the language's name and the line
+(`sql: line 12: …`). `language:tokens(text, state, tab_width)` is a line's tokens in characters, for
+a text that is not in an editor (`state` the state before it, `start()`'s where nil; `tab_width` what
+a tab is to the stream's columns, 4).
+
+`Syntax.new(language, id, { layer =, step =, margin =, tab_width = })` colours the editor `id` with
+it. It keeps the state after each line of the document and is given every event of the page
+(`syntax:handle(event)`): an `edit` makes it read again from the first line the change touched until
+a line ends in the state it ended in before, a `viewport` says what to colour, and for those two it
+does a call's work at once; any other event (the pointer moving, a key) costs it nothing, what is
+left being its timer's. It colours the lines in view and `margin` lines on each side (as many as
+are in view) in the layer `layer` (`"syntax"`), in characters, a line again only where it or the
+state before it changed, and takes away what it coloured out of them. One call reads at most `step`
+bytes (20 000), the lines to colour first, and a line to its first 10 000 characters (the state
+after it is the state there), and it holds at most 10 000 decorations for the page, half of what a
+reply may hand the editors (a line that would take it past that waits for the next call). Where the
+lines in view are further on than a call reads to, they are coloured from the state the language
+starts in, and the calls after read on to them and colour again what that got wrong. What it asks
+of the editor goes in the page's reply (`syntax:reply(reply)`, its asks before the page's own; or
+`syntax:asks()`). While there is more to do (`syntax:busy()`) it goes on by itself, a call a frame:
+a timer of its own (`pencere.time.after(0, …)`) wakes the page, does the next call and hands what it
+found to the editor with the wake's reply, so that a large document is coloured to its end with no
+event of the person's (`syntax:work()` does a call at once, for a page that wants one).
 
 ## 3. Colours
 

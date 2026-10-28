@@ -2,17 +2,20 @@
 -- page makes a language of. It is a page of the kit's page API, and an example of every hook the
 -- editor gives a page:
 --
--- * colours: SQL is a language of the kit's (`pencere.Syntax`), read a line at a time with a state
---   carried from line to line (a block comment goes on over lines); the kit colours the lines in
---   view (`viewport`) as a layer of decorations (`decorate = "syntax"`), reads again from the line
---   an edit touched until the state is what it was, and goes on by itself in the frames after
---   where there is more than one call may do (the kit's timer wakes the page for it);
+-- * colours: SQL is a language of the kit's library (`@pencere/syntax`), read a line at a time
+--   with a state carried from line to line (a block comment goes on over lines); the library
+--   colours the lines in view (`viewport`) as a layer of decorations (`decorate = "syntax"`), reads
+--   again from the line an edit touched until the state is what it was, and goes on by itself in
+--   the frames after where there is more than one call may do (the kit's timer wakes the page for
+--   it);
 -- * folds: each statement of more than one line is a region that folds (a layer of its own);
 -- * completions: a popup anchored to the caret (`pencere.caret_of`), whose keys (↑ ↓ ↩ ⇥ Esc) are
 --   commands of the page only while it is open, and which puts the word in with a change against
 --   the version it was made for (`change`, `base`);
 -- * the program: ⌘↩ sends the statement under the caret to the program, and shows what it says;
 -- * a large document, loaded in pieces (`load`, `more`).
+
+local Syntax = require("@pencere/syntax")
 
 local b = pencere
 local layout = b.layout
@@ -42,7 +45,7 @@ local LOOKS = {
 }
 
 -- What the state carries from line to line: whether a block comment is open.
-local language = b.Syntax.define({
+local language = Syntax.define({
 	name = "sql",
 	start = function()
 		return { comment = false }
@@ -85,7 +88,7 @@ local language = b.Syntax.define({
 	styles = LOOKS,
 })
 
-local syntax = b.Syntax.new(language, SQL)
+local syntax = Syntax.new(language, SQL)
 
 -- --- The document ------------------------------------------------------------------------------
 
