@@ -14,13 +14,14 @@
 --   saving:cancel()             -- whether it was still waiting
 --   clock:active()              -- whether it is
 --   pencere.time.now()          -- the time the host last gave the page
+--   pencere.time.wall()         -- the time of day: Unix seconds, and the local offset
 --
 -- `after(seconds, fn)` runs `fn` once, `seconds` (0 or more) from now; `every(seconds, fn)` every
 -- `seconds` (more than 0) from now on, and once, not once for each, for runs it fell behind on. A
 -- timer runs while the page is woken: the timers that are due, in the order of their times (and
 -- of their making), before the page's own `handle` hears of the wake, which it does only where it
 -- asked a `wake` itself. What `fn` returns is a reply, put together with what the others and the
--- page return (`pencere._merge`), and what is put together is held to what one reply may hand the
+-- page return (`pencere.merge`), and what is put together is held to what one reply may hand the
 -- editors: the decorations past that wait for the next reply. A timer set while the page is woken
 -- counts from the time of the wake. One set anywhere else (an event, a message, `render`,
 -- `settle`, the script's start) counts from the next wake, which the kit asks for at once (for one
@@ -75,9 +76,8 @@ end
 -- Two replies (nil, true, false or a table) as one: everything both ask, the first's asks of an
 -- editor before the second's; a frame where either wants one, the page closed where either asks;
 -- where both say the one thing (the keyboard, the pasteboard, a menu, a link, the pointer's shape)
--- the second's; and the earlier of two wakes. Neither is changed. What a page's parts answer is
--- put together with it: a syntax's (`syntax:reply`), the timers' and the page's own.
-local function merge(first, second)
+-- the second's; and the earlier of two wakes. Neither is changed.
+local function merge_two(first, second)
 	if first == nil then
 		return second
 	elseif second == nil then
@@ -127,7 +127,19 @@ local function merge(first, second)
 	end
 	return out
 end
-pencere._merge = merge
+
+-- Any number of replies as one, put together in order as two are (`merge_two`); nil where every one
+-- is. None is changed. What a page's parts answer is put together with it: the timers' and the
+-- page's own, and a part's of the page that answers for itself (a module of the library, such as a
+-- syntax's `syntax:reply`).
+local function merge(...)
+	local out = nil
+	for index = 1, select("#", ...) do
+		out = merge_two(out, (select(index, ...)))
+	end
+	return out
+end
+pencere.merge = merge
 
 -- Whether an ask of an editor is a decorate, as the interpreter reads it (a load, a change, a
 -- selection or a reveal first).
@@ -145,15 +157,15 @@ local function bytes(value)
 end
 
 -- The text an ask hands an editor, bytes, as the host counts it: a load's, the inserts of a
--- change, the words of the commands that carry some (insert, find, replace, replace_all), the
--- name of a layer decorated.
+-- change and its tag, the words of the commands that carry some (insert, find, replace,
+-- replace_all), the name of a layer decorated.
 local function text_of(ask)
 	if type(ask) ~= "table" then
 		return 0
 	elseif ask.load ~= nil then
 		return bytes(ask.load)
 	elseif ask.change ~= nil then
-		local sum = 0
+		local sum = bytes(ask.tag)
 		if type(ask.change) == "table" then
 			for _, change in ipairs(ask.change) do
 				sum += type(change) == "table" and bytes(change.insert) or 0
@@ -287,6 +299,14 @@ end
 -- The time the host last gave the page, seconds on its clock (0 before it gave any).
 function time.now()
 	return known
+end
+
+-- The time of day now, as the host's system says it: seconds of Unix time (since 1970-01-01
+-- 00:00:00 UTC), and how far the person's local time is ahead of UTC, seconds. Read as it is
+-- asked, it goes on within a call, unlike `time.now()`; it is no clock to time a page's work by
+-- (the person may set the system's clock), but what "4 minutes ago" and "14:32" are told from.
+function time.wall()
+	return pencere.host.wall_clock()
 end
 
 -- Stops the timer: whether it was still waiting (an `after` that ran is not).

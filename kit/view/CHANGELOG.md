@@ -16,6 +16,33 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **The time of day, the host's keyboard, and what spins.** `WallTime` (Unix seconds and the
+  person's offset from UTC) and `KeyConvention` (`Mac`, `Windows`, `Linux`, with `primary`, the main
+  modifier) are what a host says of its system; `Shortcut::parse_for` reads `mod` as that modifier
+  (`"mod+s"`). `Motion::spin(seconds)` turns an element's picture or canvas round, clockwise, a turn
+  in so many seconds, while it is on the page and not under Reduce Motion (`Motions` asks for every
+  frame meanwhile): a canvas is turned in its paths, a picture says how far (`Picture::turn`) for
+  the host to draw it turned.
+- **An editor's new commands and asks.** `EditCommand::{FoldAll, DeleteLines, SelectLine,
+DuplicateLinesUp, JoinLines, InsertBlankLine, SplitLine, TransposeChars, DeleteToLineStart,
+DeleteToLineEnd}`; `EditorAsk::Change` has `history` and `tag` (told back in `Edited::tag`);
+  `EditorAsk::Reveal` has an `align` (`RevealAlign`); `EditorOptions::matches` (`Matches`) and
+  `EditorColors::matches` mark the other places of the main selection's text
+  (`limits::MATCH_LENGTH`, `limits::MATCHES_IN_VIEW`); `Event::EditorReady` tells a page an editor
+  it named was made.
+- **A command has as many keys as do it.** `Command::keys` is a list (`Command::keys(shortcut)` adds
+  one; `done_by` asks whether a key is one of them), as an editor's keybindings are: each does it, a
+  list shows the first, and keys a nearer command has are taken from a farther one's and its others
+  kept. A menu's entry has keys as a command does (`MenuEntry::Item::keys`, a `Shortcut`) where it
+  had a character. `Shortcut::parse` reads the key `+` (`cmd++`).
+- **What a field does with a key, and what a page puts in one.** `FieldState::takes` is the kit's
+  rule of the keys a host's field keeps, asked with the field's kind, its length and what is
+  selected: escape, tab and the function keys are the page's; in one line enter and the keys that go
+  up and down; a chord of command or control unless it is the field's own (select all, paste, undo,
+  redo, and copy and cut with something selected); and backspace, left and home at the start,
+  delete, right and end at the end, where nothing is selected (an empty field gives backspace to the
+  page). A reply's `fill` is a `Fill` for each field: a text, what is selected in it (`select`,
+  characters, `select_all`), or both.
 - **Editors.** `editor(id, EditorOptions)` makes a box the room of an editor of text of the host's
   (the `pencere-editor` crate): it scrolls as a box does, over the content the host's editor says
   (`Measure::editor`), and draws in its place of the list (`Paint::Editor`, an `EditorSlot`). A text

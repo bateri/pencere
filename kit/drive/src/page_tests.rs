@@ -1407,3 +1407,62 @@ fn the_host_scrolls_the_box_under_the_wheel_and_a_turn_no_box_takes_is_the_pages
     let said = page_words(&rig.page).join(" ");
     assert!(said.contains("scroll 30"), "{said}");
 }
+
+/// What replies ask of a field the host does not have yet (the texts and the keyboard) is held, in
+/// the order it was asked, with all that comes after it; what names a field it has is told at once.
+#[test]
+fn what_replies_ask_of_fields_not_yet_laid_is_held_in_order() {
+    use crate::Held;
+    use crate::page::hold;
+    use pencere_sandbox::Answer;
+    use pencere_view::{Fill, Keyboard, Reply};
+
+    let there = Id::named("there");
+    let coming = Id::named("coming");
+    let fields = [crate::Field {
+        id: there,
+        kind: pencere_view::FieldKind::Line,
+        rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+        hint: None,
+        label: None,
+    }];
+    let answer = |reply: Reply| Answer {
+        reply,
+        pointer: false,
+    };
+    let mut replies = [
+        answer(Reply {
+            fill: vec![(there, Fill::text("a"))],
+            keyboard: Some(Keyboard::Field(there)),
+            ..Reply::none()
+        }),
+        answer(Reply {
+            fill: vec![(there, Fill::text("b")), (coming, Fill::text("c"))],
+            keyboard: Some(Keyboard::Field(coming)),
+            ..Reply::none()
+        }),
+        // After what is held, what names a field there is waits too, or it would come first.
+        answer(Reply {
+            fill: vec![(there, Fill::text("d"))],
+            keyboard: Some(Keyboard::Page),
+            ..Reply::none()
+        }),
+    ];
+    let mut held = Vec::new();
+    hold(&mut replies, &fields, &mut held);
+    assert_eq!(replies[0].reply.fill, [(there, Fill::text("a"))]);
+    assert_eq!(replies[0].reply.keyboard, Some(Keyboard::Field(there)));
+    assert_eq!(replies[1].reply.fill, [(there, Fill::text("b"))]);
+    assert_eq!(replies[1].reply.keyboard, None);
+    assert!(replies[2].reply.fill.is_empty());
+    assert_eq!(replies[2].reply.keyboard, None);
+    assert_eq!(
+        held,
+        [
+            Held::Fill(coming, Fill::text("c")),
+            Held::Keyboard(Keyboard::Field(coming)),
+            Held::Fill(there, Fill::text("d")),
+            Held::Keyboard(Keyboard::Page),
+        ]
+    );
+}

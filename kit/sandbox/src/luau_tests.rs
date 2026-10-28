@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 
 use pencere_view::wire::{Kind, Overflow};
 use pencere_view::{
-    Built, Button, Color, Cursor, Ease, Element, Event, FieldKind, Fit, Id, Input, Key, Keyboard,
-    Mix, Mods, Motion, Point, Rgba, Role, Rows, ScrollTo, Shift, Source, Tip, image,
+    Built, Button, Color, Cursor, Ease, Element, Event, FieldKind, Fill, Fit, Id, Input, Key,
+    Keyboard, Mix, Mods, Motion, Point, Rgba, Role, Rows, ScrollTo, Shift, Source, Tip, image,
 };
 use wasmtime::component::Component;
 
@@ -48,7 +48,7 @@ pub(crate) fn open_script_for(
 }
 
 /// The first thing a script's page is: the page, or why it is closed.
-fn first(script: &str, limits: ModuleLimits) -> Update {
+pub(crate) fn first(script: &str, limits: ModuleLimits) -> Update {
     let mut page = open_script(script, limits);
     page.module.render(SIZE, 0.0, false);
     page.until(Duration::from_secs(20), |u| {
@@ -1087,6 +1087,15 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
                     return { redraw = true, fill = { name = "" } }
                 elseif e.type == "focus" then
                     said = "focus " .. tostring(e.field)
+                    if e.field then
+                        return {
+                            redraw = true,
+                            fill = {
+                                name = { text = "draft.md", select = { from = 0, to = 5 } },
+                                notes = { select = true },
+                            },
+                        }
+                    end
                     return true
                 end
             end,
@@ -1158,7 +1167,80 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
     assert_eq!(replies[1].cursor, Cursor::NotAllowed);
     assert_eq!(replies[1].keyboard, Some(Keyboard::Page));
     assert_eq!(replies[2].cursor, Cursor::Grab);
-    assert_eq!(replies[4].fill, [(Id::named("name"), String::new())]);
+    assert_eq!(replies[4].fill, [(Id::named("name"), Fill::text(""))]);
+    let mut filled = replies[5].fill.clone();
+    filled.sort_by_key(|(field, _)| *field != Id::named("name"));
+    assert_eq!(
+        filled,
+        [
+            (Id::named("name"), Fill::text("draft.md").select(0..5)),
+            (Id::named("notes"), Fill::selection(0..u32::MAX as usize)),
+        ]
+    );
+}
+
+/// A menu's entry has keys written as a command's (`keys`); one a page wrote as `key` before is
+/// read as keys where it is some, and as its first character where it is not, as it was.
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_gives_a_menus_entries_their_keys_and_reads_an_old_key_as_it_was() {
+    use pencere_view::{MenuEntry, Shortcut};
+    let mut page = open_script(
+        r##"
+        return {
+            render = function() return pencere.div() end,
+            handle = function(e)
+                if e.type == "press" then
+                    return { menu = { at = { x = 1, y = 1 }, entries = {
+                        { title = "Close", keys = "ctrl+w" },
+                        { title = "Rename", key = "f2" },
+                        { title = "Old", key = "⌘W" },
+                        "-",
+                    } } }
+                end
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    page.module.event(Event::Input(Input::Press {
+        at: Point::new(1.0, 1.0),
+        button: Button::Left,
+        mods: Mods::default(),
+        count: 1,
+    }));
+    until_seen(&mut page, Duration::from_secs(10), |seen| {
+        seen.replies
+            .iter()
+            .any(|answer| answer.reply.menu.is_some())
+    });
+    let menu = page
+        .seen
+        .replies
+        .iter()
+        .find_map(|answer| answer.reply.menu.clone())
+        .expect("a menu");
+    let keys: Vec<Option<Shortcut>> = menu
+        .entries
+        .iter()
+        .map(|entry| match entry {
+            MenuEntry::Item { keys, .. } => *keys,
+            MenuEntry::Separator => None,
+        })
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            Shortcut::parse("ctrl+w"),
+            Shortcut::parse("f2"),
+            Some(Shortcut::new(Key::Character('⌘'), Mods::default())),
+            None,
+        ]
+    );
 }
 
 #[test]
@@ -1264,7 +1346,7 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
                 :child(pencere.div()
                     :focused()
                     :command("find", "Find", "cmd+shift+f", false)
-                    :command("go", "Go", "ctrl+page_down")
+                    :command("go", "Go", { "ctrl+pagedown", "ctrl+alt+right", "cmd++" })
                     :draggable("card"))
                 :child(pencere.div():drop_target("done"):selected(true):expanded(false))
         end }"##,
@@ -1337,7 +1419,10 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
             Command::new(Id::named("find"), "Find")
                 .keys(Shortcut::parse("cmd+shift+f").unwrap())
                 .enabled(false),
-            Command::new(Id::named("go"), "Go").keys(Shortcut::parse("ctrl+page_down").unwrap()),
+            Command::new(Id::named("go"), "Go")
+                .keys(Shortcut::parse("ctrl+page_down").unwrap())
+                .keys(Shortcut::parse("ctrl+alt+right").unwrap())
+                .keys(Shortcut::parse("cmd++").unwrap()),
         ]
     );
     assert!(nodes[9].meta.drop_target);
@@ -1878,5 +1963,45 @@ fn a_long_list_asked_to_its_end_is_built_at_the_end_it_has_now() {
         grown.contains(&"line 1000".to_owned()),
         "the end it has now is built, not the end it had: {:?}",
         grown.last()
+    );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn replies_put_together_ask_all_they_ask_in_order_and_the_earliest_wake() {
+    let update = first(
+        r#"
+        local merge = pencere.merge
+        local one = { editor = { e = { decorate = "a" } }, fill = { name = "one", note = "1" },
+            keyboard = "page", wake = 2 }
+        local two = { editor = { e = { { decorate = "b" }, { decorate = "c" } }, f = { decorate = "d" } },
+            fill = { name = "two" }, wake = 0.5, copy = "text" }
+        local three = { keyboard = { field = "name" }, wake = 1, redraw = false }
+        local out = merge(one, nil, two, true, three)
+        local said = {}
+        for _, ask in ipairs(out.editor.e) do
+            said[#said + 1] = ask.decorate
+        end
+        said[#said + 1] = out.editor.f.decorate
+        said[#said + 1] = out.fill.name .. "/" .. out.fill.note
+        said[#said + 1] = out.keyboard.field
+        said[#said + 1] = out.copy
+        said[#said + 1] = tostring(out.wake)
+        said[#said + 1] = tostring(out.redraw)
+        -- None of them is changed.
+        said[#said + 1] = one.fill.name .. " " .. tostring(one.redraw) .. " " .. #two.editor.e
+        -- Replies that are no tables.
+        said[#said + 1] = tostring(merge()) .. " " .. tostring(merge(nil, nil)) .. " "
+            .. tostring(merge(false, nil)) .. " " .. tostring(merge(nil, false, true))
+        return { render = function()
+            return pencere.text(table.concat(said, ","))
+        end }
+        "#,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None, "{}", failed(&update));
+    assert_eq!(
+        words(&update.frame.expect("a page").root),
+        ["a,b,c,d,two/1,name,text,0.5,true,one nil 2,nil nil false true"]
     );
 }

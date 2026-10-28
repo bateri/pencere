@@ -2,7 +2,8 @@
 -- script's reach once it is wrapped) and the small things the rest is made of.
 --
 -- A script is Luau. What it can use besides the language is the base functions, `string`,
--- `table`, `math` and `utf8`, and `pencere`, the table this prelude fills:
+-- `table`, `math` and `utf8`, `require` (the other scripts of its bundle, and the kit's library:
+-- `require("@pencere/syntax")`), and `pencere`, the table this prelude fills:
 --
 --   elements   pencere.div(), pencere.text(), pencere.rich({ pencere.span(...), ... }),
 --              pencere.spark(), pencere.image(), pencere.canvas({ pencere.path()..., ... }),
@@ -18,8 +19,7 @@
 --   lists      box:list(rows, make), pencere.list_window(id) (a long list in a box the host
 --              scrolls: only the rows near what is in view are made)
 --   time       pencere.time.after, pencere.time.every, pencere.time.now (timers, run when the host
---              wakes the page: a reply's `wake`)
---   languages  pencere.Syntax (a language that colours an editor's lines as they change)
+--              wakes the page: a reply's `wake`), pencere.merge (two replies as one)
 --   layout     pencere.layout (what is where on the page as it was last laid out)
 --   program    pencere.send, pencere.call, pencere.subscribe, pencere.cancel, pencere.json
 --
@@ -53,13 +53,29 @@ local host = {
 	editor_text = pencere.editor_text,
 	line_start = pencere.line_start,
 	line_of = pencere.line_of,
+	wall_clock = pencere.wall_clock,
+	keyboard = pencere.keyboard,
 }
 pencere.send, pencere.hit, pencere.ids_at, pencere.bounds = nil, nil, nil, nil
 pencere.scroll_extent, pencere.scroll_to, pencere.focus_order, pencere.path_of = nil, nil, nil, nil
 pencere.drag_source, pencere.drop_target = nil, nil
 pencere.editor_version, pencere.editor_length, pencere.editor_lines = nil, nil, nil
 pencere.editor_text, pencere.line_start, pencere.line_of = nil, nil, nil
+pencere.wall_clock, pencere.keyboard = nil, nil
 pencere.host = host
+
+-- How the host's system makes and writes its keyboard shortcuts: "mac" (⌘ the main modifier, the
+-- keys written as signs, ⌘⇧K), "windows" (Ctrl the main one, the keys written as words,
+-- Ctrl+Shift+K) or "linux" (as Windows, the logo key Super). What a page shows of a shortcut, and
+-- which modifier it means by `mod` (`pencere.keys`), follow it.
+local convention = nil
+function pencere.keyboard()
+	-- The same every time it is asked: asked once.
+	if convention == nil then
+		convention = host.keyboard()
+	end
+	return convention
+end
 
 -- A colour with an opacity. Everywhere a colour is taken, a role's name, a "#rrggbb" value and a
 -- { light =, dark = } table do too; `colour` is any of the three, or one `pencere.mix` made (whose

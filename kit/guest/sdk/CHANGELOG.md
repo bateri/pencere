@@ -8,6 +8,13 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Changed
 
+- A page can ask the time of day (`wall_clock`, a `WallTime`) and how the application's system
+  writes keys (`keyboard`, a `KeyConvention`); a motion's `spin` crosses the interface.
+- An editor's new commands, a change's `history` and `tag`, a reveal's `align`, an editor's
+  `matches`, and the event `EditorReady` cross the interface; `Fill` and `FieldState` are exported.
+- A command's keys are a list (`Command::keys` adds one), a menu's entry has keys as a command does,
+  and a reply's `fill` says what is selected in a field as well as what it holds (`Fill`), across
+  the interface.
 - Written against `pencere:view@2.0.0`: what a page says of overlays, texts of many looks, canvases,
   commands, dragging, roles and states, and fills from one colour to another crosses the interface,
   and so do the new events. The engine's new names are exported (`rich`, `span`, `canvas`, `path`,

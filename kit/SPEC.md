@@ -30,9 +30,15 @@ what an element is to a screen reader and its state, fills from one colour to an
 button, keys that go up, the modifiers alone and files dropped on the page (Sections 2.1 to 2.3 and
 4); editors of text (Sections 2.1 and 2.3, and the host's part in Section 4), with their search and
 what it finds (`found`), what a page says of its language (its comments, the rules of its indent,
-folding by the indent), the spaces, tabs and guides of the indent they show, and a language that
-colours one, `pencere.Syntax` (Section 2.2); and a reply's `link` and `wake`, with the kit's timers,
-`pencere.time` (Sections 2.2 and 2.3). The kit's own sandbox opens `2.0` and no longer `1.0`.
+folding by the indent), the spaces, tabs and guides of the indent they show; a reply's `link` and
+`wake`, with the kit's timers, `pencere.time` (Sections 2.2 and 2.3); the kit's library, with a
+language that colours an editor, `@pencere/syntax` (Section 2.6); what a reply selects in a field and
+the keys a field has no use for, commands done by more than one set of keys and menus' entries with
+keys (Sections 2.1 and 2.3); and an editor's changes kept out of its history and named, the place it
+reveals put where the page says, the other places of its selection marked, its `editor_ready` and
+the commands of whole lines (Sections 2.1 and 2.3); the time of day and the host's keyboard, with
+`mod` (Sections 2.1 and 2.2, and the interface's `system`), what spins, and the `null` members of
+what a page decodes (Sections 2.1 and 2.4). The kit's own sandbox opens `2.0` and no longer `1.0`.
 
 The regular expressions of a view (an editor's search, the rules of its indent) are in the syntax of
 Rust's `regex` crate, `1.x` at the release the kit pins (its `Cargo.lock`), and one may take at most
@@ -44,9 +50,10 @@ that an earlier refused) arrives with a new minor version of both kinds, as a la
 ## 2. The Lua page API
 
 A script is Luau. What it can use besides the language is the base functions, `string`, `table`,
-`math`, `utf8`, `require` (Section 2.5), and `pencere`, the table the prelude fills. It has no files
-of the system's, no network, no clock but the time `render` and a wake hand it (Section 2.3), and no
-randomness.
+`math`, `utf8`, `require` (the other scripts of its bundle and the kit's library: Sections 2.5 and
+2.6), and `pencere`, the table the prelude fills. It has no files of the system's, no network, no
+clock but the time `render` and a wake hand it (Section 2.3) and the time of day its host says
+(Section 2.2), and no randomness.
 
 A script **returns the page**, a table of the functions the host calls:
 
@@ -102,16 +109,30 @@ and named by that element's id (`text_field(id)`, or the element's own id): a pa
 names, and an element that says it is a field and has no name is not one. `"line"` (the default) is
 one line; `"lines"` breaks the line at enter and scrolls; `"secret"` is one line whose characters are
 not shown and are never copied. The page is told what a field holds when the person changes it
-(`text`), sends the keyboard to one (`keyboard = { field = name }`), and puts a text in one (`fill`).
+(`text`), sends the keyboard to one (`keyboard = { field = name }`), and puts a text in one, selects
+in one, or both (`fill`, Section 2.3): a dialog that renames a file comes up with the name in its
+field and the stem selected, a palette opened again with its query selected, so that what is typed
+takes its place.
 
-While a field has the keyboard, the keys that do not edit its text are the page's, as `key` events,
-and the field keeps the keyboard unless the reply sends it elsewhere: escape and tab in every field,
-and in a line (`"line"`, `"secret"`) besides: enter, up and down with whatever modifier (in one line
-they would only take the caret to an end), page up and page down, the function keys, and a chord
-of command or control with a key the field has no use for. The characters, left and right, delete,
-home and end, and the field's own editing chords (select all, copy, cut, paste, undo; copy with
-nothing selected is not one) stay the field's. So a list with a filter above it takes its
-commands while the person types: the arrows move in the list, enter chooses, ⌘K opens a palette.
+While a field has the keyboard, the keys it has no use for are the page's, as `key` events (a
+command's keys first), and the field keeps the keyboard unless the reply sends it elsewhere. A field
+has a use for a key that changes its text or what is selected in it, and for no other:
+
+- escape, tab and the function keys are the page's in every field; in one line (`"line"`,
+  `"secret"`) so are enter, up, down, page up and page down, whatever is held with them (in one line
+  they would only take the caret to an end); in lines, enter is the field's without command or
+  control, and up and page up, down and page down, are as left and right are below;
+- a character is the field's, and with command or control only where it is one of the field's own
+  chords: select all, paste, undo and redo, and copy and cut where something is selected in a field
+  whose text may be copied. Every other chord is the page's;
+- backspace, left and home are the page's where nothing is selected and the caret is at the start
+  (an empty field gives backspace to the page), and delete, right and end where it is at the end,
+  whatever is held with them; elsewhere they are the field's.
+
+So a list with a filter above it takes its commands while the person types: the arrows move in the
+list, enter chooses, ⌘K opens a palette, and ⌫ in the empty filter of a path goes up a folder. A
+host asks the rule with its field's state (`pencere_view::FieldState::takes`); one whose system
+gives its fields chords besides these (a Mac's ⌃A and ⌃E) may keep those too.
 
 A **label** is what an element is in words, for a person who does not see it: a host that offers its
 system's screen reader says the label of an element that has one, and the words inside one that has
@@ -155,7 +176,14 @@ lists it by its `title` where a person looks for what can be done (its command p
 and tells the page `{ type = "command", id = id }` when it is asked for there or by its `keys`, in
 place of the key. The keys are written as a person writes them: modifiers (`cmd`, `ctrl`, `alt`,
 `shift`) and a key (one character, or the name of a key the page reads) joined by `+`
-(`"cmd+shift+k"`, `"ctrl+enter"`, `"f5"`); `pencere.keys(words)` reads them. A command can be done
+(`"cmd+shift+k"`, `"ctrl+enter"`, `"f5"`, `"cmd++"` for the key `+`); `pencere.keys(words)` reads
+them. `mod` is the main modifier of the host's system (CodeMirror's `Mod`, Electron's `CmdOrCtrl`):
+`"mod+s"` is ⌘S on a Mac and Ctrl+S elsewhere. `pencere.keyboard()` says how the host's system makes
+and writes its shortcuts: `"mac"` (⌘ the main modifier, the keys written as signs, ⌘⇧K),
+`"windows"` (Ctrl the main one, the keys written as words, Ctrl+Shift+K) or `"linux"` (as Windows,
+the logo key Super); what a page shows of a shortcut follows it. A command that more than one set of keys does has a list of them
+(`{ "ctrl+page_down", "ctrl+alt+right" }`), as an editor's keybindings do: each of them does it, and
+a list of the commands shows the first. A command can be done
 while the keyboard is on its element or inside it: the page says which element has the keyboard with
 `focused()` (the element its `Ui` says has the focus). The commands of the page's outermost box can be
 done whatever has the keyboard. Where two say the same keys, the one nearer the keyboard is done; one
@@ -221,29 +249,31 @@ indent, what is typed moves no line, nothing is commented and nothing folds but 
 How an editor looks is the page's to say, and what it leaves out is the editor's default, in the
 theme's colours:
 
-| option                                               | what it is                                                                                                                                                                                                                                                                      | default                                    |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `line_height`                                        | how tall a row is, times the font's size (1 to 3); the text is in its middle, with a point at least above and below                                                                                                                                                             | 1.6                                        |
-| `padding`                                            | the room kept around the text, points (0 to 64)                                                                                                                                                                                                                                 | 4                                          |
-| `scroll_margin`                                      | the rows kept between the caret and the top or the bottom of the room when the editor scrolls to the caret (at most half the rows in view)                                                                                                                                      | 0                                          |
-| `numbers`                                            | what the numbers of the lines count: `"absolute"`, `"relative"` (the caret's line its own number, every other line how many lines it is from it, a folded region one line) or `"hidden"` (the gutter keeps its marks and fold buttons)                                          | `"absolute"`                               |
-| `current_line`                                       | where the ground of the main caret's line is drawn: `"text"`, `"gutter"` or `"all"` (both); its colour is `colors.current_line`                                                                                                                                                 | `"text"`                                   |
-| `whitespace`                                         | which spaces and tabs are shown, as VS Code's `renderWhitespace`: `"none"`, `"boundary"` (all but a space alone between two words), `"selection"` (those in what is selected), `"trailing"` (those after the last word of a line, every one of a line with no words) or `"all"` | `"none"`                                   |
-| `indent_guides`                                      | a thin line down each level of indent, the block the main caret is in having its own colour while the editor has the keyboard                                                                                                                                                   | false                                      |
-| `caret.shape`                                        | `"bar"` (before the character), `"block"` (over the character, which is drawn again on it; a space wide at the end of a line) or `"underline"`                                                                                                                                  | `"bar"`                                    |
-| `caret.height`                                       | `"row"` (as tall as the row, as the current line's ground is) or `"text"` (as tall as the text)                                                                                                                                                                                 | `"row"`                                    |
-| `caret.width`                                        | how wide the bar is, or how thick the line under the character, points (0.5 to 8)                                                                                                                                                                                               | 2                                          |
-| `caret.color`, `caret.text`                          | the caret's colour, and the colour of the character under a block                                                                                                                                                                                                               | cursor, background                         |
-| `colors.current_line`                                | the ground of the main caret's line, while the editor has the keyboard                                                                                                                                                                                                          | foreground at 5%                           |
-| `colors.selection`, `colors.selection_blurred`       | the ground of what is selected, while the editor has the keyboard and while it has not                                                                                                                                                                                          | selection, selection at half               |
-| `colors.found`                                       | the ground of what a search found                                                                                                                                                                                                                                               | warning at 30%                             |
-| `colors.brackets`                                    | the ring around the bracket by the caret and the one that matches it                                                                                                                                                                                                            | dim at 60%                                 |
-| `colors.numbers`, `colors.current_number`            | the numbers of the lines, and the caret's line's                                                                                                                                                                                                                                | quiet, dim                                 |
-| `colors.gutter`                                      | the ground of the gutter                                                                                                                                                                                                                                                        | what the editor is on, else the background |
-| `colors.folds`, `colors.folded`                      | the buttons that fold and the `⋯` after a folded line, and the ground of that `⋯`                                                                                                                                                                                               | dim, foreground at 8%                      |
-| `colors.whitespace`                                  | the dots, arrows and boxes of the spaces and tabs shown                                                                                                                                                                                                                         | border                                     |
-| `colors.indent_guides`, `colors.active_indent_guide` | the guides of the indent, and the guide of the main caret's block (`false`: drawn as the others are); with the guides' colour `false` and the block's not, the block's guide alone is drawn                                                                                     | border, quiet                              |
-| `colors.hint`                                        | what the editor says while it is empty                                                                                                                                                                                                                                          | quiet                                      |
+| option                                               | what it is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | default                                    |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `line_height`                                        | how tall a row is, times the font's size (1 to 3); the text is in its middle, with a point at least above and below                                                                                                                                                                                                                                                                                                                                                                                                                | 1.6                                        |
+| `padding`                                            | the room kept around the text, points (0 to 64)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | 4                                          |
+| `scroll_margin`                                      | the rows kept between the caret and the top or the bottom of the room when the editor scrolls to the caret (at most half the rows in view)                                                                                                                                                                                                                                                                                                                                                                                         | 0                                          |
+| `numbers`                                            | what the numbers of the lines count: `"absolute"`, `"relative"` (the caret's line its own number, every other line how many lines it is from it, a folded region one line) or `"hidden"` (the gutter keeps its marks and fold buttons)                                                                                                                                                                                                                                                                                             | `"absolute"`                               |
+| `current_line`                                       | where the ground of the main caret's line is drawn: `"text"`, `"gutter"` or `"all"` (both); its colour is `colors.current_line`                                                                                                                                                                                                                                                                                                                                                                                                    | `"text"`                                   |
+| `whitespace`                                         | which spaces and tabs are shown, as VS Code's `renderWhitespace`: `"none"`, `"boundary"` (all but a space alone between two words), `"selection"` (those in what is selected), `"trailing"` (those after the last word of a line, every one of a line with no words) or `"all"`                                                                                                                                                                                                                                                    | `"none"`                                   |
+| `indent_guides`                                      | a thin line down each level of indent, the block the main caret is in having its own colour while the editor has the keyboard                                                                                                                                                                                                                                                                                                                                                                                                      | false                                      |
+| `matches`                                            | the other places of the main selection's text, marked where they are in view (CodeMirror's `highlightSelectionMatches`): `"selection"` (or `true`), those of a main selection on one line, at most 200 characters and not all spaces, in the case written, and where it is a whole word only where they are whole words (no letter, digit or `_` just before or after); `"word"`, those and the places of the word a caret is in; at most 100 in view, the selection itself not among them. Only drawn: the selection is as it was | `"none"`                                   |
+| `caret.shape`                                        | `"bar"` (before the character), `"block"` (over the character, which is drawn again on it; a space wide at the end of a line) or `"underline"`                                                                                                                                                                                                                                                                                                                                                                                     | `"bar"`                                    |
+| `caret.height`                                       | `"row"` (as tall as the row, as the current line's ground is) or `"text"` (as tall as the text)                                                                                                                                                                                                                                                                                                                                                                                                                                    | `"row"`                                    |
+| `caret.width`                                        | how wide the bar is, or how thick the line under the character, points (0.5 to 8)                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 2                                          |
+| `caret.color`, `caret.text`                          | the caret's colour, and the colour of the character under a block                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | cursor, background                         |
+| `colors.current_line`                                | the ground of the main caret's line, while the editor has the keyboard                                                                                                                                                                                                                                                                                                                                                                                                                                                             | foreground at 5%                           |
+| `colors.selection`, `colors.selection_blurred`       | the ground of what is selected, while the editor has the keyboard and while it has not                                                                                                                                                                                                                                                                                                                                                                                                                                             | selection, selection at half               |
+| `colors.found`                                       | the ground of what a search found                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | warning at 30%                             |
+| `colors.matches`                                     | the ground of the other places of the main selection's text                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | selection at 40%                           |
+| `colors.brackets`                                    | the ring around the bracket by the caret and the one that matches it                                                                                                                                                                                                                                                                                                                                                                                                                                                               | dim at 60%                                 |
+| `colors.numbers`, `colors.current_number`            | the numbers of the lines, and the caret's line's                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | quiet, dim                                 |
+| `colors.gutter`                                      | the ground of the gutter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | what the editor is on, else the background |
+| `colors.folds`, `colors.folded`                      | the buttons that fold and the `⋯` after a folded line, and the ground of that `⋯`                                                                                                                                                                                                                                                                                                                                                                                                                                                  | dim, foreground at 8%                      |
+| `colors.whitespace`                                  | the dots, arrows and boxes of the spaces and tabs shown                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | border                                     |
+| `colors.indent_guides`, `colors.active_indent_guide` | the guides of the indent, and the guide of the main caret's block (`false`: drawn as the others are); with the guides' colour `false` and the block's not, the block's guide alone is drawn                                                                                                                                                                                                                                                                                                                                        | border, quiet                              |
+| `colors.hint`                                        | what the editor says while it is empty                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | quiet                                      |
 
 A colour is any colour of the page (a role's name, a value, `{ colour, alpha }`); `false` draws none
 (`colors = { current_line = false }`, or `caret = { color = false }` for an editor with no caret). A
@@ -291,7 +321,10 @@ A **motion** says how a change of an element moves instead of jumping, as a styl
 default, `"linear"`, `"in-out"`, `"spring"`), and which of `color`, `opacity`, `size` (a width or
 height in points) and `place` (moved among the others, it slides there) follow a change; `enter` and
 `exit` (`{ opacity, dx, dy, seconds }`) say how it comes in when it appears and how it goes when it is
-gone. The host does the moving, frame by frame, and does not ask the page for the frames in between;
+gone. `spin` (seconds, more than 0) turns it round, clockwise, a turn in that many seconds, for as
+long as it is on the page and with no id too: its picture or its canvas turns about its middle, its
+box and its place stay, and the host draws a frame for each step (a spinner while something loads,
+`image("loader.svg"):motion({ spin = 1 })`). The host does the moving, frame by frame, and does not ask the page for the frames in between;
 the element is followed by its id, so one with no id does not move. Nothing moves under Reduce Motion,
 on the frame the page changes size, or for what scrolling brings into view or takes out of it. A row
 of a list is `motion({ place = true, enter = { dy = 6 }, exit = { dy = -3, seconds = 0.14 } })`; a
@@ -319,7 +352,11 @@ program runner's. `pencere.time.after(seconds, fn)` runs `fn` once, `seconds` (0
 `pencere.time.every(seconds, fn)` every `seconds` (more than 0) from then on, once and not once for
 each for runs it fell behind on. Both return a timer: `:cancel()` stops it (`true` where it was still
 waiting) and `:active()` says whether it waits. `pencere.time.now()` is the time the host last gave
-the page, `render`'s `now` or a wake's (0 before any); it does not go on between them. The kit asks
+the page, `render`'s `now` or a wake's (0 before any); it does not go on between them.
+`pencere.time.wall()` is the time of day, as the host's system says it: the seconds of Unix time
+(since 1970-01-01 00:00:00 UTC, leap seconds not counted) and how far the person's local time is
+ahead of UTC, seconds. It is read as it is asked and goes on within a call; it is what "4 minutes
+ago" and "14:32" are told from, and no clock to time a page's work by (the person may set it). The kit asks
 for the wakes its timers want with the page's replies and frames, and when the page is woken runs
 those that are due, in the order of their times (and of their making), before `handle` is told of the
 wake, which it is only where the page asked a `wake` itself. What `fn` returns is a reply, put
@@ -340,50 +377,7 @@ decoration after it for the same editor, so that what a layer is given last is w
 are made against a version, which the editor carries over what is done in between. Nothing else
 waits: a load, a change, a selection or a command goes when the page asks it, and an ask too large
 for a reply by itself goes as it is, for the host to refuse (Section 4: the page fails, as a
-module's would).
-
-**A language** that colours an editor is the page's, and `pencere.Syntax` makes one the way
-CodeMirror's `StreamLanguage` does. `pencere.Syntax.define { name =, start =, token =, copy =,
-equal =, blank =, styles = }` reads a line a token at a time: `token(stream, state)` takes at least
-a character from the stream and says the name of its style, or nil, and the state carries what a
-line leaves open to the next (`start()` is the state before the first line; `copy` and `equal` copy
-and compare two, by default tables all the way down; `blank(state)` is told of a line with nothing
-on it). `styles` gives a name a look, a decoration's (`color`, `background`, `weight`, `italic`,
-`underline`, `strike`): a name may be several apart (`"keyword strong"`, the later's look over the
-earlier's), a dotted one falls back to what is before its last dot (`"string.special"` to
-`"string"`), and one no style says is not coloured. The stream is the line, its `\r` left out
-(`string`), and where it is (`pos`, and `start` where the token began, bytes from 1): `sol()`,
-`eol()`, `peek()` and `next()` (a character is a whole UTF-8 sequence), `eat(match)` and
-`eat_while(match)` (a character is itself, a longer string a Lua pattern the character matches, a
-function says yes or no), `eat_space()`, `skip_to_end()`, `skip_to(text)`, `backup(count)`
-(characters), `column()` and `indentation()` (a tab to its next stop), `match(pattern, consume,
-case_insensitive)` (a Lua pattern read where the stream is: the text matched or its captures, taken
-unless `consume` is false) and `current()`. A `token` that takes nothing fails the page, as any
-error of the language's does, in words that say the language's name and the line
-(`sql: line 12: …`). `language:tokens(text, state, tab_width)` is a line's tokens in characters, for
-a text that is not in an editor (`state` the state before it, `start()`'s where nil; `tab_width` what
-a tab is to the stream's columns, 4).
-
-`pencere.Syntax.new(language, id, { layer =, step =, margin =, tab_width = })` colours the editor
-`id` with it. It keeps the state after each line of the document and is given every event of the
-page (`syntax:handle(event)`): an `edit` makes it read again from the first line the change touched
-until a line ends in the state it ended in before, a `viewport` says what to colour, and for those
-two it does a call's work at once; any other event (the pointer moving, a key) costs it nothing,
-what is left being its timer's. It colours the
-lines in view and `margin` lines on each side (as many as are in view) in the layer `layer`
-(`"syntax"`), in characters, a line again only where it or the state before it changed, and takes
-away what it coloured out of them. One call reads at most `step` bytes (20 000), the lines to colour
-first, and a line to its first 10 000 characters (the state after it is the state there), and it
-holds at most 10 000 decorations for the page, half of what a reply may hand the editors (a line
-that would take it past that waits for the next call). Where the
-lines in view are further on than a call reads to, they are coloured from the state the language
-starts in, and the calls after read on to them and colour again what that got wrong. What it asks
-of the editor goes in the page's reply (`syntax:reply(reply)`, its asks before the page's own; or
-`syntax:asks()`). While there is more to do (`syntax:busy()`) it goes on by itself, a call a frame:
-a timer of its own (`pencere.time.after(0, …)`) wakes the page, does the next call and hands what it
-found to the editor with the wake's reply, so that a large document is coloured to its end with no
-event of the person's (`syntax:work()` does a call at once, for a page that wants one). It does
-nothing for a page that does not use it.
+module's would). How replies are put together is `pencere.merge`'s (Section 2.3).
 
 A long list builds only the rows near what is in view, and keeps the rest of its length with a spacer
 above and one below. `box:list(rows, make)` does all of it: in a box with a name that scrolls, a
@@ -423,6 +417,15 @@ it (a way not given stays where it is, past the end is the end, `animate` glides
 person asked for less motion), done before the next frame is laid out. A box with no id does not
 scroll.
 
+A page reads what its `Ui` keeps as fields: `ui.hover`, the id of the pressable element the pointer
+is over; `ui.pressed`, the one a button went down on and is held on (nil when none is); and
+`ui.focus`, the element the keyboard is on (nil before any). It changes them through the methods:
+`point(layout, at)` (the pointer moved, or left with `at` nil), `press` and `release` (a button went
+down and came up: `release` gives the element clicked), `focus_on(id)`, `focus_step(layout, back)`
+(to the next element that takes the keyboard, or the one before), and `key_path(layout)` is where a
+key goes, the focused element and the named ones around it. Each that takes the pointer says
+whether anything it keeps changed, so a page draws a frame only for what it sees.
+
 `Ui` keeps a drag: `press` on an element that can be dragged begins one, `point` makes it a drag once
 the pointer has moved `pencere.DRAG_START` (4) points and follows it, `dragging()` is
 `{ source =, at =, target = }` while it goes (`target`, the drop target under the pointer, is never the
@@ -433,26 +436,27 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 
 `handle` is given `{ type = ..., ... }` in the page's points:
 
-| `type`             | Members                                                                                                                                                                                                                                                  |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `move`, `leave`    | `x`, `y` (`leave` has none)                                                                                                                                                                                                                              |
-| `press`, `release` | `x`, `y`, `button` (`"left"`, `"right"` or `"middle"`), and for `press` `mods` and `count` (2 for the second of a double click, as the system counts them)                                                                                               |
-| `scroll`           | `x`, `y`, `dx`, `dy`: a wheel no box the host scrolls took, the points the content would move left and up by (for a page that does something of its own with the wheel)                                                                                  |
-| `scrolled`         | `boxes`: the boxes the host scrolled, each `{ id =, x =, y = }`, how far it is scrolled now                                                                                                                                                              |
-| `key`              | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"delete"`, `"f1"` to `"f20"`, or the character), `mods`                                                     |
-| `text`             | `field` (its name) and `text`: what a field holds now, after the person changed it (not after the page's own `fill`)                                                                                                                                     |
-| `focus`            | `field`: the field the person clicked into, or nil when the keyboard went back to the page of itself (not said when it went where the page sent it)                                                                                                      |
-| `menu`             | `index` (from 1) of the entry picked from the menu the page asked for                                                                                                                                                                                    |
-| `key_up`           | `key` and `mods`, as `key`: a key the page was told of went up                                                                                                                                                                                           |
-| `mods`             | `mods`: the modifiers held changed, with no other key                                                                                                                                                                                                    |
-| `command`          | `id`: the command asked for, from the host's list or by its keys (the key is not told as well)                                                                                                                                                           |
-| `files`            | `x`, `y`, `paths`: files dropped on the page from outside it, their paths as the host's system writes them                                                                                                                                               |
-| `edit`             | `editor`, `version` (what the document came to), `origin` (`"person"`, `"compose"`, `"page"`, `"undo"`, `"redo"`, `"load"`), `changes` (`{ { from =, to =, insert = }, ... }`, in the places of the version before, in order)                            |
-| `selection`        | `editor`, `version`, `ranges` (`{ { anchor =, head = }, ... }`), `main` (from 1), `composing` (an input method is composing at the main caret; the host does none of the page's commands then)                                                           |
-| `viewport`         | `editor`, `first`, `last`: the lines in view, for a page that colours only what is seen                                                                                                                                                                  |
-| `editor_refused`   | `editor`, `reason` (`"reversed"`, `"out-of-document"`, `"overlapping"`, `"stale-version"`, `"future-version"`, `"too-large"`, `"too-many-decorations"`, `"outside-range"`, `"bad-pattern"`, `"no-editor"`): what the page asked was not done, none of it |
-| `found`            | `editor`, `version`, `count` (at most 10 000), `current` (the match the main selection is exactly on, from 1; nil for none), `more` (there may be more than `count`): what its search finds (below)                                                      |
-| `wake`             | `now`: the time the page asked to be woken at (a reply's `wake`, below) has come, seconds on `render`'s clock; told only to a page that asked, after the timers that were due ran (Section 2.2)                                                          |
+| `type`             | Members                                                                                                                                                                                                                                                                                                   |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `move`, `leave`    | `x`, `y` (`leave` has none)                                                                                                                                                                                                                                                                               |
+| `press`, `release` | `x`, `y`, `button` (`"left"`, `"right"` or `"middle"`), and for `press` `mods` and `count` (2 for the second of a double click, as the system counts them)                                                                                                                                                |
+| `scroll`           | `x`, `y`, `dx`, `dy`: a wheel no box the host scrolls took, the points the content would move left and up by (for a page that does something of its own with the wheel)                                                                                                                                   |
+| `scrolled`         | `boxes`: the boxes the host scrolled, each `{ id =, x =, y = }`, how far it is scrolled now                                                                                                                                                                                                               |
+| `key`              | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"delete"`, `"f1"` to `"f20"`, or the character), `mods`                                                                                                      |
+| `text`             | `field` (its name) and `text`: what a field holds now, after the person changed it (not after the page's own `fill`)                                                                                                                                                                                      |
+| `focus`            | `field`: the field the person clicked into, or nil when the keyboard went back to the page of itself (not said when it went where the page sent it)                                                                                                                                                       |
+| `menu`             | `index` (from 1) of the entry picked from the menu the page asked for                                                                                                                                                                                                                                     |
+| `key_up`           | `key` and `mods`, as `key`: a key the page was told of went up                                                                                                                                                                                                                                            |
+| `mods`             | `mods`: the modifiers held changed, with no other key                                                                                                                                                                                                                                                     |
+| `command`          | `id`: the command asked for, from the host's list or by its keys (the key is not told as well)                                                                                                                                                                                                            |
+| `files`            | `x`, `y`, `paths`: files dropped on the page from outside it, their paths as the host's system writes them                                                                                                                                                                                                |
+| `edit`             | `editor`, `version` (what the document came to), `origin` (`"person"`, `"compose"`, `"page"`, `"undo"`, `"redo"`, `"load"`), `tag` (the page's name for a change it asked for with one), `changes` (`{ { from =, to =, insert = }, ... }`, in the places of the version before, in order)                 |
+| `selection`        | `editor`, `version`, `ranges` (`{ { anchor =, head = }, ... }`), `main` (from 1), `composing` (an input method is composing at the main caret; the host does none of the page's commands then)                                                                                                            |
+| `viewport`         | `editor`, `first`, `last`: the lines in view, for a page that colours only what is seen                                                                                                                                                                                                                   |
+| `editor_refused`   | `editor`, `reason` (`"reversed"`, `"out-of-document"`, `"overlapping"`, `"stale-version"`, `"future-version"`, `"too-large"`, `"too-many-decorations"`, `"outside-range"`, `"bad-pattern"`, `"no-editor"`): what the page asked was not done, none of it                                                  |
+| `found`            | `editor`, `version`, `count` (at most 10 000), `current` (the match the main selection is exactly on, from 1; nil for none), `more` (there may be more than `count`): what its search finds (below)                                                                                                       |
+| `wake`             | `now`: the time the page asked to be woken at (a reply's `wake`, below) has come, seconds on `render`'s clock; told only to a page that asked, after the timers that were due ran (Section 2.2)                                                                                                           |
+| `editor_ready`     | `editor`, `version`: the host made the editor, as the page was laid out with it, shown or hidden; its text is posted before this is told, and what the page asks of it is done from now on. A page loads a document into an editor it has just made (a tab's that is not in front too) when it hears this |
 
 `move`, `press` and `release` over an editor have `place`, `{ editor =, at = }`: the place of its
 document under the pointer (a word to say what it is of while the pointer rests on it, a name to go to
@@ -462,20 +466,25 @@ at a ⌘-click). A press in an editor is the editor's as well: it puts the caret
 `false` (a frame is worth drawing or not), or a table: `redraw`, `close`, `copy` (text for the
 pasteboard), `cursor` (`"arrow"`, `"pointer"`, `"text"`, `"resize_horizontal"`, `"resize_vertical"`,
 `"not_allowed"`, `"grab"`, `"grabbing"` or `"crosshair"`), `keyboard` (`"page"` or `{ field = name }`),
-`fill` (`{ [name] = text }`: what fields are to hold from now on; a name that is not a field of the
-page is passed over), `menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" } }`,
+`fill` (`{ [name] = text }`, or `{ [name] = { text =, select = } }`: what fields are to hold from now
+on, and what is selected in them; `select` is `{ from =, to = }`, characters from 0 in either order,
+past the end the end, or `true` for all of it; a field given no `text` keeps what it holds, and one
+given no `select` has its caret where its system puts it after a text, at the end; a name that is
+not a field of the page is passed over, below), `menu = { at = { x =, y = }, entries = { { title =, keys =,
+enabled = }, "-" } }` (an entry's `keys` are written as a command's, `"ctrl+w"` or `"f2"`, and shown
+at the end of its line; `key`, the name it had, is read the same),
 `link` (an address to open in the person's browser, below), `wake` (in how many seconds to wake the
 page, below), and `editor = { [name] = ask, or { ask, ... } }`, what the page asks of its editors,
 each ask one of:
 
-| Ask                                                                    | What                                                                                                                                                                               |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `{ load = text, more = true }`                                         | A piece of the document: the first in place of the whole text, each after it (`more` said before) on its end. Nothing of it is undone, and what could be undone before cannot be.  |
-| `{ change = { { from =, to =, insert = }, ... }, base = version }`     | Changes against the version the page saw: carried over what was done since (a range's start after what came in at it, its end before), done, undone as one.                        |
-| `{ select = { { anchor =, head = }, ... }, version =, main = }`        | The selections, in the places of `version`.                                                                                                                                        |
-| `{ reveal = place, version = }`                                        | The place scrolled into view.                                                                                                                                                      |
-| `{ command = name, ... }`                                              | What the person could do with a key: `"move"` (`movement`, `extend`), `"insert"` (`text`), `"undo"`, `"find"` and the commands of a search, … (`pencere_view::edit::EditCommand`). |
-| `{ decorate = layer, version =, from =, to =, decorations = { ... } }` | The layer's decorations for `from`–`to`, in place of those it had there; the other layers stay.                                                                                    |
+| Ask                                                                                  | What                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{ load = text, more = true }`                                                       | A piece of the document: the first in place of the whole text, each after it (`more` said before) on its end. Nothing of it is undone, and what could be undone before cannot be.                                                                                                                                                                                     |
+| `{ change = { { from =, to =, insert = }, ... }, base = version, history =, tag = }` | Changes against the version the page saw: carried over what was done since (a range's start after what came in at it, its end before), done, undone as one; where `history` is `false`, never undone, and what can be undone or done again is carried over them as over any change after it (CodeMirror's `addToHistory: false`). `tag` is told back in their `edit`. |
+| `{ select = { { anchor =, head = }, ... }, version =, main = }`                      | The selections, in the places of `version`.                                                                                                                                                                                                                                                                                                                           |
+| `{ reveal = place, version =, align = }`                                             | The place scrolled into view: as far as it takes, and not where it shows (`"nearest"`, the default), or its row at the top of the room (`"start"`), in its middle (`"center"`) or at its bottom (`"end"`).                                                                                                                                                            |
+| `{ command = name, ... }`                                                            | What the person could do with a key: `"move"` (`movement`, `extend`), `"insert"` (`text`), `"undo"`, `"find"` and the commands of a search, those of whole lines (below), … (`pencere_view::edit::EditCommand`).                                                                                                                                                      |
+| `{ decorate = layer, version =, from =, to =, decorations = { ... } }`               | The layer's decorations for `from`–`to`, in place of those it had there; the other layers stay.                                                                                                                                                                                                                                                                       |
 
 A layer is named by the page (`"syntax"`, `"diagnostics"`, `"folds"`): the colours of what is in view
 are sent without taking the errors away. A decoration is `{ from =, to =, color =, background =,
@@ -486,6 +495,29 @@ it is folded is the person's). Decorations of an older version are carried over 
 since. What the editor cannot do is refused and the page told why (`editor_refused`): a range the wrong
 way round, a place past the end, changes that overlap, a version older than the last 1 024 or yet to
 come, a document larger than an editor may hold.
+
+A change kept out of the history is how a page puts in what came from elsewhere (a file changed on
+disk, a reformat) and keeps what the person can undo. It sends what changed and not the whole text:
+what is undone after it is carried over it, and a group whose text the change replaced whole would
+be carried to an end of it. A `load` is for a document the page begins: nothing before it can be
+undone. An editor tells `editor_ready` once for each document it holds: a page whose tree names an
+editor for the first time asks of it when it hears it, as an ask made before is refused
+(`no-editor`).
+
+The commands of whole lines and of what is by a caret are those of CodeMirror's and VS Code's
+standard keys, each a `{ command = name }` and none with a key of the editor's own (a page gives
+them its keys, as its commands): `"fold_all"` (every region that folds and is in none that does),
+`"delete_lines"` (the lines of each range, the caret on the line that comes in their place as far
+along it as it was), `"select_line"` (the lines of each range, whole; a range that is whole lines
+takes the next too), `"move_lines_up"`, `"move_lines_down"`, `"duplicate_lines"` (below them, the
+ranges on the copy) and `"duplicate_lines_up"` (above them, the ranges on the copy), `"join_lines"`
+(each line of a range with the next, a caret's with the one after it: the later line's indent taken
+away and a space between them where neither side has one or is empty, the caret where they met),
+`"insert_blank_line"` (a line after a caret's, indented as a line break at its end would indent it,
+the caret on it), `"split_line"` (a line break at each caret, the caret before it),
+`"transpose_chars"` (the characters either side of a caret swapped, the two before it at the end of
+a line, the caret after them), `"delete_to_line_start"` and `"delete_to_line_end"` (to an end of the
+caret's line, or the break there where it is at it).
 
 An editor **finds** what the page asks it to: `{ command = "find", pattern =, regex =, case =, word
 = }` looks for `pattern` through the whole document (a regular expression, Section 1, where `regex`, in either
@@ -509,6 +541,16 @@ every place the main selection's text is, in the case written, or, where the mai
 caret, every place the word it is in is (the word `"select_next"` takes: a word by Unicode's rules,
 cut where a mark stands inside it), as a whole word; the search stays as it was. A document the
 person cannot change (`read_only`) is not replaced in.
+
+A reply's **`fill`** and its **`keyboard = { field = name }`** may name a field that the very page the
+reply comes with brings: a reply that opens a field (a find bar, a palette, a dialog) fills it and
+sends the keyboard to it in the same reply, as an element is focused when it comes. A field is the
+host's only once a frame has laid it out (Section 4), so what a reply asks of a field the host does
+not have yet waits for the next frame that lays the page out, and is done once the host has that
+frame's fields: in the order it was asked (a reply's texts, then its keyboard), and what is asked
+after it waits behind it, though it names a field the host has. A name that frame still does not
+have is passed over, as any name that is no field of the page is: its text is dropped and the
+keyboard goes to the page. A frame that is not drawn (the view is hidden) leaves it waiting.
 
 A reply's **`link`** asks the host to open an address in the person's browser, by the rule of a web
 page's `link` (protocol, Sections 9.7 and 9.8): only an `http` or `https` address, every byte of it
@@ -538,12 +580,28 @@ of `reply` and of `frame` and the event `wake` in the interface, a value that is
 seconds a reply or a frame that is not one; `Reply::with_wake`, `Frame::wake` and `Event::Wake` in
 the Rust SDK.)
 
+**Replies put together.** A page made of parts that answer apart (its timers, a module of the
+library, its own `handle`) answers with one reply: `pencere.merge(first, second, …)` is that reply,
+the replies (each nil, `true`, `false` or a table) put together in the order given and none of them
+changed. It asks everything they ask: the asks of an editor, of each editor in the order of the
+replies; the texts of `fill`, by name, the later's where two name one field; a frame where any
+wants one (`true`, `redraw`) and the page closed where any asks; of what says one thing (`keyboard`,
+`copy`, `cursor`, `menu`, `link`) the last that says it; and the earliest `wake`. Of replies none of
+which is a table, it is `true` where any is `true`, nil where every one is nil, and `false`
+otherwise. This is how the kit puts together what its timers and the page answer (Section 2.2).
+
 ### 2.4 The program
 
 What the page says to its program is the six messages of the protocol (Section 9.2):
 `pencere.call(method, params, done, progress)` asks and is answered once, `pencere.subscribe(topic,
 params, on_value)` asks to hear a topic, `pencere.cancel(id)` gives either up, `pencere.json` encodes
-and decodes JSON (arrays and objects nested up to 127 levels, the outermost counting as the first: protocol, Section 4.5). A message the program cannot take yet waits its turn (`pencere.send`, the raw word,
+and decodes JSON (arrays and objects nested up to 127 levels, the outermost counting as the first: protocol, Section 4.5).
+A member that is `null` holds nothing in what is decoded, as one that is not there does, so that
+`if changes.git then` reads both alike; where they mean different things, `pencere.json.has(object,
+key)` says whether the object had the key (`null` too) and `pencere.json.is_null(object, key)`
+whether it had it as `null`, for every object decoded, those of the program's messages included,
+while the page has set nothing at that key. What is decoded is encoded again as it was: its `null`
+members, and an empty list as a list. A message the program cannot take yet waits its turn (`pencere.send`, the raw word,
 says whether it took the message), and the host holds the page to the limits of Section 5.
 
 ### 2.5 The other scripts of the bundle
@@ -558,11 +616,11 @@ that the editors and the language server of Luau read the paths as they are mean
   or the script `name/init.luau` or `name/init.lua`, and it is one of them, or an error. An `init`
   script is the module of its directory; within it `./` is relative to the directory's parent, and
   `@self/` is the directory itself (`require("@self/child")`).
-- The bundle is the whole world. A path that goes out of the root of the bundle with `../`, an
-  absolute path, a path with no `./` or `../`, an alias other than `@self` (there is no
-  configuration file to define one), a file that is in the bundle but is not typed `text/x-lua`,
-  and a name the bundle has nothing at are all errors, raised at the line of the `require`, that
-  say the path. `require` reads no file of the system.
+- The bundle is the whole world, with the kit's library beside it (Section 2.6). A path that goes
+  out of the root of the bundle with `../`, an absolute path, a path with no `./` or `../`, an alias
+  other than `@self` and `@pencere` (there is no configuration file to define one), a file that is
+  in the bundle but is not typed `text/x-lua`, and a name the bundle has nothing at are all errors,
+  raised at the line of the `require`, that say the path. `require` reads no file of the system.
 - A script runs once per page, in a thread with globals of its own like the entry's, when it is
   first required, and what it returns (exactly one value) is what every `require` of it returns.
   A script that requires itself through others is an error that names the chain
@@ -571,6 +629,323 @@ that the editors and the language server of Luau read the paths as they are mean
   (`screens/logs.lua:12: ...`); the entry's say its path as well.
 - The text of the scripts a page loads, the entry's too, is held to the size of a script together
   (the floor of Section 4: 4 MiB): a `require` past it is an error that says so.
+
+### 2.6 The kit's library
+
+`require("@pencere/<name>")` is a module of the **kit's library**: Luau that the kit writes on this
+page API alone (Sections 2.1 to 2.5, and nothing of the interpreter's besides), at the kit's
+version, for what every page would otherwise write again. A host that runs the kit's interpreter
+MUST give a script the library of its own kit's version; the kit's sandbox does
+(`pencere_sandbox::library`). A page needs nothing else to use it, and MAY write its own instead.
+
+- The alias is `@pencere`, in any letter case, as Luau's aliases are. A module of the library
+  requires another with `@pencere/`, `./` or `@self/`, as the scripts of a bundle require one
+  another, and reaches no script of the bundle: a path past the library's root is an error. A
+  script of the bundle reaches the library through the alias alone, as no path of a bundle has an
+  `@` in it.
+- A module made of several files has the others as its parts (`@pencere/languages/sql`): they can
+  be required, but they are not the library's interface, and what they are may change with any
+  version of the kit.
+- A name the library has nothing at is an error, raised at the line of the `require`, that says so
+  (`the kit's library has no module "x"`). A module runs once in a page, as a script of the bundle
+  does. An error at a line of it says the module and the line (`@pencere/syntax:12: …`); an error it
+  raises for what its caller gave it says the caller's line.
+- The modules do not count toward the size of a script (Section 4: 4 MiB). The kit holds them to
+  1 MiB together.
+- The kit's parts are in four layers: the host, the prelude, the library and the app
+  ([`README.md`](README.md), "Where a part of the kit goes"). What a layer uses is below it: a
+  module of the library is what an app could have written on the page API, and requires no script
+  of an app; the prelude requires no module of the library.
+
+#### `@pencere/syntax`
+
+A language that colours an editor is the page's, and `@pencere/syntax` makes one the way
+CodeMirror's `StreamLanguage` does. `Syntax.define { name =, start =, token =, copy =, equal =,
+blank =, styles = }` (with `local Syntax = require("@pencere/syntax")`) reads a line a token at a
+time: `token(stream, state)` takes at least a character from the stream and says the name of its
+style, or nil, and the state carries what a line leaves open to the next (`start()` is the state
+before the first line; `copy` and `equal` copy and compare two, by default tables all the way down;
+`blank(state)` is told of a line with nothing on it). `styles` gives a name a look, a decoration's
+(`color`, `background`, `weight`, `italic`, `underline`, `strike`): a name may be several apart
+(`"keyword strong"`, the later's look over the earlier's), a dotted one falls back to what is before
+its last dot (`"string.special"` to `"string"`), and one no style says is not coloured. The stream is
+the line, its `\r` left out (`string`), and where it is (`pos`, and `start` where the token began,
+bytes from 1): `sol()`, `eol()`, `peek()` and `next()` (a character is a whole UTF-8 sequence),
+`eat(match)` and `eat_while(match)` (a character is itself, a longer string a Lua pattern the
+character matches, a function says yes or no), `eat_space()`, `skip_to_end()`, `skip_to(text)`,
+`backup(count)` (characters), `column()` and `indentation()` (a tab to its next stop),
+`match(pattern, consume, case_insensitive)` (a Lua pattern read where the stream is: the text matched
+or its captures, taken unless `consume` is false) and `current()`. A `token` that takes nothing fails
+the page, as any error of the language's does, in words that say the language's name and the line
+(`sql: line 12: …`). `language:tokens(text, state, tab_width)` is a line's tokens in characters, for
+a text that is not in an editor (`state` the state before it, `start()`'s where nil; `tab_width` what
+a tab is to the stream's columns, 4), and `language:look(name)` the look its styles give a token's
+name (a copy; nil for none), found as the syntax finds it.
+
+`Syntax.new(language, id, { layer =, step =, margin =, tab_width = })` colours the editor `id` with
+it. It keeps the state before every 32nd line of the document (a checkpoint) and before each line of
+the window it colours, and no other, so that what it holds grows with a document 32 lines at a time;
+a line whose state it does not keep is read from the checkpoint before it. It is given every event
+of the page (`syntax:handle(event)`): an `edit` makes it read again from the first line the change
+touched (from the checkpoint before it, where that line's state is not kept) until a line whose
+state is kept ends in the state it ended in before, a `viewport` says what to colour, and for those
+two it does a call's work at once; any other event (the pointer moving, a key) costs it nothing, what is
+left being its timer's. It colours the lines in view and `margin` lines on each side (as many as
+are in view) in the layer `layer` (`"syntax"`), in characters, a line again only where it or the
+state before it changed, and takes away what it coloured out of them. One call reads at most `step`
+bytes (20 000), the lines to colour first, and a line to its first 10 000 characters (the state
+after it is the state there), and it holds at most 10 000 decorations for the page, half of what a
+reply may hand the editors (a line that would take it past that waits for the next call). Where the
+lines in view are further on than a call reads to, they are coloured from the state the language
+starts in, and the calls after read on to them and colour again what that got wrong. What it asks
+of the editor goes in the page's reply (`syntax:reply(reply)`, its asks before the page's own; or
+`syntax:asks()`). While there is more to do (`syntax:busy()`) it goes on by itself, a call a frame:
+a timer of its own (`pencere.time.after(0, …)`) wakes the page, does the next call and hands what it
+found to the editor with the wake's reply, so that a large document is coloured to its end with no
+event of the person's (`syntax:work()` does a call at once, for a page that wants one).
+
+#### `@pencere/languages`
+
+The languages an editor reads are the page's, and `@pencere/languages` (with
+`local languages = require("@pencere/languages")`) knows the kit's as CodeMirror's
+`@codemirror/language-data` does: a **description** of each says what it is called and how a file in
+it is told, and costs nothing to keep; the **language** is built from one only when a page loads it.
+A description is a frozen table: `name`; `aliases`, its other names; `extensions`, what a file's name
+ends in after its last dot; `filenames`, whole names of files in it (`"Makefile"`, `".bashrc"`);
+`patterns`, Lua patterns a file's whole name in lower case is in it by (`"^dockerfile[%.%-]"`);
+`interpreters`, the programs a `#!` first line runs a script in it with, without their version
+(`"python"`); `first_line`, a Lua pattern the first line of a file in it matches (`"^%s*<%?xml"`), or
+nil; and `family`, the module of readers it is built with (`"clike"`, `"scripting"`, `"markup"`,
+`"data"`, `"sheets"`, `"tools"` or `"sql"`). Names, aliases, extensions and file names are matched in
+any letter case.
+
+The kit's languages are C, C#, C++, CSS, Diff, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, JSX,
+Kotlin, Less, Lua, Makefile, Markdown, PHP, PostgreSQL, Python, Ruby, Rust, SCSS, Shell, SQL, SQLite,
+Swift, TOML, TSX, TypeScript, XML and YAML. None is plain text: that is the page's word for a file in
+none of them.
+
+- `languages.list()` is every description, sorted by name in any case, a new list each call.
+- `languages.find(name)` is the description whose name or one of whose aliases is `name`, in any
+  case, or nil.
+- `languages.detect(path, first_line)` is the description of the file at `path` (its whole name,
+  after the last `/` or `\`; nil for a document with no name) whose first line is `first_line` (or
+  nil), by its whole name (`filenames`), then `patterns`, then its extension, then its first line:
+  the program of a `#!` line (the one `env` is given, past its options and settings; `python3.12` is
+  `python`), then `first_line`. It is nil where none of them says a language.
+- `languages.load(which)` is the language `which` says (a name or an alias in any case, or a
+  description), built the first time it is asked for and the same table after; nil for a name the
+  module does not know. `languages.loaded(which)` is the language where it has been built, nil
+  otherwise: for a page that would not build one in a call that is short of time.
+- An argument that is neither a name nor one of the module's descriptions is an error at the
+  caller's line.
+
+A language is a frozen `{ name =, description =, syntax =, config = }`. `syntax` is a language of
+`@pencere/syntax`: `Syntax.new(language.syntax, id)` colours an editor with it, and
+`language.syntax:tokens(line, state)` a text that is not in one. `config` is what an editor is told
+of the language, in the editor's own options (Section 2.1): `comment`, `indent` (in Rust's syntax),
+`folds` (`"indent"`), `pairs`, and `hard_tabs` and `tab_width` only where the language or its one
+formatter fixes how it indents (Go and the Makefile, tabs; Rust and Python, four spaces; YAML, two
+spaces and no tabs). A page gives `config` to an editor as it is (`pencere.editor(id,
+language.config)`), its own options in a copy (`table.clone(language.config)`); a page that gives the
+editor another `tab_width` gives `Syntax.new` the same.
+
+Requiring the module builds no language: it reads its descriptions alone, and a family's module is
+required when a language of it is first loaded. A language that holds another loads the other by
+name, through the module, when it first meets it: HTML its scripts and styles by the tag's `lang` or
+`type` (`lang="ts"`, `type="module"`, `type="text/css"`), a script read to the tag that closes it, on
+its own line too; Markdown the code in a fence, by the first word of the fence's info. A held language
+the module does not know is read as text. A reader takes at least a character a token and does work
+in proportion to the line, and where nothing is open at a line's end it leaves the empty state `{}`,
+which the lines after it share.
+
+SQL is three descriptions that share one reader. `PostgreSQL` and `SQLite` each read the characters
+the two databases read apart as its own does: `[` (a subscript or `ARRAY[…]` in PostgreSQL, a quoted
+name in SQLite), `?` (an operator of `jsonb` in PostgreSQL, a parameter in SQLite) and `@name`,
+`$name` (parameters of SQLite). `SQL`, for a file that does not say its database, reads the forms of
+both: a `[` right after a name or a bracket is a subscript and any other opens a name; `?|` and `?&`
+are operators and any other `?` is a parameter. Each of the three reads `--` and `/* */` comments
+(nested in PostgreSQL), strings in `'` over lines (`''` a quote in one), `E'…'` and `X'…'`,
+`$tag$…$tag$` (PostgreSQL's and SQL's), quoted names in `"` and in `` ` `` (SQLite's and SQL's),
+`$1` and `:name` parameters and `::` casts. `#` is no comment: PostgreSQL's `#>` is an operator.
+
+`languages.styles` is the one table of looks every language names its tokens from (a look is what
+`Syntax.define`'s styles say one is), frozen, in the theme's roles:
+
+| Tokens                                                       | Look                             |
+| ------------------------------------------------------------ | -------------------------------- |
+| `keyword`, `heading`                                         | `accent` (`heading` bold)        |
+| `keyword.modifier`, `variable.special`                       | `accent`, italic                 |
+| `string`, `code`, `inserted`                                 | `success`                        |
+| `number`, `atom`, `constant`, `attribute`, `list`, `changed` | `warning`                        |
+| `type`                                                       | `info`                           |
+| `link`, `url`                                                | `info` (`link` underlined)       |
+| `tag`, `deleted`                                             | `error`                          |
+| `invalid`                                                    | `error`, a wavy underline        |
+| `comment`, `quote`                                           | `dim` toward `quiet`, italic     |
+| `punctuation`, `operator`, `meta`                            | `foreground` toward `background` |
+| `function`, `property`, `string.special`, `escape`, `regexp` | mixed from two roles             |
+| `emphasis`, `strong`, `strike`                               | the face's alone                 |
+
+`languages.look(name)` is the look a token named `name` has by `styles`, as `language:look` finds it
+(Section 2.6, `@pencere/syntax`), or nil: for a page that colours code that is not in an editor.
+
+#### `@pencere/fuzzy`
+
+What a person types, found in texts the way a picker, a palette or a filter finds it
+(`local fuzzy = require("@pencere/fuzzy")`). A pattern is in a text where each of its characters is
+there, in order, with anything between them; a space in the pattern is not looked for. Of the ways
+it is there, the one that scores best is taken, as fzf's second algorithm scores it: a character
+scores more at the start of the text and of a word (after a space, after one of `/ \ : , ; |`, after
+any other character that is not a letter or a digit, a capital after a small letter, a digit after
+what is not one), a run more than the same characters apart, a gap costs, and a first character late
+in the text costs a point for each character before it, at most five.
+
+- `fuzzy.match(pattern, text, options)` is the score and the places of the pattern's characters
+  (characters of UTF-8 from 1, in order; a text that is not UTF-8 a byte a character; a text matched
+  in its first 64 KiB), or nil where it is not there; an empty pattern is in every text, with a score
+  of 0 and no places. `options.case` is `"smart"` (the default: a capital is told from its small
+  letter only where the pattern has a capital), `"ignore"` or `"respect"`; a letter is lowered by
+  Unicode's simple mapping for ASCII, Latin-1, Latin Extended-A, the letters in pairs of Latin
+  Extended-B and Latin Extended Additional, Greek, Cyrillic, Armenian and the full-width Latin
+  letters, and any other is compared as it is. With `options.path` the text is a path: a `/` and a
+  `\` are one character, a pattern with a `/` in it is matched against the whole path, and any other,
+  where it is in the path's last part (the name; a separator at the end left out), scores above any
+  match that is not. `options.highlight` says which places: `"best"` (the default), those that gave
+  the score, or `"first"`, where the pattern is first all there, from as late a first character as
+  that allows; the score is the same. A match whose table of scores would pass 32 768 places is
+  scored along the places `"first"` gives.
+- `fuzzy.filter(pattern, items, options)` is the items the pattern is in,
+  `{ { item =, index =, score =, positions = }, ... }`, a higher score first and of two the same the
+  earlier item; with an empty pattern every item in order. Its options are `match`'s and `text` (an
+  item's text where the items are not strings: a function of the item, or the name of its field; a
+  number is its digits) and `limit` (how many to keep at most: the best, kept as they are found). It
+  does all at once.
+- `fuzzy.search(pattern, items, options)` (the same options) goes through the items a list holds
+  when it is made a step at a time. `search:step(budget)` goes through at least one item, until what
+  it compared (bytes of text and places of the tables of scores) comes to `budget` (60 000 unless
+  said, some milliseconds), and says whether it is over; `search:results()` is the best so far, in
+  order (a list without a `limit` is sorted again as it grows: a long one is searched with a limit);
+  `search:progress()` how many items it went through and of how many; `search:done()` whether it goes
+  no further (it went through every item or was cancelled); `search:cancel()` stops it, keeping what
+  it found. `search:run(on_progress)` does a step at once and returns what `on_progress(search)`
+  returns for it (a reply, for the page to answer with), then goes on by itself, a step a frame: a
+  timer of its own (`pencere.time.after(0, …)`) wakes the page, does a step and tells `on_progress`,
+  whose reply is the wake's, until it is done or cancelled. `search:narrow(pattern)` is a search for
+  `pattern` in its place, with its items and options, and cancels it: where every text the new
+  pattern is in, the old one's is in as well (its characters in the new pattern's in order, told
+  apart in case no less), it goes only through what the old one found and the items it had not gone
+  through. An error a list's item gives (no text) is the caller's, at its line; in a step `run` goes
+  on with, the page's.
+- `fuzzy.spans(text, positions, look, from, to)` is the text as parts of a text of many looks
+  (`pencere.rich`): the characters at the places in `look`, what a `pencere.span` says (`color`,
+  `weight`, `italic`, `underline`, `strike`, `family`, `bg`, `link`;
+  `{ color = "accent", weight = 700 }` where none is given), the rest in the element's own look.
+  `from` and `to` (characters) take a part of the text, the places counted in the whole; places
+  outside it are passed over. It makes at most 1 024 parts, the rest plain in the last.
+
+#### `@pencere/keys`
+
+Keys as a page writes them (`"cmd+shift+k"`, Section 2.1), as a person reads them
+(`local keys = require("@pencere/keys")`).
+
+- `keys.parse(words)` is `pencere.keys(words)` with the key checked and named as a key event names
+  it (`"page_up"`, `"delete"`, `"enter"`, `"escape"`, `" "`, `"f1"` to `"f20"`, or one character), or
+  nil and why for words that are not keys.
+- `keys.caps(words, options)` is a cap for each key (`{ "⇧", "⌘", "K" }`), and
+  `keys.label(words, options)` the label: on a Mac the caps with nothing between (`"⇧⌘K"`), elsewhere
+  joined by `+` (`"Ctrl+Shift+K"`). `words` are words or what `keys.parse` made; words that are not
+  keys are an error at the caller's line. A Mac writes the modifiers in the order ⌃ ⌥ ⇧ ⌘ and the keys
+  `↑ ↓ ← →`, `⇞ ⇟` (page up, down), `↖ ↘` (home, end), `↩` (enter), `⎋` (escape), `⇥` (tab), `⌫`
+  (backspace), `⌦` (delete), `␣` (space); any other platform `Ctrl`, `Alt`, `Shift`, `Super` (`Win` on Windows) in that
+  order and `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Enter`, `Esc`, `Tab`,
+  `Backspace`, `Delete`, `Space`. Both write a function key `F5` and a letter as a capital (ASCII,
+  Latin-1, Latin Extended-A, Greek and Cyrillic; another character as it is). `cmd` is the command
+  key, matched as it is and never as control: elsewhere than on a Mac it is the system's logo key,
+  `Super` (`Win` on Windows). `mod+…` is the host's main modifier (Section 2.1): `⌘` on a Mac, `Ctrl`
+  elsewhere.
+- `options.platform` is `"mac"`, `"windows"`, `"linux"` or `"other"` (a platform a page does not name:
+  written as Linux is); where it is not given it is `keys.platform()`, which `keys.set_platform(name)`
+  sets for the page and which is the host's keyboard convention, `pencere.keyboard()` (Section 2.2),
+  or `"mac"` where the page API says none. Windows writes the command key `Win`, Linux and `"other"`
+  `Super`.
+- `keys.matches(event, words)` is whether a key event (`key` or `key_up`, or a table with no `type`)
+  is those keys: the same modifiers, no more and no fewer, and the same key, a character in either
+  case, as the host matches a command's keys; an event of another type is not.
+
+#### `@pencere/markdown`
+
+`@pencere/markdown` (with `local markdown = require("@pencere/markdown")`) reads Markdown and draws
+it. The dialect is CommonMark (0.31.2) with GitHub's extensions (GFM): tables, their columns aligned
+as the delimiter row says (`\|` a pipe in a cell); task lists; strikethrough (`~` or `~~`); and the
+links that need no brackets (`www.…`, `http://…`, `https://…`, `ftp://…`, an address of mail). HTML in
+the text, a block of it or a tag in a line, is kept as the text it is and drawn so, never run. A
+reference to a character is the character HTML names (every name of WHATWG's list, and numbers).
+
+`markdown.parse(text)` is the tree of the text, read at once:
+`{ type = "document", children = { block, ... } }`. Every block says the lines of the text it came
+from: `line` (from 1) and `lines`. A block is a `heading` (`level`, `children`), a `paragraph`
+(`children`), a `quote` (`children`), a `list` (`ordered`, `start`, `tight`, `children`: its items),
+an `item` (`checked`: nil, or true or false for a task; `children`), `code` (`language`: the first word
+of its fence's info, or nil; `info`; `text`, its last line break left out), `html` (`text`), a `rule`
+or a `table` (`align`: a list of `"left"`, `"center"`, `"right"` or false; `head`: a list of cells;
+`rows`: a list of lists of cells; a cell is a list of inlines). An inline is `text` (`text`),
+`emphasis`, `strong` or `strike` (`children`), `code` (`text`), a `link` (`href`, `title`,
+`children`), an `image` (`src`, `title`, `alt`: its description as plain text), `html` (`text`), a
+`softbreak` or a `hardbreak`. An address is written as commonmark.js writes it: a byte an address may
+not hold, or one that is not printable ASCII, is `%XX`.
+
+`markdown.render(document, options)` is the element of a document, a column of its blocks: a
+paragraph a text of many looks that wraps; a heading such a text, bold, in the size `headings` gives
+its level (`{ 22, 18, 16, 14.5, 13.5, 13 }`), with the role of a heading; a list a column of rows, a
+marker and the item's blocks (a task's marker a checkbox); a quote its blocks beside a bar; a table a
+grid with a column for each of its columns (at most 64); a block of code a box in the terminal's
+font; HTML a box of its text; a rule a line. Its `options` are each optional: `id`, the start of the
+names of its elements (`"markdown"`); `colors`, roles of the theme: `text` (its words; the box's
+where nil), `quiet` (`"dim"`), `link` (`"accent"`), `code` (`"raised2"`), `head` (`"raised1"`),
+`quote` and `rule` (`"border"`); `gap`, the points between blocks (12); `size`, the size of the text
+the page sets, for what it works out before the layout (13); `link`, `code`, `image` and
+`languages`, below; and `limit`, the most elements it makes (10 000), what is past it left out and
+an "…" in its place. An option it has no such name for, or one of the wrong kind, fails the page at
+the line of the page's call. Two draws on one page have different ids.
+
+A link is a part of a text named `<id>/link/<n>`. Given the page's events, `markdown.handle(event)`
+answers a click on a link (the left button pressed and let go on it) with what `link(href)` returns:
+by default `{ link = href }` for an `http` or `https` address, nil for any other; it answers nil to
+every other event. `markdown.href(id)` is the address of the link of that name, for a page that finds
+what was clicked its own way. An image is its description, as words of the text, since a page reaches
+only the pictures of its bundle; where `image(src, alt, title)` is given, an image is the element it
+returns, and the text around it stands in a row that wraps. A block of code is the element
+`code(language, text)` returns; where that is not given, the block is coloured line by line by the
+language `languages` finds (`find(word)`, then `load(description)`, which returns `{ syntax = }`, as
+`@pencere/languages` does; by default that module, looked for when code is first drawn), a token in
+the look `syntax:look(name)` gives. A draw colours at most 20 000 bytes of code and draws the rest
+plain.
+
+`markdown.document()` is a document kept for a text that changes.
+
+- `doc:set(text)` reads again what changed. It starts at the block before the first line that
+  changed, where that line may go on with that block (the line right after it, or, after blank lines,
+  a list or code indented; a table whose header was the last line of a paragraph is read with that
+  paragraph), and otherwise at the line after that block. It reads until, in the lines it did not
+  change, a block begins at a line where one began before; the blocks after that are the ones it had,
+  moved by the lines the change added or took. A change inside a fence, a list or a quote so reads
+  that block again, and no more; where a definition of a link changes, the blocks that looked up its
+  label have their inlines read again.
+- One call reads at most 20 000 bytes (a line and a block cost besides their bytes). The rest is read
+  by a timer of its own (`pencere.time.after(0, …)`), a call a frame, each asking for a frame, while
+  `doc:busy()`; `doc:work()` does a call's work at once. Until it is done, `doc:tree()` is the
+  document as far as it is read; `doc:reread()` is how many lines and blocks the last change was read
+  in, so far.
+- `doc:render(options)` is `markdown.render`'s element of it: a block that is as it was, drawn with
+  the same options, is the element it was. Code left plain for want of what a draw colours is
+  coloured in the draws after, and a frame is asked for each.
+- `doc:list(id, options)` is a box named `id` that scrolls and holds the blocks as a long list
+  (`box:list`, Section 2.2), which the page sizes with the builders after it
+  (`doc:list("preview"):size_full()`). A block is a row named `<id>/block/<n>`, as tall as it is
+  likely to be until the layout says; `doc:settle()`, which the page's `settle` returns, reads how tall
+  the rows made came out, and is true where one changed. `doc:reveal(line)` scrolls the list to the
+  block that holds line `line` of the text, and again as the layout says where that block stands. A
+  document's id is `markdown<n>` unless the options say otherwise.
 
 ## 3. Colours
 
@@ -642,7 +1017,14 @@ A host:
 
 - puts one field of its own over each text field of the page (`Laid::fields`), of its kind, saying
   its hint while it is empty, and tells the page what the person types into it, where the person
-  clicks into one, and takes the texts a reply fills them with;
+  clicks into one, and takes the texts a reply fills them with and what it selects in them; and,
+  while one has the keyboard, gives the page the keys it has no use for there, as the kit's rule
+  says with the field's text and selection (`FieldState::takes`, Section 2.1); it takes what a
+  reply asks of a field (its text, its selection, the keyboard) only of a field it has put over the
+  page, and holds what a reply asks of one it has not until the next frame that lays the page out
+  has been laid and its fields put over the page, then takes it in the order it was asked
+  (Section 2.3: a reply that opens a field and fills it and sends the keyboard to it in one is
+  done as it says); a name that frame does not have either it passes over;
 - draws a run's `underline` and `strike` where its font puts those lines, in the run's colour, and
   sets an `italic` run in its face's italic;
 - takes the pointer's shape a reply asks for, and tells a press's `count` and a scroll across;
@@ -690,8 +1072,16 @@ A host:
   page and comes back, or ends outside it, is followed to its end;
 - tells the page the middle button, the keys that go up after it was told they went down, the
   modifiers when they alone change, and the files dropped on the page from outside it;
+- says the time of day as its system does, with the person's offset from UTC (the interface's
+  `system.wall-clock`, `Program::wall_clock`: the sandbox's own default reads the system's clock and
+  knows no time zone, so a host that knows the person's says it), and how its system makes and
+  writes shortcuts (`system.keyboard`, `Program::keyboard`: `mac`, `windows` or `linux`);
+- draws a picture turned where its draw list says (`Picture::turn`, degrees clockwise about the
+  middle of its rectangle, cut at its rectangle turned with it): what spins (a canvas that spins is
+  turned before it reaches the host, and draws as any other);
 - puts an editor of its own (`pencere-editor`, the same in every host) in each editor's room
-  (`Laid::editors`), keeps its document as long as an editor of that name is on the page, hidden or
+  (`Laid::editors`), tells the page each one it makes (`editor_ready`, its text posted first), keeps
+  its document as long as an editor of that name is on the page, hidden or
   not, and draws it in its place of the draw list (`Paint::Editor`), over the room's fill and under
   what covers it; draws its carets and blinks them on its own clock (the page is asked for no frames
   for it); gives it its system's input method (what is composed, and the questions of where the

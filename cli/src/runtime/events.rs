@@ -1,5 +1,6 @@
-//! What other threads tell the runner's loop: the calls of the view (which come in on threads of
-//! the program library's), the end of `serve`, and the watcher of `pencere dev`. The loop is
+//! What other threads tell the runner's loop: the calls and the subscriptions of the view (which
+//! the program library hands over in the order the view made them, on the thread that reads it),
+//! the end of `serve`, and the watcher of `pencere dev`. The loop is
 //! the one thread that runs Lua; these are queued for it and a byte in a pipe wakes it.
 
 use std::io;
@@ -7,15 +8,15 @@ use std::os::fd::RawFd;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use pencere::{Call, Outcome, Subscription, ViewError};
+use pencere::{Answer, Call, Outcome, Subscription};
 use serde_json::Value;
 
-/// A call of the view, for the handler in Lua; the answer goes back to the thread that waits.
+/// A call of the view, for the handler in Lua, which answers it when it can.
 pub struct CallEvent {
     pub method: String,
     pub params: Value,
     pub call: Call,
-    pub reply: Sender<Result<Value, ViewError>>,
+    pub reply: Answer,
 }
 
 /// A subscription of the view, for the handler in Lua.
@@ -25,7 +26,7 @@ pub struct SubscribeEvent {
     pub params: Value,
     pub subscription: Subscription,
     /// Whether the handler started the subscription: the view hears it if it did not.
-    pub started: Sender<Result<(), ViewError>>,
+    pub started: Answer<()>,
 }
 
 pub enum Event {
@@ -109,11 +110,17 @@ pub fn channel_pair() -> io::Result<(Events, Inbox)> {
 impl Events {
     /// Hands `event` to the loop; whether the loop is still there to take it.
     pub fn send(&self, event: Event) -> bool {
-        let sent = self.sender.send(event).is_ok();
-        if sent {
-            self.poke();
-        }
-        sent
+        self.hand(event).is_ok()
+    }
+
+    /// Hands `event` to the loop, or gives it back where the loop is gone: what it carries (an
+    /// answer owed to the view) is the caller's to settle.
+    pub fn hand(&self, event: Event) -> Result<(), Box<Event>> {
+        self.sender
+            .send(event)
+            .map_err(|refused| Box::new(refused.0))?;
+        self.poke();
+        Ok(())
     }
 
     /// Wakes the loop with nothing for it: it looks at what it waits for again.

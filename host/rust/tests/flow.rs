@@ -1149,6 +1149,30 @@ fn a_dismiss_closes_the_view_and_the_program_is_told_once_it_is_gone() {
     assert!(rig.take().0.is_empty());
 }
 
+/// A host that does not close a view at the program's request says so in its `welcome`, and a
+/// `dismiss` that comes all the same leaves the view as it is.
+#[test]
+fn a_host_that_does_not_offer_dismiss_lists_no_feature_and_keeps_the_view() {
+    let mut rig = Rig::new();
+    rig.host.offer_dismiss(false);
+    let welcome = rig.hello_with(&json!([{"kind": "web", "versions": ["1.0"]}]));
+    // No feature to list: the member is left out, as an empty one is.
+    assert!(
+        welcome["features"]
+            .as_array()
+            .is_none_or(|features| features.is_empty()),
+        "{welcome}"
+    );
+    let mut rig = Rig::new();
+    rig.up_web(None);
+    rig.host.offer_dismiss(false);
+    let opened = rig.token.clone().unwrap();
+    rig.send("dismiss", None, None, &dismiss(Some(&opened)));
+    let (wrote, acted) = rig.take();
+    assert!(wrote.is_empty() && acted.is_empty());
+    assert_eq!(rig.host.state(), State::Open);
+}
+
 #[test]
 fn a_token_given_while_a_view_runs_is_still_good_after_the_view_closes() {
     for end in [

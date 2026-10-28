@@ -6,7 +6,9 @@
 //!
 //! A request of the view runs on a thread of its own (or of its lane's), and what its handler says
 //! comes back through the owner's channel as `Work`, which the owner hands to [`Exchange::on_work`]
-//! in the order it came. Nothing here knows of a terminal.
+//! in the order it came. A deferred handler is given its request here, on the thread that reads the
+//! view, in the order the view sent it, and its answer comes back the same way when the program
+//! gives it (at once, where it answers before it returns). Nothing here knows of a terminal.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -18,8 +20,9 @@ use serde_json::Value;
 
 use crate::Options;
 use crate::handlers::{
-    self, Ask, Call, CallFn, Feed, Flag, Lane, Outbox, Subscription, ViewError, Work, fits,
-    payload_of, read_message, run_call, run_topic,
+    self, Answer, Ask, Call, CallFn, CallHandler, Feed, Flag, Lane, Outbox, Subscription,
+    TopicHandler, ViewError, Work, fits, payload_of, read_message, run_call, run_deferred,
+    run_topic,
 };
 
 /// How many messages a handler can have waiting for the owner before it has to wait.
@@ -152,7 +155,6 @@ impl Exchange {
             Self::tell_failure(toward, id, &ViewError::with_message("busy", why));
             return;
         }
-        let handler = Arc::clone(&entry.handler);
         let flag = Arc::new(Flag::new());
         self.calls.insert(
             id,
@@ -166,6 +168,16 @@ impl Exchange {
             id,
         };
         let call = Call::new(ask, method, flag, self.outbox.clone());
+        let handler = match &entry.handler {
+            CallHandler::Thread(handler) => Arc::clone(handler),
+            CallHandler::Deferred(handler) => {
+                let handler = Arc::clone(handler);
+                let answer = Answer::of_call(ask, self.outbox.clone());
+                let ran = run_deferred(ask, move || handler(params, call, answer));
+                self.after_deferred(ask, ran, toward);
+                return;
+            }
+        };
         let started = match lane {
             None => handlers::spawn_handler(move || run_call(&*handler, params, &call)),
             Some(lane) => self.queue(lane, handler, params, call),
@@ -210,7 +222,7 @@ impl Exchange {
         if self.calls.contains_key(&id) || self.subscriptions.contains_key(&id) {
             return;
         }
-        let Some(handler) = options.topics.get(&topic) else {
+        let Some(entry) = options.topics.get(&topic) else {
             Self::tell_failure(
                 toward,
                 id,
@@ -221,7 +233,6 @@ impl Exchange {
             );
             return;
         };
-        let handler = Arc::clone(handler);
         let ask = Ask {
             view: self.view,
             id,
@@ -229,6 +240,16 @@ impl Exchange {
         let feed = Arc::new(Feed::new(ask, topic, self.outbox.clone()));
         self.subscriptions.insert(id, Arc::clone(&feed));
         let subscription = Subscription::new(feed);
+        let handler = match entry {
+            TopicHandler::Thread(handler) => Arc::clone(handler),
+            TopicHandler::Deferred(handler) => {
+                let handler = Arc::clone(handler);
+                let answer = Answer::of_start(ask, self.outbox.clone());
+                let ran = run_deferred(ask, move || handler(params, subscription, answer));
+                self.after_deferred(ask, ran, toward);
+                return;
+            }
+        };
         let started = handlers::spawn_handler(move || run_topic(&*handler, params, &subscription));
         if started.is_err()
             && let Some(feed) = self.subscriptions.remove(&id)
@@ -239,6 +260,36 @@ impl Exchange {
                 id,
                 &ViewError::with_message("internal", "the subscription could not be started"),
             );
+        }
+    }
+
+    /// What came of a deferred handler that ran on this thread for `ask`: the answer it gave before
+    /// it returned is taken now (the loop that would take it from the channel is this thread), and
+    /// a handler that panicked fails its request with the panic's words.
+    fn after_deferred(
+        &mut self,
+        ask: Ask,
+        ran: Result<Option<Work>, String>,
+        toward: &mut dyn Toward,
+    ) {
+        match ran {
+            Ok(Some(work)) => self.on_work(work, toward),
+            Ok(None) => {}
+            Err(panic) => {
+                let error = ViewError::with_message("internal", panic);
+                let work = if self.subscriptions.contains_key(&ask.id) {
+                    Work::Started {
+                        ask,
+                        result: Err(error),
+                    }
+                } else {
+                    Work::Answer {
+                        ask,
+                        result: Err(error),
+                    }
+                };
+                self.on_work(work, toward);
+            }
         }
     }
 

@@ -6,6 +6,13 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+### Fixed
+
+- The calls and the subscriptions of a view start in the order the view made them. Each came in on a
+  thread of its own and raced the others to the app's loop, so that two edits the view sent one
+  after the other could be begun the other way round; they are now handed to the loop as the view
+  sends them (the program library's deferred handlers), and none waits for another's answer.
+
 ### Changed
 
 - The runner shows the views of version `2.0` of the kit's page API (`lua` `2.0`).

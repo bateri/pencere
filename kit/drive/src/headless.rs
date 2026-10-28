@@ -33,6 +33,7 @@
 //! feature `program`), or a program in another process. Every point is the host's: with no strip
 //! and no zoom, the page's own.
 
+mod field;
 mod files;
 #[cfg(feature = "program")]
 mod in_process;
@@ -49,10 +50,12 @@ use pencere_editor::Buffer;
 use pencere_sandbox::{Answer, Assets, Fault, Images, ModuleLimits, Program, Runner, Script};
 use pencere_view::wire::Kind;
 use pencere_view::{
-    Button, Cursor, DrawList, Element, Event, Font, Id, Input, Key, Keyboard, Laid, Measure, Menu,
-    MenuEntry, Metrics, Mods, Paint, Phase, Point, Rect, Shortcut, Size,
+    Button, Cursor, DrawList, Element, Event, FieldKind, Fill, Font, Id, Input, Key, KeyConvention,
+    Keyboard, Laid, Measure, Menu, MenuEntry, Metrics, Mods, Paint, Phase, Point, Rect, Shortcut,
+    Size, WallTime,
 };
 
+use field::{Done, Held};
 pub use files::Files;
 #[cfg(feature = "program")]
 pub use in_process::InProcess;
@@ -60,7 +63,7 @@ pub use peer::{Calls, Heard, Peer, Subscription};
 pub use pencere_wire::messages::Error as Failure;
 pub use serde_json::Value;
 
-use crate::{FrameAt, Host, Outline, Page, Route, Setup};
+use crate::{Field, FrameAt, Host, Outline, Page, Route, Setup};
 
 /// A frame of a host that draws sixty a second: how far apart [`Headless::advance`] draws the
 /// frames of a page that moves, and the soonest after one that the next is drawn.
@@ -102,17 +105,34 @@ impl Measure for Fixed {
     }
 }
 
+/// The time of day the headless host's clock reads 0 at, unless a test says another
+/// ([`Opening::wall_clock`]): 2027-01-15 08:00:00 UTC.
+pub const WALL_ORIGIN: f64 = 1_800_000_000.0;
+
 /// The headless host's clock: what the module, the editors and the scrolling read
-/// ([`Program::now`]), where the test moves it.
-struct Clock(Mutex<f64>);
+/// ([`Program::now`]), where the test moves it; and the system it says it is: the time of day,
+/// which goes on with the clock, and how its keys are written.
+struct Clock {
+    now: Mutex<f64>,
+    system: System,
+}
+
+/// The system the headless host says it runs on.
+#[derive(Clone, Copy, Debug)]
+struct System {
+    /// The time of day when the clock reads 0, Unix seconds.
+    wall: f64,
+    utc_offset: i32,
+    keyboard: KeyConvention,
+}
 
 impl Clock {
     fn now(&self) -> f64 {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        *self.now.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn set(&self, now: f64) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = now;
+        *self.now.lock().unwrap_or_else(PoisonError::into_inner) = now;
     }
 }
 
@@ -125,6 +145,17 @@ impl Program for Clock {
 
     fn now(&self) -> Option<f64> {
         Some(Clock::now(self))
+    }
+
+    fn wall_clock(&self) -> WallTime {
+        WallTime {
+            seconds: self.system.wall + Clock::now(self),
+            utc_offset: self.system.utc_offset,
+        }
+    }
+
+    fn keyboard(&self) -> KeyConvention {
+        self.system.keyboard
     }
 }
 
@@ -244,6 +275,7 @@ pub struct Opening<P: Peer = Calls> {
     measure: Box<dyn Measure>,
     blink: f64,
     start: f64,
+    system: System,
     patience: Duration,
     peer: P,
 }
@@ -279,8 +311,8 @@ struct Seen {
     /// A press the host took (a field's, or one that closed a menu): its moves and its release are
     /// the host's too, and never the page's.
     taken: bool,
-    /// What the host's fields hold.
-    fields: HashMap<Id, String>,
+    /// What the host's fields hold, and what is selected in them.
+    fields: HashMap<Id, Held>,
     diagnostics: Vec<String>,
     ended: Option<Fault>,
     sent: Vec<String>,
@@ -293,6 +325,10 @@ struct Seen {
 struct Deliver<'a, P> {
     seen: &'a mut Seen,
     peer: &'a mut P,
+    /// The fields the host has put over the page: those of the last frame's outline. A real host
+    /// has a field of its own only once a frame has laid it out, so a text for another is passed
+    /// over, and the keyboard sent to one goes back to the page.
+    fields: &'a [Field],
 }
 
 impl<P: Peer> Host for Deliver<'_, P> {
@@ -309,16 +345,18 @@ impl<P: Peer> Host for Deliver<'_, P> {
         self.seen.cursor = Some(cursor);
     }
 
-    fn fill(&mut self, field: Id, text: String) {
-        self.seen.fields.insert(field, text);
+    fn fill(&mut self, field: Id, fill: Fill) {
+        if self.fields.iter().any(|laid| laid.id == field) {
+            self.seen.fields.entry(field).or_default().fill(&fill);
+        }
     }
 
     fn keyboard(&mut self, to: Keyboard) {
         // An editor's is the drive's, and the drive has given it: a field of the host's that has it
         // is told apart from an editor when the keyboard is used.
         self.seen.field = match to {
-            Keyboard::Field(id) => Some(id),
-            Keyboard::Page => None,
+            Keyboard::Field(id) if self.fields.iter().any(|laid| laid.id == id) => Some(id),
+            Keyboard::Field(_) | Keyboard::Page => None,
         };
     }
 
@@ -396,6 +434,11 @@ impl Opening<Calls> {
             measure: Box::new(Fixed::default()),
             blink: 0.5,
             start: 0.0,
+            system: System {
+                wall: WALL_ORIGIN,
+                utc_offset: 0,
+                keyboard: KeyConvention::Mac,
+            },
             patience: Duration::from_secs(60),
             peer: Calls::new(),
         }
@@ -452,6 +495,22 @@ impl<P: Peer> Opening<P> {
         self
     }
 
+    /// The time of day the page reads (`pencere.time.wall()`) when the clock reads 0, Unix
+    /// seconds, and the person's offset from UTC, seconds: it goes on as the clock does
+    /// ([`WALL_ORIGIN`] in UTC unless said).
+    pub fn wall_clock(mut self, seconds: f64, utc_offset: i32) -> Self {
+        self.system.wall = seconds;
+        self.system.utc_offset = utc_offset;
+        self
+    }
+
+    /// How the host's system makes and writes its keyboard shortcuts (`pencere.keyboard()`, and
+    /// what `mod` means): a Mac's unless said.
+    pub fn keyboard(mut self, keyboard: KeyConvention) -> Self {
+        self.system.keyboard = keyboard;
+        self
+    }
+
     /// How long the host waits for what takes real time — the module made and doing what it was
     /// told, an image decoded, a program in another process answering — before it says so
     /// ([`Error::Slow`]): a minute unless said.
@@ -472,6 +531,7 @@ impl<P: Peer> Opening<P> {
             measure: self.measure,
             blink: self.blink,
             start: self.start,
+            system: self.system,
             patience: self.patience,
             peer,
         }
@@ -486,7 +546,10 @@ impl<P: Peer> Opening<P> {
     /// line), or did not come to rest ([`Error::Slow`], [`Error::Unsettled`]); the bundle has no
     /// file at the entry ([`Error::NoFile`]).
     pub fn open(self) -> Result<Headless<P>, Error> {
-        let clock = Arc::new(Clock(Mutex::new(self.start)));
+        let clock = Arc::new(Clock {
+            now: Mutex::new(self.start),
+            system: self.system,
+        });
         let setup = Setup {
             limits: self.limits,
             program: Arc::clone(&clock) as Arc<dyn Program>,
@@ -587,6 +650,7 @@ impl<P: Peer> Headless<P> {
             drained.deliver(&mut Deliver {
                 seen: &mut self.seen,
                 peer: &mut self.peer,
+                fields: self.page.fields(),
             });
             // A program that owes the page an answer is given the time it takes, all of the
             // settling's patience at the most: one that says nothing in all of it never answered.
@@ -809,8 +873,19 @@ impl<P: Peer> Headless<P> {
             now: self.now(),
             reduce_motion: self.reduce_motion,
         };
-        self.list = self.page.frame(at).list;
+        let painted = self.page.frame(at);
+        self.list = painted.list;
         self.dirty = false;
+        // The fields this frame laid out are the host's now, and what replies asked of them before
+        // it is told them, in order.
+        let mut host = Deliver {
+            seen: &mut self.seen,
+            peer: &mut self.peer,
+            fields: self.page.fields(),
+        };
+        for held in painted.held {
+            held.deliver(&mut host);
+        }
         // The pictures drawn as a host draws them: their pixels asked for at the size they are
         // drawn at (an SVG is drawn at it), which the next settling waits for.
         if let Some(images) = self.page.images() {
@@ -866,13 +941,15 @@ impl<P: Peer> Headless<P> {
     }
 
     /// The person presses the keys `keys` say, as a page writes a command's (`cmd+shift+k`, `f5`,
-    /// `page_down`, `escape`, `a`): see [`Headless::key`].
+    /// `page_down`, `escape`, `a`, and `mod+s` with the main modifier of the system the host says
+    /// it is): see [`Headless::key`].
     ///
     /// # Errors
     ///
     /// Not keys ([`Error::NoKey`]), or as [`Headless::key`].
     pub fn press(&mut self, keys: &str) -> Result<Route, Error> {
-        let shortcut = Shortcut::parse(keys).ok_or_else(|| Error::NoKey(keys.to_owned()))?;
+        let shortcut = Shortcut::parse_for(keys, self.clock.system.keyboard)
+            .ok_or_else(|| Error::NoKey(keys.to_owned()))?;
         self.key(shortcut.key, shortcut.mods)
     }
 
@@ -905,8 +982,8 @@ impl<P: Peer> Headless<P> {
         match self.focus() {
             Focus::Field(field) => {
                 let held = self.seen.fields.entry(field).or_default();
-                held.push_str(text);
-                let held = held.clone();
+                held.insert(text);
+                let held = held.text.clone();
                 self.page.text(field, &held);
             }
             Focus::Editor(_) => self.page.editors().type_text(text),
@@ -1024,26 +1101,26 @@ impl<P: Peer> Headless<P> {
         self.settle()
     }
 
-    /// A key typed into the host's field `field`, as a field of a system takes it: a character is
-    /// typed and backspace deletes one, ⌘V pastes; any other key is the page's.
+    /// A key typed into the host's field `field`, as a field of a system takes it (a stand-in's,
+    /// [`field`]): what the field has a use for where its caret is, it does, the page told what it
+    /// holds when that changed; any other key is the page's (its command first), by the kit's rule
+    /// ([`pencere_view::FieldState::takes`]).
     fn field_key(&mut self, field: Id, key: Key, mods: Mods) {
-        let plain = !mods.command && !mods.control;
+        let kind = self
+            .page
+            .fields()
+            .iter()
+            .find(|held| held.id == field)
+            .map_or(FieldKind::Line, |held| held.kind);
         let held = self.seen.fields.entry(field).or_default();
-        match key {
-            Key::Character(typed) if plain => held.push(typed),
-            Key::Backspace => {
-                held.pop();
-            }
-            Key::Character('v') if mods.command && !mods.control => {
-                held.push_str(self.seen.pasteboard.as_deref().unwrap_or_default());
-            }
-            _ => {
-                self.page.input(Input::Key { key, mods });
-                return;
+        match held.key(kind, key, mods, &mut self.seen.pasteboard) {
+            Done::Passed => self.page.input(Input::Key { key, mods }),
+            Done::Moved => {}
+            Done::Changed => {
+                let text = held.text.clone();
+                self.page.text(field, &text);
             }
         }
-        let held = held.clone();
-        self.page.text(field, &held);
     }
 
     // --- The pointer -------------------------------------------------------------------------------
@@ -1376,7 +1453,7 @@ impl<P: Peer> Headless<P> {
             self.seen.field = Some(field);
             self.page.focus(Some(field));
         }
-        self.seen.fields.insert(field, text.to_owned());
+        self.seen.fields.insert(field, Held::holding(text));
         self.page.text(field, text);
         self.settle()
     }
@@ -1605,7 +1682,16 @@ impl<P: Peer> Headless<P> {
     /// What the host's field named `name` holds: what the person typed, or what the page filled it
     /// with.
     pub fn field(&self, name: &str) -> Option<&str> {
-        self.seen.fields.get(&Id::named(name)).map(String::as_str)
+        self.seen
+            .fields
+            .get(&Id::named(name))
+            .map(|held| held.text.as_str())
+    }
+
+    /// What is selected in the host's field named `name`, characters from 0: the caret alone where
+    /// the range is empty.
+    pub fn field_selection(&self, name: &str) -> Option<std::ops::Range<usize>> {
+        self.seen.fields.get(&Id::named(name)).map(Held::selection)
     }
 
     /// The page's fields, what a screen reader says of it, its tooltips and its commands.

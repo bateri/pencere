@@ -1338,8 +1338,10 @@ mod tests {
         ));
         assert!(answered(editor, &post));
         let mut fill = Reply::none();
-        fill.fill
-            .push((pencere_view::Id::named("filter"), "api".into()));
+        fill.fill.push((
+            pencere_view::Id::named("filter"),
+            pencere_view::Fill::text("api"),
+        ));
         answered(fill, &post);
         // A reply that only redraws is the frame that follows, not an answer to post.
         assert!(answered(Reply::redraw(), &post));

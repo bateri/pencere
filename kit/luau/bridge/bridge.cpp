@@ -10,10 +10,10 @@
 //
 // The script runs in Luau's sandbox, with the pure libraries only (`string`, `table`, `math`,
 // `utf8` and the base functions): no `io`, `os` or `debug`, no way to load bytecode. It has a
-// `require`, and the only thing `require` reaches is the other scripts of the bundle the script
-// came in (see "Loading the other scripts of the bundle"). The module itself can reach nothing the
-// page interface does not give it; the calls the C library would make to the system are answered
-// here (see the end of this file).
+// `require`, and the only things `require` reaches are the other scripts of the bundle the script
+// came in and the modules of the kit's library (see "Loading the other scripts of the bundle"). The
+// module itself can reach nothing the page interface does not give it; the calls the C library
+// would make to the system are answered here (see the end of this file).
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -225,6 +225,25 @@ uint32_t checked_place(lua_State* state, int index, const char* what) {
     return (uint32_t)at;
 }
 
+// The time of day: seconds of Unix time, and the person's offset from UTC, seconds.
+int l_wall_clock(lua_State* state) {
+    pencere_view_system_wall_time_t wall = {};
+    pencere_view_system_wall_clock(&wall);
+    lua_pushnumber(state, wall.seconds);
+    lua_pushnumber(state, (double)wall.utc_offset);
+    return 2;
+}
+
+// How the application's system writes its keyboard shortcuts: "mac", "windows" or "linux".
+int l_keyboard(lua_State* state) {
+    static const char* const kConventions[] = {"mac", "windows", "linux"};
+    static_assert(PENCERE_VIEW_SYSTEM_KEY_CONVENTION_MAC == 0 && PENCERE_VIEW_SYSTEM_KEY_CONVENTION_LINUX == 2,
+                  "kConventions is the order of key-convention");
+    pencere_view_system_key_convention_t convention = pencere_view_system_keyboard();
+    lua_pushstring(state, convention <= 2 ? kConventions[convention] : "linux");
+    return 1;
+}
+
 int l_editor_version(lua_State* state) {
     uint64_t version = 0;
     if (pencere_view_layout_editor_version(bridge::id_of(state, 1), &version)) lua_pushnumber(state, (double)version);
@@ -284,9 +303,17 @@ int l_line_of(lua_State* state) {
 // bundle, `name.luau`, `name.lua` or `name/init.luau` or `name/init.lua`. Everything about the
 // bundle is the application's to say (`script.has-module`, `script.module`): the module has no
 // file system to look in, and a path that leaves the bundle's root, an absolute path, an alias
-// (there is no configuration file to define one) or a file that is not a script is an error that
-// names the path. Each script runs once, in a thread of its own with globals of its own like the
-// entry, and what it returns is kept: the next `require` of it is that value.
+// other than `@self` and `@pencere` (there is no configuration file to define one) or a file that
+// is not a script is an error that names the path. Each script runs once, in a thread of its own
+// with globals of its own like the entry, and what it returns is kept: the next `require` of it is
+// that value.
+//
+// `@pencere/<name>` is a module of the kit's library: scripts the application has of its own, at
+// its kit's version, which it gives as it gives the bundle's, under paths that start with
+// `@pencere/` (no path of a bundle has an `@`). The library is a world of its own: a module of it
+// requires the others with `./`, `@self/` or `@pencere/`, and cannot leave it for the bundle; a
+// script of the bundle reaches it only through the alias. A module's errors say
+// `@pencere/<name>:<line>`.
 
 // The path of the script the page is, in the bundle: what a path is relative to, and what the
 // entry's errors name.
@@ -295,8 +322,12 @@ std::string entry_path;
 std::map<std::string, bool> known;
 // The scripts whose first run has not ended, the outermost first (the entry, while it starts).
 std::vector<std::string> running;
-// Where a `require` is now: the components of a module's path, from the root of the bundle.
+// Where a `require` is now: the components of a module's path, from the root of the bundle, or
+// from the root of the kit's library where `library` is set.
 std::vector<std::string> place;
+bool library = false;
+// What the paths of the library's modules start with, as the application is asked for them.
+constexpr const char* kLibrary = "@pencere/";
 // The error that is on its way up came out of a script that was running, not out of the
 // `require` that is raising it: it has its own file and line already.
 bool carried = false;
@@ -385,7 +416,14 @@ struct Candidates {
 Candidates candidates(const std::vector<std::string>& parts) {
     Candidates found = {0, ""};
     if (parts.empty()) return found;
-    std::string base = joined(parts);
+    // The bundle has no path with an `@` in it: what is asked under `@pencere/` is the library's,
+    // and a script of the bundle reaches the library through the alias alone.
+    if (!library) {
+        for (const std::string& part : parts) {
+            if (part[0] == '@') return found;
+        }
+    }
+    std::string base = (library ? kLibrary : "") + joined(parts);
     auto look = [&](const std::string& file) {
         if (!has_script(file)) return;
         found.count++;
@@ -409,19 +447,32 @@ luarequire_WriteResult write_text(const std::string& text, char* buffer, size_t 
 // Only what this module loaded can require: a chunk named `@path` is a script of the bundle.
 bool require_allowed(lua_State*, void*, const char* chunkname) { return chunkname[0] == '@'; }
 
+// A module of the library is the chunk `@@pencere/<module>`, a script of the bundle `@<file>`.
 luarequire_NavigateResult require_reset(lua_State*, void*, const char* chunkname) {
-    place = split(module_of(chunkname + 1));
+    std::string name = chunkname + 1;
+    size_t prefix = strlen(kLibrary);
+    library = name.compare(0, prefix, kLibrary) == 0;
+    place = split(library ? name.substr(prefix) : module_of(name));
     return NAVIGATE_SUCCESS;
 }
 
-// There are no aliases: no configuration file to define one.
+// `@pencere` is the kit's library, from any script. There is no other alias but Luau's `@self`: no
+// configuration file to define one.
+luarequire_NavigateResult require_alias_override(lua_State*, void*, const char* alias) {
+    if (strcmp(alias, "pencere") != 0) return NAVIGATE_NOT_FOUND;
+    library = true;
+    place.clear();
+    return NAVIGATE_SUCCESS;
+}
+
 luarequire_NavigateResult require_jump(lua_State*, void*, const char*) { return NAVIGATE_NOT_FOUND; }
 
 luarequire_ConfigStatus require_config_status(lua_State*, void*) { return CONFIG_ABSENT; }
 
 luarequire_WriteResult require_alias(lua_State*, void*, const char*, char*, size_t, size_t*) { return WRITE_FAILURE; }
 
-// The bundle's root has no parent: a path that leaves it ends here, and is an error that says so.
+// The bundle's root has no parent, nor has the library's: a path that leaves either ends here, and
+// is an error that says so.
 luarequire_NavigateResult require_parent(lua_State*, void*) {
     if (place.empty()) return NAVIGATE_NOT_FOUND;
     place.pop_back();
@@ -442,7 +493,13 @@ bool require_present(lua_State* state, void*) {
     std::string wanted = lua_isstring(state, 1) ? lua_tostring(state, 1) : "?";
     std::string base = joined(place);
     std::string message = "error requiring module \"" + wanted + "\": ";
-    if (place.empty()) {
+    if (library) {
+        if (place.empty()) {
+            message += "that is the kit's library, not a module of it";
+        } else {
+            message += "the kit's library has no module \"" + base + "\"";
+        }
+    } else if (place.empty()) {
         message += "that is the root of the bundle, not a script";
     } else {
         message += "the bundle has no script at \"" + base + "\" (it looked for " + base + ".luau, " + base +
@@ -452,7 +509,10 @@ bool require_present(lua_State* state, void*) {
     lua_error(state);
 }
 
+// A script of the bundle is named by its file (`screens/logs.lua:12:`), a module of the library by
+// the name it is required by (`@pencere/fuzzy:12:`).
 luarequire_WriteResult require_chunkname(lua_State*, void*, char* buffer, size_t size, size_t* written) {
+    if (library) return write_text("@" + std::string(kLibrary) + joined(place), buffer, size, written);
     return write_text("@" + candidates(place).file, buffer, size, written);
 }
 
@@ -533,6 +593,7 @@ void require_configuration(luarequire_Configuration* config) {
     config->is_require_allowed = require_allowed;
     config->reset = require_reset;
     config->jump_to_alias = require_jump;
+    config->to_alias_override = require_alias_override;
     config->to_parent = require_parent;
     config->to_child = require_child;
     config->is_module_present = require_present;
@@ -602,6 +663,8 @@ void host_functions(lua_State* state) {
         {"editor_text", l_editor_text},
         {"line_start", l_line_start},
         {"line_of", l_line_of},
+        {"wall_clock", l_wall_clock},
+        {"keyboard", l_keyboard},
         {nullptr, nullptr},
     };
     lua_newtable(state);

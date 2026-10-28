@@ -6,7 +6,7 @@
 //! host can do: pop up a menu, move the keyboard into a text field, copy, close the page.
 
 use crate::edit::{Edited, EditorAsk, Found, Refusal, Selection};
-use crate::{Id, Point};
+use crate::{Fill, Id, Point, Shortcut};
 
 /// A key the page reads. Letters, symbols and the space bar come as [`Key::Character`] — the
 /// character the key makes.
@@ -174,6 +174,15 @@ pub enum Event {
         editor: Id,
         found: Found,
     },
+    /// The host made the editor named `editor`: the page named it and it was laid out, hidden or
+    /// not, and what the page asks of it from now on is done. Its text is posted before it is
+    /// told (the version `version`, empty where the editor is new): a page loads a document into
+    /// an editor it has just made, or a tab's that is not in front, when it hears this — as a
+    /// component library tells a component that it is mounted.
+    EditorReady {
+        editor: Id,
+        version: u64,
+    },
     /// The time the page asked to be woken at ([`Reply::wake`]) has come: `now` is the time of the
     /// frame it is woken at, seconds on the clock the page is rendered by. Told only to a page that
     /// asked, and at most once a frame; the page answers as it answers any event.
@@ -220,8 +229,9 @@ pub enum Keyboard {
 pub enum MenuEntry {
     Item {
         title: String,
-        /// The key that does the same on the page, shown at the end of the line.
-        key: Option<char>,
+        /// The keys that do the same on the page, shown at the end of the line, written as a
+        /// command's are (`ctrl+w`, `f2`).
+        keys: Option<Shortcut>,
         enabled: bool,
     },
     Separator,
@@ -248,10 +258,10 @@ pub struct Reply {
     pub menu: Option<Menu>,
     /// The keyboard goes somewhere else than where it was.
     pub keyboard: Option<Keyboard>,
-    /// Texts for fields to hold from now on, in place of what they hold (a field emptied after
-    /// what was typed was taken, one filled with what is to be edited): by the field's id. A
-    /// field the page does not name keeps what the person typed.
-    pub fill: Vec<(Id, String)>,
+    /// What fields are to hold from now on, in place of what they hold (a field emptied after what
+    /// was typed was taken, one filled with what is to be edited), and what is selected in them
+    /// ([`Fill`]): by the field's id. A field the page does not name keeps what the person typed.
+    pub fill: Vec<(Id, Fill)>,
     /// Text for the pasteboard.
     pub copy: Option<String>,
     /// The pointer's shape after this input.

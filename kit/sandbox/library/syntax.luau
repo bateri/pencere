@@ -1,16 +1,18 @@
--- The page API, part 5: a language that colours an editor as it changes.
+-- @pencere/syntax: a language that colours an editor as it changes.
 --
 -- The editor knows no language: the page colours its text with decorations (a layer of them,
--- `decorate`). `pencere.Syntax` is how a page does that the way CodeMirror's `StreamLanguage`
--- does, with its legacy modes: a language is a function that reads a line a token at a time
--- from a stream (`token(stream, state) -> name`) and a state carried from line to line (a block
--- comment, a string that goes on). The kit keeps the state at the end of every line, reads again
--- only from the first line a change touched until the state comes to what it was, colours only
--- the lines in view (and a margin), and does a bounded amount of work in each call, the rest in
--- the frames after it, by itself (a timer, `pencere.time`): a large document is coloured to its
--- end with no event of the person's. It does nothing for a page that does not use it.
+-- `decorate`). This module is how a page does that the way CodeMirror's `StreamLanguage` does,
+-- with its legacy modes: a language is a function that reads a line a token at a time from a
+-- stream (`token(stream, state) -> name`) and a state carried from line to line (a block comment,
+-- a string that goes on). It keeps the state at checkpoints a few lines apart and at each line it
+-- colours, so that what it holds grows with a document a checkpoint at a time and not a line at a
+-- time; reads again only from the first line a change touched until the state comes to what it was;
+-- colours only the lines in view (and a margin); and does a bounded amount of work in each call, the
+-- rest in the frames after it, by itself (a timer, `pencere.time`): a large document is coloured to
+-- its end with no event of the person's. It does nothing for a page that does not use it.
 --
---   local sql = pencere.Syntax.define {
+--   local Syntax = require("@pencere/syntax")
+--   local sql = Syntax.define {
 --       name = "sql",
 --       start = function() return { comment = false } end,
 --       token = function(stream, state)
@@ -27,15 +29,18 @@
 --       end,
 --       styles = { comment = { color = "dim", italic = true }, number = { color = "warning" } },
 --   }
---   local syntax = pencere.Syntax.new(sql, "editor")
+--   local syntax = Syntax.new(sql, "editor")
 --
 --   handle = function(event) syntax:handle(event); return syntax:reply(respond(event)) end
 --
 -- A place the stream says (`pos`, `start`) is a byte of the line's text from 1, as `string.find`
--- counts; the kit makes characters of them for the editor.
+-- counts; the module makes characters of them for the editor.
+--
+-- It is written on the page API alone: `pencere.layout` to read the editor's text,
+-- `pencere.time` to go on by itself and `pencere.merge` to put its asks in the page's reply.
 
 local layout = pencere.layout
-local merge = pencere._merge
+local merge = pencere.merge
 
 -- A line is read to its first this many characters: a line of a minified file does not stall the
 -- page, and the state after it is the state at that character (CodeMirror's `MaxLineLength`). A
@@ -54,6 +59,12 @@ local PENDING_DECORATIONS = 10000
 local STEP = 20000
 -- The most names of tokens whose looks a language remembers.
 local NAMES_KEPT = 1024
+-- A checkpoint's lines: the state before every this many lines is kept as the reading goes past
+-- it, with the state before each line of the window it colours, and no other. What it keeps grows
+-- with a document's lines a checkpoint at a time, not a line at a time (a language whose state is
+-- a table of some size, a stack of what is open, would hold a large file's every line otherwise);
+-- a line whose state is not kept is read again from the checkpoint before it.
+local CHECKPOINT = 32
 
 local LOOK_KEYS = { color = true, background = true, weight = true, italic = true, underline = true, strike = true }
 local OPTION_KEYS = { layer = true, step = true, margin = true, tab_width = true }
@@ -512,7 +523,6 @@ Language.__index = Language
 
 local Syntax = {}
 Syntax.__index = Syntax
-pencere.Syntax = Syntax
 
 -- The look of the token named `name` in `language` (false for none): the looks of its names (a name
 -- is several, apart: "keyword strong"), each found by itself or by what is before its last dot
@@ -566,7 +576,7 @@ end
 --            serves many languages; a name no style says is not coloured.
 function Syntax.define(spec)
 	if type(spec) ~= "table" then
-		error("pencere.Syntax.define takes a table: { name =, start =, token =, styles = }", 2)
+		error("Syntax.define takes a table: { name =, start =, token =, styles = }", 2)
 	end
 	if type(spec.name) ~= "string" then
 		error("a language has a name (a string)", 2)
@@ -740,6 +750,18 @@ function Language:tokens(text, state, tab_width)
 	return tokens, after
 end
 
+-- The look the language's styles give a token named `name` (what a decoration says: `color`,
+-- `background`, `weight`, `italic`, `underline`, `strike`), found as a syntax finds it (each of its
+-- names, a dotted one by what is before its last dot), or nil for none: how a page colours the
+-- tokens of a text that is not in an editor. A copy, which the page may change.
+function Language:look(name)
+	if type(name) ~= "string" then
+		error("look takes the name of a token's style, not a " .. type(name), 2)
+	end
+	local look = look_of(self, name)
+	return look and table.clone(look) or nil
+end
+
 -- --- A language on an editor ---------------------------------------------------------------------
 
 -- Colours the editor named `editor` with `language`: `options` are `layer` (the layer of its
@@ -747,10 +769,15 @@ end
 -- coloured above and below those in view: as many as are in view) and `tab_width` (what a tab is to
 -- a stream's columns: 4).
 --
--- It keeps the state at the end of each line, read from the start of the document, and the lines
--- whose colours the editor has. The page gives it every event (`handle`): an `edit` of the editor
--- makes it read again from the first line the change touched, until a line ends in the state it
--- ended in before (the lines after it are as they were); a `viewport` says what to colour. What it
+-- It keeps the state before every 32nd line (CHECKPOINT), read from the start of the document, and
+-- before each line of those it colours, and the lines whose colours the editor has: as CodeMirror
+-- does, what it holds is a checkpoint's state for each 32 lines of a document however large, and a
+-- line's own only for the few hundred lines around the view. The page gives it every event
+-- (`handle`): an `edit` of the editor makes it read again from the first line the change touched
+-- (the checkpoint before it, where that line's state is not kept), until a line whose state is kept
+-- ends in the state it ended in before (the lines after it are as they were: in view, the first line
+-- that does); a `viewport` says what to colour, and a line in it whose state is not kept is read
+-- from the checkpoint before it, a line a step. What it
 -- asks of the editor (`decorate`, the lines in view and the margin, in place of what the layer had
 -- there; and nothing for the lines out of it) goes out in the page's reply (`reply`, `asks()`).
 --
@@ -763,18 +790,18 @@ end
 -- its events.
 function Syntax.new(language, editor, options)
 	if getmetatable(language) ~= Language then
-		error("pencere.Syntax.new takes a language (pencere.Syntax.define), then the name of an editor", 2)
+		error("Syntax.new takes a language (Syntax.define), then the name of an editor", 2)
 	end
 	if editor == nil then
-		error("pencere.Syntax.new takes a language, then the name of an editor", 2)
+		error("Syntax.new takes a language, then the name of an editor", 2)
 	end
 	options = options or {}
 	if type(options) ~= "table" then
-		error("the options of pencere.Syntax.new are a table: { layer =, step =, margin =, tab_width = }", 2)
+		error("the options of Syntax.new are a table: { layer =, step =, margin =, tab_width = }", 2)
 	end
 	for key in pairs(options) do
 		if not OPTION_KEYS[key] then
-			error("pencere.Syntax.new has no option " .. tostring(key) .. " (layer, step, margin, tab_width)", 2)
+			error("Syntax.new has no option " .. tostring(key) .. " (layer, step, margin, tab_width)", 2)
 		end
 	end
 	local layer = options.layer or "syntax"
@@ -810,13 +837,20 @@ function Syntax.new(language, editor, options)
 		told = nil,
 		told_length = 0,
 		batch = nil,
-		-- `ends[k]` is the state before line k (after line k - 1), for k from 1. The lines before
-		-- `valid` have theirs right. `ok` is the lines from `valid` on whose state after them was
-		-- read from the one before them and their text as it is: where a line read again ends as
-		-- it did, the lines after it that are `ok` are right as well.
+		-- `ends[k]` is the state before line k (after line k - 1), for k from 1, where it is kept:
+		-- at `valid`, at a checkpoint (`keeps`), at the lines of the window, and before the lines
+		-- an edit has not been read to yet (what the reading after it stops at). Those before
+		-- `valid` are right. `ok` is the lines from `valid` on whose state after them was read from
+		-- the one before them and their text as it is: where a line read again ends as it did, the
+		-- lines after it that are `ok` are right as well, the states kept among them too.
 		ends = {},
 		valid = 0,
 		ok = {},
+		-- How many lines' states were kept since the last that were let go (`thin`).
+		grown = 0,
+		-- The first line an edit changed, where the reading went back to a state kept before it:
+		-- the lines read before it end as they did, and what was coloured of them stays.
+		unchanged = nil,
 		-- The lines in view ({ first, last }, as the editor said), the lines whose colours the
 		-- editor has (`painted`) and the lines the layer may have any in (`held`, { from, to }).
 		view = nil,
@@ -848,7 +882,7 @@ local function reset(self)
 	self.length = version and layout.editor_length(id) or 0
 	self.told_length = self.length
 	self.batch = nil
-	self.ends, self.valid, self.ok = {}, 0, {}
+	self.ends, self.valid, self.ok, self.grown, self.unchanged = {}, 0, {}, 0, nil
 	self.painted = {}
 	self.chunk = nil
 end
@@ -1029,6 +1063,22 @@ local function wanted(self, line, first, last)
 	return line >= first and line <= last and set_end(self.painted, line) == nil
 end
 
+-- Keeps `state` as the state before line `line`.
+local function keep(self, line, state)
+	local ends = self.ends
+	if ends[line] == nil then
+		self.grown += 1
+	end
+	ends[line] = state
+end
+
+-- Whether the state before line `line` is kept once the reading has gone past it: at a checkpoint,
+-- or in the window `first` to `last` (nil for none) and before the line after it, where the
+-- reading after an edit in view stops as soon as a line ends as it did.
+local function keeps(line, first, last)
+	return line % CHECKPOINT == 0 or (first ~= nil and line >= first and line <= last + 1)
+end
+
 -- Reads the line at `valid` (whose state before it is right), colouring it where it is wanted.
 -- What it cost.
 local function advance(self, first, last)
@@ -1045,22 +1095,40 @@ local function advance(self, first, last)
 	local same = old ~= nil and equal(after, old)
 	local run = old ~= nil and set_end(self.ok, line + 1)
 	if run and same then
-		-- The lines after it read from the state they read from before: they are as they were.
-		self.valid = run
+		-- The lines after it read from the state they read from before: they are as they were, to
+		-- the last of them whose state is kept.
+		local to = run
+		while ends[to] == nil do
+			to -= 1
+		end
+		self.valid = to
 	else
-		if not same then
-			-- The next line starts from another state: its colours are not right, nor what was
-			-- read from it.
+		-- Before the first line an edit changed, a line read again from a state kept before it ends
+		-- as it did, though no state was kept to tell.
+		local unchanged = self.unchanged ~= nil and line + 1 <= self.unchanged
+		if not same and not unchanged then
+			-- The next line starts from another state (or one not kept to tell): its colours are
+			-- not right, nor what was read from it.
 			if set_end(self.painted, line + 1) then
 				self.painted = set_remove(self.painted, line + 1, line + 2)
 			end
-			if run then
+			if set_end(self.ok, line + 1) then
 				self.ok = set_remove(self.ok, line + 1, line + 2)
 			end
+		end
+		if not same then
 			-- A state the same as the one before it is kept once.
-			ends[line + 1] = equal(after, before) and before or after
+			keep(self, line + 1, equal(after, before) and before or after)
 		end
 		self.valid = line + 1
+	end
+	if self.unchanged ~= nil and self.valid >= self.unchanged then
+		self.unchanged = nil
+	end
+	-- The state before the line read was the one the reading went on from: it goes where nothing
+	-- else keeps it.
+	if line > 0 and not keeps(line, first, last) then
+		ends[line] = nil
 	end
 	local ok = self.ok
 	if #ok > 0 and ok[1][1] < self.valid then
@@ -1079,7 +1147,7 @@ local function paint_ahead(self, line)
 	local old = ends[line + 1]
 	local same = old ~= nil and self.language.equal(after, old)
 	if not same then
-		ends[line + 1] = after
+		keep(self, line + 1, after)
 		self.ok = set_remove(self.ok, line + 1, line + 2)
 		self.painted = set_remove(self.painted, line + 1, line + 2)
 	end
@@ -1087,11 +1155,25 @@ local function paint_ahead(self, line)
 	return cost
 end
 
--- Colours line `line` (after `valid`, and wanted) from what is right before it.
+-- Colours line `line` (before `valid`, and wanted) from what is right before it: from the state
+-- kept nearest before it, a line a call, keeping each state on the way, until it is the line's own.
+-- What it cost.
 local function paint_known(self, line)
-	local before = line == 0 and self.language.start() or self.ends[line]
-	local _, text, cost = read(self, line, before, true)
-	paint(self, line, text)
+	local ends = self.ends
+	local from = line
+	while from > 0 and ends[from] == nil do
+		from -= 1
+	end
+	local language = self.language
+	local before = from == 0 and language.start() or ends[from]
+	local reached = from == line
+	local after, text, cost = read(self, from, before, reached)
+	if reached then
+		paint(self, line, text)
+	end
+	if ends[from + 1] == nil then
+		keep(self, from + 1, language.equal(after, before) and before or after)
+	end
 	return cost
 end
 
@@ -1108,6 +1190,48 @@ local function ready(self)
 		and self.batch == nil
 		and layout.editor_version(self.editor) == self.version
 		and window(self) ~= nil
+end
+
+-- The window is now `first` to `last`: the states kept for the lines of the window before go, but
+-- for the one the reading goes on from, those it has not come to yet (what the reading after an
+-- edit stops at) and as many of the rest as keep no two a checkpoint's lines further apart than
+-- they were (an edit moves the checkpoints after it off their places, and these are what they
+-- were: the states between them are read from them, a line a call).
+local function thin(self, first, last)
+	local valid = self.valid
+	local ends = self.ends
+	local lines = {}
+	for line in next, ends do
+		if line < valid and (line < first or line > last + 1) then
+			lines[#lines + 1] = line
+		end
+	end
+	table.sort(lines)
+	self.grown = 0
+	-- The last line whose state stays: the first line's state is the language's start.
+	local kept = 0
+	local crossed = false
+	for index, line in ipairs(lines) do
+		if line > last + 1 and not crossed then
+			-- The window's own stay: the last of them it has.
+			crossed = true
+			for window_line = last + 1, math.max(first, kept + 1), -1 do
+				if ends[window_line] ~= nil then
+					kept = window_line
+					break
+				end
+			end
+		end
+		local after = lines[index + 1] or valid
+		if line < first and first < after then
+			after = first
+		end
+		if after - kept > CHECKPOINT then
+			kept = line
+		else
+			ends[line] = nil
+		end
+	end
 end
 
 -- The layer has decorations of lines out of the window: they are taken away.
@@ -1151,6 +1275,11 @@ function Syntax:work()
 	self.painted = set_clip(self.painted, first, last + 1)
 	if self.held == nil or self.held[1] ~= first or self.held[2] ~= last then
 		forget_outside(self, first, last)
+		-- Let go of what windows before kept once it is more than a window or two: a scroll of a
+		-- line costs no sorting, and what is kept stays a checkpoint's states and a few windows'.
+		if self.grown > 2 * (last - first + 2) + CHECKPOINT then
+			thin(self, first, last)
+		end
 	end
 	local budget = self.step
 	self.full = false
@@ -1179,7 +1308,7 @@ function Syntax:work()
 		else
 			if self.ends[line] == nil then
 				-- Nothing is known before it: a guess, the state the language starts in.
-				self.ends[line] = self.language.start()
+				keep(self, line, self.language.start())
 				self.ok = set_remove(self.ok, line - 1, line + 1)
 			end
 			budget -= paint_ahead(self, line)
@@ -1264,26 +1393,31 @@ local function apply(self)
 	-- The states: those before the change stay, those after it move with the lines, those of the
 	-- lines it touched go (the state after its last line is the one after the last line it took
 	-- the place of).
-	local ends = self.ends
-	local before_lines = self.lines
-	if delta ~= 0 and last_before + 1 <= before_lines then
-		table.move(ends, last_before + 1, before_lines, last_before + 1 + delta)
-	end
-	if delta < 0 then
-		for k = before_lines + delta + 1, before_lines do
-			ends[k] = nil
+	local ends = {}
+	for line, state in next, self.ends do
+		if line <= first then
+			ends[line] = state
+		elseif line > last_before then
+			ends[line + delta] = state
 		end
 	end
-	for k = first + 1, last do
-		ends[k] = nil
-	end
+	self.ends = ends
 	local valid = self.valid
 	self.ok = set_edit(self.ok, first, last_before, delta)
 	if valid > last_before + 1 then
 		-- The lines after the change that were right were read from the line before them.
 		self.ok = set_add(self.ok, last + 1, valid + delta)
 	end
-	self.valid = math.min(valid, first)
+	-- The reading goes on from the last state kept at or before the change. Where that is before
+	-- the change and the lines before the change were read right, they end as they did.
+	local frontier = math.min(valid, first)
+	while frontier > 0 and ends[frontier] == nil do
+		frontier -= 1
+	end
+	if valid > first or self.unchanged ~= nil then
+		self.unchanged = math.min(self.unchanged or first, first)
+	end
+	self.valid = frontier
 	self.painted = set_edit(self.painted, first, last_before, delta)
 	local held = self.held
 	if held then
@@ -1368,3 +1502,5 @@ function Syntax:handle(event)
 	self:work()
 	go_on(self)
 end
+
+return Syntax

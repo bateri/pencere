@@ -34,7 +34,7 @@ use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use crate::control::{Bound, Request};
+use crate::control::{self, Bound, OnReturn, Request};
 use crate::exchange::{Exchange, Toward, WORK_ROOM, WRITE_ROOM};
 use crate::handlers::{Outbox, Work};
 use crate::{CloseResult, HandOffResult, Options, ReopenResult, View};
@@ -151,6 +151,8 @@ struct Lending {
     reopens: Vec<SyncSender<ReopenResult>>,
     /// The kinds of view the last of them brings.
     views: Option<Vec<View>>,
+    /// What the program does with how the command ended, before the view is up again.
+    then: Option<OnReturn>,
 }
 
 /// The conversation's queue, toward the view: a message of the six goes only while a view is up.
@@ -242,6 +244,8 @@ impl Conversation {
         let Some(lending) = self.lent.take() else {
             return;
         };
+        // Before the view is up again: what the view says next finds what the program kept.
+        control::tell_then(lending.then, &status);
         for reopen in lending.reopens {
             let _ = reopen.send(ReopenResult::Reopened);
         }
@@ -338,7 +342,11 @@ impl Conversation {
                     HandOffResult::Unavailable
                 });
             }
-            Request::HandOff { command, reply } => {
+            Request::HandOff {
+                command,
+                reply,
+                then,
+            } => {
                 self.exchange.end_view();
                 let loan: Loan = Arc::new(Mutex::new(None));
                 self.lent = Some(Lending {
@@ -346,6 +354,7 @@ impl Conversation {
                     reply,
                     reopens: Vec::new(),
                     views: None,
+                    then,
                 });
                 self.said.push_back(Said::HandedOff(Lent {
                     command: Box::new(command),

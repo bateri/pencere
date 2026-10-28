@@ -8,8 +8,32 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
+### Fixed
+
+- **A reply that opens a field can fill it and send the keyboard to it.** A host has a field only
+  once the frame that lays it out is drawn, and a reply's `fill` and `keyboard` were told to the
+  host before that frame: a find bar or a palette that opened with its text and the keyboard lost
+  both. `Page::drain` now holds what a reply asks of a field the outline does not name yet (and what
+  comes after it), and the frame that lays the page out gives it in `Painted::held`
+  (`Painted::deliver_held`, `Held::deliver`), after the host has the frame's fields, in the order it
+  was asked; a name that frame does not have either is passed over as before. The host with no
+  screen has a field only once a frame has laid it out, so its tests fail where a real host would.
+
 ### Added
 
+- **The system the host with no screen says it is.** `Opening::wall_clock(seconds, utc_offset)` is
+  the time of day when its clock reads 0 (`WALL_ORIGIN` in UTC unless said), going on with its
+  clock; `Opening::keyboard` says how its keys are written (a Mac's unless said), and
+  `Headless::press` reads `mod` by it. A picture of a page (`shot`) draws a picture turned where it
+  spins.
+- **An editor says it is ready.** A page is told `Event::EditorReady` for each editor the drive
+  makes for its rooms, shown or hidden, its text posted first: a page of tabs loads each document as
+  its editor comes, and asks nothing of an editor that is not there yet.
+- **Fields as a system has them.** The host with no screen keeps a caret and a selection in each
+  field: what a reply's `fill` selects is selected (`Headless::field_selection`), what is typed
+  takes its place, the arrows move and select, ⌘A, ⌘C, ⌘X and ⌘V are the field's, and a key the
+  field has no use for where its caret is goes to the page by the kit's rule (`FieldState::takes`):
+  ⌫ in an empty field, ← at its start, a chord it does not know. `Host::fill` is told a `Fill`.
 - **The page, driven.** `Page`: a component, a script or a module of the host's own making, started
   on its thread; a line in its place until its first page comes, and its end told once. What the
   person does is told it in the host's points (`input`, `key`, `key_up`, `wheel`, `text`, `focus`,

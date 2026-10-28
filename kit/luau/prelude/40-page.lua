@@ -29,11 +29,13 @@
 --       into (nil: the keyboard is the page's again), menu has the `index` (from 1) picked of
 --       the menu the page asked for, command the `id` of the command asked for (its keys are
 --       not told as a key), files the `paths` of the files dropped on the page.
---       An editor (`pencere.editor`) tells: move, press and release over it have a `place`
---       ({ editor =, at = }, the place of its document under the pointer); "edit" has the `editor`,
---       the `version` it came to, its `origin` ("person", "compose", "page", "undo", "redo",
---       "load") and its `changes` ({ { from =, to =, insert = }, ... }, in the places of the
---       version before, in order); "selection" the `editor`, the `version`, its `ranges`
+--       An editor (`pencere.editor`) tells: "editor_ready", the `editor` and its `version`, once the
+--       host has made it (its text is posted: a page loads a document into it then); move, press
+--       and release over it have a `place` ({ editor =, at = }, the place of its document under the
+--       pointer); "edit" has the `editor`, the `version` it came to, its `origin` ("person",
+--       "compose", "page", "undo", "redo", "load"), the `tag` of a change the page asked with one,
+--       and its `changes` ({ { from =, to =, insert = }, ... }, in the places of the version
+--       before, in order); "selection" the `editor`, the `version`, its `ranges`
 --       ({ { anchor =, head = }, ... }), which is `main` (from 1) and whether an input method is
 --       `composing`; "viewport" the `editor` and the `first` and `last` of its lines in view;
 --       "editor_refused" the `editor` and the `reason` ("stale-version", "out-of-document", …) it
@@ -57,14 +59,17 @@
 -- A reply is nil (nothing changed), true or false (a frame is worth drawing or not) or a table:
 --   { redraw =, close =, copy = "text for the pasteboard", cursor = "arrow" | "pointer" | "text" |
 --     "resize_horizontal" | "resize_vertical" | "not_allowed" | "grab" | "grabbing" | "crosshair",
---     keyboard = "page" | { field = name }, fill = { [name] = "text for that field", ... },
---     menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" (a line), ... } },
---     editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds }
+--     keyboard = "page" | { field = name }, fill = { [name] = "text for that field", or
+--     { text =, select = { from =, to = } (characters from 0) or true (all of it) }, ... },
+--     menu = { at = { x =, y = }, entries = { { title =, keys = "ctrl+w", enabled = }, "-" (a line),
+--     ... } }, editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds }
 -- where an ask of an editor is one of:
 --   { load = "text", more = true }             a piece of the document (the first in place of all)
---   { change = { { from =, to =, insert = }, ... }, base = version }
+--   { change = { { from =, to =, insert = }, ... }, base = version, history = false, tag = "disk" }
+--     (`history` false: not undone, and what can be undone is carried over it; `tag` is told back
+--     in the `edit` of it)
 --   { select = { { anchor =, head = }, ... }, version =, main = (from 1) }
---   { reveal = place, version = }              scrolled into view
+--   { reveal = place, version =, align = "nearest" | "start" | "center" | "end" }   scrolled into view
 --   { command = "undo" }, { command = "move", movement = "word_left", extend = true },
 --   { command = "insert", text = "x" }, { command = "find", pattern =, regex =, case =, word = }
 --     (`word`: only a whole word, no letter or digit of any script or `_` beside it; the search
@@ -74,7 +79,9 @@
 --     "$1", "${1}", "$name", "${name}", "$$" a "$"), "select_found" (every match),
 --     "select_occurrences" (every place of the main selection's text, or of the caret's word),
 --     "toggle_comment" (the lines' line comment, else their block comment), "toggle_block_comment"
---     (each range in the block comment, or out of it; a caret's range its line's text), …
+--     (each range in the block comment, or out of it; a caret's range its line's text), "fold_all",
+--     "delete_lines", "select_line", "duplicate_lines_up", "join_lines", "insert_blank_line",
+--     "split_line", "transpose_chars", "delete_to_line_start", "delete_to_line_end", …
 --   { decorate = "layer", version =, from =, to =, decorations = { d, ... } }, each `d`
 --     { from =, to =, color =, background =, weight =, italic =, strike =,
 --       underline = colour | { wavy = colour } }, or { from =, to =, line = colour },
@@ -97,7 +104,7 @@
 local host = pencere.host
 local json = pencere.json
 local time = pencere._time
-local merge = pencere._merge
+local merge = pencere.merge
 
 -- A call may say this many messages; the application closes a page that says more.
 local PER_CALL = 8

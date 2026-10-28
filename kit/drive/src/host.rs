@@ -5,10 +5,12 @@
 //! [`Drained::deliver`] hands it to the host's [`Host`] in the order every host does it in. The host
 //! does what only it can — its pasteboard, its pointer, its fields, its menus, its browser, its
 //! program — and calls the page again only after `deliver` has come back (a menu the person picks
-//! from is told with [`crate::Page::pick`] then).
+//! from is told with [`crate::Page::pick`] then). What a reply asked of a field that the frame it
+//! asks for brings is not told with it: a host has the field only once that frame is laid out, so
+//! the drive holds it and gives it with the frame ([`crate::Painted::held`]).
 
 use pencere_sandbox::{Answer, Fault};
-use pencere_view::{Cursor, Id, Keyboard, Menu};
+use pencere_view::{Cursor, Fill, Id, Keyboard, Menu};
 
 /// What a page had besides its replies, since the host last looked ([`crate::Page::drain`]).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -34,6 +36,28 @@ pub struct Drained {
     pub wake: bool,
 }
 
+/// What a reply asked of a host's field before the frame that brings the field was laid out: the
+/// drive holds it ([`crate::Page::drain`]) and gives it with the frame that lays the field out
+/// ([`crate::Painted::held`]), for a host has a field of its own only once the page's outline says
+/// the page names it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Held {
+    /// The text a field is to hold and what is selected in it ([`Host::fill`]).
+    Fill(Id, Fill),
+    /// Where the keyboard goes ([`Host::keyboard`]).
+    Keyboard(Keyboard),
+}
+
+impl Held {
+    /// Hands what was asked to `host`, as [`Drained::deliver`] hands it.
+    pub fn deliver(self, host: &mut dyn Host) {
+        match self {
+            Self::Fill(field, fill) => host.fill(field, fill),
+            Self::Keyboard(to) => host.keyboard(to),
+        }
+    }
+}
+
 /// What a host does for a page: each is something the page asked in a reply, or something the drive
 /// found, told by [`Drained::deliver`]. Every method does nothing by default, so that a host says
 /// only what it does: a host with no pasteboard writes no `copy`.
@@ -48,10 +72,16 @@ pub trait Host {
     /// The pointer's shape the page asks for, answering the pointer: told only for a reply to the
     /// pointer, and a host takes it only while the pointer is over the page.
     fn cursor(&mut self, _cursor: Cursor) {}
-    /// What the host's field named `field` holds from now on (in place of what the person typed).
-    fn fill(&mut self, _field: Id, _text: String) {}
+    /// What the host's field named `field` holds from now on (in place of what the person typed),
+    /// and what is selected in it ([`Fill`]: its ends held to the text). Told only of a field the
+    /// host has put over the page already: what a reply asked of one the frame it asks for brings
+    /// comes with that frame ([`crate::Painted::held`]), and a name the page still does not have
+    /// then is passed over.
+    fn fill(&mut self, _field: Id, _fill: Fill) {}
     /// Where the keyboard goes: a field of the host's, or the page (an editor's is the drive's, and
-    /// done before this is told).
+    /// done before this is told). A field the frame the reply asks for brings is told with that
+    /// frame ([`crate::Painted::held`]), after its texts; a name the page still does not have then
+    /// sends the keyboard to the page.
     fn keyboard(&mut self, _to: Keyboard) {}
     /// Text for the pasteboard.
     fn copy(&mut self, _text: String) {}
@@ -76,7 +106,9 @@ impl Drained {
     /// first; then each reply in turn — its wish to close, its redraw, the pointer's shape (a reply
     /// to the pointer only), the fields' texts, the keyboard, the pasteboard, the link, and the menu
     /// last; then the images' diagnostics; then the end, after which nothing; and last the frame or
-    /// the clock it wants.
+    /// the clock it wants. A reply's texts and keyboard that name a field the page has not laid out
+    /// yet are not among them: the drive held them ([`crate::Page::drain`]) for the frame that lays
+    /// it out ([`crate::Painted::held`], [`Held::deliver`]).
     pub fn deliver(self, host: &mut dyn Host) {
         for message in self.sent {
             host.send(message);
@@ -92,8 +124,8 @@ impl Drained {
                 host.cursor(reply.cursor);
             }
             // The texts first, so that a field the keyboard goes to holds what it is to edit.
-            for (field, text) in reply.fill {
-                host.fill(field, text);
+            for (field, fill) in reply.fill {
+                host.fill(field, fill);
             }
             if let Some(to) = reply.keyboard {
                 host.keyboard(to);
@@ -144,8 +176,9 @@ mod tests {
         fn cursor(&mut self, cursor: Cursor) {
             self.0.push(format!("cursor {cursor:?}"));
         }
-        fn fill(&mut self, field: Id, text: String) {
+        fn fill(&mut self, field: Id, fill: Fill) {
             let name = if field == Id::named("f") { "f" } else { "?" };
+            let text = fill.text.unwrap_or_default();
             self.0.push(format!("fill {name} {text}"));
         }
         fn keyboard(&mut self, to: Keyboard) {
@@ -180,11 +213,11 @@ mod tests {
                 entries: vec![MenuEntry::Item {
                     title: "Copy".into(),
                     enabled: true,
-                    key: None,
+                    keys: None,
                 }],
             }),
             keyboard: Some(Keyboard::Page),
-            fill: vec![(Id::named("f"), "text".into())],
+            fill: vec![(Id::named("f"), Fill::text("text"))],
             copy: Some("copied".into()),
             cursor: Cursor::Text,
             link: Some("https://example.com".into()),
