@@ -42,6 +42,8 @@ mod library_languages_tests;
 #[cfg(test)]
 mod library_markdown_tests;
 #[cfg(test)]
+mod library_ui_tests;
+#[cfg(test)]
 mod luau_editor_tests;
 #[cfg(test)]
 mod page_tests;

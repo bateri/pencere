@@ -213,3 +213,46 @@ fn the_example_editor_is_pictured_with_its_lines_in_their_colours() -> Result<()
     );
     Ok(())
 }
+
+/// The gallery of the kit's components (`examples/ui-lua`), pictured in a dark theme and in a light
+/// one: the same page, every colour a role, so the two pictures are of the same shapes in other
+/// colours. `PENCERE_SHOTS=ui` writes them to `target/` in the terminal's font of a Mac, for an eye
+/// to check what is aligned and what overlaps.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_gallery_of_components_is_pictured_in_a_dark_and_a_light_theme() -> Result<(), Error> {
+    let gallery = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/ui-lua");
+    let fonts = match std::env::var("PENCERE_SHOTS").as_deref() {
+        Ok("ui") => Fonts::none()
+            .terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc").expect("Menlo"))
+            .expect("a font"),
+        _ => Fonts::none(),
+    };
+    let page = Headless::app(&gallery)
+        .measure(fonts.clone())
+        .size(720.0, 880.0)
+        .scale(2.0)
+        .open()?;
+    let dark = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    let light = page.shot_in(&fonts, Palette::Light).expect("a picture");
+    assert_eq!(
+        dark,
+        page.shot_in(&fonts, Palette::Dark).expect("a picture")
+    );
+    assert_ne!(dark, light, "the same page in two themes");
+    for drawn in [&dark, &light] {
+        let pixmap = Pixmap::decode_png(drawn).expect("a PNG");
+        let colours: std::collections::HashSet<(u8, u8, u8)> = pixmap
+            .pixels()
+            .iter()
+            .map(|pixel| (pixel.red(), pixel.green(), pixel.blue()))
+            .collect();
+        assert!(colours.len() > 8, "{} colours", colours.len());
+    }
+    if std::env::var("PENCERE_SHOTS").as_deref() == Ok("ui") {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        std::fs::write(target.join("ui-gallery-dark.png"), &dark).expect("written");
+        std::fs::write(target.join("ui-gallery-light.png"), &light).expect("written");
+    }
+    Ok(())
+}
