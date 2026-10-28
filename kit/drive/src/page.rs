@@ -34,7 +34,11 @@
 //! (an edit, for what is undone together; a box let go, for where it springs back from) is put on
 //! the same clock: the host's own reading where its program has one ([`Program::now`]), else the
 //! last frame's time and what the system's clock says has passed since. A host whose clock is
-//! driven by hand (a test) is the clock of everything the page does.
+//! driven by hand (a test) is the clock of everything the page does. **The program's readings and
+//! the frames' times must be one clock** — the same origin, the same seconds: a reading behind the
+//! last frame is taken as the frame's time, so a clock of another origin would stand still between
+//! frames (what is typed undone as one, a caret that does not blink, a timer late). A debug build
+//! stops on a reading more than a second behind the last frame.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -65,6 +69,9 @@ pub struct Setup {
     /// The program the page speaks to, as far as the page's speed goes (what it can take of what the
     /// page says), and the host's clock where it keeps one that can be read from any thread
     /// ([`Program::now`]). [`Unbounded`] by default: a program that always has room, and no clock.
+    /// Its clock is the one the frames are given their time on ([`FrameAt::now`]): the same origin
+    /// and the same seconds (a debug build stops on a reading more than a second behind the last
+    /// frame).
     pub program: Arc<dyn Program>,
     /// Where the files of the page's bundle are read from, for its images; a page without them draws
     /// no image. A script's page takes its own bundle's when this is `None`.
@@ -114,6 +121,8 @@ impl Measure for NoText {
 pub struct FrameAt {
     pub size: (u32, u32),
     pub scale: f64,
+    /// The frame's time, seconds, on the host's one clock: the clock of [`Setup::program`]'s
+    /// readings where it has one ([`Program::now`]), never another.
     pub now: f64,
     pub reduce_motion: bool,
 }
@@ -209,7 +218,8 @@ struct State {
 }
 
 /// The drive's clock: the host's reading where its program has one, else the last frame's time and
-/// what the system's clock says has passed since; never earlier than the last frame.
+/// what the system's clock says has passed since; never earlier than the last frame. The reading and
+/// the frames' times are one clock; a debug build stops on a reading that is not ([`BEHIND`]).
 struct Clock {
     program: Arc<dyn Program>,
     /// The time of the last frame, on the frames' clock, and when that was here.
@@ -217,11 +227,22 @@ struct Clock {
     at: Instant,
 }
 
+/// How far the program's reading may be behind the last frame's time, seconds, before it is taken
+/// for a host's mistake: a frame is stamped with when it will be shown, a little ahead of the clock.
+const BEHIND: f64 = 1.0;
+
 impl Clock {
     fn now(&self) -> f64 {
-        self.program
-            .now()
-            .filter(|now| now.is_finite())
+        let reading = self.program.now().filter(|now| now.is_finite());
+        // A reading far behind the last frame is of another clock than the frames': taken as the
+        // frame's time, it would stand still between frames.
+        debug_assert!(
+            reading.is_none_or(|now| now >= self.frame - BEHIND),
+            "the program's clock reads {reading:?}, behind the last frame ({}) by more than {BEHIND} \
+             s: `Setup::program` and `FrameAt::now` must be one clock",
+            self.frame,
+        );
+        reading
             .unwrap_or_else(|| self.frame + self.at.elapsed().as_secs_f64())
             .max(self.frame)
     }

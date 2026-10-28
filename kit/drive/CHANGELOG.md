@@ -45,7 +45,9 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
   clock it wants.
 - **One clock.** The frames, the editors (what is undone together) and the scrolling between frames
   run on the host's clock where its program keeps one (`Program::now`), so that a host whose clock is
-  driven by hand drives everything the page does.
+  driven by hand drives everything the page does. The program's readings and the frames' times
+  (`FrameAt::now`) must be that one clock; a debug build stops on a reading more than a second behind
+  the last frame, which would otherwise stand time still between frames.
 - **Editors without the pointer.** `PageEditors::focus`, `select` and `command`: the keyboard put in
   an editor, a selection made and an editor's own command done the way a screen reader or a host's
   menu does them. `Page::key` sends a key to the editor with the keyboard first and to the page where
@@ -64,7 +66,8 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
   the keyboard's place, the pointer's shape, the pasteboard, the links, the menu, what was said to
   the program and told the page). Every method settles the page before it returns, waiting for
   nothing by the clock: the sandbox says when the page has done what it was told, the images when
-  they are decoded. The program is a `Peer`; `Calls` is a table of calls in this process. A page's
+  they are decoded. What an editor undoes together goes by the same clock: typing with no `advance`
+  between is one group, and an `advance` past `UNDO_PAUSE` starts another. The program is a `Peer`; `Calls` is a table of calls in this process. A page's
   files come from a directory (`Files`, `Files::app`). What cannot be done is an `Error` in words.
 - **Pictures of a page** (the feature `shot`): `Headless::shot` and `shot::png` draw a frame's list
   into a PNG in the caller's fonts (`shot::Fonts`, which measure as they draw) and a terminal's

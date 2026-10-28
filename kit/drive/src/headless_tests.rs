@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use pencere_editor::UNDO_PAUSE;
 use pencere_sandbox::Fault;
 use pencere_view::edit::EditCommand;
 use pencere_view::{Cursor, Event, Id, Paint, Point};
@@ -446,5 +447,27 @@ return {
         page.select("nothing", 0, 0),
         Err(Error::NoSuch("nothing".into()))
     );
+    Ok(())
+}
+
+/// What is undone together follows the host's clock, as every time of the page does: what is typed
+/// with no time between is one group, and what is typed after a pause longer than the editor's
+/// (`UNDO_PAUSE`) on that clock is one of its own — without a moment of the machine's waited.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn what_is_typed_is_undone_in_groups_by_the_hosts_clock() -> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"return { render = function() return pencere.editor("e"):size_full() end }"#,
+    )
+    .open()?;
+    page.focus_editor("e")?;
+    page.type_text("ab")?;
+    page.type_text("cd")?;
+    page.advance(UNDO_PAUSE + 0.5)?;
+    page.type_text("ef")?;
+    page.edit(EditCommand::Undo)?;
+    assert_eq!(page.editor_text("e").as_deref(), Some("abcd"));
+    page.edit(EditCommand::Undo)?;
+    assert_eq!(page.editor_text("e").as_deref(), Some(""));
     Ok(())
 }

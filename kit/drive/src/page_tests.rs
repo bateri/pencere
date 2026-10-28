@@ -3,11 +3,12 @@
 //! that a page at rest asks for nothing and wakes nobody. Most of these run the interpreter or a
 //! module of `make guest` and are heavy (`make check-heavy`).
 
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use pencere_sandbox::{Assets, Script};
+use pencere_sandbox::{Assets, Program, Script};
 use pencere_view::wire::Kind;
 use pencere_view::{
     Button, DrawList, Font, Id, Input, Key, Measure, Metrics, Mods, Paint, Point, Rect,
@@ -252,6 +253,49 @@ fn a_module_that_is_not_a_page_ends_with_a_reason_told_once() {
     let why = rig.first().ended.expect("a reason").to_string();
     assert!(why.contains("loaded"), "{why}");
     assert_eq!(rig.page.drain().ended, None);
+}
+
+/// The program's clock and the frames' are one: a host whose program reads another clock (one from
+/// nought, while its frames are stamped with the system's) would have time stand still between
+/// frames, and a debug build stops on it. A reading a little behind a frame (a frame stamped with
+/// when it will be shown) is no mistake.
+#[cfg(debug_assertions)]
+#[test]
+fn a_program_clock_behind_the_frames_is_a_mistake_a_debug_build_stops_on() {
+    struct FromNought;
+    impl Program for FromNought {
+        fn may_say(&self, _bytes: usize) -> bool {
+            true
+        }
+        fn taken(&self, _bytes: usize) {}
+        fn now(&self) -> Option<f64> {
+            Some(0.5)
+        }
+    }
+    let (wake, _woken) = woken();
+    let program = Arc::new(FromNought);
+    let mut page = Page::component(
+        b"not a component".to_vec(),
+        Setup {
+            program,
+            ..setup(None)
+        },
+        wake,
+    );
+    let key = Input::Key {
+        key: Key::Character('a'),
+        mods: Mods::default(),
+    };
+    page.frame(frame_at(1.0));
+    page.input(key);
+    page.frame(frame_at(1000.0));
+    let stopped = panic::catch_unwind(AssertUnwindSafe(|| page.input(key)));
+    let why = stopped.expect_err("a debug build stops on another clock");
+    let why = why
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .unwrap_or_default();
+    assert!(why.contains("must be one clock"), "{why}");
 }
 
 /// Specification §5.4: a component written against another version of the interface than the one

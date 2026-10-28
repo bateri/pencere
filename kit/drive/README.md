@@ -60,7 +60,7 @@ Every part of what bateri's pane did to drive a page is in one column of this ta
 | The page placed in the host's view (a strip above it, drawn larger): every point in and out turned                                                             | `Placement`, `Page::set_zoom`                                            |
 | The fields, what a screen reader says, the tooltips and the commands, told when they change                                                                    | `Painted::outline`, `Page::outline`                                      |
 | What the page said, handed over in the order a host does it                                                                                                    | `Drained::deliver`, `Host`                                               |
-| One clock for the frames, the editors and the scrolling: the host's where its program has one                                                                  | `Setup::program` (`Program::now`)                                        |
+| One clock for the frames, the editors and the scrolling: the host's where its program has one, the frames' times on it too (a debug build checks)              | `Setup::program` (`Program::now`), `FrameAt::now`                        |
 | **The host's:** measuring and drawing text in its fonts, the draw list in its renderer and theme (colours, the contrast floor, figures and images as textures) | the host (`Setup::measure`, `Page::images`)                              |
 | **The host's:** its keyboard (its keys turned into `Key` and `Mods`), its input method, its own shortcuts                                                      | the host (`Page::key`, `PageEditors`)                                    |
 | **The host's:** its pasteboard, its pointer's shapes, its text fields over the page, its menus, its browser and the question asked first, its screen reader    | the host (`Host`, `Painted::outline`)                                    |
@@ -98,7 +98,10 @@ answers, and the frames that come of it are drawn — at the time the clock show
 `advance` (every frame the page wants on the way: sixty a second while it moves, at its times, a
 caret's blink), `step` (to the next time the page asked for), `idle` (until it asks for nothing) and
 `hide` (the view out of sight: no frame, the page woken a second apart at the soonest). The kit's
-timers, a search's `found`, a language read a piece at a time are as determined as the rest.
+timers, a search's `found`, a language read a piece at a time are as determined as the rest, and so
+is what an editor undoes together: what is typed with no `advance` between is one group, and an
+`advance` past the editor's pause (`UNDO_PAUSE`, a second) puts what is typed after in a group of
+its own.
 
 - **Opening:** `Headless::script(source)`, `bundle(files, entry)`, `app(dir)` (`Files::app`: a pencere
   app's `src/view/` with `src/assets/` under `assets/`), `component(bytes)`; then `size`, `scale`,

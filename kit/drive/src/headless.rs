@@ -22,7 +22,9 @@
 //! it are drawn — all at the time the clock shows. Time moves only by [`Headless::advance`] and
 //! [`Headless::idle`], which draw every frame and give every wake on the way as a host's frames
 //! would: the kit's timers, the `found` of a search that settles and a language read a piece at a
-//! time are as determined as the rest.
+//! time are as determined as the rest. So is what an editor undoes together, which goes by the same
+//! clock: what is typed with no `advance` between is one group, and an `advance` past the editor's
+//! pause ([`pencere_editor::UNDO_PAUSE`], a second) puts what is typed after in a group of its own.
 //!
 //! A page that goes wrong is an [`Error`], with why: a method of a page that ended returns
 //! [`Error::Ended`]. The text is measured by a fixed measure ([`Fixed`]: every character the same
