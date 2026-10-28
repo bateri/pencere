@@ -6,7 +6,7 @@
 #   each checked. A commit that prepared nothing ends here.
 # - gate: the gate (check.yml) on the commit to release, called here so that nothing is tagged
 #   before it is green.
-# - the packages of each line are checked, and the command's four executables are built on a
+# - the packages of each line are checked, and the command's eight executables (it and the runner of tests, for four targets) are built on a
 #   runner of their system and architecture, tried, summed and attested (provenance).
 # - each line is tagged (`<line>-v<version>`) and its GitHub release written as a draft, with the
 #   changelog section as its notes and, for the command, the files.
@@ -196,7 +196,7 @@ jobs:
           path: dist/pencere-*
           if-no-files-found: error
 
-  # The four executables together: SHA256SUMS, a check of all of it (the system and processor each
+  # The eight executables together: SHA256SUMS, a check of all of it (the system and processor each
   # name says, the sums), and for a release the attestation of what was built here. The files are
   # kept as a workflow artifact, for the draft and for a rehearsal.
   files:

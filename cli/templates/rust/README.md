@@ -10,4 +10,7 @@ the view; in any other it prints the text.
 - `src/program/main.rs` is the program: its calls and topics.
 - `src/view/page.lua` is the view it shows, with the scripts it `require`s, and `src/assets/` the
   pictures of the view; `build.rs` carries both into the program (`pencere::app!()`).
+- `pencere test` runs the tests in `test/` (`*_test.lua`): each opens the page under a host with no
+  screen and does to it what a person does, with a stand-in for the program, or with this program,
+  which is built once and run on a pty (`require("pencere.test")`).
 - Nothing generated is under `src/`: cargo builds into `target/`.

@@ -107,11 +107,26 @@ pub struct Pty {
 
 impl Pty {
     pub fn spawn(program: &[String], size: Size) -> io::Result<Self> {
+        Self::spawn_in(program, size, &[], None)
+    }
+
+    /// As [`Pty::spawn`], with `env` set over the variables the program inherits and, where given,
+    /// `cwd` the directory it starts in.
+    pub fn spawn_in(
+        program: &[String],
+        size: Size,
+        env: &[(String, String)],
+        cwd: Option<&std::path::Path>,
+    ) -> io::Result<Self> {
         let (master, slave) = open(size)?;
         let (name, args) = program
             .split_first()
             .ok_or_else(|| io::Error::other("no program to run"))?;
         let mut command = Command::new(name);
+        command.envs(env.iter().map(|(name, value)| (name, value)));
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
+        }
         command
             .args(args)
             .stdin(Stdio::from(slave.try_clone()?))

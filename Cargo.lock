@@ -927,6 +927,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pencere-test"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "pencere-cli",
+ "pencere-drive",
+ "pencere-fake-host",
+ "pencere-view",
+ "serde_json",
+]
+
+[[package]]
 name = "pencere-view"
 version = "0.3.1"
 dependencies = [

@@ -3,11 +3,11 @@
 This repository releases three **lines**, each with its own version, changelog and tags. A release
 of one line does not release another.
 
-| Line             | What                                    | Channel        | Tag                       |
-| ---------------- | --------------------------------------- | -------------- | ------------------------- |
-| `sdk-typescript` | `@pencere/sdk` (`sdk/typescript`)       | npm            | `sdk-typescript-v<x.y.z>` |
-| `crates`         | eight crates, one version for all       | crates.io      | `crates-v<x.y.z>`         |
-| `cli`            | the `pencere` command, four executables | GitHub release | `cli-v<x.y.z>`            |
+| Line             | What                                                                        | Channel        | Tag                       |
+| ---------------- | --------------------------------------------------------------------------- | -------------- | ------------------------- |
+| `sdk-typescript` | `@pencere/sdk` (`sdk/typescript`)                                           | npm            | `sdk-typescript-v<x.y.z>` |
+| `crates`         | eight crates, one version for all                                           | crates.io      | `crates-v<x.y.z>`         |
+| `cli`            | the `pencere` command, four executables, and the runner of tests, four more | GitHub release | `cli-v<x.y.z>`            |
 
 The specification is dated by hand (see [The specification](#the-specification)).
 
@@ -27,7 +27,7 @@ The specification is dated by hand (see [The specification](#the-specification))
    tag yet; a commit that moved no version ends here.
 3. It runs the gate (`check.yml`) on that commit itself, and only when the gate is green goes on.
    For each line it checks the version and changelog, checks the package (`npm pack`,
-   `cargo publish --dry-run`) or builds the four executables with their `SHA256SUMS` and
+   `cargo publish --dry-run`) or builds the eight executables with their `SHA256SUMS` and
    provenance, then pushes the tag and writes a **draft** GitHub release.
 4. The run waits in the `release` environment. GitHub notifies the reviewers; one of them opens
    the run and chooses **Review deployments → Approve**. Only then is anything published: npm and
@@ -49,7 +49,7 @@ skipped. If `main` has gone on since the tag, the run finishes the release from 
 it runs the gate there, and checks, builds and publishes what was tagged.
 
 **Trying it.** `make rehearse LINE=<line>` runs the checks of a prepared line on any branch.
-`make dist` builds the four executables locally. **Run workflow** with **rehearse** builds on any
+`make dist` builds the eight executables locally. **Run workflow** with **rehearse** builds on any
 branch and publishes nothing.
 
 ### What the checks refuse
@@ -59,7 +59,8 @@ branch and publishes nothing.
 - a commit whose gate is not green, or a tag on a commit that is not one of `main`'s;
 - a package missing `LICENSE`, `NOTICE`, `README.md` or `CHANGELOG.md`, or one that carries tests
   or build output; a crate missing crates.io metadata;
-- command files that are not exactly the four executables of this version with correct sums.
+- command files that are not exactly the eight executables of this version (the command and the
+  runner of tests, for each of four targets) with correct sums.
 
 ## The crates
 
@@ -79,9 +80,14 @@ from the tag), since a trusted publisher can only be set on an existing crate.
 
 ## The command
 
-The release is four files, `pencere-<version>-<target>` for macOS and Linux on arm64 and x86_64,
-and `SHA256SUMS`. `cli/install.sh` installs the newest one; `pencere build --target` fetches
-runners from the same release.
+The release is eight files and `SHA256SUMS`: `pencere-<version>-<target>` for macOS and Linux on
+arm64 and x86_64, and beside each the runner of tests, `pencere-test-<version>-<target>`, a program
+of its own because it links the kit, which the command (copied into every app) must not.
+`cli/install.sh` installs the newest command only; `pencere test` fetches the runner of tests of its
+own version from the same release the first time it is run, and `pencere build --target` fetches
+runners from it too. The runner of tests for the Linux targets links the WebAssembly runtime
+statically against musl: `tools/dist.sh linux` is where that is proved, and a target that cannot
+build it is not released for until it can.
 
 The command is published after the SDK and the crates, and only once the versions it makes new
 projects with are on npm and crates.io, so that `pencere new` never makes a project that cannot

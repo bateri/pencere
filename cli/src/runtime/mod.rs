@@ -12,6 +12,7 @@ mod serve;
 mod stdin;
 mod text;
 mod watch;
+mod world;
 
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -22,9 +23,12 @@ use std::time::{Duration, Instant};
 use mlua::{Function, Lua};
 use pencere::{CloseResult, ReopenResult, ViewControl};
 
+pub use self::convert::{from_json, to_json};
 pub use self::core::Exit;
 use self::core::{Core, Log, ServePlan, ViewSpec};
 use self::events::{Event, Events, channel_pair};
+pub use self::world::Env;
+use self::world::World;
 use crate::files::Files;
 
 /// How long a loop waits for anything when nothing is due: it wakes for events and for the end of
@@ -59,6 +63,96 @@ pub struct Config {
     pub args: Vec<String>,
     /// Where `print` and the errors go, instead of the terminal.
     pub log: Option<PathBuf>,
+    /// The environment the app runs in, when it is not the process's: its variables, its directory,
+    /// and no terminal. `None` is an app that is the process.
+    pub env: Option<Env>,
+    /// Modules the app finds by name before any file of its own, made by the one who runs it.
+    pub modules: Vec<Module>,
+    /// Where the app's view goes.
+    pub serve: Serve,
+}
+
+impl Config {
+    /// An app that is the process: the terminal is its own and it has no modules but its own.
+    pub fn process(files: Files, name: String, args: Vec<String>, log: Option<PathBuf>) -> Self {
+        Self {
+            files,
+            name,
+            args,
+            log,
+            env: None,
+            modules: Vec::new(),
+            serve: Serve::Terminal,
+        }
+    }
+}
+
+/// A module the app can `require` by a name no file of its own can take: made when the app starts,
+/// in the Lua state it runs in.
+pub struct Module {
+    pub name: String,
+    pub load: Loader,
+}
+
+/// How a module is made in the Lua state of the app that requires it.
+pub type Loader = Box<dyn FnOnce(&Lua) -> mlua::Result<mlua::Value>>;
+
+/// Where the view of an app goes.
+pub enum Serve {
+    /// To the terminal, by the program library's `serve`.
+    Terminal,
+    /// To whoever holds the other end: the options `serve` was given are handed over, and no
+    /// terminal is asked. The app's `serve` ends when the holder says so ([`Served`]). An app so
+    /// served never signals the process, whatever it asks of its view.
+    Hand(std::sync::mpsc::Sender<Handed>),
+}
+
+/// What `serve` of an app served by hand gave: the handlers, and the way to end the `serve`.
+pub struct Handed {
+    /// What the program library serves a view with.
+    pub options: pencere::Options,
+    /// The end of the `serve`.
+    pub served: Served,
+}
+
+/// The way to end the `serve` of an app served by hand. Dropped without being used, it ends it as
+/// the program closing its view does.
+pub struct Served {
+    events: Events,
+    ended: bool,
+}
+
+impl Served {
+    pub(crate) fn new(events: Events) -> Self {
+        Self {
+            events,
+            ended: false,
+        }
+    }
+
+    /// The `serve` returns `outcome` to the app.
+    pub fn end(mut self, outcome: pencere::Outcome) {
+        self.ended = true;
+        self.events.send(Event::Served(Ok(outcome)));
+    }
+}
+
+impl Drop for Served {
+    fn drop(&mut self) {
+        if !self.ended {
+            self.events.send(Event::Served(Ok(pencere::Outcome::Closed(
+                pencere::Closed {
+                    by: pencere::EndedBy::Program,
+                    view: pencere::Shown {
+                        kind: pencere::Kind::Lua,
+                        version: serve::VERSION.to_owned(),
+                    },
+                    code: None,
+                    message: None,
+                },
+            ))));
+        }
+    }
 }
 
 /// The way for another thread to the app that runs: `pencere dev`'s watcher.
@@ -68,6 +162,8 @@ pub struct Remote {
     control: ViewControl,
     plan: Arc<Mutex<Option<ServePlan>>>,
     restart: Arc<AtomicBool>,
+    /// The app is served by hand: nothing it does reaches the process.
+    by_hand: bool,
 }
 
 /// What reloading the view came to.
@@ -88,6 +184,10 @@ impl Remote {
     /// given back: by the terminal's own `dismiss` if it does that, otherwise as ⌃C does.
     pub fn restart(&self) {
         self.restart.store(true, Ordering::SeqCst);
+        if self.by_hand {
+            self.events.send(Event::Restart);
+            return;
+        }
         if self.control.close() == CloseResult::Unsupported {
             // SAFETY: a signal to this process, which the library's handler for it turns into a
             // `bye`.
@@ -155,6 +255,7 @@ impl Runner {
             control: ViewControl::new(),
             plan: Arc::new(Mutex::new(None)),
             restart: Arc::new(AtomicBool::new(false)),
+            by_hand: matches!(config.serve, Serve::Hand(_)),
         };
         Ok(Self {
             config,
@@ -175,6 +276,9 @@ impl Runner {
             name,
             args,
             log,
+            env,
+            modules,
+            serve,
         } = self.config;
         let log = match Log::new(log) {
             Ok(log) => log,
@@ -194,9 +298,14 @@ impl Runner {
                 Arc::clone(&remote.plan),
                 Arc::clone(&remote.restart),
                 me.clone(),
+                Rc::new(World::new(env)),
+                match serve {
+                    Serve::Terminal => None,
+                    Serve::Hand(hand) => Some(hand),
+                },
             )
         });
-        let exit = start_and_wait(&core);
+        let exit = start_and_wait(&core, modules);
         // The view's thread gives the terminal back before anything else uses it.
         wait_for_view(&core);
         core.stop_children();
@@ -206,8 +315,8 @@ impl Runner {
     }
 }
 
-fn start_and_wait(core: &Rc<Core>) -> Exit {
-    if let Err(why) = start(core) {
+fn start_and_wait(core: &Rc<Core>, modules: Vec<Module>) -> Exit {
+    if let Err(why) = start(core, modules) {
         return Exit::Failed(why.to_string());
     }
     while core.exit().is_none() {
@@ -245,9 +354,14 @@ pub fn check(files: &std::collections::BTreeMap<String, Vec<u8>>) -> Result<(), 
 }
 
 /// Loads the prelude and the app's script, and runs the script until it first waits.
-fn start(core: &Rc<Core>) -> mlua::Result<()> {
+fn start(core: &Rc<Core>, modules: Vec<Module>) -> mlua::Result<()> {
     let lua = core.lua();
     let native = modules::natives(lua, core)?;
+    let reserved = lua.create_table()?;
+    for module in modules {
+        reserved.set(module.name, (module.load)(lua)?)?;
+    }
+    native.set("modules", reserved)?;
     let begin: Function = lua
         .load(include_str!("prelude.lua"))
         .set_name("=prelude")

@@ -55,7 +55,9 @@ check:
 # and regular expressions (for the rules of an editor's indent), the drive knows the engine, the
 # editor, the sandbox and the messages of a program and its view (for the program of a page under its
 # host with no screen; the program library itself only when a test asks for it, `program`) and
-# nothing of a platform or a font, and the page modules know the SDK and the engine.
+# nothing of a platform or a font, and the page modules know the SDK and the engine. The command,
+# which is the runner copied into every app, hosts nothing; its library (the Lua runtime with the
+# rest of the command) is shared with the runner of an app's tests alone.
 audit:
 	@fail=0; \
 	if [ "$$(cargo tree -p pencere-view -e normal --depth 1 --prefix none | tail -n +2 | sed 's/ .*//' | sort -u)" != "taffy" ]; then echo "audit: pencere-view depends on something besides the layout crate (taffy) — the page engine depends on its layout crate alone"; fail=1; fi; \
@@ -76,6 +78,7 @@ audit:
 	if cargo tree --workspace -e normal -i image --depth 1 --prefix none | tail -n +2 | grep -vE "^libsui "; then echo "audit: the image crate is linked by something other than libsui — it is there for the icons of a Windows executable, which the command never writes; nothing that shows a picture links it"; fail=1; fi; \
 	if cargo tree --workspace -e normal -i libsui --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-cli "; then echo "audit: libsui is linked by a crate other than pencere-cli — it is how the command writes an app into an executable, and no library has a use for it"; fail=1; fi; \
 	if cargo tree -p pencere-cli -e normal --prefix none | tail -n +2 | grep -E "^(pencere-(host|sandbox|view)|wasmtime|taffy|objc2|dispatch2|block2|metal|wgpu|winit) "; then echo "audit: the pencere command links a terminal's crate or a platform library — it is a program that uses the program library, and hosts nothing"; fail=1; fi; \
+	if cargo tree --workspace -e normal -i pencere-cli --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-test "; then echo "audit: a crate other than pencere-test depends on the library of the pencere command — it is the command's insides, which only the runner of an app's tests shares (the two are released together)"; fail=1; fi; \
 	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(fontdb|rustybuzz|ttf-parser|harfrust|skrifa|read-fonts|swash|fontconfig|freetype|font-types)"; then echo "audit: pencere-sandbox links to a font or text-shaping library — an SVG draws shapes and no words, and no font is loaded for it"; fail=1; fi; \
 	if grep -rnE "std::(fs|net|process)\b|File::open|TcpStream" kit/sandbox/src --exclude="*_tests.rs" | grep -v ":[[:space:]]*//"; then echo "audit: the sandbox reads a file, opens a connection or runs a program — the only door it has to the bundle is Assets, which the host gives"; fail=1; fi; \
 	if grep -nE "^pencere-(host|sandbox|editor) *=" kit/guest/*/Cargo.toml kit/guest/Cargo.toml; then echo "audit: a page module depends on a crate of the terminal side — a module is written with the SDK, the engine and the wire alone"; fail=1; fi; \
@@ -176,7 +179,7 @@ dist:
 # The parts of `dist` that the release workflow runs, each on the machine that suits it: one Linux
 # executable (ARCH=x86_64 or aarch64) in a container of that architecture, the two macOS ones
 # (DIST_TOOLCHAIN names the rustup toolchain; the workflow's is the one the gate runs with), and
-# SHA256SUMS once the four are in dist/.
+# SHA256SUMS once the eight are in dist/.
 dist-linux:
 	@test -n "$(ARCH)" || { echo "usage: make dist-linux ARCH=<x86_64|aarch64>"; exit 2; }
 	$(DIST_ENV) tools/dist.sh linux $(ARCH)

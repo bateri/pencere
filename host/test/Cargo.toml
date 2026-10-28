@@ -1,0 +1,34 @@
+[package]
+name = "pencere-test"
+description = "The runner of an app's tests: a page of the kit under the host with no screen, with the program it has, driven from Lua as a person drives it"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["terminal", "pencere", "testing", "lua"]
+categories = ["development-tools::testing"]
+publish = false
+
+[[bin]]
+name = "pencere-test"
+path = "src/main.rs"
+
+[dependencies]
+# The runtime an app's program runs in, the Lua of a test file in the same one, and the files of an
+# app: the command's insides, shared with this runner alone. They are released together, so this
+# is no dependency by version, and the runner says the command's version (`pencere_cli::VERSION`).
+pencere-cli = { path = "../../cli" }
+# The page under the host with no screen, with the program of the app in this process (`program`)
+# and the pictures of a failure (`shot`).
+pencere-drive = { path = "../../kit/drive", version = "0.3.1", features = ["program", "shot"] }
+# The page engine's own types: what a page is made of, the keys and the places a test names.
+pencere-view = { path = "../../kit/view", version = "0.3.1" }
+# A program on a pty, played to by the host of the stand-in terminal, for a program in any language.
+pencere-fake-host = { path = "../fake" }
+# The values a test's calls take and give, and what the processes of the runner say to one another.
+serde_json = "1"
+libc = "0.2"
+
+[lints]
+workspace = true

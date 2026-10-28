@@ -28,7 +28,7 @@ use std::fs::File;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use pencere_drive::headless::{Headless, Opening, Peer};
+use pencere_drive::headless::{Calls, Headless, Opening, Peer};
 use pencere_host::bundle::MemoryStore;
 use pencere_host::frame::Event;
 use pencere_host::sandbox::Grant;
@@ -139,17 +139,27 @@ fn heading(text: &str) -> Option<(String, Option<u64>)> {
 /// The program could not be started, or opened no view of the kit within a minute.
 pub fn open(command: &[&str]) -> Result<Opening<Program>, Error> {
     let mut program = Program::start(command)?;
-    let started = program.view(Duration::from_secs(60))?;
+    let opening = view_of(&mut program, Duration::from_secs(60))?;
+    Ok(opening.peer(program))
+}
+
+/// Waits, at most `within`, for `program` to open a view the terminal draws itself, and makes
+/// ready that view's page under the host with no screen, with a table of calls for a program: the
+/// caller gives it `program` (or whatever stands for it) as the peer.
+///
+/// # Errors
+///
+/// The program ended, opened another kind of view, or opened none within the time.
+pub fn view_of(program: &mut Program, within: Duration) -> Result<Opening<Calls>, Error> {
+    let started = program.view(within)?;
     Ok(match started.kind {
-        ViewKind::Lua => Headless::bundle(started.files, &started.entry).peer(program),
+        ViewKind::Lua => Headless::bundle(started.files, &started.entry),
         ViewKind::Wasm => {
             let bytes = started
                 .files
                 .read(&started.entry)
                 .ok_or_else(|| Error::NoView(format!("its entry {} is missing", started.entry)))?;
-            Headless::component(bytes.to_vec())
-                .assets(started.files)
-                .peer(program)
+            Headless::component(bytes.to_vec()).assets(started.files)
         }
         other => {
             return Err(Error::NoView(format!(
@@ -167,9 +177,23 @@ impl Program {
     ///
     /// The program could not be started, or there are no random bytes for its token.
     pub fn start(command: &[&str]) -> Result<Self, Error> {
+        Self::start_in(command, &[], None)
+    }
+
+    /// As [`Program::start`], with `env` set over the variables the program inherits and, where
+    /// given, `cwd` the directory it starts in.
+    ///
+    /// # Errors
+    ///
+    /// As [`Program::start`].
+    pub fn start_in(
+        command: &[&str],
+        env: &[(String, String)],
+        cwd: Option<&std::path::Path>,
+    ) -> Result<Self, Error> {
         let command: Vec<String> = command.iter().map(|part| (*part).to_owned()).collect();
         let urandom = File::open("/dev/urandom").map_err(Error::Start)?;
-        let pty = Pty::spawn(&command, PANE).map_err(Error::Start)?;
+        let pty = Pty::spawn_in(&command, PANE, env, cwd).map_err(Error::Start)?;
         Ok(Self {
             pty,
             session: Session::new(

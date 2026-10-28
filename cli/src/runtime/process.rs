@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::os::fd::OwnedFd;
 use std::os::unix::process::CommandExt as _;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::rc::Weak;
 use std::time::Instant;
 
@@ -43,7 +43,7 @@ pub fn spawn(core: &Core, options: Table) -> mlua::Result<ChildHandle> {
             "process.spawn needs `argv`, a list: the program and then its arguments",
         ));
     };
-    let mut command = Command::new(program);
+    let mut command = core.world.command(program);
     command
         .args(rest)
         .stdin(Stdio::piped())
@@ -66,7 +66,7 @@ pub fn spawn(core: &Core, options: Table) -> mlua::Result<ChildHandle> {
         command.process_group(0);
     }
     if let Some(cwd) = options.get::<Option<String>>("cwd")? {
-        command.current_dir(cwd);
+        command.current_dir(core.world.path(&cwd));
     }
     if let Some(env) = options.get::<Option<HashMap<String, String>>>("env")? {
         command.envs(env);

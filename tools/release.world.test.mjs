@@ -15,6 +15,7 @@ import {
   git,
   members,
   nameOf,
+  releaseNames,
   processorOf,
   release,
   scratch,
@@ -31,10 +32,12 @@ const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 function dist(root, version = "0.1.0", dir = "dist") {
   mkdirSync(join(root, dir), { recursive: true });
   const sums = [];
-  for (const target of LINES.cli.targets) {
-    const bytes = executable(systemOf(target), processorOf(target));
-    writeFileSync(join(root, dir, nameOf(target, version)), bytes);
-    sums.push(`${sha256(bytes)}  ${nameOf(target, version)}`);
+  for (const binary of ["pencere", ...LINES.cli.companions]) {
+    for (const target of LINES.cli.targets) {
+      const bytes = executable(systemOf(target), processorOf(target));
+      writeFileSync(join(root, dir, nameOf(target, version, binary)), bytes);
+      sums.push(`${sha256(bytes)}  ${nameOf(target, version, binary)}`);
+    }
   }
   write(root, `${dir}/SHA256SUMS`, `${sums.join("\n")}\n`);
   return sums;
@@ -611,7 +614,7 @@ describe("release.mjs publish", () => {
       expect(download.args.slice(0, 4)).toEqual(["release", "download", "cli-v0.1.0", "--dir"]);
       const attested = w.calls().filter((call) => call.args[0] === "attestation");
       expect(attested.map((call) => basename(call.args[2])).sort()).toEqual(
-        [...LINES.cli.targets.map((target) => nameOf(target)), "SHA256SUMS"].sort(),
+        [...releaseNames(), "SHA256SUMS"].sort(),
       );
       for (const call of attested) {
         expect(call.args.slice(0, 2)).toEqual(["attestation", "verify"]);
@@ -828,7 +831,7 @@ describe("release.mjs dist", () => {
     expect(done.err).toBe("");
     expect(done.status).toBe(0);
     expect(done.out.trim().split("\n")).toEqual([
-      ...LINES.cli.targets.map((target) => `dist/${nameOf(target)}`),
+      ...releaseNames().map((name) => `dist/${name}`),
       "dist/SHA256SUMS",
     ]);
   });
@@ -840,7 +843,7 @@ describe("release.mjs dist", () => {
     write(root, "elsewhere/NOTICE", "n\n");
     const done = release(root, "dist", "cli", join(root, "elsewhere"));
     expect(done.err).toBe("");
-    expect(done.out.trim().split("\n").length).toBe(5);
+    expect(done.out.trim().split("\n").length).toBe(releaseNames().length + 1);
   });
 
   it("refuses a directory that is not there", () => {

@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use std::process::Child as Process;
 use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -21,7 +22,9 @@ use std::time::{Duration, Instant};
 use mlua::{Function, Lua, MultiValue, Value};
 use pencere::ViewControl;
 
+use super::Handed;
 use super::events::{Event, Events, Inbox};
+use super::world::World;
 use crate::files::Files;
 
 /// Where the app's words go: `print` and the errors of the runner. With `--log` a file, because
@@ -190,6 +193,10 @@ pub struct Core {
     pub plan: Arc<Mutex<Option<ServePlan>>>,
     /// `pencere dev` has asked for the app to start again: nothing of it runs from now on.
     pub restart: Arc<AtomicBool>,
+    /// What the app finds around it: its variables, its directory, whether it has a terminal.
+    pub world: Rc<World>,
+    /// Where the app's view goes instead of the terminal, when it is handed over.
+    pub hand: Option<Sender<Handed>>,
     me: Weak<Core>,
     timers: RefCell<Vec<Timer>>,
     next_id: Cell<u64>,
@@ -223,6 +230,8 @@ impl Core {
         plan: Arc<Mutex<Option<ServePlan>>>,
         restart: Arc<AtomicBool>,
         me: Weak<Core>,
+        world: Rc<World>,
+        hand: Option<Sender<Handed>>,
     ) -> Self {
         Self {
             events,
@@ -234,6 +243,8 @@ impl Core {
             control,
             plan,
             restart,
+            world,
+            hand,
             me,
             timers: RefCell::new(Vec::new()),
             next_id: Cell::new(1),

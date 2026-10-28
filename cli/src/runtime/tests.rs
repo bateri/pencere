@@ -12,6 +12,11 @@ use crate::files::Files;
 
 /// Runs `source` as `app.lua` (with the other files); what it printed, and how it ended.
 fn run_files(files: &[(&str, &str)]) -> (Exit, String) {
+    run_with(files, |config| config)
+}
+
+/// As `run_files`, with the config as `shape` leaves it.
+fn run_with(files: &[(&str, &str)], shape: impl FnOnce(Config) -> Config) -> (Exit, String) {
     static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let log = std::env::temp_dir().join(format!(
         "pencere-runtime-test-{}-{}.log",
@@ -23,12 +28,12 @@ fn run_files(files: &[(&str, &str)]) -> (Exit, String) {
         .iter()
         .map(|(path, text)| ((*path).to_owned(), text.as_bytes().to_vec()))
         .collect();
-    let runner = Runner::new(Config {
-        files: Files::packed(packed),
-        name: "test".into(),
-        args: vec!["one".into(), "two".into()],
-        log: Some(log.clone()),
-    })
+    let runner = Runner::new(shape(Config::process(
+        Files::packed(packed),
+        "test".into(),
+        vec!["one".into(), "two".into()],
+        Some(log.clone()),
+    )))
     .expect("a runner");
     let exit = runner.run();
     let printed = std::fs::read_to_string(&log).unwrap_or_default();
@@ -901,6 +906,184 @@ fn an_app_has_an_icon_for_each_background_and_the_size_a_png_says_it_is() {
     assert!(sizes("assets/headless.png").is_empty());
 }
 
+// ---- an app that is not the process --------------------------------------------------------
+
+fn directory(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("pencere-world-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a directory");
+    dir.canonicalize().expect("a path")
+}
+
+#[test]
+fn an_environment_of_its_own_is_what_the_app_and_the_programs_it_runs_find() {
+    let dir = directory("env");
+    std::fs::write(dir.join("note.txt"), "in the app's directory").expect("a file");
+    let (exit, printed) = run_with(
+        &[(
+            "app.lua",
+            r#"
+        local pencere = require("pencere")
+        print(pencere.env.get("LAYERED"), pencere.env.get("HOME_OF_PROCESS"), pencere.os.home())
+        print(pencere.fs.cwd() == pencere.env.get("WHERE"))
+        print(pencere.path.absolute("x") == pencere.env.get("WHERE") .. "/x")
+        print(pencere.fs.read("note.txt"), pencere.fs.exists("note.txt"))
+        pencere.fs.write("made.txt", "made")
+        print(pencere.fs.read(pencere.env.get("WHERE") .. "/made.txt"))
+        local ran = pencere.process.run { "sh", "-c", "echo $LAYERED; pwd; echo \"${HOME_OF_PROCESS:-unset}\"" }
+        print(ran.stdout)
+        print(pencere.io.is_terminal("stdin"), pencere.io.read_line())
+        local ended = false
+        pencere.io.read_stdin(function() end, function() ended = true end)
+        pencere.time.sleep(0.05)
+        print(ended)
+    "#,
+        )],
+        |mut config| {
+            let mut vars = std::collections::BTreeMap::new();
+            vars.insert("LAYERED".to_owned(), "layer".to_owned());
+            vars.insert("HOME".to_owned(), "/the/layer/home".to_owned());
+            vars.insert("PATH".to_owned(), std::env::var("PATH").unwrap_or_default());
+            vars.insert("WHERE".to_owned(), dir.display().to_string());
+            config.env = Some(super::Env {
+                vars,
+                cwd: dir.clone(),
+            });
+            config
+        },
+    );
+    assert_eq!(exit, Exit::Done(0));
+    let shown = dir.display().to_string();
+    assert_eq!(
+        printed,
+        format!(
+            "layer\tnil\t/the/layer/home\ntrue\ntrue\nin the app's directory\ttrue\nmade\nlayer\n{shown}\nunset\nfalse\tnil\ntrue\n"
+        )
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join("made.txt")).expect("the file"),
+        "made"
+    );
+    // The process itself was not touched.
+    assert!(std::env::var("LAYERED").is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_reserved_module_is_found_before_a_file_of_the_app_with_its_name() {
+    let (exit, printed) = run_with(
+        &[
+            (
+                "app.lua",
+                r#"
+        local reserved = require("pencere.test")
+        print(reserved.answer, require("other").answer)
+        print(pcall(require, "pencere.nothing"))
+    "#,
+            ),
+            ("pencere/test.lua", "return { answer = 'the file' }"),
+            ("other.lua", "return { answer = 'other file' }"),
+        ],
+        |mut config| {
+            config.modules.push(super::Module {
+                name: "pencere.test".into(),
+                load: Box::new(|lua| {
+                    let table = lua.create_table()?;
+                    table.set("answer", "reserved")?;
+                    Ok(mlua::Value::Table(table))
+                }),
+            });
+            config
+        },
+    );
+    assert_eq!(exit, Exit::Done(0));
+    assert!(
+        printed.starts_with("reserved\tother file\nfalse\t"),
+        "{printed}"
+    );
+}
+
+#[test]
+fn a_view_handed_over_is_served_by_the_one_who_holds_it_and_ends_when_it_says() {
+    let (hand, handed) = std::sync::mpsc::channel::<super::Handed>();
+    let holder = std::thread::spawn(move || {
+        let taken = handed
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the view");
+        let mut conversation = pencere::Conversation::new(taken.options);
+        assert!(conversation.send(r#"{"call":{"id":1,"method":"add","params":{"a":2,"b":3}}}"#));
+        let said = conversation.receive(Duration::from_secs(10));
+        assert!(
+            matches!(&said, Some(pencere::Said::Message(text)) if text.contains("\"result\":5")),
+            "{said:?}"
+        );
+        drop(conversation);
+        taken.served.end(pencere::Outcome::Closed(pencere::Closed {
+            by: pencere::EndedBy::Program,
+            view: pencere::Shown {
+                kind: pencere::Kind::Lua,
+                version: "2.0".into(),
+            },
+            code: None,
+            message: None,
+        }));
+    });
+    let (exit, printed) = run_with(
+        &[
+            (
+                "app.lua",
+                r#"
+        local pencere = require("pencere")
+        local outcome = pencere.serve {
+            page = "page.lua",
+            calls = { add = function(params) return params.a + params.b end },
+        }
+        print("served", outcome.ended, outcome.status)
+    "#,
+            ),
+            ("page.lua", "-- a page"),
+        ],
+        |mut config| {
+            config.serve = super::Serve::Hand(hand);
+            config
+        },
+    );
+    holder.join().expect("the holder");
+    assert_eq!(exit, Exit::Done(0));
+    assert_eq!(printed, "served\tprogram\t0\n");
+}
+
+#[test]
+fn a_view_handed_over_and_let_go_of_is_over_as_when_the_program_closes_it() {
+    let (hand, handed) = std::sync::mpsc::channel::<super::Handed>();
+    let holder = std::thread::spawn(move || {
+        let taken = handed
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the view");
+        drop(taken);
+    });
+    let (exit, printed) = run_with(
+        &[
+            (
+                "app.lua",
+                r#"
+        local pencere = require("pencere")
+        local outcome = pencere.serve { page = "page.lua" }
+        print("over", outcome.ended)
+    "#,
+            ),
+            ("page.lua", "-- a page"),
+        ],
+        |mut config| {
+            config.serve = super::Serve::Hand(hand);
+            config
+        },
+    );
+    holder.join().expect("the holder");
+    assert_eq!(exit, Exit::Done(0));
+    assert_eq!(printed, "over\tprogram\n");
+}
+
 /// The calls and the subscriptions of the view reach the loop in the order the view made them:
 /// the library hands them over on the thread that reads the view, and none waits for another's
 /// answer to be handed over.
@@ -934,6 +1117,8 @@ fn the_requests_of_the_view_reach_the_loop_in_the_order_the_view_made_them() {
             Arc::new(Mutex::new(None)),
             Arc::new(AtomicBool::new(false)),
             me.clone(),
+            Rc::new(super::world::World::new(None)),
+            None,
         )
     });
     let options: Table = core

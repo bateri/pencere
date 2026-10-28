@@ -18,3 +18,6 @@ TypeScript SDK, one file with no dependencies); the page imports it by the name 
 It is a copy: `pencere new` writes the one of the version of `pencere` that made this project.
 The program runs with the rights of whoever starts it, as any program does; the page is sandboxed
 and reaches nothing but its program unless `serve` is given an `access` for it.
+
+There is no `test/` here: `pencere test` opens pages of the kit (Lua) under a host with no screen,
+and a web page needs a browser. `pencere new --page lua` makes a project whose page can be tested.

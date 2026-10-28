@@ -16,6 +16,7 @@ use mlua::{Function, Lua, Table, UserData, UserDataMethods, Value, Variadic};
 
 use super::convert::{from_json, object_marker, to_json};
 use super::core::{Core, Exit};
+use super::world::World;
 
 fn fail(what: &str, path: impl AsRef<Path>, why: &io::Error) -> mlua::Error {
     super::fault(format!(
@@ -33,13 +34,13 @@ fn seconds(value: f64, what: &str) -> mlua::Result<Duration> {
 /// The table the prelude is given: the functions it builds the module from.
 pub fn natives(lua: &Lua, core: &Rc<Core>) -> mlua::Result<Table> {
     let native = lua.create_table()?;
-    native.set("fs", files(lua)?)?;
-    native.set("path", paths(lua)?)?;
-    native.set("env", environment(lua)?)?;
+    native.set("fs", files(lua, &core.world)?)?;
+    native.set("path", paths(lua, &core.world)?)?;
+    native.set("env", environment(lua, &core.world)?)?;
     native.set("json", json(lua)?)?;
     native.set("hash", hash(lua)?)?;
-    native.set("os", system(lua)?)?;
-    native.set("io", terminal(lua)?)?;
+    native.set("os", system(lua, &core.world)?)?;
+    native.set("io", terminal(lua, &core.world)?)?;
     native.set("text", super::text::natives(lua)?)?;
     native.set("regex", super::pattern::natives(lua)?)?;
     native.set("args", core.args.clone())?;
@@ -193,10 +194,11 @@ pub fn natives(lua: &Lua, core: &Rc<Core>) -> mlua::Result<Table> {
                 };
                 let id = hold.id();
                 let events = hold.events.clone();
-                let watcher = super::watch::start(Path::new(&path), recursive, move |changes| {
-                    events.send(super::events::Event::Watched { id, changes });
-                })
-                .map_err(|why| fail("fs.watch", &path, &why))?;
+                let watcher =
+                    super::watch::start(&hold.world.path(&path), recursive, move |changes| {
+                        events.send(super::events::Event::Watched { id, changes });
+                    })
+                    .map_err(|why| fail("fs.watch", &path, &why))?;
                 hold.watches.borrow_mut().insert(id, (func, watcher));
                 Ok(WatchHandle {
                     id,
@@ -235,7 +237,7 @@ pub fn natives(lua: &Lua, core: &Rc<Core>) -> mlua::Result<Table> {
             }
             // As the app's end closes it (`wait_for_view`): the terminal's own `dismiss`, or, from a
             // terminal that does not list it, what ⌃C does, a `bye`.
-            if hold.control.close() == pencere::CloseResult::Unsupported {
+            if hold.control.close() == pencere::CloseResult::Unsupported && hold.hand.is_none() {
                 // SAFETY: a signal to this process, which the library's handler for it turns into a
                 // `bye`.
                 unsafe {
@@ -319,25 +321,31 @@ fn seconds_since_epoch(time: io::Result<SystemTime>) -> f64 {
         .map_or(0.0, |since| since.as_secs_f64())
 }
 
-fn files(lua: &Lua) -> mlua::Result<Table> {
+fn files(lua: &Lua, world: &Rc<World>) -> mlua::Result<Table> {
     let table = lua.create_table()?;
+    let at = Rc::clone(world);
     table.set(
         "read",
-        lua.create_function(|lua, path: String| {
+        lua.create_function(move |lua, path: String| {
+            let path = at.path(&path);
             let bytes = fs::read(&path).map_err(|why| fail("fs.read", &path, &why))?;
             lua.create_string(bytes)
         })?,
     )?;
+    let at = Rc::clone(world);
     table.set(
         "write",
-        lua.create_function(|_, (path, data): (String, mlua::String)| {
+        lua.create_function(move |_, (path, data): (String, mlua::String)| {
+            let path = at.path(&path);
             fs::write(&path, data.as_bytes()).map_err(|why| fail("fs.write", &path, &why))
         })?,
     )?;
+    let at = Rc::clone(world);
     table.set(
         "append",
-        lua.create_function(|_, (path, data): (String, mlua::String)| {
+        lua.create_function(move |_, (path, data): (String, mlua::String)| {
             use std::io::Write as _;
+            let path = at.path(&path);
             fs::OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -349,9 +357,11 @@ fn files(lua: &Lua) -> mlua::Result<Table> {
     // fs.create(path): a new empty file, and an error if anything is at the path already (a file, a
     // directory, a link, even one that points at nothing). The path is made with `O_EXCL`, which
     // does not follow a link: an existing file is not truncated and a link's target is not made.
+    let at = Rc::clone(world);
     table.set(
         "create",
-        lua.create_function(|_, path: String| {
+        lua.create_function(move |_, path: String| {
+            let path = at.path(&path);
             fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -361,27 +371,34 @@ fn files(lua: &Lua) -> mlua::Result<Table> {
         })?,
     )?;
     // fs.rename(from, to): moves a file or a directory; a file at `to` is replaced.
+    let at = Rc::clone(world);
     table.set(
         "rename",
-        lua.create_function(|_, (from, to): (String, String)| {
+        lua.create_function(move |_, (from, to): (String, String)| {
+            let (from, to) = (at.path(&from), at.path(&to));
             fs::rename(&from, &to).map_err(|why| fail("fs.rename", &from, &why))
         })?,
     )?;
     // fs.writable(path): whether this process may write to the file, as the system answers it
     // (the file's mode is not all that decides it).
+    let at = Rc::clone(world);
     table.set(
         "writable",
-        lua.create_function(|_, path: String| {
-            let Ok(path) = std::ffi::CString::new(path) else {
+        lua.create_function(move |_, path: String| {
+            use std::os::unix::ffi::OsStringExt as _;
+            let Ok(path) = std::ffi::CString::new(at.path(&path).into_os_string().into_vec())
+            else {
                 return Ok(false);
             };
             // SAFETY: asks the system about a path of ours.
             Ok(unsafe { libc::access(path.as_ptr(), libc::W_OK) } == 0)
         })?,
     )?;
+    let at = Rc::clone(world);
     table.set(
         "list",
-        lua.create_function(|lua, path: String| {
+        lua.create_function(move |lua, path: String| {
+            let path = at.path(&path);
             let mut entries = Vec::new();
             for entry in fs::read_dir(&path).map_err(|why| fail("fs.list", &path, &why))? {
                 let entry = entry.map_err(|why| fail("fs.list", &path, &why))?;
@@ -407,35 +424,44 @@ fn files(lua: &Lua) -> mlua::Result<Table> {
             Ok(list)
         })?,
     )?;
+    let at = Rc::clone(world);
     table.set(
         "stat",
-        lua.create_function(|lua, path: String| match fs::metadata(&path) {
-            Ok(meta) => {
-                let stat = lua.create_table()?;
-                stat.set("kind", kind_of(&meta))?;
-                stat.set("size", meta.len())?;
-                stat.set("modified", seconds_since_epoch(meta.modified()))?;
-                Ok(Value::Table(stat))
+        lua.create_function(move |lua, path: String| {
+            let path = at.path(&path);
+            match fs::metadata(&path) {
+                Ok(meta) => {
+                    let stat = lua.create_table()?;
+                    stat.set("kind", kind_of(&meta))?;
+                    stat.set("size", meta.len())?;
+                    stat.set("modified", seconds_since_epoch(meta.modified()))?;
+                    Ok(Value::Table(stat))
+                }
+                Err(why) if why.kind() == io::ErrorKind::NotFound => Ok(Value::Nil),
+                Err(why) => Err(fail("fs.stat", &path, &why)),
             }
-            Err(why) if why.kind() == io::ErrorKind::NotFound => Ok(Value::Nil),
-            Err(why) => Err(fail("fs.stat", &path, &why)),
         })?,
     )?;
+    let at = Rc::clone(world);
     table.set(
         "exists",
-        lua.create_function(|_, path: String| Ok(Path::new(&path).exists()))?,
+        lua.create_function(move |_, path: String| Ok(at.path(&path).exists()))?,
     )?;
     // fs.mkdir(path): the directory and the ones above it that are not there.
+    let at = Rc::clone(world);
     table.set(
         "mkdir",
-        lua.create_function(|_, path: String| {
+        lua.create_function(move |_, path: String| {
+            let path = at.path(&path);
             fs::create_dir_all(&path).map_err(|why| fail("fs.mkdir", &path, &why))
         })?,
     )?;
     // fs.remove(path[, recursive]): a file, or a directory (with what is in it only if told).
+    let at = Rc::clone(world);
     table.set(
         "remove",
-        lua.create_function(|_, (path, recursive): (String, Option<bool>)| {
+        lua.create_function(move |_, (path, recursive): (String, Option<bool>)| {
+            let path = at.path(&path);
             let meta = fs::symlink_metadata(&path).map_err(|why| fail("fs.remove", &path, &why))?;
             let done = if meta.is_dir() {
                 if recursive.unwrap_or(false) {
@@ -449,10 +475,11 @@ fn files(lua: &Lua) -> mlua::Result<Table> {
             done.map_err(|why| fail("fs.remove", &path, &why))
         })?,
     )?;
+    let at = Rc::clone(world);
     table.set(
         "cwd",
-        lua.create_function(|_, ()| {
-            std::env::current_dir()
+        lua.create_function(move |_, ()| {
+            at.cwd()
                 .map(|dir| dir.display().to_string())
                 .map_err(|why| fail("fs.cwd", ".", &why))
         })?,
@@ -462,7 +489,7 @@ fn files(lua: &Lua) -> mlua::Result<Table> {
 
 // ---- path ----------------------------------------------------------------------------------
 
-fn paths(lua: &Lua) -> mlua::Result<Table> {
+fn paths(lua: &Lua, world: &Rc<World>) -> mlua::Result<Table> {
     let table = lua.create_table()?;
     table.set("separator", "/")?;
     // path.join("a", "b", "/c") -> "/c": a part that starts with a separator starts again.
@@ -503,10 +530,11 @@ fn paths(lua: &Lua) -> mlua::Result<Table> {
                 .map_or_else(String::new, |ext| ext.to_string_lossy().into_owned()))
         })?,
     )?;
+    let at = Rc::clone(world);
     table.set(
         "absolute",
-        lua.create_function(|_, path: String| {
-            std::path::absolute(&path)
+        lua.create_function(move |_, path: String| {
+            std::path::absolute(at.path(&path))
                 .map(|path| path.display().to_string())
                 .map_err(|why| fail("path.absolute", &path, &why))
         })?,
@@ -516,17 +544,19 @@ fn paths(lua: &Lua) -> mlua::Result<Table> {
 
 // ---- env -----------------------------------------------------------------------------------
 
-fn environment(lua: &Lua) -> mlua::Result<Table> {
+fn environment(lua: &Lua, world: &Rc<World>) -> mlua::Result<Table> {
     let table = lua.create_table()?;
+    let at = Rc::clone(world);
     table.set(
         "get",
-        lua.create_function(|_, name: String| Ok(std::env::var(name).ok()))?,
+        lua.create_function(move |_, name: String| Ok(at.var(&name)))?,
     )?;
+    let at = Rc::clone(world);
     table.set(
         "all",
-        lua.create_function(|lua, ()| {
+        lua.create_function(move |lua, ()| {
             let all = lua.create_table()?;
-            for (name, value) in std::env::vars() {
+            for (name, value) in at.vars() {
                 all.set(name, value)?;
             }
             Ok(all)
@@ -596,20 +626,26 @@ fn hash(lua: &Lua) -> mlua::Result<Table> {
 
 // ---- os ------------------------------------------------------------------------------------
 
-fn system(lua: &Lua) -> mlua::Result<Table> {
+fn system(lua: &Lua, world: &Rc<World>) -> mlua::Result<Table> {
     let table = lua.create_table()?;
     table.set("platform", std::env::consts::OS)?;
     table.set("arch", std::env::consts::ARCH)?;
     // The person's home directory, or nil where there is none to be found.
+    let at = Rc::clone(world);
     table.set(
         "home",
-        lua.create_function(|_, ()| {
-            Ok(std::env::var("HOME").ok().filter(|home| !home.is_empty()))
-        })?,
+        lua.create_function(move |_, ()| Ok(at.var("HOME").filter(|home| !home.is_empty())))?,
     )?;
+    let at = Rc::clone(world);
     table.set(
         "tmpdir",
-        lua.create_function(|_, ()| Ok(std::env::temp_dir().display().to_string()))?,
+        lua.create_function(move |_, ()| {
+            // The directory for temporary files is the platform's, as `TMPDIR` says where it is.
+            Ok(match at.var("TMPDIR").filter(|dir| !dir.is_empty()) {
+                Some(dir) if !at.is_process() => dir,
+                _ => std::env::temp_dir().display().to_string(),
+            })
+        })?,
     )?;
     // The machine's name, as it calls itself ("" where it cannot be found).
     table.set(
@@ -674,7 +710,7 @@ fn system(lua: &Lua) -> mlua::Result<Table> {
 
 /// The app's text interface: for a terminal that shows no view, and a program that asks the person
 /// something. It is the terminal's, whatever `--log` does with `print`.
-fn terminal(lua: &Lua) -> mlua::Result<Table> {
+fn terminal(lua: &Lua, world: &Rc<World>) -> mlua::Result<Table> {
     let table = lua.create_table()?;
     // io.write(text): to the terminal, as it is (no newline after it).
     table.set(
@@ -700,9 +736,10 @@ fn terminal(lua: &Lua) -> mlua::Result<Table> {
         })?,
     )?;
     // io.is_terminal(stream) -> whether "stdin", "stdout" or "stderr" is a terminal.
+    let at = Rc::clone(world);
     table.set(
         "is_terminal",
-        lua.create_function(|_, stream: String| {
+        lua.create_function(move |_, stream: String| {
             let fd = match stream.as_str() {
                 "stdin" => libc::STDIN_FILENO,
                 "stdout" => libc::STDOUT_FILENO,
@@ -713,15 +750,20 @@ fn terminal(lua: &Lua) -> mlua::Result<Table> {
                     )));
                 }
             };
+            // An app with an environment of its own has no terminal: it is not the process.
             // SAFETY: asks whether a descriptor of the process is a terminal.
-            Ok(unsafe { libc::isatty(fd) } == 1)
+            Ok(at.is_process() && unsafe { libc::isatty(fd) } == 1)
         })?,
     )?;
     // io.read_line([prompt]) -> the line without its end, or nil at the end of the input.
+    let at = Rc::clone(world);
     table.set(
         "read_line",
-        lua.create_function(|lua, prompt: Option<mlua::String>| {
+        lua.create_function(move |lua, prompt: Option<mlua::String>| {
             use std::io::Write as _;
+            if !at.is_process() {
+                return Ok(Value::Nil);
+            }
             if let Some(prompt) = prompt {
                 let mut out = io::stdout().lock();
                 let _ = out.write_all(&prompt.as_bytes());

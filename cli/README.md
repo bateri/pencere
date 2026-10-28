@@ -35,6 +35,7 @@ cd hello
 pencere dev                # run it in this pane; a change to a file under src/ runs it again
 pencere build              # dist/hello, one file
 pencere build --target x86_64-unknown-linux-musl     # the same app for a Linux machine
+pencere test               # its tests: the page under a host with no screen (see Testing an app)
 ```
 
 The same two commands work on a program written in Rust (`pencere new hello --lang rust`, a Cargo
@@ -222,6 +223,67 @@ files of `assets/` go to the page of the kit with it.
 
 `print` and the errors of a built app go to the terminal, which is under the view while it is up:
 run it with `--log FILE` to read them in a file. `pencere dev` does that by itself (`.pencere/log`).
+
+## Testing an app
+
+```sh
+pencere test                      # every test/**/*_test.lua of the app
+pencere test test/page_test.lua:12 --grep clock --reporter tap --junit report.xml
+```
+
+A test is Lua that opens the page of the app under a host with no screen — the page engine, its
+editors and the kit's interpreter, laid out and scrolled as a terminal does, with a clock the test
+moves — and does to it what a person does, looking at what it shows. It needs no browser, no
+terminal and no Node. `pencere test` runs the app's tests with `pencere-test`, a program of its own
+(it links the kit, which the command copied into every app does not): the one beside this command, or
+this version's release file (fetched once, checked against `SHA256SUMS`, kept), or the one
+`PENCERE_TEST` names. `pencere new` makes a project with its first test.
+
+```lua
+local test = require("pencere.test")
+local expect = test.expect
+
+test("the button shows what the program answers", function()
+	local page = test.open({
+		calls = { hello = function(params) return { message = "Hello, " .. params.name .. "!" } end },
+	})
+	expect(page):to_say("Press the button.")
+	page:get_by_role("button", { name = "Greet" }):click()
+	expect(page):to_say("Hello, pencere!")
+	expect(page):to_have_called("hello", { name = "pencere" })
+end)
+```
+
+- **The program of the page** is a stand-in made of the calls the test answers (`calls = { m = fn }`;
+  a call with no handler waits for `page:answer(m, result)`, and `page:push(topic, value)` speaks to
+  what the page listens to), or the app's own: a Lua program runs in the test's process, in its
+  own environment (`env`, `cwd`, `args`; the test's process is never touched), a Cargo package is
+  built once and run on a pty, and any other (`command = { "deno", "run", "-A", "src/program/main.ts" }`)
+  is run on a pty as a terminal runs it. A page with a program of its own is looked at again until it
+  shows what is expected (`within`, 5 seconds); with a stand-in, what is expected is there or not.
+- **Finding things** as a person does, not by the page's own names: `get_by_text`, `get_by_role`
+  (button, field, editor, link, checkbox, heading …), `get_by_field`, and `get_by_id` for what the
+  page names. A locator looks again when it is used, wants exactly one match, and says what is on the
+  page when there is none; `:nth(i)`, `:first()`, `:last()` and `locator:get_by_…` narrow it.
+- **Doing**: `click`, `double_click`, `right_click`, `hover`, `drag_to`, `wheel`, `fill`, and `press("cmd+f")`,
+  `type`, `paste`, `compose` for the keyboard; `advance`, `step`, `idle` for the clock, which
+  only the test moves (the page's; the program's is the machine's).
+- **Looking**: `expect(page):to_say`, `to_have_called`, `to_have_subscribed`, `to_have_link`,
+  `to_have_focus`; `expect(locator):to_exist`, `to_have_count`, `to_be_checked`, `to_have_value` …;
+  `expect(value):to_equal` (with the difference), `to_contain`, `to_match`, `to_throw`. `.never` turns
+  any of them round.
+- **Structure**: `test.describe`, `before_each`, `after_each`, `test.skip`, `test.only` (refused when
+  `CI` is set), `{ timeout = }`, `test.temp_dir()`, and a test file's helpers in `test/`, found before
+  the program's own modules.
+- **A failure** says where, what the page said, and keeps the page: a picture
+  (`.pencere/test/<file>/<test>/page-1.png`, each character a box, the same on every machine), its
+  words, its messages and what the program printed. `GITHUB_ACTIONS` makes it an annotation; `--junit`
+  writes a report the CI systems read, with the pictures attached.
+- **A test that never ends** is cut off at its timeout (30 seconds, `--timeout`), and a file whose
+  process dies costs that file; the files run on `--jobs` workers.
+
+An app of the simple form (its files packed as they lie) does not pack `test/`, so a program module
+of that form cannot live in a directory of that name.
 
 ## What it is, and is not
 

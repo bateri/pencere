@@ -111,6 +111,9 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
   shown in its place, a terminal lent to a command (`InProcess::lent`, `InProcess::give_back`); the
   test opens the page anew with the same program (`Headless::into_peer`), and `Peer::opened` tells
   a peer a page was opened to speak to it. The crate is published after the program library.
+- **A test that waits in its own way.** `Headless::tick` is one round of `wait_for` (a moment for a
+  program that keeps its own time to speak, and a frame of the clock), and `Headless::fill_field`
+  types into one of the outline's fields as `fill` does into one a test names.
 - **What a host with no screen is held to.** `Files` gives a file the media type its program gives
   it (`pencere_wire::bundle::media_type_of`), and `Files::app` carries what the program's bundle
   carries: the scripts of `src/view/`, the pictures of `src/assets/`, nothing hidden.

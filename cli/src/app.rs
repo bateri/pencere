@@ -67,12 +67,7 @@ pub fn run_built(payload: &[u8], args: Vec<String>) -> ExitCode {
         }
     };
     let log_is_file = split.log.is_some();
-    let config = Config {
-        files,
-        name: meta.name,
-        args: split.args,
-        log: split.log,
-    };
+    let config = Config::process(files, meta.name, split.args, split.log);
     let runner = match Runner::new(config) {
         Ok(runner) => runner,
         Err(why) => {

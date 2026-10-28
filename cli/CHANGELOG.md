@@ -24,6 +24,21 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`pencere test`.** Runs the tests of an app, written in Lua (`test/**/*_test.lua`,
+  `require("pencere.test")`), against the page of the app under a host with no screen: its page
+  engine, editors and interpreter, with a clock the test moves. The page's program is a stand-in
+  made of calls the test answers, the app's own program (Lua, in the test's process, in an
+  environment of its own; a Cargo package, built once and run on a pty) or any program on a pty.
+  Things are found by their words and their role, the test looks with `expect`, and a failure says
+  what the page showed and keeps its picture, its words and its messages. The files run on worker
+  processes (`--jobs`), a test is cut off at its timeout, and the report is pretty, TAP or JUnit.
+  The runner of tests, `pencere-test`, is a program of its own and a second file of the release:
+  the command runs the one beside it, or the release's of the same version (checked against its
+  `SHA256SUMS`, kept in the cache), or the one `PENCERE_TEST` names. `pencere new` makes the first
+  test (Lua and Rust projects; TypeScript with `--page lua`), and a simple-form app does not pack
+  `test/` (a program module of that form cannot live in a directory of that name).
+- **`pencere new --lang ts --page lua`.** A TypeScript project whose view is a page of the kit,
+  the Lua project's page, with its first test.
 - **`pencere upgrade`.** Replaces the command with the newest release of it, as `install.sh` would
   install it: the release's file for this machine, checked against the release's `SHA256SUMS`, put
   in the place of the running file in one rename. `--check` only says whether there is a newer one,

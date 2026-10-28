@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::os::unix::process::ExitStatusExt as _;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::rc::Rc;
 
 use mlua::Table;
@@ -34,14 +34,14 @@ pub fn handoff(core: &Rc<Core>, spec: Table) -> mlua::Result<Table> {
             "handoff needs `argv`, a list: the program and then its arguments",
         ));
     };
-    let mut command = Command::new(program);
+    let mut command = core.world.command(program);
     command
         .args(rest)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
     if let Some(cwd) = spec.get::<Option<String>>("cwd")? {
-        command.current_dir(cwd);
+        command.current_dir(core.world.path(&cwd));
     }
     if let Some(env) = spec.get::<Option<HashMap<String, String>>>("env")? {
         command.envs(env);
