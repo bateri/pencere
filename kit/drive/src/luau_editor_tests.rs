@@ -542,14 +542,15 @@ fn a_page_says_which_spaces_and_tabs_its_editor_shows_and_whether_its_indent_has
     Ok(())
 }
 
-// --- A language of the kit's (`pencere.Syntax`) ---------------------------------------------------
+// --- A language of the kit's library (`@pencere/syntax`) -----------------------------------------
 
-/// A language of C's block comments, strings and numbers, for the tests of `pencere.Syntax`. It
+/// A language of C's block comments, strings and numbers, for the tests of `@pencere/syntax`. It
 /// counts the lines it reads (`read`) and the most one call of the page read (`most`, with
 /// `counted`).
 const C_LIKE: &str = r#"
+local Syntax = require("@pencere/syntax")
 local read, most = 0, 0
-local language = pencere.Syntax.define({
+local language = Syntax.define({
     name = "c",
     start = function()
         return { comment = false }
@@ -613,11 +614,19 @@ end
 /// A page of one editor coloured by `C_LIKE`, with the `options` of its syntax, which loads what
 /// `document` (the body of a function) returns when it is first in view and shows what the language
 /// read. Its commands change the document: `uncomment` and `comment` take the `/*` at the start of
-/// line 20 out and put it back, `open` puts one at the start of line 100, `far` shows line 15 000.
-/// The syntax goes on by itself (its timer wakes the page): `render` does nothing for it.
+/// line 20 out and put it back, `open` puts one at the start of line 100, `touch` puts a digit there
+/// (no state changes), `split` breaks line 100 in two (the lines after it move down), `far` shows
+/// line 15 000 and `end` the last line. The syntax goes on by itself (its timer wakes the page):
+/// `render` does nothing for it.
 fn coloured(document: &str, options: &str) -> String {
+    coloured_by(C_LIKE, document, options)
+}
+
+/// The page of `coloured`, with another language: `language` defines `language`, `read`, `most`
+/// and `counted` as `C_LIKE` does.
+fn coloured_by(language: &str, document: &str, options: &str) -> String {
     let page = r#"
-local syntax = pencere.Syntax.new(language, "e", OPTIONS)
+local syntax = Syntax.new(language, "e", OPTIONS)
 -- Each call's reading counted, the calls of the syntax's own timer as well.
 local work = syntax.work
 function syntax:work()
@@ -640,6 +649,9 @@ return {
             :command("comment", "Comment")
             :command("open", "Open a comment")
             :command("far", "Go far down")
+            :command("end", "Go to the end")
+            :command("touch", "Touch line 100")
+            :command("split", "Split line 100")
             :command("nothing", "Do nothing")
             :child(pencere.editor("e", { gutter = false }):grow(1))
             :child(pencere.text(string.format("read %d most %d", read, most)))
@@ -656,8 +668,15 @@ return {
                 ask = change(20, 0, "/*")
             elseif event.id == "open" then
                 ask = change(100, 0, "/*")
+            elseif event.id == "touch" then
+                ask = change(100, 0, "1")
+            elseif event.id == "split" then
+                ask = change(100, 0, "\n")
             elseif event.id == "far" then
                 ask = { reveal = pencere.layout.line_start("e", 15000), version = pencere.layout.editor_version("e") }
+            elseif event.id == "end" then
+                local last = pencere.layout.editor_lines("e") - 1
+                ask = { reveal = pencere.layout.line_start("e", last), version = pencere.layout.editor_version("e") }
             end
         end
         syntax:handle(event)
@@ -666,7 +685,7 @@ return {
 }
 "#;
     format!(
-        "{C_LIKE}{}",
+        "{language}{}",
         page.replace("OPTIONS", options)
             .replace("DOCUMENT", document)
     )
@@ -895,10 +914,188 @@ fn a_syntax_reads_nothing_for_an_event_that_is_not_its_editors_edit_or_view() ->
     Ok(())
 }
 
+/// A language of `C_LIKE`'s block comments whose state is large and the state of no two lines the
+/// same: the count of the lines read before, and a kibibyte of text of its own. A syntax that kept
+/// the state after each line would hold 60 000 of them, more than the memory a page has (64 MiB).
+/// With `KEEP` true the language keeps each state's text itself, as such a syntax would.
+const FAT: &str = r#"
+local Syntax = require("@pencere/syntax")
+local read, most = 0, 0
+local FILLER = string.rep("x", 1024)
+local kept = KEEP and {} or nil
+local language = Syntax.define({
+    name = "fat",
+    start = function()
+        return { comment = false, n = 0, note = "" }
+    end,
+    copy = function(state)
+        return { comment = state.comment, n = state.n, note = state.note }
+    end,
+    token = function(stream, state)
+        if stream:sol() then
+            read += 1
+            state.n += 1
+            state.note = state.n .. FILLER
+            if kept then
+                kept[#kept + 1] = state.note
+            end
+        end
+        if state.comment then
+            if stream:skip_to("*/") then
+                stream:match("%*/")
+                state.comment = false
+            else
+                stream:skip_to_end()
+            end
+            return "comment"
+        end
+        if stream:eat_space() then
+            return nil
+        end
+        if stream:match("/%*") then
+            state.comment = true
+            return "comment"
+        end
+        if stream:match("%d+") then
+            return "number"
+        end
+        stream:next()
+        return nil
+    end,
+    styles = { comment = { color = "dim", italic = true }, number = { weight = 700 } },
+})
+local function counted(work)
+    local before = read
+    work()
+    most = math.max(most, read - before)
+end
+"#;
+
+/// 60 000 lines of `v = 00001`, a block comment over lines 59 990 to 59 995.
+const SIXTY_THOUSAND: &str = r#"local lines = table.create(60000)
+        for i = 1, 60000 do
+            lines[i] = string.format("v = %05d", i)
+        end
+        lines[59991] = "/* open"
+        lines[59996] = "close */ 1"
+        return table.concat(lines, "\n")"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_syntax_holds_a_state_a_checkpoint_and_not_a_line_and_colours_sixty_thousand_lines_to_the_end()
+-> Result<(), Error> {
+    // The proof that the states are large: a page that keeps each one's text does not fit.
+    let mut keeping = open(&coloured_by(
+        &FAT.replace("KEEP", "true"),
+        SIXTY_THOUSAND,
+        "{}",
+    ))?;
+    keeping.idle()?;
+    let kept = keeping
+        .command("end")
+        .and_then(|()| keeping.idle().map(drop));
+    assert!(
+        matches!(kept, Err(Error::Ended(Fault::Memory))),
+        "a page that keeps 60 000 states of a kibibyte is closed for its memory: {kept:?}"
+    );
+    // The syntax keeps them a checkpoint at a time: it reads to the end and the page stays open.
+    let mut page = open(&coloured_by(
+        &FAT.replace("KEEP", "false"),
+        SIXTY_THOUSAND,
+        "{}",
+    ))?;
+    page.idle()?;
+    assert_eq!(looks(&page, 1), vec![(4, 9, "number")]);
+    page.command("end")?;
+    page.idle()?;
+    assert_eq!(page.asks_at(), None, "the reading came to the end");
+    assert!(!page.closed(), "{:?}", page.ended());
+    assert_eq!(looks(&page, 59_992), vec![(0, 9, "comment")]);
+    assert_eq!(
+        looks(&page, 59_995),
+        vec![(0, 8, "comment"), (9, 10, "number")]
+    );
+    assert_eq!(looks(&page, 59_999), vec![(4, 9, "number")]);
+    page.refresh()?;
+    let (lines, most) = read(&page);
+    assert!(lines >= 60_000, "every line was read: {lines}");
+    assert!(most <= 2001, "one call read {most} lines");
+    // Far up again, the lines in view are read from the checkpoint before them.
+    page.command("far")?;
+    page.idle()?;
+    page.refresh()?;
+    let (again, _) = read(&page);
+    assert!(
+        again - lines < 300,
+        "the view up again read {} lines",
+        again - lines
+    );
+    assert_eq!(looks(&page, 15_000), vec![(4, 9, "number")]);
+    assert!(!page.closed(), "{:?}", page.ended());
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_edit_out_of_view_reads_on_only_to_the_checkpoint_where_the_state_is_what_it_was()
+-> Result<(), Error> {
+    let mut page = open(&coloured(
+        r#"local lines = {}
+        for i = 1, 20000 do
+            lines[i] = string.format("v = %05d", i)
+        end
+        lines[15003] = "/* open"
+        lines[15005] = "close */"
+        return table.concat(lines, "\n")"#,
+        "{}",
+    ))?;
+    page.idle()?;
+    page.command("far")?;
+    page.idle()?;
+    assert_eq!(looks(&page, 15_003), vec![(0, 9, "comment")]);
+    page.refresh()?;
+    let (before, _) = read(&page);
+    // A digit at the start of line 100, far above the view: the reading goes from the checkpoint
+    // before it (line 96) to the first kept state after it (line 128), and stops there.
+    page.command("touch")?;
+    page.idle()?;
+    page.refresh()?;
+    let (touched, _) = read(&page);
+    assert!(
+        touched - before <= 2 * 32,
+        "an edit out of view read {} lines",
+        touched - before
+    );
+    // A line break there moves every line after it, and the checkpoints with them: the reading
+    // stops as soon, and the comment is coloured where it is now.
+    page.command("split")?;
+    page.idle()?;
+    page.refresh()?;
+    let (split, _) = read(&page);
+    assert!(
+        split - touched <= 2 * 32,
+        "a line break out of view read {} lines",
+        split - touched
+    );
+    assert_eq!(looks(&page, 15_002), vec![(4, 9, "number")]);
+    assert_eq!(looks(&page, 15_003), vec![(0, 7, "comment")]);
+    assert_eq!(looks(&page, 15_004), vec![(0, 9, "comment")]);
+    assert_eq!(looks(&page, 15_006), vec![(4, 9, "number")]);
+    // The lines the syntax has kept no state of, up again, are read from what it kept: right.
+    page.command("end")?;
+    page.idle()?;
+    page.command("far")?;
+    page.idle()?;
+    assert_eq!(looks(&page, 15_005), vec![(0, 8, "comment")]);
+    assert_eq!(looks(&page, 14_990), vec![(4, 9, "number")]);
+    Ok(())
+}
+
 /// A language of letters and what is not, which gives every character of `a1a1…` a decoration of its
 /// own: a line of 10 000 characters is 10 000 decorations, half what one reply may hand the editors.
 const DENSE: &str = r#"
-local dense = pencere.Syntax.define({
+local Syntax = require("@pencere/syntax")
+local dense = Syntax.define({
     name = "dense",
     start = function()
         return {}
@@ -935,8 +1132,8 @@ fn two_syntaxes_and_the_page_that_ask_more_than_a_reply_may_at_one_wake_hand_it_
     let mut page = open(&format!(
         "{DENSE}{}",
         r#"
-local a = pencere.Syntax.new(dense, "a")
-local b = pencere.Syntax.new(dense, "b")
+local a = Syntax.new(dense, "a")
+local b = Syntax.new(dense, "b")
 local loaded, marked = {}, false
 local line = string.rep("a1", 5000)
 local document = table.concat({ line, line, line, line }, "\n")
@@ -999,7 +1196,7 @@ fn a_syntax_holds_at_most_half_a_reply_however_many_decorations_a_line_has() -> 
     let mut page = open(&format!(
         "{DENSE}{}",
         r#"
-local syntax = pencere.Syntax.new(dense, "e")
+local syntax = Syntax.new(dense, "e")
 local loaded = false
 return {
     render = function()
@@ -1032,7 +1229,8 @@ return {
 fn a_token_that_reads_nothing_fails_the_page_with_its_languages_name_and_its_line() {
     let why = failing(
         r#"
-        local language = pencere.Syntax.define({
+        local Syntax = require("@pencere/syntax")
+        local language = Syntax.define({
             name = "stuck",
             start = function() return {} end,
             token = function(stream)
@@ -1042,7 +1240,7 @@ fn a_token_that_reads_nothing_fails_the_page_with_its_languages_name_and_its_lin
                 stream:next()
             end,
         })
-        local syntax = pencere.Syntax.new(language, "e")
+        local syntax = Syntax.new(language, "e")
         local loaded = false
         return {
             render = function()
@@ -1071,7 +1269,7 @@ fn a_language_reads_a_line_from_a_stream_as_codemirrors_does() -> Result<(), Err
     let page = open(
         r#"
         local seen = {}
-        local language = pencere.Syntax.define({
+        local language = require("@pencere/syntax").define({
             name = "probe",
             start = function() return { n = 0 } end,
             token = function(stream, state)
@@ -1121,6 +1319,50 @@ fn a_language_reads_a_line_from_a_stream_as_codemirrors_does() -> Result<(), Err
         vec![
             "6, false, no b, Key, Key, K, no dot, K, \t  Key=42, 13, é, 15, word 0-13, rest 13-14, \
              states 2"
+                .to_owned()
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_language_gives_the_look_of_a_token_as_it_colours_one_for_a_text_not_in_an_editor()
+-> Result<(), Error> {
+    let page = open(
+        r#"
+        local Syntax = require("@pencere/syntax")
+        local language = Syntax.define({
+            name = "looks",
+            start = function() return {} end,
+            token = function(stream) stream:skip_to_end() return "x" end,
+            styles = { keyword = { color = "accent" }, strong = { weight = 800 },
+                string = { color = "success" } },
+        })
+        local function said(name)
+            local look = language:look(name)
+            if look == nil then
+                return "none"
+            end
+            return tostring(look.color) .. "/" .. tostring(look.weight)
+        end
+        local copy = language:look("keyword")
+        copy.color = "error"
+        local ok, why = pcall(language.look, language, 5)
+        return {
+            render = function()
+                return pencere.text(table.concat({
+                    said("keyword"), said("keyword strong"), said("string.special"),
+                    said("nothing"), said("keyword"), tostring(ok), why,
+                }, ", "))
+            end,
+        }"#,
+    )?;
+    assert_eq!(
+        page.tree_words(),
+        vec![
+            "accent/nil, accent/800, success/nil, none, accent/nil, false, \
+             look takes the name of a token's style, not a number"
                 .to_owned()
         ]
     );

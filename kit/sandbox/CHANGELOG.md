@@ -18,6 +18,35 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **The kit's library.** A script requires `@pencere/<name>`, a module of Luau the kit writes on the
+  page API alone, at the kit's version: the interpreter asks for it under `@pencere/` (no path of a
+  bundle has an `@`) and the sandbox gives it from the crate (`library`, `library::MODULES`, the
+  directory `library/`), whatever the bundle, without counting it toward what the page's own
+  scripts may come to. Its modules require one another and never a script of the bundle; an error
+  at a line of one says `@pencere/<name>:<line>`. They are held to `library::LIBRARY_SIZE` (1 MiB)
+  together when the crate is built, and a module is mended without a new interpreter.
+- `@pencere/languages`, a module of the kit's library: the descriptions of 33 languages and `list`,
+  `find`, `detect` (by a file's whole name, its extension and its first line) and `load`, which
+  builds a language when a page first asks for it: its `syntax` for `@pencere/syntax` and its
+  `config` for `pencere.editor`, its colours in the theme's roles (`styles`, `look`). Each family of
+  readers is a module of its own, required only when one of its languages is loaded. SQL is `SQL`,
+  `PostgreSQL` and `SQLite`, one reader telling the two databases' forms apart. The example
+  `editor-lua` takes its SQL from it.
+- `@pencere/fuzzy`, a module of the kit's library: what a person types found in texts and ordered
+  as fzf's second algorithm scores it (a path's name before its directories, smart case in many
+  scripts, places in characters), a list at once (`filter`) or searched a slice a frame by itself
+  (`search`, `run`, `narrow`), the characters found drawn in a look (`spans`).
+- `@pencere/keys`, a module of the kit's library: keys written as a Mac writes them (`⇧⌘K`) or
+  another platform (`Ctrl+Shift+K`), as key caps, and matched against a key event as a command's are.
+  The platform is the page's to say (`set_platform`), a Mac's where it says none: the interface does
+  not tell a page its host's.
+- `@pencere/markdown`, a module of the kit's library: Markdown (CommonMark 0.31.2 with GitHub's
+  tables, task lists, strikethrough and bare links) read into a tree of blocks and inlines that say
+  their lines, and drawn as elements in the theme's roles (links that answer a press, code coloured
+  by `@pencere/languages`). A document kept for a text that changes is read again only from the
+  block a change touched, a large one over several frames, and a long one is drawn a view at a time.
+- `pencere.merge(first, second, …)`: replies as one, as the kit puts together what a page's parts
+  answer (every ask of an editor in order, a frame where either wants one, the earlier wake).
 - **A host that drives a page by hand can wait for it.** `Module::flush` waits, as long as it is
   told to, until the module has done everything posted to it before and put out what came of it —
   the page an event or the program's words made it make again included; `Images::busy` says whether
@@ -115,23 +144,25 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   window is. Under them, `pencere.Built`, which rows of a long list to build as the host scrolls it
   and whether a `scrolled` box is to be built again, and `pencere.Rows.even` and
   `pencere.Rows.from_tops`, as the engine's `Built` and `Rows` (see `pencere-view`).
-- `pencere.Syntax`: a language that colours an editor, as CodeMirror's `StreamLanguage` does.
-  `pencere.Syntax.define { name, start, token, copy, equal, blank, styles }` reads a line a token at
-  a time from a stream (`sol`, `eol`, `peek`, `next`, `eat`, `eat_while`, `eat_space`,
-  `skip_to_end`, `skip_to`, `backup`, `column`, `indentation`, `match` with Lua's patterns,
-  `current`) with a state carried from line to line, and a token's name is looked up in its
-  `styles` by each of its names and by what is before a dot.
-  `pencere.Syntax.new(language, editor, options)` keeps the state after each line, reads again
-  after an edit only until the state is what it was, colours the lines in view and a margin (in
-  characters) and takes away the rest, and reads at most `step` bytes a call (20 000), lines in view
-  far on coloured from a guess and read to in the frames after, by itself: a timer of its own wakes
-  the page a frame at a time while there is more, and hands what it finds to the editor with the
-  wake's reply, so that a large document is coloured to its end with no event of the person's
-  (`handle`, `reply`, and `work`, `busy`, `asks` for a page that wants them). `handle` works at once
-  for its editor's `edit` and `viewport` alone, and a syntax holds at most 10 000 decorations for
-  the page, half of what a reply may hand the editors. `language:tokens(text, state, tab_width)`
-  is a line's tokens, for a text that is not in an editor. A token that reads nothing fails the
-  page with the language's name and the line. A page that does not use it has none of it.
+- `@pencere/syntax`, a module of the kit's library: a language that colours an editor, as
+  CodeMirror's `StreamLanguage` does. `Syntax.define(spec)` (`name`, `start`, `token`, `copy`,
+  `equal`, `blank`, `styles`) reads a line a token at a time from a stream (`sol`, `eol`, `peek`,
+  `next`, `eat`, `eat_while`, `eat_space`, `skip_to_end`, `skip_to`, `backup`, `column`,
+  `indentation`, `match` with Lua's patterns, `current`) with a state carried from line to line,
+  and a token's name is looked up in its `styles` by each of its names and by what is before a dot.
+  `Syntax.new(language, editor, options)` keeps the state at a checkpoint every 32 lines and at
+  each line of the window it colours (what it holds grows with a document a checkpoint at a time: a
+  document of 60 000 lines whose states are a kibibyte each fits in a page's 64 MiB), reads again
+  after an edit only until a kept state is what it was, colours the lines in view and a margin (in characters)
+  and takes away the rest, and reads at most `step` bytes a call (20 000), lines in view far on
+  coloured from a guess and read to in the frames after, by itself: a timer of its own wakes the
+  page a frame at a time while there is more, and hands what it finds to the editor with the wake's
+  reply, so that a large document is coloured to its end with no event of the person's (`handle`,
+  `reply`, and `work`, `busy`, `asks` for a page that wants them). `handle` works at once for its
+  editor's `edit` and `viewport` alone, and a syntax holds at most 10 000 decorations for the page,
+  half of what a reply may hand the editors. `language:tokens(text, state, tab_width)` is a line's
+  tokens, for a text that is not in an editor, and `language:look(name)` the look of a token's name. A token that reads nothing fails the page with the
+  language's name and the line. A page that does not require it has none of it.
 
 ### Changed
 

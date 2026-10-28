@@ -7,9 +7,12 @@ answers with the page to draw — a tree `pencere-view` lays out and paints in t
 font and theme.
 
 A script may `require` the other scripts of its bundle (Luau's require-by-string, from the path of
-the script that asks, over the files the bundle's manifest types `text/x-lua`) and nothing else:
-`Script` is the entry, its path in the bundle and the bundle (`Assets`), which is all the door a
-script has to anything.
+the script that asks, over the files the bundle's manifest types `text/x-lua`) and the modules of
+the kit's library (`require("@pencere/syntax")`), and nothing else: `Script` is the entry, its path
+in the bundle and the bundle (`Assets`), which is all the door a script has to anything. The
+library is Luau written on the page API alone, kept in this crate (`library/`, `library::MODULES`)
+and given to every script at the kit's version; it does not count toward what a page's own scripts
+may come to, and mending a module of it needs no new interpreter.
 
 A module or a script that traps, goes past a limit or hands out something that is not a page is
 closed, and the terminal is told why. The interpreter for scripts (Luau, with the bridge to the

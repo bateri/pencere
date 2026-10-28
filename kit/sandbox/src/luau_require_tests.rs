@@ -726,6 +726,148 @@ fn a_chain_of_scripts_that_requires_deeper_than_the_interpreter_goes_is_an_error
     );
 }
 
+// --- The kit's library: `@pencere/<name>` ----------------------------------------------------------
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn the_kits_library_is_one_module_for_every_script_that_asks_by_its_alias() {
+    let page = r#"
+        local syntax = require("@pencere/syntax")
+        local again = require("./screens/logs")
+        local shouted = require("@PENCERE/syntax")
+        return { render = function()
+            return pencere.text(table.concat({
+                tostring(rawequal(syntax, again)),
+                tostring(rawequal(syntax, shouted)),
+                type(syntax.define),
+                type(syntax.new),
+            }, " "))
+        end }
+    "#;
+    let update = first_of(
+        "page.lua",
+        &[
+            ("page.lua", LUA, page),
+            ("screens/logs.lua", LUA, "return require('@pencere/syntax')"),
+        ],
+        ModuleLimits::default(),
+    );
+    assert_eq!(lines_of(&update), ["true true function function"]);
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_name_the_library_has_nothing_at_and_a_path_out_of_it_are_errors_that_say_so() {
+    let paths = [
+        "@pencere/nothing",
+        "@pencere",
+        "@pencere/",
+        "@pencere/../page",
+        "@pencere/syntax/../../page",
+        "@pencere/syntax.luau",
+        // The bundle has no path with an `@`: the library is reached through its alias alone.
+        "./@pencere/syntax",
+        "@self/@pencere/syntax",
+    ];
+    let update = first_of(
+        "page.lua",
+        &[
+            ("page.lua", LUA, &page_requiring(&paths)),
+            ("syntax.lua", LUA, "return 'the bundle'"),
+        ],
+        ModuleLimits::default(),
+    );
+    let lines = lines_of(&update);
+    assert_eq!(lines.len(), paths.len(), "{lines:?}");
+    for (path, line) in paths.iter().zip(&lines) {
+        assert!(line.starts_with("false|"), "{path:?} gave {line}");
+    }
+    assert!(
+        lines[0].contains("the kit's library has no module \"nothing\""),
+        "{}",
+        lines[0]
+    );
+    assert!(
+        lines[1].contains("that is the kit's library, not a module of it"),
+        "{}",
+        lines[1]
+    );
+    assert!(
+        lines[2].contains("that is the kit's library, not a module of it"),
+        "{}",
+        lines[2]
+    );
+    assert!(lines[3].contains("could not get parent"), "{}", lines[3]);
+    assert!(lines[4].contains("could not get parent"), "{}", lines[4]);
+    assert!(
+        lines[5].contains("the kit's library has no module \"syntax.luau\""),
+        "{}",
+        lines[5]
+    );
+    assert!(
+        lines[6].contains("the bundle has no script at \"@pencere/syntax\""),
+        "{}",
+        lines[6]
+    );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn an_error_at_a_line_of_the_library_says_the_module_and_its_line() {
+    // `reply` of what is no syntax reads what it does not have, at a line of the module's own.
+    let why = failed(&first_of(
+        "page.lua",
+        &[(
+            "page.lua",
+            LUA,
+            "local Syntax = require('@pencere/syntax')\nSyntax.reply({}, nil)\nreturn {}",
+        )],
+        ModuleLimits::default(),
+    ));
+    let line = why
+        .strip_prefix("@pencere/syntax:")
+        .and_then(|rest| rest.split(':').next())
+        .and_then(|line| line.parse::<usize>().ok());
+    assert!(line.is_some_and(|line| line > 1), "{why}");
+    // An error the module raises for its caller says the caller's line.
+    let why = failed(&first_of(
+        "page.lua",
+        &[(
+            "page.lua",
+            LUA,
+            "local Syntax = require('@pencere/syntax')\n\nSyntax.define(5)\nreturn {}",
+        )],
+        ModuleLimits::default(),
+    ));
+    assert!(
+        why.starts_with("page.lua:3: Syntax.define takes a table"),
+        "{why}"
+    );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn the_library_is_not_counted_with_the_scripts_of_the_page() {
+    // Room for the entry and a few bytes: the library's module, many times that, comes; a script
+    // of the bundle past the room does not.
+    let page =
+        "local syntax = require('@pencere/syntax')\nlocal more = require('./more')\nreturn {}";
+    let limits = ModuleLimits {
+        component: page.len() + 10,
+        ..ModuleLimits::default()
+    };
+    let why = failed(&first_of(
+        "page.lua",
+        &[
+            ("page.lua", LUA, page),
+            ("more.lua", LUA, "return 'more than ten bytes'"),
+        ],
+        limits,
+    ));
+    assert!(why.starts_with("page.lua:2:"), "{why}");
+    assert!(why.contains("\"more.lua\""), "{why}");
+}
+
 // --- The door: what the sandbox gives a script that asks, without an interpreter -----------------
 
 fn host_with(files: &[File], entry: &str) -> (Host, Arc<Files>) {
