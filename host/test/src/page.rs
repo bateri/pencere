@@ -42,6 +42,18 @@ impl Open {
     }
 }
 
+impl Open {
+    /// The program closed its view: its `serve` returns, as it does under a terminal.
+    fn let_serve_end<R>(&mut self, done: &Result<R, Error>) {
+        if let Err(Error::Closed(why)) = done
+            && why.starts_with("the program closed its view")
+            && let Some(app) = self.app.as_mut()
+        {
+            app.end_view();
+        }
+    }
+}
+
 impl Drop for Open {
     fn drop(&mut self) {
         self.close();
@@ -76,14 +88,31 @@ impl Handle {
             .as_mut()
             .ok_or_else(|| words("the page is over: the test that opened it has ended"))?;
         let done = f(page);
-        // The program closed its view: its `serve` returns, as it does under a terminal.
-        if let Err(Error::Closed(why)) = &done
-            && why.starts_with("the program closed its view")
-            && let Some(app) = open.app.as_mut()
-        {
-            app.end_view();
-        }
+        open.let_serve_end(&done);
         done.map_err(|error| trouble(&error))
+    }
+
+    /// Takes a frame's time, as `Headless::tick` does, but a page whose view is over is no failure
+    /// of it: what is left to wait for is the program, which goes on after its view and on its own
+    /// time (what it does once its `serve` has returned). Why the view is over, if it is: the
+    /// moment is given to the program all the same.
+    fn wait(&self) -> mlua::Result<Option<String>> {
+        let mut open = self.0.try_borrow_mut().map_err(|_| {
+            words("the page is in use: a stand-in handler of a call cannot drive the page")
+        })?;
+        let page = open
+            .page
+            .as_mut()
+            .ok_or_else(|| words("the page is over: the test that opened it has ended"))?;
+        let done = page.tick();
+        open.let_serve_end(&done);
+        match done {
+            Err(Error::Closed(why)) => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                Ok(Some(why))
+            }
+            other => other.map(|()| None).map_err(|error| trouble(&error)),
+        }
     }
 
     /// Looks at the page.
@@ -533,6 +562,7 @@ impl UserData for Handle {
             this.act(|page| page.hide(seconds))
         });
         methods.add_method("tick", |_, this, ()| this.act(Headless::tick));
+        methods.add_method("wait", |_, this, ()| this.wait());
         methods.add_method("now", |_, this, ()| this.look(Headless::now));
         methods.add_method("asks_at", |_, this, ()| this.look(Headless::asks_at));
         methods.add_method("tell", |_, this, message: String| {

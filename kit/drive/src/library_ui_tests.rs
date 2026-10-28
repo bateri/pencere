@@ -1824,5 +1824,15 @@ fn a_grid_asks_for_the_rows_it_has_not_read_and_builds_the_columns_as_it_goes_ac
         "{:?}",
         wide.bounds("g/head/c1")
     );
+    // What a frame costs is the cells it makes, a row made at each of the columns made, and the
+    // wall clock of the machine is no measure of it: the columns made are a view of them each way
+    // of what is in view, however many the grid has.
+    let made = (1..=40)
+        .filter(|column| wide.bounds(&format!("g/head/c{column}")).is_some())
+        .count();
+    assert!(
+        (10..=30).contains(&made),
+        "{made} columns made with an 800 point view and columns 100 points wide"
+    );
     Ok(())
 }

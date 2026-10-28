@@ -671,6 +671,9 @@ local outcome = pencere.serve {
 	},
 	topics = { clock = function() end },
 }
+-- What a program does after its view is closed takes the time it takes: the test is not to depend on
+-- it being quicker than the test's next step.
+pencere.time.sleep(0.4)
 print("serve ended", outcome.ended)
 "#,
     );
@@ -685,10 +688,19 @@ test("the program closes its view and goes on", function()
 	page:wait_for(function() return string.find(page:log(), "serve ended\tprogram", 1, true) ~= nil end)
 	expect(page:closed() or true):to_be(true)
 end)
+
+test("a wait for what never comes says the view is over", function()
+	local page = test.open({ within = 0.3 })
+	pcall(function() page:get_by_role("button", { name = "Leave" }):click() end)
+	local ok, err = pcall(function() page:wait_for(function() return false end) end)
+	expect(ok):to_be(false)
+	expect(tostring(err)):to_contain("its view is over: the program closed its view")
+end)
 "#,
     );
     let (code, text) = tap(&app, &[]);
     assert_eq!(code, 0, "{text}");
+    assert!(text.contains("1..2"), "{text}");
 }
 
 /// The Rust example, built by Cargo into a directory of its own (so that this test run and the

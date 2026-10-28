@@ -18,6 +18,9 @@ local grid = {}
 -- text), at least this much and at most that.
 local MIN_WIDTH, MAX_WIDTH, EDGE = 56, 480, 7
 local CHAR = 7.4
+-- How far the grid is scrolled across, in views, before its columns are made again: what was made
+-- reaches a view past what is in view, so half a view is the time the host and the page have between.
+local AWAY = 0.5
 
 local function widths_of(props, state)
 	local widths = {}
@@ -51,10 +54,13 @@ local function column_at(props, widths, number, x)
 	return #props.columns
 end
 
--- The columns to build with the grid scrolled `x` across: those in view and two views of them each way,
--- for the host scrolls across before the page is made again; and where the first starts.
+-- The columns to build with the grid scrolled `x` across: those in view and a view of them each way,
+-- for the host scrolls across before the page is made again; and where the first starts. A grid
+-- builds a cell for each of its rows made and each of these columns, so this is a cost a view of
+-- columns more at each side of what is in view adds to every frame; it is as much as the page is
+-- scrolled across before it is made again (`AWAY`) and no more.
 local function columns_near(widths, number, x, view)
-	local from, to = x - view * 2, x + view * 3
+	local from, to = x - view, x + view * 2
 	local left = number
 	local first, last, start = nil, 0, number
 	for index, width in widths do
@@ -272,23 +278,15 @@ local Grid = core.component("grid", {
 				local column = props.columns[index]
 				local width = widths[index]
 				local value = props.cell(place, column)
-				local content
+				local cell = pencere.div():w(width):h_full():no_shrink():px(8):row():items_center():clip()
 				if value == nil then
-					content = pencere.text("·"):color(t.ink_quiet)
+					cell:child(pencere.text("·"):color(t.ink_quiet):grow(1):min_w(0):truncate())
 				elseif type(value) == "string" or type(value) == "number" then
-					content = pencere.text(value):truncate()
+					-- The words fill the cell and are cut at its edge: no box between them and the cell.
+					cell:child(pencere.text(value):grow(1):min_w(0):truncate())
 				else
-					content = value
+					cell:child(pencere.div():grow(1):min_w(0):row():items_center():child(value))
 				end
-				local cell = pencere.div()
-					:w(width)
-					:h_full()
-					:no_shrink()
-					:px(8)
-					:row()
-					:items_center()
-					:clip()
-					:child(pencere.div():grow(1):min_w(0):row():items_center():child(content))
 				if column.align == "end" then
 					cell:justify_end()
 				end
@@ -402,7 +400,7 @@ local Grid = core.component("grid", {
 	scrolled = function(u, id, props, state, part, _, box)
 		if part == nil then
 			-- Across: the columns are made again where it has gone past what was made.
-			if state.built_x == nil or math.abs(box.x - state.built_x) > (state.view_w or u.size.w) then
+			if state.built_x == nil or math.abs(box.x - state.built_x) > (state.view_w or u.size.w) * AWAY then
 				return true
 			end
 			return nil

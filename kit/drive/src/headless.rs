@@ -105,6 +105,32 @@ impl Measure for Fixed {
     }
 }
 
+/// The environment variable that says, in milliseconds, how long one call of a page may take where
+/// the test does not say ([`Opening::limits`]): the kit's own 250 ms unless it is set, as a terminal
+/// holds a page to it.
+///
+/// That limit is the wall clock's, so a test of what a page shows and does fails for the machine,
+/// not for the page, when it runs on one that is busy or slow: a runner that is compiling the
+/// interpreter for other tests at the same time takes several times what one at rest does. A gate
+/// that runs there sets this to a time the page never takes (`PENCERE_CALL_MS=5000`); a run on a
+/// machine at rest leaves it unset and holds the page to the terminal's 250 ms. A value that is not
+/// a whole number of milliseconds above zero is not read.
+pub const CALL_MS: &str = "PENCERE_CALL_MS";
+
+/// What a page is held to where a test does not say: the kit's limits, with the time a call may
+/// take from the environment ([`CALL_MS`]).
+fn default_limits() -> ModuleLimits {
+    let mut limits = ModuleLimits::default();
+    let said = std::env::var(CALL_MS)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|ms| *ms > 0);
+    if let Some(ms) = said {
+        limits.call = Duration::from_millis(ms);
+    }
+    limits
+}
+
 /// The time of day the headless host's clock reads 0 at, unless a test says another
 /// ([`Opening::wall_clock`]): 2027-01-15 08:00:00 UTC.
 pub const WALL_ORIGIN: f64 = 1_800_000_000.0;
@@ -429,7 +455,7 @@ impl Opening<Calls> {
             size: Size::new(800.0, 600.0),
             scale: 1.0,
             reduce_motion: false,
-            limits: ModuleLimits::default(),
+            limits: default_limits(),
             assets: None,
             measure: Box::new(Fixed::default()),
             blink: 0.5,
@@ -470,7 +496,8 @@ impl<P: Peer> Opening<P> {
         self
     }
 
-    /// What the page's module is held to.
+    /// What the page's module is held to (the kit's limits unless said, with the time of a call from
+    /// the environment: [`CALL_MS`]).
     pub fn limits(mut self, limits: ModuleLimits) -> Self {
         self.limits = limits;
         self

@@ -21,6 +21,12 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
 
 ### Added
 
+- **How long a call of a page may take, from the environment.** `headless::CALL_MS`
+  (`PENCERE_CALL_MS`, in milliseconds) is the time a call of the page may take where a test does not
+  say (`Opening::limits`): the kit's 250 ms unless it is set. The limit is the wall clock's, and a
+  test of what a page shows and does failed with `Ended(Timeout)` on a runner that was busy, for
+  nothing the page did; a gate that runs on one sets it, and a run on a machine at rest holds the
+  page to the terminal's limit.
 - **The system the host with no screen says it is.** `Opening::wall_clock(seconds, utc_offset)` is
   the time of day when its clock reads 0 (`WALL_ORIGIN` in UTC unless said), going on with its
   clock; `Opening::keyboard` says how its keys are written (a Mac's unless said), and

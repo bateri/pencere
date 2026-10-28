@@ -1675,6 +1675,11 @@ mod tests {
         *clock.0.lock().unwrap() = Some(11.0);
         rig.module.event(typed("wake 2"));
         take_until(&rig, |u| u.wake == Some(13.0));
+        // The module keeps the time asked before it puts out the reply that asked it: what was taken
+        // may be before that reply, which would then be taken as the next event's. All of the event
+        // is done and taken here.
+        caught_up(&rig, 1);
+        let _ = rig.module.poll();
         // A later time does not put off an earlier one: one part of a page does not delay what
         // another asked.
         rig.module.event(typed("wake 9"));

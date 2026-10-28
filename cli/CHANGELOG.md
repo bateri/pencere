@@ -12,6 +12,11 @@ All notable changes to the `pencere` command are recorded here. The format follo
   thread of its own and raced the others to the app's loop, so that two edits the view sent one
   after the other could be begun the other way round; they are now handed to the loop as the view
   sends them (the program library's deferred handlers), and none waits for another's answer.
+- `page:wait_for` in `pencere test` goes on waiting when the page's view is over (the program closed
+  it, showed another, lent the terminal), as what it waits for may be what the program does next:
+  a program goes on after its `serve` on its own time, and the wait raised the view's end before
+  the program had written what the test looked for. If the condition never comes the failure says
+  the view is over.
 
 ### Changed
 

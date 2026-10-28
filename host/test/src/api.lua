@@ -660,14 +660,25 @@ function Page:get_by_id(id)
 	return locator(self, "id", { id = id })
 end
 
+-- Waits, at most `within` seconds, for `fn()` to be true, giving the page and its program the time
+-- between looks. The page's view being over (its program closed it, showed another, lent the
+-- terminal) does not end the wait: what the program does next is what `fn` may be waiting for, and a
+-- program goes on after its `serve` on its own time. If it never comes, the failure says the view
+-- is over.
 function Page:wait_for(fn, options)
 	local within = options and options.within or self.within
 	local deadline = native.clock() + within
+	local over = nil
 	while not fn() do
 		if native.clock() > deadline then
-			fail(string.format("the page did not come to what was waited for within %gs\n%s", within, describe_page(self)))
+			fail(string.format(
+				"the page did not come to what was waited for within %gs%s\n%s",
+				within,
+				over and ("; its view is over: " .. over) or "",
+				describe_page(self)
+			))
 		end
-		self.raw:tick()
+		over = self.raw:wait()
 	end
 end
 

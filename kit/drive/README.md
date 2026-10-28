@@ -111,6 +111,10 @@ its own.
   app's `src/view/` with `src/assets/` under `assets/`), `component(bytes)`; then `size`, `scale`,
   `measure` (`Fixed`, 7 × 16 pixels a character, unless said), `peer`, `limits`, `assets`, `blink`,
   `at`, `patience`, `reduce_motion`, and `open`.
+  What a page may take for one call is the kit's 250 ms, as a terminal holds it; `limits` says
+  otherwise, and so does the environment for a gate on a busy machine (`PENCERE_CALL_MS=5000`, in
+  milliseconds: the limit is the wall clock's, and a test of what a page does should not fail for
+  how quick the machine is).
 - **What a person does:** `key`, `press("cmd+shift+k")`, `type_text` (a key at a time), `insert_text`
   (what an input method commits), `paste`, `compose`, `unmark`; `click`, `double_click`,
   `right_click`, `click_in(id, x, y)`, `click_at`, `hover`, `move_to`, `leave`, `drag`,

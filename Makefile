@@ -1,4 +1,4 @@
-.PHONY: setup fmt check check-heavy audit guest luau dist dist-linux dist-macos dist-sums runner release-prepare rehearse
+.PHONY: setup fmt check check-heavy check-timing audit guest luau dist dist-linux dist-macos dist-sums runner release-prepare rehearse
 
 # Installs the TypeScript half's dependencies from the lockfile. The only
 # target that reaches the network.
@@ -47,6 +47,17 @@ check:
 	node tools/cargo-test.mjs -p pencere-drive --all-features --all-targets
 	npx prettier --check .
 	npx vitest run --passWithNoTests
+
+# check-timing runs the tests that drive a page under the host with no screen with every call of
+# the page held to the kit's 250 ms (CALL_MS=125 for half of it), as a terminal holds it, and the
+# gate of a runner does not (.github/workflows/check.yml sets PENCERE_CALL_MS: the wall clock of a
+# busy runner is no measure of the page). It is not part of the gate: it measures the machine as much
+# as the page, so run it on one at rest.
+CALL_MS ?= 250
+check-timing: guest
+	cargo build --quiet -p containers-rust
+	cargo build --quiet -p pencere-cli
+	PENCERE_CALL_MS=$(CALL_MS) node tools/cargo-test.mjs -p pencere-drive -p pencere-test --all-features --all-targets -- --ignored
 
 # The rules of the kit that are not the compiler's: what each crate may depend on, and that the
 # interpreter in the repository is the one its sources build. They are the layers of the kit:
