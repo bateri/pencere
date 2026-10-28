@@ -30,7 +30,7 @@ impl Default for Placement {
 pub const ZOOM_TEXT: f32 = 12.5;
 
 /// The least and the most a page is drawn at, against its own size: a terminal set in a tiny or a
-/// huge face keeps a page that can still be laid out in its pane.
+/// huge face keeps a page that can still be laid out in its view.
 const ZOOM_RANGE: (f32, f32) = (0.5, 4.0);
 
 impl Placement {
