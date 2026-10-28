@@ -26,6 +26,8 @@
 //! what is left here is the program: a subscription and a call.
 
 mod table;
+#[cfg(test)]
+mod view_tests;
 
 use std::borrow::Cow;
 use std::process::ExitCode;
@@ -138,23 +140,10 @@ fn shown(
         }
     };
     let upload = Arc::new(Upload::default());
-    let counted = Arc::clone(&upload);
-    let stalls_at = stall.map(|after| Instant::now() + after);
-    let options = Options::new()
+    let options = handlers(flood, stall, &upload)
         .view(View::new(kind, &[VERSION], bundle))
         .program("containers-rust")
         .title("Containers")
-        // The readings: the first is the view's at once, the next ones are a second apart.
-        .topic("stats", move |_params, subscription| {
-            let feed = subscription.clone();
-            std::thread::spawn(move || report(&feed, flood, stalls_at));
-            Ok(())
-        })
-        // The view sends a large payload in pieces, in a lane: they are taken in the order they
-        // were sent, so the last one, which asks how much there was, comes after the others.
-        .call_in("upload", "upload", move |params, _call| {
-            Ok(counted.take(&params))
-        })
         // The terminal shows no view: the list as text. A refusal or a failure has its words.
         .fallback(|why| {
             if let Some(words) = &why.message {
@@ -194,6 +183,25 @@ fn shown(
         }
     }
     ExitCode::from(outcome.shell_status())
+}
+
+/// What the program does for its view, wherever the view is: the readings, and the payload counted
+/// into `upload`.
+fn handlers(flood: bool, stall: Option<Duration>, upload: &Arc<Upload>) -> Options {
+    let counted = Arc::clone(upload);
+    let stalls_at = stall.map(|after| Instant::now() + after);
+    Options::new()
+        // The readings: the first is the view's at once, the next ones are a second apart.
+        .topic("stats", move |_params, subscription| {
+            let feed = subscription.clone();
+            std::thread::spawn(move || report(&feed, flood, stalls_at));
+            Ok(())
+        })
+        // The view sends a large payload in pieces, in a lane: they are taken in the order they
+        // were sent, so the last one, which asks how much there was, comes after the others.
+        .call_in("upload", "upload", move |params, _call| {
+            Ok(counted.take(&params))
+        })
 }
 
 /// The readings of the made-up host, pushed until the view stops listening. With `flood` as fast

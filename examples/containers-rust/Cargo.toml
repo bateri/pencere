@@ -17,5 +17,9 @@ pencere = { path = "../../program" }
 containers-page = { path = "../containers-page" }
 serde_json = "1"
 
+[dev-dependencies]
+# The page and this program's handlers in one process, under a host with no screen.
+pencere-drive = { path = "../../kit/drive", features = ["program"] }
+
 [lints]
 workspace = true
