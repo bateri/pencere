@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use pencere_wire::bundle::{
     BundleLimits, Digest, MAX_FILE_SIZE, MAX_FILES, MAX_PATH, MAX_TOTAL_SIZE, Manifest, is_path,
+    media_type_of,
 };
 use pencere_wire::message::{RawBundle, RawFile};
 
@@ -86,45 +87,6 @@ pub struct Bundle {
     entry: String,
     files: Vec<Entry>,
     by_digest: HashMap<Digest, usize>,
-}
-
-/// The media type of a path by its extension; `application/octet-stream` when it is not known.
-fn media_type_of(path: &str) -> &'static str {
-    let name = path.rsplit('/').next().unwrap_or(path);
-    let extension = match name.rfind('.') {
-        Some(at) if at > 0 => name.get(at..).unwrap_or("").to_ascii_lowercase(),
-        _ => String::new(),
-    };
-    match extension.as_str() {
-        ".html" | ".htm" => "text/html",
-        ".js" | ".mjs" => "text/javascript",
-        ".css" => "text/css",
-        ".json" | ".map" => "application/json",
-        ".txt" => "text/plain",
-        ".md" => "text/markdown",
-        ".csv" => "text/csv",
-        ".svg" => "image/svg+xml",
-        ".png" => "image/png",
-        ".jpg" | ".jpeg" => "image/jpeg",
-        ".gif" => "image/gif",
-        ".webp" => "image/webp",
-        ".avif" => "image/avif",
-        ".ico" => "image/x-icon",
-        ".woff" => "font/woff",
-        ".woff2" => "font/woff2",
-        ".ttf" => "font/ttf",
-        ".otf" => "font/otf",
-        ".wasm" => "application/wasm",
-        ".lua" | ".luau" => "text/x-lua",
-        ".mp3" => "audio/mpeg",
-        ".ogg" => "audio/ogg",
-        ".wav" => "audio/wav",
-        ".mp4" => "video/mp4",
-        ".webm" => "video/webm",
-        ".xml" => "application/xml",
-        ".pdf" => "application/pdf",
-        _ => "application/octet-stream",
-    }
 }
 
 impl Bundle {
@@ -323,17 +285,6 @@ fn walk(
 #[allow(clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_media_type_comes_from_the_extension() {
-        assert_eq!(media_type_of("index.html"), "text/html");
-        assert_eq!(media_type_of("a/b/app.JS"), "text/javascript");
-        assert_eq!(media_type_of("view.wasm"), "application/wasm");
-        assert_eq!(media_type_of("view.lua"), "text/x-lua");
-        assert_eq!(media_type_of("parts/init.luau"), "text/x-lua");
-        assert_eq!(media_type_of("README"), "application/octet-stream");
-        assert_eq!(media_type_of(".hidden"), "application/octet-stream");
-    }
 
     #[test]
     fn files_that_are_not_a_bundle_are_told_why() {

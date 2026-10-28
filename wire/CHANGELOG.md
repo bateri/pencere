@@ -8,6 +8,10 @@ All notable changes to the `pencere-wire` crate are recorded here. The format fo
 
 ### Added
 
+- `bundle::media_type_of`: the media type a file of a bundle is given by its extension where its
+  program says none (a script of a page of the kit is `LUA_MEDIA_TYPE`). It was the program
+  library's; it is here so that a host that reads a view's files from a directory (a test's) gives
+  them the type the program would.
 - `link`: which links a view may ask its host to open (`is_openable`, `MAX_LINK`; specification
   §9.7, §9.8), a web page's `link` message or the link of a kit view's reply. The rule was the host
   crate's; it is here so that the kit's sandbox and the host hold both kinds of view to one copy.

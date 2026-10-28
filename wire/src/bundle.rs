@@ -183,6 +183,48 @@ fn is_segment(segment: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'~' | b'-'))
 }
 
+/// The media type of a path by its extension: the type a program gives a file of its bundle that it
+/// says none of its own for, and the one the files of a view are read with where they come from a
+/// directory and not from a program (a test's). `application/octet-stream` when it is not known; a
+/// script a page of the kit may load (`.lua`, `.luau`) is [`LUA_MEDIA_TYPE`].
+pub fn media_type_of(path: &str) -> &'static str {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let extension = match name.rfind('.') {
+        Some(at) if at > 0 => name.get(at..).unwrap_or("").to_ascii_lowercase(),
+        _ => String::new(),
+    };
+    match extension.as_str() {
+        ".html" | ".htm" => "text/html",
+        ".js" | ".mjs" => "text/javascript",
+        ".css" => "text/css",
+        ".json" | ".map" => "application/json",
+        ".txt" => "text/plain",
+        ".md" => "text/markdown",
+        ".csv" => "text/csv",
+        ".svg" => "image/svg+xml",
+        ".png" => "image/png",
+        ".jpg" | ".jpeg" => "image/jpeg",
+        ".gif" => "image/gif",
+        ".webp" => "image/webp",
+        ".avif" => "image/avif",
+        ".ico" => "image/x-icon",
+        ".woff" => "font/woff",
+        ".woff2" => "font/woff2",
+        ".ttf" => "font/ttf",
+        ".otf" => "font/otf",
+        ".wasm" => "application/wasm",
+        ".lua" | ".luau" => LUA_MEDIA_TYPE,
+        ".mp3" => "audio/mpeg",
+        ".ogg" => "audio/ogg",
+        ".wav" => "audio/wav",
+        ".mp4" => "video/mp4",
+        ".webm" => "video/webm",
+        ".xml" => "application/xml",
+        ".pdf" => "application/pdf",
+        _ => "application/octet-stream",
+    }
+}
+
 /// Whether `path` is one a manifest may list (specification §8.2).
 pub fn is_path(path: &str) -> bool {
     (1..=MAX_PATH).contains(&path.len()) && path.split('/').all(is_segment)
@@ -396,6 +438,18 @@ impl Receiving {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_media_type_comes_from_the_extension() {
+        assert_eq!(media_type_of("index.html"), "text/html");
+        assert_eq!(media_type_of("a/b/app.JS"), "text/javascript");
+        assert_eq!(media_type_of("view.wasm"), "application/wasm");
+        assert_eq!(media_type_of("view.lua"), "text/x-lua");
+        assert_eq!(media_type_of("parts/init.luau"), "text/x-lua");
+        assert_eq!(media_type_of("README"), "application/octet-stream");
+        assert_eq!(media_type_of(".hidden"), "application/octet-stream");
+    }
+
     use serde_json::json;
 
     fn raw(value: serde_json::Value) -> RawBundle {
