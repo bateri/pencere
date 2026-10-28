@@ -550,8 +550,8 @@ range starts on, `height` taken up in whole rows (at most 200). The text after i
 the content grows; the rows, the numbers, the scrolling and the ruler count it. What stands in it is
 an element of the page, a child of the editor's element that says it is the zone's,
 `element:zone(name)`: it is laid out as a box as wide as the room and as tall as the page says (the
-same as the zone's `height`), put where the gap is, and scrolls with the text as what is in a box
-that scrolls does: it is cut by the room, answers the pointer and the keyboard as any element, and is
+same as the zone's `height`), put where the gap is, and goes up and down with the text as it
+scrolls (not across, with a long line: it stays where the room starts): it is cut by the room, answers the pointer and the keyboard as any element, and is
 in the outline. It is on the page only while the editor has the gap (a zone is carried over the
 changes as its decoration is, and goes with it).
 

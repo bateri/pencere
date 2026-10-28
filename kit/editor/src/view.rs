@@ -107,7 +107,7 @@ impl Row {
 }
 
 /// What the rows of the lines were counted for: the version, the lines hidden, the width of the text.
-type Counted = (u64, Vec<(usize, usize)>, u32, Vec<(usize, usize)>);
+type Counted = (u64, Vec<(usize, usize)>, u32, Vec<(usize, usize, Id)>);
 
 /// An editor's layout.
 #[derive(Debug)]
@@ -153,6 +153,8 @@ pub(crate) struct View {
     /// The gaps kept open for the page, in order of their lines: the line each is after, how many
     /// rows it takes, and its name.
     zones: Vec<(usize, usize, Id)>,
+    /// How many rows of gaps are after each line that has any (a line folded away has none).
+    zone_rows: HashMap<usize, usize>,
     /// The rows laid out: those in view and some about them.
     pub rows: Vec<Row>,
     /// How many characters the longest line has, and of which version.
@@ -194,6 +196,7 @@ impl Default for View {
             tops: vec![0, 1],
             counted: None,
             zones: Vec::new(),
+            zone_rows: HashMap::new(),
             rows: Vec::new(),
             widest: None,
             measured: 0.0,
@@ -416,7 +419,7 @@ impl View {
             buffer.version(),
             hidden.clone(),
             self.text_width().round() as u32,
-            zones.iter().map(|(line, rows, _)| (*line, *rows)).collect(),
+            zones.clone(),
         );
         if self.counted.as_ref() == Some(&key) {
             return;
@@ -424,6 +427,11 @@ impl View {
         let lines = buffer.len_lines();
         let mut tops = Vec::with_capacity(lines + 1);
         let mut row = 0;
+        let mut gaps: HashMap<usize, usize> = HashMap::new();
+        for (line, rows, _) in &zones {
+            *gaps.entry(*line).or_default() += rows;
+        }
+        let mut shown_gaps = HashMap::new();
         let mut folds = hidden.iter().peekable();
         for line in 0..lines {
             tops.push(row);
@@ -435,16 +443,16 @@ impl View {
                 .is_some_and(|(first, last)| line >= *first && line <= *last);
             if !hidden {
                 row += self.rows_of(buffer, line);
-                row += zones
-                    .iter()
-                    .filter(|(at, _, _)| *at == line)
-                    .map(|(_, rows, _)| rows)
-                    .sum::<usize>();
+                if let Some(rows) = gaps.get(&line) {
+                    row += rows;
+                    shown_gaps.insert(line, *rows);
+                }
             }
         }
         tops.push(row);
         self.tops = tops;
         self.zones = zones;
+        self.zone_rows = shown_gaps;
         self.counted = Some(key);
         if self
             .widest
@@ -460,15 +468,7 @@ impl View {
 
     /// How many rows the gaps kept open after line `line` take.
     fn zone_rows(&self, line: usize) -> usize {
-        // A line folded away has no gaps.
-        if self.tops.get(line + 1) <= self.tops.get(line) {
-            return 0;
-        }
-        self.zones
-            .iter()
-            .filter(|(at, _, _)| *at == line)
-            .map(|(_, rows, _)| rows)
-            .sum()
+        self.zone_rows.get(&line).copied().unwrap_or(0)
     }
 
     /// The gaps kept open for the page, each by its name and its box in the content (pixels): a gap
@@ -1657,7 +1657,11 @@ impl View {
         col: usize,
         line: usize,
     ) -> Vec<(usize, &'a Decoration, &'a GutterMark)> {
-        let Some(column) = self.cols.get(col) else {
+        let Some(column) = self
+            .cols
+            .get(col)
+            .filter(|column| matches!(column.kind, Kind::Marks | Kind::Page))
+        else {
             return Vec::new();
         };
         let from = buffer.line_start(line);
@@ -1742,13 +1746,9 @@ impl View {
             let veil = ((hovering && mark.hover.is_none()) || (pressing && mark.pressed.is_none()))
                 .then_some(lit)
                 .flatten();
-            if !(from..=to).any(shown) && !shown(from) {
-                // Off the screen: the rows of the lines a bar goes along are not in view.
-                if self.top_of(origin_y, to + 1) < slot.rect.y
-                    || self.top_of(origin_y, from) > slot.rect.bottom()
-                {
-                    continue;
-                }
+            // The lines of a marker that are all above or all below the rows laid out are not in view.
+            if from > last.line || to < first.line {
+                continue;
             }
             let single = (self.top_of(origin_y, from), self.end_of(origin_y, from));
             let span = (self.top_of(origin_y, from), self.end_of(origin_y, to));
@@ -1808,10 +1808,10 @@ impl View {
         let looks = &self.options.marks;
         let s = self.scale.max(0.01);
         let x0 = gutter.x + col.x;
-        let fill = |rect: Rect, color: Color| {
+        let fill = |rect: Rect, color: Color, radius: f32| {
             Paint::Quad(Quad {
                 rect,
-                radii: [0.0; 4],
+                radii: [radius; 4],
                 fill: Some(color.faded(slot.opacity)),
                 gradient: None,
                 border: None,
@@ -1828,21 +1828,9 @@ impl View {
                     size,
                     size,
                 );
-                out.push(Paint::Quad(Quad {
-                    radii: [size / 2.0; 4],
-                    ..match fill(rect, color) {
-                        Paint::Quad(quad) => quad,
-                        _ => return,
-                    }
-                }));
+                out.push(fill(rect, color, size / 2.0));
                 if let Some(veil) = veil {
-                    out.push(Paint::Quad(Quad {
-                        radii: [size / 2.0; 4],
-                        ..match fill(rect, veil) {
-                            Paint::Quad(quad) => quad,
-                            _ => return,
-                        }
-                    }));
+                    out.push(fill(rect, veil, size / 2.0));
                 }
             }
             GutterShape::Bar => {
@@ -1859,9 +1847,9 @@ impl View {
                 if rect.h <= 0.0 {
                     return;
                 }
-                out.push(fill(rect, color));
+                out.push(fill(rect, color, 0.0));
                 if let Some(veil) = veil {
-                    out.push(fill(rect, veil));
+                    out.push(fill(rect, veil, 0.0));
                 }
             }
             GutterShape::Above | GutterShape::Below => {
@@ -1918,7 +1906,7 @@ impl View {
                     src: src.clone(),
                     rect,
                     crop: Rect::new(0.0, 0.0, 1.0, 1.0),
-                    tint: Some(veil.map_or(color, |_| color)),
+                    tint: Some(color),
                     opacity: slot.opacity,
                     radii: [0.0; 4],
                     clip: clip.intersect(rect),
@@ -2037,7 +2025,14 @@ impl View {
             return None;
         }
         let row = ((y - self.pad) / self.row).floor().max(0.0) as usize;
-        let line = self.line_at_row(row.min(self.total() - 1));
+        // Below the last row there is no line, nor in a gap kept open for the page.
+        if row >= self.total() {
+            return None;
+        }
+        let line = self.line_at_row(row);
+        if row + self.zone_rows(line) >= self.tops.get(line + 1).copied().unwrap_or(0) {
+            return None;
+        }
         let col = self
             .cols
             .iter()

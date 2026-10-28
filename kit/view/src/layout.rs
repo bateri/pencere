@@ -555,12 +555,16 @@ fn place_zones(
                 .find(|(id, _)| *id == zone)
                 .map(|(_, rect)| *rect);
             let dy = found.map_or(0.0, |rect| room.y - scroll.1 + rect.y - node.rect.y);
+            // A zone is as wide as the room and does not go sideways with the text: it is put where
+            // the room starts.
+            let dx = scroll.0;
             let outer = node.clip;
             for inside in nodes.get_mut(at..end).unwrap_or_default() {
-                inside.rect = inside.rect.translate(0.0, dy);
-                // A clip of a box inside it moves with it; the editor's does not.
+                inside.rect = inside.rect.translate(dx, dy);
+                // A clip of a box inside it moves with it, and the room cuts it where it ends; the
+                // editor's does not move.
                 if inside.clip != outer {
-                    inside.clip = inside.clip.translate(0.0, dy);
+                    inside.clip = inside.clip.translate(dx, dy).intersect(outer);
                 }
                 inside.hidden |= found.is_none();
             }
@@ -1464,8 +1468,14 @@ impl Laid {
                         parent.clip
                     }
                 });
+            // What stands in a zone of an editor goes up and down with its text, and not across.
+            let across = if editor.is_some() && self.in_zone_of(at, index) {
+                0.0
+            } else {
+                dx
+            };
             if let Some(node) = self.nodes.get_mut(at) {
-                node.rect.x += dx;
+                node.rect.x += across;
                 node.rect.y += dy;
                 if let Some(held) = held {
                     node.clip = held;

@@ -2361,3 +2361,135 @@ fn what_stands_in_a_zone_scrolls_with_the_text_and_is_cut_by_the_room() {
     });
     assert!(red.is_none_or(|clip| clip.y >= 0.0 && clip.bottom() <= 200.0));
 }
+
+#[test]
+fn the_gutter_below_the_text_and_beside_a_gap_is_no_cell_and_a_marker_in_the_editors_column_is_none()
+ {
+    let zone = Id::named("peek");
+    let page = move || {
+        div().child(
+            div()
+                .editor(EDITOR, columns())
+                .size_full()
+                .child(div().id(zone).zone(zone).h(2.0 * ROW).bg(Role::Red.solid())),
+        )
+    };
+    let mut host = Host::new(page);
+    host.load("a\nb\nc");
+    host.decorate(
+        "m",
+        vec![
+            Decoration::new(0, 0, Mark::Gutter(marker(GutterShape::Dot, "numbers"))),
+            Decoration::new(
+                2,
+                2,
+                Mark::Zone(Zone {
+                    id: zone,
+                    height: 2.0 * ROW,
+                }),
+            ),
+        ],
+    );
+    host.editors.take_events();
+    // Over the gap (after `b`): the page's. Below `c`: no line. On `c`, shown a gap lower: the line.
+    assert!(
+        !host.press(Point::new(20.0, 4.0 + 2.0 * ROW + 5.0), none(), 1)
+            || host.gutter_events().is_empty()
+    );
+    // (The zone's element is wide as the room: what is over the gap is the page's, not the editor's.)
+    assert_eq!(host.cursor(Point::new(20.0, 4.0 + 2.0 * ROW + 5.0)), None);
+    assert_eq!(
+        host.cursor(Point::new(20.0, 4.0 + 7.0 * ROW)),
+        Some(Cursor::Arrow)
+    );
+    host.editors.take_events();
+    host.press(Point::new(20.0, 4.0 + 4.0 * ROW + 5.0), none(), 1);
+    assert_eq!(
+        host.gutter_events()
+            .iter()
+            .map(|e| e.line)
+            .collect::<Vec<_>>(),
+        vec![2]
+    );
+    host.editors.release();
+    // A marker in a column of the editor's own is not drawn, and is not there to be pressed.
+    host.hover(Some(Point::new(9.0, 6.0)));
+    assert_eq!(host.cursor(Point::new(9.0, 6.0)), Some(Cursor::Arrow));
+    assert!(host.gutter_events().is_empty());
+}
+
+#[test]
+fn a_zone_that_takes_the_name_of_another_at_the_same_line_and_height_is_the_one_named() {
+    let (a, b) = (Id::named("a"), Id::named("b"));
+    let mut host = Host::new(page_with(columns()));
+    host.load("a\nb");
+    host.decorate(
+        "z",
+        vec![Decoration::new(
+            0,
+            0,
+            Mark::Zone(Zone { id: a, height: ROW }),
+        )],
+    );
+    assert_eq!(
+        host.editors
+            .zones(EDITOR)
+            .iter()
+            .map(|z| z.0)
+            .collect::<Vec<_>>(),
+        vec![a]
+    );
+    host.decorate(
+        "z",
+        vec![Decoration::new(
+            0,
+            0,
+            Mark::Zone(Zone { id: b, height: ROW }),
+        )],
+    );
+    assert_eq!(
+        host.editors
+            .zones(EDITOR)
+            .iter()
+            .map(|z| z.0)
+            .collect::<Vec<_>>(),
+        vec![b]
+    );
+}
+
+#[test]
+fn what_the_pointer_is_over_is_found_again_when_the_text_scrolls_under_it() {
+    let mut options = columns();
+    options.gutters[1].events = Some(ColumnEvents {
+        press: true,
+        menu: false,
+        hover: true,
+    });
+    let mut host = Host::new(page_with(options));
+    let lines: Vec<String> = (0..40).map(|n| format!("l{n}")).collect();
+    host.load(&lines.join("\n"));
+    host.editors.take_events();
+    host.hover(Some(Point::new(20.0, 4.0 + 2.0 * ROW + 3.0)));
+    assert_eq!(
+        host.gutter_events()
+            .iter()
+            .map(|e| (e.kind, e.line))
+            .collect::<Vec<_>>(),
+        vec![(GutterKind::Enter, 2)]
+    );
+    // Scrolled three rows: what is under the pointer is line 5, and the page is told so.
+    host.scrolls.ask(pencere_view::ScrollTo {
+        id: EDITOR,
+        x: None,
+        y: Some(3.0 * ROW),
+        animate: false,
+    });
+    host.settle();
+    assert_eq!(
+        host.gutter_events()
+            .iter()
+            .map(|e| (e.kind, e.line))
+            .collect::<Vec<_>>(),
+        vec![(GutterKind::Leave, 2), (GutterKind::Enter, 5)]
+    );
+}

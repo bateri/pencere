@@ -1561,6 +1561,7 @@ fn editor_options_out(
         gutters: options
             .gutters
             .iter()
+            .take(limits::COLUMNS)
             .map(gutter_column_out)
             .collect::<Result<Vec<_>, _>>()?,
         marks: MarkLooks {

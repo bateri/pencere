@@ -134,6 +134,9 @@ pub struct Editors {
     relayout: bool,
     /// Something only drawn changed (the gutter mark the pointer is over).
     redraw: bool,
+    /// Where the pointer last was, points of the page: what it is over is found again when the
+    /// page is laid out (a scroll, an edit and a fold move what is under it).
+    pointer: Option<Point>,
     drag: Option<Drag>,
     scale: f32,
 }
@@ -290,6 +293,7 @@ impl Editors {
     /// in an empty cell), and the page is told of the pointer's coming to a cell and going from it
     /// where the column says it hears that.
     pub fn hover(&mut self, laid: &Laid, at: Option<Point>) {
+        self.pointer = at;
         let found = at.and_then(|at| {
             let (id, point) = self.under(laid, at)?;
             let editor = self.editors.get(&id)?;
@@ -468,6 +472,19 @@ impl Editors {
     /// After the page was laid out: an editor for each room there, new ones empty, those whose room
     /// went gone with their documents; each laid out where its room is scrolled.
     pub fn sync(&mut self, laid: &Laid, measure: &mut dyn Measure) {
+        self.sync_editors(laid, measure);
+        // What is under the pointer may not be what was: the text scrolled, grew or folded.
+        if self.pointer.is_some() {
+            self.hover(laid, self.pointer);
+        }
+    }
+
+    /// What the pointer is over, found again where it last was: the shape it has there.
+    pub fn cursor_here(&self, laid: &Laid) -> Option<Cursor> {
+        self.pointer.and_then(|at| self.cursor_at(laid, at))
+    }
+
+    fn sync_editors(&mut self, laid: &Laid, measure: &mut dyn Measure) {
         let rooms = laid.editors();
         self.scale = laid.scale();
         self.editors

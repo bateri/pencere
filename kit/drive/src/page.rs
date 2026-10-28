@@ -810,9 +810,7 @@ impl Page {
         let Some(room) = laid.editors().into_iter().find(|room| room.id == id) else {
             return Vec::new();
         };
-        let scroll = laid
-            .scroll_extent(id)
-            .map_or((0.0, 0.0), |extent| (extent.offset.x, extent.offset.y));
+        let scroll = laid.scroll_extent(id).map_or(0.0, |extent| extent.offset.y);
         self.state
             .editing
             .editors
@@ -820,8 +818,8 @@ impl Page {
             .into_iter()
             .map(|(zone, rect)| {
                 let at = Rect::new(
-                    room.pixels.x / s + rect.x / s - scroll.0,
-                    room.pixels.y / s + rect.y / s - scroll.1,
+                    room.pixels.x / s + rect.x / s,
+                    room.pixels.y / s + rect.y / s - scroll,
                     rect.w / s,
                     rect.h / s,
                 );
@@ -1106,6 +1104,9 @@ impl State {
             // again, the page asked nothing.
             for pass in 0..=RELAYOUTS {
                 self.editing.settle(&laid, measure, at.now);
+                // What is under the pointer may not be what was (the text scrolled, grew or
+                // folded): its shape is found again.
+                self.cursor_over = self.editing.editors.cursor_here(&laid);
                 if !self.editing.editors.wants_layout() && !laid.wants_layout() {
                     break;
                 }
