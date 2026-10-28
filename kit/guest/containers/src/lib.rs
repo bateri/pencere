@@ -43,8 +43,11 @@ const UPLOAD_BYTES: usize = 4 << 20;
 /// How much of it one message carries.
 const CHUNK: usize = 48 << 10;
 
-/// The call number of the last chunk: the program answers that one, with how much it counted.
-const LAST_CALL: u64 = UPLOAD_BYTES.div_ceil(CHUNK) as u64;
+/// The call numbers of the chunks, the first's and the last's: the program answers the last with
+/// how much it counted. They come after the subscription's ([`STATS`]): no two requests of a page
+/// share a number (protocol, Section 9.2).
+const FIRST_CALL: u64 = STATS + 1;
+const LAST_CALL: u64 = FIRST_CALL + UPLOAD_BYTES.div_ceil(CHUNK) as u64 - 1;
 
 /// The most chunks the page says in one call: a call may say 32 messages and is closed if it
 /// says more, and the room the program has is not a reason to say them all at once.
@@ -52,7 +55,7 @@ const PER_CALL: usize = 8;
 
 /// The payload on its way out.
 struct Upload {
-    /// The call number of the next chunk, from 1.
+    /// The number of the next chunk, from 1.
     next: u64,
     /// Bytes of data the program has been told of so far.
     told: usize,
@@ -79,10 +82,13 @@ impl Upload {
         }
         let size = CHUNK.min(UPLOAD_BYTES - offered);
         let last = offered + size >= UPLOAD_BYTES;
-        let call = self.next;
+        let seq = self.next;
         self.next += 1;
-        let params = json!({ "seq": call, "data": "x".repeat(size), "last": last });
-        Some((Message::call(call, "upload", params).text(), size))
+        let params = json!({ "seq": seq, "data": "x".repeat(size), "last": last });
+        Some((
+            Message::call(FIRST_CALL + seq - 1, "upload", params).text(),
+            size,
+        ))
     }
 
     /// Says what it can of the payload: stops at the call's own limit, and when the program has

@@ -1632,9 +1632,12 @@ local CHUNK = 48 * 1024
 -- The most chunks the page says in one call: a call may say 32 messages and is closed if it says
 -- more, and the room the program has is not a reason to say them all at once.
 local PER_CALL = 8
--- The number of the call that carries the last chunk: the program answers that one, with how
--- much it counted.
-local LAST_CALL = (UPLOAD_BYTES + CHUNK - 1) // CHUNK
+-- The numbers of the calls that carry the chunks, the first's and the last's: the program answers
+-- the last with how much it counted. The page says these itself (`pencere.send`), and the library
+-- numbers what it says for the page (`pencere.subscribe`, `pencere.call`) from 1: the chunks are
+-- numbered far past those, for no two requests of a page share a number (protocol, Section 9.2).
+local FIRST_CALL = 1000000
+local LAST_CALL = FIRST_CALL + (UPLOAD_BYTES + CHUNK - 1) // CHUNK - 1
 
 -- The payload on its way out.
 local Upload = {}
@@ -1660,10 +1663,10 @@ function Upload:chunk(offered)
 	end
 	local size = math.min(CHUNK, UPLOAD_BYTES - offered)
 	local last = offered + size >= UPLOAD_BYTES
-	local call = self.next
+	local seq = self.next
 	self.next += 1
-	local params = { seq = call, data = string.rep("x", size), last = last }
-	return { size = size, message = { call = { id = call, method = "upload", params = params } } }
+	local params = { seq = seq, data = string.rep("x", size), last = last }
+	return { size = size, message = { call = { id = FIRST_CALL + seq - 1, method = "upload", params = params } } }
 end
 
 -- Says what it can of the payload: stops at the call's own limit, and when the program has no
