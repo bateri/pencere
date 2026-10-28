@@ -32,6 +32,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # A step that hangs ends the job here, not at the platform's six hours: the next push to the
+    # branch waits behind this run in its concurrency group.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
