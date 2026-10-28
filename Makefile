@@ -30,6 +30,11 @@ check:
 	# The tests' standard input is no terminal, as on a runner: a test of an app with no terminal
 	# would otherwise ask the terminal make runs in for a view, and one that answers changes it.
 	cargo test --workspace --all-targets </dev/null
+	# The pictures of a page (`pencere-drive`'s feature `shot`), which nothing of the workspace asks
+	# for: linted and tested on their own, with no font of the system's — a picture made with no font
+	# is the same bytes on every system, and the one checked in is what it is held to.
+	cargo clippy -p pencere-drive --features shot --all-targets -- -D warnings
+	cargo test -p pencere-drive --features shot --all-targets </dev/null
 	npx prettier --check .
 	npx vitest run --passWithNoTests
 
@@ -100,6 +105,7 @@ guest:
 # run on. Needs rustup with the wasm32 target (see `guest`); `luau` (Docker) is not part of it.
 check-heavy: guest
 	cargo test --workspace --all-targets -- --ignored </dev/null
+	cargo test -p pencere-drive --features shot --lib shot_tests -- --ignored </dev/null
 	$(GUEST_CARGO) clippy --manifest-path kit/guest/Cargo.toml --all-targets --target wasm32-unknown-unknown -- -D warnings
 
 # The interpreter of the scripting language (`kit/sandbox/luau/luau.wasm`): Luau, the bridge that

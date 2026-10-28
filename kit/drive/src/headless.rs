@@ -40,7 +40,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use pencere_editor::Buffer;
-use pencere_sandbox::{Answer, Assets, Fault, Images, ModuleLimits, Program, Script};
+use pencere_sandbox::{Answer, Assets, Fault, Images, ModuleLimits, Program, Runner, Script};
 use pencere_view::wire::Kind;
 use pencere_view::{
     Button, Cursor, DrawList, Element, Event, Font, Id, Input, Key, Keyboard, Laid, Measure, Menu,
@@ -212,7 +212,12 @@ enum Source {
         files: Arc<dyn Assets>,
         entry: String,
     },
+    /// A module the test makes: the page started with what the host sets up.
+    Spawn(Box<dyn FnOnce(Setup, Wake) -> Page>),
 }
+
+/// What wakes the host, from the module's thread.
+type Wake = Box<dyn Fn() + Send + Sync>;
 
 /// A page about to be opened under the headless host: how large its view is, what measures its text,
 /// who its program is. [`Opening::open`] opens it.
@@ -352,6 +357,16 @@ impl Headless<Calls> {
     pub fn component(bytes: Vec<u8>) -> Opening<Calls> {
         Opening::new(Source::Component(bytes))
     }
+
+    /// A page that is a module the test makes (`make` runs on the module's thread): a page written
+    /// in Rust, run as a module is ([`Page::spawn`]).
+    pub fn spawn<R: Runner>(
+        make: impl FnOnce() -> Result<R, Fault> + Send + 'static,
+    ) -> Opening<Calls> {
+        Opening::new(Source::Spawn(Box::new(move |setup, wake| {
+            Page::spawn(make, setup, wake)
+        })))
+    }
 }
 
 impl Opening<Calls> {
@@ -473,6 +488,7 @@ impl<P: Peer> Opening<P> {
         let mut page = match self.source {
             Source::Script(script) => Page::script(script, setup, wake),
             Source::Component(bytes) => Page::component(bytes, setup, wake),
+            Source::Spawn(start) => start(setup, Box::new(wake)),
             Source::Bundle { files, entry } => {
                 let source = files
                     .read(&entry)
@@ -719,17 +735,8 @@ impl<P: Peer> Headless<P> {
 
     /// A frame of the page, now.
     fn frame(&mut self) {
-        let pixels = |points: f32| {
-            #[allow(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                clippy::cast_lossless
-            )]
-            let pixels = (f64::from(points) * self.scale).round().max(0.0) as u32;
-            pixels
-        };
         let at = FrameAt {
-            size: (pixels(self.size.w), pixels(self.size.h)),
+            size: (self.pixels(self.size.w), self.pixels(self.size.h)),
             scale: self.scale,
             now: self.now(),
             reduce_motion: self.reduce_motion,
@@ -1427,6 +1434,46 @@ impl<P: Peer> Headless<P> {
             .laid()?
             .bounds(Id::named(name))
             .map(|rect| place.to_host(rect))
+    }
+
+    /// A picture of the page as the last frame drew it: a PNG of the view's pixels, the words in
+    /// `fonts` (the page laid out with the same, [`Opening::measure`], for its words to fill their
+    /// boxes; [`crate::shot::Fonts::none`] draws each character as a box, the same on every
+    /// machine), in a dark terminal's colours.
+    ///
+    /// # Errors
+    ///
+    /// A view of no pixels, or a picture that could not be written.
+    #[cfg(feature = "shot")]
+    pub fn shot(&self, fonts: &crate::shot::Fonts) -> Result<Vec<u8>, crate::shot::Error> {
+        self.shot_in(fonts, crate::shot::Palette::Dark)
+    }
+
+    /// A picture of the page as [`Headless::shot`] makes it, in the colours of `palette`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::shot`].
+    #[cfg(feature = "shot")]
+    pub fn shot_in(
+        &self,
+        fonts: &crate::shot::Fonts,
+        palette: crate::shot::Palette,
+    ) -> Result<Vec<u8>, crate::shot::Error> {
+        crate::shot::png(
+            &self.list,
+            (self.pixels(self.size.w), self.pixels(self.size.h)),
+            fonts,
+            self.page.images(),
+            palette,
+        )
+    }
+
+    /// `points` of the view in its pixels.
+    fn pixels(&self, points: f32) -> u32 {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let pixels = (f64::from(points) * self.scale).round().max(0.0) as u32;
+        pixels
     }
 
     /// The last frame's draw list (pixels, from the top-left corner of the view).

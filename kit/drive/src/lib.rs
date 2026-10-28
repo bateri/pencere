@@ -21,6 +21,8 @@ mod host;
 mod outline;
 mod page;
 mod scrolling;
+#[cfg(feature = "shot")]
+pub mod shot;
 mod waking;
 
 pub use host::{Drained, Host};
@@ -35,3 +37,5 @@ mod headless_tests;
 mod luau_editor_tests;
 #[cfg(test)]
 mod page_tests;
+#[cfg(all(test, feature = "shot"))]
+mod shot_tests;

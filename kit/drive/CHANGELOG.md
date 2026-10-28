@@ -66,3 +66,8 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
   nothing by the clock: the sandbox says when the page has done what it was told, the images when
   they are decoded. The program is a `Peer`; `Calls` is a table of calls in this process. A page's
   files come from a directory (`Files`, `Files::app`). What cannot be done is an `Error` in words.
+- **Pictures of a page** (the feature `shot`): `Headless::shot` and `shot::png` draw a frame's list
+  into a PNG in the caller's fonts (`shot::Fonts`, which measure as they draw) and a terminal's
+  theme (`shot::Palette`); with no font each character is a box, and the picture is the same bytes
+  on every machine. A page written in Rust opens under the host with no screen too
+  (`Headless::spawn`).

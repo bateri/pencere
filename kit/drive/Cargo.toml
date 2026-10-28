@@ -11,7 +11,7 @@ keywords = ["terminal", "pencere", "ui", "testing"]
 categories = ["gui", "development-tools::testing"]
 # The tests of `src/` read the example pages of the repository, which a crate does not carry.
 include = [
-    "src/**", "!src/*_tests.rs",
+    "src/**", "!src/*_tests.rs", "!src/fixtures/**",
     "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE",
 ]
 
@@ -29,6 +29,15 @@ pencere-wire = { path = "../../wire", version = "0.3.1" }
 # The values of those messages, which a test's handlers take and return. Already in the graph by
 # the wire.
 serde_json = "1"
+tiny-skia = { version = "0.12", optional = true }
+fontdue = { version = "0.9", optional = true, default-features = false, features = ["std", "simd"] }
+
+# Pictures of a page for the eye (`shot`), off unless asked: the draw list rasterised by tiny-skia
+# (BSD-3-Clause; the SVG renderer's own, already in the graph by the sandbox, with its PNG encoder)
+# and the caller's fonts read by fontdue (MIT, Apache-2.0 or Zlib, with ttf-parser, MIT or
+# Apache-2.0). A terminal that drives pages has no use for either and links neither (`make check`).
+[features]
+shot = ["dep:tiny-skia", "dep:fontdue"]
 
 [lints]
 workspace = true

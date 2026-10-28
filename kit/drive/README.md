@@ -141,7 +141,7 @@ timers, a search's `found`, a language read a piece at a time are as determined 
 | `select(from, to)`                       | `select(editor, from, to)`                                                                                  |
 | `fold()`                                 | `edit(EditCommand::ToggleFold)`                                                                             |
 | `scroll(id, y)`                          | `scroll_to(id, y)`                                                                                          |
-| `shot(name)`                             | —                                                                                                           |
+| `shot(name)`                             | `shot(&fonts)` (the feature `shot`): the PNG's bytes                                                        |
 | `text()`                                 | `editor_text(editor)`                                                                                       |
 | `words()` (the page's tree)              | `tree_words()`; what is drawn: `words()`                                                                    |
 | `says(words)`                            | `says(text)` (drawn words)                                                                                  |
@@ -150,6 +150,29 @@ timers, a search's `found`, a language read a piece at a time are as determined 
 | `press(id, count)`                       | `click(id)`, `double_click(id)`                                                                             |
 | the pointer's shape (`cursor`)           | `cursor()`                                                                                                  |
 | `now`                                    | `now()`; moved by `advance`, `step`, `idle`, `hide`                                                         |
+
+## Pictures of a page (`shot`)
+
+With the feature `shot`, `Headless::shot(&fonts)` draws the last frame into a PNG (and
+`shot::png` any draw list): the boxes, the words, the colours of a dark or a light terminal's theme
+(`Palette`), the canvases, the pictures and the editors where the kit put them — what an eye checks
+(what is aligned, what overlaps, what is cut). It is not a terminal's drawing: no shaping, no
+shadows, no blur.
+
+The fonts are the caller's: `shot::Fonts::none().terminal(&bytes)?.system(&bytes)?`, which measure
+as they draw (open the page with `.measure(fonts.clone())`, so that its words fill the boxes they
+were measured for). With no font each character is a box a character wide, and the picture is the
+same bytes on every machine: a test can hold a picture to one checked in, and `make check` needs no
+font of its system.
+
+```rust
+let fonts = Fonts::none().terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc")?)?;
+let page = Headless::app("examples/editor-lua").measure(fonts.clone()).scale(2.0).open()?;
+std::fs::write("target/editor.png", page.shot(&fonts)?)?;
+```
+
+The pictures are drawn with tiny-skia and the fonts read with fontdue; a terminal that drives pages
+links neither.
 
 ## License
 
