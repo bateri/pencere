@@ -66,6 +66,53 @@ fn the_lua_projects_are_made_with_the_layout_and_build_into_dist_and_run() {
     }
 }
 
+/// `pencere test` in `directory`, with the runner of tests the workspace builds beside the command.
+fn tested(directory: &Path) -> (bool, String) {
+    let runner = Path::new(env!("CARGO_BIN_EXE_pencere")).with_file_name("pencere-test");
+    assert!(
+        runner.is_file(),
+        "{} is not built: cargo test --workspace builds it, with the command",
+        runner.display()
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_pencere"))
+        .args(["test", "--reporter", "tap"])
+        .env("PENCERE_TEST", &runner)
+        .current_dir(directory)
+        .stdin(Stdio::null())
+        .output()
+        .expect("pencere runs");
+    (
+        output.status.success(),
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ),
+    )
+}
+
+#[test]
+#[ignore = "heavy: the tests of a project open pages, which compiles the interpreter"]
+fn the_tests_a_project_comes_with_pass_under_pencere_test() {
+    for (name, arguments, count) in [
+        ("lua", vec!["new", "hello"], 3),
+        (
+            "ts-kit",
+            vec!["new", "hello", "--lang", "ts", "--page", "lua"],
+            2,
+        ),
+    ] {
+        let directory = fresh(name);
+        let (made, said) = pencere(&directory, &arguments);
+        assert!(made, "{name}: {said}");
+        let (passed, said) = tested(&directory.join("hello"));
+        assert!(passed, "{name}: {said}");
+        assert!(said.contains(&format!("1..{count}")), "{name}: {said}");
+        assert!(!said.contains("not ok"), "{name}: {said}");
+        let _ = fs::remove_dir_all(&directory);
+    }
+}
+
 #[test]
 fn the_page_can_come_from_a_build_directory_and_the_app_can_be_named() {
     let directory = fresh("web-and-name");

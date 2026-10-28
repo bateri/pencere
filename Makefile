@@ -171,7 +171,7 @@ dist:
 # The parts of `dist` that the release workflow runs, each on the machine that suits it: one Linux
 # executable (ARCH=x86_64 or aarch64) in a container of that architecture, the two macOS ones
 # (DIST_TOOLCHAIN names the rustup toolchain; the workflow's is the one the gate runs with), and
-# SHA256SUMS once the four are in dist/.
+# SHA256SUMS once the eight are in dist/.
 dist-linux:
 	@test -n "$(ARCH)" || { echo "usage: make dist-linux ARCH=<x86_64|aarch64>"; exit 2; }
 	$(DIST_ENV) tools/dist.sh linux $(ARCH)

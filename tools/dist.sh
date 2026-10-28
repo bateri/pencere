@@ -7,7 +7,8 @@
 #                            tools/linux/Dockerfile and tried in it
 #   tools/dist.sh macos      the two macOS executables, cross-built by one compiler, tried where this
 #                            Mac can run them
-#   tools/dist.sh sums       SHA256SUMS, once all four executables are there
+#   tools/dist.sh sums       SHA256SUMS, once all eight executables (the command and
+#                            the runner of tests, for four targets) are there
 #   tools/dist.sh runner TARGET [OUT]
 #                            the runner of one target into OUT (target/runners/pencere-TARGET),
 #                            for `pencere build --target TARGET --runner OUT`
@@ -19,7 +20,7 @@
 #
 # The executables are the runner `pencere build` copies for a target, so they are named for the
 # release that serves them: pencere-<version>-<target>. dist/ is rebuilt from nothing by `all` and
-# by `linux` and `macos` on their own, and SHA256SUMS is written last and only when all four
+# by `linux` and `macos` on their own, and SHA256SUMS is written last and only when all eight
 # executables are there: a dist/ without SHA256SUMS is a build that did not finish.
 #
 # Linux: static musl executables. The executable makes the example app in the container, and the
@@ -46,6 +47,12 @@ fail() {
 
 name_of() {
     printf 'pencere-%s-%s' "$DIST_VERSION" "$1"
+}
+
+# The runner of tests (pencere-test), built beside the command for the same targets: it links the
+# kit, which the command that is copied into every app must not, so it is a file of its own.
+test_name_of() {
+    printf 'pencere-test-%s-%s' "$DIST_VERSION" "$1"
 }
 
 hash_of() {
@@ -101,6 +108,12 @@ linux_build() {
         -e RUSTFLAGS="-C target-feature=+crt-static" "$image" \
         cargo build --release --locked -p pencere-cli "$@" --target "$target"
     cp "target/dist-$arch/$target/release/pencere" "$out"
+    # The runner of tests, if it was built with the command (-p pencere-test): next to it, by its
+    # own name, and checked the same way below.
+    if [ -f "target/dist-$arch/$target/release/pencere-test" ]; then
+        test_out="$(dirname "$out")/$(test_name_of "$target")"
+        cp "target/dist-$arch/$target/release/pencere-test" "$test_out"
+    fi
 
     held=$(cd "$(dirname "$out")" && pwd)
     file=$(basename "$out")
@@ -117,6 +130,21 @@ linux_build() {
     shown=$(docker run --rm --platform "$platform" -v "$held":/out:ro "$image" "/out/$file" --version)
     echo "$shown"
     [ "$shown" = "pencere $DIST_VERSION" ] || fail "$out says '$shown', not version $DIST_VERSION"
+    if [ -n "${test_out:-}" ]; then
+        described=$(docker run --rm --platform "$platform" -v "$held":/out:ro "$image" file "/out/$(basename "$test_out")")
+        echo "$described"
+        case $described in
+            *"statically linked"* | *"static-pie linked"*) ;;
+            *) fail "$test_out is not statically linked" ;;
+        esac
+        case $described in
+            *"$want"*) ;;
+            *) fail "$test_out is not a $arch executable" ;;
+        esac
+        shown=$(docker run --rm --platform "$platform" -v "$held":/out:ro "$image" "/out/$(basename "$test_out")" --version)
+        echo "$shown"
+        [ "$shown" = "pencere-test $DIST_VERSION" ] || fail "$test_out says '$shown', not version $DIST_VERSION"
+    fi
 }
 
 linux() {
@@ -124,7 +152,7 @@ linux() {
     target="$arch-unknown-linux-musl"
     name=$(name_of "$target")
     # The stand-in terminal is built with the command, to try it against.
-    linux_build "$arch" "dist/$name" -p pencere-fake-host
+    linux_build "$arch" "dist/$name" -p pencere-fake-host -p pencere-test
 
     # What a person does with it: makes an app of the example with this executable, and runs the
     # app in the pane of the stand-in terminal.
@@ -171,8 +199,9 @@ macos_build() {
     echo "==> $1"
     # The toolchain's own compiler, named: `rustup run` leaves a Homebrew rustc that is earlier
     # on PATH in front of it, and that one has no Apple targets but its own.
-    RUSTC="$rustc" "$cargo" build --release --locked -p pencere-cli --target "$1"
+    RUSTC="$rustc" "$cargo" build --release --locked -p pencere-cli -p pencere-test --target "$1"
     cp "target/$1/release/pencere" "$2"
+    cp "target/$1/release/pencere-test" "$(dirname "$2")/$(test_name_of "$1")"
 }
 
 # What this Mac can run of OUT, the executable for TARGET, is run: its own, and the Intel one if
@@ -184,10 +213,17 @@ macos_try() {
             [ "$shown" = "pencere $DIST_VERSION" ] || fail "$2 says '$shown', not version $DIST_VERSION"
             codesign --verify "$2" || fail "$2 does not pass codesign --verify"
             echo "    the Apple silicon executable ran and passes codesign --verify"
+            tested="$(dirname "$2")/$(test_name_of "$1")"
+            shown=$("$tested" --version)
+            [ "$shown" = "pencere-test $DIST_VERSION" ] || fail "$tested says '$shown', not version $DIST_VERSION"
+            echo "    the runner of tests ran"
             ;;
         x86_64-apple-darwin)
             if shown=$(arch -x86_64 "$2" --version 2>/dev/null); then
                 [ "$shown" = "pencere $DIST_VERSION" ] || fail "the Intel Mac executable says '$shown'"
+                tested="$(dirname "$2")/$(test_name_of "$1")"
+                shown=$(arch -x86_64 "$tested" --version 2>/dev/null) || fail "the runner of tests for the Intel Mac did not run"
+                [ "$shown" = "pencere-test $DIST_VERSION" ] || fail "the Intel Mac runner of tests says '$shown'"
                 echo "    the Intel executable ran (under Rosetta)"
             else
                 echo "dist: the Intel Mac executable was not run (this Mac cannot run it)"
@@ -239,9 +275,12 @@ sums() {
         cd dist
         for target in $LINUX_TARGETS $MACOS_TARGETS; do
             [ -s "$(name_of "$target")" ] || fail "dist/$(name_of "$target") is missing"
+            [ -s "$(test_name_of "$target")" ] || fail "dist/$(test_name_of "$target") is missing"
         done
         hash_of "$(name_of aarch64-apple-darwin)" "$(name_of x86_64-apple-darwin)" \
-            "$(name_of aarch64-unknown-linux-musl)" "$(name_of x86_64-unknown-linux-musl)" >SHA256SUMS
+            "$(name_of aarch64-unknown-linux-musl)" "$(name_of x86_64-unknown-linux-musl)" \
+            "$(test_name_of aarch64-apple-darwin)" "$(test_name_of x86_64-apple-darwin)" \
+            "$(test_name_of aarch64-unknown-linux-musl)" "$(test_name_of x86_64-unknown-linux-musl)" >SHA256SUMS
     )
     ls -l dist
 }

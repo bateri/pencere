@@ -18,6 +18,7 @@ mod macho;
 mod new;
 mod payload;
 mod runtime;
+mod test_cmd;
 mod upgrade;
 
 use std::process::ExitCode;
@@ -37,7 +38,9 @@ pencere: apps that show a view in the terminal pane they run in
 usage:
   pencere new <name> [--lang lua|ts|rust] [--page lua|web]
                                              make a project to start from (--page: the view of a
-                                             Lua project is a page of the kit, or a web page)
+                                             Lua or TypeScript project is a page of the kit, or a
+                                             web page; a Lua project's is a page of the kit unless
+                                             told, a TypeScript project's is a web page)
   pencere dev [dir] [--web DIR] [--name NAME] [--log FILE]
                                              run the app in dir (default .) in this pane, and run
                                              it again when its files change; a Cargo package (a
@@ -47,6 +50,13 @@ usage:
                                              make one executable of the app in dir; a Cargo
                                              package is built by Cargo (--release, --target passed
                                              on) and its program copied to dist/
+  pencere test [FILE[:LINE] | DIR]... [--grep TEXT] [--jobs N] [--timeout SECONDS]
+               [--reporter pretty|tap] [--junit FILE] [--artifacts DIR]
+                                             run the tests of the app (test/*_test.lua, Lua) with its
+                                             page under a host with no screen, as a person would use
+                                             it; the runner of tests is a program of its own,
+                                             pencere-test, the one beside this command or this
+                                             version's release (PENCERE_TEST names another)
   pencere upgrade [--check] [--version X.Y.Z]
                                              replace this command with the newest release of it
                                              (or X.Y.Z), checked against the release's SHA256SUMS;
@@ -86,6 +96,7 @@ fn command(args: Vec<String>) -> ExitCode {
         "new" => new::command(&rest),
         "dev" => dev::command(&rest),
         "build" => build_cmd::command(&rest),
+        "test" => test_cmd::command(&rest),
         "upgrade" => upgrade::command(&rest),
         "--version" | "-V" | "version" => {
             println!("pencere {}", env!("CARGO_PKG_VERSION"));

@@ -127,6 +127,11 @@ struct Progress {
     shown: usize,
 }
 
+/// How long a worker is given for a stretch of its file: a test's own time and the grace.
+fn limit(seconds: f64) -> Duration {
+    Duration::try_from_secs_f64(seconds).unwrap_or(Duration::from_secs(30)) + GRACE
+}
+
 fn spawn(
     exe: &Path,
     id: usize,
@@ -371,6 +376,9 @@ fn execute(
                     .is_ok()
             });
             worker.file = Some(next);
+            // The file is loaded, and what runs between its tests, within a test's time and its
+            // grace: a loop at the top of a file is no test and has no timeout of its own.
+            worker.by = Some(Instant::now() + limit(job.timeout));
             if !sent && let Some(item) = progress.get_mut(next) {
                 item.result.error = Some("the worker cannot be reached".to_owned());
                 item.finished = true;
@@ -396,6 +404,9 @@ fn execute(
                 };
                 match event.get("ev").and_then(Value::as_str).unwrap_or("") {
                     "plan" => {
+                        worker.by = Some(
+                            Instant::now() + limit(jobs.get(file).map_or(30.0, |job| job.timeout)),
+                        );
                         item.planned = event
                             .get("tests")
                             .and_then(Value::as_array)
@@ -408,12 +419,7 @@ fn execute(
                     }
                     "start" => {
                         let seconds = event.get("timeout").and_then(Value::as_f64).unwrap_or(30.0);
-                        worker.by = Some(
-                            Instant::now()
-                                + Duration::try_from_secs_f64(seconds)
-                                    .unwrap_or(Duration::from_secs(30))
-                                + GRACE,
-                        );
+                        worker.by = Some(Instant::now() + limit(seconds));
                         item.running = Some((
                             string(&event, "name").unwrap_or_default(),
                             event
@@ -424,7 +430,9 @@ fn execute(
                         ));
                     }
                     "test" => {
-                        worker.by = None;
+                        worker.by = Some(
+                            Instant::now() + limit(jobs.get(file).map_or(30.0, |job| job.timeout)),
+                        );
                         item.running = None;
                         item.result.tests.push(test_of(&event));
                     }
@@ -541,8 +549,11 @@ fn end_early(item: &mut Progress, killed: bool) {
         }
     }
     if item.result.error.is_none() && item.planned.is_empty() && item.result.tests.is_empty() {
-        item.result.error =
-            Some("the process that ran the file ended before any test ran".to_owned());
+        item.result.error = Some(if killed {
+            "the file did not finish loading in time, and its process was ended (a loop at the top of the file?)".to_owned()
+        } else {
+            "the process that ran the file ended before any test ran".to_owned()
+        });
     }
     item.finished = true;
 }

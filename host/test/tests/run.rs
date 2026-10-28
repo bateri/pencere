@@ -357,6 +357,28 @@ test(\"never reached\", function() end)\n",
 }
 
 #[test]
+fn a_file_that_never_finishes_loading_is_ended_with_its_process_and_the_run_goes_on() {
+    let app = App::new(
+        "loading",
+        &[
+            ("test/a_loop_test.lua", "while true do end\n"),
+            (
+                "test/b_good_test.lua",
+                "local test = require(\"pencere.test\")\ntest(\"fine\", function() end)\n",
+            ),
+        ],
+    );
+    let (code, text) = tap(&app, &["--timeout", "0.5", "--jobs", "1"]);
+    assert_eq!(code, 1, "{text}");
+    assert!(
+        text.contains("not ok 1 - test/a_loop_test.lua: the file did not run")
+            && text.contains("did not finish loading in time"),
+        "{text}"
+    );
+    assert!(text.contains("ok 2 - test/b_good_test.lua: fine"), "{text}");
+}
+
+#[test]
 fn the_tests_of_an_app_see_its_program_and_its_own_helpers_before_them_and_never_a_file_that_takes_the_modules_name()
  {
     let app = App::new(
@@ -573,10 +595,10 @@ test("the terminal is lent to the editor and given back", function()
 	expect(tostring(err)):to_contain("lent the terminal to `vim`")
 	expect(page:lent()):to_equal({ program = "vim", args = { "notes.txt" } })
 	page:give_back(3)
+	page:reopen()
 	page:wait_for(function()
 		return string.find(page:log(), "the editor ended\t3", 1, true) ~= nil
 	end)
-	page:reopen()
 	expect(page:lent()):to_be_nil()
 	expect(page):to_say("Press the button.")
 end)
@@ -709,6 +731,39 @@ fn the_page_of_a_cargo_package_is_tested_with_the_program_it_builds_on_a_pty() {
         text.contains("ok 3 - test/page_test.lua: the app's own program answers the page"),
         "{text}"
     );
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn the_page_of_a_typescript_project_is_tested_with_stand_ins_and_its_program_is_named_not_guessed()
+{
+    // The project `pencere new --lang ts --page lua` makes: the pictures are in the view's directory.
+    let app = App::new("typescript", &[]);
+    let _ = std::fs::remove_file(app.dir.join("src/program/app.lua"));
+    app.write("src/program/main.ts", "// the program\n");
+    app.write("src/view/page.lua", &PAGE.replace("{{name}}", "ts-app"));
+    app.write("src/view/assets/icon.svg", ICON);
+    app.write(
+        "test/page_test.lua",
+        &include_str!("../../../cli/templates/ts-lua/test/page_test.lua")
+            .replace("{{name}}", "ts-app"),
+    );
+    app.write(
+        "test/program_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("a program in another language is named, and the test is told when it is not", function()
+	local ok, err = pcall(test.open)
+	expect(ok):to_be(false)
+	expect(tostring(err)):to_contain("is not in Lua or a Cargo package")
+	expect(tostring(err)):to_contain("command")
+end)
+"#,
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
+    assert!(text.contains("1..3"), "{text}");
 }
 
 #[test]

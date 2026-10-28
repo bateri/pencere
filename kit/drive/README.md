@@ -196,6 +196,13 @@ The program's back-pressure is the conversation's: the host takes what it said a
 (64 KiB) at a time, and a handler that pushes faster waits, as it would for a terminal. A page's own (`pencere.send` answered `false`, then `room`) is
 not played: the headless host takes everything a page says at once.
 
+## Tested from Lua
+
+`pencere test` is this host with no screen driven from Lua: the page of an app opened with a
+stand-in program, the app's own or a program on a pty, found by words and roles, and looked at with
+`expect` (the command's README, "Testing an app"). It adds nothing to this crate but what a test
+that waits in its own way needs: `Headless::tick` and `Headless::fill_field`.
+
 ## Pictures of a page (`shot`)
 
 With the feature `shot`, `Headless::shot(&fonts)` draws the last frame into a PNG (and

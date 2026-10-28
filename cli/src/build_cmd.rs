@@ -24,10 +24,10 @@ pub const TARGETS: [&str; 4] = [
 ];
 
 /// The target this runner was built for.
-const OWN: &str = env!("PENCERE_TARGET");
+pub const OWN: &str = env!("PENCERE_TARGET");
 
 /// The version of this runner: the release it came from names the runners of the other targets.
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Where the releases are, unless `PENCERE_RELEASES` says otherwise (a mirror, or a directory
 /// for a test).
@@ -100,8 +100,31 @@ fn download(target: &str) -> Result<Vec<u8>, String> {
 }
 
 fn download_from(base: &str, directory: &Path, target: &str) -> Result<Vec<u8>, String> {
-    let file = release_file(target);
-    let kept = directory.join(&file);
+    download_file(
+        base,
+        directory,
+        &release_file(target),
+        &format!("the runner for {target}"),
+    )
+}
+
+/// A file of the release of this version, other than a runner an app is made of, kept in the cache
+/// and made executable: the path of the kept file.
+pub fn fetch_release_file(file: &str) -> Result<PathBuf, String> {
+    use std::os::unix::fs::PermissionsExt as _;
+    let base = std::env::var("PENCERE_RELEASES").unwrap_or_else(|_| RELEASES.to_owned());
+    let directory = cache()?;
+    download_file(&base, &directory, file, file)?;
+    let kept = directory.join(file);
+    fs::set_permissions(&kept, fs::Permissions::from_mode(0o755))
+        .map_err(|why| format!("{}: {why}", kept.display()))?;
+    Ok(kept)
+}
+
+/// `file` of the release at `base`: from the cache if it is there, else fetched and checked against
+/// the release's `SHA256SUMS`, then kept. `what` is what the person is told is being fetched.
+fn download_file(base: &str, directory: &Path, file: &str, what: &str) -> Result<Vec<u8>, String> {
+    let kept = directory.join(file);
     if let Ok(bytes) = fs::read(&kept) {
         return Ok(bytes);
     }
@@ -110,7 +133,7 @@ fn download_from(base: &str, directory: &Path, target: &str) -> Result<Vec<u8>, 
     let partial = directory.join(format!("{file}.partial"));
     let sums = directory.join(format!("SHA256SUMS-{VERSION}.partial"));
     let result = (|| {
-        eprintln!("pencere: fetching the runner for {target} ({file})");
+        eprintln!("pencere: fetching {what} ({file})");
         fetch(&format!("{base}/SHA256SUMS"), &sums)?;
         fetch(&format!("{base}/{file}"), &partial)?;
         let listed = fs::read_to_string(&sums).map_err(|why| why.to_string())?;

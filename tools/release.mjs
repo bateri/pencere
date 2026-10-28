@@ -581,15 +581,18 @@ function executableFor(bytes) {
 function checkDist(line, version, dir = join(root, "dist")) {
   const shown = dir.startsWith(`${root}/`) ? dir.slice(root.length + 1) : dir;
   if (!existsSync(dir)) refuse(`${shown}/ is missing: make dist builds it`);
-  const names = line.targets.map((target) => `${line.binary}-${version}-${target}`);
+  // The command and what is built beside it (the runner of tests), each for each target.
+  const executables = [line.binary, ...(line.companions ?? [])].flatMap((binary) =>
+    line.targets.map((target) => ({ name: `${binary}-${version}-${target}`, target })),
+  );
+  const names = executables.map(({ name }) => name);
   const bytes = new Map();
-  for (const [index, name] of names.entries()) {
+  for (const { name, target } of executables) {
     const path = join(dir, name);
     if (!existsSync(path) || !statSync(path).isFile())
       refuse(`${shown}/${name} is missing: make dist builds it`);
     const content = readFileSync(path);
     if (content.length === 0) refuse(`${shown}/${name} is empty`);
-    const target = line.targets[index];
     const { system, processor } = executableFor(content);
     if (system === undefined)
       refuse(`${shown}/${name} is not an executable (neither ELF nor Mach-O)`);

@@ -69,6 +69,10 @@ impl Dir {
             }
         }
         walk(&self.top, "", &mut found)?;
+        // In the simple form the tests are in the app's own directory, and are not the app's.
+        if self.named.is_empty() {
+            found.retain(|path| !path.starts_with("test/"));
+        }
         for (name, disk) in &self.named {
             // An app with no pictures has no directory for them.
             if disk.is_dir() {
@@ -480,6 +484,20 @@ mod tests {
         ] {
             assert!(!belongs(path), "{path}");
         }
+    }
+
+    #[test]
+    fn the_tests_of_the_simple_form_are_not_packed_with_the_app() {
+        let dir = std::env::temp_dir().join(format!("pencere-simple-tests-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("test")).expect("a directory");
+        fs::create_dir_all(dir.join("lib")).expect("a directory");
+        for file in ["app.lua", "page.lua", "lib/util.lua", "test/page_test.lua"] {
+            fs::write(dir.join(file), "-- a script\n").expect("a file");
+        }
+        let paths = Files::in_dir(&dir).paths().expect("the paths");
+        assert_eq!(paths, ["app.lua", "lib/util.lua", "page.lua"]);
+        fs::remove_dir_all(&dir).expect("cleaned");
     }
 
     #[test]

@@ -12,7 +12,8 @@
  *   Each member has a `dir`, a `name`, the `entries` a package of it is useless without, and a
  *   `manifest` when it is not a member of the repository's own cargo workspace.
  * - `binary`: an executable, built for each of `targets` by the release workflow and attached as
- *   `<binary>-<version>-<target>` to a GitHub release with `SHA256SUMS`. `dir` holds its crate.
+ *   `<binary>-<version>-<target>` to a GitHub release with `SHA256SUMS`, as is each of its
+ *   `companions`, built beside it. `dir` holds its crate.
  *
  * `title` is what a release commit names (`Release <title> <version>`). `retired` are the npm
  * packages a line replaces, each with the message `npm deprecate` gives it.
@@ -91,6 +92,10 @@ export const LINES = {
     name: "pencere-cli",
     title: "pencere",
     binary: "pencere",
+    // Built beside it, for the same targets, and released with it: the runner of an app's tests, which
+    // `pencere test` runs. It is a program of its own because it links the kit, which the command,
+    // copied into every app, must not.
+    companions: ["pencere-test"],
     entries: ["src/main.rs"],
     targets: [
       "aarch64-apple-darwin",

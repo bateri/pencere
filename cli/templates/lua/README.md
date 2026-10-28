@@ -10,6 +10,9 @@ the terminal it runs in.
 x86_64-unknown-linux-musl` makes it for another.
 - `pencere dev` runs it in this pane and runs it again when a file under `src/` changes. `print`
   goes to `.pencere/log`, since the terminal is under the view.
+- `pencere test` runs the tests in `test/` (`*_test.lua`): each opens the page under a host with no
+  screen and does to it what a person does, with a stand-in for the program or with the app's own
+  (`require("pencere.test")`). What a failed test leaves is in `.pencere/test/`.
 
 The program runs with the rights of whoever starts it, as any program does. Nothing in an app is
 sandboxed; the view is.

@@ -455,4 +455,11 @@ export const executable = (system, processor) => {
 
 export const systemOf = (target) => (target.includes("apple") ? "macos" : "linux");
 export const processorOf = (target) => (target.startsWith("aarch64") ? "aarch64" : "x86_64");
-export const nameOf = (target, version = "0.1.0") => `pencere-${version}-${target}`;
+export const nameOf = (target, version = "0.1.0", binary = "pencere") =>
+  `${binary}-${version}-${target}`;
+
+/** Every executable of a release of the command: the command's and the runner of tests', for each target. */
+export const releaseNames = (version = "0.1.0") =>
+  ["pencere", ...LINES.cli.companions].flatMap((binary) =>
+    LINES.cli.targets.map((target) => nameOf(target, version, binary)),
+  );
