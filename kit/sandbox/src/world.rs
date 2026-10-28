@@ -8,7 +8,8 @@ use std::sync::Arc;
 use pencere_view::edit::{
     Caret, CaretHeight, CaretShape, Change, CommentTokens, Decorate, Decoration, EditCommand,
     EditorAsk, EditorColors, EditorOptions, Folds, IndentRules, Keys, LineHighlight, Look, Mark,
-    Movement, Numbers, Origin, Range, Refusal, Tint, Underline, Whitespace, limits,
+    Matches, Movement, Numbers, Origin, Range, Refusal, RevealAlign, Tint, Underline, Whitespace,
+    limits,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -16,9 +17,9 @@ use pencere_view::wire::{
 };
 use pencere_view::{
     AccessibleRole, Align, Anchor, Border, Button, Color, Command, Cursor, Ease, Element, Event,
-    Extent, Family, Gradient, Id, Input, Key, Keyboard, Laid, Menu, MenuEntry, Mix, Mods, Motion,
-    Path, Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift, Shortcut, Side, Size,
-    Source, Span, State, Stroke, Tip, Track,
+    Extent, Family, Fill, Gradient, Id, Input, Key, KeyConvention, Keyboard, Laid, Menu, MenuEntry,
+    Mix, Mods, Motion, Path, Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift,
+    Shortcut, Side, Size, Source, Span, State, Stroke, Tip, Track,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -65,6 +66,30 @@ impl pencere::view::program::Host for Host {
         }
         self.sent.push(message);
         Delivery::Accepted
+    }
+}
+
+impl pencere::view::system::Host for Host {
+    fn wall_clock(&mut self) -> pencere::view::system::WallTime {
+        let wall = self.program.wall_clock();
+        // A time that is no number of seconds is no time of day: the start of Unix time.
+        pencere::view::system::WallTime {
+            seconds: if wall.seconds.is_finite() {
+                wall.seconds
+            } else {
+                0.0
+            },
+            utc_offset: wall.utc_offset,
+        }
+    }
+
+    fn keyboard(&mut self) -> pencere::view::system::KeyConvention {
+        use pencere::view::system::KeyConvention as Wit;
+        match self.program.keyboard() {
+            KeyConvention::Mac => Wit::Mac,
+            KeyConvention::Windows => Wit::Windows,
+            KeyConvention::Linux => Wit::Linux,
+        }
     }
 }
 
@@ -414,6 +439,7 @@ fn event_in(event: Event) -> wit::Event {
                 Origin::Redo => wit::Origin::Redo,
                 Origin::Load => wit::Origin::Load,
             },
+            tag: edited.tag,
         }),
         Event::Selection { editor, selection } => wit::Event::Selection(wit::EditorSelection {
             editor: id_out(editor),
@@ -461,6 +487,10 @@ fn event_in(event: Event) -> wit::Event {
             more: found.more,
         }),
         Event::Wake { now } => wit::Event::Wake(now),
+        Event::EditorReady { editor, version } => wit::Event::EditorReady(wit::EditorReady {
+            editor: id_out(editor),
+            version,
+        }),
     }
 }
 
@@ -1045,6 +1075,18 @@ fn key_out(key: wit::Key) -> Key {
     }
 }
 
+fn shortcut_out(keys: &wit::Shortcut) -> Shortcut {
+    Shortcut {
+        key: key_out(keys.key),
+        mods: Mods {
+            shift: keys.mods.shift,
+            control: keys.mods.control,
+            alt: keys.mods.alt,
+            command: keys.mods.command,
+        },
+    }
+}
+
 fn commands_out(
     part: &wit::Slice,
     limits: &ModuleLimits,
@@ -1058,20 +1100,20 @@ fn commands_out(
     )?;
     let mut out = Vec::with_capacity(commands.len());
     for command in commands {
+        // A command's keys are held to the limit an element's commands are held to.
+        if command.keys.len() > limits.parts {
+            return Err(Fault::Malformed(format!(
+                "a command with {} sets of keys (at most {})",
+                command.keys.len(),
+                limits.parts
+            )));
+        }
         out.push(Command {
             id: Id::new(command.id),
             title: lists
                 .words(&command.title, limits.text, "a command's title")?
                 .to_owned(),
-            keys: command.keys.map(|keys| Shortcut {
-                key: key_out(keys.key),
-                mods: Mods {
-                    shift: keys.mods.shift,
-                    control: keys.mods.control,
-                    alt: keys.mods.alt,
-                    command: keys.mods.command,
-                },
-            }),
+            keys: command.keys.iter().map(shortcut_out).collect(),
             enabled: command.enabled,
         });
     }
@@ -1116,6 +1158,10 @@ fn motion_out(motion: wit::Motion) -> Motion {
         place: motion.place,
         enter: motion.enter.map(shift_out),
         exit: motion.exit.map(shift_out),
+        // A turn of no time, of less, or of no number of seconds is no turning.
+        spin: motion
+            .spin
+            .filter(|seconds| seconds.is_finite() && *seconds > 0.0),
     }
 }
 
@@ -1260,7 +1306,7 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
                         title: titles
                             .words(&item.title, limits.text, "a menu title")?
                             .to_owned(),
-                        key: item.key,
+                        keys: item.keys.as_ref().map(shortcut_out),
                         enabled: item.enabled,
                     },
                 });
@@ -1283,7 +1329,15 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
     let fill = reply
         .fill
         .into_iter()
-        .map(|said| Ok((Id::new(said.field), text(said.text)?)))
+        .map(|said| {
+            let fill = Fill {
+                text: said.text.map(text).transpose()?,
+                select: said
+                    .select
+                    .map(|range| range.from as usize..range.to as usize),
+            };
+            Ok((Id::new(said.field), fill))
+        })
         .collect::<Result<Vec<_>, Fault>>()?;
     Ok(Reply {
         redraw: reply.redraw,
@@ -1458,6 +1512,11 @@ fn editor_options_out(
             wit::EditorWhitespace::All => Whitespace::All,
         },
         indent_guides: options.indent_guides,
+        matches: match options.matches {
+            wit::EditorMatches::None => Matches::None,
+            wit::EditorMatches::Selection => Matches::Selection,
+            wit::EditorMatches::Word => Matches::Word,
+        },
         current_line: match options.current_line {
             wit::LineHighlight::Text => LineHighlight::Text,
             wit::LineHighlight::Gutter => LineHighlight::Gutter,
@@ -1506,6 +1565,7 @@ fn editor_colors_out(colors: &wit::EditorColors) -> EditorColors {
         whitespace: tint_out(&colors.whitespace),
         indent_guides: tint_out(&colors.indent_guides),
         active_indent_guide: tint_out(&colors.active_indent_guide),
+        matches: tint_out(&colors.matches),
     }
 }
 
@@ -1535,8 +1595,12 @@ fn editor_asks_out(
             }
             wit::EditorAskKind::Change(set) => {
                 items = items.saturating_add(set.changes.len());
+                // The page's name for them is text it hands the editor, as the changes are.
+                text = text.saturating_add(set.tag.as_ref().map_or(0, String::len));
                 EditorAsk::Change {
                     base: set.base,
+                    history: set.history,
+                    tag: set.tag,
                     changes: set
                         .changes
                         .into_iter()
@@ -1566,6 +1630,12 @@ fn editor_asks_out(
             wit::EditorAskKind::Reveal(reveal) => EditorAsk::Reveal {
                 version: reveal.version,
                 at: place_out(reveal.at),
+                align: match reveal.align {
+                    wit::RevealAlign::Nearest => RevealAlign::Nearest,
+                    wit::RevealAlign::Start => RevealAlign::Start,
+                    wit::RevealAlign::Center => RevealAlign::Center,
+                    wit::RevealAlign::End => RevealAlign::End,
+                },
             },
             wit::EditorAskKind::Command(command) => {
                 let command = command_out(command);
@@ -1700,6 +1770,16 @@ fn command_out(command: wit::EditorCommand) -> EditCommand {
         C::SelectFound => EditCommand::SelectFound,
         C::SelectOccurrences => EditCommand::SelectOccurrences,
         C::ToggleBlockComment => EditCommand::ToggleBlockComment,
+        C::FoldAll => EditCommand::FoldAll,
+        C::DeleteLines => EditCommand::DeleteLines,
+        C::SelectLine => EditCommand::SelectLine,
+        C::DuplicateLinesUp => EditCommand::DuplicateLinesUp,
+        C::JoinLines => EditCommand::JoinLines,
+        C::InsertBlankLine => EditCommand::InsertBlankLine,
+        C::SplitLine => EditCommand::SplitLine,
+        C::TransposeChars => EditCommand::TransposeChars,
+        C::DeleteToLineStart => EditCommand::DeleteToLineStart,
+        C::DeleteToLineEnd => EditCommand::DeleteToLineEnd,
     }
 }
 
@@ -2517,6 +2597,7 @@ mod tests {
                 version: 5,
                 changes: vec![Change::new(1, 2, "ğ")],
                 origin: Origin::Undo,
+                tag: Some("disk".into()),
             },
         });
         let wit::Event::Edit(edited) = edited else {
@@ -2524,6 +2605,7 @@ mod tests {
         };
         assert_eq!((edited.editor, edited.version), (3, 5));
         assert!(matches!(edited.origin, wit::Origin::Undo));
+        assert_eq!(edited.tag.as_deref(), Some("disk"));
         let change = &edited.changes[0];
         assert_eq!(
             (change.from, change.to, change.insert.as_str()),
@@ -2619,6 +2701,9 @@ mod tests {
                         to: 1,
                         insert: "x".into(),
                     }],
+                    history: false,
+                    // Counted with the text: 3 + 1 + 2 + 1 of the 8 bytes.
+                    tag: Some("re".into()),
                 })),
                 ask(wit::EditorAskKind::Command(wit::EditorCommand::Undo)),
                 ask(wit::EditorAskKind::Decorate(wit::Decorate {
@@ -2646,7 +2731,9 @@ mod tests {
                     Id::new(3),
                     EditorAsk::Change {
                         base: 2,
-                        changes: vec![Change::new(0, 1, "x")]
+                        changes: vec![Change::new(0, 1, "x")],
+                        history: false,
+                        tag: Some("re".into()),
                     }
                 ),
                 (Id::new(3), EditorAsk::Command(EditCommand::Undo)),
@@ -2708,10 +2795,18 @@ mod tests {
             close: false,
             menu,
             keyboard: Some(wit::Keyboard::Field(7)),
-            fill: vec![wit::FieldText {
-                field: 7,
-                text: String::new(),
-            }],
+            fill: vec![
+                wit::FieldFill {
+                    field: 7,
+                    text: Some(String::new()),
+                    select: None,
+                },
+                wit::FieldFill {
+                    field: 8,
+                    text: None,
+                    select: Some(wit::CharRange { from: 5, to: 1 }),
+                },
+            ],
             copy,
             cursor: wit::Cursor::Pointer,
             editor: Vec::new(),
@@ -2734,7 +2829,15 @@ mod tests {
                                 start,
                                 len: title.len() as u32,
                             },
-                            key: Some('x'),
+                            keys: Some(wit::Shortcut {
+                                key: wit::Key::Character('x'),
+                                mods: wit::Mods {
+                                    shift: false,
+                                    control: true,
+                                    alt: false,
+                                    command: false,
+                                },
+                            }),
                             enabled: true,
                         })
                     }
@@ -2755,14 +2858,24 @@ mod tests {
         )
         .expect("a reply");
         assert_eq!(read.keyboard, Some(Keyboard::Field(Id::new(7))));
-        assert_eq!(read.fill, [(Id::new(7), String::new())]);
+        assert_eq!(
+            read.fill,
+            [
+                (Id::new(7), Fill::text("")),
+                (
+                    Id::new(8),
+                    Fill::selection(std::ops::Range { start: 5, end: 1 })
+                )
+            ]
+        );
         assert_eq!(read.cursor, Cursor::Pointer);
         assert_eq!(read.copy.as_deref(), Some("id"));
         let menu_read = read.menu.expect("a menu");
         assert_eq!((menu_read.at.x, menu_read.at.y), (1.0, 0.0));
         assert!(matches!(
             menu_read.entries.as_slice(),
-            [MenuEntry::Item { title, .. }, MenuEntry::Separator] if title == "go"
+            [MenuEntry::Item { title, keys: Some(keys), .. }, MenuEntry::Separator]
+                if title == "go" && keys.key == Key::Character('x') && keys.mods.control
         ));
         assert!(
             reply_out(
@@ -3063,15 +3176,26 @@ mod tests {
         lists.commands.push(wit::Command {
             id: 11,
             title,
-            keys: Some(wit::Shortcut {
-                key: wit::Key::Function(99),
-                mods: wit::Mods {
-                    shift: false,
-                    control: false,
-                    alt: false,
-                    command: true,
+            keys: vec![
+                wit::Shortcut {
+                    key: wit::Key::Function(99),
+                    mods: wit::Mods {
+                        shift: false,
+                        control: false,
+                        alt: false,
+                        command: true,
+                    },
                 },
-            }),
+                wit::Shortcut {
+                    key: wit::Key::PageDown,
+                    mods: wit::Mods {
+                        shift: false,
+                        control: true,
+                        alt: false,
+                        command: false,
+                    },
+                },
+            ],
             enabled: false,
         });
         let mut root = container(2);
@@ -3099,9 +3223,10 @@ mod tests {
         let command = &meta.commands[0];
         assert_eq!((command.id, command.title.as_str()), (Id::new(11), "Find"));
         assert!(!command.enabled);
-        let keys = command.keys.expect("keys");
-        assert_eq!(keys.key, Key::Function(20));
-        assert!(keys.mods.command);
+        assert_eq!(command.keys.len(), 2);
+        assert_eq!(command.keys[0].key, Key::Function(20));
+        assert!(command.keys[0].mods.command);
+        assert_eq!(command.keys[1].key, Key::PageDown);
 
         let Kind::Rich(spans) = &nodes[1].kind else {
             panic!("a text of many looks");

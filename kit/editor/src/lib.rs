@@ -28,6 +28,8 @@ mod find;
 mod guides;
 mod history;
 mod indent;
+mod lines;
+mod matches;
 mod segments;
 mod text;
 mod view;

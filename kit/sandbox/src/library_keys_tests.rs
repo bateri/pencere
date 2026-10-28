@@ -3,13 +3,38 @@
 //! against them as the host matches a command's, and the errors it raises for what its caller gave
 //! it. Heavy: the interpreter is compiled and run (`make check-heavy`).
 
-use crate::ModuleLimits;
-use crate::luau_tests::{failed, first, words};
+use std::sync::Arc;
+use std::time::Duration;
+
+use pencere_view::KeyConvention;
+
+use crate::luau_tests::{failed, first, open_script_for, words};
+use crate::{ModuleLimits, Program};
+
+/// A host whose keyboard is the one a test says, and that is never made to wait for the page.
+struct Keyed(KeyConvention);
+
+impl Program for Keyed {
+    fn may_say(&self, _bytes: usize) -> bool {
+        true
+    }
+
+    fn taken(&self, _bytes: usize) {}
+
+    fn keyboard(&self) -> KeyConvention {
+        self.0
+    }
+}
 
 /// What a page shows that runs `checks`, Lua with `keys` and `check(what, got, want)` at hand
 /// (lists compared by what they hold, a table of modifiers by the four of them): "ok", or each check
-/// that came out otherwise.
+/// that came out otherwise. The host's keyboard is a Mac's.
 fn checked(checks: &str) -> Vec<String> {
+    checked_on(KeyConvention::Mac, checks)
+}
+
+/// As `checked`, on a host whose keyboard is `keyboard`'s.
+fn checked_on(keyboard: KeyConvention, checks: &str) -> Vec<String> {
     let script = format!(
         r#"
 local keys = require("@pencere/keys")
@@ -64,7 +89,11 @@ return {{ render = function()
 end }}
 "#
     );
-    let update = first(&script, ModuleLimits::default());
+    let mut page = open_script_for(&script, ModuleLimits::default(), Arc::new(Keyed(keyboard)));
+    page.module.render(crate::guests_tests::SIZE, 0.0, false);
+    let update = page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
     if let Some(closed) = &update.closed {
         panic!("the page closed: {closed:?}");
     }
@@ -94,11 +123,43 @@ fn keys_are_read_as_a_command_reads_them_and_named_as_a_key_event_names_them() {
         check("no such key", select(2, keys.parse("cmd+launch")), '"launch" is not a key: one character, '
             .. "or up, down, left, right, page_up, page_down, home, end, enter, escape, tab, backspace, "
             .. "delete, space or f1 to f20")
-        check("no such modifier", select(2, keys.parse("hyper+k")), '"hyper" is not a modifier (cmd, ctrl, alt or shift)')
+        check("no such modifier", select(2, keys.parse("hyper+k")), '"hyper" is not a modifier (cmd, ctrl, alt, shift or mod)')
         check("f21", keys.parse("f21"), nil)
         "#,
     );
     assert_eq!(shown, ["ok"]);
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn the_platform_of_the_labels_is_the_keyboard_the_host_says_until_the_page_says_another() {
+    for (keyboard, platform, label) in [
+        (KeyConvention::Mac, "mac", "⇧⌘K"),
+        (KeyConvention::Windows, "windows", "Shift+Win+K"),
+        (KeyConvention::Linux, "linux", "Shift+Super+K"),
+    ] {
+        let shown = checked_on(
+            keyboard,
+            &format!(
+                r#"
+        check("platform", keys.platform(), "{platform}")
+        check("label", keys.label("cmd+shift+k"), "{label}")
+        -- `mod` is the host's main modifier: the command key on a Mac, control elsewhere.
+        check("mod", keys.label("mod+s"), "{}")
+        keys.set_platform("other")
+        check("the page's", {{ keys.platform(), keys.label("cmd+k") }}, {{ "other", "Super+K" }})
+        keys.set_platform("{platform}")
+        check("said again", keys.platform(), "{platform}")
+        "#,
+                if platform == "mac" {
+                    "⌘S"
+                } else {
+                    "Ctrl+S"
+                }
+            ),
+        );
+        assert_eq!(shown, ["ok"], "{platform}");
+    }
 }
 
 #[test]
@@ -195,7 +256,7 @@ fn keys_given_wrong_are_an_error_at_the_callers_line() {
         ),
         (
             r#"keys.caps("hyper+k")"#,
-            r#""hyper" is not a modifier (cmd, ctrl, alt or shift)"#,
+            r#""hyper" is not a modifier (cmd, ctrl, alt, shift or mod)"#,
         ),
         (
             r#"keys.label(5)"#,
@@ -206,12 +267,12 @@ fn keys_given_wrong_are_an_error_at_the_callers_line() {
             r#"keys.parse takes keys written as words ("cmd+k"), not a nil"#,
         ),
         (
-            r#"keys.set_platform("linux")"#,
-            r#"a platform is "mac" or "other", not linux"#,
+            r#"keys.set_platform("beos")"#,
+            r#"a platform is "mac", "windows", "linux" or "other", not beos"#,
         ),
         (
-            r#"keys.caps("cmd+k", { platform = "windows" })"#,
-            r#"a platform is "mac" or "other", not windows"#,
+            r#"keys.caps("cmd+k", { platform = "dos" })"#,
+            r#"a platform is "mac", "windows", "linux" or "other", not dos"#,
         ),
         (
             r#"keys.label("cmd+k", { os = "mac" })"#,

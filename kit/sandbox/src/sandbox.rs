@@ -9,20 +9,20 @@
 //! page that is read with its size, depth and strings counted.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use std::collections::HashMap;
 
 use pencere_view::edit::{TextSnapshot, limits as editor_limits};
-use pencere_view::{Id, Laid, ScrollTo};
+use pencere_view::{Id, KeyConvention, Laid, ScrollTo, WallTime};
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
 
 use crate::luau::Script;
 use crate::watchdog;
 
 /// The program that opened the page, as far as the page's speed goes: what it can take of what
-/// the page says, and how the page takes what it says. The application gives it; the sandbox
-/// only asks.
+/// the page says, and how the page takes what it says; and the clocks and the keyboard of the
+/// application's system, which the page reads. The application gives it; the sandbox only asks.
 pub trait Program: Send + Sync + 'static {
     /// The module wants to say `bytes` to its program (a message): whether the program has the
     /// room for it. When not, the module is told *full* and keeps the message, and the
@@ -54,6 +54,32 @@ pub trait Program: Send + Sync + 'static {
     /// than the last frame's, is not taken for one.
     fn now(&self) -> Option<f64> {
         None
+    }
+
+    /// The time of day now, as the application's system says it: what the page reads as
+    /// `pencere.time.wall()` (the interface's `system.wall-clock`), as often as it asks. By default
+    /// the system's clock, in UTC: the sandbox knows no time zone, and an application that knows
+    /// the person's (every host with a screen) says its offset here. From the module's thread.
+    fn wall_clock(&self) -> WallTime {
+        let seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0.0, |since| since.as_secs_f64());
+        WallTime {
+            seconds,
+            utc_offset: 0,
+        }
+    }
+
+    /// How the application's system makes and writes its keyboard shortcuts (the interface's
+    /// `system.keyboard`): by default the system this is built for. From the module's thread.
+    fn keyboard(&self) -> KeyConvention {
+        if cfg!(target_os = "macos") || cfg!(target_os = "ios") {
+            KeyConvention::Mac
+        } else if cfg!(target_os = "windows") {
+            KeyConvention::Windows
+        } else {
+            KeyConvention::Linux
+        }
     }
 }
 

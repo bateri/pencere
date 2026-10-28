@@ -10,6 +10,16 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **What an editor's standard keys do in CodeMirror and VS Code, and a page's changes out of the
+  history.** The commands `FoldAll` (the outermost regions), `DeleteLines`, `SelectLine` (a range
+  that is whole lines takes the next), `DuplicateLinesUp`, `JoinLines`, `InsertBlankLine`,
+  `SplitLine`, `TransposeChars`, `DeleteToLineStart` and `DeleteToLineEnd`, none with a key of its
+  own. `Buffer::change_as` makes a page's change with a `tag`, told back in its `Edited`, and, where
+  not `history`, out of what is undone: what can be undone and done again is carried over it, so
+  that a file read again keeps what was done to it before. `Editors` tells `EditorEvent::Ready` when
+  it makes an editor, before anything else of it; a reveal goes where its `RevealAlign` says
+  (nearest, start, center, end). The other places of the main selection's text are drawn where the
+  editor's `matches` asks (`Buffer::matches_in`), under what was found and what is selected.
 - **The document.** `Buffer`: a text in a rope, places counted in characters, every place a page
   sends checked before it is used, the units of UTF-16 turned into places and back. Each change is a
   version; the steps of the last 1 024 are kept.

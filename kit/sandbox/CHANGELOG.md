@@ -38,8 +38,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   (`search`, `run`, `narrow`), the characters found drawn in a look (`spans`).
 - `@pencere/keys`, a module of the kit's library: keys written as a Mac writes them (`⇧⌘K`) or
   another platform (`Ctrl+Shift+K`), as key caps, and matched against a key event as a command's are.
-  The platform is the page's to say (`set_platform`), a Mac's where it says none: the interface does
-  not tell a page its host's.
+  The platform is the page's to say (`set_platform`: `mac`, `windows`, `linux`, `other`) and is the
+  host's keyboard (`pencere.keyboard()`) where it says none.
 - `@pencere/markdown`, a module of the kit's library: Markdown (CommonMark 0.31.2 with GitHub's
   tables, task lists, strikethrough and bare links) read into a tree of blocks and inlines that say
   their lines, and drawn as elements in the theme's roles (links that answer a press, code coloured
@@ -47,6 +47,32 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   block a change touched, a large one over several frames, and a long one is drawn a view at a time.
 - `pencere.merge(first, second, …)`: replies as one, as the kit puts together what a page's parts
   answer (every ask of an editor in order, a frame where either wants one, the earlier wake).
+- **A `null` member is told from an absent one.** `pencere.json.has(object, key)` and
+  `pencere.json.is_null(object, key)` say whether an object decoded had a key and whether as `null`,
+  for the program's messages too, while `if v.key then` reads both alike as before; what is decoded
+  is encoded again with its `null`s, and an empty list as a list (it was written as `{}`).
+- **The time of day and the host's keyboard.** The interface's `system` (`wall-clock`, `keyboard`)
+  is answered by `Program::wall_clock` (by default the system's clock in UTC: the sandbox knows no
+  time zone, a host that knows the person's says it) and `Program::keyboard` (by default the system
+  it is built for). A script reads them as `pencere.time.wall()` (seconds, offset) and
+  `pencere.keyboard()` (`"mac"`, `"windows"`, `"linux"`), and `pencere.keys` reads `mod` as the main
+  modifier. A motion's `spin` crosses the interface.
+- **An editor's new commands and asks across the interface.** The editor's new commands (`fold-all`,
+  `delete-lines`, `select-line`, `duplicate-lines-up`, `join-lines`, `insert-blank-line`,
+  `split-line`, `transpose-chars`, `delete-to-line-start`, `delete-to-line-end`), a change's
+  `history` and `tag` (the tag counted in what a reply may hand the editors, and told back in
+  `edited`), a reveal's `align`, an editor's `matches` and `colors.matches`, and the event
+  `editor-ready`; a script says them as `{ command = "join_lines" }`, `{ change =, base =, history =
+false, tag = "disk" }`, `{ reveal =, version =, align = "center" }`, `matches = "word"` and `{
+type = "editor_ready", editor =, version = }`.
+- **Fields, menus and commands as the engine has them now.** A reply's `fill` is a `field-fill` for
+  each field (a text, what is selected, or both) and a script's `fill = { [name] = { text =, select
+= { from =, to = } or true } }` too (the old `{ [name] = text }` is read as it was); a command's
+  keys are a list (`keys: list<shortcut>`, a script's `command(id, title, { "ctrl+page_down",
+"ctrl+alt+right" })`), held to what an element's commands are held to; a menu's entry has keys
+  (`keys: option<shortcut>`), which a script writes as a command's (`keys = "ctrl+w"`, or `key` as
+  before). `pencere.keys` reads `pageup`, `pagedown` and `del` as the engine does, and the key `+`
+  (`"cmd++"`).
 - **A host that drives a page by hand can wait for it.** `Module::flush` waits, as long as it is
   told to, until the module has done everything posted to it before and put out what came of it —
   the page an event or the program's words made it make again included; `Images::busy` says whether

@@ -330,6 +330,139 @@ return {
     Ok(())
 }
 
+/// A reply fills a field and selects in it (a name to rename, its stem selected), what is typed
+/// takes the place of what is selected, and a key the field has no use for where its caret is (⌫
+/// in an empty field, ← at its start) is the page's: a command of the page by any of its keys, or
+/// a key.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_field_is_filled_and_selected_in_and_gives_the_page_the_keys_it_has_no_use_for()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local said = {}
+return {
+    render = function()
+        return pencere.div():size_full()
+            :command("rename", "Rename", { "f2", "ctrl+r" })
+            :command("back", "Back", "cmd+[")
+            :child(pencere.div():text_field("name"):h(24):w(200))
+            :child(pencere.text(table.concat(said, "|")))
+    end,
+    handle = function(event)
+        if event.type == "command" and event.id == "rename" then
+            said[#said + 1] = "rename"
+            return {
+                redraw = true,
+                keyboard = { field = "name" },
+                fill = { name = { text = "draft.md", select = { from = 0, to = 5 } } },
+            }
+        elseif event.type == "command" then
+            said[#said + 1] = event.id
+            return true
+        elseif event.type == "key" then
+            said[#said + 1] = "key " .. event.key
+            if event.key == "escape" then
+                return { redraw = true, fill = { name = { select = true } } }
+            end
+            return true
+        end
+    end,
+}
+"#,
+    )
+    .open()?;
+    page.press("ctrl+r")?;
+    assert_eq!(page.focus(), Focus::Field(Id::named("name")));
+    assert_eq!(page.field("name"), Some("draft.md"));
+    assert_eq!(page.field_selection("name"), Some(0..5));
+    page.type_text("notes")?;
+    assert_eq!(page.field("name"), Some("notes.md"));
+    assert_eq!(page.field_selection("name"), Some(5..5));
+    // The chord a field has no use for is the page's command, here as anywhere.
+    page.press("cmd+[")?;
+    page.press("escape")?;
+    assert_eq!(page.field_selection("name"), Some(0..8));
+    page.press("backspace")?;
+    assert_eq!(page.field("name"), Some(""));
+    // Empty: backspace and the arrows that go nowhere are the page's.
+    page.press("backspace")?;
+    page.press("left")?;
+    page.type_text("a")?;
+    page.press("left")?;
+    page.press("left")?;
+    page.press("f2")?;
+    assert_eq!(
+        page.tree_words().last().map(String::as_str),
+        Some("rename|back|key escape|key backspace|key left|key left|rename")
+    );
+    Ok(())
+}
+
+/// A reply that opens a field and, in the same reply, fills it and sends the keyboard to it (a find
+/// bar, a palette): a host has the field only once the frame the reply asks for has laid it out, so
+/// the texts and the keyboard come with that frame, in the order the reply asked; a name that frame
+/// still has not is passed over, and what names a field that is there is done at once.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_reply_that_opens_a_field_fills_it_and_sends_the_keyboard_to_it() -> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local open = false
+return {
+    render = function()
+        local root = pencere.div():size_full()
+            :command("find", "Find", "ctrl+f")
+            :command("again", "Again", "ctrl+g")
+            :command("nothing", "Nothing", "ctrl+n")
+            :command("elsewhere", "Elsewhere", "ctrl+e")
+        if open then
+            root:child(pencere.div():text_field("q"):h(24):w(200))
+        end
+        return root
+    end,
+    handle = function(event)
+        if event.type ~= "command" then return end
+        if event.id == "find" then
+            open = true
+            return {
+                redraw = true,
+                fill = { q = { text = "needle", select = true }, ghost = "boo" },
+                keyboard = { field = "q" },
+            }
+        elseif event.id == "again" then
+            return { redraw = true, fill = { q = "hay" } }
+        elseif event.id == "nothing" then
+            return { redraw = true, keyboard = { field = "ghost" } }
+        elseif event.id == "elsewhere" then
+            return { redraw = true, keyboard = "page" }
+        end
+    end,
+}
+"#,
+    )
+    .open()?;
+    assert_eq!(page.field("q"), None);
+    page.press("ctrl+f")?;
+    assert_eq!(page.outline().fields.len(), 1);
+    assert_eq!(page.focus(), Focus::Field(Id::named("q")));
+    assert_eq!(page.field("q"), Some("needle"));
+    assert_eq!(page.field_selection("q"), Some(0..6));
+    // A name the frame does not have is passed over, as a host passes over what is no field of its
+    // own.
+    assert_eq!(page.field("ghost"), None);
+    // A field that is there is told at once, and the keyboard sent to one that never is goes to the
+    // page.
+    page.press("ctrl+g")?;
+    assert_eq!(page.field("q"), Some("hay"));
+    assert_eq!(page.focus(), Focus::Field(Id::named("q")));
+    page.press("ctrl+n")?;
+    assert_eq!(page.focus(), Focus::Page);
+    page.press("ctrl+e")?;
+    assert_eq!(page.focus(), Focus::Page);
+    Ok(())
+}
+
 /// The boxes that scroll are the host's to scroll: a box taken to a place is where the wheel over
 /// it took it, and the page is told where it went.
 #[test]
@@ -542,5 +675,126 @@ fn a_page_reads_what_its_ui_keeps_of_the_pointer_and_the_keyboard() -> Result<()
     assert_eq!(shown(&page), "hover b pressed nil focus a");
     page.leave()?;
     assert_eq!(shown(&page), "hover nil pressed nil focus a");
+    Ok(())
+}
+
+/// A member the program sent as `null` holds nothing, as one it left out does, and the page tells
+/// the two apart where they mean different things: `git: null` is a repository gone, no `git`
+/// nothing changed. An object read is written again with its `null`s.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_tells_a_member_that_is_null_from_one_that_is_not_there() -> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local said = {}
+local json = pencere.json
+return {
+    render = function()
+        return pencere.div():child(pencere.text(table.concat(said, "|")))
+    end,
+    message = function(message)
+        local changes = message.changes
+        said[#said + 1] = string.format("%s %s %s %s", tostring(changes.git ~= nil),
+            tostring(json.has(changes, "git")), tostring(json.is_null(changes, "git")),
+            json.encode(changes))
+        return true
+    end,
+}
+"#,
+    )
+    .open()?;
+    page.tell(r#"{"changes":{"git":null,"dirs":["a"]}}"#)?;
+    page.tell(r#"{"changes":{"dirs":[]}}"#)?;
+    page.tell(r#"{"changes":{"git":{"branch":"main"}}}"#)?;
+    assert_eq!(
+        page.tree_words().last().map(String::as_str),
+        Some(
+            r#"false true true {"dirs":["a"],"git":null}|false false false {"dirs":[]}|true true false {"git":{"branch":"main"}}"#
+        )
+    );
+    Ok(())
+}
+
+/// The time of day is the host's, and goes on with its clock; how the host's system writes its
+/// keys is the host's too, and `mod` is its main modifier.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_reads_the_time_of_day_and_the_keyboard_of_the_hosts_system() -> Result<(), Error> {
+    let script = r#"
+local said = "nothing"
+return {
+    render = function()
+        local seconds, offset = pencere.time.wall()
+        return pencere.div():size_full():command("save", "Save", "mod+s")
+            :child(pencere.text(string.format("%d %d %s %s", seconds, offset, pencere.keyboard(), said)))
+    end,
+    handle = function(event)
+        if event.type == "command" then
+            said = event.id
+            return true
+        end
+    end,
+}
+"#;
+    let mut page = Headless::script(script)
+        .wall_clock(1_000.0, 3 * 3600)
+        .keyboard(pencere_view::KeyConvention::Linux)
+        .open()?;
+    assert_eq!(page.tree_words(), ["1000 10800 linux nothing"]);
+    page.advance(5.0)?;
+    page.press("ctrl+s")?;
+    assert_eq!(page.tree_words(), ["1005 10800 linux save"]);
+    // A Mac's main modifier is command: the same words are other keys there.
+    let mut mac = Headless::script(script).open()?;
+    mac.press("ctrl+s")?;
+    assert_eq!(
+        mac.tree_words(),
+        [format!("{} 0 mac nothing", crate::headless::WALL_ORIGIN)]
+    );
+    mac.press("mod+s")?;
+    assert!(mac.tree_words()[0].ends_with("mac save"));
+    Ok(())
+}
+
+/// A picture that spins turns with the clock, a turn in the seconds it says, and is still under
+/// Reduce Motion.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_canvas_that_spins_turns_with_the_clock_and_not_under_reduce_motion() -> Result<(), Error> {
+    let script = r#"
+return {
+    render = function()
+        return pencere.div():size_full():child(
+            pencere.canvas({ pencere.path():move_to(10, 0):line_to(10, 5):stroke(1, "accent") })
+                :size(20, 20):motion({ spin = 2 }))
+    end,
+}
+"#;
+    let first = |page: &Headless| {
+        page.list().items.iter().find_map(|item| match item {
+            Paint::Figure(figure) => match figure.paths[0].segments[0] {
+                pencere_view::Segment::Move(at) => Some(at),
+                _ => None,
+            },
+            _ => None,
+        })
+    };
+    let mut page = Headless::script(script).open()?;
+    let start = first(&page).expect("a figure");
+    page.advance(0.5)?;
+    // A quarter of a turn: the point at the top of the middle is at its right.
+    let quarter = first(&page).expect("a figure");
+    assert!(
+        (start.x - 10.0).abs() < 0.01 && start.y.abs() < 0.01,
+        "{start:?}"
+    );
+    assert!(
+        (quarter.x - 20.0).abs() < 0.01 && (quarter.y - 10.0).abs() < 0.01,
+        "{quarter:?}"
+    );
+    let mut still = Headless::script(script).reduce_motion(true).open()?;
+    still.advance(0.5)?;
+    let at = first(&still).expect("a figure");
+    assert!((at.x - 10.0).abs() < 0.01 && at.y.abs() < 0.01, "{at:?}");
     Ok(())
 }

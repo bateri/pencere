@@ -90,7 +90,13 @@ fn run(file: &str, example: &Value) {
                 }
                 "command" => buffer.command(command(step, &here), now),
                 "change" => {
-                    let _ = buffer.change(version(step, "base"), changes(&step["changes"]), now);
+                    let _ = buffer.change_as(
+                        version(step, "base"),
+                        changes(&step["changes"]),
+                        now,
+                        step["history"].as_bool().unwrap_or(true),
+                        step["tag"].as_str().map(str::to_owned),
+                    );
                 }
                 "page_select" => {
                     let _ = buffer.select_at(
@@ -301,6 +307,7 @@ fn note_of(note: &Value, here: &str) -> Note {
             changes: changes(&edited["changes"]),
             origin: Origin::named(edited["origin"].as_str().unwrap_or("person"))
                 .unwrap_or_else(|| panic!("{here}: no origin")),
+            tag: edited["tag"].as_str().map(str::to_owned),
         });
     }
     if let Some(selection) = note.get("selection") {
@@ -407,6 +414,16 @@ fn command(step: &Value, here: &str) -> EditCommand {
         "unfold" => EditCommand::Unfold,
         "toggle_fold" => EditCommand::ToggleFold,
         "unfold_all" => EditCommand::UnfoldAll,
+        "fold_all" => EditCommand::FoldAll,
+        "delete_lines" => EditCommand::DeleteLines,
+        "select_line" => EditCommand::SelectLine,
+        "duplicate_lines_up" => EditCommand::DuplicateLinesUp,
+        "join_lines" => EditCommand::JoinLines,
+        "insert_blank_line" => EditCommand::InsertBlankLine,
+        "split_line" => EditCommand::SplitLine,
+        "transpose_chars" => EditCommand::TransposeChars,
+        "delete_to_line_start" => EditCommand::DeleteToLineStart,
+        "delete_to_line_end" => EditCommand::DeleteToLineEnd,
         "find" => EditCommand::Find {
             pattern: step["pattern"].as_str().unwrap_or_default().to_owned(),
             regex: step["regex"].as_bool().unwrap_or(false),

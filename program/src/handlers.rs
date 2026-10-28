@@ -3,14 +3,17 @@
 //! A handler runs on a thread of its own, so a call that takes a while neither keeps ⌃C from
 //! ending the program nor keeps the other calls waiting. What it has to say — its answer, how far
 //! it has got, the values of a subscription — goes to the event loop through a channel, and the
-//! loop is the one thread that writes to the terminal.
+//! loop is the one thread that writes to the terminal. A deferred handler is the other way round:
+//! it is given the request on the thread that reads the view, in the order the view sent it, hands
+//! it to the program's own loop and returns, and the program answers when it can ([`Answer`]).
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::io;
+use std::marker::PhantomData;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Sender, SyncSender, channel};
+use std::sync::mpsc::{Sender, SyncSender, TrySendError, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -153,6 +156,28 @@ pub(crate) struct Outbox {
 impl Outbox {
     pub(crate) fn new(sender: SyncSender<Work>, pipe: Option<Arc<Pipe>>) -> Self {
         Self { sender, pipe }
+    }
+
+    /// Hands `work` to the loop without waiting for room: where the channel is full, a thread of
+    /// its own waits for it. An answer is given from any thread, the loop's own too (a program
+    /// whose loop is the one that reads the view, as a conversation's may be), which must not wait
+    /// for itself; there are no more of them than the calls that may be out.
+    pub(crate) fn send_without_waiting(&self, work: Work) {
+        match self.sender.try_send(work) {
+            Ok(()) => {
+                if let Some(pipe) = &self.pipe {
+                    pipe.wake();
+                }
+            }
+            Err(TrySendError::Full(work)) => {
+                let outbox = self.clone();
+                // No thread to wait on: the answer is lost, as it is when the loop is gone.
+                let _ = terminal::spawn_quiet(move || {
+                    outbox.send(work);
+                });
+            }
+            Err(TrySendError::Disconnected(_)) => {}
+        }
     }
 
     /// Hands `work` to the loop; whether it was taken (the loop is gone when it was not).
@@ -381,15 +406,181 @@ pub(crate) fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
 /// The handler of a call, as `serve` holds it.
 pub(crate) type CallFn = dyn Fn(Value, &Call) -> Result<Value, ViewError> + Send + Sync;
 
+/// The handler of a call that is answered later ([`crate::Options::call_deferred`]).
+pub(crate) type DeferredCallFn = dyn Fn(Value, Call, Answer) + Send + Sync;
+
+/// The handler of a topic whose start is said later ([`crate::Options::topic_deferred`]).
+pub(crate) type DeferredTopicFn = dyn Fn(Value, Subscription, Answer<()>) + Send + Sync;
+
+/// How a method's calls are answered: on a thread of their own (or of their lane's), or by a
+/// handler given them in order that answers later.
+pub(crate) enum CallHandler {
+    Thread(Arc<CallFn>),
+    Deferred(Arc<DeferredCallFn>),
+}
+
 /// A method the view may call: its handler, and the lane its calls run in, if they run in one.
 pub(crate) struct Method {
-    pub(crate) handler: Arc<CallFn>,
+    pub(crate) handler: CallHandler,
     pub(crate) lane: Option<Arc<str>>,
+}
+
+/// How a topic is fed: by a handler on a thread of its own, or by one given the subscription in
+/// order that says later whether it started.
+pub(crate) enum TopicHandler {
+    Thread(Arc<TopicFn>),
+    Deferred(Arc<DeferredTopicFn>),
+}
+
+/// The way to answer a request of the view later, from any thread: what a deferred handler is
+/// given with the request ([`crate::Options::call_deferred`], [`crate::Options::topic_deferred`]).
+/// A call's answer is its result (`Answer`, of a `Value`); a subscription's says whether it
+/// started (`Answer<()>`). It answers once; dropped without an answer, the request is answered
+/// with an `internal` error. An answer to a request the view gave up, or of a view that is over,
+/// is not sent.
+pub struct Answer<T = Value> {
+    ask: Ask,
+    outbox: Outbox,
+    /// The start of a subscription, not the answer to a call.
+    start: bool,
+    sent: bool,
+    /// What the view is told where it is dropped unanswered.
+    unanswered: Option<ViewError>,
+    of: PhantomData<fn(T)>,
+}
+
+impl<T> fmt::Debug for Answer<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Answer")
+            .field("id", &self.ask.id)
+            .field("start", &self.start)
+            .field("sent", &self.sent)
+            .finish_non_exhaustive()
+    }
+}
+
+thread_local! {
+    /// The request whose deferred handler runs on this thread now, and its answer where the
+    /// handler gave one before it returned: the loop that would take the answer from the channel
+    /// is this thread, which is not to wait for itself.
+    static INLINE: RefCell<Option<(Ask, Option<Work>)>> = const { RefCell::new(None) };
+}
+
+impl<T> Answer<T> {
+    fn new(ask: Ask, outbox: Outbox, start: bool) -> Self {
+        Self {
+            ask,
+            outbox,
+            start,
+            sent: false,
+            unanswered: None,
+            of: PhantomData,
+        }
+    }
+
+    /// The error the view is told where this is dropped unanswered, in place of `internal`: a
+    /// program whose loop may end with requests still owed says they are `unavailable`, and the
+    /// view may ask again.
+    #[must_use]
+    pub fn unanswered(mut self, error: ViewError) -> Self {
+        self.unanswered = Some(error);
+        self
+    }
+
+    fn give(&mut self, result: Result<Value, ViewError>) {
+        if std::mem::replace(&mut self.sent, true) {
+            return;
+        }
+        let work = if self.start {
+            Work::Started {
+                ask: self.ask,
+                result: result.map(|_| ()),
+            }
+        } else {
+            Work::Answer {
+                ask: self.ask,
+                result,
+            }
+        };
+        let ask = self.ask;
+        let away = INLINE.with(|slot| match slot.borrow_mut().as_mut() {
+            Some((running, held @ None)) if *running == ask => {
+                *held = Some(work);
+                None
+            }
+            _ => Some(work),
+        });
+        if let Some(work) = away {
+            self.outbox.send_without_waiting(work);
+        }
+    }
+}
+
+impl Answer<Value> {
+    /// A call's answer.
+    pub(crate) fn of_call(ask: Ask, outbox: Outbox) -> Self {
+        Self::new(ask, outbox, false)
+    }
+
+    /// Answers the call with `result`: what it returns made JSON (a result that serialises to
+    /// `null` is `{}`), or the error the view gets.
+    pub fn send<R: serde::Serialize>(mut self, result: Result<R, ViewError>) {
+        let result = result.and_then(|value| {
+            serde_json::to_value(value).map_err(|why| {
+                ViewError::with_message("internal", format!("the result is not JSON: {why}"))
+            })
+        });
+        self.give(result);
+    }
+}
+
+impl Answer<()> {
+    /// A subscription's start.
+    pub(crate) fn of_start(ask: Ask, outbox: Outbox) -> Self {
+        Self::new(ask, outbox, true)
+    }
+
+    /// Says whether the subscription started: an error ends it with an error response.
+    pub fn send(mut self, result: Result<(), ViewError>) {
+        self.give(result.map(|()| Value::Null));
+    }
+}
+
+impl<T> Drop for Answer<T> {
+    fn drop(&mut self) {
+        if !self.sent {
+            let error = self.unanswered.take().unwrap_or_else(|| {
+                ViewError::with_message("internal", "the program did not answer")
+            });
+            self.give(Err(error));
+        }
+    }
+}
+
+/// Runs a deferred handler for `ask` on this thread: what it answered before it returned, or the
+/// words of the panic it died of.
+pub(crate) fn run_deferred(ask: Ask, body: impl FnOnce()) -> Result<Option<Work>, String> {
+    let outer = INLINE.with(|slot| slot.borrow_mut().replace((ask, None)));
+    let ran = as_a_handler(body);
+    let held = INLINE.with(|slot| std::mem::replace(&mut *slot.borrow_mut(), outer));
+    match ran {
+        Ok(()) => Ok(held.and_then(|(_, work)| work)),
+        Err(panic) => Err(panic_text(&*panic)),
+    }
 }
 
 thread_local! {
     /// This thread runs handlers: a panic on it is the error of a call, not the program's.
     static HANDLER_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Runs `body`, the program's code, on this thread as a handler runs: a panic in it is caught and
+/// is its own, not the program's (which would give the terminal back, as on the loop's thread).
+pub(crate) fn as_a_handler<R>(body: impl FnOnce() -> R) -> std::thread::Result<R> {
+    let was = HANDLER_THREAD.with(|on| on.replace(true));
+    let ran = catch_unwind(AssertUnwindSafe(body));
+    HANDLER_THREAD.with(|on| on.set(was));
+    ran
 }
 
 /// Whether this thread runs handlers.

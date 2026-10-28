@@ -21,6 +21,18 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **How a lent command ended, before the view is shown again.** `ViewControl::hand_off_then(command,
+then)` lends the terminal as `hand_off` does and gives `then` how the command ended (or why it
+  could not start) once it has, on the library's thread, before the view is asked for again: what it
+  keeps is there for the first call of the view that comes back, which `HandOff::wait` on a thread
+  of its own could not promise. The same in a `Conversation` (when the `Lent` says) and with no view
+  up (before `wait` returns).
+- **Requests answered later, in the order the view made them.** `Options::call_deferred(method,
+handler)` and `Options::topic_deferred(topic, handler)` give a program with a loop of its own (an
+  interpreter, an event loop) each call and subscription on the thread that reads the view, in
+  order, with an `Answer` it sends from any thread when it can (`Answer<()>` says whether a
+  subscription started); none waits for another's answer. An answer given before the handler returns
+  is sent as it returns; one dropped, or a handler that panics, fails its request with `internal` (or the error `Answer::unanswered` says, as `unavailable` for a loop that may end with requests owed).
 - **A conversation in the same process.** `Conversation::new(options)` serves a program's handlers
   with no terminal: `send` gives them a message of the view as JSON text, `receive` and
   `try_receive` take what the program says (`Said::Message`, and the requests of its `ViewControl`

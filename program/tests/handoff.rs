@@ -182,6 +182,116 @@ fn the_answer_of_the_handler_that_hands_off_goes_out_before_the_view_closes() {
     interrupted(&mut pane, handle);
 }
 
+/// What the program keeps of how the command ended is kept before the view is asked for again:
+/// the first call of the view shown again finds it, with nothing to wait for.
+#[test]
+fn how_the_command_ended_is_the_programs_before_the_view_is_shown_again() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let lender = control.clone();
+    let last: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
+    let (kept, read) = (Arc::clone(&last), Arc::clone(&last));
+    let handle = serve_on(pane.terminal(), move |options| {
+        options
+            .control(given)
+            .call("shell", move |_params, _call| {
+                let kept = Arc::clone(&kept);
+                let _ = lender.hand_off_then(shell("sleep 0.3; exit 7"), move |ended| {
+                    *kept.lock().expect("the slot") = ended.as_ref().ok().and_then(|s| s.code());
+                });
+                Ok(json!("scheduled"))
+            })
+            .call("last", move |_params, _call| {
+                Ok(json!({ "code": *read.lock().expect("the slot") }))
+            })
+    });
+    shown(&mut pane);
+    pane.send(
+        "msg",
+        None,
+        &json!({ "call": { "id": 1, "method": "shell" } }),
+    );
+    assert_eq!(
+        json_of(&pane.expect("msg")),
+        json!({ "response": { "id": 1, "result": "scheduled" } })
+    );
+    dismissed(&mut pane, TOKEN);
+    given_back(&mut pane);
+    // The view is asked for again: by then the program has it.
+    let hello = pane.expect("hello");
+    assert_eq!(*last.lock().expect("the slot"), Some(7));
+    pane.welcome(hello.id, TOKEN_2, &web_views());
+    let open = pane.expect("open");
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    pane.send(
+        "msg",
+        None,
+        &json!({ "call": { "id": 1, "method": "last" } }),
+    );
+    assert_eq!(
+        json_of(&pane.expect("msg")),
+        json!({ "response": { "id": 1, "result": { "code": 7 } } })
+    );
+    interrupted(&mut pane, handle);
+}
+
+/// In a conversation, where no command runs, the program is told how the command ended when the
+/// holder of the `Lent` says, before the view is heard again; with no view up, before `wait`
+/// returns.
+#[test]
+fn how_the_command_ended_is_the_programs_first_in_a_conversation_and_with_no_view() {
+    use pencere::{Conversation, Said};
+    let control = ViewControl::new();
+    let lender = control.clone();
+    let last: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
+    let (kept, read) = (Arc::clone(&last), Arc::clone(&last));
+    let mut conversation = Conversation::new(
+        Options::new()
+            .control(control)
+            .call("shell", move |_params, _call| {
+                let kept = Arc::clone(&kept);
+                let _ = lender.hand_off_then(shell("exit 0"), move |ended| {
+                    *kept.lock().expect("the slot") = ended.as_ref().ok().and_then(|s| s.code());
+                });
+                Ok(json!("scheduled"))
+            })
+            .call("last", move |_params, _call| {
+                Ok(json!({ "code": *read.lock().expect("the slot") }))
+            }),
+    );
+    conversation.send(r#"{"call":{"id":1,"method":"shell"}}"#);
+    let within = Duration::from_secs(10);
+    assert!(matches!(
+        conversation.receive(within),
+        Some(Said::Message(_))
+    ));
+    let Some(Said::HandedOff(lent)) = conversation.receive(within) else {
+        panic!("a hand-off");
+    };
+    lent.returned(std::process::ExitStatus::from_raw(9 << 8));
+    conversation.send(r#"{"call":{"id":1,"method":"last"}}"#);
+    let Some(Said::Message(said)) = conversation.receive(within) else {
+        panic!("an answer");
+    };
+    assert_eq!(said, r#"{"response":{"id":1,"result":{"code":9}}}"#);
+
+    let _one = one_at_a_time();
+    let unbound = ViewControl::new();
+    let ended: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
+    let kept = Arc::clone(&ended);
+    let mut command = shell("exit 4");
+    command.stdin(Stdio::null());
+    let result = unbound
+        .hand_off_then(command, move |status| {
+            *kept.lock().expect("the slot") = status.as_ref().ok().and_then(|s| s.code());
+        })
+        .wait();
+    assert_eq!(*ended.lock().expect("the slot"), Some(4));
+    assert_eq!(code_of(result), Some(4));
+}
+
 #[test]
 fn a_handler_that_waits_for_its_own_hand_off_is_not_waited_for() {
     let _one = one_at_a_time();

@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 
 use pencere_view::wire::{Kind, Overflow};
 use pencere_view::{
-    Built, Button, Color, Cursor, Ease, Element, Event, FieldKind, Fit, Id, Input, Key, Keyboard,
-    Mix, Mods, Motion, Point, Rgba, Role, Rows, ScrollTo, Shift, Source, Tip, image,
+    Built, Button, Color, Cursor, Ease, Element, Event, FieldKind, Fill, Fit, Id, Input, Key,
+    Keyboard, Mix, Mods, Motion, Point, Rgba, Role, Rows, ScrollTo, Shift, Source, Tip, image,
 };
 use wasmtime::component::Component;
 
@@ -1087,6 +1087,15 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
                     return { redraw = true, fill = { name = "" } }
                 elseif e.type == "focus" then
                     said = "focus " .. tostring(e.field)
+                    if e.field then
+                        return {
+                            redraw = true,
+                            fill = {
+                                name = { text = "draft.md", select = { from = 0, to = 5 } },
+                                notes = { select = true },
+                            },
+                        }
+                    end
                     return true
                 end
             end,
@@ -1158,7 +1167,80 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
     assert_eq!(replies[1].cursor, Cursor::NotAllowed);
     assert_eq!(replies[1].keyboard, Some(Keyboard::Page));
     assert_eq!(replies[2].cursor, Cursor::Grab);
-    assert_eq!(replies[4].fill, [(Id::named("name"), String::new())]);
+    assert_eq!(replies[4].fill, [(Id::named("name"), Fill::text(""))]);
+    let mut filled = replies[5].fill.clone();
+    filled.sort_by_key(|(field, _)| *field != Id::named("name"));
+    assert_eq!(
+        filled,
+        [
+            (Id::named("name"), Fill::text("draft.md").select(0..5)),
+            (Id::named("notes"), Fill::selection(0..u32::MAX as usize)),
+        ]
+    );
+}
+
+/// A menu's entry has keys written as a command's (`keys`); one a page wrote as `key` before is
+/// read as keys where it is some, and as its first character where it is not, as it was.
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+fn a_script_gives_a_menus_entries_their_keys_and_reads_an_old_key_as_it_was() {
+    use pencere_view::{MenuEntry, Shortcut};
+    let mut page = open_script(
+        r##"
+        return {
+            render = function() return pencere.div() end,
+            handle = function(e)
+                if e.type == "press" then
+                    return { menu = { at = { x = 1, y = 1 }, entries = {
+                        { title = "Close", keys = "ctrl+w" },
+                        { title = "Rename", key = "f2" },
+                        { title = "Old", key = "⌘W" },
+                        "-",
+                    } } }
+                end
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    page.module.event(Event::Input(Input::Press {
+        at: Point::new(1.0, 1.0),
+        button: Button::Left,
+        mods: Mods::default(),
+        count: 1,
+    }));
+    until_seen(&mut page, Duration::from_secs(10), |seen| {
+        seen.replies
+            .iter()
+            .any(|answer| answer.reply.menu.is_some())
+    });
+    let menu = page
+        .seen
+        .replies
+        .iter()
+        .find_map(|answer| answer.reply.menu.clone())
+        .expect("a menu");
+    let keys: Vec<Option<Shortcut>> = menu
+        .entries
+        .iter()
+        .map(|entry| match entry {
+            MenuEntry::Item { keys, .. } => *keys,
+            MenuEntry::Separator => None,
+        })
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            Shortcut::parse("ctrl+w"),
+            Shortcut::parse("f2"),
+            Some(Shortcut::new(Key::Character('⌘'), Mods::default())),
+            None,
+        ]
+    );
 }
 
 #[test]
@@ -1264,7 +1346,7 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
                 :child(pencere.div()
                     :focused()
                     :command("find", "Find", "cmd+shift+f", false)
-                    :command("go", "Go", "ctrl+page_down")
+                    :command("go", "Go", { "ctrl+pagedown", "ctrl+alt+right", "cmd++" })
                     :draggable("card"))
                 :child(pencere.div():drop_target("done"):selected(true):expanded(false))
         end }"##,
@@ -1337,7 +1419,10 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
             Command::new(Id::named("find"), "Find")
                 .keys(Shortcut::parse("cmd+shift+f").unwrap())
                 .enabled(false),
-            Command::new(Id::named("go"), "Go").keys(Shortcut::parse("ctrl+page_down").unwrap()),
+            Command::new(Id::named("go"), "Go")
+                .keys(Shortcut::parse("ctrl+page_down").unwrap())
+                .keys(Shortcut::parse("ctrl+alt+right").unwrap())
+                .keys(Shortcut::parse("cmd++").unwrap()),
         ]
     );
     assert!(nodes[9].meta.drop_target);

@@ -30,7 +30,10 @@ page.wheel(at, dx, dy, phase);     // the box under the pointer scrolls, at once
 page.drain().deliver(&mut my_host); // impl Host: pasteboard, pointer, fields, link, menu, program…
 
 // A frame, when the host draws one: the draw list in pixels, with the editors drawn in.
-let painted = page.frame(FrameAt { size, scale, now, reduce_motion });
+let mut painted = page.frame(FrameAt { size, scale, now, reduce_motion });
+// Your fields for painted.outline, then what replies asked of fields this frame brought (their
+// texts and the keyboard), which the drain held back until you had them:
+painted.deliver_held(&mut my_host);
 // The next one: now if `page.animating()`, else at `page.wake_at()`.
 ```
 
@@ -60,6 +63,7 @@ Every part of what bateri's pane did to drive a page is in one column of this ta
 | The page placed in the host's view (a strip above it, drawn larger): every point in and out turned                                                             | `Placement`, `Page::set_zoom`                                            |
 | The fields, what a screen reader says, the tooltips and the commands, told when they change                                                                    | `Painted::outline`, `Page::outline`                                      |
 | What the page said, handed over in the order a host does it                                                                                                    | `Drained::deliver`, `Host`                                               |
+| What a reply asked of a field its own frame brings (a find bar opened, filled, and given the keyboard in one reply), held and handed over with that frame      | `Page::drain` (holds), `Painted::held`, `Held::deliver`                  |
 | One clock for the frames, the editors and the scrolling: the host's where its program has one, the frames' times on it too (a debug build checks)              | `Setup::program` (`Program::now`), `FrameAt::now`                        |
 | **The host's:** measuring and drawing text in its fonts, the draw list in its renderer and theme (colours, the contrast floor, figures and images as textures) | the host (`Setup::measure`, `Page::images`)                              |
 | **The host's:** its keyboard (its keys turned into `Key` and `Mods`), its input method, its own shortcuts                                                      | the host (`Page::key`, `PageEditors`)                                    |

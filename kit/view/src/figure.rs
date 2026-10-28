@@ -162,6 +162,33 @@ impl Path {
         self
     }
 
+    /// The same path turned `degrees` clockwise about `center`, its own points.
+    #[must_use]
+    pub(crate) fn turned(mut self, degrees: f32, center: Point) -> Self {
+        let (sin, cos) = degrees.to_radians().sin_cos();
+        let turn = |at: Point| {
+            let (x, y) = (at.x - center.x, at.y - center.y);
+            Point::new(center.x + x * cos - y * sin, center.y + x * sin + y * cos)
+        };
+        for segment in &mut self.segments {
+            *segment = match *segment {
+                Segment::Move(at) => Segment::Move(turn(at)),
+                Segment::Line(at) => Segment::Line(turn(at)),
+                Segment::Quad { control, to } => Segment::Quad {
+                    control: turn(control),
+                    to: turn(to),
+                },
+                Segment::Cubic { a, b, to } => Segment::Cubic {
+                    a: turn(a),
+                    b: turn(b),
+                    to: turn(to),
+                },
+                Segment::Close => Segment::Close,
+            };
+        }
+        self
+    }
+
     /// The same path with every colour `opacity` as faint.
     #[must_use]
     pub(crate) fn faded(&self, opacity: f32) -> Self {

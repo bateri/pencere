@@ -777,6 +777,49 @@ fn a_program_that_has_its_view_shown_again_after_it_answered_is_waited_for() {
 }
 
 #[test]
+fn a_host_that_does_not_close_views_for_the_program_does_not_list_dismiss() {
+    let run = run_containers(&["--no-dismiss", "--call", "reload", "--then", "interrupt"]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "host: welcome id=* re=* version=1 with a token features= views=web@1.0",
+        "view: -> call id=1 reload",
+        // The program asks to show its view again, and is told the terminal cannot close it.
+        r#"view: <- response id=1 result={"reloads":1}"#,
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+    ]);
+    run.never("program: dismiss");
+    assert_eq!(run.count("program: open"), 1, "{}", run.text());
+}
+
+#[test]
+fn a_host_that_refuses_an_open_refuses_that_one_by_its_policy() {
+    let run = run_containers(&[
+        "--refuse-open",
+        "2",
+        "--call",
+        "reload",
+        "--then",
+        "interrupt",
+        "--on-view",
+        "2",
+    ]);
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: open id=* view=web",
+        "view: -> call id=1 reload",
+        "program: dismiss id=",
+        "host: closed id=* re=* reason=program",
+        "program: hello id=",
+        "program: open id=* view=web",
+        "host: refuses open 2 by its policy",
+        "host: closed id=* re=* reason=refused code=policy",
+        "program: exited with status 0",
+    ]);
+    assert_eq!(run.count("view: started"), 1, "{}", run.text());
+}
+
+#[test]
 fn the_host_that_starts_the_view_again_gets_it_asked_for_again() {
     let run = run_containers(&["--call", "list", "--then", "restart"]);
     assert!(run.status.success(), "{}", run.text());

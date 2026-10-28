@@ -128,6 +128,53 @@
           ]
         }
       ]
+    },
+    {
+      "about": "a change of the page's that is not to be undone is undone by nothing, and what was done before it is undone over it",
+      "text": "x",
+      "steps": [
+        { "do": "select", "ranges": [[1, 1]] },
+        { "do": "type", "text": "abc", "at": 0.0 },
+        { "do": "expect", "text": "xabc" },
+        {
+          "do": "change",
+          "base": 1,
+          "changes": [[0, 0, "X"]],
+          "history": false,
+          "tag": "disk",
+          "at": 0.5
+        },
+        {
+          "do": "expect",
+          "text": "Xxabc",
+          "notes": [
+            {
+              "edited": { "version": 2, "origin": "page", "tag": "disk", "changes": [[0, 0, "X"]] }
+            },
+            { "selection": { "ranges": [[5, 5]] } }
+          ]
+        },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "Xx" },
+        { "do": "command", "command": "redo" },
+        { "do": "expect", "text": "Xxabc" }
+      ]
+    },
+    {
+      "about": "what was undone is done again over a change that is not to be undone, and the typing after it is a group of its own",
+      "text": "",
+      "steps": [
+        { "do": "type", "text": "ab", "at": 0.0 },
+        { "do": "command", "command": "undo" },
+        { "do": "change", "base": 2, "changes": [[0, 0, "--"]], "history": false },
+        { "do": "command", "command": "redo" },
+        { "do": "expect", "text": "--ab" },
+        { "do": "type", "text": "c", "at": 0.1 },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "--ab" },
+        { "do": "command", "command": "undo" },
+        { "do": "expect", "text": "--" }
+      ]
     }
   ]
 }

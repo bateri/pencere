@@ -1,11 +1,12 @@
-//! `serve`: the view of an app. The library's `serve` runs on a thread of its own, and every call
-//! the view makes comes in on yet another; each hands the call to the loop, which runs the Lua
-//! handler on its thread and sends the answer back.
+//! `serve`: the view of an app. The library's `serve` runs on a thread of its own, and hands the
+//! calls and the subscriptions of the view to the loop in the order the view made them (its
+//! deferred handlers); the loop runs the Lua handler on its thread, and the answer goes back when
+//! the handler gives it, none waiting for another's.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::channel;
 use std::thread::JoinHandle;
 
 use mlua::{Function, Lua, Table, UserData, UserDataFields, UserDataMethods, Value};
@@ -350,7 +351,7 @@ pub fn start(core: &Rc<Core>, options: Table, done: Function) -> mlua::Result<()
 type Handlers = HashMap<String, Function>;
 
 /// The library's options for what `serve` was given, and the Lua handlers they call.
-fn prepare(
+pub(super) fn prepare(
     core: &Rc<Core>,
     options: &Table,
 ) -> mlua::Result<(Options, Handlers, Handlers, Vec<ViewSpec>)> {
@@ -391,20 +392,26 @@ fn prepare(
             let (name, handler) = pair?;
             let events = core.events.clone();
             let method = name.clone();
-            serving = serving.call(name.clone(), move |params, call: &Call| {
-                let (reply, answer) = channel();
-                let sent = events.send(Event::Call(CallEvent {
+            // Handed to the loop as it comes, in the order the view sent it: the loop sees the
+            // calls in that order, and answers each when its handler does.
+            serving = serving.call_deferred(name.clone(), move |params, call: Call, reply| {
+                // A call the app ends without answering is one the view may ask again.
+                let reply = reply.unanswered(ViewError::with_message("unavailable", "no answer"));
+                let handed = events.hand(Event::Call(CallEvent {
                     method: method.clone(),
                     params,
-                    call: call.clone(),
+                    call,
                     reply,
                 }));
-                if !sent {
-                    return Err(ViewError::with_message("unavailable", "the app is ending"));
+                if let Err(refused) = handed
+                    && let Event::Call(call) = *refused
+                {
+                    call.reply
+                        .send::<serde_json::Value>(Err(ViewError::with_message(
+                            "unavailable",
+                            "the app is ending",
+                        )));
                 }
-                answer
-                    .recv()
-                    .unwrap_or_else(|_| Err(ViewError::with_message("unavailable", "no answer")))
             });
             calls.insert(name, handler);
         }
@@ -414,27 +421,33 @@ fn prepare(
         for pair in table.pairs::<String, Function>() {
             let (name, handler) = pair?;
             let events = core.events.clone();
-            serving = serving.topic(name.clone(), move |params, subscription: &Subscription| {
-                let id = SUBSCRIPTIONS.fetch_add(1, Ordering::SeqCst);
-                let ended = events.clone();
-                subscription.on_end(move || {
-                    ended.send(Event::SubscriptionEnded(id));
-                });
-                let (started, answer) = channel();
-                let sent = events.send(Event::Subscribe(SubscribeEvent {
-                    id,
-                    topic: subscription.topic().to_owned(),
-                    params,
-                    subscription: subscription.clone(),
-                    started,
-                }));
-                if !sent {
-                    return Err(ViewError::with_message("unavailable", "the app is ending"));
-                }
-                answer
-                    .recv()
-                    .unwrap_or_else(|_| Err(ViewError::with_message("unavailable", "no answer")))
-            });
+            serving = serving.topic_deferred(
+                name.clone(),
+                move |params, subscription: Subscription, started: pencere::Answer<()>| {
+                    let started =
+                        started.unanswered(ViewError::with_message("unavailable", "no answer"));
+                    let id = SUBSCRIPTIONS.fetch_add(1, Ordering::SeqCst);
+                    let ended = events.clone();
+                    subscription.on_end(move || {
+                        ended.send(Event::SubscriptionEnded(id));
+                    });
+                    let handed = events.hand(Event::Subscribe(SubscribeEvent {
+                        id,
+                        topic: subscription.topic().to_owned(),
+                        params,
+                        subscription,
+                        started,
+                    }));
+                    if let Err(refused) = handed
+                        && let Event::Subscribe(subscribe) = *refused
+                    {
+                        subscribe.started.send(Err(ViewError::with_message(
+                            "unavailable",
+                            "the app is ending",
+                        )));
+                    }
+                },
+            );
             topics.insert(name, handler);
         }
     }
@@ -506,30 +519,37 @@ fn on_call(core: &Core, lua: &Lua, event: CallEvent) {
         .as_ref()
         .and_then(|run| run.calls.get(&event.method).cloned());
     let Some(handler) = handler else {
-        let _ = event.reply.send(Err(ViewError::with_message(
-            "not-found",
-            "there is nothing to call by that name",
-        )));
+        event
+            .reply
+            .send::<serde_json::Value>(Err(ViewError::with_message(
+                "not-found",
+                "there is nothing to call by that name",
+            )));
         return;
     };
     // The view gave it up while it waited for the loop: nobody wants the answer.
     if event.call.is_cancelled() {
         return;
     }
-    let reply = event.reply;
+    // The handler answers once, by `done` or `fail`, whichever comes first.
+    let reply = Rc::new(RefCell::new(Some(event.reply)));
     let built = (|| -> mlua::Result<(Table, Vec<Value>)> {
         let params = from_json(lua, &event.params)?;
         let call = lua.create_userdata(CallHandle(event.call))?;
-        let answer = reply.clone();
+        let answer = Rc::clone(&reply);
         let done = lua.create_function(move |lua, value: Value| {
             let result =
                 to_json(lua, &value).map_err(|why| ViewError::with_message("internal", why));
-            let _ = answer.send(result);
+            if let Some(answer) = answer.borrow_mut().take() {
+                answer.send(result);
+            }
             Ok(())
         })?;
-        let answer = reply.clone();
+        let answer = Rc::clone(&reply);
         let fail = lua.create_function(move |_, error: Value| {
-            let _ = answer.send(Err(view_error(&error)));
+            if let Some(answer) = answer.borrow_mut().take() {
+                answer.send::<serde_json::Value>(Err(view_error(&error)));
+            }
             Ok(())
         })?;
         let handlers = lua.create_table()?;
@@ -540,7 +560,12 @@ fn on_call(core: &Core, lua: &Lua, event: CallEvent) {
     match built {
         Ok((handlers, args)) => core.run_task(handler, Value::Table(handlers), args),
         Err(why) => {
-            let _ = reply.send(Err(ViewError::with_message("internal", why.to_string())));
+            if let Some(answer) = reply.borrow_mut().take() {
+                answer.send::<serde_json::Value>(Err(ViewError::with_message(
+                    "internal",
+                    why.to_string(),
+                )));
+            }
         }
     }
 }
@@ -552,17 +577,18 @@ fn on_subscribe(core: &Core, lua: &Lua, event: SubscribeEvent) {
         .as_ref()
         .and_then(|run| run.topics.get(&event.topic).cloned());
     let Some(handler) = handler else {
-        let _ = event.started.send(Err(ViewError::with_message(
+        event.started.send(Err(ViewError::with_message(
             "not-found",
             "there is nothing to subscribe to by that name",
         )));
         return;
     };
     if event.subscription.is_cancelled() {
-        let _ = event.started.send(Ok(()));
+        event.started.send(Ok(()));
         return;
     }
-    let started = event.started;
+    // Said once, by `done` or `fail`, whichever comes first.
+    let started = Rc::new(RefCell::new(Some(event.started)));
     let built = (|| -> mlua::Result<(Table, Vec<Value>)> {
         let params = from_json(lua, &event.params)?;
         let me = core.rc();
@@ -571,14 +597,18 @@ fn on_subscribe(core: &Core, lua: &Lua, event: SubscribeEvent) {
             subscription: event.subscription,
             core: me,
         })?;
-        let answer = started.clone();
+        let answer = Rc::clone(&started);
         let done = lua.create_function(move |_, _: Value| {
-            let _ = answer.send(Ok(()));
+            if let Some(answer) = answer.borrow_mut().take() {
+                answer.send(Ok(()));
+            }
             Ok(())
         })?;
-        let answer = started.clone();
+        let answer = Rc::clone(&started);
         let fail = lua.create_function(move |_, error: Value| {
-            let _ = answer.send(Err(view_error(&error)));
+            if let Some(answer) = answer.borrow_mut().take() {
+                answer.send(Err(view_error(&error)));
+            }
             Ok(())
         })?;
         let handlers = lua.create_table()?;
@@ -589,7 +619,9 @@ fn on_subscribe(core: &Core, lua: &Lua, event: SubscribeEvent) {
     match built {
         Ok((handlers, args)) => core.run_task(handler, Value::Table(handlers), args),
         Err(why) => {
-            let _ = started.send(Err(ViewError::with_message("internal", why.to_string())));
+            if let Some(answer) = started.borrow_mut().take() {
+                answer.send(Err(ViewError::with_message("internal", why.to_string())));
+            }
         }
     }
 }

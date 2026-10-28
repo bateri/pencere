@@ -23,7 +23,7 @@ use pencere_wire::bundle::Digest;
 use pencere_wire::frame::Message as Frame;
 
 use crate::bundle::{Bundle, BundleError};
-use crate::control::{CloseResult, HandOffResult, ReopenResult, Request};
+use crate::control::{self, CloseResult, HandOffResult, OnReturn, ReopenResult, Request};
 use crate::exchange::{Exchange, Toward, WORK_ROOM, WRITE_ROOM};
 use crate::foreground::{self, Job};
 use crate::handlers::{self, Outbox, Work};
@@ -136,10 +136,12 @@ struct HandingOff {
     signal: Option<libc::c_int>,
     /// The reopenings asked while the command had the terminal: the view that comes back is theirs.
     reopens: Vec<SyncSender<ReopenResult>>,
+    /// What the program does with how the command ended, before the view is asked for again.
+    then: Option<OnReturn>,
 }
 
 impl HandingOff {
-    fn new(command: Command, reply: SyncSender<HandOffResult>) -> Self {
+    fn new(command: Command, reply: SyncSender<HandOffResult>, then: Option<OnReturn>) -> Self {
         Self {
             reply,
             command: Some(command),
@@ -147,6 +149,7 @@ impl HandingOff {
             status: None,
             signal: None,
             reopens: Vec::new(),
+            then,
         }
     }
 
@@ -1072,8 +1075,12 @@ impl Session<'_> {
         let (reply, views) = match request {
             Request::Reopen { views, reply } => (Reply::Reopen(reply), views),
             Request::Close { reply } => (Reply::Close(reply), None),
-            Request::HandOff { command, reply } => (
-                Reply::HandOff(Box::new(HandingOff::new(command, reply))),
+            Request::HandOff {
+                command,
+                reply,
+                then,
+            } => (
+                Reply::HandOff(Box::new(HandingOff::new(command, reply, then))),
                 None,
             ),
         };
@@ -1238,6 +1245,9 @@ impl Session<'_> {
         if let Some(job) = &handing.job {
             job.take_back();
         }
+        // The program keeps what it needs of how the command ended before the view is asked for
+        // again, so that the first call of the view shown again finds it.
+        control::tell_then(handing.then.take(), &status);
         handing.status = Some(status);
         let signal = handing.signal;
         self.taken.take_back();
