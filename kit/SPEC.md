@@ -947,6 +947,31 @@ plain.
   block that holds line `line` of the text, and again as the layout says where that block stands. A
   document's id is `markdown<n>` unless the options say otherwise.
 
+#### `@pencere/ui`
+
+The components of a page (`local ui = require("@pencere/ui")`), written on the page API alone: a
+component is a method of a context that the page makes once (`local u = ui.new()`) and calls in
+`render` with a name and its props, and what the person does with it comes back from `handle` as
+**actions**. The context sees to what the hand did (`pencere.Ui`, the keyboard's place, the layers in
+front); the page keeps what it would miss if it were lost (`props.state`, a table the component changes in
+place, or, where none is given, one the context keeps by the name for as long as the component is drawn).
+
+- `u:begin(size, now, reduce_motion)` and `u:finish(root)` (`root`, `animating`, `wake_at`: what `render`
+  returns) bracket a render; `u:settle()` is `settle`'s; `u:handle(event)` is the reply, the actions
+  (`{ from = name, kind = …, … }`) and whether a component took the event, and the page does the
+  rest of the event where none did.
+- Components are drawn in the theme's roles and a few sizes (`ui.new({ theme =, density = "regular" |
+"compact" })`), never in values; the host keeps their words readable. A component inside another
+  says its action to the one around it first, which may take it for its own; one it does not take is
+  the page's.
+- `button`, `icon_button`, `toggle`, `badge`, `kbd`, `rule`, `banner`; `input`, `segments`, `tabs`;
+  `modal`, `dialog`, `toasts`, `menu` (the host's), `popover`; `list`, `palette`, `completions`, `tree`,
+  `grid`; `split`, `status`; `find_bar`. `ui.commands(list)` writes the page's commands once for the host, the
+  palette and the help, and holds them while a modal is in front. `ui.component(name, spec)` makes
+  a component of the page's own the same way.
+- An icon-only button and a field must say what they are in words (`label`), or the page fails at the
+  line that drew them. A layer takes the keyboard when it opens and gives it back when it closes.
+
 ## 3. Colours
 
 A colour is said in one of these ways, wherever one is taken:

@@ -291,7 +291,7 @@ local Split = core.component("split", {
 	press = function(u, id, props, state, part, _, event)
 		if part == "handle" and event.button == "left" then
 			state.origin = state.size
-			return false
+			return false, nil, true
 		elseif part == "handle" then
 			return false
 		end

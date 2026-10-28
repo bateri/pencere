@@ -31,7 +31,29 @@ local S = {
 	list = { cursor = "r3", marks = {} },
 	files = { expanded = { src = true }, cursor = "src/main.lua" },
 	side = { size = 190 },
+	find = { query = "needle", replacement = "", replacing = true },
+	grid = { cursor = { row = 2, column = 2 }, widths = {}, sort = { column = "qty", descending = true } },
 }
+
+local DOC = "A haystack of words\nwith a needle in it,\nand another needle in the last line.\n"
+
+local COLUMNS = {
+	{ key = "id", title = "id", type = "int", align = "end" },
+	{ key = "name", title = "name", type = "text" },
+	{ key = "qty", title = "qty", type = "int", align = "end" },
+	{ key = "note", title = "note", type = "text" },
+}
+
+local function grid_cell(row, column)
+	if column.key == "id" then
+		return tostring(row)
+	elseif column.key == "name" then
+		return "item " .. row
+	elseif column.key == "qty" then
+		return tostring(row * 7 % 100)
+	end
+	return row % 3 == 0 and "back ordered" or "in stock"
+end
 
 local FILES = {
 	[""] = { "src", "README.md" },
@@ -141,6 +163,15 @@ local function lists()
 		:child(row():child(u:button("palette", { title = "Palette", keys = "mod+shift+p" })))
 end
 
+local function editing()
+	return pencere.div():gap(8)
+		:child(pencere.div():border(1, "border"):rounded(6):clip()
+			:child(u:find_bar("find", { editor = "doc", state = S.find }))
+			:child(pencere.editor("doc", { gutter = false, read_only = true }):w_full():h(70)))
+		:child(pencere.div():h(170):border(1, "border"):rounded(6):clip():child(
+			u:grid("result", { columns = COLUMNS, count = 5000, cell = grid_cell, state = S.grid })))
+end
+
 local function layers()
 	local line = row()
 		:child(u:button("ask", { title = "Ask", keys = "mod+shift+d" }))
@@ -235,6 +266,7 @@ return {
 			:child(section("BANNER", banner()))
 			:child(section("FIELDS AND CHOICES", fields()))
 			:child(section("LISTS AND TREES", lists()))
+			:child(section("FIND AND GRID", editing()))
 			:child(section("LAYERS", layers()))
 			:child(u:rule("x"))
 			:child(pencere.text("Last: " .. S.last):id("last"):color("dim"))
@@ -281,6 +313,9 @@ return {
 	end,
 	handle = function(event)
 		local reply, actions = u:handle(event)
+		if event.type == "editor_ready" and event.editor == "doc" then
+			reply = pencere.merge(reply, { editor = { doc = { load = DOC } } })
+		end
 		for _, action in actions do
 			reply = pencere.merge(reply, act(action))
 		end

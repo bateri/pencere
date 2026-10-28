@@ -496,7 +496,7 @@ local Handle = ui.component("handle", {
     end,
     press = function(u, id, props, state, part)
         if part == "grip" then
-            return false
+            return false, nil, true
         end
     end,
     drag = function(u, id, props, state, part, key, at)
@@ -1592,6 +1592,237 @@ end
         !narrow.says("Saved") && !narrow.says("UTF-8 with a very long name"),
         "{:?}",
         narrow.words()
+    );
+    Ok(())
+}
+
+// --- The find bar and the grid ------------------------------------------------------------------------
+
+const FIND: &str = r#"
+S.find = nil
+S.open = false
+view = function(u)
+    local root = pencere.div():size_full():gap(0)
+        :child(u:button("open", { title = "Find" }))
+    if S.open then
+        root:child(u:find_bar("find", { editor = "doc", state = S.find, read_only = S.read_only }))
+    end
+    return root:child(pencere.editor("doc", {}):w_full():h(160):id("doc"))
+end
+on_action = function(act, u)
+    if act.from == "open" then
+        S.open = true
+        S.find = S.find or { query = "", replacement = "" }
+        S.find.query = "foo"
+        return u:focus("find/query")
+    elseif act.from == "find" and act.kind == "close" then
+        S.open = false
+    end
+end
+"#;
+
+fn opened_find(source: &str) -> Result<Headless, Error> {
+    let mut page = open(source)?;
+    page.focus_editor("doc")?;
+    page.insert_text("foo bar Foo\nfoo baz foofoo\n")?;
+    page.click("open")?;
+    page.step()?;
+    page.advance(0.3)?;
+    Ok(page)
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_find_bar_drives_the_editor_and_says_how_many_it_found() -> Result<(), Error> {
+    let mut page = opened_find(FIND)?;
+    assert_eq!(
+        page.focus(),
+        Focus::Field(pencere_view::Id::named("find/query/field"))
+    );
+    assert_eq!(
+        page.field("find/query/field"),
+        Some("foo"),
+        "what the page seeds it with"
+    );
+    assert!(said(&page, "1 / 5"), "{:?}", page.words());
+    page.press("enter")?;
+    assert!(said(&page, "2 / 5"), "{:?}", page.words());
+    page.press("shift+enter")?;
+    assert!(said(&page, "1 / 5"));
+    page.click("find/case")?;
+    assert!(said(&page, "/ 4"), "{:?}", page.words());
+    assert_eq!(accessible(&page, "find/case").state.checked, Some(true));
+    page.click("find/regex")?;
+    page.click("find/query/field")?;
+    page.type_text("(")?;
+    page.advance(0.3)?;
+    assert!(said(&page, "Invalid pattern"), "{:?}", page.words());
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_find_bar_replaces_and_stops_the_search_when_it_closes() -> Result<(), Error> {
+    let mut page = opened_find(FIND)?;
+    page.click("find/replacing")?;
+    page.click("find/replace/field")?;
+    page.type_text("qux")?;
+    page.click("find/replace_one")?;
+    assert!(
+        page.editor_text("doc").unwrap().starts_with("qux bar Foo"),
+        "{:?}",
+        page.editor_text("doc")
+    );
+    page.click("find/replace_all")?;
+    assert_eq!(
+        page.editor_text("doc").unwrap(),
+        "qux bar qux\nqux baz quxqux\n"
+    );
+    page.click("find/query/field")?;
+    page.press("escape")?;
+    page.step()?;
+    assert!(log(&page).iter().any(|line| line == "find close"));
+    assert!(page.bounds("find").is_none());
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_find_bar_of_a_read_only_editor_does_not_replace() -> Result<(), Error> {
+    let mut page =
+        opened_find(&FIND.replace("S.open = false", "S.open = false\nS.read_only = true"))?;
+    page.click("find/replacing")?;
+    assert!(accessible(&page, "find/replace_one").state.disabled);
+    assert!(accessible(&page, "find/replace_all").state.disabled);
+    Ok(())
+}
+
+const GRID: &str = r#"
+S.rows = {}
+for row = 1, (S.loaded or 300) do
+    S.rows[row] = { id = row, name = "name " .. row, qty = row * 7 }
+end
+S.state = { cursor = nil, widths = {}, sort = nil }
+view = function(u)
+    local columns = {
+        { key = "id", title = "id", type = "int", align = "end" },
+        { key = "name", title = "name", type = "text" },
+        { key = "qty", title = "qty", type = "int", align = "end" },
+    }
+    for index = 1, (S.wide or 0) do
+        table.insert(columns, { key = "c" .. index, title = "column " .. index })
+    end
+    return pencere.div():size_full():child(u:grid("g", { columns = columns, count = S.count or 300, state = S.state,
+        cell = function(row, column)
+            local values = S.rows[row]
+            if values == nil then return nil end
+            return values[column.key] ~= nil and tostring(values[column.key]) or ("v" .. row)
+        end }))
+end
+on_action = function(act)
+    if act.kind == "sort" then
+        S.state.sort = { column = act.column, descending = false }
+    end
+end
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_grid_builds_the_rows_in_view_and_chooses_a_cell_with_the_pointer_and_the_keys()
+-> Result<(), Error> {
+    let mut page = open(GRID)?;
+    assert!(said(&page, "name 1") && said(&page, "int"));
+    assert!(
+        page.bounds("g/row/250").is_none(),
+        "a long grid builds the rows near what is in view"
+    );
+    let row = page.bounds("g/row/3").expect("a row");
+    let id = page.bounds("g/head/id").expect("a column's head");
+    assert!(row.x <= id.x, "the rows and the header start together");
+    page.click_in("g/row/3", 160.0, 5.0)?;
+    assert_eq!(log(&page), ["g select column=2 row=3"]);
+    page.double_click("g/row/4")?;
+    assert!(
+        log(&page).iter().any(|line| line.starts_with("g open")),
+        "{:?}",
+        log(&page)
+    );
+    page.press("tab")?;
+    page.press("down")?;
+    page.press("right")?;
+    let last = log(&page).last().cloned().unwrap();
+    assert!(last.starts_with("g select column=3 row="), "{last}");
+    page.press("home")?;
+    assert!(log(&page).last().unwrap().contains("column=1"));
+    page.press("page_down")?;
+    page.settle()?;
+    let after = log(&page).last().cloned().unwrap();
+    assert!(after.starts_with("g select column=1 row="), "{after}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_grid_sorts_by_a_press_on_a_head_and_sizes_a_column_by_its_edge() -> Result<(), Error> {
+    let mut page = open(GRID)?;
+    page.click("g/head/name")?;
+    assert_eq!(log(&page), ["g sort column=name"]);
+    assert!(
+        accessible(&page, "g/head/name")
+            .words
+            .contains("sorted ascending")
+    );
+    let before = page.bounds("g/head/qty").expect("head").x;
+    let edge = page.bounds("g/edge/id").expect("an edge");
+    page.drag_between(
+        pencere_view::Point::new(edge.x + 3.0, edge.y + 8.0),
+        pencere_view::Point::new(edge.x + 53.0, edge.y + 8.0),
+    )?;
+    let after = page.bounds("g/head/qty").expect("head").x;
+    assert_eq!(after - before, 50.0, "the columns after it move over");
+    assert!(
+        log(&page)
+            .iter()
+            .any(|line| line.starts_with("g resize column=id")),
+        "{:?}",
+        log(&page)
+    );
+    assert!(
+        log(&page)
+            .last()
+            .unwrap()
+            .starts_with("g resized column=id")
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_grid_asks_for_the_rows_it_has_not_read_and_builds_the_columns_as_it_goes_across()
+-> Result<(), Error> {
+    let mut lazy =
+        open(&GRID.replace("S.rows = {}", "S.loaded = 40\nS.count = 4000\nS.rows = {}"))?;
+    lazy.scroll_to("g/body", 6000.0)?;
+    let asked = log(&lazy)
+        .into_iter()
+        .find(|line| line.starts_with("g need"))
+        .expect("a need");
+    assert!(
+        asked.contains("first=") && asked.contains("last="),
+        "{asked}"
+    );
+    let mut wide = open(&GRID.replace("S.rows = {}", "S.wide = 40\nS.rows = {}"))?;
+    assert!(wide.bounds("g/head/c1").is_some());
+    assert!(
+        wide.bounds("g/head/c40").is_none(),
+        "only the columns near what is in view"
+    );
+    wide.wheel("g", 6000.0, 0.0)?;
+    wide.settle()?;
+    assert!(
+        wide.bounds("g/head/c40").is_some(),
+        "{:?}",
+        wide.bounds("g/head/c1")
     );
     Ok(())
 }

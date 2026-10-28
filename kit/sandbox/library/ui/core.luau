@@ -109,7 +109,9 @@ end
 --   state(props) -> table     what it keeps that a person would miss, as it starts
 --   check(props) -> words     why the props are wrong (raised at the line of the page that drew it)
 --   click(u, id, props, state, part, key, event)      a left click on it or a part of it
---   press(u, id, props, state, part, key, event)      any button went down on it
+--   press(u, id, props, state, part, key, event)      any button went down on it. A third value, true, says
+--                                                     the part is one that is held and dragged: `drag`
+--                                                     and `release` come to the component until it is up
 --   drag(u, id, props, state, part, key, at)          the pointer moved with the button held that
 --                                                     went down on it (`press` took it): at.x, at.y,
 --                                                     at.dx, at.dy from where it went down
@@ -405,9 +407,14 @@ end
 
 -- --- Moving the keyboard ---------------------------------------------------------------------------
 
+-- How many frames what the keyboard is sent to (a layer that opened, a bar the page just made) is
+-- waited for to be laid out, before the keyboard is left where it is.
+local ENTER_TRIES = 4
+
+
 -- Puts the keyboard on `id`: into it, where it is a field or an editor (`u:field`), else on it as
 -- the page's. The reply that asks the host for it.
-function Ctx:focus(id)
+function Ctx:focus(id, tries)
 	if id ~= nil and not self.fields[id] and self.fields[id .. "/field"] then
 		-- A component that is a field (an input) is named by its own name.
 		id = id .. "/field"
@@ -416,6 +423,14 @@ function Ctx:focus(id)
 		self.pointer.focus = nil
 		self.holder = "page"
 		return { redraw = true, keyboard = "page" }
+	end
+	if not self.fields[id] and layout.bounds(id) == nil and (tries or 0) < ENTER_TRIES then
+		-- Nothing of that name is laid out yet (a reply that opens a find bar and sends the keyboard
+		-- into it): the keyboard goes there at the next frame, when the page has it.
+		pencere.time.after(0, function()
+			return self:focus(id, (tries or 0) + 1)
+		end)
+		return true
 	end
 	self.pointer:focus_on(id)
 	if self.fields[id] then
@@ -479,9 +494,6 @@ function Ctx:_step(back)
 	return self:focus(order[next_at])
 end
 
--- How many frames a layer that opened is waited for to be laid out, before the keyboard is left
--- where it is.
-local ENTER_TRIES = 4
 
 -- A layer opened: the keyboard into it. The layout it is looked for in may still be the one before
 -- it was drawn (a wake can come before the frame that drew it is laid out): then it is looked for
@@ -775,12 +787,12 @@ function Ctx:handle(event)
 		end
 		local mount, part, key = self:_owner(hit)
 		if mount then
-			local reply, action = call(self, mount, "press", part, key, event)
+			local reply, action, grip = call(self, mount, "press", part, key, event)
 			if reply ~= nil then
 				out.reply = merge(out.reply, reply)
 				out.taken = true
 				self:_emit(out, mount, action)
-				if event.button == "left" and mount.spec.drag then
+				if event.button == "left" and grip and mount.spec.drag then
 					self.capture = { mount = mount.id, part = part, key = key, from = at }
 				end
 			end
