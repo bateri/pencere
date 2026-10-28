@@ -444,6 +444,27 @@ impl Images {
         std::mem::take(&mut state.arrived)
     }
 
+    /// Whether a file is still being read and decoded, or an SVG drawn at a size it was asked at:
+    /// the host will be woken for it. What has arrived is [`Images::poll`]'s once this says no.
+    ///
+    /// **Not for a frame**, which never waits for an image: for a host that wants the page whole
+    /// before it looks (a test, a picture of the page) and waits for the wake while this says so.
+    pub fn busy(&self) -> bool {
+        self.lock().entries.values().any(|entry| match entry {
+            Entry::Pending
+            | Entry::Released {
+                reloading: true, ..
+            } => true,
+            Entry::Vector(drawing) => drawing
+                .drawn
+                .values()
+                .any(|drawn| matches!(drawn, Drawn::Pending)),
+            Entry::Raster(_) | Entry::Released { .. } | Entry::Refused | Entry::Waiting { .. } => {
+                false
+            }
+        })
+    }
+
     fn lock(&self) -> MutexGuard<'_, State> {
         self.shared
             .state

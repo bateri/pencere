@@ -18,6 +18,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **A host that drives a page by hand can wait for it.** `Module::flush` waits, as long as it is
+  told to, until the module has done everything posted to it before and put out what came of it —
+  the page an event or the program's words made it make again included; `Images::busy` says whether
+  a file is still being decoded or drawn. Neither is for a frame, which never waits: they are for a
+  test or a picture of the page, which wants the page whole and no guess at how long that takes.
 - **Editors.** The interface has `node.editor`, the events `editor-pointer`, `edit`, `selection`,
   `viewport` and `editor-refused`, a reply's `editor` asks, and `layout.editor-version`,
   `editor-length`, `editor-lines`, `editor-text`, `line-start` and `line-of`, which read the copy of

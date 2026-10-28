@@ -14,7 +14,7 @@
 //! per item.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -95,6 +95,8 @@ enum Command {
     /// The application is at a frame of this time, at or after the time the page asked to be
     /// woken at.
     Wake(f64),
+    /// The application waits for what it posted before this to be done ([`Module::flush`]).
+    Mark(u64),
     Stop,
 }
 
@@ -128,6 +130,9 @@ struct Waiting {
     closed: Option<Fault>,
     /// The earliest time the page asked to be woken at and has not been, on render's clock.
     wake: Option<f64>,
+    /// The last mark of the application's ([`Module::flush`]) the module has come to, with all it
+    /// was told before it done and put out.
+    reached: u64,
 }
 
 /// What the application takes from the mailbox.
@@ -156,6 +161,8 @@ pub struct Update {
 pub struct Module {
     commands: Sender<Command>,
     mailbox: Arc<Mailbox>,
+    /// The last mark posted ([`Module::flush`]).
+    marks: AtomicU64,
 }
 
 impl Module {
@@ -190,7 +197,11 @@ impl Module {
         if spawned.is_err() {
             mailbox.close_without_wake(Fault::Load("could not start a thread".into()));
         }
-        Self { commands, mailbox }
+        Self {
+            commands,
+            mailbox,
+            marks: AtomicU64::new(0),
+        }
     }
 
     /// Starts the component in `bytes` (binary or text) under `limits`, for `program`.
@@ -301,6 +312,33 @@ impl Module {
             })
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         made_for(&waiting)
+    }
+
+    /// Waits until the module has done everything posted to it before this call, and put out what
+    /// came of it (the page an event or the program's words made it make again included), the
+    /// module is gone, or `within` has passed; whether it came to that within the time.
+    ///
+    /// **Not for an application's frame**, which never waits for a module: for a host that drives
+    /// a page by hand and wants to know it has said all it will say to what it was told — a test, a
+    /// picture of the page — with no guess at how long that takes. What the module was told after
+    /// this call, and what it does by itself after (nothing: a module only answers), is not waited
+    /// for. What it put out is taken as ever ([`Module::poll`]).
+    pub fn flush(&self, within: Duration) -> bool {
+        let mark = self.marks.fetch_add(1, Ordering::SeqCst).saturating_add(1);
+        let _ = self.commands.send(Command::Mark(mark));
+        let waiting = self
+            .mailbox
+            .waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (waiting, _) = self
+            .mailbox
+            .arrived
+            .wait_timeout_while(waiting, within, |waiting| {
+                waiting.reached < mark && waiting.closed.is_none()
+            })
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        waiting.reached >= mark || waiting.closed.is_some()
     }
 
     /// Takes what the module has put out since the last taking. Never waits.
@@ -427,6 +465,19 @@ impl Post<'_> {
         due
     }
 
+    /// The module has come to the application's `mark`, with all it was told before it done: the
+    /// application that waits for it is told ([`Module::flush`]). Nothing is woken: what came of
+    /// it woke the application as it came.
+    fn reached(&self, mark: u64) {
+        let mut waiting = self
+            .mailbox
+            .waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        waiting.reached = waiting.reached.max(mark);
+        self.mailbox.arrived.notify_all();
+    }
+
     /// Once per taking: a wake that is already on its way covers what is posted after it.
     fn wake(&self) {
         if !self.mailbox.woken.swap(true, Ordering::SeqCst) {
@@ -549,10 +600,13 @@ fn serve<R: Runner>(
         let mut wheel = (0.0_f32, 0.0_f32);
         // And the boxes scrolled, of a run of them that was.
         let mut scrolled: Vec<(Id, Point)> = Vec::new();
+        // The last mark of the application's in the batch: come to once the batch is done.
+        let mut marked = None;
         for (at, command) in batch.iter().enumerate() {
             let later = batch.get(at + 1..).unwrap_or_default();
             match command {
                 Command::Stop => return Ok(()),
+                Command::Mark(mark) => marked = Some(*mark),
                 Command::Laid(laid) => runner.lay_out(Arc::clone(laid)),
                 Command::Texts(texts) => runner.texts(texts.clone()),
                 // Only the newest of the pages asked for is made.
@@ -726,6 +780,10 @@ fn serve<R: Runner>(
             let frame = wakes.frame(frame, Some(now), post);
             post.say(runner.take_sent(), runner.take_asks());
             post.put(Some((frame, asked.size)), None);
+        }
+        // After the page the batch owed: what came of everything before the mark is out.
+        if let Some(mark) = marked {
+            post.reached(mark);
         }
     }
 }
@@ -1095,6 +1153,49 @@ mod tests {
         assert!(!rig.module.wait_for_frame(large, Duration::from_millis(20)));
         rig.module.render(large, 1.0, false);
         assert!(rig.module.wait_for_frame(large, Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn a_host_that_flushes_finds_everything_it_posted_done_and_put_out_and_no_more() {
+        let (hold, gate) = mpsc::channel();
+        let rig = rig(Some(gate), None, false);
+        rig.module.render(Size::new(10.0, 10.0), 0.0, false);
+        // Held in its first render: a flush waits as long as it is told to, and no longer.
+        let began = std::time::Instant::now();
+        assert!(!rig.module.flush(Duration::from_millis(20)));
+        assert!(began.elapsed() >= Duration::from_millis(20));
+        hold.send(()).unwrap();
+        // An event, and what the program said: the reply and the page the program's words owed are
+        // out when the flush comes back, with nothing guessed about how long that takes.
+        rig.module.event(typed("a"));
+        rig.module.message("redraw".into());
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        let update = rig.module.poll();
+        assert_eq!(update.replies.len(), 1, "{update:?}");
+        assert!(update.frame.is_some());
+        assert_eq!(
+            rig.log()
+                .iter()
+                .filter(|line| line.starts_with("render"))
+                .count(),
+            3,
+            "the first page, the event's and the one the program's words owed: {:?}",
+            rig.log()
+        );
+        // Nothing posted: a flush comes back at once with nothing new.
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        assert_eq!(rig.module.poll().frame, None);
+    }
+
+    #[test]
+    fn a_flush_of_a_module_that_is_gone_comes_back_at_once() {
+        let rig = rig(None, Some("render"), false);
+        rig.module.render(Size::new(10.0, 10.0), 0.0, false);
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        assert!(rig.module.poll().closed.is_some());
+        let began = std::time::Instant::now();
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        assert!(began.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

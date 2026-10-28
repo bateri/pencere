@@ -243,6 +243,44 @@ fn a_page_is_laid_out_before_its_image_is_decoded_and_once_more_after_and_never_
     assert_eq!(rig.reads(), ["logo.png"]);
 }
 
+/// A host that wants the page whole (a test, a picture) can tell whether anything is still on its
+/// way: a file being decoded, an SVG being drawn at a size; once nothing is, what came is all there
+/// is to take.
+#[test]
+fn the_images_say_whether_anything_is_still_on_its_way() {
+    let gate = Arc::new(Gate::default());
+    let rig = rig_with(
+        vec![
+            ("logo.png", solid(6, 3, [10, 20, 30, 255])),
+            ("mark.svg", GREEN_SVG.as_bytes().to_vec()),
+        ],
+        ImageLimits::default(),
+        Some(Arc::clone(&gate)),
+    );
+    assert!(!rig.images.busy(), "nothing asked, nothing on its way");
+    assert_eq!(rig.images.size("logo.png"), None);
+    assert!(rig.images.busy(), "the file is being read");
+    gate.open();
+    while rig.images.busy() {
+        let _ = rig.woke.recv_timeout(Duration::from_secs(20));
+    }
+    assert!(rig.images.poll().relayout);
+    // An SVG: decoded for its size, then drawn at the size it is asked at.
+    assert_eq!(rig.images.size("mark.svg"), None);
+    while rig.images.busy() {
+        let _ = rig.woke.recv_timeout(Duration::from_secs(20));
+    }
+    assert!(rig.images.size("mark.svg").is_some());
+    assert!(rig.images.bitmap("mark.svg", whole(40.0, 20.0)).is_none());
+    assert!(rig.images.busy(), "being drawn at its size");
+    while rig.images.busy() {
+        let _ = rig.woke.recv_timeout(Duration::from_secs(20));
+    }
+    assert!(rig.images.bitmap("mark.svg", whole(40.0, 20.0)).is_some());
+    rig.images.poll();
+    assert!(!rig.images.busy());
+}
+
 // --- The formats ------------------------------------------------------------------------------
 
 #[test]
