@@ -1213,8 +1213,9 @@ fn wake_out(wake: Option<f64>, what: &str) -> Result<Option<f64>, Fault> {
         Some(seconds) if !(seconds.is_finite() && seconds >= 0.0) => Err(Fault::Malformed(
             format!("{what} asks to be woken in {seconds} seconds (a number, 0 or more)"),
         )),
-        // -0 is 0.
-        wake => Ok(wake.map(|seconds| seconds.max(0.0))),
+        // -0 is 0. Not by `max(0.0)`: which of two equal zeros it gives is the machine's choice
+        // (x86_64 keeps -0).
+        wake => Ok(wake.map(|seconds| if seconds == 0.0 { 0.0 } else { seconds })),
     }
 }
 
