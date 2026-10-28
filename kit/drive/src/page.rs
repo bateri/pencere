@@ -37,8 +37,8 @@
 //! driven by hand (a test) is the clock of everything the page does. **The program's readings and
 //! the frames' times must be one clock** — the same origin, the same seconds: a reading behind the
 //! last frame is taken as the frame's time, so a clock of another origin would stand still between
-//! frames (what is typed undone as one, a caret that does not blink, a timer late). A debug build
-//! stops on a reading more than a second behind the last frame.
+//! frames (what is typed undone as one, a caret that does not blink, a timer late). A reading more
+//! than a second behind the last frame stops a debug build; a release build takes it for no reading.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -70,8 +70,8 @@ pub struct Setup {
     /// page says), and the host's clock where it keeps one that can be read from any thread
     /// ([`Program::now`]). [`Unbounded`] by default: a program that always has room, and no clock.
     /// Its clock is the one the frames are given their time on ([`FrameAt::now`]): the same origin
-    /// and the same seconds (a debug build stops on a reading more than a second behind the last
-    /// frame).
+    /// and the same seconds (a reading more than a second behind the last frame stops a debug build,
+    /// and a release build takes it for no reading).
     pub program: Arc<dyn Program>,
     /// Where the files of the page's bundle are read from, for its images; a page without them draws
     /// no image. A script's page takes its own bundle's when this is `None`.
@@ -243,6 +243,8 @@ impl Clock {
             self.frame,
         );
         reading
+            // Where a build does not stop on it, a reading of another clock is no reading.
+            .filter(|now| *now >= self.frame - BEHIND)
             .unwrap_or_else(|| self.frame + self.at.elapsed().as_secs_f64())
             .max(self.frame)
     }

@@ -188,8 +188,12 @@ why), and the test opens the page anew with the same program where a terminal wo
   `lent()` is the command, `give_back(status)` says how it ended (the program's hand-off is told),
   and the program speaks to the page opened next, as to the view a terminal shows again.
 
-The program's back-pressure is the conversation's: a handler that pushes faster than the page takes
-waits, as it would for a terminal. A page's own (`pencere.send` answered `false`, then `room`) is
+A page is opened with the program only for a view it shows — the first, or one it shows anew: one
+opened on a view an earlier page had is over at once, since the program still holds what the
+earlier page asked.
+
+The program's back-pressure is the conversation's: the host takes what it said a terminal's read
+(64 KiB) at a time, and a handler that pushes faster waits, as it would for a terminal. A page's own (`pencere.send` answered `false`, then `room`) is
 not played: the headless host takes everything a page says at once.
 
 ## Pictures of a page (`shot`)

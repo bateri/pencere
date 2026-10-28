@@ -46,8 +46,9 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
 - **One clock.** The frames, the editors (what is undone together) and the scrolling between frames
   run on the host's clock where its program keeps one (`Program::now`), so that a host whose clock is
   driven by hand drives everything the page does. The program's readings and the frames' times
-  (`FrameAt::now`) must be that one clock; a debug build stops on a reading more than a second behind
-  the last frame, which would otherwise stand time still between frames.
+  (`FrameAt::now`) must be that one clock; a reading more than a second behind the last frame, which
+  would stand time still between frames, stops a debug build and is taken for no reading in a
+  release build.
 - **Editors without the pointer.** `PageEditors::focus`, `select` and `command`: the keyboard put in
   an editor, a selection made and an editor's own command done the way a screen reader or a host's
   menu does them. `Page::key` sends a key to the editor with the keyboard first and to the page where

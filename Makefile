@@ -30,10 +30,13 @@ check:
 	# The tests' standard input is no terminal, as on a runner: a test of an app with no terminal
 	# would otherwise ask the terminal make runs in for a view, and one that answers changes it.
 	cargo test --workspace --all-targets </dev/null
-	# The features of `pencere-drive`, linted and tested together: the pictures of a page (`shot`),
-	# which nothing of the workspace asks for, with no font of the system's — a picture made with no
-	# font is the same bytes on every system, and the one checked in is what it is held to — and a
-	# program in the same process (`program`).
+	# The features of `pencere-drive`: the pictures of a page (`shot`), which nothing of the workspace
+	# asks for, with no font of the system's — a picture made with no font is the same bytes on every
+	# system, and the one checked in is what it is held to — and a program in the same process
+	# (`program`), which the workspace's tests ask for. Linted as a terminal links the crate (with
+	# none), with the pictures alone and with both; tested with both.
+	cargo clippy -p pencere-drive --all-targets -- -D warnings
+	cargo clippy -p pencere-drive --features shot --all-targets -- -D warnings
 	cargo clippy -p pencere-drive --all-features --all-targets -- -D warnings
 	cargo test -p pencere-drive --all-features --all-targets </dev/null
 	npx prettier --check .
