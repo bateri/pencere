@@ -790,7 +790,8 @@ function requireDependencies() {
   }
   const crates = lineOf("crates");
   const cratesVersion = lineVersion(crates);
-  const program = crates.packages.at(-1).name;
+  // The program library, by its name: it is not the last of the crates to be published.
+  const program = crates.packages.find((pkg) => pkg.name === "pencere").name;
   if (!onRegistry(program, cratesVersion)) {
     refuse(`${program} ${cratesVersion} is not on crates.io: the command is released after it`);
   }

@@ -11,12 +11,17 @@ use serde_json::Value;
 /// `subscribe`, `cancel`) and says what the program says back (`response`, `push`, `progress`),
 /// each one JSON object as written.
 ///
-/// A peer in this process ([`Calls`]) answers at once, while it hears. A program in another process
-/// answers when it has: [`Peer::busy`] says it still owes the page an answer, and the host gives it
-/// [`Peer::wait`] before it takes what it said. **A peer that stands for a host and not for the
-/// program** (one that carries the page's words to a real program) reads nothing of what they say:
-/// the name of a message's one member and the number it belongs to tell it which calls are owed.
+/// A table of calls ([`Calls`]) answers at once, while it hears. A program that keeps its own time —
+/// its own handlers in this process (`InProcess`, with the feature `program`), or a program in
+/// another process — answers when it has: [`Peer::busy`] says it still owes the page an answer, and
+/// the host gives it [`Peer::wait`] before it takes what it said. **A peer that stands for a host
+/// and not for the program** (one that carries the page's words to a real program) reads nothing of
+/// what they say: the name of a message's one member and the number it belongs to tell it which
+/// calls are owed.
 pub trait Peer {
+    /// A page was opened to speak to this program: the first, or one opened anew after the last
+    /// one's view was over ([`Peer::closed`]). What the program says from here on is its.
+    fn opened(&mut self) {}
     /// The page said `message` to its program.
     fn heard(&mut self, message: &str);
     /// What the program has said to the page since it was last asked, in order.
@@ -28,8 +33,8 @@ pub trait Peer {
     }
     /// Waits, at most `within`, for the program to say something it owes.
     fn wait(&mut self, _within: Duration) {}
-    /// Why the page's view is over, once it is: the program closed it, or ended. A program in this
-    /// process never closes it.
+    /// Why the page's view is over, once it is: the program closed it, showed another in its place,
+    /// lent the terminal, or ended. [`Calls`] never closes it.
     fn closed(&mut self) -> Option<String> {
         None
     }

@@ -30,11 +30,12 @@ check:
 	# The tests' standard input is no terminal, as on a runner: a test of an app with no terminal
 	# would otherwise ask the terminal make runs in for a view, and one that answers changes it.
 	cargo test --workspace --all-targets </dev/null
-	# The pictures of a page (`pencere-drive`'s feature `shot`), which nothing of the workspace asks
-	# for: linted and tested on their own, with no font of the system's — a picture made with no font
-	# is the same bytes on every system, and the one checked in is what it is held to.
-	cargo clippy -p pencere-drive --features shot --all-targets -- -D warnings
-	cargo test -p pencere-drive --features shot --all-targets </dev/null
+	# The features of `pencere-drive`, linted and tested together: the pictures of a page (`shot`),
+	# which nothing of the workspace asks for, with no font of the system's — a picture made with no
+	# font is the same bytes on every system, and the one checked in is what it is held to — and a
+	# program in the same process (`program`).
+	cargo clippy -p pencere-drive --all-features --all-targets -- -D warnings
+	cargo test -p pencere-drive --all-features --all-targets </dev/null
 	npx prettier --check .
 	npx vitest run --passWithNoTests
 
@@ -44,8 +45,8 @@ check:
 # sandbox knows the engine, the wire (for the size of a message and the rule of a link), the runtime
 # and regular expressions (for the rules of an editor's indent), the drive knows the engine, the
 # editor, the sandbox and the messages of a program and its view (for the program of a page under its
-# host with no screen) and nothing of a platform or a font, and the page modules know the SDK and the
-# engine.
+# host with no screen; the program library itself only when a test asks for it, `program`) and
+# nothing of a platform or a font, and the page modules know the SDK and the engine.
 audit:
 	@fail=0; \
 	if [ "$$(cargo tree -p pencere-view -e normal --depth 1 --prefix none | tail -n +2 | sed 's/ .*//' | sort -u)" != "taffy" ]; then echo "audit: pencere-view depends on something besides the layout crate (taffy) — the page engine depends on its layout crate alone"; fail=1; fi; \
@@ -105,7 +106,7 @@ guest:
 # run on. Needs rustup with the wasm32 target (see `guest`); `luau` (Docker) is not part of it.
 check-heavy: guest
 	cargo test --workspace --all-targets -- --ignored </dev/null
-	cargo test -p pencere-drive --features shot --lib shot_tests -- --ignored </dev/null
+	cargo test -p pencere-drive --all-features --lib -- --ignored shot_tests in_process_tests </dev/null
 	$(GUEST_CARGO) clippy --manifest-path kit/guest/Cargo.toml --all-targets --target wasm32-unknown-unknown -- -D warnings
 
 # The interpreter of the scripting language (`kit/sandbox/luau/luau.wasm`): Luau, the bridge that

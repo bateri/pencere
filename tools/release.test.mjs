@@ -41,9 +41,9 @@ describe("the repository's lines", () => {
       "pencere-view",
       "pencere-editor",
       "pencere-sandbox",
-      "pencere-drive",
       "pencere-page",
       "pencere",
+      "pencere-drive",
     ]);
   });
 
@@ -368,7 +368,7 @@ describe("release.mjs rehearse", () => {
   it("refuses an Unreleased section that still holds changes in any of the crates", () => {
     const root = fixture({ programVersion: "0.1.0" });
     for (const pkg of members.slice(0, -1)) write(root, `${pkg.dir}/CHANGELOG.md`, RELEASED);
-    refused(root, "crates", "program/CHANGELOG.md: Unreleased is not empty");
+    refused(root, "crates", "kit/drive/CHANGELOG.md: Unreleased is not empty");
   });
 
   it("refuses crates that are not at one version, and names them", () => {

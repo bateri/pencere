@@ -65,8 +65,10 @@ branch and publishes nothing.
 
 They share one version because they ask for each other by version. They are published in this
 order, each after the ones it depends on: `pencere-wire`, `pencere-host`, `pencere-view`,
-`pencere-editor`, `pencere-sandbox`, `pencere-drive`, `pencere-page`, `pencere` (`tools/lines.mjs`). A crate with no change of its own
-gets "Released with the other crates; no change of its own." in its changelog.
+`pencere-editor`, `pencere-sandbox`, `pencere-page`, `pencere`, `pencere-drive` (`tools/lines.mjs`;
+the drive comes after the program library, which serves a page's program in the same process). A
+crate with no change of its own gets "Released with the other crates; no change of its own." in its
+changelog.
 
 Each crate is dry-run on its own, with its dependencies patched to the repository, because none of
 them is on crates.io at the new version yet. The sandbox and the page SDK carry a copy of
@@ -104,10 +106,10 @@ None of these is a secret.
 - **npm**, `@pencere/sdk`: trusted publisher GitHub Actions, `bateri/pencere`, `release.yml`,
   environment `release`; tokens disallowed.
 - **crates.io**, each of the eight crates (`pencere-wire`, `pencere-host`, `pencere-view`,
-  `pencere-editor`, `pencere-sandbox`, `pencere-drive`, `pencere-page`, `pencere`): trusted publisher GitHub, `bateri/pencere`,
-  `release.yml`, environment `release`. A crate without it is refused with `403 … The provided
-access token is not valid for crate …` when its turn comes, after the ones before it went out;
-  run the workflow again for the line once it is set.
+  `pencere-editor`, `pencere-sandbox`, `pencere-page`, `pencere`, `pencere-drive`): trusted
+  publisher GitHub, `bateri/pencere`, `release.yml`, environment `release`. A crate without it is
+  refused with `403 … The provided access token is not valid for crate …` when its turn comes,
+  after the ones before it went out; run the workflow again for the line once it is set.
 
 ## The specification
 

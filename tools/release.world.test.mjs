@@ -87,9 +87,9 @@ describe("release.mjs rehearse of the crates", () => {
       "publish --dry-run -p pencere-view",
       `publish --dry-run -p pencere-editor ${patch("pencere-view", "kit/view")}`,
       `publish --dry-run -p pencere-sandbox ${patch("pencere-view", "kit/view")}`,
-      `publish --dry-run -p pencere-drive ${patch("pencere-view", "kit/view")} ${patch("pencere-editor", "kit/editor")} ${patch("pencere-sandbox", "kit/sandbox")} ${patch("pencere-wire", "wire")}`,
       `publish --dry-run -p pencere-page --manifest-path kit/guest/Cargo.toml ${patch("pencere-view", "kit/view")} ${patch("pencere-wire", "wire")}`,
       `publish --dry-run -p pencere ${patch("pencere-wire", "wire")}`,
+      `publish --dry-run -p pencere-drive ${patch("pencere-view", "kit/view")} ${patch("pencere-editor", "kit/editor")} ${patch("pencere-sandbox", "kit/sandbox")} ${patch("pencere-wire", "wire")} ${patch("pencere", "program")}`,
     ]);
     expect(done.out).toContain("the pencere crates 0.1.0 is ready to be released as crates-v0.1.0");
   });
@@ -510,9 +510,9 @@ describe("release.mjs publish", () => {
         ["publish", "-p", "pencere-view"],
         ["publish", "-p", "pencere-editor"],
         ["publish", "-p", "pencere-sandbox"],
-        ["publish", "-p", "pencere-drive"],
         ["publish", "-p", "pencere-page", "--manifest-path", "kit/guest/Cargo.toml"],
         ["publish", "-p", "pencere"],
+        ["publish", "-p", "pencere-drive"],
       ]);
       // Not from the working tree, but from a checkout of its own.
       for (const call of calls) {
@@ -538,9 +538,9 @@ describe("release.mjs publish", () => {
         "pencere-view",
         "pencere-editor",
         "pencere-sandbox",
-        "pencere-drive",
         "pencere-page",
         "pencere",
+        "pencere-drive",
       ]);
     });
 
@@ -567,9 +567,9 @@ describe("release.mjs publish", () => {
       expect(w.run("publish", "crates").status).toBe(0);
       expect(published(w).map((call) => call.args[2])).toEqual([
         "pencere-sandbox",
-        "pencere-drive",
         "pencere-page",
         "pencere",
+        "pencere-drive",
       ]);
       expect(w.state.gh.releases["crates-v0.1.0"].draft).toBe(false);
     });

@@ -119,7 +119,8 @@ its own.
   another process (`pencere-fake-host`'s `program`: on a pty, as a terminal runs it) keeps its own
   time: a settling of a page at rest waits for the answers it owes (`Peer::busy`), and
   `wait_for(within, condition)` waits for what it says on its own; a program that ends its view
-  ends the page's (`Error::Closed`).
+  ends the page's (`Error::Closed`). The program's own handlers in this process are `InProcess`
+  (the feature `program`, below).
 - **What a person sees:** `words` (drawn, in order), `says`, `words_in(id)`, `tree_words`, `bounds`,
   `editor` (the document: text, selections, version, decorations), `editor_text`, `focus`,
   `field`, `outline` (fields, screen reader, tooltips, commands), `cursor`, `pasteboard`, `links`,
@@ -158,6 +159,38 @@ its own.
 | `press(id, count)`                       | `click(id)`, `double_click(id)`                                                                             |
 | the pointer's shape (`cursor`)           | `cursor()`                                                                                                  |
 | `now`                                    | `now()`; moved by `advance`, `step`, `idle`, `hide`                                                         |
+
+## A program in the same process (`program`)
+
+With the feature `program`, `InProcess` is a page's program in this process: the handlers it gives
+`pencere::serve` (its `pencere::Options`), served by the program library's own `Conversation` — no
+terminal, no pty, the same code between. Its handlers answer on their own threads and in their own
+time, as a program in another process does: a settling of a page at rest waits for the answers they
+owe, and `wait_for` for what they push on their own.
+
+```rust
+use pencere_drive::headless::{Headless, InProcess};
+
+let mut page = Headless::app("examples/containers-lua")
+    .peer(InProcess::new(handlers())) // the program's `Options`, as its `main` gives them to `serve`
+    .open()?;
+page.wait_for(Duration::from_secs(5), |page| page.says("api"))?;
+```
+
+What the program does to its view ends the page's, as a terminal ends it (`Error::Closed`, with
+why), and the test opens the page anew with the same program where a terminal would show it again
+(`Headless::into_peer`, then `.peer(program)` of the next opening):
+
+- it **closes** its view (`ViewControl::close`): the program shows none again, and a page opened
+  with it is over at once;
+- it **shows another** in its place (`ViewControl::reopen`): it speaks to the page opened next;
+- it **lends the terminal** to a command (`ViewControl::hand_off`), which nothing runs here:
+  `lent()` is the command, `give_back(status)` says how it ended (the program's hand-off is told),
+  and the program speaks to the page opened next, as to the view a terminal shows again.
+
+The program's back-pressure is the conversation's: a handler that pushes faster than the page takes
+waits, as it would for a terminal. A page's own (`pencere.send` answered `false`, then `room`) is
+not played: the headless host takes everything a page says at once.
 
 ## Pictures of a page (`shot`)
 

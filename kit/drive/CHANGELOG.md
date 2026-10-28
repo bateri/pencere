@@ -79,6 +79,13 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
   `Headless::received` (what the program said to the page). A settling waits for the answers a
   busy program owes only while the page is at rest: a page that moves goes on at the frames of the
   clock, and what the program waits for may be what it says at them.
+- **A program in the same process** (the feature `program`): `headless::InProcess` serves a page
+  the handlers a program gives `pencere::serve`, by the program library's own `Conversation` — no
+  terminal, no pty. A settling waits for the answers its handlers owe, and `wait_for` for what they
+  push. What the program does to its view ends the page's as a terminal ends it: a view closed, one
+  shown in its place, a terminal lent to a command (`InProcess::lent`, `InProcess::give_back`); the
+  test opens the page anew with the same program (`Headless::into_peer`), and `Peer::opened` tells
+  a peer a page was opened to speak to it. The crate is published after the program library.
 - **What a host with no screen is held to.** `Files` gives a file the media type its program gives
   it (`pencere_wire::bundle::media_type_of`), and `Files::app` carries what the program's bundle
   carries: the scripts of `src/view/`, the pictures of `src/assets/`, nothing hidden.

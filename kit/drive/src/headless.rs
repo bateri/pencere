@@ -29,9 +29,13 @@
 //! A page that goes wrong is an [`Error`], with why: a method of a page that ended returns
 //! [`Error::Ended`]. The text is measured by a fixed measure ([`Fixed`]: every character the same
 //! width) unless the test gives another. The program is a table of calls ([`Calls`]) unless the test
-//! gives another [`Peer`]. Every point is the host's: with no strip and no zoom, the page's own.
+//! gives another [`Peer`] — the program's own handlers in this process (`InProcess`, with the
+//! feature `program`), or a program in another process. Every point is the host's: with no strip
+//! and no zoom, the page's own.
 
 mod files;
+#[cfg(feature = "program")]
+mod in_process;
 mod peer;
 
 use std::collections::HashMap;
@@ -50,6 +54,8 @@ use pencere_view::{
 };
 
 pub use files::Files;
+#[cfg(feature = "program")]
+pub use in_process::InProcess;
 pub use peer::{Calls, Heard, Peer, Subscription};
 pub use pencere_wire::messages::Error as Failure;
 pub use serde_json::Value;
@@ -524,6 +530,7 @@ impl<P: Peer> Opening<P> {
             dirty: false,
             seen: Seen::default(),
         };
+        headless.peer.opened();
         // The line that stands for the page, which asks the module for its first.
         headless.frame();
         headless.settle()?;
@@ -1416,6 +1423,13 @@ impl<P: Peer> Headless<P> {
     /// settling.
     pub fn peer_mut(&mut self) -> &mut P {
         &mut self.peer
+    }
+
+    /// The page is put away and its program kept, for a page opened anew with it
+    /// ([`Opening::peer`]): as a terminal opens a view again for the program that showed it, when
+    /// the program showed another in its place or had the terminal back.
+    pub fn into_peer(self) -> P {
+        self.peer
     }
 
     // --- What the person sees ----------------------------------------------------------------------

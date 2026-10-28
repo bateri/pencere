@@ -33,6 +33,8 @@ pub use scrolling::Scrolling;
 
 #[cfg(test)]
 mod headless_tests;
+#[cfg(all(test, feature = "program"))]
+mod in_process_tests;
 #[cfg(test)]
 mod luau_editor_tests;
 #[cfg(test)]

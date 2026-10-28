@@ -66,11 +66,6 @@ export const LINES = {
         ],
       },
       {
-        dir: "kit/drive",
-        name: "pencere-drive",
-        entries: ["src/lib.rs"],
-      },
-      {
         dir: "kit/guest/sdk",
         name: "pencere-page",
         // The page modules have a workspace of their own, built for another target.
@@ -80,6 +75,12 @@ export const LINES = {
       {
         dir: "program",
         name: "pencere",
+        entries: ["src/lib.rs"],
+      },
+      {
+        dir: "kit/drive",
+        name: "pencere-drive",
+        // After the program library, which it serves a page's program with (the feature `program`).
         entries: ["src/lib.rs"],
       },
     ],

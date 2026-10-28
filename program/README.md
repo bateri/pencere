@@ -203,6 +203,10 @@ its `ViewControl` is what it says, `Said::Closed`, `Said::Reopened` and `Said::H
 command runs; the `Lent` of a hand-off says how it ended (`lent.returned(status)`), and until then
 there is no view to hear.
 
+To test the handlers with the page they serve, `pencere-drive`'s host with no screen runs the page
+in the kit and serves it the handlers by a conversation (`headless::InProcess`, with the crate's
+feature `program`), with no terminal and no pty between them.
+
 ## When there is no view
 
 `serve` returns `Outcome::NoView` — after the fallback has run, and with the terminal as it was
