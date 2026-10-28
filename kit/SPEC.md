@@ -596,13 +596,17 @@ or its captures, taken unless `consume` is false) and `current()`. A `token` tha
 the page, as any error of the language's does, in words that say the language's name and the line
 (`sql: line 12: …`). `language:tokens(text, state, tab_width)` is a line's tokens in characters, for
 a text that is not in an editor (`state` the state before it, `start()`'s where nil; `tab_width` what
-a tab is to the stream's columns, 4).
+a tab is to the stream's columns, 4), and `language:look(name)` the look its styles give a token's
+name (a copy; nil for none), found as the syntax finds it.
 
 `Syntax.new(language, id, { layer =, step =, margin =, tab_width = })` colours the editor `id` with
-it. It keeps the state after each line of the document and is given every event of the page
-(`syntax:handle(event)`): an `edit` makes it read again from the first line the change touched until
-a line ends in the state it ended in before, a `viewport` says what to colour, and for those two it
-does a call's work at once; any other event (the pointer moving, a key) costs it nothing, what is
+it. It keeps the state before every 32nd line of the document (a checkpoint) and before each line of
+the window it colours, and no other, so that what it holds grows with a document 32 lines at a time;
+a line whose state it does not keep is read from the checkpoint before it. It is given every event
+of the page (`syntax:handle(event)`): an `edit` makes it read again from the first line the change
+touched (from the checkpoint before it, where that line's state is not kept) until a line whose
+state is kept ends in the state it ended in before, a `viewport` says what to colour, and for those
+two it does a call's work at once; any other event (the pointer moving, a key) costs it nothing, what is
 left being its timer's. It colours the lines in view and `margin` lines on each side (as many as
 are in view) in the layer `layer` (`"syntax"`), in characters, a line again only where it or the
 state before it changed, and takes away what it coloured out of them. One call reads at most `step`
@@ -616,6 +620,171 @@ of the editor goes in the page's reply (`syntax:reply(reply)`, its asks before t
 a timer of its own (`pencere.time.after(0, …)`) wakes the page, does the next call and hands what it
 found to the editor with the wake's reply, so that a large document is coloured to its end with no
 event of the person's (`syntax:work()` does a call at once, for a page that wants one).
+
+#### `@pencere/languages`
+
+The languages an editor reads are the page's, and `@pencere/languages` (with
+`local languages = require("@pencere/languages")`) knows the kit's as CodeMirror's
+`@codemirror/language-data` does: a **description** of each says what it is called and how a file in
+it is told, and costs nothing to keep; the **language** is built from one only when a page loads it.
+A description is a frozen table: `name`; `aliases`, its other names; `extensions`, what a file's name
+ends in after its last dot; `filenames`, whole names of files in it (`"Makefile"`, `".bashrc"`);
+`patterns`, Lua patterns a file's whole name in lower case is in it by (`"^dockerfile[%.%-]"`);
+`interpreters`, the programs a `#!` first line runs a script in it with, without their version
+(`"python"`); `first_line`, a Lua pattern the first line of a file in it matches (`"^%s*<%?xml"`), or
+nil; and `family`, the module of readers it is built with (`"clike"`, `"scripting"`, `"markup"`,
+`"data"`, `"sheets"`, `"tools"` or `"sql"`). Names, aliases, extensions and file names are matched in
+any letter case.
+
+The kit's languages are C, C#, C++, CSS, Diff, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, JSX,
+Kotlin, Less, Lua, Makefile, Markdown, PHP, PostgreSQL, Python, Ruby, Rust, SCSS, Shell, SQL, SQLite,
+Swift, TOML, TSX, TypeScript, XML and YAML. None is plain text: that is the page's word for a file in
+none of them.
+
+- `languages.list()` is every description, sorted by name in any case, a new list each call.
+- `languages.find(name)` is the description whose name or one of whose aliases is `name`, in any
+  case, or nil.
+- `languages.detect(path, first_line)` is the description of the file at `path` (its whole name,
+  after the last `/` or `\`; nil for a document with no name) whose first line is `first_line` (or
+  nil), by its whole name (`filenames`), then `patterns`, then its extension, then its first line:
+  the program of a `#!` line (the one `env` is given, past its options and settings; `python3.12` is
+  `python`), then `first_line`. It is nil where none of them says a language.
+- `languages.load(which)` is the language `which` says (a name or an alias in any case, or a
+  description), built the first time it is asked for and the same table after; nil for a name the
+  module does not know. `languages.loaded(which)` is the language where it has been built, nil
+  otherwise: for a page that would not build one in a call that is short of time.
+- An argument that is neither a name nor one of the module's descriptions is an error at the
+  caller's line.
+
+A language is a frozen `{ name =, description =, syntax =, config = }`. `syntax` is a language of
+`@pencere/syntax`: `Syntax.new(language.syntax, id)` colours an editor with it, and
+`language.syntax:tokens(line, state)` a text that is not in one. `config` is what an editor is told
+of the language, in the editor's own options (Section 2.1): `comment`, `indent` (in Rust's syntax),
+`folds` (`"indent"`), `pairs`, and `hard_tabs` and `tab_width` only where the language or its one
+formatter fixes how it indents (Go and the Makefile, tabs; Rust and Python, four spaces; YAML, two
+spaces and no tabs). A page gives `config` to an editor as it is (`pencere.editor(id,
+language.config)`), its own options in a copy (`table.clone(language.config)`); a page that gives the
+editor another `tab_width` gives `Syntax.new` the same.
+
+Requiring the module builds no language: it reads its descriptions alone, and a family's module is
+required when a language of it is first loaded. A language that holds another loads the other by
+name, through the module, when it first meets it: HTML its scripts and styles by the tag's `lang` or
+`type` (`lang="ts"`, `type="module"`, `type="text/css"`), a script read to the tag that closes it, on
+its own line too; Markdown the code in a fence, by the first word of the fence's info. A held language
+the module does not know is read as text. A reader takes at least a character a token and does work
+in proportion to the line, and where nothing is open at a line's end it leaves the empty state `{}`,
+which the lines after it share.
+
+SQL is three descriptions that share one reader. `PostgreSQL` and `SQLite` each read the characters
+the two databases read apart as its own does: `[` (a subscript or `ARRAY[…]` in PostgreSQL, a quoted
+name in SQLite), `?` (an operator of `jsonb` in PostgreSQL, a parameter in SQLite) and `@name`,
+`$name` (parameters of SQLite). `SQL`, for a file that does not say its database, reads the forms of
+both: a `[` right after a name or a bracket is a subscript and any other opens a name; `?|` and `?&`
+are operators and any other `?` is a parameter. Each of the three reads `--` and `/* */` comments
+(nested in PostgreSQL), strings in `'` over lines (`''` a quote in one), `E'…'` and `X'…'`,
+`$tag$…$tag$` (PostgreSQL's and SQL's), quoted names in `"` and in `` ` `` (SQLite's and SQL's),
+`$1` and `:name` parameters and `::` casts. `#` is no comment: PostgreSQL's `#>` is an operator.
+
+`languages.styles` is the one table of looks every language names its tokens from (a look is what
+`Syntax.define`'s styles say one is), frozen, in the theme's roles:
+
+| Tokens                                                       | Look                             |
+| ------------------------------------------------------------ | -------------------------------- |
+| `keyword`, `heading`                                         | `accent` (`heading` bold)        |
+| `keyword.modifier`, `variable.special`                       | `accent`, italic                 |
+| `string`, `code`, `inserted`                                 | `success`                        |
+| `number`, `atom`, `constant`, `attribute`, `list`, `changed` | `warning`                        |
+| `type`                                                       | `info`                           |
+| `link`, `url`                                                | `info` (`link` underlined)       |
+| `tag`, `deleted`                                             | `error`                          |
+| `invalid`                                                    | `error`, a wavy underline        |
+| `comment`, `quote`                                           | `dim` toward `quiet`, italic     |
+| `punctuation`, `operator`, `meta`                            | `foreground` toward `background` |
+| `function`, `property`, `string.special`, `escape`, `regexp` | mixed from two roles             |
+| `emphasis`, `strong`, `strike`                               | the face's alone                 |
+
+`languages.look(name)` is the look a token named `name` has by `styles`, as `language:look` finds it
+(Section 2.6, `@pencere/syntax`), or nil: for a page that colours code that is not in an editor.
+
+#### `@pencere/fuzzy`
+
+What a person types, found in texts the way a picker, a palette or a filter finds it
+(`local fuzzy = require("@pencere/fuzzy")`). A pattern is in a text where each of its characters is
+there, in order, with anything between them; a space in the pattern is not looked for. Of the ways
+it is there, the one that scores best is taken, as fzf's second algorithm scores it: a character
+scores more at the start of the text and of a word (after a space, after one of `/ \ : , ; |`, after
+any other character that is not a letter or a digit, a capital after a small letter, a digit after
+what is not one), a run more than the same characters apart, a gap costs, and a first character late
+in the text costs a point for each character before it, at most five.
+
+- `fuzzy.match(pattern, text, options)` is the score and the places of the pattern's characters
+  (characters of UTF-8 from 1, in order; a text that is not UTF-8 a byte a character; a text matched
+  in its first 64 KiB), or nil where it is not there; an empty pattern is in every text, with a score
+  of 0 and no places. `options.case` is `"smart"` (the default: a capital is told from its small
+  letter only where the pattern has a capital), `"ignore"` or `"respect"`; a letter is lowered by
+  Unicode's simple mapping for ASCII, Latin-1, Latin Extended-A, the letters in pairs of Latin
+  Extended-B and Latin Extended Additional, Greek, Cyrillic, Armenian and the full-width Latin
+  letters, and any other is compared as it is. With `options.path` the text is a path: a `/` and a
+  `\` are one character, a pattern with a `/` in it is matched against the whole path, and any other,
+  where it is in the path's last part (the name; a separator at the end left out), scores above any
+  match that is not. `options.highlight` says which places: `"best"` (the default), those that gave
+  the score, or `"first"`, where the pattern is first all there, from as late a first character as
+  that allows; the score is the same. A match whose table of scores would pass 32 768 places is
+  scored along the places `"first"` gives.
+- `fuzzy.filter(pattern, items, options)` is the items the pattern is in,
+  `{ { item =, index =, score =, positions = }, ... }`, a higher score first and of two the same the
+  earlier item; with an empty pattern every item in order. Its options are `match`'s and `text` (an
+  item's text where the items are not strings: a function of the item, or the name of its field; a
+  number is its digits) and `limit` (how many to keep at most: the best, kept as they are found). It
+  does all at once.
+- `fuzzy.search(pattern, items, options)` (the same options) goes through the items a list holds
+  when it is made a step at a time. `search:step(budget)` goes through at least one item, until what
+  it compared (bytes of text and places of the tables of scores) comes to `budget` (60 000 unless
+  said, some milliseconds), and says whether it is over; `search:results()` is the best so far, in
+  order (a list without a `limit` is sorted again as it grows: a long one is searched with a limit);
+  `search:progress()` how many items it went through and of how many; `search:done()` whether it goes
+  no further (it went through every item or was cancelled); `search:cancel()` stops it, keeping what
+  it found. `search:run(on_progress)` does a step at once and returns what `on_progress(search)`
+  returns for it (a reply, for the page to answer with), then goes on by itself, a step a frame: a
+  timer of its own (`pencere.time.after(0, …)`) wakes the page, does a step and tells `on_progress`,
+  whose reply is the wake's, until it is done or cancelled. `search:narrow(pattern)` is a search for
+  `pattern` in its place, with its items and options, and cancels it: where every text the new
+  pattern is in, the old one's is in as well (its characters in the new pattern's in order, told
+  apart in case no less), it goes only through what the old one found and the items it had not gone
+  through. An error a list's item gives (no text) is the caller's, at its line; in a step `run` goes
+  on with, the page's.
+- `fuzzy.spans(text, positions, look, from, to)` is the text as parts of a text of many looks
+  (`pencere.rich`): the characters at the places in `look`, what a `pencere.span` says (`color`,
+  `weight`, `italic`, `underline`, `strike`, `family`, `bg`, `link`;
+  `{ color = "accent", weight = 700 }` where none is given), the rest in the element's own look.
+  `from` and `to` (characters) take a part of the text, the places counted in the whole; places
+  outside it are passed over. It makes at most 1 024 parts, the rest plain in the last.
+
+#### `@pencere/keys`
+
+Keys as a page writes them (`"cmd+shift+k"`, Section 2.1), as a person reads them
+(`local keys = require("@pencere/keys")`).
+
+- `keys.parse(words)` is `pencere.keys(words)` with the key checked and named as a key event names
+  it (`"page_up"`, `"delete"`, `"enter"`, `"escape"`, `" "`, `"f1"` to `"f20"`, or one character), or
+  nil and why for words that are not keys.
+- `keys.caps(words, options)` is a cap for each key (`{ "⇧", "⌘", "K" }`), and
+  `keys.label(words, options)` the label: on a Mac the caps with nothing between (`"⇧⌘K"`), elsewhere
+  joined by `+` (`"Ctrl+Shift+K"`). `words` are words or what `keys.parse` made; words that are not
+  keys are an error at the caller's line. A Mac writes the modifiers in the order ⌃ ⌥ ⇧ ⌘ and the keys
+  `↑ ↓ ← →`, `⇞ ⇟` (page up, down), `↖ ↘` (home, end), `↩` (enter), `⎋` (escape), `⇥` (tab), `⌫`
+  (backspace), `⌦` (delete), `␣` (space); any other platform `Ctrl`, `Alt`, `Shift`, `Super` in that
+  order and `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Enter`, `Esc`, `Tab`,
+  `Backspace`, `Delete`, `Space`. Both write a function key `F5` and a letter as a capital (ASCII,
+  Latin-1, Latin Extended-A, Greek and Cyrillic; another character as it is). `cmd` is the command
+  key, matched as it is and never as control: elsewhere than on a Mac it is the system's logo key,
+  `Super`.
+- `options.platform` is `"mac"` or `"other"`; where it is not given it is `keys.platform()`, which
+  `keys.set_platform(name)` sets for the page and which is `"mac"`: the interface does not tell a page
+  its host's platform. When it does, the host's word is the default.
+- `keys.matches(event, words)` is whether a key event (`key` or `key_up`, or a table with no `type`)
+  is those keys: the same modifiers, no more and no fewer, and the same key, a character in either
+  case, as the host matches a command's keys; an event of another type is not.
 
 ## 3. Colours
 

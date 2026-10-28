@@ -63,9 +63,12 @@ line (`@pencere/syntax:12: …`); one a module raises for what its caller gave i
 line. The language server of Luau reads the requires where a `.luaurc` gives the alias `pencere`
 the directory [`sandbox/library`](sandbox/library).
 
-| Module            | What it is                                                                                                                       |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `@pencere/syntax` | A language that colours an editor as it changes, read a line at a time from a stream, as CodeMirror's `StreamLanguage` reads one |
+| Module               | What it is                                                                                                                                                                                                                                               |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@pencere/syntax`    | A language that colours an editor as it changes, read a line at a time from a stream, as CodeMirror's `StreamLanguage` reads one                                                                                                                         |
+| `@pencere/languages` | The languages an editor reads, as CodeMirror's `language-data` knows them: a description of each (its names, how a file in it is told), and the language (its colours for `@pencere/syntax` and what an editor is told of it) built when a page loads it |
+| `@pencere/fuzzy`     | What a person types found in texts as fzf and VS Code find it: scored and ordered, a list at once or a slice a frame, the matched characters as parts of a rich text                                                                                     |
+| `@pencere/keys`      | Keys a page writes (`"cmd+shift+k"`) as a Mac writes them (`⇧⌘K`) or another platform (`Ctrl+Shift+K`), as key caps, and matched against a key event as the host matches a command's                                                                     |
 
 [`SPEC.md`](SPEC.md), Section 2.6, says what each module does.
 
