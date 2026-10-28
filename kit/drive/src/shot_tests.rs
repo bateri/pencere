@@ -256,3 +256,43 @@ fn the_gallery_of_components_is_pictured_in_a_dark_and_a_light_theme() -> Result
     }
     Ok(())
 }
+
+/// The example whose gutter is the page's (`examples/gutter-lua`), pictured with a breakpoint put,
+/// the pointer over an empty cell of its column, a peek open in a zone, and the overview ruler's
+/// marks: the shapes of the bars, the triangle where lines were taken away, the dots and the gap, in
+/// the options the page set (a wider bar, a wider ruler). `PENCERE_SHOTS=gutter` writes it to
+/// `target/gutter.png` in the terminal's font of a Mac, for an eye to check.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_example_with_a_gutter_of_its_own_is_pictured_with_its_markers_and_its_zone()
+-> Result<(), Error> {
+    let fonts = match std::env::var("PENCERE_SHOTS").as_deref() {
+        Ok("gutter") => Fonts::none()
+            .terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc").expect("Menlo"))
+            .expect("a font"),
+        _ => Fonts::none(),
+    };
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/gutter-lua");
+    let mut page = Headless::app(&dir)
+        .measure(fonts.clone())
+        .size(560.0, 420.0)
+        .scale(2.0)
+        .open()?;
+    page.click_gutter("code", "breakpoints", 1, pencere_view::Button::Left)?;
+    page.click_gutter("code", "breakpoints", 8, pencere_view::Button::Left)?;
+    page.click_gutter("code", "changes", 12, pencere_view::Button::Left)?;
+    page.hover_gutter("code", "breakpoints", 15)?;
+    let drawn = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    let light = page.shot_in(&fonts, Palette::Light).expect("a picture");
+    assert_ne!(drawn, light);
+    assert_eq!(
+        drawn,
+        page.shot_in(&fonts, Palette::Dark).expect("a picture")
+    );
+    if std::env::var("PENCERE_SHOTS").as_deref() == Ok("gutter") {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        std::fs::write(target.join("gutter.png"), &drawn).expect("written");
+        std::fs::write(target.join("gutter-light.png"), &light).expect("written");
+    }
+    Ok(())
+}

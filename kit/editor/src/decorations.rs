@@ -1,7 +1,7 @@
 //! The page's decorations, by layer, carried over every change of the document; and which of the
 //! regions that fold are folded.
 
-use pencere_view::edit::{Decoration, Mark, Refusal, limits};
+use pencere_view::edit::{Decoration, Mark, Refusal, Zone, limits};
 
 use crate::changes::{Assoc, Step, map};
 
@@ -10,6 +10,11 @@ use crate::changes::{Assoc, Step, map};
 pub(crate) struct Layer {
     pub name: String,
     pub items: Vec<Decoration>,
+    /// Whether any of the items is a mark of the overview ruler: the layers that hold none are not
+    /// looked through for them every frame.
+    pub rulers: bool,
+    /// The same for the gaps kept open for the page.
+    pub zones: bool,
 }
 
 /// An editor's decorations, and its folded regions.
@@ -60,11 +65,19 @@ impl Decorations {
         let mut all = kept;
         all.append(&mut items);
         all.sort_by_key(|item| (item.from, item.to));
+        let rulers = all.iter().any(|item| matches!(item.mark, Mark::Ruler(_)));
+        let zones = all.iter().any(|item| matches!(item.mark, Mark::Zone(_)));
         match at.and_then(|at| self.layers.get_mut(at)) {
-            Some(layer) => layer.items = all,
+            Some(layer) => {
+                layer.items = all;
+                layer.rulers = rulers;
+                layer.zones = zones;
+            }
             None => self.layers.push(Layer {
                 name: name.to_owned(),
                 items: all,
+                rulers,
+                zones,
             }),
         }
         self.layers.retain(|layer| !layer.items.is_empty());
@@ -126,6 +139,38 @@ impl Decorations {
                 }
             }
         }
+        out
+    }
+
+    /// The marks of the overview ruler, of every layer, in order, with the place of the layer.
+    pub fn rulers(&self) -> Vec<(usize, &Decoration)> {
+        self.layers
+            .iter()
+            .enumerate()
+            .filter(|(_, layer)| layer.rulers)
+            .flat_map(|(index, layer)| {
+                layer
+                    .items
+                    .iter()
+                    .filter(|item| matches!(item.mark, Mark::Ruler(_)))
+                    .map(move |item| (index, item))
+            })
+            .collect()
+    }
+
+    /// The gaps kept open for the page, of every layer, in order of the place they are at.
+    pub fn zones(&self) -> Vec<(usize, Zone)> {
+        let mut out: Vec<(usize, Zone)> = self
+            .layers
+            .iter()
+            .filter(|layer| layer.zones)
+            .flat_map(|layer| layer.items.iter())
+            .filter_map(|item| match item.mark {
+                Mark::Zone(zone) => Some((item.from, zone)),
+                _ => None,
+            })
+            .collect();
+        out.sort_by_key(|(at, _)| *at);
         out
     }
 

@@ -23,17 +23,17 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
 use pencere_view::edit::{
-    EditCommand, Edited, EditorAsk, Found, Keys, Movement, Range, Refusal, RevealAlign, Selection,
-    limits,
+    EditCommand, Edited, EditorAsk, Found, GutterEvent, GutterHit, GutterKind, Keys, Movement,
+    Range, Refusal, RevealAlign, Selection, limits,
 };
 use pencere_view::{
-    DrawList, EditorMetrics, EditorRoom, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint, Point,
-    Rect, ScrollTo, Size,
+    Button, Cursor, DrawList, EditorMetrics, EditorRoom, Font, Id, Key, Laid, Measure, Metrics,
+    Mods, Paint, Point, Rect, ScrollTo, Size,
 };
 
 use crate::buffer::{Buffer, Note};
 use crate::text::Snapshot;
-use crate::view::{Rows, View};
+use crate::view::{Cell, Kind, Rows, View};
 
 /// What an editor has to tell its page.
 #[derive(Clone, Debug, PartialEq)]
@@ -55,6 +55,8 @@ pub enum EditorEvent {
     /// The editor was made for a room the page laid out (shown or hidden): what the page asks of
     /// it is done from now on. Told before anything else of it.
     Ready { id: Id, version: u64 },
+    /// The pointer did something in a gutter column the page hears of.
+    Gutter(GutterEvent),
 }
 
 /// Where a key goes ([`Editors::key`]).
@@ -116,6 +118,8 @@ struct Editor {
     told: Option<(usize, usize)>,
     /// A place to be brought into view, and where in the room.
     reveal: Option<(usize, RevealAlign)>,
+    /// The gaps kept open for the page, as last told to the layout.
+    zones: Vec<(Id, Rect)>,
 }
 
 /// The editors of a page.
@@ -128,6 +132,8 @@ pub struct Editors {
     events: Vec<EditorEvent>,
     scrolls: Vec<ScrollTo>,
     relayout: bool,
+    /// Something only drawn changed (the gutter mark the pointer is over).
+    redraw: bool,
     drag: Option<Drag>,
     scale: f32,
 }
@@ -154,6 +160,10 @@ impl Measure for Measured<'_> {
     fn editor(&mut self, id: Id) -> Option<EditorMetrics> {
         self.editors.metrics(id)
     }
+
+    fn zones(&mut self, id: Id) -> Vec<(Id, Rect)> {
+        self.editors.zones(id)
+    }
 }
 
 impl Editors {
@@ -178,6 +188,16 @@ impl Editors {
             .get(&id)
             .filter(|editor| editor.shown)
             .map(|editor| editor.metrics)
+    }
+
+    /// The gaps the editor named `id` keeps open for the page, each by its name and its box in the
+    /// content, pixels ([`Measure::zones`]).
+    pub fn zones(&self, id: Id) -> Vec<(Id, Rect)> {
+        self.editors
+            .get(&id)
+            .filter(|editor| editor.shown)
+            .map(|editor| editor.view.zone_boxes())
+            .unwrap_or_default()
     }
 
     /// The editor named `id`'s document, where there is one.
@@ -223,6 +243,224 @@ impl Editors {
     /// or the content of an editor grew or shrank, since it was laid out. Asking says it once.
     pub fn wants_layout(&mut self) -> bool {
         std::mem::take(&mut self.relayout)
+    }
+
+    /// Whether something only drawn changed since this was last asked (the mark the pointer is
+    /// over): the host draws a frame, the page is told nothing. Asking says it once.
+    pub fn wants_redraw(&mut self) -> bool {
+        std::mem::take(&mut self.redraw)
+    }
+
+    /// What the markers of the gutters in view say of themselves (their `label`s): each with its box
+    /// in the page's points, for a screen reader and for the host's tooltips.
+    pub fn labels(&self, laid: &Laid) -> Vec<(Rect, String)> {
+        let s = self.scale.max(0.01);
+        let mut out = Vec::new();
+        for room in laid.editors() {
+            let Some(editor) = self
+                .editors
+                .get(&room.id)
+                .filter(|e| e.shown && !room.hidden)
+            else {
+                continue;
+            };
+            let scroll = scroll_of(laid, &room);
+            let (top, bottom) = (room.pixels.y, room.pixels.bottom());
+            for (col, from, to, label) in editor.view.labels(&editor.buffer) {
+                let Some(col) = editor.view.cols.get(col) else {
+                    continue;
+                };
+                let y = room.pixels.y + editor.view.line_top(from) - scroll.y;
+                let end = room.pixels.y + editor.view.line_bottom(to) - scroll.y;
+                if end <= top || y >= bottom || end <= y {
+                    continue;
+                }
+                let (y, end) = (y.max(top), end.min(bottom));
+                out.push((
+                    Rect::new((room.pixels.x + col.x) / s, y / s, col.w / s, (end - y) / s),
+                    label,
+                ));
+            }
+        }
+        out
+    }
+
+    /// The pointer is at `at` (points of the page), or gone (`None`): the cell of a gutter it is over
+    /// is drawn as it is when the pointer is over it (a marker lit, a bar wider, the column's preview
+    /// in an empty cell), and the page is told of the pointer's coming to a cell and going from it
+    /// where the column says it hears that.
+    pub fn hover(&mut self, laid: &Laid, at: Option<Point>) {
+        let found = at.and_then(|at| {
+            let (id, point) = self.under(laid, at)?;
+            let editor = self.editors.get(&id)?;
+            let x = point.x - editor.view.scroll.x;
+            Some((id, editor.view.cell_at(&editor.buffer, x, point.y)?))
+        });
+        let ids = self.order.clone();
+        let mut told = Vec::new();
+        for id in ids {
+            let now = found
+                .as_ref()
+                .filter(|(over, _)| *over == id)
+                .map(|(_, cell)| cell.clone());
+            let Some(editor) = self.editors.get_mut(&id) else {
+                continue;
+            };
+            if editor.view.hover == now {
+                continue;
+            }
+            let before = std::mem::replace(&mut editor.view.hover, now.clone());
+            self.redraw = true;
+            let hears = |cell: &Cell| {
+                editor
+                    .view
+                    .cols
+                    .get(cell.col)
+                    .is_some_and(|col| col.heard.hover)
+            };
+            if let Some(cell) = before.filter(hears) {
+                told.push((id, cell, GutterKind::Leave));
+            }
+            if let Some(cell) = now.filter(hears) {
+                told.push((id, cell, GutterKind::Enter));
+            }
+        }
+        for (id, cell, kind) in told {
+            if let Some(event) =
+                self.gutter_event(laid, id, &cell, kind, (Button::Left, 0, Mods::default()))
+            {
+                self.events.push(EditorEvent::Gutter(event));
+            }
+        }
+    }
+
+    /// The cell of column `column` at line `line` of the editor named `id`, in the page's points,
+    /// where it is in view.
+    pub fn cell_rect(&self, laid: &Laid, id: Id, column: &str, line: usize) -> Option<Rect> {
+        let editor = self.editors.get(&id).filter(|editor| editor.shown)?;
+        let room = laid
+            .editors()
+            .into_iter()
+            .find(|room| room.id == id && !room.hidden)?;
+        let col = editor.view.cols.iter().find(|col| col.name == column)?;
+        let s = self.scale.max(0.01);
+        let y = room.pixels.y + editor.view.line_top(line) - scroll_of(laid, &room).y;
+        if y + editor.view.row <= room.pixels.y || y >= room.pixels.bottom() {
+            return None;
+        }
+        Some(Rect::new(
+            (room.pixels.x + col.x) / s,
+            y / s,
+            col.w / s,
+            editor.view.row / s,
+        ))
+    }
+
+    /// What the pointer at `at` (points of the page) is to be: over the text of an editor, the
+    /// I-beam; over its gutter the arrow, and the hand where something there answers a press (a
+    /// button that folds, a column that takes presses, a marker whose shape the page chose). `None`
+    /// where the pointer is not over an editor's room, or over something that stands on it.
+    pub fn cursor_at(&self, laid: &Laid, at: Point) -> Option<Cursor> {
+        let (id, point) = self.under(laid, at)?;
+        let editor = self.editors.get(&id)?;
+        let x = point.x - editor.view.scroll.x;
+        if editor.view.gutter_shown && x >= 0.0 && x < editor.view.gutter {
+            let Some(cell) = editor.view.cell_at(&editor.buffer, x, point.y) else {
+                return Some(Cursor::Arrow);
+            };
+            let col = editor.view.cols.get(cell.col)?;
+            return Some(
+                if let Some(cursor) = cell.marker.as_ref().and_then(|m| m.cursor) {
+                    cursor
+                } else if col.heard.press
+                    || col.heard.menu
+                    || (col.kind == Kind::Folds
+                        && editor
+                            .buffer
+                            .fold_lines(cell.line, cell.line)
+                            .contains(&cell.line))
+                {
+                    Cursor::Pointer
+                } else {
+                    Cursor::Arrow
+                },
+            );
+        }
+        Some(Cursor::Text)
+    }
+
+    /// What the pointer did in `cell` of the gutter of editor `id`, as the page is told it: the cell's
+    /// box in the page's points and the marker there.
+    fn gutter_event(
+        &self,
+        laid: &Laid,
+        id: Id,
+        cell: &Cell,
+        kind: GutterKind,
+        (button, count, mods): (Button, u32, Mods),
+    ) -> Option<GutterEvent> {
+        let editor = self.editors.get(&id)?;
+        let col = editor.view.cols.get(cell.col)?;
+        let room = laid.editors().into_iter().find(|room| room.id == id)?;
+        let s = self.scale.max(0.01);
+        let top = editor.view.line_top(cell.line);
+        let scroll = scroll_of(laid, &room);
+        let rect = Rect::new(
+            (room.pixels.x + col.x) / s,
+            (room.pixels.y + top - scroll.y) / s,
+            col.w / s,
+            editor.view.row / s,
+        );
+        let marker = cell.marker.as_ref().map(|held| GutterHit {
+            id: held.id.clone(),
+            layer: editor
+                .buffer
+                .layer_names()
+                .get(held.layer)
+                .cloned()
+                .unwrap_or_default(),
+            from: held.from,
+            to: held.to,
+        });
+        Some(GutterEvent {
+            editor: id,
+            column: col.name.clone(),
+            line: cell.line,
+            kind,
+            button,
+            count,
+            mods,
+            marker,
+            rect,
+        })
+    }
+
+    /// A press of `button` that is not the main one's at `at` (points of the page): in a gutter
+    /// column that hears menus it is told to the page; nothing else of an editor answers it. Whether
+    /// it was one.
+    pub fn press_other(&mut self, laid: &Laid, at: Point, button: Button, mods: Mods) -> bool {
+        let Some((id, point)) = self.under(laid, at) else {
+            return false;
+        };
+        let Some(editor) = self.editors.get(&id) else {
+            return false;
+        };
+        let x = point.x - editor.view.scroll.x;
+        let Some(cell) = editor.view.cell_at(&editor.buffer, x, point.y) else {
+            return false;
+        };
+        let heard = editor
+            .view
+            .cols
+            .get(cell.col)
+            .is_some_and(|col| col.heard.menu);
+        if heard
+            && let Some(event) =
+                self.gutter_event(laid, id, &cell, GutterKind::Press, (button, 1, mods))
+        {
+            self.events.push(EditorEvent::Gutter(event));
+        }
+        heard
     }
 
     // --- Each frame ------------------------------------------------------------------------
@@ -300,6 +538,13 @@ impl Editors {
         }
         editor.view.size_gutter(editor.buffer.len_lines());
         editor.view.count(&editor.buffer);
+        // A gap that came, went or moved is where an element of the page is to be put: the page is laid
+        // out again with it.
+        let zones = editor.view.zone_boxes();
+        if zones != editor.zones {
+            editor.zones = zones;
+            self.relayout = true;
+        }
         let main = editor.buffer.main().head;
         let metrics = EditorMetrics {
             caret: editor.view.caret_of(&editor.buffer, main, measure),
@@ -345,8 +590,11 @@ impl Editors {
             if editor.view.scroll != slot.scroll || editor.view.rows.is_empty() {
                 editor.view.lay_out(&editor.buffer, slot.scroll, measure);
             }
-            out.items
-                .extend(editor.view.paint(&editor.buffer, &slot, focused, caret_on));
+            out.items.extend(
+                editor
+                    .view
+                    .paint(&editor.buffer, &slot, focused, caret_on, measure),
+            );
         }
         out
     }
@@ -678,9 +926,36 @@ impl Editors {
             return true;
         };
         let room_x = point.x - editor.view.scroll.x;
-        if let Some((line, button)) = editor.view.gutter_at(room_x, point.y) {
+        if let Some(cell) = editor.view.cell_at(&editor.buffer, room_x, point.y) {
+            let Some(col) = editor.view.cols.get(cell.col) else {
+                return true;
+            };
+            // A column of the page's that hears this press: the page's, and nothing of the editor's.
+            let heard = if mods.control {
+                col.heard.menu
+            } else {
+                col.heard.press
+            };
+            if heard {
+                let event = self.gutter_event(
+                    laid,
+                    id,
+                    &cell,
+                    GutterKind::Press,
+                    (Button::Left, count, mods),
+                );
+                if let Some(event) = event {
+                    self.events.push(EditorEvent::Gutter(event));
+                }
+                if let Some(editor) = self.editors.get_mut(&id) {
+                    editor.view.pressed = Some(cell);
+                }
+                self.redraw = true;
+                return true;
+            }
+            let (line, folds) = (cell.line, col.kind == Kind::Folds);
             self.with(id, laid, measure, |buffer, _| {
-                if button && buffer.fold_at(line, None) {
+                if folds && buffer.fold_at(line, None) {
                     return;
                 }
                 let (from, to) = (buffer.line_start(line), buffer.line_start(line + 1));
@@ -795,6 +1070,11 @@ impl Editors {
 
     /// The button came up: a press an editor took ends. Returns whether it was one.
     pub fn release(&mut self) -> bool {
+        for editor in self.editors.values_mut() {
+            if editor.view.pressed.take().is_some() {
+                self.redraw = true;
+            }
+        }
         self.drag.take().is_some()
     }
 
@@ -1050,6 +1330,7 @@ impl From<EditorEvent> for pencere_view::Event {
                 editor: id,
                 version,
             },
+            EditorEvent::Gutter(event) => Event::Gutter(event),
         }
     }
 }

@@ -5,14 +5,15 @@
 
 use pencere_view::edit::{
     CaretHeight, CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions,
-    Folds, Found, Keys, LineHighlight, Mark, Matches, Movement, Numbers, Origin, Range, Refusal,
-    RevealAlign, Selection, Tint, Underline, Whitespace,
+    Folds, Found, GutterEvent, GutterHit, GutterKind, GutterShape, Keys, LineHighlight, Mark,
+    Matches, Movement, Numbers, Origin, Range, Refusal, RevealAlign, RulerLane, Selection, Tint,
+    Underline, Whitespace,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
     AccessibleRole, Align, Button, Color, Command, Cursor, Ease, Event, Family, FieldKind, Fit, Id,
-    Input, Key, Keyboard, MenuEntry, Mods, Path, Place, Point, Reply, Rgba, Role, Segment, Shift,
-    Side, Source, Span, Track,
+    Input, Key, Keyboard, MenuEntry, Mods, Path, Place, Point, Rect, Reply, Rgba, Role, Segment,
+    Shift, Side, Source, Span, Track,
 };
 
 use crate::Frame;
@@ -437,6 +438,7 @@ fn node(node: Node, lists: &mut Lists) -> wit::Node {
             .as_ref()
             .map(|options| editor_options(options, lists)),
         label: node.meta.label.as_deref().map(|label| lists.words(label)),
+        zone: node.meta.zone.map(|id| id.number()),
         motion: node.meta.motion.map(|motion| wit::Motion {
             seconds: motion.seconds,
             ease: match motion.ease {
@@ -565,17 +567,21 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
         editor: reply.editor.into_iter().map(editor_ask).collect(),
         link: reply.link,
         wake: reply.wake,
-        cursor: match reply.cursor {
-            Cursor::Arrow => wit::Cursor::Arrow,
-            Cursor::Pointer => wit::Cursor::Pointer,
-            Cursor::Text => wit::Cursor::Text,
-            Cursor::ResizeHorizontal => wit::Cursor::ResizeHorizontal,
-            Cursor::ResizeVertical => wit::Cursor::ResizeVertical,
-            Cursor::NotAllowed => wit::Cursor::NotAllowed,
-            Cursor::Grab => wit::Cursor::Grab,
-            Cursor::Grabbing => wit::Cursor::Grabbing,
-            Cursor::Crosshair => wit::Cursor::Crosshair,
-        },
+        cursor: cursor(reply.cursor),
+    }
+}
+
+fn cursor(cursor: Cursor) -> wit::Cursor {
+    match cursor {
+        Cursor::Arrow => wit::Cursor::Arrow,
+        Cursor::Pointer => wit::Cursor::Pointer,
+        Cursor::Text => wit::Cursor::Text,
+        Cursor::ResizeHorizontal => wit::Cursor::ResizeHorizontal,
+        Cursor::ResizeVertical => wit::Cursor::ResizeVertical,
+        Cursor::NotAllowed => wit::Cursor::NotAllowed,
+        Cursor::Grab => wit::Cursor::Grab,
+        Cursor::Grabbing => wit::Cursor::Grabbing,
+        Cursor::Crosshair => wit::Cursor::Crosshair,
     }
 }
 
@@ -673,7 +679,8 @@ pub fn from_wit_event(event: wit::Event) -> Event {
         | wit::Event::Selection(_)
         | wit::Event::Viewport(_)
         | wit::Event::EditorRefused(_)
-        | wit::Event::Found(_)) => editor_event(editor),
+        | wit::Event::Found(_)
+        | wit::Event::EditorGutter(_)) => editor_event(editor),
         wit::Event::Wake(now) => Event::Wake { now },
         wit::Event::EditorReady(ready) => Event::EditorReady {
             editor: Id::new(ready.editor),
@@ -773,6 +780,28 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
             Matches::Selection => wit::EditorMatches::Selection,
             Matches::Word => wit::EditorMatches::Word,
         },
+        gutters: options
+            .gutters
+            .iter()
+            .map(|column| wit::GutterColumn {
+                name: column.name.clone(),
+                width: column.width,
+                events: column.events.map(|events| wit::ColumnEvents {
+                    press: events.press,
+                    menu: events.menu,
+                    hover: events.hover,
+                }),
+                hover: column.hover.as_ref().map(|preview| wit::GutterPreview {
+                    shape: gutter_shape(&preview.shape),
+                    color: color(preview.color),
+                }),
+            })
+            .collect(),
+        marks: wit::MarkLooks {
+            bar: Some(options.marks.bar),
+            hover: Some(options.marks.hover),
+            ruler: Some(options.marks.ruler),
+        },
     }
 }
 
@@ -801,6 +830,7 @@ fn editor_colors(colors: &EditorColors) -> wit::EditorColors {
         indent_guides: tint(colors.indent_guides),
         active_indent_guide: tint(colors.active_indent_guide),
         matches: tint(colors.matches),
+        mark_hover: tint(colors.mark_hover),
     }
 }
 
@@ -831,8 +861,40 @@ fn mark(mark: Mark) -> wit::Mark {
             strike: look.strike,
         }),
         Mark::Line(c) => wit::Mark::Line(color(c)),
-        Mark::Gutter(c) => wit::Mark::Gutter(color(c)),
+        Mark::Gutter(gutter) => wit::Mark::Gutter(wit::GutterMark {
+            column: gutter.column,
+            shape: gutter_shape(&gutter.shape),
+            color: color(gutter.color),
+            id: gutter.id,
+            label: gutter.label,
+            cursor: gutter.cursor.map(cursor),
+            hover: gutter.hover.map(color),
+            pressed: gutter.pressed.map(color),
+        }),
         Mark::Fold => wit::Mark::Fold,
+        Mark::Ruler(ruler) => wit::Mark::Ruler(wit::RulerMark {
+            color: color(ruler.color),
+            lane: match ruler.lane {
+                RulerLane::Full => wit::RulerLane::Full,
+                RulerLane::Left => wit::RulerLane::Left,
+                RulerLane::Center => wit::RulerLane::Center,
+                RulerLane::Right => wit::RulerLane::Right,
+            },
+        }),
+        Mark::Zone(zone) => wit::Mark::Zone(wit::Zone {
+            id: zone.id.number(),
+            height: zone.height,
+        }),
+    }
+}
+
+fn gutter_shape(shape: &GutterShape) -> wit::GutterShape {
+    match shape {
+        GutterShape::Dot => wit::GutterShape::Dot,
+        GutterShape::Bar => wit::GutterShape::Bar,
+        GutterShape::Above => wit::GutterShape::Above,
+        GutterShape::Below => wit::GutterShape::Below,
+        GutterShape::Image(src) => wit::GutterShape::Image(src.clone()),
     }
 }
 
@@ -981,6 +1043,26 @@ fn unplace(at: u32) -> usize {
 /// An event of an editor's, as the engine's.
 fn editor_event(event: wit::Event) -> Event {
     match event {
+        wit::Event::EditorGutter(gutter) => Event::Gutter(GutterEvent {
+            editor: Id::new(gutter.editor),
+            column: gutter.column,
+            line: unplace(gutter.line),
+            kind: match gutter.kind {
+                wit::GutterKind::Press => GutterKind::Press,
+                wit::GutterKind::Enter => GutterKind::Enter,
+                wit::GutterKind::Leave => GutterKind::Leave,
+            },
+            button: button(gutter.button),
+            count: gutter.count,
+            mods: mods(gutter.mods),
+            marker: gutter.marker.map(|hit| GutterHit {
+                id: hit.id,
+                layer: hit.layer,
+                from: unplace(hit.from),
+                to: unplace(hit.to),
+            }),
+            rect: Rect::new(gutter.cell.x, gutter.cell.y, gutter.cell.w, gutter.cell.h),
+        }),
         wit::Event::EditorPointer(pointer) => Event::Pointer {
             input: match pointer.input {
                 wit::PointerInput::Move(at) => Input::Move(point(at)),

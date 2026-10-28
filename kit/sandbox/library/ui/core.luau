@@ -728,6 +728,7 @@ local EDITOR_EVENTS = {
 	editor_refused = true,
 	found = true,
 	editor_ready = true,
+	gutter = true,
 }
 
 -- Gives the event to the component it is for: the reply, the actions that came of it for the page,

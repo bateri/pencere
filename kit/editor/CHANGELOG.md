@@ -10,6 +10,18 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **A gutter of named columns, markers in them, an overview ruler and zones.** The columns the page
+  lists are laid out in its order (the numbers, the dots and the buttons that fold as they were
+  where it lists none) and a marker is drawn in the column it names: a dot, a bar along every row of
+  its lines, a triangle on the edge above or below a line, or a picture of the bundle, tinted; a
+  marker in lines that are folded away is on the fold's line. A press in a column that hears it is
+  told to the page (`EditorEvent::Gutter`) and selects nothing, folds nothing and moves no caret,
+  where the cell is empty as well; `hover` and `cursor_at` say what is under the pointer, a bar the
+  pointer is over is wider and lit, and a column's preview shows in an empty cell. The ruler is drawn
+  down the right edge in its lanes, whatever the scroll bars do, and a zone opens a gap of whole rows
+  after its line that the rows, the numbers, the scrolling and the ruler count and `Editors::zones`
+  reports.
+
 - **What an editor's standard keys do in CodeMirror and VS Code, and a page's changes out of the
   history.** The commands `FoldAll` (the outermost regions), `DeleteLines`, `SelectLine` (a range
   that is whole lines takes the next), `DuplicateLinesUp`, `JoinLines`, `InsertBlankLine`,

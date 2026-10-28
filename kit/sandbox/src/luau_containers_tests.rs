@@ -503,6 +503,7 @@ impl Pair {
             | Event::Files { .. }
             | Event::Pointer { .. }
             | Event::EditorReady { .. }
+            | Event::Gutter(_)
             | Event::Edit { .. }
             | Event::Selection { .. }
             | Event::Viewport { .. }

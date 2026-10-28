@@ -21,6 +21,13 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
 
 ### Added
 
+- **The gutter and the pointer's shape.** Every pointer move is the editors' as well (the marker
+  under it is lit, the page told of a cell it came to and went from where its column hears that,
+  with no frame for a move that changed nothing), and a press of another button is told to a column
+  that hears menus. The shape of the pointer over an editor's room is decided here, for every host:
+  the I-beam over the text, the arrow in the gutter and the hand where something answers a press
+  there, unless the page asks for a shape that means something it does itself.
+
 - **How long a call of a page may take, from the environment.** `headless::CALL_MS`
   (`PENCERE_CALL_MS`, in milliseconds) is the time a call of the page may take where a test does not
   say (`Opening::limits`): the kit's 250 ms unless it is set. The limit is the wall clock's, and a

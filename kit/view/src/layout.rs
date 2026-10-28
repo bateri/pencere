@@ -474,11 +474,20 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     // An editor's room scrolls over what the host's editor laid out, and its caret is where the
     // editor last put it.
     let mut carets = Vec::new();
-    for (index, node) in nodes.iter_mut().enumerate() {
+    for index in 0..nodes.len() {
+        let Some(node) = nodes.get_mut(index) else {
+            continue;
+        };
         let (Some(id), Content::Editor(_)) = (node.meta.id, &node.content) else {
             continue;
         };
         let Some(said) = measure.editor(id) else {
+            continue;
+        };
+        let zones = measure.zones(id);
+        let (room, scroll) = (node.rect, node.scroll);
+        place_zones(&mut nodes, index, &zones, room, scroll);
+        let Some(node) = nodes.get_mut(index) else {
             continue;
         };
         if let Some((content, view)) = &mut node.extent {
@@ -517,6 +526,46 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         carets,
         anchored,
         stale: false,
+    }
+}
+
+/// The elements that are the content of the editor at `index`'s zones, put in the gaps the editor
+/// keeps open (`zones`: their boxes in its content): each moves down to where its gap starts, and what
+/// is inside it with it, and is hidden where the editor has no such gap.
+fn place_zones(
+    nodes: &mut [Node],
+    index: usize,
+    zones: &[(Id, Rect)],
+    room: Rect,
+    scroll: (f32, f32),
+) {
+    let mut at = index + 1;
+    while at < nodes.len() && is_inside_of(nodes, at, index) {
+        let Some(node) = nodes.get(at) else {
+            break;
+        };
+        let end = (at + 1..nodes.len())
+            .find(|next| !is_inside_of(nodes, *next, at))
+            .unwrap_or(nodes.len());
+        if node.parent == Some(index)
+            && let Some(zone) = node.meta.zone
+        {
+            let found = zones
+                .iter()
+                .find(|(id, _)| *id == zone)
+                .map(|(_, rect)| *rect);
+            let dy = found.map_or(0.0, |rect| room.y - scroll.1 + rect.y - node.rect.y);
+            let outer = node.clip;
+            for inside in nodes.get_mut(at..end).unwrap_or_default() {
+                inside.rect = inside.rect.translate(0.0, dy);
+                // A clip of a box inside it moves with it; the editor's does not.
+                if inside.clip != outer {
+                    inside.clip = inside.clip.translate(0.0, dy);
+                }
+                inside.hidden |= found.is_none();
+            }
+        }
+        at = end;
     }
 }
 
@@ -1561,7 +1610,9 @@ impl Laid {
         // inside it is not said apart.
         let mut said_by: Option<usize> = None;
         for (index, node) in self.nodes.iter().enumerate() {
-            if said_by.is_some_and(|outer| self.is_inside(index, outer)) {
+            if said_by
+                .is_some_and(|outer| self.is_inside(index, outer) && !self.in_zone_of(index, outer))
+            {
                 continue;
             }
             said_by = None;
@@ -1690,6 +1741,22 @@ impl Laid {
             })
     }
 
+    /// Whether the element at `index`, inside the one at `outer`, stands in a zone of it: the
+    /// page's own, said apart.
+    fn in_zone_of(&self, index: usize, outer: usize) -> bool {
+        let mut at = Some(index);
+        while let Some(here) = at.filter(|here| *here != outer) {
+            let Some(node) = self.nodes.get(here) else {
+                return false;
+            };
+            if node.meta.zone.is_some() {
+                return true;
+            }
+            at = node.parent;
+        }
+        false
+    }
+
     /// Whether the element at `index`, inside the one at `outer`, is in an overlay written inside
     /// it (and so stands apart from it).
     fn lifted_from(&self, index: usize, outer: usize) -> bool {
@@ -1698,7 +1765,9 @@ impl Laid {
             let Some(node) = self.nodes.get(here) else {
                 return false;
             };
-            if node.overlay {
+            // An overlay, and what stands in an editor's zone, is not the field's or the editor's
+            // own (not its hint).
+            if node.overlay || node.meta.zone.is_some() {
                 return true;
             }
             at = node.parent;
@@ -1731,8 +1800,9 @@ impl Laid {
             {
                 return true;
             }
-            // An overlay is drawn over the page, not in the room it is written in.
-            if node.overlay {
+            // An overlay is drawn over the page, not in the room it is written in; what stands in an
+            // editor's zone is the page's too.
+            if node.overlay || node.meta.zone.is_some() {
                 return false;
             }
             at = node.parent;

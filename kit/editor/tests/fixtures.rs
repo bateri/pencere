@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use pencere_editor::{Buffer, Note};
 use pencere_view::edit::{
     Change, CommentTokens, Decorate, Decoration, EditCommand, EditorOptions, Folds, Found,
-    IndentRules, Look, Mark, Movement, Origin, Range, Refusal,
+    GutterMark, IndentRules, Look, Mark, Movement, Origin, Range, Refusal,
 };
 use pencere_view::{Color, Role};
 use serde_json::Value;
@@ -297,6 +297,8 @@ fn kind_of(mark: &Mark) -> &'static str {
         Mark::Line(_) => "line",
         Mark::Gutter(_) => "gutter",
         Mark::Fold => "fold",
+        Mark::Ruler(_) => "ruler",
+        Mark::Zone(_) => "zone",
     }
 }
 
@@ -473,7 +475,7 @@ fn decorations(value: &Value, here: &str) -> Vec<Decoration> {
                             ..Look::default()
                         }),
                         "line" => Mark::Line(Color::from(Role::Error)),
-                        "gutter" => Mark::Gutter(Color::from(Role::Warning)),
+                        "gutter" => Mark::Gutter(GutterMark::dot(Color::from(Role::Warning))),
                         "fold" => Mark::Fold,
                         other => panic!("{here}: no mark `{other}`"),
                     };

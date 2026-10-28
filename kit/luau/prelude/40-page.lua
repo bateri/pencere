@@ -43,8 +43,12 @@
 --       for, and whenever these change; a `count` of 0 when the search stops), the `editor`, the
 --       `version` searched, the `count` of matches (at most 10 000), which of them the main
 --       selection is exactly on, `current` (from 1, as a find widget shows it; nil for none), and
---       `more` (the search stopped before the end: there may be more). Places are characters
---       from 0, lines from 0.
+--       `more` (the search stopped before the end: there may be more); "gutter", in a column of its
+--       gutter that hears the pointer, the `editor`, the `column`, the `line` (from 0), the `kind`
+--       ("press", "enter", "leave"), the `button`, `count` and modifiers of a press, the `marker`
+--       under the pointer (`{ id =, layer =, from =, to = }`; nil where the cell is empty: the page
+--       may put one there) and the `cell` ({ x =, y =, w =, h = }, the page's points). Places are
+--       characters from 0, lines from 0.
 --       "wake" has the `now` it was woken at (seconds on `render`'s clock): the time the page asked
 --       to be woken at, with a reply's `wake`, has come. Told only to a page that asked, after the
 --       timers that were due ran (`pencere.time`).
@@ -85,7 +89,16 @@
 --   { decorate = "layer", version =, from =, to =, decorations = { d, ... } }, each `d`
 --     { from =, to =, color =, background =, weight =, italic =, strike =,
 --       underline = colour | { wavy = colour } }, or { from =, to =, line = colour },
---     { from =, to =, gutter = colour }, { from =, to =, fold = true }
+--     { from =, to =, gutter = colour, column = "marks", shape = "dot" | "bar" | "above" | "below"
+--       | "image", image = "assets/x.svg", id =, label =, cursor =, hover = colour, pressed = colour }
+--     (a marker in a column of the gutter: a dot by the first line, a bar along every line of the
+--     range, a triangle on the edge above or below its first line (where lines were taken away:
+--     `from == to` is fine), a tinted picture of the bundle; `label` is what a screen reader says
+--     of it and what the host says while the pointer rests on it), { from =, to =, ruler = colour,
+--     lane = "full" | "left" | "center" | "right" } (a mark on the overview ruler),
+--     { from =, to =, zone = "name", height = points } (a gap kept open after the line the range
+--     starts on, for the page's element that is `:zone("name")` of the editor), { from =, to =,
+--     fold = true }
 -- `link` asks the host to open an address in the person's browser, as a web page's `link` asks:
 -- only an `http` or `https` address of printable ASCII without spaces, at most 8192 bytes; the
 -- host should ask the person first, drops any other address, and never tells the page what came of

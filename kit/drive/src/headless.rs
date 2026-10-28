@@ -1184,6 +1184,59 @@ impl<P: Peer> Headless<P> {
         self.click_with(at, Button::Right, 1)
     }
 
+    /// The person presses the cell of column `column` at line `line` (from 0) of the editor named
+    /// `editor`, with `button`, and lets go.
+    ///
+    /// # Errors
+    ///
+    /// No such cell: the editor has no such column, or the line is not in view
+    /// ([`Error::NoSuch`]); or as [`Headless::settle`].
+    pub fn click_gutter(
+        &mut self,
+        editor: &str,
+        column: &str,
+        line: usize,
+        button: Button,
+    ) -> Result<(), Error> {
+        let cell = self
+            .gutter_cell(editor, column, line)
+            .ok_or_else(|| Error::NoSuch(format!("{column} at line {line} of {editor}")))?;
+        let at = Point::new(cell.x + cell.w / 2.0, cell.y + cell.h / 2.0);
+        self.click_with(at, button, 1)
+    }
+
+    /// The pointer moves to the cell of column `column` at line `line` of the editor named `editor`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::click_gutter`].
+    pub fn hover_gutter(&mut self, editor: &str, column: &str, line: usize) -> Result<(), Error> {
+        let cell = self
+            .gutter_cell(editor, column, line)
+            .ok_or_else(|| Error::NoSuch(format!("{column} at line {line} of {editor}")))?;
+        self.pointer(Input::Move(Point::new(
+            cell.x + cell.w / 2.0,
+            cell.y + cell.h / 2.0,
+        )))
+    }
+
+    /// Where the cell of column `column` at line `line` of the editor named `editor` is, the host's
+    /// points, as of the last frame; none where it is not in view.
+    pub fn gutter_cell(&self, editor: &str, column: &str, line: usize) -> Option<Rect> {
+        self.page.gutter_cell(Id::named(editor), column, line)
+    }
+
+    /// Where the gap the editor named `editor` keeps open for the zone named `zone` is, the host's
+    /// points, as of the last frame.
+    pub fn zone(&self, editor: &str, zone: &str) -> Option<Rect> {
+        let zone = Id::named(zone);
+        self.page
+            .zones(Id::named(editor))
+            .into_iter()
+            .find(|(id, _)| *id == zone)
+            .map(|(_, rect)| rect)
+    }
+
     /// The person clicks `x`, `y` points from the top-left corner of the element named `name`.
     ///
     /// # Errors

@@ -6,10 +6,11 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use pencere_view::edit::{
-    Caret, CaretHeight, CaretShape, Change, CommentTokens, Decorate, Decoration, EditCommand,
-    EditorAsk, EditorColors, EditorOptions, Folds, IndentRules, Keys, LineHighlight, Look, Mark,
-    Matches, Movement, Numbers, Origin, Range, Refusal, RevealAlign, Tint, Underline, Whitespace,
-    limits,
+    Caret, CaretHeight, CaretShape, Change, Column, ColumnEvents, CommentTokens, Decorate,
+    Decoration, EditCommand, EditorAsk, EditorColors, EditorOptions, Folds, GutterKind, GutterMark,
+    GutterShape, IndentRules, Keys, LineHighlight, Look, Mark, MarkLooks, Matches, Movement,
+    Numbers, Origin, Preview, Range, Refusal, RevealAlign, RulerLane, RulerMark, Tint, Underline,
+    Whitespace, Zone, limits,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -490,6 +491,26 @@ fn event_in(event: Event) -> wit::Event {
         Event::EditorReady { editor, version } => wit::Event::EditorReady(wit::EditorReady {
             editor: id_out(editor),
             version,
+        }),
+        Event::Gutter(gutter) => wit::Event::EditorGutter(wit::EditorGutter {
+            editor: id_out(gutter.editor),
+            column: gutter.column,
+            line: place_in(gutter.line),
+            kind: match gutter.kind {
+                GutterKind::Press => wit::GutterKind::Press,
+                GutterKind::Enter => wit::GutterKind::Enter,
+                GutterKind::Leave => wit::GutterKind::Leave,
+            },
+            button: button_in(gutter.button),
+            count: gutter.count,
+            mods: mods_in(gutter.mods),
+            marker: gutter.marker.map(|hit| wit::GutterHit {
+                id: hit.id,
+                layer: hit.layer,
+                from: place_in(hit.from),
+                to: place_in(hit.to),
+            }),
+            cell: rect_of(gutter.rect),
         }),
     }
 }
@@ -1188,6 +1209,7 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
                 .as_ref()
                 .map(|part| lists.words(part, limits.text, "a label").map(str::to_owned))
                 .transpose()?,
+            zone: node.zone.map(Id::new),
             motion: node.motion.map(motion_out),
             tip: node
                 .tip
@@ -1536,6 +1558,16 @@ fn editor_options_out(
             color: tint_out(&options.caret.color),
             text: tint_out(&options.caret.text),
         },
+        gutters: options
+            .gutters
+            .iter()
+            .map(gutter_column_out)
+            .collect::<Result<Vec<_>, _>>()?,
+        marks: MarkLooks {
+            bar: options.marks.bar.unwrap_or(default.marks.bar),
+            hover: options.marks.hover.unwrap_or(default.marks.hover),
+            ruler: options.marks.ruler.unwrap_or(default.marks.ruler),
+        },
         colors: editor_colors_out(&options.colors),
     }
     .held())
@@ -1566,6 +1598,7 @@ fn editor_colors_out(colors: &wit::EditorColors) -> EditorColors {
         indent_guides: tint_out(&colors.indent_guides),
         active_indent_guide: tint_out(&colors.active_indent_guide),
         matches: tint_out(&colors.matches),
+        mark_hover: tint_out(&colors.mark_hover),
     }
 }
 
@@ -1650,6 +1683,9 @@ fn editor_asks_out(
             }
             wit::EditorAskKind::Decorate(decorate) => {
                 text = text.saturating_add(decorate.layer.len());
+                for item in &decorate.decorations {
+                    text = text.saturating_add(mark_text(&item.mark));
+                }
                 decorations = decorations.saturating_add(decorate.decorations.len());
                 if decorations > limits.editor_decorations {
                     return Err(too_many(
@@ -1707,9 +1743,103 @@ fn mark_out(mark: &wit::Mark) -> Mark {
             strike: look.strike,
         }),
         wit::Mark::Line(color) => Mark::Line(color_out(color)),
-        wit::Mark::Gutter(color) => Mark::Gutter(color_out(color)),
+        wit::Mark::Gutter(mark) => Mark::Gutter(gutter_mark_out(mark)),
         wit::Mark::Fold => Mark::Fold,
+        wit::Mark::Ruler(mark) => Mark::Ruler(RulerMark {
+            color: color_out(&mark.color),
+            lane: match mark.lane {
+                wit::RulerLane::Full => RulerLane::Full,
+                wit::RulerLane::Left => RulerLane::Left,
+                wit::RulerLane::Center => RulerLane::Center,
+                wit::RulerLane::Right => RulerLane::Right,
+            },
+        }),
+        wit::Mark::Zone(zone) => Mark::Zone(Zone {
+            id: Id::new(zone.id),
+            height: pt(zone.height).clamp(0.0, 4096.0),
+        }),
     }
+}
+
+fn shape_out(shape: &wit::GutterShape) -> GutterShape {
+    match shape {
+        wit::GutterShape::Dot => GutterShape::Dot,
+        wit::GutterShape::Bar => GutterShape::Bar,
+        wit::GutterShape::Above => GutterShape::Above,
+        wit::GutterShape::Below => GutterShape::Below,
+        wit::GutterShape::Image(src) => GutterShape::Image(src.clone()),
+    }
+}
+
+fn cursor_out(cursor: wit::Cursor) -> Cursor {
+    match cursor {
+        wit::Cursor::Arrow => Cursor::Arrow,
+        wit::Cursor::Pointer => Cursor::Pointer,
+        wit::Cursor::Text => Cursor::Text,
+        wit::Cursor::ResizeHorizontal => Cursor::ResizeHorizontal,
+        wit::Cursor::ResizeVertical => Cursor::ResizeVertical,
+        wit::Cursor::NotAllowed => Cursor::NotAllowed,
+        wit::Cursor::Grab => Cursor::Grab,
+        wit::Cursor::Grabbing => Cursor::Grabbing,
+        wit::Cursor::Crosshair => Cursor::Crosshair,
+    }
+}
+
+fn gutter_mark_out(mark: &wit::GutterMark) -> GutterMark {
+    GutterMark {
+        column: mark.column.clone(),
+        shape: shape_out(&mark.shape),
+        color: color_out(&mark.color),
+        id: mark.id.clone(),
+        label: mark.label.clone(),
+        cursor: mark.cursor.map(cursor_out),
+        hover: mark.hover.as_ref().map(color_out),
+        pressed: mark.pressed.as_ref().map(color_out),
+    }
+}
+
+/// The bytes of text a mark carries, which count against what one reply may hand an editor.
+fn mark_text(mark: &wit::Mark) -> usize {
+    match mark {
+        wit::Mark::Gutter(mark) => {
+            mark.column.len()
+                + mark.id.as_ref().map_or(0, String::len)
+                + mark.label.as_ref().map_or(0, String::len)
+                + match &mark.shape {
+                    wit::GutterShape::Image(src) => src.len(),
+                    _ => 0,
+                }
+        }
+        _ => 0,
+    }
+}
+
+/// The most bytes a name of a gutter column may have.
+const NAME_BYTES: usize = 256;
+
+/// One column of the gutter a page says: its name is a name the page and the editor go by, so it
+/// is held to what a name is.
+fn gutter_column_out(column: &wit::GutterColumn) -> Result<Column, Fault> {
+    if column.name.len() > NAME_BYTES {
+        return Err(Fault::Malformed(format!(
+            "a gutter column named with {} bytes (at most {})",
+            column.name.len(),
+            NAME_BYTES
+        )));
+    }
+    Ok(Column {
+        name: column.name.clone(),
+        width: column.width.filter(|width| width.is_finite()),
+        events: column.events.map(|events| ColumnEvents {
+            press: events.press,
+            menu: events.menu,
+            hover: events.hover,
+        }),
+        hover: column.hover.as_ref().map(|preview| Preview {
+            shape: shape_out(&preview.shape),
+            color: color_out(&preview.color),
+        }),
+    })
 }
 
 fn command_out(command: wit::EditorCommand) -> EditCommand {
@@ -2234,6 +2364,7 @@ mod tests {
             field: None,
             editor: None,
             label: None,
+            zone: None,
             motion: None,
             tip: None,
             role: None,

@@ -356,7 +356,14 @@ end
 -- ("page", the page's fold decorations alone, or "indent", the editor's from the indent as well);
 -- how it looks: `line_height` (1.6
 -- times the font's size), `padding` (4 points), `scroll_margin` (rows kept about the caret, 0),
--- `numbers` ("absolute", "relative", "hidden"), `current_line` (where the caret's line is drawn:
+-- `numbers` ("absolute", "relative", "hidden"), `gutters` (the gutter's columns, from the left: the
+-- editor's `"marks"` (dots), `"numbers"` and `"folds"` — the three there are where it says none —
+-- and the page's own, `{ name = "breakpoints", width = 14, events = { "press", "menu", "hover" },
+-- hover = { shape = "dot", color = … } }`: `events` says what of the pointer the page hears of the
+-- column (a page's column: presses of both buttons; `false`: nothing; a press there selects nothing
+-- and folds nothing), `hover` what shows, faint, in the cell the pointer is over where nothing
+-- stands), `marks = { bar = 3, hover = 6, ruler = 4 }` (how wide a bar, a bar the pointer is over
+-- and the overview ruler are), `current_line` (where the caret's line is drawn:
 -- "text", "gutter", "all"), `whitespace` (which spaces and tabs it shows, as VS Code: "none",
 -- "boundary" (all but a space alone between words), "selection", "trailing" or "all"; a space is a
 -- dot, a tab an arrow, any other space a box), `indent_guides` (a thin line down each level of
@@ -365,7 +372,7 @@ end
 -- too), `caret = { shape = "bar" | "block" | "underline", height = "row" | "text", width = 2, color =,
 -- text = }` and `colors = { current_line, selection, selection_blurred, found, brackets, numbers,
 -- current_number, gutter, folds, folded, hint, whitespace, indent_guides, active_indent_guide,
--- matches }`. A colour it does not say is the theme's;
+-- matches, mark_hover }`. A colour it does not say is the theme's;
 -- `false` draws none. A plain editor shows no spaces and no guides.
 local EDITOR_OPTIONS = {
 	wrap = true,
@@ -383,6 +390,8 @@ local EDITOR_OPTIONS = {
 	padding = true,
 	scroll_margin = true,
 	numbers = true,
+	gutters = true,
+	marks = { bar = true, hover = true, ruler = true },
 	current_line = true,
 	whitespace = true,
 	indent_guides = true,
@@ -404,6 +413,7 @@ local EDITOR_OPTIONS = {
 		indent_guides = true,
 		active_indent_guide = true,
 		matches = true,
+		mark_hover = true,
 	},
 }
 
@@ -448,6 +458,21 @@ end
 -- An editor named `id`, as `pencere.div():editor(id, options)`.
 function pencere.editor(id, options)
 	return make("box"):editor(id, options)
+end
+
+-- The element is the content of the zone `id` of the editor it is a child of: a gap the editor
+-- keeps open after a line (a decoration `{ from =, to =, zone = id, height = points }`), in whole
+-- rows. It is laid out as a box as wide as the editor, as tall as the page says (`:height(...)`, the
+-- same as the zone's), and put in the gap, where it scrolls with the text; it is on the page only
+-- while the editor has such a gap. `pencere.editor("code"):child(pencere.div():id("peek"):zone("peek"):height(120))`.
+function Element:zone(id)
+	if id == nil then
+		error("zone takes the name of the zone", 2)
+	end
+	self.meta.zone = id
+	self.style.absolute = true
+	self.style.inset = { top = 0, right = 0, left = 0 }
+	return self
 end
 
 -- What the element is in words, for a person who does not see it (a screen reader says it): a

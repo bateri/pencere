@@ -282,6 +282,20 @@ impl Buffer {
         self.decorations.in_range(from, to)
     }
 
+    /// The marks of the overview ruler, of every layer.
+    pub fn rulers(&self) -> Vec<(usize, &Decoration)> {
+        self.decorations.rulers()
+    }
+
+    /// The gaps kept open for the page, each with the line it is after.
+    pub fn zones(&self) -> Vec<(usize, pencere_view::edit::Zone)> {
+        self.decorations
+            .zones()
+            .into_iter()
+            .map(|(at, zone)| (self.text.line_of(at), zone))
+            .collect()
+    }
+
     /// The names of the layers of decorations, in the order they came: what
     /// [`Buffer::decorations_in`] says a decoration's layer is by.
     pub fn layer_names(&self) -> Vec<String> {

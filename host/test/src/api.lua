@@ -594,7 +594,8 @@ for _, name in ipairs({
 	"now", "asks_at", "settle", "tell", "words", "says", "words_in", "tree_words", "bounds",
 	"editor", "editor_text", "focus", "field", "outline", "cursor", "pasteboard", "links", "menu",
 	"closed", "diagnostics", "ended", "sent", "received", "push", "answer", "fail", "lent",
-	"give_back", "log", "fill", "scroll_to", "wheel", "drop_files",
+	"give_back", "log", "fill", "scroll_to", "wheel", "drop_files", "click_gutter", "hover_gutter",
+	"gutter_cell", "zone",
 }) do
 	Page[name] = function(self, ...)
 		return self.raw[name](self.raw, ...)

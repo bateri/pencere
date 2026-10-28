@@ -174,6 +174,8 @@ pub enum Event {
         editor: Id,
         found: Found,
     },
+    /// The pointer did something in a gutter column that takes events ([`crate::edit::Column::events`]).
+    Gutter(crate::edit::GutterEvent),
     /// The host made the editor named `editor`: the page named it and it was laid out, hidden or
     /// not, and what the page asks of it from now on is done. Its text is posted before it is
     /// told (the version `version`, empty where the editor is new): a page loads a document into

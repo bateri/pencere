@@ -8,6 +8,9 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Changed
 
+- The gutter's columns, markers, ruler marks and zones, a node's `zone` and the event of the pointer
+  in a column (`Event::Gutter`) cross the interface.
+
 - A page can ask the time of day (`wall_clock`, a `WallTime`) and how the application's system
   writes keys (`keyboard`, a `KeyConvention`); a motion's `spin` crosses the interface.
 - An editor's new commands, a change's `history` and `tag`, a reveal's `align`, an editor's

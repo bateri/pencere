@@ -45,12 +45,14 @@ pub(crate) struct Told {
     /// The page is to be laid out again as it is: an editor's content grew or shrank, or a caret
     /// an overlay stands by moved.
     pub relayout: bool,
+    /// Something only drawn changed (the gutter mark under the pointer): a frame, and nothing told.
+    pub redraw: bool,
 }
 
 impl Told {
     /// Whether there is anything to tell or to do.
     pub fn is_empty(&self) -> bool {
-        self.events.is_empty() && self.scrolls.is_empty() && !self.relayout
+        self.events.is_empty() && self.scrolls.is_empty() && !self.relayout && !self.redraw
     }
 }
 
@@ -115,6 +117,7 @@ impl Editing {
     pub(crate) fn told(&mut self) -> Told {
         let scrolls = self.editors.take_scrolls();
         let relayout = self.editors.wants_layout();
+        let redraw = self.editors.wants_redraw();
         let events = self.editors.take_events();
         if events.iter().any(|event| {
             matches!(
@@ -140,6 +143,7 @@ impl Editing {
             events: events.into_iter().map(Event::from).collect(),
             scrolls,
             relayout,
+            redraw,
         }
     }
 }

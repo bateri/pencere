@@ -91,6 +91,14 @@ pub trait Measure {
     fn editor(&mut self, _id: Id) -> Option<EditorMetrics> {
         None
     }
+
+    /// The gaps the host's editor named `id` keeps open for the page ([`crate::edit::Zone`]), each
+    /// by the zone's name and its box in the content (pixels, from the top-left corner of the
+    /// content as it is when nothing is scrolled): what an element of the page that says it is a
+    /// zone's is put in. A host with no editors answers none.
+    fn zones(&mut self, _id: Id) -> Vec<(Id, Rect)> {
+        Vec::new()
+    }
 }
 
 /// What an editor has laid out of its document ([`Measure::editor`]), pixels.

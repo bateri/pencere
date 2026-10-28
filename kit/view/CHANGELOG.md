@@ -16,6 +16,17 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **The gutter is a row of named columns, its markers have shapes, and an editor has an overview
+  ruler and zones.** `EditorOptions::gutters` (`Column`: `name`, `width`, `events`, `hover`) lists the
+  columns from the left, the editor's `marks`, `numbers` and `folds` where it lists none; `marks`
+  (`MarkLooks`: `bar`, `hover`, `ruler`) and `colors.mark_hover` are the measures and the colour.
+  `Mark::Gutter` is a `GutterMark` (`column`, `shape` (`Dot`, `Bar`, `Above`, `Below`, `Image`),
+  `color`, `id`, `label`, `cursor`, `hover`, `pressed`), and there are `Mark::Ruler` (`RulerMark`,
+  `RulerLane`) and `Mark::Zone` (`Zone`). `Event::Gutter` (`GutterEvent`, `GutterKind`, `GutterHit`)
+  tells the page of the pointer in a column that hears it. `Element::zone` makes an element the
+  content of an editor's zone, `Meta::zone` carries it, and `Measure::zones` says where the editor
+  keeps each gap, so that the layout puts the element there and it scrolls with the text.
+
 - **The time of day, the host's keyboard, and what spins.** `WallTime` (Unix seconds and the
   person's offset from UTC) and `KeyConvention` (`Mac`, `Windows`, `Linux`, with `primary`, the main
   modifier) are what a host says of its system; `Shortcut::parse_for` reads `mod` as that modifier

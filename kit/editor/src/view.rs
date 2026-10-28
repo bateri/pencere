@@ -14,12 +14,13 @@ use std::rc::Rc;
 use std::slice;
 
 use pencere_view::edit::{
-    CaretHeight, CaretShape, EditorOptions, LineHighlight, Look, Mark, Matches, Numbers, Range,
-    Underline, Whitespace,
+    CaretHeight, CaretShape, Column, ColumnEvents, Decoration, EditorOptions, GutterMark,
+    GutterShape, LineHighlight, Look, Mark, Matches, Numbers, Preview, Range, RulerLane, Underline,
+    Whitespace, limits,
 };
 use pencere_view::{
-    Border, Color, EditorRoom, EditorSlot, Figure, Font, Measure, Paint, Point, Quad, Rect, Role,
-    Run, Size, path,
+    Border, Color, Cursor, EditorRoom, EditorSlot, Figure, Font, Id, Measure, Paint, Picture,
+    Point, Quad, Rect, Role, Run, Size, path,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -106,7 +107,7 @@ impl Row {
 }
 
 /// What the rows of the lines were counted for: the version, the lines hidden, the width of the text.
-type Counted = (u64, Vec<(usize, usize)>, u32);
+type Counted = (u64, Vec<(usize, usize)>, u32, Vec<(usize, usize)>);
 
 /// An editor's layout.
 #[derive(Debug)]
@@ -135,6 +136,11 @@ pub(crate) struct View {
     /// What the page said of the room, held to what an editor takes: its rows, caret, gutter and
     /// colours.
     pub options: EditorOptions,
+    /// The columns of the gutter, laid out.
+    pub cols: Vec<Col>,
+    /// The cell of the gutter the pointer is over, and the one it is pressing.
+    pub hover: Option<Cell>,
+    pub pressed: Option<Cell>,
     shaped: RefCell<HashMap<String, Rc<Shaped>>>,
     /// The other places of the main selection's text last found, and for what: the version, the
     /// main selection and the text in view. A frame that changes none of them (the caret's blink,
@@ -144,6 +150,9 @@ pub(crate) struct View {
     tops: Vec<usize>,
     /// What `tops` was counted for.
     counted: Option<Counted>,
+    /// The gaps kept open for the page, in order of their lines: the line each is after, how many
+    /// rows it takes, and its name.
+    zones: Vec<(usize, usize, Id)>,
     /// The rows laid out: those in view and some about them.
     pub rows: Vec<Row>,
     /// How many characters the longest line has, and of which version.
@@ -177,10 +186,14 @@ impl Default for View {
             gutter: 0.0,
             pad: 4.0,
             options: EditorOptions::default(),
+            cols: Vec::new(),
+            hover: None,
+            pressed: None,
             shaped: RefCell::new(HashMap::new()),
             matches: RefCell::new(None),
             tops: vec![0, 1],
             counted: None,
+            zones: Vec::new(),
             rows: Vec::new(),
             widest: None,
             measured: 0.0,
@@ -238,6 +251,7 @@ impl View {
         if room.options.wrap != self.wrap
             || room.options.gutter != self.gutter_shown
             || options.numbers != self.options.numbers
+            || options.gutters != self.options.gutters
         {
             self.counted = None;
         }
@@ -385,10 +399,24 @@ impl View {
     /// The rows of the lines counted again, where what they depend on changed.
     pub fn count(&mut self, buffer: &Buffer) {
         let hidden = merged(buffer.hidden_lines());
+        // The gaps the page keeps open: whole rows, after a line that shows.
+        let zones: Vec<(usize, usize, Id)> = if self.row > 0.0 {
+            buffer
+                .zones()
+                .into_iter()
+                .map(|(line, zone)| {
+                    let rows = (zone.height.max(0.0) * self.scale / self.row).ceil() as usize;
+                    (line, rows.min(limits::ZONE_ROWS), zone.id)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let key = (
             buffer.version(),
             hidden.clone(),
             self.text_width().round() as u32,
+            zones.iter().map(|(line, rows, _)| (*line, *rows)).collect(),
         );
         if self.counted.as_ref() == Some(&key) {
             return;
@@ -407,10 +435,16 @@ impl View {
                 .is_some_and(|(first, last)| line >= *first && line <= *last);
             if !hidden {
                 row += self.rows_of(buffer, line);
+                row += zones
+                    .iter()
+                    .filter(|(at, _, _)| *at == line)
+                    .map(|(_, rows, _)| rows)
+                    .sum::<usize>();
             }
         }
         tops.push(row);
         self.tops = tops;
+        self.zones = zones;
         self.counted = Some(key);
         if self
             .widest
@@ -422,6 +456,51 @@ impl View {
                 .unwrap_or(0);
             self.widest = Some((buffer.version(), widest));
         }
+    }
+
+    /// How many rows the gaps kept open after line `line` take.
+    fn zone_rows(&self, line: usize) -> usize {
+        // A line folded away has no gaps.
+        if self.tops.get(line + 1) <= self.tops.get(line) {
+            return 0;
+        }
+        self.zones
+            .iter()
+            .filter(|(at, _, _)| *at == line)
+            .map(|(_, rows, _)| rows)
+            .sum()
+    }
+
+    /// The gaps kept open for the page, each by its name and its box in the content (pixels): a gap
+    /// is after its line's own rows, wide as the room, one after another where a line has several;
+    /// one that is after a line folded away is nowhere.
+    pub fn zone_boxes(&self) -> Vec<(Id, Rect)> {
+        let mut out = Vec::new();
+        let mut last: Option<(usize, usize)> = None;
+        for (line, rows, id) in &self.zones {
+            let (Some(top), Some(next)) = (self.tops.get(*line), self.tops.get(*line + 1)) else {
+                continue;
+            };
+            if next <= top {
+                continue;
+            }
+            let used = match last {
+                Some((at, used)) if at == *line => used,
+                _ => 0,
+            };
+            let start = next - self.zone_rows(*line) + used;
+            out.push((
+                *id,
+                Rect::new(
+                    0.0,
+                    self.pad + start as f32 * self.row,
+                    self.room.w,
+                    *rows as f32 * self.row,
+                ),
+            ));
+            last = Some((*line, used + rows));
+        }
+        out
     }
 
     /// How many rows there are.
@@ -487,7 +566,7 @@ impl View {
                     break;
                 }
                 let laid = self.line_rows(buffer, line, measure);
-                if laid.len() != next - top {
+                if laid.len() != next - top - self.zone_rows(line) {
                     guessed_wrong = true;
                 }
                 for row in &laid {
@@ -661,6 +740,7 @@ impl View {
         slot: &EditorSlot,
         focused: bool,
         caret_on: bool,
+        measure: &mut dyn Measure,
     ) -> Vec<Paint> {
         let mut out = Vec::new();
         let fade = |color: Color| color.faded(slot.opacity);
@@ -891,8 +971,17 @@ impl View {
         }
         if self.gutter_shown {
             let band = band.filter(|_| self.options.current_line != LineHighlight::Text);
-            self.paint_gutter(buffer, &rows, slot, (gutter, gutter_clip), band, &mut out);
+            self.paint_gutter(
+                buffer,
+                &rows,
+                slot,
+                (gutter, gutter_clip),
+                band,
+                measure,
+                &mut out,
+            );
         }
+        self.paint_ruler(buffer, slot, &mut out);
         out
     }
 
@@ -1389,8 +1478,9 @@ impl View {
     }
 
     /// The gutter: its ground (so that what scrolls across goes under it), the main caret's line
-    /// where `band` says (its top and colour), the number of each line, the page's marks and the
-    /// buttons of the regions that fold.
+    /// where `band` says (its top and colour), the number of each line, the buttons of the regions
+    /// that fold and the markers of the page's columns.
+    #[allow(clippy::too_many_arguments)]
     fn paint_gutter(
         &self,
         buffer: &Buffer,
@@ -1398,6 +1488,7 @@ impl View {
         slot: &EditorSlot,
         (gutter, clip): (Rect, Rect),
         band: Option<(f32, Color)>,
+        measure: &mut dyn Measure,
         out: &mut Vec<Paint>,
     ) {
         let fade = |color: Color| color.faded(slot.opacity);
@@ -1434,8 +1525,9 @@ impl View {
         }
         let grounds = ground.map_or_else(|| slot.grounds.clone(), |ground| vec![ground]);
         let main_line = buffer.line_of(buffer.main().head);
-        let hidden = if self.options.numbers == Numbers::Relative {
-            merged(buffer.hidden_lines())
+        let hidden = merged(buffer.hidden_lines());
+        let relative = if self.options.numbers == Numbers::Relative {
+            hidden.clone()
         } else {
             Vec::new()
         };
@@ -1447,69 +1539,48 @@ impl View {
             _ => Vec::new(),
         };
         let origin_y = slot.rect.y + self.pad - slot.scroll.y;
-        let (marks_w, fold_w) = self.gutter_parts();
+        let numbers = self.cols.iter().find(|col| col.kind == Kind::Numbers);
+        let folding = self.cols.iter().find(|col| col.kind == Kind::Folds);
         for row in rows.iter().filter(|row| row.from == 0) {
             let y = origin_y + row.index as f32 * self.row;
             let text_y = y + self.lead;
             let current = row.line == main_line;
-            let number = match self.options.numbers {
-                Numbers::Absolute => Some(row.line + 1),
-                Numbers::Relative if current => Some(row.line + 1),
-                Numbers::Relative => Some(lines_between(&hidden, row.line, main_line)),
-                Numbers::Hidden => None,
-            };
-            let color = if current {
-                colors.current_number.or(Role::Dim.solid())
-            } else {
-                colors.numbers.or(Role::Quiet.solid())
-            };
-            if let (Some(number), Some(color)) = (number, color) {
-                let number = number.to_string();
-                let width = number.chars().count() as f32 * self.digit;
-                let x = gutter.x + gutter.w - fold_w - self.pad - width;
-                out.push(Paint::Text(Run {
-                    origin: Point::new(x, text_y),
-                    text: number,
-                    font: self.font,
-                    color,
-                    opacity: slot.opacity,
-                    grounds: grounds.clone(),
-                    clip,
-                    underline: false,
-                    strike: false,
-                }));
-            }
-            let (from, to) = (
-                row.base,
-                row.base + row.shaped.stops.last().map_or(0, |s| s.0),
-            );
-            for (_, item) in buffer.decorations_in(from, to) {
-                if let Mark::Gutter(color) = &item.mark
-                    && buffer.line_of(item.from) == row.line
-                {
-                    let size = (marks_w * 0.6).max(1.0);
-                    out.push(Paint::Quad(Quad {
-                        rect: Rect::new(
-                            gutter.x + (marks_w - size) / 2.0,
-                            y + (self.row - size) / 2.0,
-                            size,
-                            size,
-                        ),
-                        radii: [size / 2.0; 4],
-                        fill: Some(fade(*color)),
-                        gradient: None,
-                        border: None,
-                        shadow: None,
+            if let Some(col) = numbers {
+                let number = match self.options.numbers {
+                    Numbers::Absolute => Some(row.line + 1),
+                    Numbers::Relative if current => Some(row.line + 1),
+                    Numbers::Relative => Some(lines_between(&relative, row.line, main_line)),
+                    Numbers::Hidden => None,
+                };
+                let color = if current {
+                    colors.current_number.or(Role::Dim.solid())
+                } else {
+                    colors.numbers.or(Role::Quiet.solid())
+                };
+                if let (Some(number), Some(color)) = (number, color) {
+                    let number = number.to_string();
+                    let width = number.chars().count() as f32 * self.digit;
+                    let x = gutter.x + col.x + col.w - self.pad - width;
+                    out.push(Paint::Text(Run {
+                        origin: Point::new(x, text_y),
+                        text: number,
+                        font: self.font,
+                        color,
+                        opacity: slot.opacity,
+                        grounds: grounds.clone(),
                         clip,
+                        underline: false,
+                        strike: false,
                     }));
                 }
             }
-            if folds.binary_search(&row.line).is_ok()
+            if let Some(col) = folding
+                && folds.binary_search(&row.line).is_ok()
                 && let Some(color) = colors.folds.or(Role::Dim.solid())
             {
                 let shut = buffer.is_folded(row.line);
                 out.push(Paint::Text(Run {
-                    origin: Point::new(gutter.x + gutter.w - fold_w, text_y),
+                    origin: Point::new(gutter.x + col.x, text_y),
                     text: if shut { "▸" } else { "▾" }.into(),
                     font: self.font,
                     color,
@@ -1521,40 +1592,557 @@ impl View {
                 }));
             }
         }
+        self.paint_markers(buffer, rows, &hidden, slot, (gutter, clip), measure, out);
     }
 
-    /// How wide the column of marks and the column of fold buttons are, pixels.
-    fn gutter_parts(&self) -> (f32, f32) {
-        ((self.line * 0.6).round(), (self.line * 0.8).round())
+    /// Where line `line` is as a person sees it: itself, or where it is folded away the line the
+    /// fold is on.
+    fn shown_line(hidden: &[(usize, usize)], line: usize) -> usize {
+        match hidden
+            .iter()
+            .find(|(first, last)| line >= *first && line <= *last)
+        {
+            Some((first, _)) => first.saturating_sub(1),
+            None => line,
+        }
     }
 
-    /// The gutter measured again for a document of `lines` lines.
+    /// The lines a marker is by, as a person sees them: those a bar goes along, the first line of
+    /// the range for the rest; a line that is folded away is the line of the fold. A range that ends
+    /// where a line starts stops at the line before.
+    fn mark_lines(
+        buffer: &Buffer,
+        hidden: &[(usize, usize)],
+        item: &Decoration,
+        shape: &GutterShape,
+    ) -> (usize, usize) {
+        let first = buffer.line_of(item.from);
+        let last = if *shape == GutterShape::Bar && item.to > item.from {
+            buffer.line_of(item.to - 1).max(first)
+        } else {
+            first
+        };
+        (
+            Self::shown_line(hidden, first),
+            Self::shown_line(hidden, last),
+        )
+    }
+
+    /// The bottom of line `line`'s own rows, pixels of the content.
+    pub fn line_bottom(&self, line: usize) -> f32 {
+        self.line_top(line + 1) - self.zone_rows(line) as f32 * self.row
+    }
+
+    /// The top of line `line`, pixels of the content.
+    pub fn line_top(&self, line: usize) -> f32 {
+        self.pad + self.tops.get(line).copied().unwrap_or(0) as f32 * self.row
+    }
+
+    /// The top of line `line` (pixels of the page, `origin_y` the content's top).
+    fn top_of(&self, origin_y: f32, line: usize) -> f32 {
+        origin_y + self.tops.get(line).copied().unwrap_or(0) as f32 * self.row
+    }
+
+    /// Where line `line`'s own rows end: the gaps kept open after it are below.
+    fn end_of(&self, origin_y: f32, line: usize) -> f32 {
+        self.top_of(origin_y, line + 1) - self.zone_rows(line) as f32 * self.row
+    }
+
+    /// The markers of column `col`, with the layer each is of and its decoration, in the order they
+    /// are drawn (the later over the earlier) that stand by `line`.
+    pub fn markers_at<'a>(
+        &self,
+        buffer: &'a Buffer,
+        hidden: &[(usize, usize)],
+        col: usize,
+        line: usize,
+    ) -> Vec<(usize, &'a Decoration, &'a GutterMark)> {
+        let Some(column) = self.cols.get(col) else {
+            return Vec::new();
+        };
+        let from = buffer.line_start(line);
+        // The lines folded away after this one are the fold's: what is marked in them is shown here.
+        let after = hidden
+            .iter()
+            .find(|(first, _)| *first == line + 1)
+            .map_or(line, |(_, last)| *last);
+        let to = buffer.line_start(after + 1).max(from);
+        buffer
+            .decorations_in(from, to)
+            .into_iter()
+            .filter_map(|(layer, item)| {
+                let Mark::Gutter(mark) = &item.mark else {
+                    return None;
+                };
+                let (first, last) = Self::mark_lines(buffer, hidden, item, &mark.shape);
+                (column.holds(&mark.column) && (first..=last).contains(&line))
+                    .then_some((layer, item, mark))
+            })
+            .collect()
+    }
+
+    /// The gutter's markers: each in the column it names, a dot on the first row of its line, a bar
+    /// along every row of its lines, a triangle on the edge above or below its line, a picture; the
+    /// one the pointer is over lit, the one it is pressing pressed, and in the cell it is over where
+    /// nothing stands the column's preview.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_markers(
+        &self,
+        buffer: &Buffer,
+        rows: &[&Row],
+        hidden: &[(usize, usize)],
+        slot: &EditorSlot,
+        (gutter, clip): (Rect, Rect),
+        measure: &mut dyn Measure,
+        out: &mut Vec<Paint>,
+    ) {
+        let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
+            return;
+        };
+        let origin_y = slot.rect.y + self.pad - slot.scroll.y;
+        let lit = self
+            .options
+            .colors
+            .mark_hover
+            .or(Role::Foreground.alpha(0.3));
+        let (start, end) = (first.base + first.from, last.base + last.to);
+        let shown = |line: usize| rows.iter().any(|row| row.line == line);
+        for (layer, item) in buffer.decorations_in(start, end) {
+            let Mark::Gutter(mark) = &item.mark else {
+                continue;
+            };
+            let Some((at, col)) = self
+                .cols
+                .iter()
+                .enumerate()
+                .find(|(_, col)| col.holds(&mark.column) && col.kind != Kind::Numbers)
+                .filter(|(_, col)| col.kind != Kind::Folds)
+            else {
+                continue;
+            };
+            let (from, to) = Self::mark_lines(buffer, hidden, item, &mark.shape);
+            let held = Held {
+                layer,
+                from: item.from,
+                to: item.to,
+                id: mark.id.clone(),
+                cursor: mark.cursor,
+            };
+            let over = |cell: &Option<Cell>| {
+                cell.as_ref()
+                    .is_some_and(|cell| cell.col == at && cell.marker.as_ref() == Some(&held))
+            };
+            let (hovering, pressing) = (over(&self.hover), over(&self.pressed));
+            let color = match (pressing, hovering) {
+                (true, _) if mark.pressed.is_some() => mark.pressed,
+                (_, true) if mark.hover.is_some() => mark.hover,
+                _ => None,
+            }
+            .unwrap_or(mark.color);
+            let veil = ((hovering && mark.hover.is_none()) || (pressing && mark.pressed.is_none()))
+                .then_some(lit)
+                .flatten();
+            if !(from..=to).any(shown) && !shown(from) {
+                // Off the screen: the rows of the lines a bar goes along are not in view.
+                if self.top_of(origin_y, to + 1) < slot.rect.y
+                    || self.top_of(origin_y, from) > slot.rect.bottom()
+                {
+                    continue;
+                }
+            }
+            let single = (self.top_of(origin_y, from), self.end_of(origin_y, from));
+            let span = (self.top_of(origin_y, from), self.end_of(origin_y, to));
+            self.paint_shape(
+                &mark.shape,
+                color,
+                veil,
+                hovering || pressing,
+                col,
+                (gutter, clip),
+                (single, span),
+                slot,
+                measure,
+                out,
+            );
+        }
+        // Where the pointer is over a cell with nothing in it, what the column shows to be put.
+        if let Some(cell) = &self.hover
+            && cell.marker.is_none()
+            && let Some(col) = self.cols.get(cell.col)
+            && let Some(preview) = &col.hover
+            && shown(cell.line)
+        {
+            let top = self.top_of(origin_y, cell.line);
+            let single = (top, self.end_of(origin_y, cell.line));
+            self.paint_shape(
+                &preview.shape,
+                preview.color,
+                None,
+                false,
+                col,
+                (gutter, clip),
+                (single, single),
+                slot,
+                measure,
+                out,
+            );
+        }
+    }
+
+    /// One marker's shape in column `col`: `single` the top and the bottom of its first line and
+    /// `span` those of all its lines, pixels of the page; `wide` the pointer is on it.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_shape(
+        &self,
+        shape: &GutterShape,
+        color: Color,
+        veil: Option<Color>,
+        wide: bool,
+        col: &Col,
+        (gutter, clip): (Rect, Rect),
+        (single, span): ((f32, f32), (f32, f32)),
+        slot: &EditorSlot,
+        measure: &mut dyn Measure,
+        out: &mut Vec<Paint>,
+    ) {
+        let looks = &self.options.marks;
+        let s = self.scale.max(0.01);
+        let x0 = gutter.x + col.x;
+        let fill = |rect: Rect, color: Color| {
+            Paint::Quad(Quad {
+                rect,
+                radii: [0.0; 4],
+                fill: Some(color.faded(slot.opacity)),
+                gradient: None,
+                border: None,
+                shadow: None,
+                clip,
+            })
+        };
+        match shape {
+            GutterShape::Dot => {
+                let size = (col.w * 0.6).max(1.0).min(self.row);
+                let rect = Rect::new(
+                    x0 + (col.w - size) / 2.0,
+                    single.0 + (self.row - size) / 2.0,
+                    size,
+                    size,
+                );
+                out.push(Paint::Quad(Quad {
+                    radii: [size / 2.0; 4],
+                    ..match fill(rect, color) {
+                        Paint::Quad(quad) => quad,
+                        _ => return,
+                    }
+                }));
+                if let Some(veil) = veil {
+                    out.push(Paint::Quad(Quad {
+                        radii: [size / 2.0; 4],
+                        ..match fill(rect, veil) {
+                            Paint::Quad(quad) => quad,
+                            _ => return,
+                        }
+                    }));
+                }
+            }
+            GutterShape::Bar => {
+                let widest = looks.hover.max(looks.bar) * s;
+                let width = (if wide { looks.hover } else { looks.bar } * s)
+                    .round()
+                    .max(1.0);
+                let rect = Rect::new(
+                    x0 + ((col.w - widest) / 2.0).max(0.0),
+                    span.0,
+                    width,
+                    span.1 - span.0,
+                );
+                if rect.h <= 0.0 {
+                    return;
+                }
+                out.push(fill(rect, color));
+                if let Some(veil) = veil {
+                    out.push(fill(rect, veil));
+                }
+            }
+            GutterShape::Above | GutterShape::Below => {
+                let edge = if *shape == GutterShape::Below {
+                    single.1
+                } else {
+                    single.0
+                };
+                if single.1 <= single.0 {
+                    return;
+                }
+                // A triangle pointing at the text, its height three bars, its width half that.
+                let side =
+                    ((if wide { looks.hover } else { looks.bar }) * 3.0).min(self.row / s * 0.9);
+                let widest = looks.hover.max(looks.bar) * s;
+                let rect = Rect::new(
+                    x0 + ((col.w - widest) / 2.0).max(0.0),
+                    edge - side * s / 2.0,
+                    side * s / 2.0,
+                    side * s,
+                );
+                let triangle = path()
+                    .move_to(0.0, 0.0)
+                    .line_to(side / 2.0, side / 2.0)
+                    .line_to(0.0, side)
+                    .close();
+                let mut paths = vec![triangle.clone().fill(color.faded(slot.opacity))];
+                if let Some(veil) = veil {
+                    paths.push(triangle.fill(veil.faded(slot.opacity)));
+                }
+                out.push(Paint::Figure(Figure {
+                    rect,
+                    scale: s,
+                    paths,
+                    clip: clip.intersect(rect),
+                }));
+            }
+            GutterShape::Image(src) => {
+                let room = (col.w.min(self.row) * 0.8).max(1.0);
+                let size = match measure.image(src) {
+                    Some(natural) if natural.w > 0.0 && natural.h > 0.0 => {
+                        let fit = (room / natural.w).min(room / natural.h);
+                        Size::new(natural.w * fit, natural.h * fit)
+                    }
+                    _ => Size::new(room, room),
+                };
+                let rect = Rect::new(
+                    x0 + (col.w - size.w) / 2.0,
+                    single.0 + (self.row - size.h) / 2.0,
+                    size.w,
+                    size.h,
+                );
+                out.push(Paint::Image(Picture {
+                    src: src.clone(),
+                    rect,
+                    crop: Rect::new(0.0, 0.0, 1.0, 1.0),
+                    tint: Some(veil.map_or(color, |_| color)),
+                    opacity: slot.opacity,
+                    radii: [0.0; 4],
+                    clip: clip.intersect(rect),
+                    turn: 0.0,
+                }));
+                if let Some(veil) = veil {
+                    out.push(Paint::Image(Picture {
+                        src: src.clone(),
+                        rect,
+                        crop: Rect::new(0.0, 0.0, 1.0, 1.0),
+                        tint: Some(veil),
+                        opacity: slot.opacity,
+                        radii: [0.0; 4],
+                        clip: clip.intersect(rect),
+                        turn: 0.0,
+                    }));
+                }
+            }
+        }
+    }
+
+    /// The marks of the overview ruler: down the right edge of the room, each where its lines are in
+    /// the document as the room is as tall as the document, at least two points tall, in its lane.
+    fn paint_ruler(&self, buffer: &Buffer, slot: &EditorSlot, out: &mut Vec<Paint>) {
+        let marks = buffer.rulers();
+        if marks.is_empty() {
+            return;
+        }
+        let s = self.scale.max(0.01);
+        let total = self.total() as f32;
+        let room = slot.rect;
+        let width = (self.options.marks.ruler * s).round().max(3.0);
+        let strip = room.right() - width - 2.0 * s;
+        for (_, item) in marks {
+            let Mark::Ruler(mark) = &item.mark else {
+                continue;
+            };
+            let (top, end) = self.ruler_rows(buffer, item);
+            let y = room.y + room.h * top as f32 / total;
+            let h = (room.h * (end - top) as f32 / total).max((2.0 * s).round());
+            let third = (width / 3.0).floor().max(1.0);
+            let (x, w) = match mark.lane {
+                RulerLane::Full => (strip, width),
+                RulerLane::Left => (strip, third),
+                RulerLane::Center => (strip + third, third),
+                RulerLane::Right => (strip + width - third, third),
+            };
+            out.push(Paint::Quad(Quad {
+                rect: Rect::new(x, y.min(room.bottom() - h).max(room.y), w, h),
+                radii: [0.0; 4],
+                fill: Some(mark.color.faded(slot.opacity)),
+                gradient: None,
+                border: None,
+                shadow: None,
+                clip: slot.clip.intersect(room),
+            }));
+        }
+    }
+
+    /// The columns laid out again for a document of `lines` lines: those the page lists (the
+    /// editor's three where it lists none), each as wide as it says or as its kind is.
     pub fn size_gutter(&mut self, lines: usize) {
+        self.cols.clear();
         if !self.gutter_shown {
             self.gutter = 0.0;
             return;
         }
-        let digits = lines.max(1).to_string().len().max(2);
-        let (marks, fold) = self.gutter_parts();
-        let numbers = if self.options.numbers == Numbers::Hidden {
-            0.0
+        let default: Vec<Column> = ["marks", "numbers", "folds"]
+            .into_iter()
+            .map(Column::new)
+            .collect();
+        let list = if self.options.gutters.is_empty() {
+            &default
         } else {
-            digits as f32 * self.digit + self.pad
+            &self.options.gutters
         };
-        self.gutter = marks + numbers + fold;
+        let digits = lines.max(1).to_string().len().max(2);
+        let s = self.scale.max(0.01);
+        let mut x = 0.0;
+        for column in list.iter().take(limits::COLUMNS) {
+            if self.cols.iter().any(|col| col.name == column.name) {
+                continue;
+            }
+            let kind = match column.name.as_str() {
+                "marks" => Kind::Marks,
+                "numbers" => Kind::Numbers,
+                "folds" => Kind::Folds,
+                _ => Kind::Page,
+            };
+            let own = match kind {
+                Kind::Numbers if self.options.numbers == Numbers::Hidden => 0.0,
+                Kind::Numbers => digits as f32 * self.digit + self.pad,
+                Kind::Folds => (self.line * 0.8).round(),
+                Kind::Marks | Kind::Page => (self.line * 0.6).round(),
+            };
+            let w = column.width.map_or(own, |points| {
+                (points.clamp(*limits::COLUMN.start(), *limits::COLUMN.end()) * s).round()
+            });
+            self.cols.push(Col {
+                name: column.name.clone(),
+                kind,
+                x,
+                w,
+                heard: column.heard(),
+                hover: column.hover.clone(),
+            });
+            x += w;
+        }
+        self.gutter = x;
     }
 
-    /// What is in the gutter at `y` (pixels of the content): the line, where the button of a region
-    /// that folds is under `x` (pixels of the room).
-    pub fn gutter_at(&self, x: f32, y: f32) -> Option<(usize, bool)> {
-        if !self.gutter_shown || x >= self.gutter {
+    /// What is in the gutter at `y` (pixels of the content) and `x` (pixels of the room): the
+    /// column, the line, and the marker that stands there, the later of two over the earlier.
+    pub fn cell_at(&self, buffer: &Buffer, x: f32, y: f32) -> Option<Cell> {
+        if !self.gutter_shown || x < 0.0 || x >= self.gutter {
             return None;
         }
         let row = ((y - self.pad) / self.row).floor().max(0.0) as usize;
         let line = self.line_at_row(row.min(self.total() - 1));
-        let (_, fold) = self.gutter_parts();
-        Some((line, x >= self.gutter - fold))
+        let col = self
+            .cols
+            .iter()
+            .position(|col| x >= col.x && x < col.x + col.w)?;
+        let hidden = merged(buffer.hidden_lines());
+        let marker =
+            self.markers_at(buffer, &hidden, col, line)
+                .last()
+                .map(|(layer, item, mark)| Held {
+                    layer: *layer,
+                    from: item.from,
+                    to: item.to,
+                    id: mark.id.clone(),
+                    cursor: mark.cursor,
+                });
+        Some(Cell { col, line, marker })
     }
+
+    /// What the markers in view say of themselves: the column each is in, the lines it is by (the
+    /// first and the last) and its words.
+    pub fn labels(&self, buffer: &Buffer) -> Vec<(usize, usize, usize, String)> {
+        let (Some(first), Some(last)) = (self.rows.first(), self.rows.last()) else {
+            return Vec::new();
+        };
+        let hidden = merged(buffer.hidden_lines());
+        let mut out = Vec::new();
+        for (_, item) in buffer.decorations_in(first.base + first.from, last.base + last.to) {
+            let Mark::Gutter(mark) = &item.mark else {
+                continue;
+            };
+            let Some(label) = &mark.label else {
+                continue;
+            };
+            let Some(col) = self.cols.iter().position(|col| {
+                col.holds(&mark.column) && matches!(col.kind, Kind::Marks | Kind::Page)
+            }) else {
+                continue;
+            };
+            let (from, to) = Self::mark_lines(buffer, &hidden, item, &mark.shape);
+            out.push((col, from, to, label.clone()));
+        }
+        out
+    }
+
+    /// The lines a mark of the overview ruler covers, as the rows they take (`start..end`), over
+    /// all the rows there are.
+    fn ruler_rows(&self, buffer: &Buffer, item: &Decoration) -> (usize, usize) {
+        let first = buffer.line_of(item.from);
+        let last = if item.to > item.from {
+            buffer.line_of(item.to - 1).max(first)
+        } else {
+            first
+        };
+        let top = self.tops.get(first).copied().unwrap_or(0);
+        let end = self.tops.get(last + 1).copied().unwrap_or(top);
+        (top, end.max(top))
+    }
+}
+
+/// What a column of the gutter is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Kind {
+    /// The editor's column of dots.
+    Marks,
+    Numbers,
+    Folds,
+    /// A column of the page's.
+    Page,
+}
+
+/// One column of the gutter, laid out.
+#[derive(Clone, Debug)]
+pub(crate) struct Col {
+    pub name: String,
+    pub kind: Kind,
+    /// Where it starts across the gutter and how wide it is, pixels.
+    pub x: f32,
+    pub w: f32,
+    pub heard: ColumnEvents,
+    pub hover: Option<Preview>,
+}
+
+impl Col {
+    /// Whether a marker that names column `name` (none: the dots') stands in it.
+    fn holds(&self, name: &str) -> bool {
+        self.name == if name.is_empty() { "marks" } else { name }
+    }
+}
+
+/// A marker: the layer of decorations it is of and its range.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Held {
+    pub layer: usize,
+    pub from: usize,
+    pub to: usize,
+    pub id: Option<String>,
+    pub cursor: Option<Cursor>,
+}
+
+/// A cell of the gutter: a column and a line, and the marker that stands there if any.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Cell {
+    pub col: usize,
+    pub line: usize,
+    pub marker: Option<Held>,
 }
 
 /// What a row draws under its text and over its grounds, besides the grounds of the page's looks.

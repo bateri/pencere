@@ -18,6 +18,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **The gutter's columns, markers, ruler marks and zones, and the event of the pointer in a column,
+  across the interface and in Lua.** `gutters = { "numbers", { name =, width =, events =, hover = } }`
+  and `marks = { bar =, hover =, ruler = }` in an editor's options, `colors.mark_hover`; decorations
+  `{ gutter =, column =, shape =, image =, id =, label =, cursor =, hover =, pressed = }`,
+  `{ ruler =, lane = }` and `{ zone =, height = }`; `element:zone(id)`; the event `gutter`. The
+  interpreter is built again with them.
+
 - **The kit's library.** A script requires `@pencere/<name>`, a module of Luau the kit writes on the
   page API alone, at the kit's version: the interpreter asks for it under `@pencere/` (no path of a
   bundle has an `@`) and the sandbox gives it from the crate (`library`, `library::MODULES`, the

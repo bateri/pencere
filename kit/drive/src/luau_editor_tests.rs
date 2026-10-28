@@ -1779,3 +1779,154 @@ fn a_place_is_revealed_where_the_page_asks_and_the_commands_of_lines_are_asked_b
     );
     Ok(())
 }
+
+// --- The gutter -----------------------------------------------------------------------------------
+
+const GUTTER: &str = include_str!("../../../examples/gutter-lua/src/view/page.lua");
+
+fn gutter_events(page: &Headless) -> Vec<&pencere_view::edit::GutterEvent> {
+    page.told()
+        .iter()
+        .filter_map(|event| match event {
+            Event::Gutter(gutter) => Some(gutter),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_pointer_is_the_i_beam_over_the_text_the_arrow_in_the_gutter_and_the_hand_where_it_answers()
+-> Result<(), Error> {
+    use pencere_view::Cursor;
+    let mut page = open(GUTTER)?;
+    let cell = |page: &Headless, column: &str, line: usize| {
+        let rect = page
+            .gutter_cell("code", column, line)
+            .expect("a cell in view");
+        Point::new(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0)
+    };
+    // The column of breakpoints answers a press, the numbers and the buttons that fold (where none
+    // does) do not, the text is the editor's.
+    page.move_to(cell(&page, "breakpoints", 2))?;
+    assert_eq!(page.cursor(), Some(Cursor::Pointer));
+    page.move_to(cell(&page, "numbers", 2))?;
+    assert_eq!(page.cursor(), Some(Cursor::Arrow));
+    page.move_to(cell(&page, "folds", 2))?;
+    assert_eq!(page.cursor(), Some(Cursor::Arrow));
+    let numbers = cell(&page, "numbers", 2);
+    page.move_to(Point::new(numbers.x + 300.0, numbers.y))?;
+    assert_eq!(page.cursor(), Some(Cursor::Text));
+    // Back over the gutter: the arrow again, not the I-beam the text had left.
+    page.move_to(cell(&page, "changes", 20))?;
+    assert_eq!(page.cursor(), Some(Cursor::Pointer));
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_press_in_a_column_of_the_pages_puts_a_breakpoint_where_there_is_none_and_takes_it_away()
+-> Result<(), Error> {
+    let mut page = open(GUTTER)?;
+    let marks = |page: &Headless| {
+        let buffer = page.editor("code").expect("the editor");
+        buffer
+            .decorations_in(0, buffer.len_chars())
+            .into_iter()
+            .filter(|(_, d)| matches!(&d.mark, Mark::Gutter(m) if m.column == "breakpoints"))
+            .count()
+    };
+    assert_eq!(marks(&page), 0);
+    // Over an empty cell the column shows a faint dot, the breakpoint to be put.
+    page.hover_gutter("code", "breakpoints", 6)?;
+    let faint = |page: &Headless| {
+        page.list()
+            .items
+            .iter()
+            .filter(|item| matches!(item, Paint::Quad(q) if q.fill.is_some_and(|f| f.role() == Some(Role::Red)) && q.radii[0] > 0.0))
+            .count()
+    };
+    assert_eq!(faint(&page), 1);
+    page.click_gutter("code", "breakpoints", 6, pencere_view::Button::Left)?;
+    assert_eq!(marks(&page), 1);
+    // The page was told: which column and line, where the cell was and that nothing was there.
+    let event = gutter_events(&page)
+        .into_iter()
+        .find(|e| e.kind == pencere_view::edit::GutterKind::Press)
+        .expect("a press");
+    assert_eq!((event.column.as_str(), event.line), ("breakpoints", 6));
+    assert!(event.marker.is_none());
+    assert_eq!(page.gutter_cell("code", "breakpoints", 6), Some(event.rect));
+    // The caret did not move and nothing was selected: the press was the page's.
+    assert_eq!(page.editor("code").map(|b| b.ranges().len()), Some(1));
+    assert_eq!(
+        page.editor("code").map(|b| b.ranges()[0].is_empty()),
+        Some(true)
+    );
+    // The marker has a label: the screen reader says it and the host shows it while the pointer rests.
+    assert!(
+        page.outline()
+            .tips
+            .iter()
+            .any(|tip| tip.words == "Breakpoint on line 7")
+    );
+    assert!(
+        page.outline()
+            .accessible
+            .iter()
+            .any(|item| item.words == "Breakpoint on line 7")
+    );
+    // A press on it takes it away; another button is the menu, told and nothing else here.
+    page.click_gutter("code", "breakpoints", 6, pencere_view::Button::Right)?;
+    assert_eq!(marks(&page), 1);
+    assert!(
+        gutter_events(&page)
+            .iter()
+            .any(|e| e.button == pencere_view::Button::Right)
+    );
+    page.click_gutter("code", "breakpoints", 6, pencere_view::Button::Left)?;
+    assert_eq!(marks(&page), 0);
+    // The numbers are the editor's: a press selects the line.
+    page.click_gutter("code", "numbers", 2, pencere_view::Button::Left)?;
+    let ranges = page
+        .editor("code")
+        .map(|b| b.ranges().to_vec())
+        .unwrap_or_default();
+    assert_eq!(ranges.len(), 1);
+    assert!(!ranges[0].is_empty());
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_press_on_a_bar_opens_a_zone_the_pages_element_stands_in_and_scrolls_with_the_text()
+-> Result<(), Error> {
+    let mut page = open(GUTTER)?;
+    assert!(page.zone("code", "peek").is_none());
+    assert!(page.bounds("peek").is_none());
+    // The bar of the modified lines (3 to 5): a press on its second line opens the peek after the
+    // last of them.
+    page.click_gutter("code", "changes", 4, pencere_view::Button::Left)?;
+    let gap = page.zone("code", "peek").expect("a gap is open");
+    assert!(gap.h >= 60.0, "{gap:?}");
+    let element = page.bounds("peek").expect("the page's element");
+    assert_eq!((element.x, element.y), (gap.x, gap.y));
+    assert!(
+        element.h <= gap.h + 0.01,
+        "the element {element:?} fits its gap {gap:?}"
+    );
+    // The text after the gap went down by it: line 6 is a gap below where it was.
+    let after = page.gutter_cell("code", "numbers", 6).expect("line 6");
+    assert!(after.y >= gap.y + gap.h - 0.01, "{after:?} {gap:?}");
+    // Scrolled, the gap and the element go up together, as the text does.
+    page.scroll_to("code", 60.0)?;
+    let moved = page.zone("code", "peek").expect("still open");
+    let element = page.bounds("peek").expect("the element");
+    assert!((gap.y - moved.y - 60.0).abs() < 1.0, "{gap:?} {moved:?}");
+    assert!((element.y - moved.y).abs() < 0.01, "{element:?} {moved:?}");
+    // Esc closes it, and the gap with it.
+    page.press("escape")?;
+    assert!(page.zone("code", "peek").is_none());
+    assert!(page.bounds("peek").is_none());
+    Ok(())
+}

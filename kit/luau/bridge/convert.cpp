@@ -11,6 +11,9 @@
 
 namespace bridge {
 
+// The page's text as the host takes it (defined below, with what makes it well-formed).
+view_string_t host_string(const char* bytes, size_t length);
+
 namespace {
 
 // How deep and how large a tree this reads. The application holds a page to its own, smaller
@@ -1009,6 +1012,89 @@ static_assert(PENCERE_VIEW_TYPES_LINE_HIGHLIGHT_TEXT == 0 && PENCERE_VIEW_TYPES_
                   PENCERE_VIEW_TYPES_LINE_HIGHLIGHT_ALL == 2,
               "kLineHighlight is the order of line-highlight");
 
+
+// Defined with the strings the host takes, below.
+view_string_t string_of(lua_State* L, int t, const char* name);
+
+const char* const kCursorNames[] = {"arrow",           "pointer",     "text", "resize_horizontal",
+                                    "resize_vertical", "not_allowed", "grab", "grabbing",
+                                    "crosshair"};
+const char* const kGutterShapes[] = {"dot", "bar", "above", "below", "image"};
+const char* const kRulerLanes[] = {"full", "left", "center", "right"};
+static_assert(PENCERE_VIEW_TYPES_GUTTER_SHAPE_DOT == 0 && PENCERE_VIEW_TYPES_GUTTER_SHAPE_BAR == 1 &&
+                  PENCERE_VIEW_TYPES_GUTTER_SHAPE_ABOVE == 2 && PENCERE_VIEW_TYPES_GUTTER_SHAPE_BELOW == 3 &&
+                  PENCERE_VIEW_TYPES_GUTTER_SHAPE_IMAGE == 4,
+              "kGutterShapes is the order of gutter-shape");
+static_assert(PENCERE_VIEW_TYPES_RULER_LANE_FULL == 0 && PENCERE_VIEW_TYPES_RULER_LANE_LEFT == 1 &&
+                  PENCERE_VIEW_TYPES_RULER_LANE_CENTER == 2 && PENCERE_VIEW_TYPES_RULER_LANE_RIGHT == 3,
+              "kRulerLanes is the order of ruler-lane");
+
+// A gutter marker's shape in the table at `t`: `shape = "dot" | "bar" | "above" | "below" | "image"`,
+// the picture `image = "assets/x.svg"` (which alone says the shape is an image).
+pencere_view_types_gutter_shape_t gutter_shape_at(lua_State* L, int t) {
+    pencere_view_types_gutter_shape_t out = {};
+    get(L, t, "image");
+    bool image = lua_type(L, -1) == LUA_TSTRING;
+    lua_pop(L, 1);
+    int shape = word(L, t, "shape", kGutterShapes, 5, image ? PENCERE_VIEW_TYPES_GUTTER_SHAPE_IMAGE : 0);
+    out.tag = (uint8_t)shape;
+    if (shape == PENCERE_VIEW_TYPES_GUTTER_SHAPE_IMAGE) {
+        if (!image) luaL_error(L, "a gutter marker that is an image says which: image = \"assets/x.svg\"");
+        out.val.image = string_of(L, t, "image");
+    }
+    return out;
+}
+
+// One column of the gutter, at the absolute index `t`: its name ("numbers", "folds", "marks" are
+// the editor's), or `{ name =, width =, events = { "press", "menu", "hover" } | false, hover = {
+// shape =, image =, color = } }`.
+pencere_view_types_gutter_column_t gutter_column_at(lua_State* L, int t) {
+    pencere_view_types_gutter_column_t out = {};
+    if (lua_type(L, t) == LUA_TSTRING) {
+        size_t length = 0;
+        const char* bytes = lua_tolstring(L, t, &length);
+        out.name = host_string(bytes, length);
+        return out;
+    }
+    if (lua_type(L, t) != LUA_TTABLE)
+        luaL_error(L, "a gutter column is its name, or a table { name =, width =, events =, hover = }");
+    out.name = string_of(L, t, "name");
+    out.width = optional_number(L, t, "width");
+    get(L, t, "events");
+    int events = lua_gettop(L);
+    if (lua_type(L, events) == LUA_TTABLE) {
+        out.events.is_some = true;
+        for (size_t at = 1; at <= (size_t)lua_objlen(L, events); at++) {
+            lua_rawgeti(L, events, (int)at);
+            const char* said = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "";
+            if (strcmp(said, "press") == 0) out.events.val.press = true;
+            else if (strcmp(said, "menu") == 0) out.events.val.menu = true;
+            else if (strcmp(said, "hover") == 0) out.events.val.hover = true;
+            else luaL_error(L, "a gutter column hears \"press\", \"menu\" and \"hover\", not \"%s\"", said);
+            lua_pop(L, 1);
+        }
+    } else if (lua_type(L, events) == LUA_TBOOLEAN) {
+        out.events.is_some = true;
+        out.events.val.press = out.events.val.menu = lua_toboolean(L, events) != 0;
+    } else if (!lua_isnil(L, events)) {
+        luaL_error(L, "the events of a gutter column are a list of words: { \"press\", \"menu\", \"hover\" }");
+    }
+    lua_pop(L, 1);
+    get(L, t, "hover");
+    int hover = lua_gettop(L);
+    if (lua_type(L, hover) == LUA_TTABLE) {
+        out.hover.is_some = true;
+        out.hover.val.shape = gutter_shape_at(L, hover);
+        pencere_view_types_option_color_t colour = optional_color(L, hover, "color");
+        if (!colour.is_some) luaL_error(L, "the hover of a gutter column says its color");
+        out.hover.val.color = colour.val;
+    } else if (!lua_isnil(L, hover)) {
+        luaL_error(L, "the hover of a gutter column is a table: { shape =, color = }");
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
 // The string `name` of the table at `t`, a part of the frame's text; none where it is not said.
 pencere_view_types_option_slice_t words_at(lua_State* L, int t, const char* name, const char* what,
                                            Arenas& arenas) {
@@ -1133,6 +1219,33 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
     lua_pop(L, 1);
     out.matches = said ? (uint8_t)(on ? PENCERE_VIEW_TYPES_EDITOR_MATCHES_SELECTION : PENCERE_VIEW_TYPES_EDITOR_MATCHES_NONE)
                        : (uint8_t)word(L, t, "matches", kMatches, 3, 0);
+    get(L, t, "gutters");
+    int gutters = lua_gettop(L);
+    if (lua_type(L, gutters) == LUA_TTABLE) {
+        size_t count = (size_t)lua_objlen(L, gutters);
+        if (count > 8) luaL_error(L, "an editor has at most 8 gutter columns");
+        out.gutters.ptr = count ? (pencere_view_types_gutter_column_t*)xmalloc(count * sizeof(pencere_view_types_gutter_column_t))
+                                : nullptr;
+        out.gutters.len = count;
+        for (size_t at = 0; at < count; at++) {
+            lua_rawgeti(L, gutters, (int)at + 1);
+            out.gutters.ptr[at] = gutter_column_at(L, lua_gettop(L));
+            lua_pop(L, 1);
+        }
+    } else if (!lua_isnil(L, gutters)) {
+        luaL_error(L, "the gutters of an editor are a list: { \"numbers\", { name = \"changes\", width = 6 }, \"folds\" }");
+    }
+    lua_pop(L, 1);
+    get(L, t, "marks");
+    int marks = lua_gettop(L);
+    if (lua_type(L, marks) == LUA_TTABLE) {
+        out.marks.bar = optional_number(L, marks, "bar");
+        out.marks.hover = optional_number(L, marks, "hover");
+        out.marks.ruler = optional_number(L, marks, "ruler");
+    } else if (!lua_isnil(L, marks)) {
+        luaL_error(L, "the marks of an editor are a table: { bar =, hover =, ruler = }");
+    }
+    lua_pop(L, 1);
     out.caret.color.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
     out.caret.text.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
     get(L, t, "caret");
@@ -1159,7 +1272,7 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
         {"folds", &colors.folds},                   {"folded", &colors.folded},
         {"hint", &colors.hint},                     {"whitespace", &colors.whitespace},
         {"indent_guides", &colors.indent_guides},   {"active_indent_guide", &colors.active_indent_guide},
-        {"matches", &colors.matches},
+        {"matches", &colors.matches},                {"mark_hover", &colors.mark_hover},
     };
     get(L, t, "colors");
     int table = lua_gettop(L);
@@ -1296,6 +1409,12 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
             nodes.ptr[at].editor.val = editor_options_at(L, lua_gettop(L), flat.arenas);
         } else if (!lua_isnil(L, -1)) {
             luaL_error(L, "an editor's options are a table");
+        }
+        lua_pop(L, 1);
+        get(L, meta, "zone");
+        if (!lua_isnil(L, -1)) {
+            nodes.ptr[at].zone.is_some = true;
+            nodes.ptr[at].zone.val = id_of(L, lua_gettop(L));
         }
         lua_pop(L, 1);
         get(L, meta, "label");
@@ -1813,6 +1932,42 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_word(L, "type", "wake");
             set_number(L, "now", event.val.wake);
             break;
+        case PENCERE_VIEW_TYPES_EVENT_EDITOR_GUTTER: {
+            // { editor =, column =, line = (from 0), kind = "press" | "enter" | "leave", button =,
+            // count =, mods…, marker = { id =, layer =, from =, to = } (none where the cell is
+            // empty), cell = { x =, y =, w =, h = } }
+            const auto& gutter = event.val.editor_gutter;
+            static const char* const kKinds[] = {"press", "enter", "leave"};
+            set_word(L, "type", "gutter");
+            push_id(L, gutter.editor);
+            lua_setfield(L, -2, "editor");
+            lua_pushlstring(L, (const char*)gutter.column.ptr, gutter.column.len);
+            lua_setfield(L, -2, "column");
+            set_number(L, "line", (double)gutter.line);
+            set_word(L, "kind", gutter.kind < 3 ? kKinds[gutter.kind] : "press");
+            set_word(L, "button", button_name(gutter.button));
+            set_number(L, "count", (double)gutter.count);
+            set_mods(L, gutter.mods);
+            if (gutter.marker.is_some) {
+                lua_createtable(L, 0, 4);
+                if (gutter.marker.val.id.is_some) {
+                    lua_pushlstring(L, (const char*)gutter.marker.val.id.val.ptr, gutter.marker.val.id.val.len);
+                    lua_setfield(L, -2, "id");
+                }
+                lua_pushlstring(L, (const char*)gutter.marker.val.layer.ptr, gutter.marker.val.layer.len);
+                lua_setfield(L, -2, "layer");
+                set_place(L, "from", gutter.marker.val.from);
+                set_place(L, "to", gutter.marker.val.to);
+                lua_setfield(L, -2, "marker");
+            }
+            lua_createtable(L, 0, 4);
+            set_number(L, "x", gutter.cell.x);
+            set_number(L, "y", gutter.cell.y);
+            set_number(L, "w", gutter.cell.w);
+            set_number(L, "h", gutter.cell.h);
+            lua_setfield(L, -2, "cell");
+            break;
+        }
         case PENCERE_VIEW_TYPES_EVENT_EDITOR_READY:
             // { editor =, version = }: the host made the editor; its text is posted.
             set_word(L, "type", "editor_ready");
@@ -1935,9 +2090,58 @@ pencere_view_types_decoration_t decoration_at(lua_State* L, int t) {
     pencere_view_types_option_color_t gutter = optional_color(L, t, "gutter");
     if (gutter.is_some) {
         out.mark.tag = PENCERE_VIEW_TYPES_MARK_GUTTER;
-        out.mark.val.gutter = gutter.val;
+        auto& mark = out.mark.val.gutter;
+        mark.color = gutter.val;
+        get(L, t, "column");
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            size_t length = 0;
+            const char* bytes = lua_tolstring(L, -1, &length);
+            mark.column = host_string(bytes, length);
+        } else if (!lua_isnil(L, -1)) {
+            luaL_error(L, "the column of a gutter marker is its name");
+        }
+        lua_pop(L, 1);
+        mark.shape = gutter_shape_at(L, t);
+        get(L, t, "id");
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            size_t length = 0;
+            const char* bytes = lua_tolstring(L, -1, &length);
+            mark.id = {true, host_string(bytes, length)};
+        } else if (!lua_isnil(L, -1)) {
+            luaL_error(L, "the id of a gutter marker is a string");
+        }
+        lua_pop(L, 1);
+        get(L, t, "label");
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            size_t length = 0;
+            const char* bytes = lua_tolstring(L, -1, &length);
+            mark.label = {true, host_string(bytes, length)};
+        } else if (!lua_isnil(L, -1)) {
+            luaL_error(L, "the label of a gutter marker is a string");
+        }
+        lua_pop(L, 1);
+        int cursor = word(L, t, "cursor", kCursorNames, 9, -1);
+        if (cursor >= 0) mark.cursor = {true, (uint8_t)cursor};
+        mark.hover = optional_color(L, t, "hover");
+        mark.pressed = optional_color(L, t, "pressed");
         return out;
     }
+    pencere_view_types_option_color_t ruler = optional_color(L, t, "ruler");
+    if (ruler.is_some) {
+        out.mark.tag = PENCERE_VIEW_TYPES_MARK_RULER;
+        out.mark.val.ruler.color = ruler.val;
+        out.mark.val.ruler.lane = (uint8_t)word(L, t, "lane", kRulerLanes, 4, 0);
+        return out;
+    }
+    get(L, t, "zone");
+    if (!lua_isnil(L, -1)) {
+        out.mark.tag = PENCERE_VIEW_TYPES_MARK_ZONE;
+        out.mark.val.zone.id = id_of(L, lua_gettop(L));
+        lua_pop(L, 1);
+        out.mark.val.zone.height = number(L, t, "height", 0.0f);
+        return out;
+    }
+    lua_pop(L, 1);
     out.mark.tag = PENCERE_VIEW_TYPES_MARK_STYLE;
     auto& look = out.mark.val.style;
     look.color = optional_color(L, t, "color");

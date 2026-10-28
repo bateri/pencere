@@ -18,7 +18,7 @@
 //! (the sandbox, the SDK for pages written in Rust) reads them without linking the editor; so are
 //! the limits both sides hold a page to ([`limits`]).
 
-use crate::Color;
+use crate::{Button, Color, Cursor, Id, Mods, Rect};
 
 /// One change of a document: the characters `from..to` replaced by `insert` (`from == to` inserts,
 /// an empty `insert` deletes). The places are those of the version the change is made against.
@@ -187,12 +187,238 @@ pub enum Mark {
     Style(Look),
     /// A ground for the whole of each line the range touches (the line of an error, of a change).
     Line(Color),
-    /// A mark in the gutter by the first line of the range (a breakpoint, a change, a warning).
-    Gutter(Color),
+    /// A mark in the gutter (a breakpoint, a change, a warning): by the first line of the range,
+    /// along all of its lines, or on the line between two ([`GutterMark`]).
+    Gutter(GutterMark),
+    /// A mark on the editor's overview ruler, down the right edge of its room (VS Code's
+    /// `overviewRuler`): where the range is in the document, as the document is as tall as the
+    /// room, so that what is marked is found in a long file. Drawn under the scroll bar's knob.
+    Ruler(RulerMark),
+    /// A gap for the page to draw in, after the line the range starts on ([`Zone`]).
+    Zone(Zone),
     /// The range can be folded away: its first line stays, the lines after it down to the one the
     /// range ends on are hidden while it is folded. Whether it is, is the editor's (the person
     /// folds and unfolds); where it can be, is the page's.
     Fold,
+}
+
+/// A marker in a column of the gutter (a breakpoint, a change, a warning, a bookmark, a result of a
+/// test run): where it is is the decoration's range, in which column and how it looks are here.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GutterMark {
+    /// The column it stands in, by the name the page gave it in [`EditorOptions::gutters`]; none
+    /// (empty), the column of dots, `"marks"`. A marker whose column the editor has not is not drawn.
+    pub column: String,
+    pub shape: GutterShape,
+    /// Its colour; of an image, what it is tinted (an image whose colours are its own is not).
+    pub color: Color,
+    /// What the page calls it: told with an event of the person's pointer over it or on it
+    /// ([`GutterEvent`]), so that a page tells its markers apart.
+    pub id: Option<String>,
+    /// What it is in words: what a screen reader says of it, and what the host says while the
+    /// pointer rests on it (a tooltip, the keys that do the same in brackets).
+    pub label: Option<String>,
+    /// The pointer's shape over it (the pointer's hand where the column takes presses, else the
+    /// arrow).
+    pub cursor: Option<Cursor>,
+    /// Its colour while the pointer is over it, and while it is pressed: laid over it as
+    /// [`EditorColors::mark_hover`] says where the page says none.
+    pub hover: Option<Color>,
+    pub pressed: Option<Color>,
+}
+
+impl GutterMark {
+    /// A dot by the first line, as a gutter mark was drawn before it had a shape.
+    pub fn dot(color: Color) -> Self {
+        Self::new(GutterShape::Dot, color)
+    }
+
+    /// A marker of `shape` in the column of dots, with nothing else said of it.
+    pub fn new(shape: GutterShape, color: Color) -> Self {
+        Self {
+            column: String::new(),
+            shape,
+            color,
+            id: None,
+            label: None,
+            cursor: None,
+            hover: None,
+            pressed: None,
+        }
+    }
+}
+
+/// What a gutter marker looks like.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum GutterShape {
+    /// A dot, centred on the first line of the range.
+    #[default]
+    Dot,
+    /// A thin bar along every line the range touches (a range that ends where a line starts stops
+    /// at the line before), the rows a long line wraps into included: [`MarkLooks::bar`] wide, and
+    /// [`MarkLooks::hover`] wide while the pointer is over it.
+    Bar,
+    /// A small triangle on the edge above the range's first line: where lines were taken away.
+    Above,
+    /// The same on the edge below the range's first line.
+    Below,
+    /// A picture of the view's bundle (`"assets/breakpoint.svg"`), as tall as the row, as wide as
+    /// its proportions say, in the middle of the column, on the first line of the range.
+    Image(String),
+}
+
+/// A mark on the editor's overview ruler.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RulerMark {
+    pub color: Color,
+    pub lane: RulerLane,
+}
+
+/// Which part of the width of the overview ruler a mark takes: all of it, or a third (VS Code's
+/// lanes), so that marks of different things stand side by side.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum RulerLane {
+    #[default]
+    Full,
+    Left,
+    Center,
+    Right,
+}
+
+/// A gap the editor keeps open after a line, for the page to draw in (VS Code's zone widget,
+/// CodeMirror's block widget): `height` points, taken up in whole rows. It is where the text goes
+/// on after the line, so what the page puts in it scrolls with the text; an element of the page that
+/// is a child of the editor's element and says it is the zone's (`Element::zone`) is put there. The
+/// decoration's range says the line: the one its first character is on. It is carried over the
+/// changes as any decoration is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Zone {
+    pub id: Id,
+    pub height: f32,
+}
+
+/// One column of the gutter ([`EditorOptions::gutters`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Column {
+    /// What the page calls it: `"numbers"` (the numbers of the lines), `"folds"` (the buttons that
+    /// fold) and `"marks"` (the column of dots) are the editor's; any other is the page's, a place
+    /// for markers.
+    pub name: String,
+    /// How wide it is, points ([`limits::COLUMN`]): none is what the editor makes of its own (the
+    /// numbers fit the largest number, the dots and the buttons that fold are as wide as the row's
+    /// text is tall times 0.6 and 0.8), and of a column of the page's the same as the dots'.
+    pub width: Option<f32>,
+    /// What of the pointer the page hears of this column ([`GutterEvent`]); none: of a column of the
+    /// page's its presses (the left button's and the other's: [`ColumnEvents::default`]), of the
+    /// editor's nothing.
+    pub events: Option<ColumnEvents>,
+    /// What shows, faint, in the cell the pointer is over where nothing stands in the column yet: a
+    /// breakpoint to be put (VS Code's faded red dot).
+    pub hover: Option<Preview>,
+}
+
+/// Which things the pointer does in a column the page hears of: it hears the rare ones only, the
+/// frequent (how a marker looks while the pointer is over it, the preview in an empty cell) are the
+/// editor's own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ColumnEvents {
+    /// A press of the main button. The line is not selected, nothing is folded, the caret does not
+    /// move; the editor has the keyboard.
+    pub press: bool,
+    /// A press of another button, or of the main one with ⌃ held (a menu's).
+    pub menu: bool,
+    /// The pointer came to a cell, and went from it.
+    pub hover: bool,
+}
+
+impl Default for ColumnEvents {
+    /// The presses of a column of the page's.
+    fn default() -> Self {
+        Self {
+            press: true,
+            menu: true,
+            hover: false,
+        }
+    }
+}
+
+impl Column {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            width: None,
+            events: None,
+            hover: None,
+        }
+    }
+
+    /// Whether the column is the editor's (`"numbers"`, `"folds"`, `"marks"`).
+    pub fn is_editors(&self) -> bool {
+        matches!(self.name.as_str(), "numbers" | "folds" | "marks")
+    }
+
+    /// What of the pointer the page hears of the column.
+    pub fn heard(&self) -> ColumnEvents {
+        self.events.unwrap_or_else(|| {
+            if self.is_editors() {
+                ColumnEvents {
+                    press: false,
+                    menu: false,
+                    hover: false,
+                }
+            } else {
+                ColumnEvents::default()
+            }
+        })
+    }
+}
+
+/// A marker shown where nothing stands, for the pointer is over the cell ([`Column::hover`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Preview {
+    pub shape: GutterShape,
+    pub color: Color,
+}
+
+/// What the pointer did in a gutter column that takes events ([`Column::events`]): a marker's
+/// column, or a column of the page's, of one editor.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GutterEvent {
+    pub editor: Id,
+    pub column: String,
+    /// The line under the pointer, from 0 (one a bar goes along: the one the pointer is on).
+    pub line: usize,
+    pub kind: GutterKind,
+    /// For a press: the button, how many in a quick run, the modifiers held. Left, 1 and none for
+    /// the pointer's coming and going.
+    pub button: Button,
+    pub count: u32,
+    pub mods: Mods,
+    /// The marker under the pointer, none where the cell is empty (a page puts one there).
+    pub marker: Option<GutterHit>,
+    /// The cell, points of the page: the column's width by the line's row: where a page stands a
+    /// tooltip or a menu.
+    pub rect: Rect,
+}
+
+/// A marker under the pointer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GutterHit {
+    pub id: Option<String>,
+    /// The layer of decorations it is of, and its range.
+    pub layer: String,
+    pub from: usize,
+    pub to: usize,
+}
+
+/// What the pointer did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GutterKind {
+    Press,
+    /// It came to a cell that is not the one it was on (another line, another marker, another
+    /// column), or went from one.
+    Enter,
+    Leave,
 }
 
 /// The look a [`Mark::Style`] gives the characters of its range.
@@ -391,8 +617,36 @@ pub struct EditorOptions {
     /// `highlightSelectionMatches`, VS Code's selection highlight): only drawn, the selection as it
     /// is ([`Matches`]).
     pub matches: Matches,
+    /// The gutter's columns, from the left: none, and they are `"marks"`, `"numbers"` and `"folds"`.
+    /// A page lists the columns it has, the editor's by name and its own by the name it gives them;
+    /// one it leaves out is not there (no `"folds"`, no buttons that fold).
+    pub gutters: Vec<Column>,
+    /// How the gutter's bars and the overview ruler's marks are drawn.
+    pub marks: MarkLooks,
     pub caret: Caret,
     pub colors: EditorColors,
+}
+
+/// The measures of the gutter's bars and of the overview ruler's marks, points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MarkLooks {
+    /// How wide a bar is (VS Code's change bars: 3), and so how large a triangle is: three times
+    /// as tall ([`limits::MARK_WIDTH`]).
+    pub bar: f32,
+    /// How wide a bar the pointer is over is ([`limits::MARK_WIDTH`]).
+    pub hover: f32,
+    /// How wide the overview ruler is, and so how wide a mark that takes all of it ([`limits::MARK_WIDTH`]).
+    pub ruler: f32,
+}
+
+impl Default for MarkLooks {
+    fn default() -> Self {
+        Self {
+            bar: 3.0,
+            hover: 6.0,
+            ruler: 4.0,
+        }
+    }
 }
 
 /// Which other places of the main selection's text an editor marks ([`EditorOptions::matches`]).
@@ -435,6 +689,8 @@ impl Default for EditorOptions {
             whitespace: Whitespace::None,
             indent_guides: false,
             matches: Matches::None,
+            gutters: Vec::new(),
+            marks: MarkLooks::default(),
             caret: Caret::default(),
             colors: EditorColors::default(),
         }
@@ -458,6 +714,9 @@ impl EditorOptions {
         self.line_height = hold(self.line_height, limits::LINE_HEIGHT, default.line_height);
         self.padding = hold(self.padding, limits::PADDING, default.padding);
         self.caret.width = hold(self.caret.width, limits::CARET_WIDTH, default.caret.width);
+        self.marks.bar = hold(self.marks.bar, limits::MARK_WIDTH, default.marks.bar);
+        self.marks.hover = hold(self.marks.hover, limits::MARK_WIDTH, default.marks.hover);
+        self.marks.ruler = hold(self.marks.ruler, limits::MARK_WIDTH, default.marks.ruler);
         self
     }
 }
@@ -597,6 +856,9 @@ pub struct EditorColors {
     /// The ground of the other places of the main selection's text ([`EditorOptions::matches`]):
     /// the theme's selection at 40%.
     pub matches: Tint,
+    /// What is laid over a gutter mark the pointer is over, and that answers a press (the theme's
+    /// foreground at 30%).
+    pub mark_hover: Tint,
 }
 
 /// Where a caret goes.
@@ -916,4 +1178,12 @@ pub mod limits {
     pub const PADDING: std::ops::RangeInclusive<f32> = 0.0..=64.0;
     /// How wide a caret's bar, or thick its line, may be, points.
     pub const CARET_WIDTH: std::ops::RangeInclusive<f32> = 0.5..=8.0;
+    /// How wide a column of the gutter may be, points.
+    pub const COLUMN: std::ops::RangeInclusive<f32> = 0.0..=64.0;
+    /// How many columns the gutter may have.
+    pub const COLUMNS: usize = 8;
+    /// The most rows a zone may take.
+    pub const ZONE_ROWS: usize = 200;
+    /// How wide a bar, or a mark of the overview ruler, may be, points.
+    pub const MARK_WIDTH: std::ops::RangeInclusive<f32> = 1.0..=16.0;
 }

@@ -105,6 +105,9 @@ pub struct Meta {
     pub editor: Option<EditorOptions>,
     /// What the element is in words, for a person who does not see it ([`Element::label`]).
     pub label: Option<String>,
+    /// The element is the content of the zone of this name in the editor it is a child of
+    /// ([`Element::zone`]).
+    pub zone: Option<Id>,
     /// How a change of the element moves instead of jumping ([`Element::motion`]).
     pub motion: Option<Motion>,
     /// What the host says of the element while the pointer rests on it ([`Element::tip`]).
@@ -279,6 +282,19 @@ impl Element {
         self.meta.id = Some(id);
         self.meta.editor = Some(options);
         self.set(|s| s.overflow = Overflow::Scroll)
+    }
+
+    /// The element stands in the gap the editor it is a child of keeps open for the zone named `id`
+    /// ([`crate::edit::Zone`]): its top is where the gap starts (it is laid out as a box of the
+    /// editor's room that is wide as the room and as tall as the page says, and then put there, so
+    /// that it scrolls with the text), and it is not there while the editor has no such gap.
+    #[must_use]
+    pub fn zone(mut self, id: Id) -> Self {
+        self.meta.zone = Some(id);
+        self.set(|s| {
+            s.absolute = true;
+            s.inset = [Some(0.0), Some(0.0), None, Some(0.0)];
+        })
     }
 
     /// What the element is in words, for a person who does not see it: a screen reader says it.

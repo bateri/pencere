@@ -7,13 +7,14 @@
 
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
-    Caret, CaretHeight, CaretShape, Change, Decorate, Decoration, EditCommand, EditorAsk,
-    EditorColors, EditorOptions, Folds, Found, Keys, LineHighlight, Look, Mark, Numbers, Range,
-    Tint, Whitespace,
+    Caret, CaretHeight, CaretShape, Change, Column, ColumnEvents, Decorate, Decoration,
+    EditCommand, EditorAsk, EditorColors, EditorOptions, Folds, Found, GutterKind, GutterMark,
+    GutterShape, Keys, LineHighlight, Look, Mark, Numbers, Preview, Range, RulerLane, RulerMark,
+    Tint, Whitespace, Zone,
 };
 use pencere_view::{
-    Command, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint, Point, Rect,
-    Role, Scrolls, Shortcut, Side, Size, div, layout,
+    Button, Command, Cursor, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint,
+    Point, Rect, Role, Scrolls, Shortcut, Side, Size, div, layout,
 };
 
 const EDITOR: Id = Id::new(7);
@@ -1767,4 +1768,596 @@ fn the_caret_s_line_is_drawn_across_the_text_the_gutter_or_both_as_the_page_says
     assert_eq!(bands(LineHighlight::Text), vec![(41.0, row)]);
     assert_eq!(bands(LineHighlight::Gutter), vec![(0.0, row)]);
     assert_eq!(bands(LineHighlight::All), vec![(0.0, row), (41.0, row)]);
+}
+
+// --- The gutter's columns, markers and events, the overview ruler, the zones ---------------
+
+/// A gutter of the editor's `numbers` (two digits: 18 wide), a column of the page's `changes`
+/// 6 wide and the buttons that fold (13): the page's column is at 18..24.
+fn columns() -> EditorOptions {
+    EditorOptions {
+        gutters: vec![
+            Column::new("numbers"),
+            Column {
+                width: Some(6.0),
+                ..Column::new("changes")
+            },
+            Column::new("folds"),
+        ],
+        ..EditorOptions::default()
+    }
+}
+
+fn marker(shape: GutterShape, column: &str) -> GutterMark {
+    GutterMark {
+        column: column.into(),
+        id: Some("m".into()),
+        ..GutterMark::new(shape, Role::Green.solid())
+    }
+}
+
+impl Host {
+    fn decorate(&mut self, layer: &str, decorations: Vec<Decoration>) {
+        let laid = self.laid.clone();
+        let version = self.editors.buffer(EDITOR).expect("the editor").version();
+        let to = self.editors.buffer(EDITOR).expect("the editor").len_chars();
+        self.editors.ask(
+            &laid,
+            EDITOR,
+            EditorAsk::Decorate(Decorate {
+                layer: layer.into(),
+                version,
+                from: 0,
+                to,
+                decorations,
+            }),
+            &mut Fake,
+            self.now,
+        );
+        self.settle();
+    }
+
+    fn hover(&mut self, at: Option<Point>) {
+        let laid = self.laid.clone();
+        self.editors.hover(&laid, at);
+        self.settle();
+    }
+
+    fn cursor(&self, at: Point) -> Option<Cursor> {
+        self.editors.cursor_at(&self.laid, at)
+    }
+
+    fn gutter_events(&mut self) -> Vec<pencere_view::edit::GutterEvent> {
+        self.editors
+            .take_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                EditorEvent::Gutter(event) => Some(event),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+#[test]
+fn the_pointer_is_the_i_beam_over_the_text_the_arrow_in_the_gutter_and_the_hand_where_something_answers()
+ {
+    let mut host = Host::new(page_with(columns()));
+    host.load("fn {\n  a\n}\nend");
+    host.decorate("folds", vec![Decoration::new(3, 7, Mark::Fold)]);
+    // The text: the I-beam. Not over the editor: none.
+    assert_eq!(host.cursor(Point::new(100.0, 10.0)), Some(Cursor::Text));
+    // The numbers: the arrow. The column of the page's, which takes presses: the hand. The button
+    // that folds: the hand where a region folds there, the arrow where none does.
+    assert_eq!(host.cursor(Point::new(9.0, 10.0)), Some(Cursor::Arrow));
+    assert_eq!(host.cursor(Point::new(20.0, 10.0)), Some(Cursor::Pointer));
+    assert_eq!(host.cursor(Point::new(30.0, 10.0)), Some(Cursor::Pointer));
+    assert_eq!(
+        host.cursor(Point::new(30.0, 10.0 + 2.0 * ROW)),
+        Some(Cursor::Arrow)
+    );
+    assert_eq!(host.cursor(Point::new(500.0, 10.0)), None);
+}
+
+#[test]
+fn a_marker_says_its_own_cursor_and_the_dots_column_is_the_arrow_without_one() {
+    let mut host = Host::new(page_with(EditorOptions::default()));
+    host.load("a\nb");
+    host.decorate(
+        "m",
+        vec![Decoration::new(
+            0,
+            0,
+            Mark::Gutter(GutterMark {
+                cursor: Some(Cursor::Grab),
+                ..GutterMark::dot(Role::Red.solid())
+            }),
+        )],
+    );
+    assert_eq!(host.cursor(Point::new(3.0, 10.0)), Some(Cursor::Grab));
+    assert_eq!(
+        host.cursor(Point::new(3.0, 10.0 + ROW)),
+        Some(Cursor::Arrow)
+    );
+}
+
+#[test]
+fn the_gutter_is_the_columns_the_page_lists_in_its_order_and_a_marker_stands_in_its_own() {
+    let numbers_at = |options: EditorOptions| {
+        let mut host = Host::new(page_with(options));
+        host.load("mi");
+        let texts = host.texts();
+        let number = texts
+            .iter()
+            .find(|(text, _, _)| text == "1")
+            .map(|(_, at, _)| at.x);
+        let text = texts
+            .iter()
+            .find(|(text, _, _)| text == "mi")
+            .map(|(_, at, _)| at.x);
+        (number, text)
+    };
+    // The editor's: dots (10), numbers (18), buttons (13): the text is 4 past them.
+    let (number, text) = numbers_at(EditorOptions::default());
+    assert_eq!((number, text), (Some(10.0 + 18.0 - 4.0 - 7.0), Some(45.0)));
+    // The page's: numbers at the left, a column of 6, the buttons.
+    let (number, text) = numbers_at(columns());
+    assert_eq!(
+        (number, text),
+        (Some(18.0 - 4.0 - 7.0), Some(18.0 + 6.0 + 13.0 + 4.0))
+    );
+    // With no buttons and no numbers: the column alone.
+    let (number, text) = numbers_at(EditorOptions {
+        gutters: vec![Column {
+            width: Some(12.0),
+            ..Column::new("breakpoints")
+        }],
+        ..EditorOptions::default()
+    });
+    assert_eq!((number, text), (None, Some(12.0 + 4.0)));
+}
+
+#[test]
+fn a_bar_goes_along_every_line_of_its_range_and_a_dot_stands_on_the_first() {
+    let mut host = Host::new(page_with(columns()));
+    host.load("a\nb\nc\nd");
+    // `b` and `c` (3..7, up to where `d` starts); a dot on `d`.
+    host.decorate(
+        "changes",
+        vec![
+            Decoration::new(2, 6, Mark::Gutter(marker(GutterShape::Bar, "changes"))),
+            Decoration::new(6, 6, Mark::Gutter(marker(GutterShape::Dot, "changes"))),
+        ],
+    );
+    let quads = host.quads();
+    // The column of `changes` starts at 18; its 6 hold the bar (3) at the left of what the
+    // pointer-over width (6) would take, so at 18.
+    let bar = quads
+        .iter()
+        .find(|(rect, role)| *role == Some(Role::Green) && rect.h > ROW)
+        .expect("a bar");
+    assert_eq!(bar.0, Rect::new(18.0, 4.0 + ROW, 3.0, 2.0 * ROW));
+    let dot = quads
+        .iter()
+        .find(|(rect, role)| *role == Some(Role::Green) && rect.h <= ROW)
+        .expect("a dot")
+        .0;
+    assert_eq!(dot.y, 4.0 + 3.0 * ROW + (ROW - dot.h) / 2.0);
+}
+
+#[test]
+fn lines_taken_away_are_a_triangle_on_the_edge_between_two_and_an_empty_range_is_a_place() {
+    let mut host = Host::new(page_with(columns()));
+    host.load("a\nb\nc");
+    host.decorate(
+        "changes",
+        vec![
+            Decoration::new(2, 2, Mark::Gutter(marker(GutterShape::Above, "changes"))),
+            Decoration::new(3, 3, Mark::Gutter(marker(GutterShape::Below, "changes"))),
+        ],
+    );
+    let figures: Vec<Rect> = host
+        .paint(false)
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Figure(figure) => Some(figure.rect),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(figures.len(), 2);
+    // Above `b`'s line, and below it: the edges the row boundaries make, a triangle 9 tall.
+    assert_eq!(figures[0].y + figures[0].h / 2.0, 4.0 + ROW);
+    assert_eq!(figures[1].y + figures[1].h / 2.0, 4.0 + 2.0 * ROW);
+}
+
+#[test]
+fn a_picture_from_the_bundle_is_tinted_in_its_column_and_the_rows_height() {
+    let mut host = Host::new(page_with(columns()));
+    host.load("a\nb");
+    host.decorate(
+        "bp",
+        vec![Decoration::new(
+            2,
+            2,
+            Mark::Gutter(marker(
+                GutterShape::Image("assets/breakpoint.svg".into()),
+                "changes",
+            )),
+        )],
+    );
+    let pictures: Vec<_> = host
+        .paint(false)
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Image(picture) => Some(picture.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pictures.len(), 1);
+    assert_eq!(pictures[0].src, "assets/breakpoint.svg");
+    assert_eq!(pictures[0].tint, Some(Role::Green.solid()));
+    let rect = pictures[0].rect;
+    assert!(
+        rect.x >= 18.0 && rect.right() <= 24.0,
+        "inside its column: {rect:?}"
+    );
+    assert!(
+        rect.y >= 4.0 + ROW && rect.bottom() <= 4.0 + 2.0 * ROW,
+        "on its line: {rect:?}"
+    );
+}
+
+#[test]
+fn a_press_in_a_column_of_the_pages_is_an_event_and_nothing_else_even_where_nothing_is() {
+    let mut host = Host::new(page_with(columns()));
+    host.load("a\nb\nc\nd");
+    host.decorate(
+        "changes",
+        vec![Decoration::new(
+            2,
+            6,
+            Mark::Gutter(marker(GutterShape::Bar, "changes")),
+        )],
+    );
+    host.editors.take_events();
+    host.caret_at(0);
+    host.editors.take_events();
+    // On the bar, on `c`'s line: the marker, the line pressed, the layer, and the cell.
+    assert!(host.press(Point::new(20.0, 4.0 + 2.0 * ROW + 3.0), none(), 1));
+    host.editors.release();
+    let events = host.gutter_events();
+    assert_eq!(events.len(), 1);
+    let event = &events[0];
+    assert_eq!(
+        (event.column.as_str(), event.line, event.kind),
+        ("changes", 2, GutterKind::Press)
+    );
+    assert_eq!((event.button, event.count), (Button::Left, 1));
+    let hit = event.marker.as_ref().expect("the marker");
+    assert_eq!(
+        (hit.id.as_deref(), hit.layer.as_str(), hit.from, hit.to),
+        (Some("m"), "changes", 2, 6)
+    );
+    assert_eq!(event.rect, Rect::new(18.0, 4.0 + 2.0 * ROW, 6.0, ROW));
+    // The line was not selected and the caret did not move.
+    assert_eq!(host.ranges(), vec![Range::caret(0)]);
+    // On the first line, where there is none: an event with no marker, as well.
+    assert!(host.press(Point::new(20.0, 6.0), none(), 1));
+    host.editors.release();
+    let events = host.gutter_events();
+    assert_eq!(
+        (events.len(), events[0].line, events[0].marker.is_none()),
+        (1, 0, true)
+    );
+    // The numbers are as they were: the line is selected.
+    assert!(host.press(Point::new(8.0, 4.0 + ROW + 3.0), none(), 1));
+    host.editors.release();
+    assert!(host.gutter_events().is_empty());
+    assert_eq!(host.ranges(), vec![Range::new(2, 4)]);
+}
+
+#[test]
+fn the_other_button_and_control_are_a_menu_and_a_column_that_hears_neither_is_not_told() {
+    let events = |heard: Option<ColumnEvents>| {
+        let mut options = columns();
+        options.gutters[1].events = heard;
+        let mut host = Host::new(page_with(options));
+        host.load("a\nb");
+        host.editors.take_events();
+        let laid = host.laid.clone();
+        let at = Point::new(20.0, 6.0);
+        host.editors.press_other(&laid, at, Button::Right, none());
+        host.editors
+            .press(&laid, at, with(|m| m.control = true), 1, &mut Fake);
+        host.editors.release();
+        host.gutter_events()
+    };
+    let both = events(None);
+    assert_eq!(both.len(), 2);
+    assert_eq!(
+        (both[0].button, both[1].mods.control),
+        (Button::Right, true)
+    );
+    let only_press = events(Some(ColumnEvents {
+        press: true,
+        menu: false,
+        hover: false,
+    }));
+    assert_eq!(only_press.len(), 0);
+}
+
+#[test]
+fn the_pointer_coming_to_a_cell_and_going_is_told_to_a_column_that_hears_it_and_draws_its_preview()
+{
+    let mut options = columns();
+    options.gutters[1].events = Some(ColumnEvents {
+        press: true,
+        menu: false,
+        hover: true,
+    });
+    options.gutters[1].hover = Some(Preview {
+        shape: GutterShape::Dot,
+        color: Role::Red.alpha(0.4),
+    });
+    let mut host = Host::new(page_with(options));
+    host.load("a\nb\nc");
+    host.editors.take_events();
+    let on_b = Point::new(20.0, 4.0 + ROW + 3.0);
+    host.hover(Some(on_b));
+    let events = host.gutter_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        (events[0].kind, events[0].line, events[0].column.as_str()),
+        (GutterKind::Enter, 1, "changes")
+    );
+    // The preview is drawn in the empty cell, faint.
+    let faint = |host: &mut Host| {
+        host.quads()
+            .iter()
+            .filter(|(_, role)| *role == Some(Role::Red))
+            .count()
+    };
+    assert_eq!(faint(&mut host), 1);
+    // The same cell again says nothing; the next line's says it left one and came to the other.
+    host.hover(Some(Point::new(21.0, 4.0 + ROW + 5.0)));
+    assert!(host.gutter_events().is_empty());
+    host.hover(Some(Point::new(20.0, 4.0 + 2.0 * ROW + 3.0)));
+    let events = host.gutter_events();
+    assert_eq!(
+        events.iter().map(|e| (e.kind, e.line)).collect::<Vec<_>>(),
+        vec![(GutterKind::Leave, 1), (GutterKind::Enter, 2)]
+    );
+    host.hover(None);
+    assert_eq!(host.gutter_events().len(), 1);
+    assert_eq!(faint(&mut host), 0);
+    // A drawing only: the editor asks for a frame where the cell changed, and for none where it did not.
+    host.hover(Some(on_b));
+    assert!(host.editors.wants_redraw());
+    host.hover(Some(Point::new(21.0, 4.0 + ROW + 4.0)));
+    assert!(!host.editors.wants_redraw());
+}
+
+#[test]
+fn a_bar_the_pointer_is_over_is_wider_and_lit_where_its_column_takes_events() {
+    let mut host = Host::new(page_with(columns()));
+    host.load("a\nb");
+    host.decorate(
+        "changes",
+        vec![Decoration::new(
+            0,
+            3,
+            Mark::Gutter(marker(GutterShape::Bar, "changes")),
+        )],
+    );
+    let widths = |host: &mut Host| {
+        host.quads()
+            .iter()
+            .filter(|(_, role)| *role == Some(Role::Green))
+            .map(|(rect, _)| rect.w)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(widths(&mut host), vec![3.0]);
+    host.hover(Some(Point::new(20.0, 6.0)));
+    // Wider, and a veil of the lit colour over it.
+    let quads = host.quads();
+    let green = quads
+        .iter()
+        .find(|(_, role)| *role == Some(Role::Green))
+        .expect("the bar")
+        .0;
+    assert_eq!(green.w, 6.0);
+    assert!(
+        quads
+            .iter()
+            .any(|(rect, role)| *rect == green && *role == Some(Role::Foreground))
+    );
+    host.hover(None);
+    assert_eq!(widths(&mut host), vec![3.0]);
+}
+
+#[test]
+fn a_marker_in_a_region_that_is_folded_away_shows_on_the_line_the_fold_is_on() {
+    let mut host = Host::new(page_with(columns()));
+    host.load("fn {\n  a\n  b\n}\nend");
+    host.decorate("folds", vec![Decoration::new(3, 13, Mark::Fold)]);
+    host.decorate(
+        "changes",
+        vec![Decoration::new(
+            7,
+            8,
+            Mark::Gutter(marker(GutterShape::Dot, "changes")),
+        )],
+    );
+    let top = |host: &mut Host| {
+        host.quads()
+            .iter()
+            .find(|(_, role)| *role == Some(Role::Green))
+            .map(|(rect, _)| rect.y)
+    };
+    // Not folded: on `a`'s line, the second.
+    assert!(top(&mut host).is_some_and(|y| y > 4.0 + ROW && y < 4.0 + 2.0 * ROW));
+    assert!(host.press(Point::new(27.0, 10.0), none(), 1));
+    host.editors.release();
+    assert_eq!(
+        host.editors.buffer(EDITOR).expect("it").folded(),
+        &[(3, 13)]
+    );
+    // Folded: on the line of the fold, the first.
+    assert!(top(&mut host).is_some_and(|y| y > 4.0 && y < 4.0 + ROW));
+    // And a press there is of that marker.
+    host.editors.take_events();
+    assert!(host.press(Point::new(20.0, 6.0), none(), 1));
+    let events = host.gutter_events();
+    assert_eq!(
+        events[0].marker.as_ref().map(|m| (m.from, m.to)),
+        Some((7, 8))
+    );
+}
+
+#[test]
+fn the_overview_ruler_marks_where_the_lines_are_in_the_document_in_their_lanes() {
+    let mut host = Host::new(page_with(columns()));
+    let lines: Vec<String> = (0..20).map(|n| format!("l{n}")).collect();
+    host.load(&lines.join("\n"));
+    let ruler = |lane: RulerLane| {
+        Mark::Ruler(RulerMark {
+            color: Role::Blue.solid(),
+            lane,
+        })
+    };
+    // Lines 10 to 12 (3 of 20), full; line 0 on the left; 19 on the right.
+    let start = |line: usize| {
+        lines[..line]
+            .iter()
+            .map(|l| l.chars().count() + 1)
+            .sum::<usize>()
+    };
+    host.decorate(
+        "ruler",
+        vec![
+            Decoration::new(0, 1, ruler(RulerLane::Left)),
+            Decoration::new(start(10), start(13), ruler(RulerLane::Full)),
+            Decoration::new(start(19), start(19), ruler(RulerLane::Right)),
+        ],
+    );
+    let marks: Vec<Rect> = host
+        .quads()
+        .iter()
+        .filter(|(_, role)| *role == Some(Role::Blue))
+        .map(|(rect, _)| rect)
+        .copied()
+        .collect();
+    assert_eq!(marks.len(), 3);
+    // The room is 200 tall for 20 rows: 10 each; 4 wide at 2 from the right edge, a third each lane.
+    assert_eq!(marks[1], Rect::new(394.0, 100.0, 4.0, 30.0));
+    assert_eq!((marks[0].x, marks[0].w), (marks[1].x, 1.0));
+    assert_eq!((marks[2].x + marks[2].w), marks[1].right());
+    assert!(marks[0].h >= 2.0 && marks[2].y <= 200.0 - marks[2].h);
+}
+
+#[test]
+fn a_zone_opens_a_gap_after_its_line_that_the_text_after_goes_down_by_and_scrolls_with() {
+    let zone = Id::named("peek");
+    let page = move || {
+        div().child(
+            div()
+                .editor(EDITOR, columns())
+                .size_full()
+                .child(div().id(zone).zone(zone).h(2.0 * ROW).bg(Role::Red.solid())),
+        )
+    };
+    let mut host = Host::new(page);
+    host.load("a\nb\nc");
+    let before = host.editors.metrics(EDITOR).expect("laid out").content.h;
+    host.decorate(
+        "peek",
+        vec![Decoration::new(
+            2,
+            2,
+            Mark::Zone(Zone {
+                id: zone,
+                height: 2.0 * ROW,
+            }),
+        )],
+    );
+    let after = host.editors.metrics(EDITOR).expect("laid out").content.h;
+    assert_eq!(after - before, 2.0 * ROW);
+    // Where the gap is, in the content: after `b`'s row.
+    let boxes = host.editors.zones(EDITOR);
+    assert_eq!(
+        boxes,
+        vec![(zone, Rect::new(0.0, 4.0 + 2.0 * ROW, 400.0, 2.0 * ROW))]
+    );
+    // The page's element stands there, over the text of `c` that went down.
+    let bounds = host.laid.bounds(zone).expect("the element is on the page");
+    assert_eq!((bounds.y, bounds.h), (4.0 + 2.0 * ROW, 2.0 * ROW));
+    // `c` is a gap lower.
+    let c = host
+        .texts()
+        .iter()
+        .find(|(text, _, _)| text == "c")
+        .map(|(_, at, _)| at.y)
+        .expect("c");
+    assert_eq!(c, 4.0 + 4.0 * ROW + 2.0);
+    // The gap goes when the decoration does, and the element with it.
+    host.decorate("peek", vec![]);
+    assert!(host.editors.zones(EDITOR).is_empty());
+}
+
+#[test]
+fn what_stands_in_a_zone_scrolls_with_the_text_and_is_cut_by_the_room() {
+    let zone = Id::named("peek");
+    let page = move || {
+        div().child(
+            div()
+                .editor(EDITOR, columns())
+                .size_full()
+                .child(div().id(zone).zone(zone).h(2.0 * ROW).bg(Role::Red.solid())),
+        )
+    };
+    let mut host = Host::new(page);
+    let lines: Vec<String> = (0..30).map(|n| format!("line {n}")).collect();
+    host.load(&lines.join("\n"));
+    host.decorate(
+        "peek",
+        vec![Decoration::new(
+            14,
+            14,
+            Mark::Zone(Zone {
+                id: zone,
+                height: 2.0 * ROW,
+            }),
+        )],
+    );
+    let at = |host: &Host| host.laid.bounds(zone).expect("the element").y;
+    // Line 2 (14 is in `line 2`) ends at 4 + 3 rows.
+    let rest = at(&host);
+    assert_eq!(rest, 4.0 + 3.0 * ROW);
+    host.scrolls.ask(pencere_view::ScrollTo {
+        id: EDITOR,
+        x: None,
+        y: Some(30.0),
+        animate: false,
+    });
+    host.frame();
+    host.frame();
+    assert_eq!(at(&host), rest - 30.0);
+    // Scrolled out of the room's top: it is where the text went, and what draws it is cut there.
+    host.scrolls.ask(pencere_view::ScrollTo {
+        id: EDITOR,
+        x: None,
+        y: Some(150.0),
+        animate: false,
+    });
+    host.frame();
+    host.frame();
+    assert_eq!(at(&host), rest - 150.0);
+    let list = host.paint(false);
+    let red = list.items.iter().find_map(|item| match item {
+        Paint::Quad(quad) if quad.fill.and_then(|f| f.role()) == Some(Role::Red) => Some(quad.clip),
+        _ => None,
+    });
+    assert!(red.is_none_or(|clip| clip.y >= 0.0 && clip.bottom() <= 200.0));
 }

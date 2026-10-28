@@ -455,6 +455,46 @@ impl UserData for Handle {
         methods.add_method("hover_id", |_, this, name: String| {
             this.act(|page| page.hover(&name))
         });
+        methods.add_method(
+            "click_gutter",
+            |_, this, (editor, column, line, button): (String, String, usize, Option<String>)| {
+                let button = match button.as_deref() {
+                    None | Some("left") => pencere_view::Button::Left,
+                    Some("right") => pencere_view::Button::Right,
+                    Some("middle") => pencere_view::Button::Middle,
+                    Some(other) => {
+                        return Err(words(format!(
+                            "click_gutter takes the button \"left\", \"right\" or \"middle\", not \"{other}\""
+                        )));
+                    }
+                };
+                this.act(|page| page.click_gutter(&editor, &column, line, button))
+            },
+        );
+        methods.add_method(
+            "hover_gutter",
+            |_, this, (editor, column, line): (String, String, usize)| {
+                this.act(|page| page.hover_gutter(&editor, &column, line))
+            },
+        );
+        methods.add_method(
+            "gutter_cell",
+            |lua, this, (editor, column, line): (String, String, usize)| match this
+                .look(|page| page.gutter_cell(&editor, &column, line))?
+            {
+                Some(rect) => Ok(Value::Table(rect_table(lua, rect)?)),
+                None => Ok(Value::Nil),
+            },
+        );
+        methods.add_method(
+            "zone",
+            |lua, this, (editor, zone): (String, String)| match this
+                .look(|page| page.zone(&editor, &zone))?
+            {
+                Some(rect) => Ok(Value::Table(rect_table(lua, rect)?)),
+                None => Ok(Value::Nil),
+            },
+        );
         methods.add_method("click_at", |_, this, (x, y): (f64, f64)| {
             this.act(|page| page.click_at(point(to_f32(x), to_f32(y))))
         });

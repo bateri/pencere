@@ -50,8 +50,9 @@ use pencere_sandbox::{
 };
 use pencere_view::edit::{EditCommand, EditorAsk, Range};
 use pencere_view::{
-    Button, DrawList, EditorMetrics, Element, Event, Font, Id, Input, Key, Keyboard, Laid, Measure,
-    Metrics, Mods, Motions, Phase, Place, Point, Rect, Reply, Role, ScrollTo, Size, div, text,
+    Button, Cursor, DrawList, EditorMetrics, Element, Event, Font, Id, Input, Key, Keyboard, Laid,
+    Measure, Metrics, Mods, Motions, Phase, Place, Point, Rect, Reply, Role, ScrollTo, Size, div,
+    text,
 };
 
 use crate::editing::{Editing, Told, in_a_room};
@@ -225,6 +226,8 @@ struct State {
     sent: Vec<String>,
     /// The page's editors.
     editing: Editing,
+    /// The shape the editor says the pointer has where it last was, over an editor's room.
+    cursor_over: Option<Cursor>,
     /// The frame just drawn left something for the next (a scroll an editor asked, a layout): the
     /// host is asked for it.
     again: bool,
@@ -405,6 +408,7 @@ impl Page {
                 told_end: false,
                 sent: Vec::new(),
                 editing: Editing::new(setup.blink),
+                cursor_over: None,
                 again: false,
                 blink_at: None,
                 motions: Motions::default(),
@@ -453,6 +457,14 @@ impl Page {
         // it; after what the editor told (the keyboard it took, the caret it put).
         let (under, left) = self.pointer_in_editors(&input);
         let state = &mut self.state;
+        state.cursor_over = match input {
+            Input::Move(at) | Input::Press { at, .. } | Input::Release { at, .. } => state
+                .laid
+                .as_ref()
+                .and_then(|laid| state.editing.editors.cursor_at(laid, at)),
+            Input::Leave => None,
+            _ => state.cursor_over,
+        };
         if left {
             state.event(Event::Focus(None));
         }
@@ -776,6 +788,48 @@ impl Page {
         self.state.editing.editors.buffer(id)
     }
 
+    /// The cell of column `column` at line `line` of the page's editor named `id`, in the host's
+    /// points, as of the last frame; none where it is not in view, or the editor has no such column.
+    pub fn gutter_cell(&self, id: Id, column: &str, line: usize) -> Option<Rect> {
+        let laid = self.state.laid.as_ref()?;
+        let cell = self
+            .state
+            .editing
+            .editors
+            .cell_rect(laid, id, column, line)?;
+        Some(self.state.place.to_host(cell))
+    }
+
+    /// The gaps the page's editor named `id` keeps open for the page, each by its name and its box in
+    /// the host's points, as of the last frame.
+    pub fn zones(&self, id: Id) -> Vec<(Id, Rect)> {
+        let Some(laid) = self.state.laid.as_ref() else {
+            return Vec::new();
+        };
+        let s = laid.scale();
+        let Some(room) = laid.editors().into_iter().find(|room| room.id == id) else {
+            return Vec::new();
+        };
+        let scroll = laid
+            .scroll_extent(id)
+            .map_or((0.0, 0.0), |extent| (extent.offset.x, extent.offset.y));
+        self.state
+            .editing
+            .editors
+            .zones(id)
+            .into_iter()
+            .map(|(zone, rect)| {
+                let at = Rect::new(
+                    room.pixels.x / s + rect.x / s - scroll.0,
+                    room.pixels.y / s + rect.y / s - scroll.1,
+                    rect.w / s,
+                    rect.h / s,
+                );
+                (zone, self.state.place.to_host(at))
+            })
+            .collect()
+    }
+
     /// The editor with the keyboard.
     pub fn focused_editor(&self) -> Option<Id> {
         self.state.editing.editors.focused()
@@ -811,6 +865,10 @@ impl Page {
     /// one that had it, back to the page, as a press outside a field does. The place under the
     /// pointer, where it is over an editor, and whether the page is to be told the keyboard left.
     fn pointer_in_editors(&mut self, input: &Input) -> (Option<Place>, bool) {
+        if matches!(input, Input::Leave) {
+            self.edit(false, |editors, laid, _, _| editors.hover(laid, None));
+            return (None, false);
+        }
         if !matches!(
             input,
             Input::Press { .. } | Input::Move(_) | Input::Release { .. }
@@ -833,9 +891,15 @@ impl Page {
                     }
                     at
                 }
-                Input::Press { at, .. } => at,
+                Input::Press {
+                    at, button, mods, ..
+                } => {
+                    editors.press_other(laid, at, button, mods);
+                    at
+                }
                 Input::Move(at) => {
                     editors.drag_to(laid, at, measure);
+                    editors.hover(laid, Some(at));
                     at
                 }
                 Input::Release { at, button } => {
@@ -909,6 +973,18 @@ impl State {
             let keep = self.told.is_some();
             if self.editing.take_reply(&mut answer.reply, keep) && !building {
                 self.redraw = true;
+            }
+            // The shape of the pointer over an editor's room is the editor's (the I-beam over its text,
+            // the arrow in its gutter, the hand over what answers a press there), unless the page asks
+            // for one of the shapes that mean something it does itself (a divider's, a drag's).
+            if answer.pointer
+                && matches!(
+                    answer.reply.cursor,
+                    Cursor::Arrow | Cursor::Text | Cursor::Pointer
+                )
+                && let Some(over) = self.cursor_over
+            {
+                answer.reply.cursor = over;
             }
             answer.reply = to_host(answer.reply, place);
             self.replies.push(answer);
@@ -1063,7 +1139,8 @@ impl State {
             // And what the editors have for it, read against this layout.
             self.tell(told, true, false);
         }
-        let outline = Outline::of(&laid, self.place);
+        let mut outline = Outline::of(&laid, self.place);
+        outline.add_markers(self.editing.editors.labels(&laid), self.place);
         let changed = (outline != self.outline).then(|| outline.clone());
         self.outline = outline;
         // The host has the fields this frame names once it has the outline: what replies asked of

@@ -1,7 +1,7 @@
 //! Where a page stands in the host's view, and what the host keeps of it besides its pixels: the
 //! fields it puts over it, what a screen reader says of it, its tooltips and its commands.
 
-use pencere_view::{Accessible, Command, FieldKind, Id, Laid, Point, Rect};
+use pencere_view::{Accessible, AccessibleRole, Command, FieldKind, Id, Laid, Point, Rect, State};
 
 /// Where a page stands in the host's view: below the host's own `inset` points (a strip of its
 /// own over the page, which the page never draws into), and `zoom` of the host's points to one of
@@ -94,6 +94,22 @@ pub struct Tip {
 }
 
 impl Outline {
+    /// What the markers of an editor's gutter say of themselves, each with its box in the page's
+    /// points: a screen reader says them and the host shows them while the pointer rests on them.
+    pub fn add_markers(&mut self, markers: Vec<(Rect, String)>, at: Placement) {
+        for (rect, words) in markers {
+            let rect = at.to_host(rect);
+            self.accessible.push(Accessible {
+                role: AccessibleRole::Image,
+                id: None,
+                rect,
+                words: words.clone(),
+                state: State::default(),
+            });
+            self.tips.push(Tip { rect, words });
+        }
+    }
+
     /// The outline of `laid`, placed in the host's view as `at` says.
     pub fn of(laid: &Laid, at: Placement) -> Self {
         Self {

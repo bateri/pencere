@@ -697,6 +697,9 @@ interface types {
         /// The ground of the other places of the main selection's text (the theme's selection at
         /// 40%).
         matches: editor-tint,
+        /// What is laid over a gutter mark that answers a press while the pointer is over it (the
+        /// theme's foreground at 30%).
+        mark-hover: editor-tint,
     }
 
     /// How an editor is set up (`node.editor`): said every frame.
@@ -744,6 +747,48 @@ interface types {
         indent-guides: bool,
         /// Which other places of the main selection's text are marked where they are in view.
         matches: editor-matches,
+        /// The gutter's columns, from the left: none (an empty list), and they are `marks`,
+        /// `numbers` and `folds`. The first three names are the editor's, any other the page's, a
+        /// place for markers; one the page leaves out is not there.
+        gutters: list<gutter-column>,
+        /// The measures of the gutter's bars and of the overview ruler's marks.
+        marks: mark-looks,
+    }
+
+    /// One column of an editor's gutter.
+    record gutter-column {
+        name: string,
+        /// Points (0 to 64); none: what the editor makes of its own.
+        width: option<f32>,
+        /// What of the pointer the page hears of it; none: of a column of the page's its presses
+        /// (both buttons), of the editor's nothing.
+        events: option<column-events>,
+        /// What shows, faint, in the cell the pointer is over where nothing stands yet.
+        hover: option<gutter-preview>,
+    }
+
+    record column-events {
+        /// A press of the main button: the line is not selected, nothing folds, the caret stays.
+        press: bool,
+        /// A press of another button, or of the main one with the control key held.
+        menu: bool,
+        /// The pointer came to a cell, and went from it.
+        hover: bool,
+    }
+
+    record gutter-preview {
+        shape: gutter-shape,
+        color: color,
+    }
+
+    /// The measures of the gutter's bars and of the overview ruler's marks, points (1 to 16).
+    record mark-looks {
+        /// How wide a bar is (3 when none), and so how large a triangle: three times as tall.
+        bar: option<f32>,
+        /// How wide a bar the pointer is over is (6 when none).
+        hover: option<f32>,
+        /// How wide the overview ruler is (4 when none).
+        ruler: option<f32>,
     }
 
     /// Which other places of the main selection's text an editor marks: those of a selection on
@@ -837,6 +882,8 @@ interface types {
         /// it): a part of the frame's `text`. A button that is an icon alone says what it does;
         /// an element with none is read by the words inside it.
         label: option<slice>,
+        /// The element is the content of the zone of this name of the editor it is a child of.
+        zone: option<id>,
         motion: option<motion>,
         tip: option<tip>,
         /// What it is to a screen reader, where its look says it.
@@ -1168,6 +1215,40 @@ interface types {
         /// The application made an editor the page named and laid out, hidden or not: what the page
         /// asks of it is done from now on, and its text is posted before this is told.
         editor-ready(editor-ready),
+        /// The pointer did something in a gutter column that takes events.
+        editor-gutter(editor-gutter),
+    }
+
+    /// The pointer in a gutter column of an editor, as the column says the page hears it.
+    record editor-gutter {
+        editor: id,
+        column: string,
+        /// The line, from 0.
+        line: u32,
+        kind: gutter-kind,
+        /// For a press: the button, how many of a quick run, the modifiers held.
+        button: button,
+        count: u32,
+        mods: mods,
+        /// The marker under the pointer; none where the cell is empty (a page may put one there).
+        marker: option<gutter-hit>,
+        /// The cell, in the page's points.
+        cell: rect,
+    }
+
+    record gutter-hit {
+        id: option<string>,
+        /// The layer of decorations it is of, and its range, characters.
+        layer: string,
+        %from: u32,
+        to: u32,
+    }
+
+    enum gutter-kind {
+        press,
+        /// The pointer came to a cell that is not the one it was on, or went from it.
+        enter,
+        leave,
     }
 
     /// An editor the application has made, and the version of its document.
@@ -1335,10 +1416,69 @@ interface types {
         style(look),
         /// A ground for each line the range touches.
         line(color),
-        /// A mark in the gutter by its first line.
-        gutter(color),
+        /// A marker in a column of the gutter.
+        gutter(gutter-mark),
         /// The range can be folded: its first line stays, the lines after it are hidden.
         fold,
+        /// A mark on the editor's overview ruler, down the right edge of its room: where the range
+        /// is in the document, as the room is as tall as the document. Under the scroll bar's knob.
+        ruler(ruler-mark),
+        /// A gap kept open after the line the range starts on, for an element of the page.
+        zone(zone),
+    }
+
+    /// A marker in a gutter column: where it stands is the decoration's range.
+    record gutter-mark {
+        /// The column's name; empty: `marks`. A marker whose column the editor has not is not drawn.
+        column: string,
+        shape: gutter-shape,
+        /// What it is drawn in: of a picture, what it is tinted.
+        color: color,
+        /// What the page calls it, told with the pointer's events.
+        id: option<string>,
+        /// What it is in words: a screen reader says it, and the application says it while the
+        /// pointer rests on it.
+        label: option<string>,
+        /// The pointer's shape over it.
+        cursor: option<cursor>,
+        /// The colour while the pointer is over it, and while it is pressed.
+        hover: option<color>,
+        pressed: option<color>,
+    }
+
+    /// What a gutter marker looks like.
+    variant gutter-shape {
+        /// A dot, centred on the first line of the range.
+        dot,
+        /// A thin bar along every line the range touches (a range that ends where a line starts
+        /// stops at the line before), the rows a long line wraps into included.
+        bar,
+        /// A small triangle on the edge above the range's first line.
+        above,
+        /// The same on the edge below it.
+        below,
+        /// A picture of the view's bundle, as tall as the row, tinted with the marker's colour.
+        image(string),
+    }
+
+    record ruler-mark {
+        color: color,
+        lane: ruler-lane,
+    }
+
+    /// Which part of the overview ruler's width a mark takes.
+    enum ruler-lane {
+        full,
+        left,
+        center,
+        right,
+    }
+
+    /// A gap an editor keeps open for the page, `height` points taken up in whole rows. The page's
+    /// element that says it is the zone's (`node.zone`) and is a child of the editor's is put there.
+    record zone {
+        id: id,
+        height: f32,
     }
 
     record decoration {
