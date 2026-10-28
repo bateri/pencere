@@ -39,6 +39,7 @@ mod command;
 pub mod edit;
 mod element;
 mod fades;
+mod field;
 mod figure;
 mod geometry;
 mod id;
@@ -60,6 +61,7 @@ pub use element::{
     Element, FieldKind, Fit, Image, State, canvas, div, image, rich, spacer, spark, text,
 };
 pub use fades::{FADE_SECONDS, Fades};
+pub use field::{FieldState, Fill};
 pub use figure::{Path, Segment, Stroke, path};
 pub use geometry::{Point, Rect, Size};
 pub use id::Id;

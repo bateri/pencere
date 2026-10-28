@@ -102,16 +102,30 @@ and named by that element's id (`text_field(id)`, or the element's own id): a pa
 names, and an element that says it is a field and has no name is not one. `"line"` (the default) is
 one line; `"lines"` breaks the line at enter and scrolls; `"secret"` is one line whose characters are
 not shown and are never copied. The page is told what a field holds when the person changes it
-(`text`), sends the keyboard to one (`keyboard = { field = name }`), and puts a text in one (`fill`).
+(`text`), sends the keyboard to one (`keyboard = { field = name }`), and puts a text in one, selects
+in one, or both (`fill`, Section 2.3): a dialog that renames a file comes up with the name in its
+field and the stem selected, a palette opened again with its query selected, so that what is typed
+takes its place.
 
-While a field has the keyboard, the keys that do not edit its text are the page's, as `key` events,
-and the field keeps the keyboard unless the reply sends it elsewhere: escape and tab in every field,
-and in a line (`"line"`, `"secret"`) besides: enter, up and down with whatever modifier (in one line
-they would only take the caret to an end), page up and page down, the function keys, and a chord
-of command or control with a key the field has no use for. The characters, left and right, delete,
-home and end, and the field's own editing chords (select all, copy, cut, paste, undo; copy with
-nothing selected is not one) stay the field's. So a list with a filter above it takes its
-commands while the person types: the arrows move in the list, enter chooses, ⌘K opens a palette.
+While a field has the keyboard, the keys it has no use for are the page's, as `key` events (a
+command's keys first), and the field keeps the keyboard unless the reply sends it elsewhere. A field
+has a use for a key that changes its text or what is selected in it, and for no other:
+
+- escape, tab and the function keys are the page's in every field; in one line (`"line"`,
+  `"secret"`) so are enter, up, down, page up and page down, whatever is held with them (in one line
+  they would only take the caret to an end); in lines, enter is the field's without command or
+  control, and up and page up, down and page down, are as left and right are below;
+- a character is the field's, and with command or control only where it is one of the field's own
+  chords: select all, paste, undo and redo, and copy and cut where something is selected in a field
+  whose text may be copied. Every other chord is the page's;
+- backspace, left and home are the page's where nothing is selected and the caret is at the start
+  (an empty field gives backspace to the page), and delete, right and end where it is at the end,
+  whatever is held with them; elsewhere they are the field's.
+
+So a list with a filter above it takes its commands while the person types: the arrows move in the
+list, enter chooses, ⌘K opens a palette, and ⌫ in the empty filter of a path goes up a folder. A
+host asks the rule with its field's state (`pencere_view::FieldState::takes`); one whose system
+gives its fields chords besides these (a Mac's ⌃A and ⌃E) may keep those too.
 
 A **label** is what an element is in words, for a person who does not see it: a host that offers its
 system's screen reader says the label of an element that has one, and the words inside one that has
@@ -155,7 +169,10 @@ lists it by its `title` where a person looks for what can be done (its command p
 and tells the page `{ type = "command", id = id }` when it is asked for there or by its `keys`, in
 place of the key. The keys are written as a person writes them: modifiers (`cmd`, `ctrl`, `alt`,
 `shift`) and a key (one character, or the name of a key the page reads) joined by `+`
-(`"cmd+shift+k"`, `"ctrl+enter"`, `"f5"`); `pencere.keys(words)` reads them. A command can be done
+(`"cmd+shift+k"`, `"ctrl+enter"`, `"f5"`, `"cmd++"` for the key `+`); `pencere.keys(words)` reads
+them. A command that more than one set of keys does has a list of them
+(`{ "ctrl+page_down", "ctrl+alt+right" }`), as an editor's keybindings do: each of them does it, and
+a list of the commands shows the first. A command can be done
 while the keyboard is on its element or inside it: the page says which element has the keyboard with
 `focused()` (the element its `Ui` says has the focus). The commands of the page's outermost box can be
 done whatever has the keyboard. Where two say the same keys, the one nearer the keyboard is done; one
@@ -462,8 +479,13 @@ at a ⌘-click). A press in an editor is the editor's as well: it puts the caret
 `false` (a frame is worth drawing or not), or a table: `redraw`, `close`, `copy` (text for the
 pasteboard), `cursor` (`"arrow"`, `"pointer"`, `"text"`, `"resize_horizontal"`, `"resize_vertical"`,
 `"not_allowed"`, `"grab"`, `"grabbing"` or `"crosshair"`), `keyboard` (`"page"` or `{ field = name }`),
-`fill` (`{ [name] = text }`: what fields are to hold from now on; a name that is not a field of the
-page is passed over), `menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" } }`,
+`fill` (`{ [name] = text }`, or `{ [name] = { text =, select = } }`: what fields are to hold from now
+on, and what is selected in them; `select` is `{ from =, to = }`, characters from 0 in either order,
+past the end the end, or `true` for all of it; a field given no `text` keeps what it holds, and one
+given no `select` has its caret where its system puts it after a text, at the end; a name that is
+not a field of the page is passed over), `menu = { at = { x =, y = }, entries = { { title =, keys =,
+enabled = }, "-" } }` (an entry's `keys` are written as a command's, `"ctrl+w"` or `"f2"`, and shown
+at the end of its line; `key`, the name it had, is read the same),
 `link` (an address to open in the person's browser, below), `wake` (in how many seconds to wake the
 page, below), and `editor = { [name] = ask, or { ask, ... } }`, what the page asks of its editors,
 each ask one of:
@@ -642,7 +664,9 @@ A host:
 
 - puts one field of its own over each text field of the page (`Laid::fields`), of its kind, saying
   its hint while it is empty, and tells the page what the person types into it, where the person
-  clicks into one, and takes the texts a reply fills them with;
+  clicks into one, and takes the texts a reply fills them with and what it selects in them; and,
+  while one has the keyboard, gives the page the keys it has no use for there, as the kit's rule
+  says with the field's text and selection (`FieldState::takes`, Section 2.1);
 - draws a run's `underline` and `strike` where its font puts those lines, in the run's colour, and
   sets an `italic` run in its face's italic;
 - takes the pointer's shape a reply asks for, and tells a press's `count` and a scroll across;

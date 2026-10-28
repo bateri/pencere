@@ -512,12 +512,12 @@ interface types {
 
     /// Something the page can be told to do: the application lists it (by `title`, a part of the
     /// frame's `text`) where a person looks for what can be done, and tells the page `id` when it
-    /// is asked for there or by its keys (`event.command`), in place of the key. One that is not
-    /// `enabled` is listed and cannot be done.
+    /// is asked for there or by any of its keys (`event.command`), in place of the key; a list
+    /// shows the first of them. One that is not `enabled` is listed and cannot be done.
     record command {
         id: id,
         title: slice,
-        keys: option<shortcut>,
+        keys: list<shortcut>,
         enabled: bool,
     }
 
@@ -947,6 +947,27 @@ interface types {
         text: string,
     }
 
+    /// The characters `from..to` of a text, counted from 0 (code points); the two ends in either
+    /// order.
+    record char-range {
+        %from: u32,
+        to: u32,
+    }
+
+    /// What a reply puts in a field of the application's: a text in place of what it holds, what
+    /// is selected in it, or both.
+    record field-fill {
+        /// The field: the id of the element that is its room.
+        field: id,
+        /// What it holds from now on; none keeps what it holds.
+        text: option<string>,
+        /// What is selected in it: the ends in order, one past the end of the text its end (so
+        /// `0` to the largest `u32` is all of it), the caret alone where the two are one. None:
+        /// where a text is put in, the caret goes where the application's system puts it (its
+        /// end); where none is, the selection stays.
+        select: option<char-range>,
+    }
+
     record key-press {
         key: key,
         mods: mods,
@@ -1322,8 +1343,8 @@ interface types {
     record menu-item {
         /// A part of the menu's `titles`.
         title: slice,
-        /// The key that does the same on the page, shown at the end of the line.
-        key: option<char>,
+        /// The keys that do the same on the page, shown at the end of the line.
+        keys: option<shortcut>,
         enabled: bool,
     }
 
@@ -1348,11 +1369,11 @@ interface types {
         close: bool,
         menu: option<menu>,
         keyboard: option<keyboard>,
-        /// Texts for fields to hold from now on, in place of what they hold: a field the page
-        /// empties after it took what was typed, or fills with what is to be edited. A field
-        /// the page does not name keeps what the person typed; a name that is not a field of
-        /// the page as last laid out is passed over.
-        fill: list<field-text>,
+        /// Texts for fields to hold from now on, in place of what they hold, and what is
+        /// selected in them: a field the page empties after it took what was typed, or fills
+        /// with what is to be edited and selects. A field the page does not name keeps what the
+        /// person typed; a name that is not a field of the page as last laid out is passed over.
+        fill: list<field-fill>,
         /// Text for the pasteboard.
         copy: option<string>,
         /// The pointer's shape after this event.

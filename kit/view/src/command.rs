@@ -6,7 +6,9 @@
 //! is on that element or on one inside it ([`crate::Element::focused`]); the commands of the
 //! page's outermost box can be done whatever has the keyboard. Where two say the same keys, the
 //! one nearer the keyboard is the one done — the way a menu of a list and a menu of the window
-//! share a key and the list's wins while it is in front.
+//! share a key and the list's wins while it is in front. A command may have more than one set of
+//! keys (VS Code's keybindings: ⌃⇟ and ⌃⌥→ both go to the next tab); the first is the one a list
+//! shows.
 
 use crate::{Id, Key, Mods};
 
@@ -26,10 +28,25 @@ impl Shortcut {
     /// `"cmd+k"`, `"ctrl+shift+p"`, `"alt+enter"`, `"f5"`, `"escape"`. The modifiers are `cmd`
     /// (or `command`), `ctrl` (or `control`), `alt` (or `option`) and `shift`; the key is one
     /// character, or the name of a key the page reads (`up`, `page_down`, `enter`, `tab`,
-    /// `backspace`, `f1`…). `None` for words that are not keys.
+    /// `backspace`, `f1`…). The key `+` is written as itself (`"cmd++"`). `None` for words that
+    /// are not keys.
     pub fn parse(words: &str) -> Option<Self> {
         let mut mods = Mods::default();
-        let parts: Vec<&str> = words.split('+').map(str::trim).collect();
+        // A `+` at the end is the key, not the mark between the modifiers and it.
+        let (words, plus) = match words.trim_end().strip_suffix('+') {
+            Some(before) if before.is_empty() || before.ends_with('+') => {
+                (before.strip_suffix('+').unwrap_or(before), true)
+            }
+            _ => (words, false),
+        };
+        let mut parts: Vec<&str> = if words.trim().is_empty() && plus {
+            Vec::new()
+        } else {
+            words.split('+').map(str::trim).collect()
+        };
+        if plus {
+            parts.push("+");
+        }
         let (key, held) = parts.split_last()?;
         for part in held {
             match part.to_ascii_lowercase().as_str() {
@@ -97,12 +114,13 @@ impl Key {
 }
 
 /// Something a page can be told to do: what it is called (`id`, which the page is told back), what
-/// a person reads in a list of them (`title`), the keys that do it, and whether it can be done now.
+/// a person reads in a list of them (`title`), the keys that do it (as many as it has, the first
+/// the one a list shows), and whether it can be done now.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Command {
     pub id: Id,
     pub title: String,
-    pub keys: Option<Shortcut>,
+    pub keys: Vec<Shortcut>,
     pub enabled: bool,
 }
 
@@ -112,16 +130,23 @@ impl Command {
         Self {
             id,
             title: title.into(),
-            keys: None,
+            keys: Vec::new(),
             enabled: true,
         }
     }
 
-    /// The keys that do it.
+    /// Keys that do it, after those it has: the first it is given are the ones a list shows.
     #[must_use]
     pub fn keys(mut self, keys: Shortcut) -> Self {
-        self.keys = Some(keys);
+        if !self.keys.contains(&keys) {
+            self.keys.push(keys);
+        }
         self
+    }
+
+    /// Whether a key pressed with `mods` is one of its keys.
+    pub fn done_by(&self, key: Key, mods: Mods) -> bool {
+        self.keys.iter().any(|keys| keys.matches(key, mods))
     }
 
     /// Whether it can be done now: one that cannot is listed, greyed, and its keys do nothing.
@@ -152,6 +177,29 @@ mod tests {
         assert_eq!(Shortcut::parse("f21"), None);
         assert_eq!(Shortcut::parse("nothing"), None);
         assert_eq!(Shortcut::parse(""), None);
+        assert_eq!(Shortcut::parse("+").unwrap().key, Key::Character('+'));
+        let plus = Shortcut::parse("cmd++").unwrap();
+        assert_eq!(plus.key, Key::Character('+'));
+        assert!(plus.mods.command && !plus.mods.shift);
+        assert_eq!(Shortcut::parse("cmd+"), None);
+    }
+
+    #[test]
+    fn a_command_is_done_by_each_of_its_keys_and_lists_the_first() {
+        let next = Command::new(Id::new(1), "Next Tab")
+            .keys(Shortcut::parse("ctrl+page_down").unwrap())
+            .keys(Shortcut::parse("ctrl+alt+right").unwrap())
+            .keys(Shortcut::parse("ctrl+page_down").unwrap());
+        assert_eq!(next.keys.len(), 2);
+        assert_eq!(next.keys[0].key, Key::PageDown);
+        let ctrl = Mods {
+            control: true,
+            ..Mods::default()
+        };
+        let ctrl_alt = Mods { alt: true, ..ctrl };
+        assert!(next.done_by(Key::PageDown, ctrl));
+        assert!(next.done_by(Key::Right, ctrl_alt));
+        assert!(!next.done_by(Key::Right, ctrl));
     }
 
     #[test]

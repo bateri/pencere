@@ -33,6 +33,7 @@
 //! feature `program`), or a program in another process. Every point is the host's: with no strip
 //! and no zoom, the page's own.
 
+mod field;
 mod files;
 #[cfg(feature = "program")]
 mod in_process;
@@ -49,10 +50,11 @@ use pencere_editor::Buffer;
 use pencere_sandbox::{Answer, Assets, Fault, Images, ModuleLimits, Program, Runner, Script};
 use pencere_view::wire::Kind;
 use pencere_view::{
-    Button, Cursor, DrawList, Element, Event, Font, Id, Input, Key, Keyboard, Laid, Measure, Menu,
-    MenuEntry, Metrics, Mods, Paint, Phase, Point, Rect, Shortcut, Size,
+    Button, Cursor, DrawList, Element, Event, FieldKind, Fill, Font, Id, Input, Key, Keyboard,
+    Laid, Measure, Menu, MenuEntry, Metrics, Mods, Paint, Phase, Point, Rect, Shortcut, Size,
 };
 
+use field::{Done, Held};
 pub use files::Files;
 #[cfg(feature = "program")]
 pub use in_process::InProcess;
@@ -279,8 +281,8 @@ struct Seen {
     /// A press the host took (a field's, or one that closed a menu): its moves and its release are
     /// the host's too, and never the page's.
     taken: bool,
-    /// What the host's fields hold.
-    fields: HashMap<Id, String>,
+    /// What the host's fields hold, and what is selected in them.
+    fields: HashMap<Id, Held>,
     diagnostics: Vec<String>,
     ended: Option<Fault>,
     sent: Vec<String>,
@@ -309,8 +311,8 @@ impl<P: Peer> Host for Deliver<'_, P> {
         self.seen.cursor = Some(cursor);
     }
 
-    fn fill(&mut self, field: Id, text: String) {
-        self.seen.fields.insert(field, text);
+    fn fill(&mut self, field: Id, fill: Fill) {
+        self.seen.fields.entry(field).or_default().fill(&fill);
     }
 
     fn keyboard(&mut self, to: Keyboard) {
@@ -893,8 +895,8 @@ impl<P: Peer> Headless<P> {
         match self.focus() {
             Focus::Field(field) => {
                 let held = self.seen.fields.entry(field).or_default();
-                held.push_str(text);
-                let held = held.clone();
+                held.insert(text);
+                let held = held.text.clone();
                 self.page.text(field, &held);
             }
             Focus::Editor(_) => self.page.editors().type_text(text),
@@ -1012,26 +1014,26 @@ impl<P: Peer> Headless<P> {
         self.settle()
     }
 
-    /// A key typed into the host's field `field`, as a field of a system takes it: a character is
-    /// typed and backspace deletes one, ⌘V pastes; any other key is the page's.
+    /// A key typed into the host's field `field`, as a field of a system takes it (a stand-in's,
+    /// [`field`]): what the field has a use for where its caret is, it does, the page told what it
+    /// holds when that changed; any other key is the page's (its command first), by the kit's rule
+    /// ([`pencere_view::FieldState::takes`]).
     fn field_key(&mut self, field: Id, key: Key, mods: Mods) {
-        let plain = !mods.command && !mods.control;
+        let kind = self
+            .page
+            .fields()
+            .iter()
+            .find(|held| held.id == field)
+            .map_or(FieldKind::Line, |held| held.kind);
         let held = self.seen.fields.entry(field).or_default();
-        match key {
-            Key::Character(typed) if plain => held.push(typed),
-            Key::Backspace => {
-                held.pop();
-            }
-            Key::Character('v') if mods.command && !mods.control => {
-                held.push_str(self.seen.pasteboard.as_deref().unwrap_or_default());
-            }
-            _ => {
-                self.page.input(Input::Key { key, mods });
-                return;
+        match held.key(kind, key, mods, &mut self.seen.pasteboard) {
+            Done::Passed => self.page.input(Input::Key { key, mods }),
+            Done::Moved => {}
+            Done::Changed => {
+                let text = held.text.clone();
+                self.page.text(field, &text);
             }
         }
-        let held = held.clone();
-        self.page.text(field, &held);
     }
 
     // --- The pointer -------------------------------------------------------------------------------
@@ -1354,7 +1356,7 @@ impl<P: Peer> Headless<P> {
             self.seen.field = Some(field);
             self.page.focus(Some(field));
         }
-        self.seen.fields.insert(field, text.to_owned());
+        self.seen.fields.insert(field, Held::holding(text));
         self.page.text(field, text);
         self.settle()
     }
@@ -1583,7 +1585,16 @@ impl<P: Peer> Headless<P> {
     /// What the host's field named `name` holds: what the person typed, or what the page filled it
     /// with.
     pub fn field(&self, name: &str) -> Option<&str> {
-        self.seen.fields.get(&Id::named(name)).map(String::as_str)
+        self.seen
+            .fields
+            .get(&Id::named(name))
+            .map(|held| held.text.as_str())
+    }
+
+    /// What is selected in the host's field named `name`, characters from 0: the caret alone where
+    /// the range is empty.
+    pub fn field_selection(&self, name: &str) -> Option<std::ops::Range<usize>> {
+        self.seen.fields.get(&Id::named(name)).map(Held::selection)
     }
 
     /// The page's fields, what a screen reader says of it, its tooltips and its commands.

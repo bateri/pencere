@@ -8,7 +8,7 @@
 //! from is told with [`crate::Page::pick`] then).
 
 use pencere_sandbox::{Answer, Fault};
-use pencere_view::{Cursor, Id, Keyboard, Menu};
+use pencere_view::{Cursor, Fill, Id, Keyboard, Menu};
 
 /// What a page had besides its replies, since the host last looked ([`crate::Page::drain`]).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -48,8 +48,9 @@ pub trait Host {
     /// The pointer's shape the page asks for, answering the pointer: told only for a reply to the
     /// pointer, and a host takes it only while the pointer is over the page.
     fn cursor(&mut self, _cursor: Cursor) {}
-    /// What the host's field named `field` holds from now on (in place of what the person typed).
-    fn fill(&mut self, _field: Id, _text: String) {}
+    /// What the host's field named `field` holds from now on (in place of what the person typed),
+    /// and what is selected in it ([`Fill`]: its ends held to the text).
+    fn fill(&mut self, _field: Id, _fill: Fill) {}
     /// Where the keyboard goes: a field of the host's, or the page (an editor's is the drive's, and
     /// done before this is told).
     fn keyboard(&mut self, _to: Keyboard) {}
@@ -92,8 +93,8 @@ impl Drained {
                 host.cursor(reply.cursor);
             }
             // The texts first, so that a field the keyboard goes to holds what it is to edit.
-            for (field, text) in reply.fill {
-                host.fill(field, text);
+            for (field, fill) in reply.fill {
+                host.fill(field, fill);
             }
             if let Some(to) = reply.keyboard {
                 host.keyboard(to);
@@ -144,8 +145,9 @@ mod tests {
         fn cursor(&mut self, cursor: Cursor) {
             self.0.push(format!("cursor {cursor:?}"));
         }
-        fn fill(&mut self, field: Id, text: String) {
+        fn fill(&mut self, field: Id, fill: Fill) {
             let name = if field == Id::named("f") { "f" } else { "?" };
+            let text = fill.text.unwrap_or_default();
             self.0.push(format!("fill {name} {text}"));
         }
         fn keyboard(&mut self, to: Keyboard) {
@@ -180,11 +182,11 @@ mod tests {
                 entries: vec![MenuEntry::Item {
                     title: "Copy".into(),
                     enabled: true,
-                    key: None,
+                    keys: None,
                 }],
             }),
             keyboard: Some(Keyboard::Page),
-            fill: vec![(Id::named("f"), "text".into())],
+            fill: vec![(Id::named("f"), Fill::text("text"))],
             copy: Some("copied".into()),
             cursor: Cursor::Text,
             link: Some("https://example.com".into()),

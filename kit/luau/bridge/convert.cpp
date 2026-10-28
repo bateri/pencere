@@ -844,7 +844,42 @@ pencere_view_types_key_t key_named(lua_State* L, const char* name, size_t length
     luaL_error(L, "\"%s\" is not a key", name);
 }
 
-// The commands of an element at `list`: `{ id =, title =, keys = { key =, mods = {...} }, enabled = }`.
+// Keys that do something, at `keys`: `{ key =, mods = { shift =, control =, alt =, command = } }`,
+// as `pencere.keys` reads them.
+pencere_view_types_shortcut_t shortcut_at(lua_State* L, int keys) {
+    pencere_view_types_shortcut_t out = {};
+    get(L, keys, "key");
+    size_t length = 0;
+    const char* name = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
+    out.key = key_named(L, name, length);
+    lua_pop(L, 1);
+    get(L, keys, "mods");
+    if (lua_type(L, -1) == LUA_TTABLE) {
+        int mods = lua_gettop(L);
+        out.mods.shift = flag(L, mods, "shift");
+        out.mods.control = flag(L, mods, "control");
+        out.mods.alt = flag(L, mods, "alt");
+        out.mods.command = flag(L, mods, "command");
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
+// The keys the words at `words` say (`"ctrl+w"`), read as a command's are, by the prelude's
+// `pencere.keys`: one reader of keys, whose errors name what is not one.
+pencere_view_types_shortcut_t shortcut_of_words(lua_State* L, int words) {
+    lua_getglobal(L, "pencere");
+    lua_rawgetfield(L, -1, "keys");
+    lua_remove(L, -2);
+    lua_pushvalue(L, words);
+    lua_call(L, 1, 1);
+    pencere_view_types_shortcut_t out = shortcut_at(L, lua_gettop(L));
+    lua_pop(L, 1);
+    return out;
+}
+
+// The commands of an element at `list`: `{ id =, title =, keys = { { key =, mods = {...} }, ... },
+// enabled = }`.
 pencere_view_types_slice_t commands_at(lua_State* L, int list, Arenas& arenas) {
     size_t count = (size_t)lua_objlen(L, list);
     if (count > kMaxList) luaL_error(L, "an element has more commands than it may");
@@ -863,24 +898,23 @@ pencere_view_types_slice_t commands_at(lua_State* L, int list, Arenas& arenas) {
         get(L, command, "enabled");
         out.enabled = lua_isnil(L, -1) ? true : lua_toboolean(L, -1) != 0;
         lua_pop(L, 1);
+        // The keys that do it, the first the ones a list shows (the prelude makes the list).
         get(L, command, "keys");
         if (lua_type(L, -1) == LUA_TTABLE) {
             int keys = lua_gettop(L);
-            get(L, keys, "key");
-            size_t length = 0;
-            const char* name = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
-            out.keys.is_some = true;
-            out.keys.val.key = key_named(L, name, length);
-            lua_pop(L, 1);
-            get(L, keys, "mods");
-            if (lua_type(L, -1) == LUA_TTABLE) {
-                int mods = lua_gettop(L);
-                out.keys.val.mods.shift = flag(L, mods, "shift");
-                out.keys.val.mods.control = flag(L, mods, "control");
-                out.keys.val.mods.alt = flag(L, mods, "alt");
-                out.keys.val.mods.command = flag(L, mods, "command");
+            size_t many = (size_t)lua_objlen(L, keys);
+            if (many > kMaxList) luaL_error(L, "a command has more keys than it may");
+            if (many) {
+                out.keys.ptr = (pencere_view_types_shortcut_t*)xmalloc(many * sizeof(pencere_view_types_shortcut_t));
+                memset(out.keys.ptr, 0, many * sizeof(pencere_view_types_shortcut_t));
+                out.keys.len = many;
             }
-            lua_pop(L, 1);
+            for (size_t k = 0; k < many; k++) {
+                lua_rawgeti(L, keys, (int)k + 1);
+                if (lua_type(L, -1) != LUA_TTABLE) luaL_error(L, "the keys of a command are written as words: \"cmd+k\"");
+                out.keys.ptr[k] = shortcut_at(L, lua_gettop(L));
+                lua_pop(L, 1);
+            }
         }
         lua_pop(L, 1);
         made.push_back(out);
@@ -2045,28 +2079,58 @@ int reply_call(lua_State* L) {
         luaL_error(L, "keyboard is \"page\" or { field = the field's name }");
     }
     lua_pop(L, 1);
-    // The texts the fields are to hold: { [name] = "text", ... }.
+    // What the fields are to hold: { [name] = "text", or { text =, select = { from =, to = } or true },
+    // ... }.
     get(L, 1, "fill");
     if (lua_type(L, -1) == LUA_TTABLE) {
         int fill = lua_gettop(L);
-        std::vector<pencere_view_types_field_text_t> texts;
+        std::vector<pencere_view_types_field_fill_t> fills;
         lua_pushnil(L);
         while (lua_next(L, fill) != 0) {
-            if (texts.size() >= kMaxNodes) luaL_error(L, "fill names more fields than a page may have");
-            if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "fill gives each field a string");
-            pencere_view_types_field_text_t said = {};
+            if (fills.size() >= kMaxNodes) luaL_error(L, "fill names more fields than a page may have");
+            pencere_view_types_field_fill_t said = {};
             said.field = id_of(L, lua_gettop(L) - 1);
+            int given = lua_gettop(L);
             size_t length = 0;
-            const char* bytes = lua_tolstring(L, -1, &length);
-            said.text = host_string(bytes, length);
-            texts.push_back(said);
+            if (lua_type(L, given) == LUA_TSTRING) {
+                const char* bytes = lua_tolstring(L, given, &length);
+                said.text = {true, host_string(bytes, length)};
+            } else if (lua_type(L, given) == LUA_TTABLE) {
+                get(L, given, "text");
+                if (lua_type(L, -1) == LUA_TSTRING) {
+                    const char* bytes = lua_tolstring(L, -1, &length);
+                    said.text = {true, host_string(bytes, length)};
+                } else if (!lua_isnil(L, -1)) {
+                    luaL_error(L, "fill: a field's text is a string");
+                }
+                lua_pop(L, 1);
+                // What is selected: { from =, to = } (characters from 0, either way round), or
+                // true for all of it.
+                get(L, given, "select");
+                if (lua_type(L, -1) == LUA_TBOOLEAN && lua_toboolean(L, -1)) {
+                    said.select = {true, {0, 4294967295u}};
+                } else if (lua_type(L, -1) == LUA_TTABLE) {
+                    int range = lua_gettop(L);
+                    said.select.is_some = true;
+                    said.select.val.from = place_of(L, range, "from");
+                    said.select.val.to = place_of(L, range, "to");
+                } else if (!lua_isnil(L, -1)) {
+                    luaL_error(L, "fill: what to select in a field is { from =, to = }, or true for all of it");
+                }
+                lua_pop(L, 1);
+                if (!said.text.is_some && !said.select.is_some)
+                    luaL_error(L, "fill gives a field a text, what to select in it, or both");
+            } else {
+                luaL_error(L, "fill gives each field a string, or { text =, select = }");
+            }
+            fills.push_back(said);
             lua_pop(L, 1);
         }
-        if (!texts.empty()) {
-            size_t bytes = texts.size() * sizeof(pencere_view_types_field_text_t);
-            out.fill.ptr = (pencere_view_types_field_text_t*)xmalloc(bytes);
-            out.fill.len = texts.size();
-            memcpy(out.fill.ptr, texts.data(), bytes);
+        if (!fills.empty()) {
+            size_t bytes = fills.size() * sizeof(pencere_view_types_field_fill_t);
+            out.fill.ptr = (pencere_view_types_field_fill_t*)xmalloc(bytes);
+            out.fill.len = fills.size();
+            memcpy(out.fill.ptr, fills.data(), bytes);
         }
     } else if (!lua_isnil(L, -1)) {
         luaL_error(L, "fill is a table of the fields' names and the texts they are to hold");
@@ -2149,11 +2213,17 @@ int reply_call(lua_State* L) {
                     const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
                     entry.val.item.title = add_words(titles, bytes, length);
                     lua_pop(L, 1);
-                    get(L, entry_index, "key");
+                    // The keys that do the same, written as a command's: `keys`, or `key` as a
+                    // page wrote it before (one character is keys too).
+                    get(L, entry_index, "keys");
+                    if (lua_isnil(L, -1)) {
+                        lua_pop(L, 1);
+                        get(L, entry_index, "key");
+                    }
                     if (lua_type(L, -1) == LUA_TSTRING && lua_objlen(L, -1) > 0) {
-                        std::string one = repaired(lua_tostring(L, -1), lua_objlen(L, -1));
-                        // The first character of the key.
-                        entry.val.item.key = {true, first_character(one)};
+                        entry.val.item.keys = {true, shortcut_of_words(L, lua_gettop(L))};
+                    } else if (!lua_isnil(L, -1) && !(lua_type(L, -1) == LUA_TSTRING)) {
+                        luaL_error(L, "the keys of a menu's entry are written as words: \"ctrl+w\"");
                     }
                     lua_pop(L, 1);
                     get(L, entry_index, "enabled");

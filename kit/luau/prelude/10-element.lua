@@ -558,12 +558,28 @@ local MODIFIERS = {
 	shift = "shift",
 }
 
--- Keys as a person writes them, "cmd+shift+k", "ctrl+enter", "f5", as { key =, mods = }.
+-- The names a key goes by besides the one the page is told.
+local KEY_NAMES = {
+	space = " ",
+	["return"] = "enter",
+	esc = "escape",
+	pageup = "page_up",
+	pagedown = "page_down",
+	del = "delete",
+}
+
+-- Keys as a person writes them, "cmd+shift+k", "ctrl+enter", "f5", as { key =, mods = }. The key
+-- `+` is written as itself: "cmd++".
 function pencere.keys(words)
 	if type(words) ~= "string" then
 		error("keys are written as words: \"cmd+k\", not " .. type(words), 2)
 	end
 	local parts = string.split(words, "+")
+	-- A `+` at the end is the key, not the mark before it: "cmd++" splits to "cmd", "", "".
+	if #parts >= 2 and parts[#parts] == "" and parts[#parts - 1] == "" then
+		parts[#parts] = nil
+		parts[#parts] = "+"
+	end
 	local mods = { shift = false, control = false, alt = false, command = false }
 	for index = 1, #parts - 1 do
 		local held = MODIFIERS[string.lower(parts[index])]
@@ -575,21 +591,35 @@ function pencere.keys(words)
 	local key = parts[#parts] or ""
 	if utf8.len(key) ~= 1 then
 		key = string.lower(key)
-		if key == "space" then
-			key = " "
-		elseif key == "return" then
-			key = "enter"
-		elseif key == "esc" then
-			key = "escape"
-		end
+		key = KEY_NAMES[key] or key
 	end
 	return { key = key, mods = mods }
 end
 
 -- Something the page can be told to do while the keyboard is on this element or inside it (on the
 -- page's outermost box: always), which the host lists and does by its keys; the page is told
--- { type = "command", id = id }. `keys` is written as a person writes them ("cmd+k"), or nil;
--- `enabled` is false for one that cannot be done now.
+-- { type = "command", id = id }. `keys` is written as a person writes them ("cmd+k"), a list of
+-- such (each does it; the first is the one a list shows: { "ctrl+page_down", "ctrl+alt+right" }),
+-- or nil; `enabled` is false for one that cannot be done now.
+-- The keys of a command: words, or a list of words, as a list of { key =, mods = }.
+local function keys_of(keys)
+	if keys == nil then
+		return nil
+	elseif type(keys) == "string" then
+		return { pencere.keys(keys) }
+	elseif type(keys) ~= "table" then
+		error("the keys of a command are words, \"cmd+k\", or a list of them, not " .. type(keys), 3)
+	end
+	local list = {}
+	for index, words in ipairs(keys) do
+		if type(words) ~= "string" then
+			error("the keys of a command are words, \"cmd+k\", or a list of them; key " .. index .. " is a " .. type(words), 3)
+		end
+		list[index] = pencere.keys(words)
+	end
+	return list
+end
+
 function Element:command(id, title, keys, enabled)
 	if id == nil then
 		error("a command is named: command(id, title, keys)", 2)
@@ -605,7 +635,7 @@ function Element:command(id, title, keys, enabled)
 	commands[#commands + 1] = {
 		id = id,
 		title = title,
-		keys = keys and pencere.keys(keys) or nil,
+		keys = keys_of(keys),
 		enabled = enabled ~= false,
 	}
 	return self

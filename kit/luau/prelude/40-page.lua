@@ -57,9 +57,10 @@
 -- A reply is nil (nothing changed), true or false (a frame is worth drawing or not) or a table:
 --   { redraw =, close =, copy = "text for the pasteboard", cursor = "arrow" | "pointer" | "text" |
 --     "resize_horizontal" | "resize_vertical" | "not_allowed" | "grab" | "grabbing" | "crosshair",
---     keyboard = "page" | { field = name }, fill = { [name] = "text for that field", ... },
---     menu = { at = { x =, y = }, entries = { { title =, key =, enabled = }, "-" (a line), ... } },
---     editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds }
+--     keyboard = "page" | { field = name }, fill = { [name] = "text for that field", or
+--     { text =, select = { from =, to = } (characters from 0) or true (all of it) }, ... },
+--     menu = { at = { x =, y = }, entries = { { title =, keys = "ctrl+w", enabled = }, "-" (a line),
+--     ... } }, editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds }
 -- where an ask of an editor is one of:
 --   { load = "text", more = true }             a piece of the document (the first in place of all)
 --   { change = { { from =, to =, insert = }, ... }, base = version }

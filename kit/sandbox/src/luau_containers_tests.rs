@@ -1159,6 +1159,15 @@ fn a_right_click_opens_the_menu_of_the_row_and_what_is_picked_is_done() {
     let reply = pair.input("the right press", press(at));
     let menu = reply.menu.expect("a menu");
     assert!(menu.entries.len() > 8, "{menu:?}");
+    // A key written as one character is the keys of the entry, as a command's are written.
+    assert!(
+        matches!(
+            &menu.entries[0],
+            pencere_view::MenuEntry::Item { keys: Some(keys), .. }
+                if keys.key == Key::Character('s') && keys.mods == Mods::default()
+        ),
+        "{menu:?}"
+    );
     pair.input("the right release", release(at));
     // A disabled entry, a line, and then one that works (the menu is spent after the pick).
     pair.event("a disabled entry", Event::MenuPick(4));

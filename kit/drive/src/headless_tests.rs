@@ -330,6 +330,75 @@ return {
     Ok(())
 }
 
+/// A reply fills a field and selects in it (a name to rename, its stem selected), what is typed
+/// takes the place of what is selected, and a key the field has no use for where its caret is (⌫
+/// in an empty field, ← at its start) is the page's: a command of the page by any of its keys, or
+/// a key.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_field_is_filled_and_selected_in_and_gives_the_page_the_keys_it_has_no_use_for()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local said = {}
+return {
+    render = function()
+        return pencere.div():size_full()
+            :command("rename", "Rename", { "f2", "ctrl+r" })
+            :command("back", "Back", "cmd+[")
+            :child(pencere.div():text_field("name"):h(24):w(200))
+            :child(pencere.text(table.concat(said, "|")))
+    end,
+    handle = function(event)
+        if event.type == "command" and event.id == "rename" then
+            said[#said + 1] = "rename"
+            return {
+                redraw = true,
+                keyboard = { field = "name" },
+                fill = { name = { text = "draft.md", select = { from = 0, to = 5 } } },
+            }
+        elseif event.type == "command" then
+            said[#said + 1] = event.id
+            return true
+        elseif event.type == "key" then
+            said[#said + 1] = "key " .. event.key
+            if event.key == "escape" then
+                return { redraw = true, fill = { name = { select = true } } }
+            end
+            return true
+        end
+    end,
+}
+"#,
+    )
+    .open()?;
+    page.press("ctrl+r")?;
+    assert_eq!(page.focus(), Focus::Field(Id::named("name")));
+    assert_eq!(page.field("name"), Some("draft.md"));
+    assert_eq!(page.field_selection("name"), Some(0..5));
+    page.type_text("notes")?;
+    assert_eq!(page.field("name"), Some("notes.md"));
+    assert_eq!(page.field_selection("name"), Some(5..5));
+    // The chord a field has no use for is the page's command, here as anywhere.
+    page.press("cmd+[")?;
+    page.press("escape")?;
+    assert_eq!(page.field_selection("name"), Some(0..8));
+    page.press("backspace")?;
+    assert_eq!(page.field("name"), Some(""));
+    // Empty: backspace and the arrows that go nowhere are the page's.
+    page.press("backspace")?;
+    page.press("left")?;
+    page.type_text("a")?;
+    page.press("left")?;
+    page.press("left")?;
+    page.press("f2")?;
+    assert_eq!(
+        page.tree_words().last().map(String::as_str),
+        Some("rename|back|key escape|key backspace|key left|key left|rename")
+    );
+    Ok(())
+}
+
 /// The boxes that scroll are the host's to scroll: a box taken to a place is where the wheel over
 /// it took it, and the page is told where it went.
 #[test]

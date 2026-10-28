@@ -315,10 +315,7 @@ impl Lists {
             .map(|command| wit::Command {
                 id: command.id.number(),
                 title: self.words(&command.title),
-                keys: command.keys.map(|keys| wit::Shortcut {
-                    key: key_out(keys.key),
-                    mods: mods_out(keys.mods),
-                }),
+                keys: command.keys.iter().map(shortcut_out).collect(),
                 enabled: command.enabled,
             })
             .collect();
@@ -374,6 +371,13 @@ fn mods_out(mods: Mods) -> wit::Mods {
         control: mods.control,
         alt: mods.alt,
         command: mods.command,
+    }
+}
+
+fn shortcut_out(keys: &pencere_view::Shortcut) -> wit::Shortcut {
+    wit::Shortcut {
+        key: key_out(keys.key),
+        mods: mods_out(keys.mods),
     }
 }
 
@@ -521,11 +525,11 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
                     MenuEntry::Separator => wit::MenuEntry::Separator,
                     MenuEntry::Item {
                         title,
-                        key,
+                        keys,
                         enabled,
                     } => wit::MenuEntry::Item(wit::MenuItem {
                         title: lists.words(&title),
-                        key,
+                        keys: keys.as_ref().map(shortcut_out),
                         enabled,
                     }),
                 })
@@ -546,9 +550,14 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
         fill: reply
             .fill
             .into_iter()
-            .map(|(field, text)| wit::FieldText {
+            .map(|(field, fill)| wit::FieldFill {
                 field: field.number(),
-                text,
+                text: fill.text,
+                // A place past what the interface counts is past the end of any text: its end.
+                select: fill.select.map(|range| wit::CharRange {
+                    from: u32::try_from(range.start).unwrap_or(u32::MAX),
+                    to: u32::try_from(range.end).unwrap_or(u32::MAX),
+                }),
             })
             .collect(),
         copy: reply.copy,

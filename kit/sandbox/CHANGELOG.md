@@ -18,6 +18,14 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **Fields, menus and commands as the engine has them now.** A reply's `fill` is a `field-fill` for
+  each field (a text, what is selected, or both) and a script's `fill = { [name] = { text =, select
+= { from =, to = } or true } }` too (the old `{ [name] = text }` is read as it was); a command's
+  keys are a list (`keys: list<shortcut>`, a script's `command(id, title, { "ctrl+page_down",
+"ctrl+alt+right" })`), held to what an element's commands are held to; a menu's entry has keys
+  (`keys: option<shortcut>`), which a script writes as a command's (`keys = "ctrl+w"`, or `key` as
+  before). `pencere.keys` reads `pageup`, `pagedown` and `del` as the engine does, and the key `+`
+  (`"cmd++"`).
 - **A host that drives a page by hand can wait for it.** `Module::flush` waits, as long as it is
   told to, until the module has done everything posted to it before and put out what came of it —
   the page an event or the program's words made it make again included; `Images::busy` says whether

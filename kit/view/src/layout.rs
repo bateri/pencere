@@ -1248,7 +1248,7 @@ impl Laid {
     /// What the page can be told to do now ([`crate::Element::command`]): the commands of the
     /// element the keyboard is on ([`crate::Element::focused`]) and of each box around it, out to
     /// the page's own, the nearest first. A command already listed by a nearer box is not listed
-    /// again, and neither is one whose keys a nearer one has.
+    /// again, and keys a nearer one has are not a farther one's.
     pub fn commands(&self) -> Vec<Command> {
         let focused = self
             .nodes
@@ -1272,13 +1272,11 @@ impl Laid {
                     continue;
                 }
                 let mut command = command.clone();
-                if let Some(keys) = command.keys {
-                    if taken.iter().any(|k| k.matches(keys.key, keys.mods)) {
-                        command.keys = None;
-                    } else {
-                        taken.push(keys);
-                    }
-                }
+                // Keys a nearer command has are that one's: this one keeps the rest of its own.
+                command
+                    .keys
+                    .retain(|keys| !taken.iter().any(|k| k.matches(keys.key, keys.mods)));
+                taken.extend(command.keys.iter().copied());
                 out.push(command);
             }
         }
@@ -1290,7 +1288,7 @@ impl Laid {
     pub fn command_for(&self, key: Key, mods: Mods) -> Option<Id> {
         self.commands()
             .into_iter()
-            .find(|command| command.keys.is_some_and(|keys| keys.matches(key, mods)))
+            .find(|command| command.done_by(key, mods))
             .filter(|command| command.enabled)
             .map(|command| command.id)
     }

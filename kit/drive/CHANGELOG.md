@@ -10,6 +10,11 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
 
 ### Added
 
+- **Fields as a system has them.** The host with no screen keeps a caret and a selection in each
+  field: what a reply's `fill` selects is selected (`Headless::field_selection`), what is typed
+  takes its place, the arrows move and select, ⌘A, ⌘C, ⌘X and ⌘V are the field's, and a key the
+  field has no use for where its caret is goes to the page by the kit's rule (`FieldState::takes`):
+  ⌫ in an empty field, ← at its start, a chord it does not know. `Host::fill` is told a `Fill`.
 - **The page, driven.** `Page`: a component, a script or a module of the host's own making, started
   on its thread; a line in its place until its first page comes, and its end told once. What the
   person does is told it in the host's points (`input`, `key`, `key_up`, `wheel`, `text`, `focus`,
