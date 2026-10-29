@@ -14,19 +14,41 @@ use std::rc::Rc;
 use std::slice;
 
 use pencere_view::edit::{
-    CaretHeight, CaretShape, Column, ColumnEvents, Decoration, EditorOptions, GutterMark,
-    GutterShape, LineHighlight, Look, Mark, Matches, Numbers, Preview, Range, RulerLane, Underline,
-    Whitespace, ZoneSide, limits,
+    CaretHeight, CaretShape, CaretUnfocused, Column, ColumnEvents, Decoration, EditorOptions,
+    GutterMark, GutterShape, LineHighlight, Look, Mark, Matches, Numbers, Preview, Range,
+    RulerLane, Underline, Whitespace, ZoneSide, limits,
 };
 use pencere_view::{
     Border, Color, Cursor, EditorRoom, EditorSlot, Figure, Font, Id, Measure, Mods, Paint, Picture,
-    Point, Quad, Rect, Role, Run, Size, path,
+    Point, Quad, Rect, Role, Run, Shadow, Size, path,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::buffer::{Buffer, Placement};
 use crate::guides::{Levels, active_guide};
 use crate::segments::grapheme_after;
+
+/// What the carets are as a frame is drawn: lit, dark where they blink, or away: the window or the
+/// pane does not have the keyboard, where an editor of the page does (what the caret's
+/// `unfocused` option says is then drawn). The host says it ([`crate::Editors::paint`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaretPhase {
+    Lit,
+    Dark,
+    Away,
+}
+
+/// How a caret is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CaretLook {
+    Solid,
+    Hollow,
+}
+
+/// How far a caret's light reaches at a glow of 1, times a row's height, and how dark it is where it
+/// is darkest (at the caret's edge, a fifth: a soft shadow is half its colour there).
+const GLOW_REACH: f32 = 0.13;
+const GLOW_ALPHA: f32 = 0.2;
 
 /// The most lines whose measure is kept.
 const SHAPED: usize = 4096;
@@ -972,13 +994,13 @@ impl View {
     // --- Drawing ---------------------------------------------------------------------------
 
     /// What the room draws: in `slot` (its place on the page, how far it is scrolled), the editor
-    /// having the keyboard or not, the carets showing or not (the host blinks them).
+    /// having the keyboard or not, the carets as they are now (the host blinks them: `phase`).
     pub fn paint(
         &self,
         buffer: &Buffer,
         slot: &EditorSlot,
         focused: bool,
-        caret_on: bool,
+        phase: CaretPhase,
         measure: &mut dyn Measure,
     ) -> Vec<Paint> {
         let mut out = Vec::new();
@@ -1208,7 +1230,7 @@ impl View {
         // The carets; a block's character is drawn again on it.
         let caret = self.options.caret;
         if focused
-            && caret_on
+            && let Some(look) = self.caret_look(phase)
             && let Some(color) = caret.color.or(Role::Cursor.solid())
         {
             for range in ranges {
@@ -1216,8 +1238,9 @@ impl View {
                     let at = range.head;
                     let x = origin_x + row.caret_x(at - row.base);
                     let rect = self.caret_box(buffer, row, at, x, row_y(row));
-                    out.push(quad(rect, fade(color), text_clip));
+                    out.push(self.caret_quad(rect, fade(color), look, text_clip));
                     if caret.shape == CaretShape::Block
+                        && look == CaretLook::Solid
                         && let Some(text_color) = caret.text.or(Role::Background.solid())
                     {
                         let colors = (fade(color), text_color);
@@ -1244,6 +1267,62 @@ impl View {
         }
         self.paint_ruler(buffer, slot, &mut out);
         out
+    }
+
+    /// How the carets are drawn at `phase`: none, solid, or as an outline (a block's, while the
+    /// window or the pane does not have the keyboard and the options say so).
+    fn caret_look(&self, phase: CaretPhase) -> Option<CaretLook> {
+        let caret = self.options.caret;
+        match phase {
+            CaretPhase::Lit => Some(CaretLook::Solid),
+            CaretPhase::Dark => None,
+            CaretPhase::Away => match caret.unfocused {
+                CaretUnfocused::Hidden => None,
+                CaretUnfocused::Solid => Some(CaretLook::Solid),
+                CaretUnfocused::Hollow if caret.shape == CaretShape::Block => {
+                    Some(CaretLook::Hollow)
+                }
+                CaretUnfocused::Hollow => Some(CaretLook::Solid),
+            },
+        }
+    }
+
+    /// The caret's box as it is drawn: with the corners the options round, the light round it where
+    /// it has some, and an outline as thick as a bar where it is hollow.
+    fn caret_quad(&self, rect: Rect, color: Color, look: CaretLook, clip: Rect) -> Paint {
+        let caret = self.options.caret;
+        let radius = (caret.radius * self.row)
+            .min(rect.w / 2.0)
+            .min(rect.h / 2.0)
+            .max(0.0);
+        let thick = (caret.width * self.scale).round().max(1.0);
+        // A terminal's cursor glows as far as 0.13 of a row and as dark as a fifth, at 1: the
+        // glow is a soft shadow with no offset, which the box does not cover.
+        let glow = (look == CaretLook::Solid && caret.glow > 0.0).then(|| Shadow {
+            dx: 0.0,
+            dy: 0.0,
+            blur: caret.glow * GLOW_REACH * self.row,
+            color: color.faded((caret.glow * GLOW_ALPHA).min(1.0)),
+        });
+        let (fill, border) = match look {
+            CaretLook::Solid => (Some(color), None),
+            CaretLook::Hollow => (
+                None,
+                Some(Border {
+                    width: thick,
+                    color,
+                }),
+            ),
+        };
+        Paint::Quad(Quad {
+            rect,
+            radii: [radius; 4],
+            fill,
+            gradient: None,
+            border,
+            shadow: glow,
+            clip,
+        })
     }
 
     /// Whether the place `at` is on `row`: inside it, or at its end where it is the last of its line.

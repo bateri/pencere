@@ -18,6 +18,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- `caret` (`radius`, `glow`, `blink`, `blink_interval`, `blink_for`, `unfocused`) of an editor's
+  options crosses the interface (`editor-caret`, `caret-unfocused`).
+
 - `selection` (`radius`) of an editor's options and `margin` (a group's) and `margin_left`,
   `margin_right` (a widget's) cross the interface (`selection-look`, `widget-group.margin`,
   `widget.margin-left`, `margin-right`).

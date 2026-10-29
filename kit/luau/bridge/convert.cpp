@@ -1001,6 +1001,7 @@ pencere_view_types_editor_tint_t tint_at(lua_State* L, int t, const char* name) 
 
 const char* const kCaretShape[] = {"bar", "block", "underline"};
 const char* const kCaretHeight[] = {"row", "text"};
+const char* const kCaretUnfocused[] = {"hidden", "hollow", "solid"};
 const char* const kLineNumbers[] = {"absolute", "relative", "hidden"};
 const char* const kLineHighlight[] = {"text", "gutter", "all"};
 static_assert(PENCERE_VIEW_TYPES_CARET_SHAPE_BAR == 0 && PENCERE_VIEW_TYPES_CARET_SHAPE_BLOCK == 1 &&
@@ -1008,6 +1009,9 @@ static_assert(PENCERE_VIEW_TYPES_CARET_SHAPE_BAR == 0 && PENCERE_VIEW_TYPES_CARE
               "kCaretShape is the order of caret-shape");
 static_assert(PENCERE_VIEW_TYPES_CARET_HEIGHT_ROW == 0 && PENCERE_VIEW_TYPES_CARET_HEIGHT_TEXT == 1,
               "kCaretHeight is the order of caret-height");
+static_assert(PENCERE_VIEW_TYPES_CARET_UNFOCUSED_HIDDEN == 0 && PENCERE_VIEW_TYPES_CARET_UNFOCUSED_HOLLOW == 1 &&
+                  PENCERE_VIEW_TYPES_CARET_UNFOCUSED_SOLID == 2,
+              "kCaretUnfocused is the order of caret-unfocused");
 static_assert(PENCERE_VIEW_TYPES_LINE_NUMBERS_ABSOLUTE == 0 && PENCERE_VIEW_TYPES_LINE_NUMBERS_RELATIVE == 1 &&
                   PENCERE_VIEW_TYPES_LINE_NUMBERS_HIDDEN == 2,
               "kLineNumbers is the order of line-numbers");
@@ -1310,8 +1314,14 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
         out.caret.width = optional_number(L, caret, "width");
         out.caret.color = tint_at(L, caret, "color");
         out.caret.text = tint_at(L, caret, "text");
+        out.caret.radius = optional_number(L, caret, "radius");
+        out.caret.glow = optional_number(L, caret, "glow");
+        out.caret.blink = optional_flag(L, caret, "blink");
+        out.caret.blink_interval = optional_number(L, caret, "blink_interval");
+        out.caret.blink_for = optional_number(L, caret, "blink_for");
+        out.caret.unfocused = (uint8_t)word(L, caret, "unfocused", kCaretUnfocused, 3, 0);
     } else if (!lua_isnil(L, caret)) {
-        luaL_error(L, "the caret of an editor is a table: { shape =, width =, color =, text = }");
+        luaL_error(L, "the caret of an editor is a table: { shape =, width =, color =, text =, radius =, glow =, blink =, blink_interval =, blink_for =, unfocused = }");
     }
     lua_pop(L, 1);
     pencere_view_types_editor_colors_t& colors = out.colors;

@@ -1,7 +1,8 @@
 //! Pictures of a page, for the eye: a frame's draw list drawn into a PNG in the fonts the caller
 //! gives and a theme of the kit's roles — the boxes, the words, the colours, the pictures and the
 //! editors where the kit put them, which is what an eye checks (what is aligned, what overlaps, what
-//! is cut). Not a terminal's drawing: no shaping, no shadows, no blur, one face of each family.
+//! is cut). Not a terminal's drawing: no shaping, one face of each family, and a soft shadow made as
+//! three passes of a box blur (a good Gaussian), which is what the eye needs of one.
 //!
 //! **The fonts are the caller's.** Where it gives none, each character is drawn as a box a character
 //! wide ([`Fonts::none`]): a picture made on any machine, with no font of its system, is the same
@@ -346,6 +347,56 @@ fn rounded(rect: Rect, radii: [f32; 4]) -> Option<tiny_skia::Path> {
     path.finish()
 }
 
+/// One pass of a box blur across and down a grid of `size` (width, height), the box as wide as three
+/// passes of it make a Gaussian of deviation `sigma` (the width of the classic "boxes for a
+/// Gaussian": `sqrt(12 sigma^2 / 3 + 1)`, odd).
+fn blur(grid: &mut [f32], (w, h): (usize, usize), sigma: f32) {
+    let wide = ((12.0 * sigma * sigma / 3.0 + 1.0).sqrt().floor() as usize) | 1;
+    let radius = wide / 2;
+    let mut line = vec![0.0_f32; w.max(h)];
+    for row in 0..h {
+        for (column, slot) in line.iter_mut().take(w).enumerate() {
+            *slot = grid.get(row * w + column).copied().unwrap_or(0.0);
+        }
+        smooth(&mut line, w, radius);
+        for (column, value) in line.iter().take(w).enumerate() {
+            if let Some(cell) = grid.get_mut(row * w + column) {
+                *cell = *value;
+            }
+        }
+    }
+    for column in 0..w {
+        for (row, slot) in line.iter_mut().take(h).enumerate() {
+            *slot = grid.get(row * w + column).copied().unwrap_or(0.0);
+        }
+        smooth(&mut line, h, radius);
+        for (row, value) in line.iter().take(h).enumerate() {
+            if let Some(cell) = grid.get_mut(row * w + column) {
+                *cell = *value;
+            }
+        }
+    }
+}
+
+/// The first `n` of `line`, each the mean of the ones `radius` either side (what is past an end is
+/// nothing).
+fn smooth(line: &mut [f32], n: usize, radius: usize) {
+    let source: Vec<f32> = line.iter().take(n).copied().collect();
+    let scale = 1.0 / (2 * radius + 1) as f32;
+    let mut sum: f32 = source.iter().take(radius + 1).sum();
+    for at in 0..n {
+        if let Some(out) = line.get_mut(at) {
+            *out = sum * scale;
+        }
+        if let Some(gone) = at.checked_sub(radius).and_then(|i| source.get(i)) {
+            sum -= gone;
+        }
+        if let Some(came) = source.get(at + radius + 1) {
+            sum += came;
+        }
+    }
+}
+
 fn ink([r, g, b, a]: [f32; 4]) -> Ink<'static> {
     let mut paint = Ink::default();
     if let Some(color) = tiny_skia::Color::from_rgba(
@@ -365,6 +416,10 @@ impl Canvas<'_> {
         let Some(shown) = intersect(quad.rect, quad.clip) else {
             return;
         };
+        // The shadow first: under the box, which it never shows through.
+        if let Some(shadow) = quad.shadow {
+            self.shadow(quad, shadow);
+        }
         let fill = quad
             .fill
             .or(quad.gradient.map(pencere_view::Gradient::middle));
@@ -402,6 +457,114 @@ impl Canvas<'_> {
                     Transform::identity(),
                     mask.as_ref(),
                 );
+            }
+        }
+    }
+
+    /// The soft shadow of `quad`'s box: its silhouette moved by `(dx, dy)` and blurred (`blur` is
+    /// the standard deviation's double, as the host's renderer takes it), what the box itself covers
+    /// left out, cut at the box's clip.
+    fn shadow(&mut self, quad: &pencere_view::Quad, shadow: pencere_view::Shadow) {
+        let sigma = (shadow.blur * 0.5).max(0.5);
+        let reach = (sigma * 3.0).ceil() + 1.0;
+        let color = self.palette.resolve(shadow.color);
+        let moved = Rect::new(
+            quad.rect.x + shadow.dx,
+            quad.rect.y + shadow.dy,
+            quad.rect.w,
+            quad.rect.h,
+        );
+        // The picture's pixels the shadow may reach, and the clip cuts: its work area.
+        let (width, height) = (self.pixmap.width() as f32, self.pixmap.height() as f32);
+        let area = Rect::new(
+            (moved.x - reach).min(quad.rect.x).floor(),
+            (moved.y - reach).min(quad.rect.y).floor(),
+            0.0,
+            0.0,
+        );
+        let right = (moved.right() + reach).max(quad.rect.right()).ceil();
+        let bottom = (moved.bottom() + reach).max(quad.rect.bottom()).ceil();
+        let Some(work) = intersect(
+            Rect::new(area.x, area.y, right - area.x, bottom - area.y),
+            Rect::new(0.0, 0.0, width, height),
+        )
+        .and_then(|work| intersect(work, quad.clip)) else {
+            return;
+        };
+        let (x0, y0) = (work.x.floor(), work.y.floor());
+        let (w, h) = (
+            (work.right().ceil() - x0) as usize,
+            (work.bottom().ceil() - y0) as usize,
+        );
+        // The silhouette's coverage, then blurred; what the box covers, to leave out.
+        let paint = |rect: Rect, offset: (f32, f32)| -> Option<Vec<f32>> {
+            let mut under = Pixmap::new(u32::try_from(w).ok()?, u32::try_from(h).ok()?)?;
+            let path = rounded(
+                Rect::new(
+                    rect.x + offset.0 - x0,
+                    rect.y + offset.1 - y0,
+                    rect.w,
+                    rect.h,
+                ),
+                quad.radii,
+            )?;
+            let mut white = Ink::default();
+            white.set_color(tiny_skia::Color::WHITE);
+            white.anti_alias = true;
+            under.fill_path(
+                &path,
+                &white,
+                FillRule::Winding,
+                Transform::identity(),
+                None,
+            );
+            Some(
+                under
+                    .data()
+                    .chunks(4)
+                    .map(|pixel| f32::from(pixel.get(3).copied().unwrap_or(0)) / 255.0)
+                    .collect(),
+            )
+        };
+        let (Some(mut cover), Some(own)) = (
+            paint(quad.rect, (shadow.dx, shadow.dy)),
+            paint(quad.rect, (0.0, 0.0)),
+        ) else {
+            return;
+        };
+        for _ in 0..3 {
+            blur(&mut cover, (w, h), sigma);
+        }
+        let pixels = self.pixmap.data_mut();
+        let stride = width as usize;
+        for row in 0..h {
+            for column in 0..w {
+                let (px, py) = (x0 as usize + column, y0 as usize + row);
+                let (cx, cy) = (px as f32 + 0.5, py as f32 + 0.5);
+                if cx < quad.clip.x
+                    || cx >= quad.clip.right()
+                    || cy < quad.clip.y
+                    || cy >= quad.clip.bottom()
+                {
+                    continue;
+                }
+                let at = row * w + column;
+                let alpha = cover.get(at).copied().unwrap_or(0.0)
+                    * (1.0 - own.get(at).copied().unwrap_or(0.0))
+                    * color[3];
+                if alpha <= 0.0 {
+                    continue;
+                }
+                let Some(pixel) =
+                    pixels.get_mut((py * stride + px) * 4..(py * stride + px) * 4 + 4)
+                else {
+                    continue;
+                };
+                for (channel, under) in pixel.iter_mut().take(3).enumerate() {
+                    let over = color.get(channel).copied().unwrap_or(0.0) * 255.0;
+                    let mixed = f32::from(*under) + (over - f32::from(*under)) * alpha;
+                    *under = mixed.round().clamp(0.0, 255.0) as u8;
+                }
             }
         }
     }

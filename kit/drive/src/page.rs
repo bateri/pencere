@@ -43,7 +43,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use pencere_editor::{Buffer, Editors, Route};
+use pencere_editor::{Buffer, CaretPhase, Editors, Route};
 use pencere_sandbox::{
     Answer, Assets, Fault, ImageLimits, Images, Module, ModuleLimits, Program, Runner, Script,
     Unbounded,
@@ -62,7 +62,7 @@ use crate::scrolling::{HostScrolls, Scrolling};
 use crate::waking::Wakes;
 
 /// What a host gives a page: what it is held to, who it speaks for and on what clock, where its
-/// files and its images come from, where it stands in the host's view, how its carets blink and its
+/// files and its images come from, where it stands in the host's view, how its
 /// boxes scroll, and what measures its text.
 pub struct Setup {
     /// What the module is held to.
@@ -81,9 +81,6 @@ pub struct Setup {
     pub images: ImageLimits,
     /// Where the page stands in the host's view.
     pub placement: Placement,
-    /// How long an editor's caret stays lit, then dark, seconds: the host's cursor's half period (0:
-    /// a caret that does not blink).
-    pub blink: f64,
     /// How the page's boxes scroll on the host's system.
     pub scrolling: Scrolling,
     /// What measures the page's text, in frames and between them: the host's, as it draws it.
@@ -98,7 +95,6 @@ impl Default for Setup {
             assets: None,
             images: ImageLimits::default(),
             placement: Placement::default(),
-            blink: 0.5,
             scrolling: Scrolling::default(),
             measure: Box::new(NoText),
         }
@@ -413,7 +409,7 @@ impl Page {
                 ended: None,
                 told_end: false,
                 sent: Vec::new(),
-                editing: Editing::new(setup.blink),
+                editing: Editing::new(),
                 cursor_over: None,
                 cursor_told: None,
                 again: false,
@@ -1176,7 +1172,7 @@ impl State {
             }
             _ => self.lay(root.clone(), viewport, scale, at, measure),
         };
-        let mut caret = false;
+        let mut caret = CaretPhase::Dark;
         let mut told = Told::default();
         if !starting {
             // The editors made for the rooms there, and what the page asked of them done; where a
@@ -1203,9 +1199,12 @@ impl State {
                 laid = self.lay(root.clone(), viewport, scale, at, measure);
             }
             told = self.editing.told();
-            let shown = self.editing.editors.focused().is_some();
-            let (lit, next) = self.editing.blink.at(at.now, at.reduce_motion, shown);
-            caret = lit;
+            let (phase, next) = self.editing.blink.at(
+                at.now,
+                at.reduce_motion,
+                self.editing.editors.focused_caret(),
+            );
+            caret = phase;
             self.blink_at = next;
         }
         let laid = Arc::new(laid);

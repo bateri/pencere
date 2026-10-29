@@ -21,6 +21,12 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
 
 ### Added
 
+- **A caret's blink is the page's to say**: `Setup::blink` and `Opening::blink` are gone; the caret
+  blinks by the options of the editor that has the keyboard (`caret.blink`, `blink_interval`,
+  `blink_for`), still with Reduce Motion, and away from the keyboard it is what `caret.unfocused`
+  says. The pictures (`shot`) draw a box's soft shadow (three box blurs), so a caret's light and a
+  popover's shadow show in them.
+
 - The example `text-lua` (hints, a code lens, a card by the word the pointer rests on, a link while ⌘ is held)
   and the pictures of it at rest, with a card and with a link.
 

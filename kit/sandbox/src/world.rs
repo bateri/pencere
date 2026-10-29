@@ -6,9 +6,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use pencere_view::edit::{
-    Caret, CaretHeight, CaretShape, Change, Column, ColumnEvents, CommentTokens, Decorate,
-    Decoration, EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds, Gesture,
-    GutterKind, GutterMark, GutterShape, HoverKind, HoverOptions, HoverOver, IndentRules,
+    Caret, CaretHeight, CaretShape, CaretUnfocused, Change, Column, ColumnEvents, CommentTokens,
+    Decorate, Decoration, EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds,
+    Gesture, GutterKind, GutterMark, GutterShape, HoverKind, HoverOptions, HoverOver, IndentRules,
     KeyAction, Keybinding, Keys, LineHighlight, LinkOptions, Look, Mark, MarkLooks, Matches,
     Movement, Numbers, Origin, Pressing, Preview, Range, Refusal, RevealAlign, RulerLane,
     RulerMark, SelectionLook, TargetKind, TargetSource, Tint, Underline, Whitespace, Widget,
@@ -1717,6 +1717,16 @@ fn editor_options_out(
             width: options.caret.width.unwrap_or(default.caret.width),
             color: tint_out(&options.caret.color),
             text: tint_out(&options.caret.text),
+            radius: number_out(options.caret.radius, default.caret.radius),
+            glow: number_out(options.caret.glow, default.caret.glow),
+            blink: options.caret.blink.unwrap_or(default.caret.blink),
+            blink_interval: number_out(options.caret.blink_interval, default.caret.blink_interval),
+            blink_for: number_out(options.caret.blink_for, default.caret.blink_for),
+            unfocused: match options.caret.unfocused {
+                wit::CaretUnfocused::Hidden => CaretUnfocused::Hidden,
+                wit::CaretUnfocused::Hollow => CaretUnfocused::Hollow,
+                wit::CaretUnfocused::Solid => CaretUnfocused::Solid,
+            },
         },
         selection: SelectionLook {
             radius: options
@@ -1790,6 +1800,11 @@ fn editor_options_out(
         },
     }
     .held())
+}
+
+/// A number the page said, or `default` where it said none or none that is a number.
+fn number_out(said: Option<f32>, default: f32) -> f32 {
+    said.filter(|number| number.is_finite()).unwrap_or(default)
 }
 
 fn tint_out(tint: &wit::EditorTint) -> Tint {

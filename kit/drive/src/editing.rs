@@ -13,13 +13,9 @@
 
 use std::sync::Arc;
 
-use pencere_editor::{EditorEvent, Editors};
-use pencere_view::edit::{EditorAsk, TextSnapshot};
+use pencere_editor::{CaretPhase, EditorEvent, Editors};
+use pencere_view::edit::{Caret, EditorAsk, TextSnapshot};
 use pencere_view::{Event, Id, Keyboard, Laid, Measure, Point, Reply, ScrollTo};
-
-/// How long after the caret last moved it stops blinking, lit: a terminal cursor's rule, so that a
-/// page at rest goes back to drawing no frames.
-const IDLE_STOP: f64 = 15.0;
 
 /// What the drive keeps of a page's editors.
 pub(crate) struct Editing {
@@ -57,13 +53,13 @@ impl Told {
 }
 
 impl Editing {
-    /// The editors of a page whose carets blink `half_period` seconds lit, then as long dark.
-    pub(crate) fn new(half_period: f64) -> Self {
+    /// The editors of a page. Their carets blink as their options say.
+    pub(crate) fn new() -> Self {
         Self {
             editors: Editors::new(),
             asks: Vec::new(),
             focus: None,
-            blink: Blink::new(half_period),
+            blink: Blink::new(),
         }
     }
 
@@ -159,13 +155,13 @@ pub(crate) fn in_a_room(laid: &Laid, at: Point) -> bool {
     })
 }
 
-/// The caret's blink: lit for a half period, dark for one, from the frame after it last moved (a
-/// caret that moved is lit), lit and still after [`IDLE_STOP`] or with Reduce Motion on, and not drawn
-/// while the host's keyboard is not in the page of the person's window. The times are the frames'.
+/// The caret's blink, by the options of the editor that has the keyboard ([`Caret::blink`],
+/// `blink_interval`, `blink_for`): lit for a half period, dark for one, from the frame after it last
+/// moved (a caret that moved is lit), lit and still after `blink_for` or with Reduce Motion on, and
+/// away while the host's keyboard is not in the page of the person's window. The times are the
+/// frames'.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Blink {
-    /// How long the caret stays lit, then dark (none: it is lit and still).
-    half: f64,
     /// The frame the caret was last put back lit at.
     since: Option<f64>,
     /// It moved since: the next frame puts it back lit.
@@ -175,9 +171,8 @@ pub(crate) struct Blink {
 }
 
 impl Blink {
-    pub(crate) fn new(half: f64) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            half,
             since: None,
             moved: true,
             active: true,
@@ -198,12 +193,22 @@ impl Blink {
         self.active = active;
     }
 
-    /// Whether the caret is drawn in the frame at `now`, where an editor has the keyboard
-    /// (`shown`), and when that is next to change: `None` until something changes it.
-    pub(crate) fn at(&mut self, now: f64, still: bool, shown: bool) -> (bool, Option<f64>) {
-        if !shown || !self.active {
+    /// How the caret is in the frame at `now`, where an editor has the keyboard (`caret`: its
+    /// options; none where no editor has it), and when that is next to change: `None` until
+    /// something changes it.
+    pub(crate) fn at(
+        &mut self,
+        now: f64,
+        still: bool,
+        caret: Option<Caret>,
+    ) -> (CaretPhase, Option<f64>) {
+        let Some(caret) = caret else {
             self.moved = true;
-            return (false, None);
+            return (CaretPhase::Dark, None);
+        };
+        if !self.active {
+            self.moved = true;
+            return (CaretPhase::Away, None);
         }
         let since = match self.since {
             Some(since) if !self.moved && now >= since => since,
@@ -214,14 +219,29 @@ impl Blink {
             }
         };
         let lit_for = now - since;
+        let half = f64::from(caret.blink_interval);
+        // How long it goes on blinking after it moved, so that a page at rest goes back to drawing
+        // no frames (a terminal cursor's rule): none, for ever.
+        let stop = (caret.blink_for > 0.0).then(|| f64::from(caret.blink_for));
         // A period that is no time is a caret that does not blink.
-        if still || lit_for >= IDLE_STOP || !(self.half > 0.0 && self.half.is_finite()) {
-            return (true, None);
+        if still
+            || !caret.blink
+            || stop.is_some_and(|stop| lit_for >= stop)
+            || !(half > 0.0 && half.is_finite())
+        {
+            return (CaretPhase::Lit, None);
         }
-        let phase = (lit_for / self.half).floor();
+        let phase = (lit_for / half).floor();
         let lit = phase.rem_euclid(2.0) < 1.0;
-        let next = since + (phase + 1.0) * self.half;
-        (lit, Some(next.min(since + IDLE_STOP)))
+        let next = since + (phase + 1.0) * half;
+        (
+            if lit {
+                CaretPhase::Lit
+            } else {
+                CaretPhase::Dark
+            },
+            Some(stop.map_or(next, |stop| next.min(since + stop))),
+        )
     }
 }
 
@@ -229,51 +249,91 @@ impl Blink {
 mod tests {
     use super::*;
 
+    use CaretPhase::{Away, Dark, Lit};
+
+    /// The caret of an editor with the keyboard: the options, blinking each `half` seconds.
+    fn caret(half: f32) -> Option<Caret> {
+        Some(Caret {
+            blink_interval: half,
+            ..Caret::default()
+        })
+    }
+
     #[test]
     fn a_caret_that_moved_is_lit_then_blinks_on_the_frames_clock_and_stops_lit() {
-        let mut blink = Blink::new(0.5);
-        assert_eq!(blink.at(10.0, false, true), (true, Some(10.5)));
-        assert_eq!(blink.at(10.5, false, true), (false, Some(11.0)));
-        assert_eq!(blink.at(10.7, false, true), (false, Some(11.0)));
-        assert_eq!(blink.at(11.0, false, true), (true, Some(11.5)));
+        let mut blink = Blink::new();
+        let c = caret(0.5);
+        assert_eq!(blink.at(10.0, false, c), (Lit, Some(10.5)));
+        assert_eq!(blink.at(10.5, false, c), (Dark, Some(11.0)));
+        assert_eq!(blink.at(10.7, false, c), (Dark, Some(11.0)));
+        assert_eq!(blink.at(11.0, false, c), (Lit, Some(11.5)));
         // A key: lit again, from the frame after it.
         blink.moved();
-        assert_eq!(blink.at(11.25, false, true), (true, Some(11.75)));
-        // Still after a while without a change: lit, and nothing more to wake for.
-        assert_eq!(blink.at(25.75, false, true), (false, Some(26.25)));
-        assert_eq!(blink.at(26.25, false, true), (true, None));
-        assert_eq!(blink.at(40.0, false, true), (true, None));
+        assert_eq!(blink.at(11.25, false, c), (Lit, Some(11.75)));
+        // Still after a while without a change (`blink_for`, 15 seconds): lit, and nothing more to
+        // wake for.
+        assert_eq!(blink.at(25.75, false, c), (Dark, Some(26.25)));
+        assert_eq!(blink.at(26.25, false, c), (Lit, None));
+        assert_eq!(blink.at(40.0, false, c), (Lit, None));
     }
 
     #[test]
     fn a_caret_is_not_drawn_away_from_the_keyboard_and_is_still_with_reduce_motion() {
-        let mut blink = Blink::new(0.5);
-        assert_eq!(
-            blink.at(1.0, false, false),
-            (false, None),
-            "no editor has it"
-        );
+        let mut blink = Blink::new();
+        let c = caret(0.5);
+        assert_eq!(blink.at(1.0, false, None), (Dark, None), "no editor has it");
         blink.set_active(false);
         assert_eq!(
-            blink.at(2.0, false, true),
-            (false, None),
-            "another view has it"
+            blink.at(2.0, false, c),
+            (Away, None),
+            "another view has it, and it does not blink"
         );
         blink.set_active(true);
-        assert_eq!(
-            blink.at(3.5, false, true),
-            (true, Some(4.0)),
-            "back, and lit"
-        );
+        assert_eq!(blink.at(3.5, false, c), (Lit, Some(4.0)), "back, and lit");
         blink.moved();
-        assert_eq!(blink.at(4.0, true, true), (true, None), "Reduce Motion");
+        assert_eq!(blink.at(4.0, true, c), (Lit, None), "Reduce Motion");
     }
 
     #[test]
     fn a_caret_whose_period_is_no_time_is_lit_and_still() {
-        for half in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-            let mut blink = Blink::new(half);
-            assert_eq!(blink.at(1.0, false, true), (true, None), "{half}");
+        for half in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            let mut blink = Blink::new();
+            assert_eq!(blink.at(1.0, false, caret(half)), (Lit, None), "{half}");
         }
+    }
+
+    #[test]
+    fn a_caret_that_does_not_blink_is_lit_and_asks_for_no_frame() {
+        let mut blink = Blink::new();
+        let c = Some(Caret {
+            blink: false,
+            ..Caret::default()
+        });
+        assert_eq!(blink.at(1.0, false, c), (Lit, None));
+        assert_eq!(blink.at(1.6, false, c), (Lit, None));
+    }
+
+    #[test]
+    fn the_half_period_and_how_long_it_blinks_are_the_options() {
+        let mut blink = Blink::new();
+        let c = Some(Caret {
+            blink_interval: 0.25,
+            blink_for: 1.0,
+            ..Caret::default()
+        });
+        assert_eq!(blink.at(0.0, false, c), (Lit, Some(0.25)));
+        assert_eq!(blink.at(0.25, false, c), (Dark, Some(0.5)));
+        assert_eq!(blink.at(0.75, false, c), (Dark, Some(1.0)));
+        // A second after it moved it is lit and still.
+        assert_eq!(blink.at(1.0, false, c), (Lit, None));
+        // `blink_for` 0 never stops.
+        let mut blink = Blink::new();
+        let c = Some(Caret {
+            blink_for: 0.0,
+            ..Caret::default()
+        });
+        assert_eq!(blink.at(0.0, false, c), (Lit, Some(0.5)));
+        assert_eq!(blink.at(1_000.0, false, c), (Lit, Some(1_000.5)));
+        assert_eq!(blink.at(1_000.5, false, c), (Dark, Some(1_001.0)));
     }
 }

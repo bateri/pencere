@@ -23,6 +23,11 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **How a caret looks and blinks**: `Caret::radius`, `glow` (`limits::CARET_GLOW`), `blink`,
+  `blink_interval` (`limits::BLINK_INTERVAL`), `blink_for` (`limits::BLINK_FOR`) and `unfocused`
+  (`CaretUnfocused`: `Hidden`, `Hollow`, `Solid`). The defaults are what a caret was: a square bar
+  that blinks every half second for 15 seconds after it moved and is not drawn away from the keyboard.
+
 - **Round selections**: `EditorOptions::selection` (`SelectionLook::radius`, a fraction of a row's
   height, `limits::ROUNDING`) and `pencere_view::bands` (`Band`, `Part`, `rounded`): the shape of a
   selection over lines, one rule for an editor and a terminal's grid (the corners that are open are

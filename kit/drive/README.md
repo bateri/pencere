@@ -57,7 +57,7 @@ Every part of what bateri's pane did to drive a page is in one column of this ta
 | The pointer over an editor (caret, drag, the keyboard taken back), the place under it told the page                                                            | `Page::input`                                                            |
 | A key to an editor (the page's command first, the editor's, the text), typing, pasting, an input method in UTF-16, a press that ends what it composes          | `Page::key`, `PageEditors`                                               |
 | The texts of the editors posted before the events that tell of them                                                                                            | `Page` (every edit)                                                      |
-| A caret's blink on the frames' clock, still with less motion, dark away from the keyboard                                                                      | `Page::frame`, `Page::set_active`, `Setup::blink`                        |
+| A caret's blink on the frames' clock, still with less motion, dark away from the keyboard                                                                      | `Page::frame`, `Page::set_active`                                        |
 | Wakes: at the first frame at their time, once a frame; a second apart while not seen, none lost                                                                | `Page::frame`, `Page::wake_unseen`, `Drained::wake`                      |
 | The page's images: decoded off the thread, their sizes in the layout, a frame when they come, a word for one refused                                           | `Page` (`Images`), `Drained::diagnostics`                                |
 | The page placed in the host's view (a strip above it, drawn larger): every point in and out turned                                                             | `Placement`, `Page::set_zoom`                                            |
@@ -109,7 +109,7 @@ its own.
 
 - **Opening:** `Headless::script(source)`, `bundle(files, entry)`, `app(dir)` (`Files::app`: a pencere
   app's `src/view/` with `src/assets/` under `assets/`), `component(bytes)`; then `size`, `scale`,
-  `measure` (`Fixed`, 7 × 16 pixels a character, unless said), `peer`, `limits`, `assets`, `blink`,
+  `measure` (`Fixed`, 7 × 16 pixels a character, unless said), `peer`, `limits`, `assets`,
   `at`, `patience`, `reduce_motion`, and `open`.
   What a page may take for one call is the kit's 250 ms, as a terminal holds it; `limits` says
   otherwise, and so does the environment for a gate on a busy machine (`PENCERE_CALL_MS=5000`, in

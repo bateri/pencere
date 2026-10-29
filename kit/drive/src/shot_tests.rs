@@ -574,3 +574,73 @@ fn a_selection_over_lines_is_pictured_square_and_with_round_corners() -> Result<
     assert!(figures > 0, "a turn inward is a figure");
     Ok(())
 }
+
+/// The caret as the page says it looks: the default (a bar), a block with round corners and a glow
+/// as a terminal's cursor has them, and a block away from the keyboard that is hollow. The same
+/// line in each. `PENCERE_SHOTS=caret` writes them to `target/caret-{default,block,hollow}.png`, in
+/// the terminal's font of a Mac, for an eye to check.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_caret_is_pictured_as_a_bar_as_a_round_block_with_a_glow_and_as_a_hollow_one()
+-> Result<(), Error> {
+    let fonts = match std::env::var("PENCERE_SHOTS").as_deref() {
+        Ok("caret") => Fonts::none()
+            .terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc").expect("Menlo"))
+            .expect("a font"),
+        _ => Fonts::none(),
+    };
+    let open = |caret: &str| {
+        Headless::script(format!(
+            r#"
+        local text = "let total = add(3, 4);\nprintln!(total)"
+        return {{
+            render = function()
+                return pencere.div():size_full():child(
+                    pencere.editor("e", {{ gutter = false, caret = {caret} }}):grow(1))
+            end,
+            handle = function(event)
+                if event.type == "editor_ready" then
+                    return {{ keyboard = {{ field = "e" }}, editor = {{ e = {{ {{ load = text }} }} }} }}
+                end
+            end,
+        }}
+        "#
+        ))
+        .measure(fonts.clone())
+        .size(260.0, 60.0)
+        .scale(2.0)
+        .open()
+    };
+    let mut shots = Vec::new();
+    for (name, caret, away) in [
+        ("default", "{}", false),
+        (
+            "block",
+            r#"{ shape = "block", radius = 0.2, glow = 1, color = "accent" }"#,
+            false,
+        ),
+        (
+            "hollow",
+            r#"{ shape = "block", radius = 0.2, glow = 1, color = "accent", unfocused = "hollow" }"#,
+            true,
+        ),
+    ] {
+        let mut page = open(caret)?;
+        page.caret_to("e", 4)?;
+        if away {
+            page.set_active(false)?;
+        }
+        shots.push((
+            name,
+            page.shot_in(&fonts, Palette::Dark).expect("a picture"),
+        ));
+    }
+    assert!(shots[1].1 != shots[0].1 && shots[2].1 != shots[1].1);
+    if std::env::var("PENCERE_SHOTS").as_deref() == Ok("caret") {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        for (name, bytes) in &shots {
+            std::fs::write(target.join(format!("caret-{name}.png")), bytes).expect("written");
+        }
+    }
+    Ok(())
+}

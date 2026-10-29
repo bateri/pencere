@@ -5,13 +5,13 @@
 // A test fails by panicking, and indexes what it has just built.
 #![allow(clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
 
-use pencere_editor::{EditorEvent, Editors, Route};
+use pencere_editor::{CaretPhase, EditorEvent, Editors, Route};
 use pencere_view::edit::{
-    Caret, CaretHeight, CaretShape, Change, Column, ColumnEvents, Decorate, Decoration,
-    EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds, Found, Gesture,
-    GutterKind, GutterMark, GutterShape, HoverKind, KeyAction, Keybinding, Keys, LineHighlight,
-    Look, Mark, Numbers, Pressing, Preview, Range, RulerLane, RulerMark, TargetKind, TargetSource,
-    Tint, Whitespace, Widget, WidgetPart, WidgetSide, Zone, ZoneSide,
+    Caret, CaretHeight, CaretShape, CaretUnfocused, Change, Column, ColumnEvents, Decorate,
+    Decoration, EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds, Found,
+    Gesture, GutterKind, GutterMark, GutterShape, HoverKind, KeyAction, Keybinding, Keys,
+    LineHighlight, Look, Mark, Numbers, Pressing, Preview, Range, RulerLane, RulerMark, TargetKind,
+    TargetSource, Tint, Whitespace, Widget, WidgetPart, WidgetSide, Zone, ZoneSide,
 };
 use pencere_view::{
     Button, Command, Cursor, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint,
@@ -55,16 +55,23 @@ struct Host {
     laid: Laid,
     page: Box<dyn Fn() -> Element>,
     now: f64,
+    /// The page's size: 400 by 200 unless the test says.
+    size: Size,
 }
 
 impl Host {
     fn new(page: impl Fn() -> Element + 'static) -> Self {
+        Self::sized(page, Size::new(400.0, 200.0))
+    }
+
+    fn sized(page: impl Fn() -> Element + 'static, size: Size) -> Self {
         let mut host = Self {
             editors: Editors::new(),
             scrolls: Scrolls::new(),
             laid: layout(div(), Size::new(1.0, 1.0), 1.0, &mut Fake),
             page: Box::new(page),
             now: 0.0,
+            size,
         };
         // Twice: the first lays the editor out, the second lays the page out with what it said.
         host.frame();
@@ -79,7 +86,7 @@ impl Host {
         let mut measure = Fake;
         let mut laid = layout(
             root,
-            Size::new(400.0, 200.0),
+            self.size,
             1.0,
             &mut self.editors.measure(&mut measure),
         );
@@ -149,8 +156,16 @@ impl Host {
     }
 
     fn paint(&mut self, caret_on: bool) -> DrawList {
+        self.paint_as(if caret_on {
+            CaretPhase::Lit
+        } else {
+            CaretPhase::Dark
+        })
+    }
+
+    fn paint_as(&mut self, phase: CaretPhase) -> DrawList {
         let list = self.laid.paint(&mut Fake);
-        self.editors.paint(list, &mut Fake, caret_on)
+        self.editors.paint(list, &mut Fake, phase)
     }
 
     /// The main caret put at `at`, the editor having the keyboard.
@@ -3731,5 +3746,218 @@ fn an_inline_widget_keeps_its_margin_between_its_box_and_the_characters_beside_i
     assert_eq!(
         word_at(&mut host, (Some(8.0), Some(1.0))),
         (4.0 + 6.0 + 8.0 + 3.0, 4.0 + 6.0 + 8.0 + 13.0 + 1.0)
+    );
+}
+
+/// The boxes drawn in the caret's colour (the theme's cursor), whole: by their fill or their border.
+fn caret_quads(host: &mut Host, phase: CaretPhase) -> Vec<pencere_view::Quad> {
+    host.paint_as(phase)
+        .items
+        .into_iter()
+        .filter_map(|item| match item {
+            Paint::Quad(quad)
+                if quad.fill.and_then(|fill| fill.role()) == Some(Role::Cursor)
+                    || quad
+                        .border
+                        .is_some_and(|b| b.color.role() == Some(Role::Cursor)) =>
+            {
+                Some(quad)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn caret_host(caret: Caret) -> Host {
+    let mut host = Host::new(page_with(EditorOptions { caret, ..plain() }));
+    host.load("mi");
+    host.caret_at(0);
+    host
+}
+
+#[test]
+fn a_caret_that_says_nothing_of_its_look_is_a_square_box_with_no_light_and_is_not_drawn_away() {
+    let mut host = caret_host(Caret::default());
+    let lit = caret_quads(&mut host, CaretPhase::Lit);
+    assert_eq!(lit.len(), 1);
+    assert_eq!(lit[0].rect, Rect::new(4.0, 4.0, 2.0, ROW));
+    assert_eq!(lit[0].radii, [0.0; 4]);
+    assert!(lit[0].shadow.is_none() && lit[0].border.is_none());
+    assert!(lit[0].fill.is_some());
+    // Dark, it is not drawn; away from the keyboard, not either.
+    assert!(caret_quads(&mut host, CaretPhase::Dark).is_empty());
+    assert!(caret_quads(&mut host, CaretPhase::Away).is_empty());
+}
+
+#[test]
+fn a_caret_is_round_by_the_fraction_of_a_row_the_page_says_held_to_half_of_what_it_is() {
+    // A block is 11 wide and a row 20: 0.2 of a row is 4, and 0.5 of it more than half of the width.
+    let mut host = caret_host(Caret {
+        shape: CaretShape::Block,
+        radius: 0.2,
+        ..Caret::default()
+    });
+    assert_eq!(caret_quads(&mut host, CaretPhase::Lit)[0].radii, [4.0; 4]);
+    let mut host = caret_host(Caret {
+        shape: CaretShape::Block,
+        radius: 0.5,
+        ..Caret::default()
+    });
+    assert_eq!(caret_quads(&mut host, CaretPhase::Lit)[0].radii, [5.5; 4]);
+    // A bar 2 wide cannot be rounder than 1.
+    let mut host = caret_host(Caret {
+        radius: 0.5,
+        ..Caret::default()
+    });
+    assert_eq!(caret_quads(&mut host, CaretPhase::Lit)[0].radii, [1.0; 4]);
+}
+
+#[test]
+fn a_caret_with_a_glow_has_a_soft_light_of_its_colour_round_it_and_the_more_the_larger_and_darker()
+{
+    let shadow = |glow: f32| {
+        let mut host = caret_host(Caret {
+            glow,
+            ..Caret::default()
+        });
+        caret_quads(&mut host, CaretPhase::Lit)[0].shadow
+    };
+    assert_eq!(shadow(0.0), None);
+    let one = shadow(1.0).expect("a light");
+    let two = shadow(2.0).expect("a light");
+    assert_eq!((one.dx, one.dy), (0.0, 0.0));
+    assert_eq!(one.color.role(), Some(Role::Cursor));
+    assert!(one.blur > 0.0 && two.blur > one.blur);
+    assert!(two.color.alpha > one.color.alpha && one.color.alpha > 0.0);
+}
+
+#[test]
+fn away_from_the_keyboard_a_caret_is_what_the_page_says_and_a_block_hollow_is_an_outline() {
+    let away = |shape, unfocused| {
+        let mut host = caret_host(Caret {
+            shape,
+            unfocused,
+            glow: 1.0,
+            ..Caret::default()
+        });
+        let quads = caret_quads(&mut host, CaretPhase::Away);
+        let character = host
+            .paint_as(CaretPhase::Away)
+            .items
+            .iter()
+            .filter(|item| matches!(item, Paint::Text(run) if run.color.role() == Some(Role::Background)))
+            .count();
+        (quads, character)
+    };
+    for shape in [CaretShape::Bar, CaretShape::Block, CaretShape::Underline] {
+        assert!(away(shape, CaretUnfocused::Hidden).0.is_empty());
+        // Solid: drawn as with the keyboard.
+        let (quads, _) = away(shape, CaretUnfocused::Solid);
+        assert_eq!(quads.len(), 1);
+        assert!(quads[0].fill.is_some() && quads[0].border.is_none());
+    }
+    // Hollow: a bar and a line as they are, a block an outline as thick as a bar, with nothing in it
+    // and no light, and its character not drawn again on it.
+    for shape in [CaretShape::Bar, CaretShape::Underline] {
+        let (quads, _) = away(shape, CaretUnfocused::Hollow);
+        assert!(quads[0].fill.is_some());
+    }
+    let (quads, again) = away(CaretShape::Block, CaretUnfocused::Hollow);
+    assert_eq!(quads.len(), 1);
+    assert!(quads[0].fill.is_none());
+    assert_eq!(quads[0].border.map(|b| b.width), Some(2.0));
+    assert!(quads[0].shadow.is_none());
+    assert_eq!(again, 0);
+    // Solid, a block draws its character again on it, as it does with the keyboard.
+    let (_, again) = away(CaretShape::Block, CaretUnfocused::Solid);
+    assert_eq!(again, 1);
+}
+
+#[test]
+fn an_editor_the_keyboard_is_not_in_draws_no_caret_whatever_the_page_says_of_one_away() {
+    let mut host = caret_host(Caret {
+        unfocused: CaretUnfocused::Solid,
+        ..Caret::default()
+    });
+    host.editors.set_focus(None);
+    assert!(caret_quads(&mut host, CaretPhase::Away).is_empty());
+    assert!(caret_quads(&mut host, CaretPhase::Lit).is_empty());
+}
+
+/// What a round selection costs a frame, for an eye to read (a measure, not a guard: `cargo test
+/// --release -p pencere-editor --test editors -- --ignored --nocapture selection_cost`): a selection
+/// of 300 lines of every width dragged down in 60 frames, every row in view, the time each frame takes
+/// to draw and how many different figures it asks the host for (a host keeps a figure's bitmap by
+/// what it is drawn of, so a frame's figures cost only what is new in them).
+#[test]
+#[ignore = "a measure: run it in a release build, and read what it prints"]
+fn selection_cost_of_300_lines_dragged_in_60_frames() {
+    let text: String = (0..300)
+        .map(|n| format!("{}\n", "i".repeat(5 + (n * 7919) % 53)))
+        .collect();
+    let mut host = Host::sized(
+        page_with(EditorOptions {
+            selection: pencere_view::edit::SelectionLook { radius: 0.22 },
+            ..plain()
+        }),
+        Size::new(400.0, 300.0 * ROW + 8.0),
+    );
+    host.load(&text);
+    host.editors.set_focus(Some(EDITOR));
+    let len = text.chars().count();
+    let mut kinds = std::collections::HashSet::new();
+    let mut worst = std::time::Duration::ZERO;
+    let mut total = std::time::Duration::ZERO;
+    let mut most_figures = 0;
+    let mut square = std::time::Duration::ZERO;
+    for frame in 1..=60 {
+        let to = len * frame / 60;
+        select(&mut host, vec![Range::new(3, to.max(4))]);
+        let started = std::time::Instant::now();
+        let list = host.paint(true);
+        let took = started.elapsed();
+        worst = worst.max(took);
+        total += took;
+        let figures: Vec<_> = list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Paint::Figure(figure) => Some(figure),
+                _ => None,
+            })
+            .collect();
+        most_figures = most_figures.max(figures.len());
+        for figure in figures {
+            // A figure is kept by its size, scale and what is drawn: not by where it is.
+            kinds.insert(format!(
+                "{:?}",
+                (
+                    figure.rect.w.to_bits(),
+                    figure.rect.h.to_bits(),
+                    &figure.paths
+                )
+            ));
+        }
+    }
+    let flat = EditorOptions {
+        selection: pencere_view::edit::SelectionLook { radius: 0.0 },
+        ..plain()
+    };
+    let mut host = Host::sized(page_with(flat), Size::new(400.0, 300.0 * ROW + 8.0));
+    host.load(&text);
+    host.editors.set_focus(Some(EDITOR));
+    for frame in 1..=60 {
+        select(&mut host, vec![Range::new(3, (len * frame / 60).max(4))]);
+        let started = std::time::Instant::now();
+        let _ = host.paint(true);
+        square += started.elapsed();
+    }
+    println!(
+        "round: {:?} a frame on average, {:?} at worst; square: {:?} a frame; at most {most_figures} figures \
+         in a frame, {} different ones in all",
+        total / 60,
+        worst,
+        square / 60,
+        kinds.len()
     );
 }

@@ -627,7 +627,18 @@ interface types {
         text,
     }
 
-    /// How an editor's carets look. The application blinks them.
+    /// What a caret is while the window or the pane does not have the keyboard.
+    enum caret-unfocused {
+        /// Not drawn.
+        hidden,
+        /// A block is an outline, with its character as it is; a bar and a line are drawn as they
+        /// are with the keyboard.
+        hollow,
+        /// Drawn as it is with the keyboard, and still.
+        solid,
+    }
+
+    /// How an editor's carets look. The application blinks them, as it is told here.
     record editor-caret {
         shape: caret-shape,
         height: caret-height,
@@ -638,6 +649,21 @@ interface types {
         color: editor-tint,
         /// The colour of the character under a block (the theme's background).
         text: editor-tint,
+        /// How round its corners are, a fraction (0 to 0.5) of a row's height, held to half of the
+        /// caret's width and height; none: 0, square.
+        radius: option<f32>,
+        /// The soft light round it, one number (0 to 3: how far it reaches and how dark it is,
+        /// together; 1 is a terminal's cursor's); none: 0, none.
+        glow: option<f32>,
+        /// Whether it blinks; none: yes.
+        blink: option<bool>,
+        /// Seconds (0.05 to 5) it is lit, and then dark; none: 0.5.
+        blink-interval: option<f32>,
+        /// Seconds (0 to 3600) after it last moved that it goes on blinking, and is lit and still
+        /// after; 0: for ever; none: 15.
+        blink-for: option<f32>,
+        /// What it is while the window or the pane does not have the keyboard.
+        unfocused: caret-unfocused,
     }
 
     /// What the numbers of the lines in an editor's gutter count.

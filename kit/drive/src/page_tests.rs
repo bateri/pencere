@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use pencere_sandbox::{Assets, Program, Script};
 use pencere_view::wire::Kind;
 use pencere_view::{
-    Button, DrawList, Font, Id, Input, Key, Measure, Metrics, Mods, Paint, Point, Rect,
+    Button, DrawList, Font, Id, Input, Key, Measure, Metrics, Mods, Paint, Point, Rect, Role,
 };
 
 use crate::{Drained, FrameAt, Outline, Page, Placement, Route, Setup};
@@ -783,6 +783,94 @@ fn the_caret_is_kept_in_view_by_the_rooms_scrolling_and_blinks_at_rest() {
     // At rest: no frame is asked for but the caret's next blink.
     assert!(!rig.page.animating());
     assert_eq!(rig.page.wake_at(), Some(0.5));
+}
+
+/// The caret blinks as the options of the editor that has the keyboard say (`blink`, `blink_interval`,
+/// `blink_for`) on the frames' clock, and while the window does not have the keyboard it is what
+/// `unfocused` says and does not blink.
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+fn the_caret_blinks_as_the_editors_options_say_and_is_what_they_say_away_from_the_keyboard() {
+    let with = |caret: &str| {
+        EDITOR_PAGE.replace(
+            "{ gutter = false }",
+            &format!("{{ gutter = false, caret = {caret} }}"),
+        )
+    };
+    // The caret's quads of the page's last frame: by its colour, the theme's cursor.
+    let drawn = |rig: &mut Rig, now: f64| {
+        let painted = rig.page.frame(frame_at(now));
+        painted
+            .list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Paint::Quad(quad)
+                    if quad.fill.and_then(|fill| fill.role()) == Some(Role::Cursor)
+                        || quad
+                            .border
+                            .is_some_and(|border| border.color.role() == Some(Role::Cursor)) =>
+                {
+                    Some(quad.clone())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    // The default: lit, dark a half second after, and a frame for the next change.
+    let mut rig = loaded(&with("{}"));
+    assert_eq!(drawn(&mut rig, 0.0).len(), 1);
+    assert_eq!(rig.page.wake_at(), Some(0.5));
+    assert!(drawn(&mut rig, 0.5).is_empty(), "dark");
+    assert_eq!(drawn(&mut rig, 1.0).len(), 1, "lit again");
+    // A quarter of a second, for a second.
+    let mut rig = loaded(&with("{ blink_interval = 0.25, blink_for = 1 }"));
+    assert_eq!(drawn(&mut rig, 0.0).len(), 1);
+    assert_eq!(rig.page.wake_at(), Some(0.25));
+    assert!(drawn(&mut rig, 0.25).is_empty());
+    assert!(drawn(&mut rig, 0.75).is_empty());
+    assert_eq!(
+        drawn(&mut rig, 1.0).len(),
+        1,
+        "lit and still after a second"
+    );
+    assert_eq!(rig.page.wake_at(), None);
+    // No blinking: lit, and no frame asked for.
+    let mut rig = loaded(&with("{ blink = false }"));
+    assert_eq!(drawn(&mut rig, 0.0).len(), 1);
+    assert_eq!(drawn(&mut rig, 3.3).len(), 1);
+    assert_eq!(rig.page.wake_at(), None);
+    // Away from the keyboard: hidden, hollow (an outline for a block) and solid; none blinks.
+    for (caret, shows, outline) in [
+        (r#"{ shape = "block" }"#, false, false),
+        (r#"{ shape = "block", unfocused = "hollow" }"#, true, true),
+        (r#"{ shape = "block", unfocused = "solid" }"#, true, false),
+        (r#"{ shape = "bar", unfocused = "hollow" }"#, true, false),
+    ] {
+        let mut rig = loaded(&with(caret));
+        rig.page.set_active(false);
+        let quads = drawn(&mut rig, 0.7);
+        assert_eq!(quads.len(), usize::from(shows), "{caret}");
+        assert_eq!(
+            quads.first().is_some_and(|quad| quad.fill.is_none()),
+            outline,
+            "{caret}"
+        );
+        assert_eq!(rig.page.wake_at(), None, "{caret}: it does not blink away");
+        rig.page.set_active(true);
+        assert_eq!(drawn(&mut rig, 1.0).len(), 1, "{caret}: back, and lit");
+    }
+    // Reduce Motion: lit and still.
+    let mut rig = loaded(&with("{}"));
+    let painted = rig.page.frame(FrameAt {
+        reduce_motion: true,
+        ..frame_at(0.6)
+    });
+    assert!(painted.list.items.iter().any(|item| matches!(
+        item,
+        Paint::Quad(quad) if quad.fill.and_then(|fill| fill.role()) == Some(Role::Cursor)
+    )));
+    assert_eq!(rig.page.wake_at(), None);
 }
 
 /// On a screen of two pixels to a point, the page drawn half as large again as its own size: the

@@ -615,7 +615,6 @@ struct Spec {
     scale: f64,
     reduce_motion: bool,
     at: f64,
-    blink: f64,
     patience: Duration,
     place: Where,
 }
@@ -675,7 +674,6 @@ fn spec_of(session: &Shared, options: &Table) -> mlua::Result<Spec> {
             .get::<Option<bool>>("reduce_motion")?
             .unwrap_or(false),
         at: number(options, "at")?.unwrap_or(0.0),
-        blink: number(options, "blink")?.unwrap_or(0.5),
         patience: remaining.max(Duration::from_secs(1)),
         place,
     })
@@ -711,7 +709,6 @@ impl Spec {
             .scale(self.scale)
             .reduce_motion(self.reduce_motion)
             .at(self.at)
-            .blink(self.blink)
             .patience(self.patience))
     }
 }
@@ -903,7 +900,6 @@ fn start_command(
         .scale(spec.scale)
         .reduce_motion(spec.reduce_motion)
         .at(spec.at)
-        .blink(spec.blink)
         .patience(spec.patience)
         .peer(Any::Program(Box::new(program)))
         .open()

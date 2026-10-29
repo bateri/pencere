@@ -299,7 +299,6 @@ pub struct Opening<P: Peer = Calls> {
     limits: ModuleLimits,
     assets: Option<Arc<dyn Assets>>,
     measure: Box<dyn Measure>,
-    blink: f64,
     start: f64,
     system: System,
     patience: Duration,
@@ -458,7 +457,6 @@ impl Opening<Calls> {
             limits: default_limits(),
             assets: None,
             measure: Box::new(Fixed::default()),
-            blink: 0.5,
             start: 0.0,
             system: System {
                 wall: WALL_ORIGIN,
@@ -509,13 +507,6 @@ impl<P: Peer> Opening<P> {
         self
     }
 
-    /// How long an editor's caret stays lit, then dark (0.5 seconds unless said; 0: it does not
-    /// blink).
-    pub fn blink(mut self, half_period: f64) -> Self {
-        self.blink = half_period;
-        self
-    }
-
     /// The time on the clock when the page opens (0 unless said).
     pub fn at(mut self, time: f64) -> Self {
         self.start = time;
@@ -556,7 +547,6 @@ impl<P: Peer> Opening<P> {
             limits: self.limits,
             assets: self.assets,
             measure: self.measure,
-            blink: self.blink,
             start: self.start,
             system: self.system,
             patience: self.patience,
@@ -581,7 +571,6 @@ impl<P: Peer> Opening<P> {
             limits: self.limits,
             program: Arc::clone(&clock) as Arc<dyn Program>,
             assets: self.assets,
-            blink: self.blink,
             measure: self.measure,
             ..Setup::default()
         };

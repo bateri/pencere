@@ -20,6 +20,11 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **How a caret looks** (`caret.radius`, `glow`, `unfocused`): the caret's box has round corners and a
+  soft light (the box's `shadow`, with no offset, in the caret's colour), and away from the keyboard a
+  block can be an outline. `Editors::paint` takes a `CaretPhase` (`Lit`, `Dark`, `Away`) in place of a
+  `bool`, and `Editors::focused_caret` gives the options the host blinks the caret by.
+
 - **Round selections** (`selection.radius`): each range of the selection is drawn as one shape over
   the rows it covers (`pencere_view::bands`), the corners that are open rounded and the turns
   inward filled with a small figure; 0, the default, draws the square box of each row as before.

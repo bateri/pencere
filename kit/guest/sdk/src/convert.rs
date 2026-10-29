@@ -4,11 +4,11 @@
 //! `crates/pencere-sandbox/src/world.rs`.
 
 use pencere_view::edit::{
-    CaretHeight, CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions,
-    Folds, Found, GutterEvent, GutterHit, GutterKind, GutterShape, HoverEvent, HoverHit, HoverKind,
-    HoverOver, KeyAction, Keys, LineHighlight, Mark, Matches, Movement, Numbers, Origin, Pressing,
-    Range, Refusal, RevealAlign, RulerLane, Selection, TargetEvent, TargetKind, TargetSource, Tint,
-    Underline, Whitespace, WidgetShow, WidgetSide, ZoneSide,
+    CaretHeight, CaretShape, CaretUnfocused, Change, EditCommand, Edited, EditorAsk, EditorColors,
+    EditorOptions, Folds, Found, GutterEvent, GutterHit, GutterKind, GutterShape, HoverEvent,
+    HoverHit, HoverKind, HoverOver, KeyAction, Keys, LineHighlight, Mark, Matches, Movement,
+    Numbers, Origin, Pressing, Range, Refusal, RevealAlign, RulerLane, Selection, TargetEvent,
+    TargetKind, TargetSource, Tint, Underline, Whitespace, WidgetShow, WidgetSide, ZoneSide,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
@@ -769,6 +769,16 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
             width: Some(options.caret.width),
             color: tint(options.caret.color),
             text: tint(options.caret.text),
+            radius: Some(options.caret.radius),
+            glow: Some(options.caret.glow),
+            blink: Some(options.caret.blink),
+            blink_interval: Some(options.caret.blink_interval),
+            blink_for: Some(options.caret.blink_for),
+            unfocused: match options.caret.unfocused {
+                CaretUnfocused::Hidden => wit::CaretUnfocused::Hidden,
+                CaretUnfocused::Hollow => wit::CaretUnfocused::Hollow,
+                CaretUnfocused::Solid => wit::CaretUnfocused::Solid,
+            },
         },
         colors: editor_colors(&options.colors),
         whitespace: match options.whitespace {
@@ -1416,6 +1426,12 @@ mod tests {
                 width: 2.0,
                 color: Tint::Color(Color::from(Role::Accent)),
                 text: Tint::Off,
+                radius: 0.1,
+                glow: 1.5,
+                blink: false,
+                blink_interval: 0.4,
+                blink_for: 0.0,
+                unfocused: CaretUnfocused::Hollow,
             },
             whitespace: Whitespace::Boundary,
             indent_guides: true,
@@ -1442,6 +1458,18 @@ mod tests {
         assert!(matches!(editor.caret.shape, wit::CaretShape::Block));
         assert!(matches!(editor.caret.height, wit::CaretHeight::Text));
         assert_eq!(editor.caret.width, Some(2.0));
+        assert_eq!(
+            (editor.caret.radius, editor.caret.glow, editor.caret.blink),
+            (Some(0.1), Some(1.5), Some(false))
+        );
+        assert_eq!(
+            (editor.caret.blink_interval, editor.caret.blink_for),
+            (Some(0.4), Some(0.0))
+        );
+        assert!(matches!(
+            editor.caret.unfocused,
+            wit::CaretUnfocused::Hollow
+        ));
         assert!(matches!(&editor.caret.color, wit::EditorTint::Color(_)));
         assert!(matches!(editor.caret.text, wit::EditorTint::Off));
         assert!(matches!(editor.colors.current_line, wit::EditorTint::Off));

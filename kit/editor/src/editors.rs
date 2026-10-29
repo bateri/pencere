@@ -33,7 +33,7 @@ use pencere_view::{
 
 use crate::buffer::{Buffer, Note};
 use crate::text::Snapshot;
-use crate::view::{Cell, Kind, Rows, View};
+use crate::view::{CaretPhase, Cell, Kind, Rows, View};
 
 /// What an editor has to tell its page.
 #[derive(Clone, Debug, PartialEq)]
@@ -256,6 +256,13 @@ impl Editors {
     /// The editor that has the keyboard.
     pub fn focused(&self) -> Option<Id> {
         self.focus
+    }
+
+    /// How the carets of the editor that has the keyboard look, and so how its host blinks them:
+    /// none where no editor has it.
+    pub fn focused_caret(&self) -> Option<pencere_view::edit::Caret> {
+        let editor = self.editors.get(&self.focus?)?;
+        Some(editor.view.options.caret)
     }
 
     /// The keyboard goes to the editor named `id` (the page said so: `Keyboard::Field(id)`), or to
@@ -725,9 +732,14 @@ impl Editors {
         }
     }
 
-    /// The page's draw list with each editor's place filled with what it draws: the carets where
-    /// `caret_on` (the host blinks them).
-    pub fn paint(&mut self, list: DrawList, measure: &mut dyn Measure, caret_on: bool) -> DrawList {
+    /// The page's draw list with each editor's place filled with what it draws: the carets as
+    /// `caret` says they are now (the host blinks them).
+    pub fn paint(
+        &mut self,
+        list: DrawList,
+        measure: &mut dyn Measure,
+        caret: CaretPhase,
+    ) -> DrawList {
         let mut out = DrawList::default();
         for item in list.items {
             let Paint::Editor(slot) = item else {
@@ -744,7 +756,7 @@ impl Editors {
             out.items.extend(
                 editor
                     .view
-                    .paint(&editor.buffer, &slot, focused, caret_on, measure),
+                    .paint(&editor.buffer, &slot, focused, caret, measure),
             );
         }
         out

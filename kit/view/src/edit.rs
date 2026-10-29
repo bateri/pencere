@@ -1077,6 +1077,18 @@ impl EditorOptions {
         self.line_height = hold(self.line_height, limits::LINE_HEIGHT, default.line_height);
         self.padding = hold(self.padding, limits::PADDING, default.padding);
         self.caret.width = hold(self.caret.width, limits::CARET_WIDTH, default.caret.width);
+        self.caret.radius = hold(self.caret.radius, limits::ROUNDING, default.caret.radius);
+        self.caret.glow = hold(self.caret.glow, limits::CARET_GLOW, default.caret.glow);
+        self.caret.blink_interval = hold(
+            self.caret.blink_interval,
+            limits::BLINK_INTERVAL,
+            default.caret.blink_interval,
+        );
+        self.caret.blink_for = hold(
+            self.caret.blink_for,
+            limits::BLINK_FOR,
+            default.caret.blink_for,
+        );
         self.selection.radius = hold(
             self.selection.radius,
             limits::ROUNDING,
@@ -1140,7 +1152,21 @@ pub enum CaretHeight {
     Text,
 }
 
-/// How the carets look. The host blinks them.
+/// What a caret is while the window or the pane that holds its editor does not have the keyboard
+/// ([`Caret::unfocused`]; an editor the keyboard is not in, in a page that has it, draws none).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CaretUnfocused {
+    /// Not drawn.
+    #[default]
+    Hidden,
+    /// A block is an outline, with the character under it as it is; a bar and a line are drawn as
+    /// they are when it has the keyboard (a terminal's cursor of a window that is not in front).
+    Hollow,
+    /// Drawn as it is when it has the keyboard, and still: it does not blink.
+    Solid,
+}
+
+/// How the carets look. The host blinks them, on the options it is given here.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Caret {
     pub shape: CaretShape,
@@ -1152,6 +1178,22 @@ pub struct Caret {
     pub color: Tint,
     /// The colour of the character under a block (the theme's: its background).
     pub text: Tint,
+    /// How round its corners are, as a fraction of a row's height ([`limits::ROUNDING`]); held to
+    /// half of the caret's width and of its height. 0: square.
+    pub radius: f32,
+    /// The soft light round it, one number ([`limits::CARET_GLOW`]): how far it reaches and how
+    /// dark it is together, in the caret's colour; 1 is a terminal's cursor's. 0: none.
+    pub glow: f32,
+    /// Whether it blinks (a caret that does not is lit, and the host asks for no frame for it).
+    pub blink: bool,
+    /// How long it is lit, and then dark, seconds ([`limits::BLINK_INTERVAL`]): VS Code's
+    /// `ViewCursors.BLINK_INTERVAL` is half a second.
+    pub blink_interval: f32,
+    /// How long after it last moved it goes on blinking, seconds ([`limits::BLINK_FOR`]), and
+    /// stays lit after (a page at rest draws no frames); 0: it never stops.
+    pub blink_for: f32,
+    /// What it is while the window or the pane does not have the keyboard.
+    pub unfocused: CaretUnfocused,
 }
 
 impl Default for Caret {
@@ -1162,6 +1204,12 @@ impl Default for Caret {
             width: 2.0,
             color: Tint::Theme,
             text: Tint::Theme,
+            radius: 0.0,
+            glow: 0.0,
+            blink: true,
+            blink_interval: 0.5,
+            blink_for: 15.0,
+            unfocused: CaretUnfocused::Hidden,
         }
     }
 }
@@ -1568,6 +1616,12 @@ pub mod limits {
     pub const CARET_WIDTH: std::ops::RangeInclusive<f32> = 0.5..=8.0;
     /// How round a corner is, as a fraction of a row's height.
     pub const ROUNDING: std::ops::RangeInclusive<f32> = 0.0..=0.5;
+    /// How strong the light round a caret may be.
+    pub const CARET_GLOW: std::ops::RangeInclusive<f32> = 0.0..=3.0;
+    /// How long a caret may be lit, and dark, seconds.
+    pub const BLINK_INTERVAL: std::ops::RangeInclusive<f32> = 0.05..=5.0;
+    /// How long after it moved a caret may go on blinking, seconds.
+    pub const BLINK_FOR: std::ops::RangeInclusive<f32> = 0.0..=3600.0;
     /// How wide a column of the gutter may be, points.
     pub const COLUMN: std::ops::RangeInclusive<f32> = 0.0..=64.0;
     /// How many columns the gutter may have.
