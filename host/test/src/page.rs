@@ -630,6 +630,12 @@ impl UserData for Handle {
         methods.add_method("set_active", |_, this, active: bool| {
             this.act(|page| page.set_active(active))
         });
+        // How the host's terminal draws its cursor and its selection is now as the table says: the
+        // page is told it changed where it did.
+        methods.add_method("set_terminal_look", |_, this, look: mlua::Table| {
+            let look = crate::look::terminal_look(&look)?;
+            this.act(|page| page.set_terminal_look(look))
+        });
         methods.add_method("refresh", |_, this, ()| this.act(Headless::refresh));
         methods.add_method("settle", |_, this, ()| this.act(Headless::settle));
         methods.add_method("advance", |_, this, seconds: f64| {

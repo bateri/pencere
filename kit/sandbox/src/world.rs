@@ -86,6 +86,52 @@ impl pencere::view::system::Host for Host {
         }
     }
 
+    fn terminal_look(&mut self) -> pencere::view::system::TerminalSettings {
+        use pencere::view::system as sys;
+        let look = self.program.terminal_look();
+        let caret = look.caret;
+        let number = |said: Option<f32>| said.filter(|number| number.is_finite());
+        sys::TerminalSettings {
+            caret: sys::TerminalCaret {
+                shape: caret.shape.map(|shape| match shape {
+                    CaretShape::Bar => wit::CaretShape::Bar,
+                    CaretShape::Block => wit::CaretShape::Block,
+                    CaretShape::Underline => wit::CaretShape::Underline,
+                }),
+                width: number(caret.width),
+                radius: number(caret.radius),
+                glow: number(caret.glow),
+                blink: caret.blink,
+                blink_interval: number(caret.blink_interval),
+                unfocused: caret.unfocused.map(|unfocused| match unfocused {
+                    CaretUnfocused::Hidden => wit::CaretUnfocused::Hidden,
+                    CaretUnfocused::Hollow => wit::CaretUnfocused::Hollow,
+                    CaretUnfocused::Solid => wit::CaretUnfocused::Solid,
+                }),
+                motion: caret.motion.map(|motion| match motion {
+                    CaretMotion::Snap => wit::CaretMotion::Snap,
+                    CaretMotion::Ease(seconds) => wit::CaretMotion::Ease(number(Some(seconds))),
+                    CaretMotion::Spring(stiffness) => {
+                        wit::CaretMotion::Spring(number(Some(stiffness)))
+                    }
+                }),
+            },
+            selection: sys::TerminalSelection {
+                radius: number(look.selection.radius),
+            },
+        }
+    }
+
+    fn draws(&mut self) -> Vec<pencere::view::system::Drawing> {
+        self.program
+            .draws()
+            .into_iter()
+            .map(|drawing| match drawing {
+                pencere_view::Drawing::Shadow => pencere::view::system::Drawing::Shadow,
+            })
+            .collect()
+    }
+
     fn keyboard(&mut self) -> pencere::view::system::KeyConvention {
         use pencere::view::system::KeyConvention as Wit;
         match self.program.keyboard() {
@@ -499,6 +545,7 @@ fn event_in(event: Event) -> wit::Event {
             more: found.more,
         }),
         Event::Wake { now } => wit::Event::Wake(now),
+        Event::TerminalLook => wit::Event::TerminalLook,
         Event::EditorReady { editor, version } => wit::Event::EditorReady(wit::EditorReady {
             editor: id_out(editor),
             version,

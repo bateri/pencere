@@ -687,6 +687,7 @@ pub fn from_wit_event(event: wit::Event) -> Event {
         | wit::Event::EditorTarget(_)
         | wit::Event::KeymapPending(_)) => editor_event(editor),
         wit::Event::Wake(now) => Event::Wake { now },
+        wit::Event::TerminalLook => Event::TerminalLook,
         wit::Event::EditorReady(ready) => Event::EditorReady {
             editor: Id::new(ready.editor),
             version: ready.version,

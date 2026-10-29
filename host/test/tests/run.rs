@@ -472,6 +472,65 @@ fn the_template_tests_pass_on_the_app_the_template_makes() {
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn a_test_says_how_the_host_draws_its_terminals_cursor_and_the_page_reads_it_and_is_told_it_changed()
+ {
+    let app = App::new(
+        "terminal-look",
+        &[
+            (
+                "src/view/page.lua",
+                r#"local told = 0
+return {
+	render = function()
+		local look = pencere.terminal_look()
+		local glow = look.caret and look.caret.glow or "none"
+		local shape = look.caret and look.caret.shape or "none"
+		return pencere.text("glow " .. tostring(glow) .. " shape " .. shape .. " told " .. told .. " shadow " .. tostring(pencere.draws().shadow))
+	end,
+	handle = function(event)
+		if event.type == "terminal_look" then
+			told = told + 1
+			return true
+		end
+	end,
+}
+"#,
+            ),
+            (
+                "test/look_test.lua",
+                r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("a host that says nothing", function()
+	local page = test.open({ calls = {} })
+	expect(page):to_say("glow none shape none told 0 shadow true")
+end)
+
+test("a host that says how its terminal draws, and no shadow", function()
+	local page = test.open({ calls = {}, terminal_look = { caret = { glow = 1.5, shape = "block" } }, draws = {} })
+	expect(page):to_say("glow 1.5 shape block told 0 shadow nil")
+	page:set_terminal_look({ caret = { glow = 2, shape = "block" } })
+	expect(page):to_say("glow 2 shape block told 1 shadow nil")
+	page:set_terminal_look({ caret = { glow = 2, shape = "block" } })
+	expect(page):to_say("glow 2 shape block told 1 shadow nil")
+end)
+
+test("a look the host cannot say is the test's mistake", function()
+	local ok, why = pcall(test.open, { calls = {}, terminal_look = { caret = { shape = "round" } } })
+	expect(ok):to_be(false)
+	expect(why):to_match("shape")
+end)
+"#,
+            ),
+        ],
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
+    assert!(text.contains("1..3"), "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn a_failed_test_keeps_what_the_page_was_when_it_failed_and_says_what_it_showed() {
     let app = App::template("artifacts");
     app.write(

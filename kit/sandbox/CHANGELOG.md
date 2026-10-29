@@ -18,6 +18,12 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- `Program::terminal_look` and `Program::draws` (none unless the application says), and what a page
+  reads of them: `pencere.terminal_look()`, `pencere.draws()`, the event `terminal_look` (the interface's
+  `system.terminal-look`, `system.draws`, `event.terminal-look`).
+- **`@pencere/terminal`** of the kit's library: `terminal.editor(options, look)`, the options of an
+  editor with the look of the person's terminal put in where the page said nothing, a field at a time.
+
 - `caret.motion` crosses the interface (`caret-motion`).
 
 - `caret` (`radius`, `glow`, `blink`, `blink_interval`, `blink_for`, `unfocused`) of an editor's

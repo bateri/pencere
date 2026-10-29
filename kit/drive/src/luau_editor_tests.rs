@@ -2541,3 +2541,88 @@ fn the_example_that_answers_what_a_server_would_shows_hints_a_lens_a_card_and_a_
     assert!(!page.words().contains(&"left:"), "{:?}", page.words());
     Ok(())
 }
+
+// --- The terminal's look: what the host says of it, and that it changed -------------------------
+
+/// A page that says, in its words, each time the host told it the terminal's look changed, what it
+/// reads then, and the options of its editor as `terminal.editor` makes them.
+const LOOK: &str = r#"
+local terminal = require("@pencere/terminal")
+local seen = {}
+local function glow(look)
+	return look.caret and look.caret.glow or "none"
+end
+return {
+	render = function()
+		local made = terminal.editor({ gutter = false, caret = { shape = "bar" } })
+		return pencere.div():size_full()
+			:child(pencere.editor("e", made))
+			:child(pencere.text("seen " .. table.concat(seen, ",") .. " draws " .. tostring(pencere.draws().shadow)):id("said"))
+	end,
+	handle = function(event)
+		if event.type == "terminal_look" then
+			seen[#seen + 1] = tostring(glow(pencere.terminal_look()))
+			return true
+		end
+		return nil
+	end,
+}
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_page_is_told_the_terminals_look_changed_once_for_each_change_and_not_for_the_same_look()
+-> Result<(), Error> {
+    use pencere_view::{TerminalCaret, TerminalLook};
+    let glowing = |glow: f32| TerminalLook {
+        caret: TerminalCaret {
+            glow: Some(glow),
+            shape: Some(CaretShape::Block),
+            ..TerminalCaret::default()
+        },
+        ..TerminalLook::default()
+    };
+    let told = |page: &Headless| {
+        page.told()
+            .iter()
+            .filter(|event| **event == Event::TerminalLook)
+            .count()
+    };
+    let mut page = Headless::script(LOOK).size(400.0, 200.0).open()?;
+    assert!(page.says("seen  draws true"), "{:?}", page.words());
+    assert_eq!(
+        told(&page),
+        0,
+        "nothing is told of what was there from the start"
+    );
+    // The same look: nothing is told.
+    page.set_terminal_look(TerminalLook::default())?;
+    assert_eq!(told(&page), 0);
+    // A change: told once, and the page reads the new look then.
+    page.set_terminal_look(glowing(1.0))?;
+    assert_eq!(told(&page), 1);
+    assert!(page.says("seen 1 draws true"), "{:?}", page.words());
+    page.set_terminal_look(glowing(1.0))?;
+    assert_eq!(told(&page), 1, "not told again for the same");
+    page.set_terminal_look(glowing(2.0))?;
+    assert_eq!(told(&page), 2);
+    assert!(page.says("seen 1,2 draws true"), "{:?}", page.words());
+    // The editor's options are the page's, with the terminal's put in where it said nothing: a bar it
+    // wrote stays, and the glow is the terminal's.
+    let room = page
+        .laid()
+        .expect("laid out")
+        .editors()
+        .into_iter()
+        .next()
+        .expect("the editor's room");
+    assert_eq!(room.options.caret.shape, CaretShape::Bar);
+    assert_eq!(room.options.caret.glow, 2.0);
+    // A host that draws no shadow says so.
+    let page = Headless::script(LOOK)
+        .size(400.0, 200.0)
+        .draws(vec![])
+        .open()?;
+    assert!(page.says("draws nil"), "{:?}", page.words());
+    Ok(())
+}

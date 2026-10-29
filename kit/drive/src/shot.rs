@@ -413,13 +413,14 @@ fn ink([r, g, b, a]: [f32; 4]) -> Ink<'static> {
 
 impl Canvas<'_> {
     fn quad(&mut self, quad: &pencere_view::Quad) {
-        let Some(shown) = intersect(quad.rect, quad.clip) else {
-            return;
-        };
-        // The shadow first: under the box, which it never shows through.
+        // The shadow first: under the box, which it never shows through (and which a clip that
+        // cuts the box away may leave the light of in).
         if let Some(shadow) = quad.shadow {
             self.shadow(quad, shadow);
         }
+        let Some(shown) = intersect(quad.rect, quad.clip) else {
+            return;
+        };
         let fill = quad
             .fill
             .or(quad.gradient.map(pencere_view::Gradient::middle));

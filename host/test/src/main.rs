@@ -10,6 +10,7 @@
 //! (`--worker`), so that a test stuck in a call or ended by a crash costs its file and not the run.
 
 mod file;
+mod look;
 mod page;
 mod peer;
 mod program;

@@ -615,6 +615,8 @@ struct Spec {
     scale: f64,
     reduce_motion: bool,
     at: f64,
+    look: pencere_view::TerminalLook,
+    draws: Option<Vec<pencere_view::Drawing>>,
     patience: Duration,
     place: Where,
 }
@@ -674,6 +676,14 @@ fn spec_of(session: &Shared, options: &Table) -> mlua::Result<Spec> {
             .get::<Option<bool>>("reduce_motion")?
             .unwrap_or(false),
         at: number(options, "at")?.unwrap_or(0.0),
+        look: match options.get::<Option<Table>>("terminal_look")? {
+            Some(table) => crate::look::terminal_look(&table)?,
+            None => pencere_view::TerminalLook::default(),
+        },
+        draws: match options.get::<Option<Vec<String>>>("draws")? {
+            Some(names) => Some(crate::look::draws(&names)?),
+            None => None,
+        },
         patience: remaining.max(Duration::from_secs(1)),
         place,
     })
@@ -704,12 +714,17 @@ impl Spec {
                 ),
             }
         };
-        Ok(opening
+        let opening = opening
             .size(self.size.0, self.size.1)
             .scale(self.scale)
             .reduce_motion(self.reduce_motion)
             .at(self.at)
-            .patience(self.patience))
+            .terminal_look(self.look)
+            .patience(self.patience);
+        Ok(match &self.draws {
+            Some(draws) => opening.draws(draws.clone()),
+            None => opening,
+        })
     }
 }
 
@@ -895,12 +910,18 @@ fn start_command(
         .map_err(|error| words(format!("{}: {error}", command.join(" "))))?;
     let opening =
         view_of(&mut program, Duration::from_secs(60)).map_err(|error| words(error.to_string()))?;
-    opening
+    let opening = opening
         .size(spec.size.0, spec.size.1)
         .scale(spec.scale)
         .reduce_motion(spec.reduce_motion)
         .at(spec.at)
-        .patience(spec.patience)
+        .terminal_look(spec.look)
+        .patience(spec.patience);
+    let opening = match &spec.draws {
+        Some(draws) => opening.draws(draws.clone()),
+        None => opening,
+    };
+    opening
         .peer(Any::Program(Box::new(program)))
         .open()
         .map_err(|error| words(error.to_string()))

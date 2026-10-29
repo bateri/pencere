@@ -50,9 +50,9 @@ use pencere_editor::Buffer;
 use pencere_sandbox::{Answer, Assets, Fault, Images, ModuleLimits, Program, Runner, Script};
 use pencere_view::wire::Kind;
 use pencere_view::{
-    Button, Cursor, DrawList, Element, Event, FieldKind, Fill, Font, Id, Input, Key, KeyConvention,
-    Keyboard, Laid, Measure, Menu, MenuEntry, Metrics, Mods, Paint, Phase, Point, Rect, Shortcut,
-    Size, WallTime,
+    Button, Cursor, DrawList, Drawing, Element, Event, FieldKind, Fill, Font, Id, Input, Key,
+    KeyConvention, Keyboard, Laid, Measure, Menu, MenuEntry, Metrics, Mods, Paint, Phase, Point,
+    Rect, Shortcut, Size, TerminalLook, WallTime,
 };
 
 use field::{Done, Held};
@@ -141,6 +141,11 @@ pub const WALL_ORIGIN: f64 = 1_800_000_000.0;
 struct Clock {
     now: Mutex<f64>,
     system: System,
+    /// How the host's terminal draws its cursor and selection, as the test says: what the page reads
+    /// as it asks.
+    look: Mutex<TerminalLook>,
+    /// What the host draws that not every host does.
+    draws: Vec<Drawing>,
 }
 
 /// The system the headless host says it runs on.
@@ -182,6 +187,14 @@ impl Program for Clock {
 
     fn keyboard(&self) -> KeyConvention {
         self.system.keyboard
+    }
+
+    fn terminal_look(&self) -> TerminalLook {
+        *self.look.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn draws(&self) -> Vec<Drawing> {
+        self.draws.clone()
     }
 }
 
@@ -301,6 +314,8 @@ pub struct Opening<P: Peer = Calls> {
     measure: Box<dyn Measure>,
     start: f64,
     system: System,
+    look: TerminalLook,
+    draws: Vec<Drawing>,
     patience: Duration,
     peer: P,
 }
@@ -463,6 +478,8 @@ impl Opening<Calls> {
                 utc_offset: 0,
                 keyboard: KeyConvention::Mac,
             },
+            look: TerminalLook::default(),
+            draws: vec![Drawing::Shadow],
             patience: Duration::from_secs(60),
             peer: Calls::new(),
         }
@@ -529,6 +546,19 @@ impl<P: Peer> Opening<P> {
         self
     }
 
+    /// How the host's terminal draws its cursor and its selection (`pencere.terminal_look()`): none
+    /// of it unless said, as a host with no such settings.
+    pub fn terminal_look(mut self, look: TerminalLook) -> Self {
+        self.look = look;
+        self
+    }
+
+    /// What the host draws that not every host does (`pencere.draws()`): a soft shadow unless said.
+    pub fn draws(mut self, draws: Vec<Drawing>) -> Self {
+        self.draws = draws;
+        self
+    }
+
     /// How long the host waits for what takes real time — the module made and doing what it was
     /// told, an image decoded, a program in another process answering — before it says so
     /// ([`Error::Slow`]): a minute unless said.
@@ -549,6 +579,8 @@ impl<P: Peer> Opening<P> {
             measure: self.measure,
             start: self.start,
             system: self.system,
+            look: self.look,
+            draws: self.draws,
             patience: self.patience,
             peer,
         }
@@ -566,6 +598,8 @@ impl<P: Peer> Opening<P> {
         let clock = Arc::new(Clock {
             now: Mutex::new(self.start),
             system: self.system,
+            look: Mutex::new(self.look),
+            draws: self.draws,
         });
         let setup = Setup {
             limits: self.limits,
@@ -1628,6 +1662,29 @@ impl<P: Peer> Headless<P> {
     /// As [`Headless::settle`].
     pub fn set_active(&mut self, active: bool) -> Result<(), Error> {
         self.page.set_active(active);
+        self.settle()
+    }
+
+    /// The host's terminal draws its cursor and its selection as `look` says from now on: the page
+    /// is told it changed where it is not what it was (`event.terminal_look`), and reads it again.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn set_terminal_look(&mut self, look: TerminalLook) -> Result<(), Error> {
+        let changed = {
+            let mut said = self
+                .clock
+                .look
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let changed = *said != look;
+            *said = look;
+            changed
+        };
+        if changed {
+            self.page.terminal_look_changed();
+        }
         self.settle()
     }
 

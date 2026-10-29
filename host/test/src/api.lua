@@ -590,7 +590,7 @@ Page.__index = Page
 for _, name in ipairs({
 	"press", "insert", "paste", "compose", "unmark", "move_to", "leave", "drag_between", "wheel_at",
 	"click_at", "double_click_at", "right_click_at", "focus_editor", "select", "caret_to", "edit",
-	"command", "pick", "resize", "zoom", "set_active", "refresh", "advance", "step", "idle", "hide",
+	"command", "pick", "resize", "zoom", "set_active", "set_terminal_look", "refresh", "advance", "step", "idle", "hide",
 	"now", "asks_at", "settle", "tell", "words", "says", "words_in", "tree_words", "bounds",
 	"editor", "editor_text", "focus", "field", "outline", "cursor", "pasteboard", "links", "menu",
 	"closed", "diagnostics", "ended", "sent", "received", "push", "answer", "fail", "lent",

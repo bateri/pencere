@@ -176,7 +176,8 @@ impl ContainerList {
             | Event::Hover(_)
             | Event::Target(_)
             | Event::KeymapPending { .. }
-            | Event::Wake { .. } => Reply::none(),
+            | Event::Wake { .. }
+            | Event::TerminalLook => Reply::none(),
             Event::MenuPick(index) => self.list.pick(index),
             Event::Scrolled(boxes) => self.list.scrolled(&boxes),
         }

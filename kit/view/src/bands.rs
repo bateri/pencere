@@ -95,7 +95,9 @@ pub enum Part {
 /// How a band joins its neighbour at one corner.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Join {
-    Open,
+    /// Rounded, by at most this much: the neighbour's edge is that far inside this one's (no
+    /// neighbour, or one that does not reach under the corner, is as far as can be).
+    Open(f32),
     Flush,
     /// The neighbour goes further out by this much.
     Step(f32),
@@ -140,7 +142,10 @@ pub fn rounded(bands: &[Band], radius: f32) -> Vec<Part> {
             right_join(band, below),
             left_join(band, below),
         ];
-        let radii = joins.map(|join| if join == Join::Open { held } else { 0.0 });
+        let radii = joins.map(|join| match join {
+            Join::Open(reach) => held.min(reach),
+            _ => 0.0,
+        });
         parts.push(Part::Body {
             band: index,
             rect,
@@ -190,7 +195,11 @@ fn left_join(this: &Band, neighbour: Option<&Band>) -> Join {
                 Join::Flush
             }
         }
-        _ => Join::Open,
+        // The neighbour starts inside this band: the round corner stays inside the overhang.
+        Some(other) if other.left > this.left + LEVEL && other.left < this.right - LEVEL => {
+            Join::Open(other.left - this.left)
+        }
+        _ => Join::Open(f32::INFINITY),
     }
 }
 
@@ -204,6 +213,9 @@ fn right_join(this: &Band, neighbour: Option<&Band>) -> Join {
                 Join::Flush
             }
         }
-        _ => Join::Open,
+        Some(other) if other.right < this.right - LEVEL && other.right > this.left + LEVEL => {
+            Join::Open(this.right - other.right)
+        }
+        _ => Join::Open(f32::INFINITY),
     }
 }

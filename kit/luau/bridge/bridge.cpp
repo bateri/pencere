@@ -244,6 +244,87 @@ int l_keyboard(lua_State* state) {
     return 1;
 }
 
+// How the application's terminal draws its cursor and its selection, as the person set them: a table
+// with only what the application says (an application with no such settings says none: `{}`), in
+// the words and units of an editor's `caret` and `selection` options.
+int l_terminal_look(lua_State* state) {
+    static const char* const kShapes[] = {"bar", "block", "underline"};
+    static const char* const kUnfocused[] = {"hidden", "hollow", "solid"};
+    pencere_view_system_terminal_settings_t look = {};
+    pencere_view_system_terminal_look(&look);
+    const pencere_view_system_terminal_caret_t& caret = look.caret;
+    auto number = [&](const view_option_f32_t& said, const char* name) {
+        if (said.is_some) {
+            lua_pushnumber(state, said.val);
+            lua_setfield(state, -2, name);
+        }
+    };
+    lua_createtable(state, 0, 2);
+    const bool caret_said = caret.shape.is_some || caret.width.is_some || caret.radius.is_some ||
+                            caret.glow.is_some || caret.blink.is_some || caret.blink_interval.is_some ||
+                            caret.unfocused.is_some || caret.motion.is_some;
+    if (caret_said) lua_createtable(state, 0, 8);
+    if (caret_said && caret.shape.is_some && caret.shape.val <= 2) {
+        lua_pushstring(state, kShapes[caret.shape.val]);
+        lua_setfield(state, -2, "shape");
+    }
+    if (caret_said) {
+        number(caret.width, "width");
+        number(caret.radius, "radius");
+        number(caret.glow, "glow");
+    }
+    if (caret_said && caret.blink.is_some) {
+        lua_pushboolean(state, caret.blink.val ? 1 : 0);
+        lua_setfield(state, -2, "blink");
+    }
+    if (caret_said) number(caret.blink_interval, "blink_interval");
+    if (caret_said && caret.unfocused.is_some && caret.unfocused.val <= 2) {
+        lua_pushstring(state, kUnfocused[caret.unfocused.val]);
+        lua_setfield(state, -2, "unfocused");
+    }
+    if (caret_said && caret.motion.is_some) {
+        const pencere_view_types_caret_motion_t& motion = caret.motion.val;
+        if (motion.tag == PENCERE_VIEW_TYPES_CARET_MOTION_SNAP) {
+            lua_pushstring(state, "snap");
+        } else {
+            const bool ease = motion.tag == PENCERE_VIEW_TYPES_CARET_MOTION_EASE;
+            const view_option_f32_t& said = ease ? motion.val.ease : motion.val.spring;
+            if (said.is_some) {
+                lua_createtable(state, 0, 1);
+                lua_pushnumber(state, said.val);
+                lua_setfield(state, -2, ease ? "ease" : "spring");
+            } else {
+                lua_pushstring(state, ease ? "ease" : "spring");
+            }
+        }
+        lua_setfield(state, -2, "motion");
+    }
+    if (caret_said) lua_setfield(state, -2, "caret");
+    if (look.selection.radius.is_some) {
+        lua_createtable(state, 0, 1);
+        number(look.selection.radius, "radius");
+        lua_setfield(state, -2, "selection");
+    }
+    pencere_view_system_terminal_settings_free(&look);
+    return 1;
+}
+
+// What the application draws that not every application does, as a table of the names it says, each
+// `true`: `{ shadow = true }`; none, `{}`.
+int l_draws(lua_State* state) {
+    pencere_view_system_list_drawing_t drawn = {};
+    pencere_view_system_draws(&drawn);
+    lua_createtable(state, 0, 1);
+    for (size_t at = 0; at < drawn.len; at++) {
+        if (drawn.ptr[at] == PENCERE_VIEW_SYSTEM_DRAWING_SHADOW) {
+            lua_pushboolean(state, 1);
+            lua_setfield(state, -2, "shadow");
+        }
+    }
+    pencere_view_system_list_drawing_free(&drawn);
+    return 1;
+}
+
 int l_editor_version(lua_State* state) {
     uint64_t version = 0;
     if (pencere_view_layout_editor_version(bridge::id_of(state, 1), &version)) lua_pushnumber(state, (double)version);
@@ -678,6 +759,8 @@ void host_functions(lua_State* state) {
         {"word_at", l_word_at},
         {"wall_clock", l_wall_clock},
         {"keyboard", l_keyboard},
+        {"terminal_look", l_terminal_look},
+        {"draws", l_draws},
         {nullptr, nullptr},
     };
     lua_newtable(state);

@@ -16,7 +16,7 @@
 --   handle(event) -> reply         (optional)
 --       The person did something. `event` is { type = "move" | "leave" | "press" | "release" |
 --       "scroll" | "scrolled" | "key" | "key_up" | "mods" | "text" | "focus" | "menu" | "command" |
---       "files",
+--       "files" | "terminal_look",
 --       ... } in the page's points: move/press/release/scroll/files have x and y (press and
 --       release a button, "left", "right" or "middle"; press its `count`, 2 for the second of a
 --       double click; press, key, key_up and mods have mods = { shift =, control =, alt =,

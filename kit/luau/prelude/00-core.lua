@@ -56,13 +56,15 @@ local host = {
 	word_at = pencere.word_at,
 	wall_clock = pencere.wall_clock,
 	keyboard = pencere.keyboard,
+	terminal_look = pencere.terminal_look,
+	draws = pencere.draws,
 }
 pencere.send, pencere.hit, pencere.ids_at, pencere.bounds = nil, nil, nil, nil
 pencere.scroll_extent, pencere.scroll_to, pencere.focus_order, pencere.path_of = nil, nil, nil, nil
 pencere.drag_source, pencere.drop_target = nil, nil
 pencere.editor_version, pencere.editor_length, pencere.editor_lines = nil, nil, nil
 pencere.editor_text, pencere.line_start, pencere.line_of, pencere.word_at = nil, nil, nil, nil
-pencere.wall_clock, pencere.keyboard = nil, nil
+pencere.wall_clock, pencere.keyboard, pencere.terminal_look, pencere.draws = nil, nil, nil, nil
 pencere.host = host
 
 -- How the host's system makes and writes its keyboard shortcuts: "mac" (⌘ the main modifier, the
@@ -76,6 +78,30 @@ function pencere.keyboard()
 		convention = host.keyboard()
 	end
 	return convention
+end
+
+-- How the host's terminal draws its cursor and its selection, as the person has set them, in the words
+-- and units of an editor's options: `{ caret = { shape =, width =, radius =, glow =, blink =,
+-- blink_interval =, unfocused =, motion = }, selection = { radius = } }`, with only the fields the host
+-- says (it says a field only where it has such a setting, and a field that is nil is the kit's own
+-- default for an editor). A host with no such settings says none: `{}`. Read
+-- as it is asked, so it is what the person has set now; the page's `handle` is told
+-- `{ type = "terminal_look" }` when it changes. The host applies none of it to the page's editors: the
+-- page decides what its editors take (`@pencere/terminal`'s `terminal.editor` takes it all, where the
+-- page says nothing).
+function pencere.terminal_look()
+	return host.terminal_look()
+end
+
+-- What the host draws that not every host does, as a table of names that are true: `{ shadow = true }`
+-- where it draws a box's soft shadow (a caret's `glow`), `{}` where it draws only what every host does.
+-- The same every time it is asked.
+local draws = nil
+function pencere.draws()
+	if draws == nil then
+		draws = host.draws()
+	end
+	return draws
 end
 
 -- A colour with an opacity. Everywhere a colour is taken, a role's name, a "#rrggbb" value and a

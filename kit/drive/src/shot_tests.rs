@@ -644,3 +644,62 @@ fn a_caret_is_pictured_as_a_bar_as_a_round_block_with_a_glow_and_as_a_hollow_one
     }
     Ok(())
 }
+
+/// The example editor under a host that says nothing of its terminal and under one that says how
+/// bateri's draws its cursor and its selection (a block with a glow, a selection with round corners):
+/// the page takes it all where it says nothing (`@pencere/terminal`), and the same page is the
+/// picture on both. `PENCERE_SHOTS=terminal` writes them to `target/terminal-{default,bateri}.png`,
+/// in the terminal's font of a Mac, for an eye to check.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_example_editor_is_pictured_under_a_host_that_says_nothing_and_under_one_that_says_how_bateri_draws()
+-> Result<(), Error> {
+    use pencere_view::edit::{CaretMotion, CaretShape, CaretUnfocused};
+    use pencere_view::{TerminalCaret, TerminalLook, TerminalSelection};
+    let fonts = match std::env::var("PENCERE_SHOTS").as_deref() {
+        Ok("terminal") => Fonts::none()
+            .terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc").expect("Menlo"))
+            .expect("a font"),
+        _ => Fonts::none(),
+    };
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/editor-lua");
+    let bateri = TerminalLook {
+        caret: TerminalCaret {
+            shape: Some(CaretShape::Block),
+            width: Some(2.0),
+            radius: Some(0.1),
+            glow: Some(1.0),
+            blink: Some(true),
+            blink_interval: Some(0.5),
+            unfocused: Some(CaretUnfocused::Hollow),
+            motion: Some(CaretMotion::Spring(30.0)),
+        },
+        selection: TerminalSelection { radius: Some(0.22) },
+    };
+    let mut shots = Vec::new();
+    for (name, look) in [("default", TerminalLook::default()), ("bateri", bateri)] {
+        let mut page = Headless::app(&dir)
+            .measure(fonts.clone())
+            .size(560.0, 200.0)
+            .scale(2.0)
+            .terminal_look(look)
+            .open()?;
+        page.select("sql", 92, 133)?;
+        // The page reads the look again when the host says it changed.
+        if name == "default" {
+            page.set_terminal_look(TerminalLook::default())?;
+        }
+        shots.push((
+            name,
+            page.shot_in(&fonts, Palette::Dark).expect("a picture"),
+        ));
+    }
+    assert_ne!(shots[0].1, shots[1].1, "the page took the look");
+    if std::env::var("PENCERE_SHOTS").as_deref() == Ok("terminal") {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        for (name, bytes) in &shots {
+            std::fs::write(target.join(format!("terminal-{name}.png")), bytes).expect("written");
+        }
+    }
+    Ok(())
+}

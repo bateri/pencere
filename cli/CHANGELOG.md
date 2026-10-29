@@ -29,6 +29,9 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- `pencere test` says how the host draws its terminal's cursor and selection (`terminal_look`, `draws`
+  of `test.open`; `page:set_terminal_look(table)` changes it, and the page is told).
+
 - `pencere test` can `dwell(id, x, y)` (the pointer rests over a word of an editor that hears of it,
   as long as it takes to be told), `hold("cmd")`, `release()` and `click_holding(x, y, "cmd")` (the modifiers a person holds) and say where a range the page named is (`anchor_rect(editor, name)`).
 - **`PENCERE_CALL_MS` for `pencere test`.** The time, in milliseconds, a call of the page may take

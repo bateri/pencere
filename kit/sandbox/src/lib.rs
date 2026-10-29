@@ -40,6 +40,8 @@ mod library_languages_tests;
 #[cfg(test)]
 mod library_markdown_tests;
 #[cfg(test)]
+mod library_terminal_tests;
+#[cfg(test)]
 mod library_tests;
 #[cfg(test)]
 mod luau_containers_tests;

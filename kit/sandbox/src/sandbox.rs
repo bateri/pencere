@@ -14,7 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
 
 use pencere_view::edit::{TextSnapshot, limits as editor_limits};
-use pencere_view::{Id, KeyConvention, Laid, ScrollTo, WallTime};
+use pencere_view::{Drawing, Id, KeyConvention, Laid, ScrollTo, TerminalLook, WallTime};
 use wasmtime::{Config, Engine, ResourceLimiter, Store, Trap};
 
 use crate::luau::Script;
@@ -68,6 +68,24 @@ pub trait Program: Send + Sync + 'static {
             seconds,
             utc_offset: 0,
         }
+    }
+
+    /// How the application's terminal draws its cursor and its selection, as the person set them
+    /// (the interface's `system.terminal-look`; what the page reads as `pencere.terminal_look()`), in
+    /// the words and units of an editor's options, a field only where the application has such a
+    /// setting: by default none, which a page takes for an application with no such settings. Read
+    /// as it is asked, so it is what the person has set now; an application that changes it tells
+    /// the page (`Event::TerminalLook`). From the module's thread: not from the thread the
+    /// application's settings are changed on.
+    fn terminal_look(&self) -> TerminalLook {
+        TerminalLook::default()
+    }
+
+    /// What the application draws that not every application does (the interface's `system.draws`):
+    /// by default none, which a page takes for an application that draws only what every one
+    /// does. The same every time it is asked. From the module's thread.
+    fn draws(&self) -> Vec<Drawing> {
+        Vec::new()
     }
 
     /// How the application's system makes and writes its keyboard shortcuts (the interface's

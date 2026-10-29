@@ -512,7 +512,8 @@ impl Pair {
             | Event::Viewport { .. }
             | Event::EditorRefused { .. }
             | Event::Found { .. }
-            | Event::Wake { .. } => Reply::none(),
+            | Event::Wake { .. }
+            | Event::TerminalLook => Reply::none(),
             Event::MenuPick(index) => self.native.pick(index),
             Event::Scrolled(boxes) => self.native.scrolled(&boxes),
         };

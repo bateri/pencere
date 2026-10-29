@@ -666,6 +666,16 @@ impl Page {
         }
     }
 
+    /// What the host says of how its terminal draws its cursor and its selection
+    /// ([`pencere_sandbox::Program::terminal_look`]) is not what it was: the page is told
+    /// ([`Event::TerminalLook`]) and reads it again. Called where the host calls the page's other
+    /// methods (the thread of the pane): a host that reloads its settings on another thread wakes
+    /// the pane's by the way it wakes it for anything, and calls this there, and only when what it
+    /// says changed.
+    pub fn terminal_look_changed(&mut self) {
+        self.state.event(Event::TerminalLook);
+    }
+
     /// Where the page stands in the host's view.
     pub fn placement(&self) -> Placement {
         self.state.place
@@ -1219,6 +1229,7 @@ impl State {
         let list = editing.editors.paint(draws, measure, caret, &mut |spots| {
             editing.glide.shifts(spots, now, still)
         });
+        editing.glide.drawn();
         // The module may ask of this layout from now on, and brings what depends on it back within
         // it; a page that was already within it answers nothing. The line that stands in for a page
         // is not the module's.

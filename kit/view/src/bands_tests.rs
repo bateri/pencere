@@ -201,6 +201,11 @@ fn a_radius_is_held_to_what_the_shape_can_take() {
         fillets(&parts),
         vec![(0, Corner::BottomLeft, Rect::new(6.0, 18.0, 2.0, 2.0))]
     );
+    // The corner of the lower band that is open under the upper, 2 inside it, is no rounder than that.
+    let Part::Body { radii, .. } = parts[parts.len() - 1] else {
+        panic!("a body last");
+    };
+    assert_eq!(radii[0], 2.0);
 }
 
 #[test]

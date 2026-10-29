@@ -1349,6 +1349,9 @@ interface types {
         editor-target(editor-target),
         /// A chord of keys is waited on, or no longer.
         keymap-pending(keymap-pending),
+        /// What the application says of how its terminal draws its cursor and its selection
+        /// (`system.terminal-look`) is not what it was: the person changed a setting.
+        terminal-look,
     }
 
     record editor-target {
@@ -1990,9 +1993,12 @@ interface program {
     send: func(message: string) -> delivery;
 }
 
-/// What the module can ask of the system the application runs on: the time of day, and how the
-/// keys of its shortcuts are written.
+/// What the module can ask of the system the application runs on: the time of day, how the keys of
+/// its shortcuts are written, how its terminal draws its cursor and its selection, and what it
+/// draws beyond what every application does.
 interface system {
+    use types.{caret-shape, caret-unfocused, caret-motion};
+
     /// The time of day, as the application's system says it.
     record wall-time {
         /// Seconds since 1970-01-01 00:00:00 UTC, leap seconds not counted (Unix time).
@@ -2013,8 +2019,51 @@ interface system {
         linux,
     }
 
+    /// How the application's terminal draws its cursor, as the person set it, in the words and units
+    /// of an editor's `caret` option; each field is there only where the application has such a
+    /// setting, and one it does not say is the kit's own default.
+    record terminal-caret {
+        shape: option<caret-shape>,
+        /// Points: how wide a bar is, how thick a line.
+        width: option<f32>,
+        /// A fraction of a row's height (0 to 0.5).
+        radius: option<f32>,
+        /// One number (0 to 3).
+        glow: option<f32>,
+        blink: option<bool>,
+        /// Seconds lit, and then dark.
+        blink-interval: option<f32>,
+        unfocused: option<caret-unfocused>,
+        motion: option<caret-motion>,
+    }
+
+    /// How the application's terminal draws its selection.
+    record terminal-selection {
+        /// A fraction of a row's height (0 to 0.5).
+        radius: option<f32>,
+    }
+
+    /// What the person chose for the application's terminal's cursor and selection. An application
+    /// with no such settings says nothing in any field (an empty answer is a whole one), and does not
+    /// apply it to the page's editors: the page decides what it takes.
+    record terminal-settings {
+        caret: terminal-caret,
+        selection: terminal-selection,
+    }
+
+    /// A thing the application may draw that not every application does.
+    enum drawing {
+        /// A box's soft shadow: where it is not here, `quad.shadow` is not drawn (a caret's glow).
+        shadow,
+    }
+
     /// The time of day now: read as it is asked, so that it goes on within a call.
     wall-clock: func() -> wall-time;
+    /// How the application's terminal draws its cursor and its selection: read as it is asked, so
+    /// that it is what the person has set now (`event.terminal-look` says it changed).
+    terminal-look: func() -> terminal-settings;
+    /// What the application draws that not every application does: the same every time it is asked.
+    draws: func() -> list<drawing>;
     /// The keyboard of the application's system: the same every time it is asked.
     keyboard: func() -> key-convention;
 }

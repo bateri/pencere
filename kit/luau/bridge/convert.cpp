@@ -1865,6 +1865,9 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
         case PENCERE_VIEW_TYPES_EVENT_POINTER_LEAVE:
             set_word(L, "type", "leave");
             break;
+        case PENCERE_VIEW_TYPES_EVENT_TERMINAL_LOOK:
+            set_word(L, "type", "terminal_look");
+            break;
         case PENCERE_VIEW_TYPES_EVENT_PRESS:
             set_word(L, "type", "press");
             set_number(L, "x", event.val.press.at.x);

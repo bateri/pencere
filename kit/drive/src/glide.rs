@@ -62,6 +62,8 @@ pub(crate) struct Glide {
     editor: Option<Id>,
     carets: Vec<Gliding>,
     time: Option<f64>,
+    /// The editor asked this frame where to draw its carets.
+    asked: bool,
 }
 
 impl Glide {
@@ -70,9 +72,19 @@ impl Glide {
         self.carets.iter().any(|caret| caret.going)
     }
 
+    /// The frame is drawn: where no editor asked where to draw its carets (the keyboard went to the
+    /// page or to a field, the editor is hidden), nothing is on its way, and no frame is asked for.
+    pub(crate) fn drawn(&mut self) {
+        if !std::mem::take(&mut self.asked) {
+            self.editor = None;
+            self.carets.clear();
+        }
+    }
+
     /// How far from its place each caret of `spots` is drawn at the frame at `now` (the box's place
     /// less where it is drawn: nothing where it is at its place), `still` for Reduce Motion.
     pub(crate) fn shifts(&mut self, spots: &CaretSpots, now: f64, still: bool) -> Vec<Point> {
+        self.asked = true;
         let motion = spots.motion;
         let dt = self.time.map_or(0.0, |before| {
             #[allow(clippy::cast_possible_truncation)]

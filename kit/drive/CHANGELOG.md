@@ -21,6 +21,11 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
 
 ### Added
 
+- **The terminal's look**: `Page::terminal_look_changed` tells the page the host's terminal draws its
+  cursor or its selection otherwise (from the pane's thread); the host with no screen says what a
+  test says (`Opening::terminal_look`, `Opening::draws`, a soft shadow unless said) and tells the page
+  where it changed (`Headless::set_terminal_look`). The example `editor-lua` takes the look.
+
 - **A caret glides** (`caret.motion`: `ease`, `spring`, or `snap`, the default): on the frames' clock, in
   the content's coordinates, so that scrolling does not move it; the page is not asked for a frame of
   its own for it (`Page::animating` is true while it goes), it is lit while it goes, and with Reduce Motion

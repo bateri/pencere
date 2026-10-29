@@ -40,7 +40,7 @@ the commands of whole lines (Sections 2.1 and 2.3); the time of day and the host
 `mod` (Sections 2.1 and 2.2, and the interface's `system`), what spins, and the `null` members of
 what a page decodes (Sections 2.1 and 2.4); and the pointer's rest over a word of an editor, the names
 of ranges of its text that an overlay stands by, and the names of its styles; widgets in lines; the presses a page maps and the keys it changes, with chords; and looks
-drawn by the modifiers held (Sections 2.1, 2.3 and 2.6); and how an editor's selection looks, with the corners of its lines rounded as a terminal's are, and its caret (its corners, light, blinking, motion and look away from the keyboard) (Section 2.1). The kit's own sandbox opens `2.0` and no longer `1.0`.
+drawn by the modifiers held (Sections 2.1, 2.3 and 2.6); and how an editor's selection looks, with the corners of its lines rounded as a terminal's are, and its caret (its corners, light, blinking, motion and look away from the keyboard) (Section 2.1); and what the host says of how its terminal draws its cursor and its selection and of what it draws, which a page reads and decides on (Sections 2.2, 2.3, 2.6 and 4). The kit's own sandbox opens `2.0` and no longer `1.0`.
 
 The regular expressions of a view (an editor's search, the rules of its indent) are in the syntax of
 Rust's `regex` crate, `1.x` at the release the kit pins (its `Cargo.lock`), and one may take at most
@@ -375,6 +375,21 @@ marks or of spaces, as a double click takes it: its `from` and `to`; nil past th
 page that asks for what is at its caret asks of the word the pointer rests on by the same rule). A page reads in
 the `edit` event the text of the version the event is of.
 
+**How the host's terminal draws** is told by the host and applied by the page. `pencere.terminal_look()`
+says how the host's terminal draws its cursor and its selection, as the person set them, in the words
+and units of an editor's options: `{ caret = { shape =, width = (points), radius =, glow =, blink =,
+blink_interval = (seconds), unfocused =, motion = }, selection = { radius = } }`, each field only where
+the host has such a setting (`nil` is the kit's own default for an editor, and a host that has no such
+settings says none: `{}`). The colours are not in it (the theme's roles are the host's to resolve) nor
+Reduce Motion (`render` has it). It is read as it is asked, so it is what the person has set now; the
+page is told `{ type = "terminal_look" }` (Section 2.3) when it changes. **The host applies none of it to the
+page's editors**: the page decides what they take, and an editor is as its options say, whatever the
+host's terminal looks like. `pencere.draws()` says what the host draws that not every host does, as a
+table of names that are true: `{ shadow = true }` where it draws a box's soft shadow (a caret's `glow`
+is one), `{}` where it draws only what every host does; the same every time it is asked. A page that
+wants its editors to look as the person's terminal does gives them all of it where it says nothing,
+with `@pencere/terminal` (Section 2.6).
+
 **Timers** run when the host wakes the page (a reply's `wake`, Section 2.3), and are named as the
 program runner's. `pencere.time.after(seconds, fn)` runs `fn` once, `seconds` (0 or more) from now;
 `pencere.time.every(seconds, fn)` every `seconds` (more than 0) from then on, once and not once for
@@ -484,6 +499,7 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 | `editor_refused`   | `editor`, `reason` (`"reversed"`, `"out-of-document"`, `"overlapping"`, `"stale-version"`, `"future-version"`, `"too-large"`, `"too-many-decorations"`, `"outside-range"`, `"bad-pattern"`, `"no-editor"`): what the page asked was not done, none of it                                                                                                                                                                                                                                                                               |
 | `found`            | `editor`, `version`, `count` (at most 10 000), `current` (the match the main selection is exactly on, from 1; nil for none), `more` (there may be more than `count`): what its search finds (below)                                                                                                                                                                                                                                                                                                                                    |
 | `wake`             | `now`: the time the page asked to be woken at (a reply's `wake`, below) has come, seconds on `render`'s clock; told only to a page that asked, after the timers that were due ran (Section 2.2)                                                                                                                                                                                                                                                                                                                                        |
+| `terminal_look`    | (no field) what `pencere.terminal_look()` says is not what it was: the person changed a setting of the host's terminal that is its cursor's or its selection's. Told once for each change, and not for what was the same. The page reads it again and answers as it answers any event (a page that takes it for its editors answers `true`: the editor's options are asked again)                                                                                                                                                      |
 | `gutter`           | `editor`, `column`, `line` (from 0), `kind` (`"press"`, `"enter"`, `"leave"`), `button`, `count`, `mods` (of a press), `marker` (`{ id =, layer =, from =, to = }`, nil where the cell is empty) and `cell` (`{ x =, y =, w =, h = }`, the page's points): the pointer in a gutter column that hears it (below)                                                                                                                                                                                                                        |
 | `hover`            | `editor`, `kind` (`"dwell"`, `"leave"`), `at` (the place under the pointer), `from`, `to` (the word it is on, or the run of marks: a double click's), `line`, `hits` (`{ { layer =, id =, from =, to = }, … }`: the styles with an `id` that hold `at`), `word` (its box, the page's points) , `mods` and `version`: in an editor with `events = { "hover" }`, the pointer rested `hover.delay` over a word, or went from one it was told of                                                                                           |
 | `target`           | `editor`, `kind` (`"enter"`, `"leave"`, `"press"`), `source` (`"word"`, `"link"`, `"widget"`), `at`, `from`, `to`, `id` (of a link), `word` (the box), `mods`, `button`, `count` (of a press) and `version`: in an editor with `events = { "target" }`, the pointer came to a word (or went from it) while exactly the modifiers of the press that is the page's (`gestures`: `"target"`) are held, at most once in `links.delay`, or that press: `source = "link"` where it is on a look that is `held`, has an `id` and is drawn now |
@@ -1115,6 +1131,25 @@ plain.
   block that holds line `line` of the text, and again as the layout says where that block stands. A
   document's id is `markdown<n>` unless the options say otherwise.
 
+#### `@pencere/terminal`
+
+Editors that look as the person's terminal draws its cursor and its selection
+(`local terminal = require("@pencere/terminal")`). The host says how it draws them
+(`pencere.terminal_look()`, Section 2.2) and applies none of it; this is for a page that wants its
+editors to take it where the page says nothing.
+
+- `terminal.editor(options, look)` is a copy of `options` (an editor's options; none: `{}`) with each
+  field of `look` that the page did not write put in it, a field at a time: `caret` and `selection`
+  are merged, not replaced, so that a page that writes `caret = { shape = "bar" }` keeps its bar and
+  takes the rest of the terminal's. What the page wrote stays, `false` and `0` included. `look` is
+  `pencere.terminal_look()` where none is given (a page that shows the look itself, a settings view,
+  gives its own); a host that says nothing gives `options` back as they were. A table that is not
+  options or a look, or an `options.caret` that is not a table, is an error at the caller's line.
+- A page calls it from `render`, so that the options follow the setting: it asks again when the page
+  is told `terminal_look`. A page in Rust (`pencere_page`) asks `terminal_look()` and puts it in the
+  options with `TerminalLook::fill`: a field of the options at the editor's default is taken for one the page
+  said nothing of (a Rust page cannot tell a default it wrote from one it left, as a Lua page's table can).
+
 #### `@pencere/ui`
 
 The components of a page (`local ui = require("@pencere/ui")`), written on the page API alone: a
@@ -1301,6 +1336,16 @@ A host:
   overlay is anchored to moves (or to a range of its text the page named, which also moves with the
   text), or an editor with one scrolls, it lays the page's last tree out again without asking the page,
   and does not show an overlay whose range is out of the room;
+- says how its terminal draws its cursor and its selection (`system.terminal-look`,
+  `Program::terminal_look`, `pencere.terminal_look()`), as the person set them, in the words and units
+  of an editor's options: a field only where it has such a setting, none where it has none (the default,
+  which is a host with no settings of the kind). It MUST tell the page `terminal-look` when what it
+  says changes, and only then, and MUST NOT apply it to a page's editors itself: the page decides. The
+  page is told from the thread of the pane (the host's settings are reloaded on another, which
+  wakes the pane's as it does for anything else; `Page::terminal_look_changed` is called there);
+- says what it draws that not every host does (`system.draws`, `Program::draws`, `pencere.draws()`):
+  `shadow` where it draws a box's soft shadow (`Quad::shadow`), only what it draws. A host MAY leave the
+  soft shadow out; a caret's `glow` is then not seen, and the page can tell (`pencere.draws()`);
 - tells the drive the pointer's shape when only the modifiers changed what is under it (a link
   that ⌘ made: `Drained::cursor`, the shape the host takes where the pointer is over the page);
 - times the pointer's rest over a word of an editor that hears of it on its own clock, as it does the

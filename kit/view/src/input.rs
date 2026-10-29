@@ -203,6 +203,10 @@ pub enum Event {
     Wake {
         now: f64,
     },
+    /// What the host says of how its terminal draws its cursor and its selection changed
+    /// ([`crate::TerminalLook`]): the person changed a setting. The page asks again; the host tells it
+    /// nothing else of it, and tells it only when what it says is not what it said.
+    TerminalLook,
 }
 
 /// The shape the pointer takes over the page.

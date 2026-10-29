@@ -14,10 +14,15 @@
 --   commands of the page only while it is open, and which puts the word in with a change against
 --   the version it was made for (`change`, `base`);
 -- * the program: ⌘↩ sends the statement under the caret to the program, and shows what it says;
--- * a large document, loaded in pieces (`load`, `more`) once the editor is made (`editor_ready`).
+-- * a large document, loaded in pieces (`load`, `more`) once the editor is made (`editor_ready`);
+-- * the look of the person's terminal: the host says how its terminal draws its cursor and its
+--   selection (`pencere.terminal_look()`) and applies none of it; this page takes all of it
+--   (`@pencere/terminal`), where it says nothing of its own, and reads it again when the host says it
+--   changed (`terminal_look`).
 
 local Syntax = require("@pencere/syntax")
 local languages = require("@pencere/languages")
+local terminal = require("@pencere/terminal")
 
 local b = pencere
 local layout = b.layout
@@ -193,7 +198,7 @@ end
 -- --- The page ------------------------------------------------------------------------------------
 
 local function render(size)
-	local editor = b.editor(SQL, options):grow(1):bg("raised1"):focused(true)
+	local editor = b.editor(SQL, terminal.editor(options)):grow(1):bg("raised1"):focused(true)
 		:command("run", "Run the statement", "cmd+enter")
 	if popup then
 		editor = editor
@@ -238,6 +243,10 @@ local function respond(event)
 		if not composing then
 			complete()
 		end
+		return true
+	elseif kind == "terminal_look" then
+		-- The person changed how the terminal draws its cursor or its selection: the page is made
+		-- again, and `render` reads it.
 		return true
 	elseif kind == "editor_refused" then
 		note = "The editor did not do it: " .. event.reason

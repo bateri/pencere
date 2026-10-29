@@ -1276,7 +1276,13 @@ impl View {
                         })
                     })
                     .collect(),
-                room: Rect::new(slot.scroll.x, slot.scroll.y, room.w, room.h),
+                // What the room shows of the text: past the gutter.
+                room: Rect::new(
+                    slot.scroll.x + gutter.w,
+                    slot.scroll.y,
+                    (room.w - gutter.w).max(0.0),
+                    room.h,
+                ),
                 row: self.row,
                 interacting,
                 motion: caret.motion,

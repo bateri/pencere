@@ -23,6 +23,11 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **What a host says of its terminal**: `TerminalLook` (`TerminalCaret`, `TerminalSelection`: each field
+  an `Option`, in the words and units of the editor's options), `TerminalLook::fill` (the look put in
+  an editor's options where the page said nothing, a field at a time), `Drawing` (`Shadow`) and
+  `Event::TerminalLook`.
+
 - **A caret that glides**: `Caret::motion` (`CaretMotion`: `Snap`, `Ease(seconds)`, `Spring(stiffness)`;
   `limits::CARET_EASE`, `CARET_SPRING`). The default is `Snap`, as a caret was.
 

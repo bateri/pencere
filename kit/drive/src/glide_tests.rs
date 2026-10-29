@@ -209,6 +209,21 @@ fn a_caret_is_at_its_place_at_once_with_less_motion_with_another_count_out_of_th
 }
 
 #[test]
+fn a_glide_the_editor_stops_asking_about_is_at_rest_and_asks_for_no_frame() {
+    let motion = CaretMotion::Ease(0.18);
+    let (mut glide, _) = moved(motion, 1.0);
+    assert!(glide.moving());
+    // A frame in which no editor said where its carets are (the keyboard went to the page).
+    glide.drawn();
+    assert!(glide.moving(), "this frame did ask");
+    glide.drawn();
+    assert!(!glide.moving(), "the next did not");
+    // And the editor that gets the keyboard back starts from where it is.
+    let back = glide.shifts(&spots(&[5], &[54.0], motion), 2.0, false);
+    assert_eq!(back, vec![Point::default()]);
+}
+
+#[test]
 fn scrolling_does_not_make_a_caret_glide_and_a_caret_that_glides_stays_in_the_text() {
     let motion = CaretMotion::Ease(0.18);
     let (mut glide, _) = moved(motion, 1.0);

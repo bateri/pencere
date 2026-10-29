@@ -58,12 +58,13 @@ use bindings::pencere::view::system as to_system;
 pub use pencere_view::edit;
 pub use pencere_view::wire;
 pub use pencere_view::{
-    AccessibleRole, Align, Anchor, Border, Built, Button, Color, Command, Cursor, Drag, Dropped,
-    Element, Event, Extent, Fades, Family, Field, FieldKind, FieldState, Fill, Fit, Gradient, Id,
-    Image, Input, Key, KeyConvention, Keyboard, List, Menu, MenuEntry, Mix, Mods, Path, Place,
-    Point, Queries, Rect, Reply, Rgba, Role, Rows, ScrollTo, Segment, Shadow, Shortcut, Side, Size,
-    Source, Span, State, Stroke, Track, Ui, WallTime, canvas, div, image, path, rich, spacer, span,
-    spark, text,
+    AccessibleRole, Align, Anchor, Border, Built, Button, Color, Command, Cursor, Drag, Drawing,
+    Dropped, Element, Event, Extent, Fades, Family, Field, FieldKind, FieldState, Fill, Fit,
+    Gradient, Id, Image, Input, Key, KeyConvention, Keyboard, List, Menu, MenuEntry, Mix, Mods,
+    Path, Place, Point, Queries, Rect, Reply, Rgba, Role, Rows, ScrollTo, Segment, Shadow,
+    Shortcut, Side, Size, Source, Span, State, Stroke, TerminalCaret, TerminalLook,
+    TerminalSelection, Track, Ui, WallTime, canvas, div, image, path, rich, spacer, span, spark,
+    text,
 };
 pub use pencere_wire::messages;
 
@@ -226,6 +227,60 @@ pub fn keyboard() -> KeyConvention {
         Wit::Windows => KeyConvention::Windows,
         Wit::Linux => KeyConvention::Linux,
     }
+}
+
+/// How the application's terminal draws its cursor and its selection, as the person set them
+/// ([`TerminalLook`]): a field only where the application has such a setting, none where it has
+/// none. Read as it is asked, so it is what the person has set now (the page is told
+/// [`Event::TerminalLook`] when it changes). The page decides what its editors take of it
+/// ([`TerminalLook::fill`]); the application applies none of it.
+pub fn terminal_look() -> TerminalLook {
+    use bindings::pencere::view::types as wit;
+    let look = to_system::terminal_look();
+    let caret = look.caret;
+    TerminalLook {
+        caret: TerminalCaret {
+            shape: caret.shape.map(|shape| match shape {
+                wit::CaretShape::Bar => edit::CaretShape::Bar,
+                wit::CaretShape::Block => edit::CaretShape::Block,
+                wit::CaretShape::Underline => edit::CaretShape::Underline,
+            }),
+            width: caret.width,
+            radius: caret.radius,
+            glow: caret.glow,
+            blink: caret.blink,
+            blink_interval: caret.blink_interval,
+            unfocused: caret.unfocused.map(|unfocused| match unfocused {
+                wit::CaretUnfocused::Hidden => edit::CaretUnfocused::Hidden,
+                wit::CaretUnfocused::Hollow => edit::CaretUnfocused::Hollow,
+                wit::CaretUnfocused::Solid => edit::CaretUnfocused::Solid,
+            }),
+            motion: caret.motion.map(|motion| match motion {
+                wit::CaretMotion::Snap => edit::CaretMotion::Snap,
+                wit::CaretMotion::Ease(seconds) => {
+                    edit::CaretMotion::Ease(seconds.unwrap_or(edit::CaretMotion::EASE))
+                }
+                wit::CaretMotion::Spring(stiffness) => {
+                    edit::CaretMotion::Spring(stiffness.unwrap_or(edit::CaretMotion::SPRING))
+                }
+            }),
+        },
+        selection: TerminalSelection {
+            radius: look.selection.radius,
+        },
+    }
+}
+
+/// What the application draws that not every application does ([`Drawing`]): the same every time
+/// it is asked. A page that wants a soft shadow (a caret's glow) finds out here whether it will be
+/// seen.
+pub fn draws() -> Vec<Drawing> {
+    to_system::draws()
+        .into_iter()
+        .map(|drawing| match drawing {
+            to_system::Drawing::Shadow => Drawing::Shadow,
+        })
+        .collect()
 }
 
 fn point_in(at: Point) -> bindings::pencere::view::types::Point {

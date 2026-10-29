@@ -8,6 +8,10 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Changed
 
+- A page can ask how the application's terminal draws its cursor and its selection (`terminal_look`, a
+  `TerminalLook`, whose `fill` puts it in an editor's options where the page said nothing) and what it
+  draws that not every application does (`draws`), and is told `Event::TerminalLook` when it changes.
+
 - An editor's caret `motion` crosses the interface.
 
 - An editor's caret (`radius`, `glow`, `blink`, `blink_interval`, `blink_for`, `unfocused`) crosses the
