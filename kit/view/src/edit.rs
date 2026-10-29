@@ -230,6 +230,11 @@ pub struct Widget {
     /// Points kept inside it before and after its words (the group's `pad` where none).
     pub pad_left: Option<f32>,
     pub pad_right: Option<f32>,
+    /// Points kept outside it before and after, between it and the characters beside it (the
+    /// group's `margin` where none). An inline widget only: one at a line's end has the group's
+    /// `gap`.
+    pub margin_left: Option<f32>,
+    pub margin_right: Option<f32>,
 }
 
 /// One run of a [`Widget`]'s words.
@@ -266,10 +271,12 @@ pub struct WidgetGroup {
     pub size: f32,
     pub color: Option<Color>,
     pub background: Option<Color>,
-    /// Points: the corners' radius, the room kept inside it, the gap before a widget at a line's end.
+    /// Points: the corners' radius, the room kept inside it, the gap before a widget at a line's end,
+    /// the room kept before and after an inline one, between it and the characters beside it.
     pub radius: f32,
     pub pad: f32,
     pub gap: f32,
+    pub margin: f32,
 }
 
 impl Default for WidgetGroup {
@@ -287,6 +294,7 @@ impl Default for WidgetGroup {
             radius: 3.0,
             pad: 3.0,
             gap: 16.0,
+            margin: 3.0,
         }
     }
 }
@@ -769,6 +777,8 @@ pub struct EditorOptions {
     /// How the gutter's bars and the overview ruler's marks are drawn.
     pub marks: MarkLooks,
     pub caret: Caret,
+    /// How a selection looks.
+    pub selection: SelectionLook,
     pub colors: EditorColors,
     /// What of the pointer and the keys the page hears of beyond the rest ([`EditorEvents`]).
     pub events: EditorEvents,
@@ -1037,6 +1047,7 @@ impl Default for EditorOptions {
             gutters: Vec::new(),
             marks: MarkLooks::default(),
             caret: Caret::default(),
+            selection: SelectionLook::default(),
             colors: EditorColors::default(),
             events: EditorEvents::default(),
             hover: HoverOptions::default(),
@@ -1066,6 +1077,11 @@ impl EditorOptions {
         self.line_height = hold(self.line_height, limits::LINE_HEIGHT, default.line_height);
         self.padding = hold(self.padding, limits::PADDING, default.padding);
         self.caret.width = hold(self.caret.width, limits::CARET_WIDTH, default.caret.width);
+        self.selection.radius = hold(
+            self.selection.radius,
+            limits::ROUNDING,
+            default.selection.radius,
+        );
         self.marks.bar = hold(self.marks.bar, limits::MARK_WIDTH, default.marks.bar);
         self.marks.hover = hold(self.marks.hover, limits::MARK_WIDTH, default.marks.hover);
         self.marks.ruler = hold(self.marks.ruler, limits::MARK_WIDTH, default.marks.ruler);
@@ -1148,6 +1164,16 @@ impl Default for Caret {
             text: Tint::Theme,
         }
     }
+}
+
+/// How a selection looks ([`EditorOptions::selection`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SelectionLook {
+    /// How round the corners of a selection are, as a fraction of a row's height
+    /// ([`limits::ROUNDING`]): 0, square. Where lines of a selection meet, the corners that would
+    /// be turns inward are rounded too ([`crate::bands`]), as a terminal's selection is. A fraction,
+    /// not points, so that the corner grows with the text.
+    pub radius: f32,
 }
 
 /// What the numbers of the lines in the gutter count.
@@ -1540,6 +1566,8 @@ pub mod limits {
     pub const PADDING: std::ops::RangeInclusive<f32> = 0.0..=64.0;
     /// How wide a caret's bar, or thick its line, may be, points.
     pub const CARET_WIDTH: std::ops::RangeInclusive<f32> = 0.5..=8.0;
+    /// How round a corner is, as a fraction of a row's height.
+    pub const ROUNDING: std::ops::RangeInclusive<f32> = 0.0..=0.5;
     /// How wide a column of the gutter may be, points.
     pub const COLUMN: std::ops::RangeInclusive<f32> = 0.0..=64.0;
     /// How many columns the gutter may have.

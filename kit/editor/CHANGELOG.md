@@ -10,6 +10,8 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Fixed
 
+- An inline widget keeps `margin` points outside its box, between it and the characters beside
+  it: the box of a hint stood against the character after it.
 - A gap kept open for the page is as tall as the page said and its text follows at once: the rows
   that hold it are whole, what they hold more is taken back below, so that no band is left under what
   stands in it (the rows in view, the places, the ruler and the scrolling count in pixels).
@@ -17,6 +19,10 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   last line was counted as its.
 
 ### Added
+
+- **Round selections** (`selection.radius`): each range of the selection is drawn as one shape over
+  the rows it covers (`pencere_view::bands`), the corners that are open rounded and the turns
+  inward filled with a small figure; 0, the default, draws the square box of each row as before.
 
 - **A gap above a line** (`ZoneSide::Above`, a code lens): between the line before it that shows and its
   line, or before the first row; a line folded away has none.

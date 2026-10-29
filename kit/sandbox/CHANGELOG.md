@@ -18,6 +18,10 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- `selection` (`radius`) of an editor's options and `margin` (a group's) and `margin_left`,
+  `margin_right` (a widget's) cross the interface (`selection-look`, `widget-group.margin`,
+  `widget.margin-left`, `margin-right`).
+
 - `side = "above"` of a zone (`zone.side`) crosses the interface.
 
 - `widget` decorations, `widgets` (groups of them), `hover`'s `over` and `id`, and `target`'s

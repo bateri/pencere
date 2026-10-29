@@ -1089,7 +1089,9 @@ impl View {
                     }
                 }
             }
-            if let Some(ground) = selected_ground {
+            if let Some(ground) = selected_ground
+                && self.options.selection.radius <= 0.0
+            {
                 for range in ranges.iter().filter(|range| !range.is_empty()) {
                     if let Some(rect) =
                         self.span(row, range.start(), range.end(), true, origin_x, y)
@@ -1098,6 +1100,26 @@ impl View {
                     }
                 }
             }
+        }
+        // The selection with round corners: each range a shape over its rows, so that it is worked
+        // out apart from the rows' own grounds (which it does not overlap), and with the rows just
+        // out of view, so that a row at the edge is joined to its neighbour.
+        if let Some(ground) = selected_ground
+            && self.options.selection.radius > 0.0
+        {
+            let near = |row: &&Row| {
+                let y = row_y(row);
+                y + 2.0 * self.row > room.y && y - self.row < room.bottom()
+            };
+            let around: Vec<&Row> = self.rows.iter().filter(near).collect();
+            self.paint_rounded_selection(
+                ranges,
+                &around,
+                (origin_x, &|row: &Row| row_y(row)),
+                (fade(ground), text_clip),
+                self.options.selection.radius,
+                &mut out,
+            );
         }
         // The text, in the looks the page gave it, over the guides of the indent and the marks of
         // the spaces and tabs shown (each over the grounds the page's looks give the text).
@@ -2593,3 +2615,4 @@ impl Placement for Rows<'_> {
 }
 
 mod hints;
+mod rounding;

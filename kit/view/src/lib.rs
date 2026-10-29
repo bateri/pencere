@@ -34,6 +34,7 @@
 //! page kept in a sandbox is written against, as [`Laid`] answers the same questions to one that
 //! is not.
 
+pub mod bands;
 mod color;
 mod command;
 pub mod edit;
@@ -78,6 +79,8 @@ pub use system::{KeyConvention, WallTime};
 pub use text::{Align, EditorMetrics, Family, Font, Measure, Metrics};
 pub use ui::{Drag, Dropped, Ui};
 
+#[cfg(test)]
+mod bands_tests;
 #[cfg(test)]
 mod commands_tests;
 #[cfg(test)]

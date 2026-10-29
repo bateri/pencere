@@ -738,6 +738,8 @@ interface types {
         /// `colors.current-line`).
         current-line: line-highlight,
         caret: editor-caret,
+        /// How a selection looks.
+        selection: selection-look,
         colors: editor-colors,
         /// Which spaces and tabs are shown.
         whitespace: editor-whitespace,
@@ -767,6 +769,14 @@ interface types {
         chord-timeout: option<f32>,
         /// How the groups of widgets look and when they show.
         widgets: list<widget-group>,
+    }
+
+    /// How a selection looks.
+    record selection-look {
+        /// How round its corners are, a fraction (0 to 0.5) of a row's height; none: 0, square.
+        /// Where the lines of a selection meet, the turns inward are rounded too, as a
+        /// terminal's selection is.
+        radius: option<f32>,
     }
 
     record gesture-binding {
@@ -1625,6 +1635,10 @@ interface types {
         /// Points kept inside it before and after its words; none: the group's.
         pad-left: option<f32>,
         pad-right: option<f32>,
+        /// Points kept outside it before and after, between it and the characters beside it (an
+        /// inline widget only); none: the group's.
+        margin-left: option<f32>,
+        margin-right: option<f32>,
     }
 
     record widget-part {
@@ -1656,11 +1670,13 @@ interface types {
         size: option<f32>,
         color: option<color>,
         background: option<color>,
-        /// Points (0 to 64): the corners, the room inside, the gap before a widget at a line's end;
-        /// none: 3, 3 and 16.
+        /// Points (0 to 64): the corners, the room inside, the gap before a widget at a line's end,
+        /// the room kept before and after an inline one, between it and the characters beside it;
+        /// none: 3, 3, 16 and 3.
         radius: option<f32>,
         pad: option<f32>,
         gap: option<f32>,
+        margin: option<f32>,
     }
 
     enum widget-show {

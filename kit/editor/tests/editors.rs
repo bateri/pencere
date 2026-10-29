@@ -1682,6 +1682,9 @@ fn whatever_the_text_rows_and_selections_the_marks_and_guides_are_drawn_in_the_r
             wrap: round % 2 == 0,
             tab_width: 1 + below(8) as u8,
             folds: Folds::Indent,
+            selection: pencere_view::edit::SelectionLook {
+                radius: (round % 4) as f32 * 0.17,
+            },
             ..invisible(kinds[round % kinds.len()], true)
         };
         let mut host = Host::new(page_with(options));
@@ -3236,13 +3239,14 @@ fn a_widget_takes_room_in_its_line_before_or_after_the_caret_and_is_no_part_of_t
             .map(|(_, at, _)| at.x)
             .expect("the word")
     };
-    // `ab` (14 wide) and 3 of room each side, before `beta`: the word goes 20 across, the text
+    // `ab` (14 wide), 3 of room inside its box and 3 outside it each side, before `beta`: the word
+    // goes 26 across, the text
     // is the same.
     host.decorate(
         "hints",
         vec![Decoration::new(6, 6, hint(WidgetSide::Before, "ab"))],
     );
-    assert_eq!(x_of(&mut host, "beta"), 4.0 + 38.0 + 20.0);
+    assert_eq!(x_of(&mut host, "beta"), 4.0 + 38.0 + 26.0);
     assert_eq!(x_of(&mut host, "alpha"), 4.0);
     assert_eq!(host.text(), "alpha beta");
     // The caret at 6 is after the hint (`ab |beta`) and the caret at 5 is where it was.
@@ -3254,7 +3258,7 @@ fn a_widget_takes_room_in_its_line_before_or_after_the_caret_and_is_no_part_of_t
         .metrics(EDITOR)
         .and_then(|m| m.caret)
         .expect("a caret");
-    assert_eq!(caret.x, 4.0 + 38.0 + 20.0);
+    assert_eq!(caret.x, 4.0 + 38.0 + 26.0);
     // After a character: the caret is before the hint (`x|: int`).
     host.decorate(
         "hints",
@@ -3267,7 +3271,7 @@ fn a_widget_takes_room_in_its_line_before_or_after_the_caret_and_is_no_part_of_t
         .and_then(|m| m.caret)
         .expect("a caret");
     assert_eq!(caret.x, 4.0 + 31.0);
-    assert_eq!(x_of(&mut host, "beta"), 4.0 + 31.0 + 20.0);
+    assert_eq!(x_of(&mut host, "beta"), 4.0 + 31.0 + 26.0);
     // A press on the hint puts the caret at the nearest place: before it or after, not in it.
     assert!(host.press(Point::new(4.0 + 31.0 + 4.0, 10.0), none(), 1));
     host.editors.release();
@@ -3313,7 +3317,7 @@ fn the_group_says_when_a_widget_shows_by_the_modifiers_and_one_at_a_lines_end_is
             .map(|(_, at, _)| at.x)
             .expect("the word")
     };
-    assert_eq!(x_of(&mut host, "beta"), 4.0 + 38.0 + 20.0);
+    assert_eq!(x_of(&mut host, "beta"), 4.0 + 38.0 + 26.0);
     // ⌃⌥ held: hidden (unless held), the line as it was.
     host.mods(with(|m| {
         m.control = true;
@@ -3327,7 +3331,7 @@ fn the_group_says_when_a_widget_shows_by_the_modifiers_and_one_at_a_lines_end_is
     );
     host.mods(none());
     host.frame();
-    assert_eq!(x_of(&mut host, "beta"), 4.0 + 38.0 + 20.0);
+    assert_eq!(x_of(&mut host, "beta"), 4.0 + 38.0 + 26.0);
     // At the line's end, a gap beyond the text, and cut where the room (400 wide) ends.
     let long = "x".repeat(120);
     host.decorate(
@@ -3553,5 +3557,179 @@ fn a_widget_on_a_later_line_is_at_a_place_of_the_document_and_a_wrapped_line_tak
     assert!(
         next > last,
         "the next line is below the rows of the wrapped one: {next} {last}"
+    );
+}
+
+/// The boxes filled in the selection's colour, with their corners, and the figures drawn in it.
+fn selected(host: &mut Host) -> (Vec<(Rect, [f32; 4])>, Vec<Rect>) {
+    let list = host.paint(true);
+    let boxes = list
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Quad(quad)
+                if quad.fill.and_then(|fill| fill.role()) == Some(Role::Selection) =>
+            {
+                Some((quad.rect, quad.radii))
+            }
+            _ => None,
+        })
+        .collect();
+    let figures = list
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Figure(figure) => Some(figure.rect),
+            _ => None,
+        })
+        .collect();
+    (boxes, figures)
+}
+
+/// A host with two lines, the second longer, `from` to the end of the text selected, the editor
+/// having the keyboard. The first line is 30 across (`i` is 3), the second 72; both start 4 in.
+fn selecting_two_lines(radius: f32, from: usize) -> Host {
+    let mut host = Host::new(page_with(EditorOptions {
+        selection: pencere_view::edit::SelectionLook { radius },
+        ..plain()
+    }));
+    host.load("iiiiiiiiii\niiiiiiiiiiiiiiiiiiiiiiii");
+    host.editors.set_focus(Some(EDITOR));
+    let laid = host.laid.clone();
+    let version = host.editors.buffer(EDITOR).expect("the editor").version();
+    host.editors.ask(
+        &laid,
+        EDITOR,
+        EditorAsk::Select {
+            version,
+            ranges: vec![Range::new(from, 35)],
+            main: 0,
+        },
+        &mut Fake,
+        host.now,
+    );
+    host.settle();
+    host
+}
+
+#[test]
+fn a_selection_is_square_boxes_a_line_each_where_the_page_says_no_radius() {
+    let mut host = selecting_two_lines(0.0, 4);
+    let (boxes, figures) = selected(&mut host);
+    assert_eq!(
+        boxes,
+        vec![
+            // The first line from the fifth `i` to its end and the break (a space, 7).
+            (Rect::new(16.0, 4.0, 4.0 + 30.0 + 7.0 - 16.0, ROW), [0.0; 4]),
+            (Rect::new(4.0, 4.0 + ROW, 72.0, ROW), [0.0; 4]),
+        ]
+    );
+    assert!(figures.is_empty());
+}
+
+#[test]
+fn a_selection_with_a_radius_rounds_its_open_corners_and_fills_the_turns_inward() {
+    let mut host = selecting_two_lines(0.22, 4);
+    // Whole pixels: 0.22 of a row of 20 is 4.4, and a figure is drawn in whole pixels.
+    let r = (0.22 * ROW).round();
+    let (boxes, figures) = selected(&mut host);
+    assert_eq!(
+        boxes,
+        vec![
+            // The first line is open at its top and flush with the second below it nowhere: the
+            // second goes further out on both sides, so its bottom corners are turns.
+            (Rect::new(16.0, 4.0, 25.0, ROW), [r, r, 0.0, 0.0],),
+            (Rect::new(4.0, 4.0 + ROW, 72.0, ROW), [r; 4]),
+        ]
+    );
+    // The turn at each side of the first line, in its own row, beside its edge.
+    assert_eq!(
+        figures,
+        vec![
+            Rect::new(41.0, 4.0 + ROW - r, r, r),
+            Rect::new(16.0 - r, 4.0 + ROW - r, r, r),
+        ]
+    );
+}
+
+#[test]
+fn a_selection_of_one_line_rounds_all_four_and_one_that_is_blurred_is_drawn_the_same() {
+    let mut host = selecting_two_lines(0.22, 4);
+    host.editors.set_focus(None);
+    host.settle();
+    let (boxes, figures) = selected(&mut host);
+    assert_eq!(boxes.len(), 2);
+    assert_eq!(figures.len(), 2);
+}
+
+#[test]
+fn whatever_the_selections_and_the_radius_the_round_selection_is_drawn_in_the_room() {
+    for radius in [0.01, 0.22, 0.5] {
+        for from in [0, 3, 10, 11, 20] {
+            let mut host = selecting_two_lines(radius, from);
+            let (boxes, figures) = selected(&mut host);
+            assert!(!boxes.is_empty());
+            for (rect, radii) in boxes {
+                assert!(rect.w > 0.0 && rect.h > 0.0);
+                assert!(radii.iter().all(|r| *r >= 0.0 && *r <= rect.w / 2.0 + 0.01));
+            }
+            for rect in figures {
+                assert!(rect.w > 0.0 && (rect.w - rect.h).abs() < 0.001);
+            }
+        }
+    }
+}
+
+#[test]
+fn an_inline_widget_keeps_its_margin_between_its_box_and_the_characters_beside_it() {
+    let mut host = Host::new(page_with(plain()));
+    host.load("iiii");
+    // A hint `x` before the third character: the second `i` ends 4 + 6 in, then the margin, then
+    // the room inside the box (the group's pad), then the word.
+    let word_at = |host: &mut Host, margins: (Option<f32>, Option<f32>)| {
+        let Mark::Widget(widget) = hint(WidgetSide::Before, "x") else {
+            panic!("a widget");
+        };
+        host.decorate(
+            "hints",
+            vec![Decoration::new(
+                2,
+                2,
+                Mark::Widget(Widget {
+                    margin_left: margins.0,
+                    margin_right: margins.1,
+                    ..widget
+                }),
+            )],
+        );
+        let texts = host.texts();
+        let hint_x = texts
+            .iter()
+            .find(|(text, _, _)| text == "x")
+            .expect("the hint")
+            .1
+            .x;
+        let third = texts
+            .iter()
+            .rfind(|(text, _, _)| text == "ii")
+            .expect("the rest")
+            .1
+            .x;
+        (hint_x, third)
+    };
+    // The group's margin is 3: the box starts 3 after the `i`, the word 3 inside it, and the rest
+    // of the line 3 after the box (7 across, 3 inside on each side).
+    assert_eq!(
+        word_at(&mut host, (None, None)),
+        (4.0 + 6.0 + 3.0 + 3.0, 4.0 + 6.0 + 3.0 + 13.0 + 3.0)
+    );
+    // The hint's own margin is what it says, each side.
+    assert_eq!(
+        word_at(&mut host, (Some(0.0), None)),
+        (4.0 + 6.0 + 3.0, 4.0 + 6.0 + 13.0 + 3.0)
+    );
+    assert_eq!(
+        word_at(&mut host, (Some(8.0), Some(1.0))),
+        (4.0 + 6.0 + 8.0 + 3.0, 4.0 + 6.0 + 8.0 + 13.0 + 1.0)
     );
 }

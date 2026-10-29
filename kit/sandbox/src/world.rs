@@ -11,8 +11,8 @@ use pencere_view::edit::{
     GutterKind, GutterMark, GutterShape, HoverKind, HoverOptions, HoverOver, IndentRules,
     KeyAction, Keybinding, Keys, LineHighlight, LinkOptions, Look, Mark, MarkLooks, Matches,
     Movement, Numbers, Origin, Pressing, Preview, Range, Refusal, RevealAlign, RulerLane,
-    RulerMark, TargetKind, TargetSource, Tint, Underline, Whitespace, Widget, WidgetGroup,
-    WidgetPart, WidgetShow, WidgetSide, Zone, ZoneSide, limits,
+    RulerMark, SelectionLook, TargetKind, TargetSource, Tint, Underline, Whitespace, Widget,
+    WidgetGroup, WidgetPart, WidgetShow, WidgetSide, Zone, ZoneSide, limits,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -1718,6 +1718,13 @@ fn editor_options_out(
             color: tint_out(&options.caret.color),
             text: tint_out(&options.caret.text),
         },
+        selection: SelectionLook {
+            radius: options
+                .selection
+                .radius
+                .filter(|radius| radius.is_finite())
+                .unwrap_or(default.selection.radius),
+        },
         gutters: options
             .gutters
             .iter()
@@ -1773,6 +1780,7 @@ fn editor_options_out(
                         radius: room(group.radius, standard.radius),
                         pad: room(group.pad, standard.pad),
                         gap: room(group.gap, standard.gap),
+                        margin: room(group.margin, standard.margin),
                     },
                 )
             })
@@ -2022,6 +2030,8 @@ fn mark_out(mark: &wit::Mark) -> Mark {
             background: widget.background.as_ref().map(color_out),
             pad_left: widget.pad_left.filter(|pad| pad.is_finite()),
             pad_right: widget.pad_right.filter(|pad| pad.is_finite()),
+            margin_left: widget.margin_left.filter(|margin| margin.is_finite()),
+            margin_right: widget.margin_right.filter(|margin| margin.is_finite()),
         }),
     }
 }

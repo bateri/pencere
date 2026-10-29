@@ -115,7 +115,7 @@
 --     lane = "full" | "left" | "center" | "right" } (a mark on the overview ruler),
 --     { from =, to =, widget = "words" | { "words", { "more", color =, id = } }, side = "before" |
 --     "after" | "end", group =, id =, label =, cursor =, anchor =, color =, background =, pad_left =,
---     pad_right = } (text that is not the document's, where the range is: an inlay hint "before" the
+--     pad_right =, margin_left =, margin_right = } (text that is not the document's, where the range is: an inlay hint "before" the
 --     range's start or "after" its end, or after its line's end; at most 8 parts of 200
 --     characters, 32 to a line), { from =, to =, anchor = "name" } (the range has a name an overlay can stand beside,
 --     `pencere.range_of(editor, name)`), { from =, to =, zone = "name", height = points, side = "below" | "above" } (a gap kept open after the line the range

@@ -1292,6 +1292,14 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
         luaL_error(L, "the hover of an editor is a table: { delay = seconds }");
     }
     lua_pop(L, 1);
+    get(L, t, "selection");
+    int selection = lua_gettop(L);
+    if (lua_type(L, selection) == LUA_TTABLE) {
+        out.selection.radius = optional_number(L, selection, "radius");
+    } else if (!lua_isnil(L, selection)) {
+        luaL_error(L, "the selection of an editor is a table: { radius = }");
+    }
+    lua_pop(L, 1);
     out.caret.color.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
     out.caret.text.tag = PENCERE_VIEW_TYPES_EDITOR_TINT_THEME;
     get(L, t, "caret");
@@ -2298,7 +2306,8 @@ view_option_string_t option_string(lua_State* L, int t, const char* name, const 
 
 // A decoration's `widget = "words"` or `widget = { "words", { "words", color =, id = }, … }`, with `side =
 // "before" | "after" | "end"`, `group =`, `id =`, `label =`, `cursor =`, `anchor =`, `color =`,
-// `background =`, `pad_left =`, `pad_right =`: text that is not the document's.
+// `background =`, `pad_left =`, `pad_right =`, `margin_left =`, `margin_right =`: text that is not
+// the document's.
 pencere_view_types_widget_t widget_at(lua_State* L, int t) {
     pencere_view_types_widget_t out = {};
     static const char* const kSides[] = {"before", "after", "end"};
@@ -2313,6 +2322,8 @@ pencere_view_types_widget_t widget_at(lua_State* L, int t) {
     out.background = optional_color(L, t, "background");
     out.pad_left = optional_number(L, t, "pad_left");
     out.pad_right = optional_number(L, t, "pad_right");
+    out.margin_left = optional_number(L, t, "margin_left");
+    out.margin_right = optional_number(L, t, "margin_right");
     get(L, t, "widget");
     int widget = lua_gettop(L);
     std::vector<pencere_view_types_widget_part_t> parts;
@@ -2367,7 +2378,7 @@ pencere_view_types_widget_t widget_at(lua_State* L, int t) {
 }
 
 // `widgets = { hints = { show = "unless_held", hold = "control+alt", size = 0.9, color =, background =,
-// radius = 3, pad = 3, gap = 16 } }`: how a group of widgets look and when they show.
+// radius = 3, pad = 3, gap = 16, margin = 3 } }`: how a group of widgets look and when they show.
 pencere_view_types_list_widget_group_t widget_groups_at(lua_State* L, int t) {
     pencere_view_types_list_widget_group_t out = {};
     get(L, t, "widgets");
@@ -2392,6 +2403,7 @@ pencere_view_types_list_widget_group_t widget_groups_at(lua_State* L, int t) {
             binding.radius = optional_number(L, group, "radius");
             binding.pad = optional_number(L, group, "pad");
             binding.gap = optional_number(L, group, "gap");
+            binding.margin = optional_number(L, group, "margin");
             found.push_back(binding);
             if (found.size() > 256) luaL_error(L, "an editor has at most 256 groups of widgets");
             lua_pop(L, 1);

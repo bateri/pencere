@@ -519,3 +519,58 @@ fn the_example_with_a_server_less_language_is_pictured_at_rest_with_a_card_and_w
     }
     Ok(())
 }
+
+/// The same lines selected in two editors side by side, the left square as every editor's is and the
+/// right with the corners of a terminal's selection (`selection.radius = 0.22`): the corners that are
+/// open round, the turns inward are filled. `PENCERE_SHOTS=selection` writes it to
+/// `target/selection-rounded.png`, in the terminal's font of a Mac, for an eye to check.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_selection_over_lines_is_pictured_square_and_with_round_corners() -> Result<(), Error> {
+    let fonts = match std::env::var("PENCERE_SHOTS").as_deref() {
+        Ok("selection") => Fonts::none()
+            .terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc").expect("Menlo"))
+            .expect("a font"),
+        _ => Fonts::none(),
+    };
+    let mut page = Headless::script(
+        r#"
+        local text = "the quick brown fox jumps\nover the lazy dog and runs\naway\n\nfar beyond the hills, past it\nthe end"
+        local function editor(id, radius)
+            return pencere.editor(id, { selection = { radius = radius }, gutter = false,
+                colors = { selection_blurred = "selection" } }):grow(1)
+        end
+        return {
+            render = function()
+                return pencere.div():size_full():row():gap(8)
+                    :child(editor("square", 0)):child(editor("round", 0.22))
+            end,
+            handle = function(event)
+                if event.type == "editor_ready" then
+                    return { editor = { [event.editor] = { { load = text } } } }
+                end
+            end,
+        }
+        "#,
+    )
+    .measure(fonts.clone())
+    .size(560.0, 150.0)
+    .scale(2.0)
+    .open()?;
+    page.select("square", 10, 85)?;
+    page.select("round", 10, 85)?;
+    let drawn = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    if std::env::var("PENCERE_SHOTS").as_deref() == Ok("selection") {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        std::fs::write(target.join("selection-rounded.png"), &drawn).expect("written");
+    }
+    // The round selection is drawn with figures, the square one with boxes alone.
+    let figures = page
+        .list()
+        .items
+        .iter()
+        .filter(|item| matches!(item, Paint::Figure(_)))
+        .count();
+    assert!(figures > 0, "a turn inward is a figure");
+    Ok(())
+}

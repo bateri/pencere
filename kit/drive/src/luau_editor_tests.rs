@@ -7,7 +7,7 @@
 use pencere_sandbox::Fault;
 use pencere_view::edit::{
     Caret, CaretHeight, CaretShape, CommentTokens, EditorAsk, EditorColors, EditorOptions, Folds,
-    IndentRules, LineHighlight, Mark, Matches, Numbers, Origin, Tint, Whitespace,
+    IndentRules, LineHighlight, Mark, Matches, Numbers, Origin, SelectionLook, Tint, Whitespace,
 };
 use pencere_view::{Event, Id, Key, Mods, Paint, Point, Role};
 
@@ -352,6 +352,7 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
                     current_line = "all",
                     matches = "word",
                     caret = { shape = "block", height = "text", width = 3, color = "accent", text = { "magenta", 0.5 } },
+                    selection = { radius = 0.22 },
                     colors = { current_line = false, selection = "raised1", numbers = "dim", matches = "info" },
                 }):grow(1))
             end,
@@ -381,6 +382,7 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
                 color: Tint::Color(Role::Accent.solid()),
                 text: Tint::Color(Role::Magenta.alpha(0.5)),
             },
+            selection: SelectionLook { radius: 0.22 },
             colors: EditorColors {
                 current_line: Tint::Off,
                 selection: Tint::Color(Role::Raised(1).solid()),

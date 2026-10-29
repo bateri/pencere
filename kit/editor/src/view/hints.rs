@@ -195,7 +195,23 @@ impl View {
         }
     }
 
-    /// How wide a widget is (pixels) and how wide each of its parts' words are.
+    /// The room an inline widget keeps outside its box, before and after it, pixels: the group's
+    /// `margin` where it says none. A widget at a line's end keeps none (the group's `gap` is its).
+    fn widget_margins(&self, widget: &Widget, group: &WidgetGroup) -> (f32, f32) {
+        if widget.side == WidgetSide::End {
+            return (0.0, 0.0);
+        }
+        let room = |points: Option<f32>| {
+            points
+                .unwrap_or(group.margin)
+                .clamp(*limits::WIDGET_ROOM.start(), *limits::WIDGET_ROOM.end())
+                * self.scale
+        };
+        (room(widget.margin_left), room(widget.margin_right))
+    }
+
+    /// How wide a widget is (pixels), the room outside its box included, and how wide each of its
+    /// parts' words are.
     fn widget_width(&self, widget: &Widget, measure: &mut dyn Measure) -> (f32, Vec<f32>) {
         let group = self.group_of(widget);
         let font = self.widget_font(&group);
@@ -218,7 +234,12 @@ impl View {
                 }
             })
             .collect();
-        let width = parts.iter().sum::<f32>() + room(widget.pad_left) + room(widget.pad_right);
+        let (before, after) = self.widget_margins(widget, &group);
+        let width = parts.iter().sum::<f32>()
+            + room(widget.pad_left)
+            + room(widget.pad_right)
+            + before
+            + after;
         (width, parts)
     }
 
@@ -274,7 +295,8 @@ impl View {
                 .unwrap_or(group.pad)
                 .clamp(*limits::WIDGET_ROOM.start(), *limits::WIDGET_ROOM.end())
                 * self.scale;
-            let rect = Rect::new(origin + x, top, width, self.row);
+            let (before, after) = self.widget_margins(&placed.widget, &group);
+            let rect = Rect::new(origin + x + before, top, width - before - after, self.row);
             let mut across = rect.x + pad_left;
             let mut parts = Vec::new();
             for part in &placed.parts {

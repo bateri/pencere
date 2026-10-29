@@ -802,6 +802,9 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
                 pad: column.pad,
             })
             .collect(),
+        selection: wit::SelectionLook {
+            radius: Some(options.selection.radius),
+        },
         marks: wit::MarkLooks {
             bar: Some(options.marks.bar),
             hover: Some(options.marks.hover),
@@ -878,6 +881,7 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
                 radius: Some(group.radius),
                 pad: Some(group.pad),
                 gap: Some(group.gap),
+                margin: Some(group.margin),
             })
             .collect(),
     }
@@ -1033,6 +1037,8 @@ fn mark(mark: Mark) -> wit::Mark {
             background: widget.background.map(color),
             pad_left: widget.pad_left,
             pad_right: widget.pad_right,
+            margin_left: widget.margin_left,
+            margin_right: widget.margin_right,
         }),
     }
 }

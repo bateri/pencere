@@ -10,6 +10,10 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Fixed
 
+- An inline widget keeps room outside its box, between it and the characters beside it
+  (`WidgetGroup::margin`, 3 points; `Widget::margin_left`/`margin_right` say another): the box of a
+  hint stood against the character after it.
+
 - A gap kept open for the page (`Mark::Zone`) is as tall as its `height`, not as tall as the whole
   rows that hold it: the text after it follows at once, with no band under what stands in it.
 
@@ -18,6 +22,12 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   its press, which was the dialog's.
 
 ### Added
+
+- **Round selections**: `EditorOptions::selection` (`SelectionLook::radius`, a fraction of a row's
+  height, `limits::ROUNDING`) and `pencere_view::bands` (`Band`, `Part`, `rounded`): the shape of a
+  selection over lines, one rule for an editor and a terminal's grid (the corners that are open are
+  rounded, the turns inward are filled by a square cut by a quarter of a circle, edges less than
+  `LEVEL` apart are one).
 
 - `Zone::side` (`ZoneSide::Above`): a gap before its line, for a code lens.
 

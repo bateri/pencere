@@ -8,6 +8,9 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Changed
 
+- An editor's `selection` (`SelectionLook`), a widget group's `margin` and a widget's `margin_left`
+  and `margin_right` cross the interface.
+
 - The gutter's columns, markers, ruler marks and zones, a node's `zone` and the event of the pointer
   in a column (`Event::Gutter`) cross the interface.
 

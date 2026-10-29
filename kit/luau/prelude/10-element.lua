@@ -379,7 +379,7 @@ end
 -- chord waits for its next key, 1), `links = { delay = 0.05 }` (the least time between two words told
 -- of), `widgets` (how the groups of text the page puts in lines, `{ from =, to =, widget = "words", side =,
 -- group = }`, look and when they show: `{ hints = { show = "unless_held", hold = "control+alt", size = 0.9,
--- color =, background =, radius = 3, pad = 3, gap = 16 } }`; "on", "off", "unless_held", "when_held"),
+-- color =, background =, radius = 3, pad = 3, gap = 16, margin = 3 } }`; "on", "off", "unless_held", "when_held"),
 -- `current_line` (where the caret's line is drawn:
 -- "text", "gutter", "all"), `whitespace` (which spaces and tabs it shows, as VS Code: "none",
 -- "boundary" (all but a space alone between words), "selection", "trailing" or "all"; a space is a
@@ -387,7 +387,8 @@ end
 -- indent, the caret's block's in its own colour), `matches` (the other places of the main selection's
 -- text marked where they are in view: "none", "selection" (or true), or "word", the caret's word
 -- too), `caret = { shape = "bar" | "block" | "underline", height = "row" | "text", width = 2, color =,
--- text = }` and `colors = { current_line, selection, selection_blurred, found, brackets, numbers,
+-- text = }`, `selection = { radius = 0 }` (how round the corners of a selection are, a fraction of a row's
+-- height, 0 to 0.5: 0 square; where lines meet the turns inward are rounded too) and `colors = { current_line, selection, selection_blurred, found, brackets, numbers,
 -- current_number, gutter, folds, folded, hint, whitespace, indent_guides, active_indent_guide,
 -- matches, mark_hover }`. A colour it does not say is the theme's;
 -- `false` draws none. A plain editor shows no spaces and no guides.
@@ -421,6 +422,7 @@ local EDITOR_OPTIONS = {
 	indent_guides = true,
 	matches = true,
 	caret = { shape = true, height = true, width = true, color = true, text = true },
+	selection = { radius = true },
 	colors = {
 		current_line = true,
 		selection = true,
