@@ -1984,6 +1984,9 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             push_id(L, pointer.place.editor);
             lua_setfield(L, -2, "editor");
             set_place(L, "at", pointer.place.at);
+            lua_pushboolean(L, pointer.place.inside);
+            lua_setfield(L, -2, "inside");
+            set_number(L, "version", (double)pointer.place.version);
             lua_setfield(L, -2, "place");
             break;
         }
@@ -2244,9 +2247,10 @@ const char* const kCommands[] = {"move",          "insert",          "newline", 
                                  "replace",       "replace_all",     "select_found",      "select_occurrences",
                                  "toggle_block_comment", "fold_all", "delete_lines",   "select_line",
                                  "duplicate_lines_up", "join_lines", "insert_blank_line", "split_line",
-                                 "transpose_chars", "delete_to_line_start", "delete_to_line_end"};
+                                 "transpose_chars", "delete_to_line_start", "delete_to_line_end", "copy", "cut"};
 static_assert(PENCERE_VIEW_TYPES_EDITOR_COMMAND_TOGGLE_BLOCK_COMMENT == 32 &&
-                  PENCERE_VIEW_TYPES_EDITOR_COMMAND_DELETE_TO_LINE_END == 42 && PENCERE_VIEW_TYPES_MOVEMENT_BRACKET == 12,
+                  PENCERE_VIEW_TYPES_EDITOR_COMMAND_DELETE_TO_LINE_END == 42 &&
+                  PENCERE_VIEW_TYPES_EDITOR_COMMAND_CUT == 44 && PENCERE_VIEW_TYPES_MOVEMENT_BRACKET == 12,
               "the words of an editor's commands are the places of the interface's");
 
 // `{ command = "undo" }`, `{ command = "move", movement = "word_left", extend = true }`,
@@ -2254,7 +2258,7 @@ static_assert(PENCERE_VIEW_TYPES_EDITOR_COMMAND_TOGGLE_BLOCK_COMMENT == 32 &&
 // `{ command = "replace", text = "x" }`, `{ command = "replace_all", text = "x" }`.
 pencere_view_types_editor_command_t command_at(lua_State* L, int t) {
     pencere_view_types_editor_command_t out = {};
-    out.tag = (uint8_t)word(L, t, "command", kCommands, 43, -1);
+    out.tag = (uint8_t)word(L, t, "command", kCommands, 45, -1);
     switch (out.tag) {
         case PENCERE_VIEW_TYPES_EDITOR_COMMAND_MOVE:
             out.val.move.movement = (uint8_t)word(L, t, "movement", kMovements, 13, 0);
@@ -2471,7 +2475,7 @@ pencere_view_types_list_widget_group_t widget_groups_at(lua_State* L, int t) {
     return out;
 }
 
-const char* const kPressings[] = {"place", "extend", "add_caret", "column", "word", "line", "target", "nothing"};
+const char* const kPressings[] = {"place", "extend", "add_caret", "column", "word", "line", "target", "nothing", "context"};
 
 // `gestures = { ["mod+press"] = "target", ["alt+shift+press"] = "column", ["press\xC3\x972"] = "word", … }`:
 // a press by its modifiers, button (`middle+press`) and count (`press×2`, `pressx2`); what it does, or
@@ -2516,10 +2520,10 @@ pencere_view_types_list_gesture_binding_t gestures_at(lua_State* L, int t) {
                 binding.pressing = PENCERE_VIEW_TYPES_PRESSING_NOTHING;
             } else if (lua_type(L, value) == LUA_TSTRING) {
                 int found_at = -1;
-                for (int at = 0; at < 8; at++)
+                for (int at = 0; at < 9; at++)
                     if (strcmp(lua_tostring(L, value), kPressings[at]) == 0) found_at = at;
                 if (found_at < 0)
-                    luaL_error(L, "the gesture \"%s\" does \"%s\": place, extend, add_caret, column, word, line, target or false", key.c_str(), lua_tostring(L, value));
+                    luaL_error(L, "the gesture \"%s\" does \"%s\": place, extend, add_caret, column, word, line, target, context or false", key.c_str(), lua_tostring(L, value));
                 binding.pressing = (uint8_t)found_at;
             } else {
                 luaL_error(L, "the gesture \"%s\" is a word (or false)", key.c_str());
@@ -2596,7 +2600,7 @@ pencere_view_types_list_key_binding_t keymap_at(lua_State* L, int t) {
                 else if (name == "to_line_end") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_TO_LINE_END;
                 else {
                     int found_at = -1;
-                    for (int at = 0; at < 43; at++)
+                    for (int at = 0; at < 45; at++)
                         if (name == kCommands[at]) found_at = at;
                     if (found_at < 0) luaL_error(L, "the keys \"%s\" do \"%s\", which is no command of an editor", key.c_str(), name.c_str());
                     if (found_at == PENCERE_VIEW_TYPES_EDITOR_COMMAND_MOVE || found_at == PENCERE_VIEW_TYPES_EDITOR_COMMAND_INSERT ||
@@ -3088,11 +3092,24 @@ int reply_call(lua_State* L) {
                     // "-" is the line between entries.
                     entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_SEPARATOR;
                 } else if (lua_type(L, entry_index) == LUA_TTABLE) {
-                    entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_ITEM;
+                    // `paste = the editor's name`: a line the application performs itself, the
+                    // pasteboard's text pasted in that editor; the page never reads it.
+                    get(L, entry_index, "paste");
+                    bool paste = !lua_isnil(L, -1);
+                    if (paste) {
+                        entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_PASTE;
+                        entry.val.paste.editor = id_of(L, lua_gettop(L));
+                    } else {
+                        entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_ITEM;
+                    }
+                    lua_pop(L, 1);
+                    // The same fields, whichever record they are written to (the interface's two
+                    // records of a titled line have them in the same order).
+                    auto& line = entry.val.item;
                     get(L, entry_index, "title");
                     size_t length = 0;
                     const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
-                    entry.val.item.title = add_words(titles, bytes, length);
+                    line.title = add_words(titles, bytes, length);
                     lua_pop(L, 1);
                     // The keys that do the same, written as a command's: `keys`, or `key` as a
                     // page wrote it before (one character is keys too).

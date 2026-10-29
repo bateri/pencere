@@ -6,6 +6,11 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- `Pressing::Context`, `EditCommand::Copy` and `EditCommand::Cut`, `MenuEntry::Paste`, and `Place`
+  with `inside` and `version`.
+
 ### Changed
 
 - A page can ask how the application's terminal draws its cursor and its selection (`terminal_look`, a

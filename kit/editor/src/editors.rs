@@ -140,6 +140,10 @@ pub struct Editors {
     focus: Option<Id>,
     events: Vec<EditorEvent>,
     scrolls: Vec<ScrollTo>,
+    /// Text the page had copied or cut, for the host's pasteboard, oldest first.
+    copied: Vec<String>,
+    /// A press with ⌃ is a right press (a Mac's): the drive says so ([`Editors::set_control_click`]).
+    control_click: bool,
     relayout: bool,
     /// Something only drawn changed (the gutter mark the pointer is over).
     redraw: bool,
@@ -274,6 +278,20 @@ impl Editors {
     /// What there is to tell the page, oldest first.
     pub fn take_events(&mut self) -> Vec<EditorEvent> {
         std::mem::take(&mut self.events)
+    }
+
+    /// The text the page had copied or cut (`copy`, `cut` of [`EditCommand`]) since this was last
+    /// called, oldest first: the host puts it on its pasteboard, as it does a key's
+    /// ([`Route::Copy`]). The page cannot ask for a paste, and reads nothing of the pasteboard.
+    pub fn take_copied(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.copied)
+    }
+
+    /// Whether a press of the main button with ⌃ is the right button's, as it is on a Mac: it is
+    /// taken as the right press the page's `gestures` say (`"right+press"`) where they say nothing
+    /// of ⌃ with the main button.
+    pub fn set_control_click(&mut self, on: bool) {
+        self.control_click = on;
     }
 
     /// Where the editors ask to be scrolled (to keep a caret in view), for the host's scrolling.
@@ -555,6 +573,10 @@ impl Editors {
                 Some(Pressing::Target) => {
                     self.press_target(laid, id, point, (button, mods, count), measure)
                 }
+                Some(Pressing::Context) => {
+                    self.press_context(laid, id, point, measure);
+                    true
+                }
                 _ => false,
             };
         };
@@ -820,6 +842,13 @@ impl Editors {
                 Key::Character(_) if !mods.command && !mods.control => Route::Type,
                 _ => Route::Page,
             };
+        };
+        // The page's words for a key that copies or cuts are the editor's own: the text goes to the
+        // host's pasteboard.
+        let action = match action {
+            Action::Command(EditCommand::Copy) => Action::Copy,
+            Action::Command(EditCommand::Cut) => Action::Cut,
+            other => other,
         };
         match action {
             Action::Copy => editor.buffer.copy_text().map_or(Route::Done, Route::Copy),
@@ -1157,11 +1186,26 @@ impl Editors {
         let Some(editor) = self.editors.get(&id) else {
             return true;
         };
-        let pressing = gesture_of(&editor.view.options.gestures, Button::Left, mods, count);
+        let gestures = &editor.view.options.gestures;
+        let mut pressing = gesture_of(gestures, Button::Left, mods, count);
+        // A Mac's ⌃ with the main button is the right button: taken so where the page says a right
+        // press does what opens a menu and says nothing of ⌃ with the main button.
+        if pressing.is_none() && self.control_click && mods.control && count == 1 {
+            let right = Mods {
+                control: false,
+                ..mods
+            };
+            pressing = gesture_of(gestures, Button::Right, right, 1)
+                .filter(|pressing| *pressing == Pressing::Context);
+        }
         match pressing {
             Some(Pressing::Nothing) => return true,
             Some(Pressing::Target) => {
                 self.press_target(laid, id, point, (Button::Left, mods, count), measure);
+                return true;
+            }
+            Some(Pressing::Context) => {
+                self.press_context(laid, id, point, measure);
                 return true;
             }
             _ => {}
@@ -1304,6 +1348,10 @@ impl Editors {
             });
             return;
         };
+        if let EditorAsk::Command(command @ (EditCommand::Copy | EditCommand::Cut)) = &ask {
+            self.copy_command(id, command, laid, measure, now);
+            return;
+        }
         if let EditorAsk::Reveal { version, at, align } = ask {
             match editor.buffer.carry(version, at) {
                 Ok(at) => editor.reveal = Some((at, align)),
@@ -1562,6 +1610,7 @@ impl From<EditorEvent> for pencere_view::Event {
     }
 }
 
+mod context;
 mod hover;
 mod keymap;
 mod target;

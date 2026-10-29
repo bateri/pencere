@@ -50,9 +50,9 @@ use pencere_sandbox::{
 };
 use pencere_view::edit::{EditCommand, EditorAsk, Range};
 use pencere_view::{
-    Button, Cursor, DrawList, EditorMetrics, Element, Event, Font, Id, Input, Key, Keyboard, Laid,
-    Measure, Metrics, Mods, Motions, Phase, Place, Point, Rect, Reply, Role, ScrollTo, Size, div,
-    text,
+    Button, Cursor, DrawList, EditorMetrics, Element, Event, Font, Id, Input, Key, KeyConvention,
+    Keyboard, Laid, Measure, MenuEntry, Metrics, Mods, Motions, Phase, Place, Point, Rect, Reply,
+    Role, ScrollTo, Size, div, text,
 };
 
 use crate::editing::{Editing, Told, in_a_room};
@@ -212,6 +212,11 @@ struct State {
     redraw: bool,
     /// What the module said that the host has not taken.
     replies: Vec<Answer>,
+    /// The editor each entry of the menu last asked for pastes into where the host performs the
+    /// pick ([`MenuEntry::Paste`]), by the entry's place; `None` for the rest.
+    menu_pastes: Vec<Option<Id>>,
+    /// Text the page had an editor copy or cut that the host has not put on its pasteboard.
+    copied: Vec<String>,
     /// What replies asked of fields the page had not laid out when the host took them, in order: a
     /// frame that lays the page out gives it ([`Painted::held`]).
     held: Vec<Held>,
@@ -405,6 +410,8 @@ impl Page {
                 outline: Outline::default(),
                 redraw: false,
                 replies: Vec::new(),
+                menu_pastes: Vec::new(),
+                copied: Vec::new(),
                 held: Vec::new(),
                 ended: None,
                 told_end: false,
@@ -591,8 +598,20 @@ impl Page {
         state.event(Event::Focus(field));
     }
 
-    /// The person picked the `index`th entry of the menu the last reply asked for.
-    pub fn pick(&mut self, index: usize) {
+    /// The person picked the `index`th entry of the menu the last reply asked for. An entry the host
+    /// performs itself ([`MenuEntry::Paste`]) is done first: the pasteboard's text is asked of
+    /// `host` ([`Host::paste`]) and pasted in the editor as its paste key would, so that the page,
+    /// which is told the pick as any, never reads it.
+    pub fn pick(&mut self, index: usize, host: &mut dyn Host) {
+        let paste = self.state.menu_pastes.get(index).copied().flatten();
+        if let Some(editor) = paste
+            && let Some(text) = host.paste()
+        {
+            self.edit(true, |editors, laid, measure, now| {
+                editors.set_focus(Some(editor));
+                editors.paste(laid, &text, measure, now);
+            });
+        }
         self.state.event(Event::MenuPick(index));
     }
 
@@ -796,6 +815,7 @@ impl Page {
         hold(&mut replies, &state.outline.fields, &mut state.held);
         Drained {
             replies,
+            copied: std::mem::take(&mut state.copied),
             redraw: std::mem::take(&mut state.redraw),
             diagnostics: std::mem::take(&mut state.diagnostics),
             ended,
@@ -956,8 +976,15 @@ impl Page {
         ) {
             return (None, false);
         }
+        let control_click = self.state.clock.program.keyboard() == KeyConvention::Mac;
         let done = self.edit(false, |editors, laid, measure, now| {
+            editors.set_control_click(control_click);
             let mut left = false;
+            // Whether the place the pointer is at is in a selection before what it does is done.
+            let before = match *input {
+                Input::Press { at, .. } => Some(editors.selection_holds(laid, at, measure)),
+                _ => None,
+            };
             let at = match *input {
                 Input::Press {
                     at,
@@ -1001,7 +1028,12 @@ impl Page {
             };
             let place = editors
                 .place_at(laid, at, measure)
-                .map(|(editor, at)| Place { editor, at });
+                .map(|(editor, place)| Place {
+                    editor,
+                    at: place,
+                    inside: before.unwrap_or_else(|| editors.selection_holds(laid, at, measure)),
+                    version: editors.buffer(editor).map_or(0, Buffer::version),
+                });
             (place, left)
         });
         if matches!(input, Input::Press { .. }) {
@@ -1071,6 +1103,16 @@ impl State {
             {
                 answer.reply.cursor = over;
             }
+            if let Some(menu) = &answer.reply.menu {
+                self.menu_pastes = menu
+                    .entries
+                    .iter()
+                    .map(|entry| match entry {
+                        MenuEntry::Paste { editor, .. } => Some(*editor),
+                        _ => None,
+                    })
+                    .collect();
+            }
             answer.reply = to_host(answer.reply, place);
             self.replies.push(answer);
         }
@@ -1111,10 +1153,12 @@ impl State {
             }
         }
         self.asks.extend(told.scrolls);
+        let copied = !told.copied.is_empty();
+        self.copied.extend(told.copied);
         self.fresh |= told.relayout;
         if building {
             self.again |= more;
-        } else if anything || drawn {
+        } else if anything || copied || drawn {
             self.redraw = true;
         }
     }

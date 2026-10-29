@@ -8,6 +8,15 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
+### Added
+
+- `Host::paste` (the host's pasteboard, for a menu entry the host performs itself,
+  `MenuEntry::Paste`) and `Drained::copied` (text a page had an editor copy or cut). **Breaking:**
+  `Page::pick` takes the host (`pick(index, &mut host)`), which pastes first where the entry is one the
+  host performs.
+- A press that is the right button's (and, on a Mac, ⌃ with the main button) reaches the editors as
+  the page's `gestures` say; the `Place` of a pointer event says `inside` and the editor's `version`.
+
 ### Fixed
 
 - **A reply that opens a field can fill it and send the keyboard to it.** A host has a field only

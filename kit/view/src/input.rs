@@ -106,6 +106,12 @@ pub enum Input {
 pub struct Place {
     pub editor: Id,
     pub at: usize,
+    /// The place was in a selection, or at a caret, when the pointer did this (before a press that
+    /// puts the caret moved it): a press that opens a menu ([`crate::edit::Pressing::Context`])
+    /// keeps the selections where it is so, and puts one caret there where it is not.
+    pub inside: bool,
+    /// The editor's document version after it took what the pointer did.
+    pub version: u64,
 }
 
 /// Everything a page is told: what the person did to the page, the text a text field of the
@@ -253,6 +259,16 @@ pub enum MenuEntry {
         enabled: bool,
     },
     Separator,
+    /// A line the host performs itself when it is picked: the pasteboard's text pasted in the
+    /// editor `editor`, as its paste key would ([`crate::Place`] is where the page asked it). A
+    /// page cannot read the pasteboard, nor ask the editor to paste: text comes from it only on the
+    /// person's key or the person's pick of this entry. The page is told the pick as any.
+    Paste {
+        title: String,
+        keys: Option<Shortcut>,
+        enabled: bool,
+        editor: Id,
+    },
 }
 
 /// A menu to pop up at `at` (the page's points); the host answers with the index of the entry

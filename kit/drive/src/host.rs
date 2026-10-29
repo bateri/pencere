@@ -30,6 +30,9 @@ pub struct Drained {
     /// them. The host carries them to the program, and only while the page's view is open. Told
     /// before `ended`: what a page said before it went is said.
     pub sent: Vec<String>,
+    /// Text the page had an editor copy or cut (`copy`, `cut` of an editor command), in order: the
+    /// host puts it on its pasteboard as it does a reply's `copy`, after the replies'.
+    pub copied: Vec<String>,
     /// The time the page waits to be woken at changed, and no frame took it: the host arms its clock
     /// for the time the page names now ([`crate::Page::wake_at`]), with no frame drawn for it. A
     /// page that asks nothing never says so.
@@ -89,6 +92,13 @@ pub trait Host {
     fn keyboard(&mut self, _to: Keyboard) {}
     /// Text for the pasteboard.
     fn copy(&mut self, _text: String) {}
+    /// The text on the host's pasteboard, for the entry of a menu the host performs itself
+    /// ([`pencere_view::MenuEntry::Paste`]) that the person picked ([`crate::Page::pick`]); `None`
+    /// where there is none. It is pasted in the editor and told to no one: a page never reads the
+    /// pasteboard.
+    fn paste(&mut self) -> Option<String> {
+        None
+    }
     /// A link to open in the person's browser, held to the rule a web view's `link` is held to (an
     /// `http` or `https` address, the person asked first).
     fn link(&mut self, _url: String) {}
@@ -143,6 +153,9 @@ impl Drained {
             if let Some(menu) = reply.menu {
                 host.menu(menu);
             }
+        }
+        for text in self.copied {
+            host.copy(text);
         }
         for words in self.diagnostics {
             host.diagnostic(words);
@@ -254,6 +267,7 @@ mod tests {
             sent: vec!["{\"call\":{}}".into()],
             wake: true,
             cursor: None,
+            copied: Vec::new(),
         }
         .deliver(&mut log);
         assert_eq!(

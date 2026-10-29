@@ -827,6 +827,11 @@ pub enum Pressing {
     /// Is the page's: told (`target`, [`TargetEvent`]); the caret does not move and the editor has
     /// the keyboard.
     Target,
+    /// A press that opens a menu, as a text view takes it (VS Code's rule): outside every selection
+    /// it puts one caret there, inside one (at its ends too) the selections stay, and the editor has
+    /// the keyboard. The page is told the press as any ([`crate::Place::inside`] says which it was)
+    /// and opens its menu.
+    Context,
     /// Does nothing.
     Nothing,
 }
@@ -1449,6 +1454,13 @@ pub enum EditCommand {
     /// From each caret to the end of its line taken out, or the line break after it where it is at
     /// the end (CodeMirror's `deleteToLineEnd`, Emacs's `kill-line`).
     DeleteToLineEnd,
+    /// What is selected put on the host's pasteboard, as the editor's own copy key does (a caret
+    /// copies its line). There is no command that pastes: a page can write the pasteboard
+    /// ([`crate::Reply::copy`]) but never read it, and text comes from it only on the person's key
+    /// or the person's pick of a menu entry the host performs ([`crate::MenuEntry::Paste`]).
+    Copy,
+    /// What is selected put on the host's pasteboard and taken out of the text.
+    Cut,
     /// Looks for `pattern` in the document and marks what it finds (a regular expression where
     /// `regex`, the words as they are where not; where `case` is false, in either case; where
     /// `word`, only a match with no letter, digit or `_` just before it or just after it), and

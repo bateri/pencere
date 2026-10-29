@@ -537,6 +537,17 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
                         keys: keys.as_ref().map(shortcut_out),
                         enabled,
                     }),
+                    MenuEntry::Paste {
+                        title,
+                        keys,
+                        enabled,
+                        editor,
+                    } => wit::MenuEntry::Paste(wit::MenuPaste {
+                        title: lists.words(&title),
+                        keys: keys.as_ref().map(shortcut_out),
+                        enabled,
+                        editor: editor.number(),
+                    }),
                 })
                 .collect();
             wit::Menu {
@@ -854,6 +865,7 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
                     Pressing::Line => wit::Pressing::Line,
                     Pressing::Target => wit::Pressing::Target,
                     Pressing::Nothing => wit::Pressing::Nothing,
+                    Pressing::Context => wit::Pressing::Context,
                 },
             })
             .collect(),
@@ -1143,6 +1155,8 @@ fn editor_command(command: EditCommand) -> wit::EditorCommand {
         EditCommand::TransposeChars => C::TransposeChars,
         EditCommand::DeleteToLineStart => C::DeleteToLineStart,
         EditCommand::DeleteToLineEnd => C::DeleteToLineEnd,
+        EditCommand::Copy => C::Copy,
+        EditCommand::Cut => C::Cut,
     }
 }
 
@@ -1307,6 +1321,8 @@ fn editor_event(event: wit::Event) -> Event {
             place: Place {
                 editor: Id::new(pointer.place.editor),
                 at: unplace(pointer.place.at),
+                inside: pointer.place.inside,
+                version: pointer.place.version,
             },
         },
         wit::Event::Edit(edited) => Event::Edit {

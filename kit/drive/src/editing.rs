@@ -47,12 +47,18 @@ pub(crate) struct Told {
     pub relayout: bool,
     /// Something only drawn changed (the gutter mark under the pointer): a frame, and nothing told.
     pub redraw: bool,
+    /// Text the page had copied or cut, for the host's pasteboard.
+    pub copied: Vec<String>,
 }
 
 impl Told {
     /// Whether there is anything to tell or to do.
     pub fn is_empty(&self) -> bool {
-        self.events.is_empty() && self.scrolls.is_empty() && !self.relayout && !self.redraw
+        self.events.is_empty()
+            && self.scrolls.is_empty()
+            && !self.relayout
+            && !self.redraw
+            && self.copied.is_empty()
     }
 }
 
@@ -146,6 +152,7 @@ impl Editing {
             scrolls,
             relayout,
             redraw,
+            copied: self.editors.take_copied(),
         }
     }
 }

@@ -8,6 +8,16 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
+### Added
+
+- **A press that opens a menu** (`Pressing::Context`, `gestures = { ["right+press"] = "context" }`):
+  outside every selection one caret is put there, inside one the selections stay; the press is told
+  the page as any, and `Place` has `inside` (the place was in a selection or at a caret before the
+  press moved the caret) and `version`.
+- `EditCommand::Copy` and `EditCommand::Cut`, as the editor's keys do them. There is no command that
+  pastes: a page cannot read the pasteboard. `MenuEntry::Paste { title, keys, enabled, editor }` is a
+  line the host performs itself when it is picked.
+
 ### Fixed
 
 - An inline widget keeps room outside its box, between it and the characters beside it

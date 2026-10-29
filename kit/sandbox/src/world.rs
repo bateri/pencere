@@ -454,6 +454,8 @@ fn event_in(event: Event) -> wit::Event {
             let place = wit::Place {
                 editor: id_out(place.editor),
                 at: place_in(place.at),
+                inside: place.inside,
+                version: place.version,
             };
             let input = match input {
                 Input::Press {
@@ -1472,6 +1474,14 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
                         keys: item.keys.as_ref().map(shortcut_out),
                         enabled: item.enabled,
                     },
+                    wit::MenuEntry::Paste(paste) => MenuEntry::Paste {
+                        title: titles
+                            .words(&paste.title, limits.text, "a menu title")?
+                            .to_owned(),
+                        keys: paste.keys.as_ref().map(shortcut_out),
+                        enabled: paste.enabled,
+                        editor: Id::new(paste.editor),
+                    },
                 });
             }
             Some(Menu {
@@ -1666,6 +1676,7 @@ fn editor_options_out(
                     wit::Pressing::Line => Pressing::Line,
                     wit::Pressing::Target => Pressing::Target,
                     wit::Pressing::Nothing => Pressing::Nothing,
+                    wit::Pressing::Context => Pressing::Context,
                 },
             )
         })
@@ -2299,6 +2310,8 @@ fn command_out(command: wit::EditorCommand) -> EditCommand {
         C::TransposeChars => EditCommand::TransposeChars,
         C::DeleteToLineStart => EditCommand::DeleteToLineStart,
         C::DeleteToLineEnd => EditCommand::DeleteToLineEnd,
+        C::Copy => EditCommand::Copy,
+        C::Cut => EditCommand::Cut,
     }
 }
 
@@ -3153,12 +3166,15 @@ mod tests {
             place: pencere_view::Place {
                 editor: Id::new(3),
                 at: 7,
+                inside: true,
+                version: 4,
             },
         });
         let wit::Event::EditorPointer(pointer) = pressed else {
             panic!("an editor's pointer event, not {pressed:?}");
         };
         assert_eq!((pointer.place.editor, pointer.place.at), (3, 7));
+        assert_eq!((pointer.place.inside, pointer.place.version), (true, 4));
         assert!(matches!(
             pointer.input,
             wit::PointerInput::Press(wit::Press { count: 2, .. })

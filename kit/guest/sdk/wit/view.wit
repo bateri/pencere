@@ -838,6 +838,10 @@ interface types {
         /// The page's: told as `editor-target` with `press`.
         target,
         nothing,
+        /// A press that opens a menu: outside every selection it puts one caret there, inside one
+        /// the selections stay, and the editor has the keyboard. The page is told the press as any
+        /// (`place.inside` says which it was) and opens its menu.
+        context,
     }
 
     /// Keys of an editor the page changes: a chord of at most four keys (each as `pencere.keys`
@@ -1187,6 +1191,11 @@ interface types {
     record place {
         editor: id,
         at: u32,
+        /// The place was in a selection, or at a caret, when the pointer did this (before a press
+        /// that puts the caret moved it).
+        inside: bool,
+        /// The editor's document version after it took what the pointer did.
+        version: u64,
     }
 
     /// What the pointer did over an editor.
@@ -1612,6 +1621,12 @@ interface types {
         delete-to-line-start,
         /// From each caret to the end of its line taken out, or the line break after it.
         delete-to-line-end,
+        /// What is selected put on the application's pasteboard, as the editor's copy key does (a
+        /// caret copies its line). There is no command that pastes: a page can write the pasteboard
+        /// but never read it.
+        copy,
+        /// What is selected put on the application's pasteboard and taken out of the text.
+        cut,
     }
 
     /// A line under some characters.
@@ -1875,9 +1890,20 @@ interface types {
         enabled: bool,
     }
 
+    /// A line the application performs itself when it is picked: the pasteboard's text pasted in
+    /// the editor `editor`, as its paste key would paste it. The page cannot read the pasteboard,
+    /// nor ask an editor to paste; it is told the pick as any.
+    record menu-paste {
+        title: slice,
+        keys: option<shortcut>,
+        enabled: bool,
+        editor: id,
+    }
+
     variant menu-entry {
         item(menu-item),
         separator,
+        paste(menu-paste),
     }
 
     /// A menu for the application to pop up at `at`. The entries' titles are in one string, as the

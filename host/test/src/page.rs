@@ -369,6 +369,8 @@ fn edit_command(name: &str, argument: Option<String>) -> Result<EditCommand, Str
         "replace_all" => EditCommand::ReplaceAll(need("the text to put in its place")?),
         "select_found" => EditCommand::SelectFound,
         "select_occurrences" => EditCommand::SelectOccurrences,
+        "copy" => EditCommand::Copy,
+        "cut" => EditCommand::Cut,
         other => {
             return Err(format!(
                 "there is no editor command {other:?} (insert, newline, delete_backward, select_all, undo, redo, fold, toggle_fold, find, replace …); moves are keys: page:press(\"left\")"
@@ -814,6 +816,17 @@ impl UserData for Handle {
                         item.set("title", title.as_str())?;
                         item.set("keys", keys.as_ref().map(|keys| format!("{keys:?}")))?;
                         item.set("enabled", *enabled)?;
+                    }
+                    pencere_view::MenuEntry::Paste {
+                        title,
+                        keys,
+                        enabled,
+                        editor,
+                    } => {
+                        item.set("title", title.as_str())?;
+                        item.set("keys", keys.as_ref().map(|keys| format!("{keys:?}")))?;
+                        item.set("enabled", *enabled)?;
+                        item.set("paste", editor.number())?;
                     }
                     pencere_view::MenuEntry::Separator => item.set("separator", true)?,
                 }

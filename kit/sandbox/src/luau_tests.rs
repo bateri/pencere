@@ -1228,7 +1228,7 @@ fn a_script_gives_a_menus_entries_their_keys_and_reads_an_old_key_as_it_was() {
         .entries
         .iter()
         .map(|entry| match entry {
-            MenuEntry::Item { keys, .. } => *keys,
+            MenuEntry::Item { keys, .. } | MenuEntry::Paste { keys, .. } => *keys,
             MenuEntry::Separator => None,
         })
         .collect();

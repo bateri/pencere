@@ -6,6 +6,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+### Added
+
+- The interface has `pressing.context`, `editor-command.copy` and `.cut`, `menu-entry.paste` and
+  `place.inside` and `.version`; Lua pages write `["right+press"] = "context"`,
+  `{ command = "copy" }` / `"cut"`, a menu entry `{ title =, paste = editor }` and read
+  `event.place.inside`. The interpreter is rebuilt.
+
 ### Fixed
 
 - A reply to what the program said (or to its room) is posted whenever it asks the host something:

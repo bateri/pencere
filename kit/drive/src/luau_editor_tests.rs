@@ -2626,3 +2626,149 @@ fn the_page_is_told_the_terminals_look_changed_once_for_each_change_and_not_for_
     assert!(page.says("draws nil"), "{:?}", page.words());
     Ok(())
 }
+
+/// A page whose editor opens its menu on a right press (`gestures`): the press is told with where
+/// it was and whether it was in a selection, and the menu's Copy and Cut are the page's asks, its
+/// Paste a line the host performs. `%READ_ONLY%` is `true` or `false`.
+const MENU: &str = r#"
+local b = pencere
+local told = {}
+local version = 0
+return {
+	render = function()
+		return b.div():size_full():child(
+			b.editor("e", { gutter = false, read_only = %READ_ONLY%, gestures = { ["right+press"] = "context" } }):grow(1)
+		):child(b.text(table.concat(told, " ")):id("told"))
+	end,
+	handle = function(event)
+		if event.type == "editor_ready" then
+			return { editor = { e = { { load = "alpha beta\ngamma delta" } } } }
+		elseif event.type == "edit" then
+			version = event.version
+		elseif event.type == "press" and event.button == "right" and event.place then
+			table.insert(told, "ctx:" .. tostring(event.place.inside) .. ":" .. event.place.at .. ":v" .. event.place.version)
+			return { redraw = true, menu = { at = { x = event.x, y = event.y }, entries = {
+				{ title = "Cut" }, { title = "Copy" }, "-",
+				{ title = "Paste", paste = "e", enabled = not %READ_ONLY% },
+			} } }
+		elseif event.type == "menu" then
+			table.insert(told, "pick:" .. event.index)
+			if event.index == 1 then
+				return { redraw = true, editor = { e = { { command = "cut" } } } }
+			elseif event.index == 2 then
+				return { redraw = true, editor = { e = { { command = "copy" } } } }
+			end
+			return { redraw = true }
+		end
+		return nil
+	end,
+}
+"#;
+
+fn right_press(page: &mut Headless, at: Point) -> Result<(), Error> {
+    page.pointer(pencere_view::Input::Press {
+        at,
+        button: pencere_view::Button::Right,
+        mods: Mods::default(),
+        count: 1,
+    })?;
+    page.pointer(pencere_view::Input::Release {
+        at,
+        button: pencere_view::Button::Right,
+    })
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_right_press_puts_the_caret_by_the_text_views_rule_and_the_page_opens_its_menu_from_it()
+-> Result<(), Error> {
+    use pencere_view::edit::Range;
+    let mut page = open(&MENU.replace("%READ_ONLY%", "false"))?;
+    page.select("e", 0, 5)?;
+    // In the selection: it stays, the page is told it was inside, and the menu opens.
+    right_press(&mut page, Point::new(12.0, 12.0))?;
+    assert_eq!(
+        page.editor("e").map(|b| b.ranges().to_vec()),
+        Some(vec![Range::new(0, 5)])
+    );
+    assert!(page.says("ctx:true:"), "{:?}", page.words());
+    assert!(page.menu().is_some());
+    // Copy is the page's ask, and the text goes to the host's pasteboard.
+    page.pick_titled("Copy")?;
+    assert_eq!(page.pasteboard(), Some("alpha"));
+    // Outside it: one caret there, and the page is told it was not inside.
+    right_press(&mut page, Point::new(500.0, 12.0))?;
+    assert!(
+        page.says("ctx:true:") && page.words().iter().any(|w| w.contains("ctx:false:")),
+        "{:?}",
+        page.words()
+    );
+    let ranges = page
+        .editor("e")
+        .map(|b| b.ranges().to_vec())
+        .expect("editor");
+    assert_eq!(ranges.len(), 1);
+    assert!(ranges[0].is_empty());
+    // Paste is the host's: the pasteboard's text goes in as the key's does, at the caret; the page is
+    // told the pick and never the text.
+    let before = page.editor("e").map(|b| b.text()).expect("text");
+    page.pick_titled("Paste")?;
+    let after = page.editor("e").map(|b| b.text()).expect("text");
+    assert_eq!(after, before.replacen("alpha beta", "alpha betaalpha", 1));
+    assert!(page.says("pick:4"), "{:?}", page.words());
+    // A Mac's ⌃ with the main button is the right press: inside the selection it stays.
+    page.select("e", 0, 5)?;
+    let control = Mods {
+        control: true,
+        ..Mods::default()
+    };
+    page.pointer(pencere_view::Input::Press {
+        at: Point::new(12.0, 12.0),
+        button: pencere_view::Button::Left,
+        mods: control,
+        count: 1,
+    })?;
+    page.pointer(pencere_view::Input::Release {
+        at: Point::new(12.0, 12.0),
+        button: pencere_view::Button::Left,
+    })?;
+    assert_eq!(
+        page.editor("e").map(|b| b.ranges().to_vec()),
+        Some(vec![Range::new(0, 5)])
+    );
+    // Cut takes the selection out and puts it on the pasteboard.
+    page.select("e", 0, 5)?;
+    right_press(&mut page, Point::new(12.0, 12.0))?;
+    page.pick_titled("Cut")?;
+    assert_eq!(page.pasteboard(), Some("alpha"));
+    assert!(
+        page.editor("e")
+            .map(|b| b.text())
+            .expect("text")
+            .starts_with(" beta")
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_host_paste_entry_of_a_read_only_editor_is_off_and_a_page_cannot_ask_an_editor_to_paste()
+-> Result<(), Error> {
+    let mut page = open(&MENU.replace("%READ_ONLY%", "true"))?;
+    right_press(&mut page, Point::new(12.0, 12.0))?;
+    let menu = page.menu().expect("a menu").clone();
+    assert!(matches!(
+        menu.entries.last(),
+        Some(pencere_view::MenuEntry::Paste { enabled: false, .. })
+    ));
+    assert!(matches!(page.pick(3), Err(Error::NoEntry(_))));
+    // No editor command pastes: the word is an error where the page writes it.
+    let mut page = open(
+        r#"return { render = function() return pencere.div():size_full():child(pencere.editor("e", {}):grow(1)) end,
+            handle = function(e) if e.type == "press" then return { editor = { e = { { command = "paste" } } } } end end }"#,
+    )?;
+    let refused = page.click_at(Point::new(12.0, 12.0));
+    let why = failed(refused);
+    assert!(why.contains("paste"), "{why}");
+    Ok(())
+}

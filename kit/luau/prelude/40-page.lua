@@ -31,7 +31,7 @@
 --       not told as a key), files the `paths` of the files dropped on the page.
 --       An editor (`pencere.editor`) tells: "editor_ready", the `editor` and its `version`, once the
 --       host has made it (its text is posted: a page loads a document into it then); move, press
---       and release over it have a `place` ({ editor =, at = }, the place of its document under the
+--       and release over it have a `place` ({ editor =, at =, inside = (the place was in a selection, or at a caret, before a press moved the caret), version = }, the place of its document under the
 --       pointer); "edit" has the `editor`, the `version` it came to, its `origin` ("person",
 --       "compose", "page", "undo", "redo", "load"), the `tag` of a change the page asked with one,
 --       and its `changes` ({ { from =, to =, insert = }, ... }, in the places of the version
@@ -79,7 +79,10 @@
 --     keyboard = "page" | { field = name }, fill = { [name] = "text for that field", or
 --     { text =, select = { from =, to = } (characters from 0) or true (all of it) }, ... },
 --     menu = { at = { x =, y = }, entries = { { title =, keys = "ctrl+w", enabled = }, "-" (a line),
---     ... } }, editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds }
+--     { title =, keys =, enabled =, paste = editor } (a line the application performs itself: the
+--     pasteboard's text pasted in that editor as its paste key would, honouring a read-only editor
+--     and several carets; the page is told the pick as any and never reads the pasteboard, nor can
+--     it ask an editor to paste), ... } }, editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds }
 -- where an ask of an editor is one of:
 --   { load = "text", more = true }             a piece of the document (the first in place of all)
 --   { change = { { from =, to =, insert = }, ... }, base = version, history = false, tag = "disk" }
@@ -98,7 +101,9 @@
 --     "toggle_comment" (the lines' line comment, else their block comment), "toggle_block_comment"
 --     (each range in the block comment, or out of it; a caret's range its line's text), "fold_all",
 --     "delete_lines", "select_line", "duplicate_lines_up", "join_lines", "insert_blank_line",
---     "split_line", "transpose_chars", "delete_to_line_start", "delete_to_line_end", …
+--     "split_line", "transpose_chars", "delete_to_line_start", "delete_to_line_end", "copy", "cut"
+--     (what is selected put on the application's pasteboard, as the keys do, a caret's line when
+--     nothing is selected; "cut" takes it out too. There is no command that pastes)
 --   { decorate = "layer", version =, from =, to =, decorations = { d, ... } }, each `d`
 --     { from =, to =, color =, background =, weight =, italic =, strike =,
 --       underline = colour | { wavy = colour }, id = "name", held = "command", over = true,

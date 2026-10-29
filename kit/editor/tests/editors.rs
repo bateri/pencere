@@ -3962,3 +3962,210 @@ fn selection_cost_of_300_lines_dragged_in_60_frames() {
         kinds.len()
     );
 }
+
+// --- A press that opens a menu, and the page's asks to copy and cut ------------------------
+
+fn menu_on_right() -> EditorOptions {
+    EditorOptions {
+        gestures: vec![(
+            Gesture {
+                button: Button::Right,
+                mods: none(),
+                count: 1,
+            },
+            Pressing::Context,
+        )],
+        ..plain()
+    }
+}
+
+impl Host {
+    fn right_press(&mut self, at: Point) -> bool {
+        let laid = self.laid.clone();
+        let took = self
+            .editors
+            .press_other(&laid, at, (Button::Right, none(), 1), &mut Fake);
+        self.settle();
+        took
+    }
+
+    fn holds(&mut self, at: Point) -> bool {
+        let laid = self.laid.clone();
+        self.editors.selection_holds(&laid, at, &mut Fake)
+    }
+
+    fn select(&mut self, ranges: Vec<Range>) {
+        self.editors.set_focus(Some(EDITOR));
+        let laid = self.laid.clone();
+        let version = self.editors.buffer(EDITOR).expect("the editor").version();
+        self.editors.ask(
+            &laid,
+            EDITOR,
+            EditorAsk::Select {
+                version,
+                ranges,
+                main: 0,
+            },
+            &mut Fake,
+            self.now,
+        );
+        self.settle();
+    }
+
+    fn command(&mut self, command: EditCommand) {
+        let laid = self.laid.clone();
+        self.editors.ask(
+            &laid,
+            EDITOR,
+            EditorAsk::Command(command),
+            &mut Fake,
+            self.now,
+        );
+        self.settle();
+    }
+}
+
+#[test]
+fn a_press_that_opens_a_menu_puts_one_caret_outside_a_selection_and_keeps_the_selection_inside_it()
+{
+    let mut host = Host::new(page_with(menu_on_right()));
+    host.load("alpha beta");
+    host.select(vec![Range::new(0, 5)]);
+    host.editors.set_focus(None);
+    host.editors.take_events();
+    // Inside the selection: it stays, and the editor has the keyboard.
+    let inside = Point::new(18.0, 10.0);
+    assert!(host.holds(inside));
+    assert!(host.right_press(inside));
+    assert_eq!(host.ranges(), vec![Range::new(0, 5)]);
+    assert_eq!(host.editors.focused(), Some(EDITOR));
+    // Outside it: one caret there.
+    let outside = Point::new(60.0, 10.0);
+    assert!(!host.holds(outside));
+    assert!(host.right_press(outside));
+    let ranges = host.ranges();
+    assert_eq!(ranges.len(), 1);
+    assert!(ranges[0].is_empty() && ranges[0].head >= 7);
+    // The edge of a selection is in it, and so is a caret's own place.
+    host.select(vec![Range::new(0, 5)]);
+    assert!(host.holds(Point::new(38.0, 10.0)));
+    assert!(!host.holds(Point::new(46.0, 10.0)));
+}
+
+#[test]
+fn several_selections_stay_when_the_press_is_in_one_and_are_one_caret_when_it_is_in_none() {
+    let mut host = Host::new(page_with(menu_on_right()));
+    host.load("alpha beta gamma");
+    host.select(vec![Range::new(0, 5), Range::new(11, 16)]);
+    assert!(host.right_press(Point::new(4.0 + 7.0 * 13.0, 10.0)));
+    assert_eq!(host.ranges().len(), 2, "in the second");
+    assert!(host.right_press(Point::new(4.0 + 7.0 * 8.0, 10.0)));
+    assert_eq!(host.ranges().len(), 1, "between them");
+}
+
+#[test]
+fn a_right_press_the_page_says_nothing_of_does_nothing_in_the_text() {
+    let mut host = Host::new(page_with(plain()));
+    host.load("alpha beta");
+    host.select(vec![Range::new(0, 5)]);
+    assert!(!host.right_press(Point::new(60.0, 10.0)));
+    assert_eq!(host.ranges(), vec![Range::new(0, 5)]);
+}
+
+#[test]
+fn control_with_the_main_button_is_the_right_press_where_the_host_says_it_is_and_the_page_says_nothing_of_it()
+ {
+    let mut host = Host::new(page_with(menu_on_right()));
+    host.load("alpha beta");
+    host.select(vec![Range::new(0, 5)]);
+    let control = with(|m| m.control = true);
+    // Not on a Mac: ⌃ and the main button is a press like any, and puts the caret.
+    assert!(host.press(Point::new(60.0, 10.0), control, 1));
+    host.editors.release();
+    assert_eq!(host.ranges().len(), 1);
+    host.select(vec![Range::new(0, 5)]);
+    host.editors.set_control_click(true);
+    // In the selection: it stays (the menu's press, and no caret put).
+    assert!(host.press(Point::new(18.0, 10.0), control, 1));
+    host.editors.release();
+    assert_eq!(host.ranges(), vec![Range::new(0, 5)]);
+    // Without the right press written, it is the main button's as before.
+    let mut plain_host = Host::new(page_with(plain()));
+    plain_host.load("alpha beta");
+    plain_host.select(vec![Range::new(0, 5)]);
+    plain_host.editors.set_control_click(true);
+    assert!(plain_host.press(Point::new(18.0, 10.0), control, 1));
+    plain_host.editors.release();
+    assert!(plain_host.ranges()[0].is_empty());
+}
+
+#[test]
+fn a_left_press_can_be_the_one_that_opens_the_menu_too() {
+    let options = EditorOptions {
+        gestures: vec![(
+            Gesture {
+                button: Button::Left,
+                mods: with(|m| m.alt = true),
+                count: 1,
+            },
+            Pressing::Context,
+        )],
+        ..plain()
+    };
+    let mut host = Host::new(page_with(options));
+    host.load("alpha beta");
+    host.select(vec![Range::new(0, 5)]);
+    assert!(host.press(Point::new(18.0, 10.0), with(|m| m.alt = true), 1));
+    host.editors.release();
+    assert_eq!(host.ranges(), vec![Range::new(0, 5)], "no drag, no caret");
+}
+
+#[test]
+fn copy_and_cut_the_page_asks_give_the_hosts_pasteboard_what_the_keys_give_it() {
+    let mut host = Host::new(page_with(plain()));
+    host.load("alpha beta");
+    host.select(vec![Range::new(0, 5)]);
+    host.command(EditCommand::Copy);
+    assert_eq!(host.editors.take_copied(), ["alpha".to_string()]);
+    assert_eq!(host.text(), "alpha beta", "copied, not cut");
+    host.command(EditCommand::Cut);
+    assert_eq!(host.editors.take_copied(), ["alpha".to_string()]);
+    assert_eq!(host.text(), " beta");
+    // A caret copies its line, as the key does.
+    host.select(vec![Range::caret(2)]);
+    host.command(EditCommand::Copy);
+    assert_eq!(host.editors.take_copied(), [" beta\n".to_string()]);
+    assert_eq!(
+        host.key(Key::Character('c'), cmd()),
+        Route::Copy(" beta\n".into())
+    );
+}
+
+#[test]
+fn a_key_the_page_binds_to_the_copy_or_cut_command_does_what_the_editors_own_key_does() {
+    let shortcut = |words: &str| pencere_view::Shortcut::parse(words).expect("keys");
+    let options = EditorOptions {
+        keymap: vec![
+            Keybinding {
+                keys: vec![shortcut("cmd+j")],
+                action: Some(KeyAction::Command(EditCommand::Copy)),
+            },
+            Keybinding {
+                keys: vec![shortcut("cmd+k")],
+                action: Some(KeyAction::Command(EditCommand::Cut)),
+            },
+        ],
+        ..plain()
+    };
+    let mut host = Host::new(page_with(options));
+    host.load("alpha beta");
+    host.select(vec![Range::new(0, 5)]);
+    assert_eq!(
+        host.key(Key::Character('j'), cmd()),
+        Route::Copy("alpha".into())
+    );
+    assert_eq!(
+        host.key(Key::Character('k'), cmd()),
+        Route::Cut("alpha".into())
+    );
+}

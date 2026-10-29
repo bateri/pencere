@@ -361,6 +361,15 @@ struct Seen {
     replies: Vec<Answer>,
 }
 
+/// The headless host's pasteboard, for an entry of a menu it performs itself.
+struct ReadPasteboard<'a>(Option<&'a str>);
+
+impl Host for ReadPasteboard<'_> {
+    fn paste(&mut self) -> Option<String> {
+        self.0.map(str::to_owned)
+    }
+}
+
 /// The headless host as a [`Host`]: what it does with what the page said.
 struct Deliver<'a, P> {
     seen: &'a mut Seen,
@@ -1568,12 +1577,14 @@ impl<P: Peer> Headless<P> {
         let menu = self.seen.menu.as_ref().ok_or(Error::NoMenu)?;
         if !matches!(
             menu.entries.get(index),
-            Some(MenuEntry::Item { enabled: true, .. })
+            Some(MenuEntry::Item { enabled: true, .. } | MenuEntry::Paste { enabled: true, .. })
         ) {
             return Err(Error::NoEntry(index.to_string()));
         }
         self.seen.menu = None;
-        self.page.pick(index);
+        // The host's part of an entry it performs itself is its pasteboard, read here.
+        self.page
+            .pick(index, &mut ReadPasteboard(self.seen.pasteboard.as_deref()));
         self.settle()
     }
 
@@ -1588,7 +1599,7 @@ impl<P: Peer> Headless<P> {
             .entries
             .iter()
             .position(
-                |entry| matches!(entry, MenuEntry::Item { title: named, .. } if named == title),
+                |entry| matches!(entry, MenuEntry::Item { title: named, .. } | MenuEntry::Paste { title: named, .. } if named == title),
             )
             .ok_or_else(|| Error::NoEntry(format!("{title:?}")))?;
         self.pick(index)

@@ -8,6 +8,14 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
+### Added
+
+- `Pressing::Context`: the caret rule of a press that opens a menu (`Editors::selection_holds` says
+  whether a place is in a selection), and `Editors::set_control_click` for a Mac's ⌃ with the main
+  button, which is that press where the page's gestures say a right press is one.
+- The page's `copy` and `cut` commands (`Editors::take_copied` gives the text for the host's
+  pasteboard); a key the page binds to them does what the editor's own key does.
+
 ### Fixed
 
 - A block caret that glides (`caret.motion`) shows the text under it from the first frame, as a

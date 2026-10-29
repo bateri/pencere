@@ -128,6 +128,8 @@ impl Buffer {
             EditCommand::ReplaceAll(text) => self.replace_all(&text, now),
             EditCommand::SelectFound => self.select_found(),
             EditCommand::SelectOccurrences => self.select_occurrences(),
+            // The pasteboard is the host's, and the editors' (`Editors::ask`) to reach.
+            EditCommand::Copy | EditCommand::Cut => {}
         }
     }
 

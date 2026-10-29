@@ -371,7 +371,10 @@ end
 -- `{ ["press"] = "place", ["shift+press"] = "extend", ["mod+press"] = "target", ["alt+press"] =
 -- "column", ["press×2"] = "word", ["press×3"] = "line" }` are what an editor does where the page says
 -- nothing; "add_caret" and false (nothing) are the others; "target" is the page's and needs
--- `events = { "target" }`; `mod` is the host's main modifier), `keymap` (the editor's keys the page
+-- `events = { "target" }`; "context" is a press that opens the page's menu: `["right+press"] =
+-- "context"` puts one caret where the press is, unless it is in a selection (then it stays) and the
+-- editor has the keyboard; the page is told the press as any, with `place.inside`; a Mac's ⌃ with the
+-- main button is that right press where the page says nothing of ⌃; `mod` is the host's main modifier), `keymap` (the editor's keys the page
 -- changes: `{ ["mod+d"] = "select_next", ["mod+/"] = false, ["mod+k mod+c"] = "toggle_comment" }`, the keys
 -- of a chord apart by a space; what they do is the name of a command that needs none, "copy", "cut",
 -- "paste", "tab", "escape", "to_line_start", "to_line_end", a command's table, or false: nothing of

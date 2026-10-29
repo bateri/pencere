@@ -1362,6 +1362,8 @@ mod tests {
             place: pencere_view::Place {
                 editor: pencere_view::Id::named("sql"),
                 at: 0,
+                inside: false,
+                version: 0,
             },
         });
         rig.woken();
