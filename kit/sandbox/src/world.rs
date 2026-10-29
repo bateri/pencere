@@ -6,13 +6,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use pencere_view::edit::{
-    Caret, CaretHeight, CaretShape, CaretUnfocused, Change, Column, ColumnEvents, CommentTokens,
-    Decorate, Decoration, EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds,
-    Gesture, GutterKind, GutterMark, GutterShape, HoverKind, HoverOptions, HoverOver, IndentRules,
-    KeyAction, Keybinding, Keys, LineHighlight, LinkOptions, Look, Mark, MarkLooks, Matches,
-    Movement, Numbers, Origin, Pressing, Preview, Range, Refusal, RevealAlign, RulerLane,
-    RulerMark, SelectionLook, TargetKind, TargetSource, Tint, Underline, Whitespace, Widget,
-    WidgetGroup, WidgetPart, WidgetShow, WidgetSide, Zone, ZoneSide, limits,
+    Caret, CaretHeight, CaretMotion, CaretShape, CaretUnfocused, Change, Column, ColumnEvents,
+    CommentTokens, Decorate, Decoration, EditCommand, EditorAsk, EditorColors, EditorEvents,
+    EditorOptions, Folds, Gesture, GutterKind, GutterMark, GutterShape, HoverKind, HoverOptions,
+    HoverOver, IndentRules, KeyAction, Keybinding, Keys, LineHighlight, LinkOptions, Look, Mark,
+    MarkLooks, Matches, Movement, Numbers, Origin, Pressing, Preview, Range, Refusal, RevealAlign,
+    RulerLane, RulerMark, SelectionLook, TargetKind, TargetSource, Tint, Underline, Whitespace,
+    Widget, WidgetGroup, WidgetPart, WidgetShow, WidgetSide, Zone, ZoneSide, limits,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -1726,6 +1726,15 @@ fn editor_options_out(
                 wit::CaretUnfocused::Hidden => CaretUnfocused::Hidden,
                 wit::CaretUnfocused::Hollow => CaretUnfocused::Hollow,
                 wit::CaretUnfocused::Solid => CaretUnfocused::Solid,
+            },
+            motion: match options.caret.motion {
+                wit::CaretMotion::Snap => CaretMotion::Snap,
+                wit::CaretMotion::Ease(seconds) => {
+                    CaretMotion::Ease(number_out(seconds, CaretMotion::EASE))
+                }
+                wit::CaretMotion::Spring(stiffness) => {
+                    CaretMotion::Spring(number_out(stiffness, CaretMotion::SPRING))
+                }
             },
         },
         selection: SelectionLook {

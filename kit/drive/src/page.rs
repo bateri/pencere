@@ -693,6 +693,7 @@ impl Page {
         state.animating
             || state.motions.moving()
             || state.scrolls.moving(state.clock.frame)
+            || state.editing.glide.moving()
             || state.again
     }
 
@@ -1199,6 +1200,10 @@ impl State {
                 laid = self.lay(root.clone(), viewport, scale, at, measure);
             }
             told = self.editing.told();
+            // A caret that glides is lit.
+            if self.editing.glide.moving() {
+                self.editing.blink.moved();
+            }
             let (phase, next) = self.editing.blink.at(
                 at.now,
                 at.reduce_motion,
@@ -1209,7 +1214,11 @@ impl State {
         }
         let laid = Arc::new(laid);
         let draws = laid.paint(measure);
-        let list = self.editing.editors.paint(draws, measure, caret);
+        let editing = &mut self.editing;
+        let (now, still) = (at.now, at.reduce_motion);
+        let list = editing.editors.paint(draws, measure, caret, &mut |spots| {
+            editing.glide.shifts(spots, now, still)
+        });
         // The module may ask of this layout from now on, and brings what depends on it back within
         // it; a page that was already within it answers nothing. The line that stands in for a page
         // is not the module's.

@@ -23,6 +23,9 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **A caret that glides**: `Caret::motion` (`CaretMotion`: `Snap`, `Ease(seconds)`, `Spring(stiffness)`;
+  `limits::CARET_EASE`, `CARET_SPRING`). The default is `Snap`, as a caret was.
+
 - **How a caret looks and blinks**: `Caret::radius`, `glow` (`limits::CARET_GLOW`), `blink`,
   `blink_interval` (`limits::BLINK_INTERVAL`), `blink_for` (`limits::BLINK_FOR`) and `unfocused`
   (`CaretUnfocused`: `Hidden`, `Hollow`, `Solid`). The defaults are what a caret was: a square bar

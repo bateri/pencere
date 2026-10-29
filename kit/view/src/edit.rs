@@ -1084,6 +1084,7 @@ impl EditorOptions {
             limits::BLINK_INTERVAL,
             default.caret.blink_interval,
         );
+        self.caret.motion = self.caret.motion.held();
         self.caret.blink_for = hold(
             self.caret.blink_for,
             limits::BLINK_FOR,
@@ -1166,6 +1167,49 @@ pub enum CaretUnfocused {
     Solid,
 }
 
+/// How a caret goes from a place to another ([`Caret::motion`]): the host moves it on its own clock,
+/// a terminal's cursor does the same (`cursor_motion`). With Reduce Motion on it is `Snap`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum CaretMotion {
+    /// At once.
+    #[default]
+    Snap,
+    /// Along a curve that is fast at first and slow at the end, over a time that does not depend on
+    /// how far it goes: seconds ([`limits::CARET_EASE`]); a terminal's takes 0.18.
+    Ease(f32),
+    /// As a spring that settles with no overshoot, so that a key held down keeps its speed from one
+    /// step to the next: how stiff it is, radians a second ([`limits::CARET_SPRING`]); a terminal's
+    /// is 30, which settles in about a quarter of a second.
+    Spring(f32),
+}
+
+impl CaretMotion {
+    /// What a terminal's `ease` takes, seconds.
+    pub const EASE: f32 = 0.18;
+    /// What a terminal's `spring` is, radians a second.
+    pub const SPRING: f32 = 30.0;
+
+    /// The motion with its number held to what a caret may take ([`limits`]): one that is not a
+    /// number is a terminal's.
+    #[must_use]
+    pub fn held(self) -> Self {
+        let hold = |value: f32, range: std::ops::RangeInclusive<f32>, default: f32| {
+            if value.is_nan() {
+                default
+            } else {
+                value.clamp(*range.start(), *range.end())
+            }
+        };
+        match self {
+            Self::Snap => Self::Snap,
+            Self::Ease(seconds) => Self::Ease(hold(seconds, limits::CARET_EASE, Self::EASE)),
+            Self::Spring(stiffness) => {
+                Self::Spring(hold(stiffness, limits::CARET_SPRING, Self::SPRING))
+            }
+        }
+    }
+}
+
 /// How the carets look. The host blinks them, on the options it is given here.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Caret {
@@ -1194,6 +1238,8 @@ pub struct Caret {
     pub blink_for: f32,
     /// What it is while the window or the pane does not have the keyboard.
     pub unfocused: CaretUnfocused,
+    /// How it goes from a place to another.
+    pub motion: CaretMotion,
 }
 
 impl Default for Caret {
@@ -1210,6 +1256,7 @@ impl Default for Caret {
             blink_interval: 0.5,
             blink_for: 15.0,
             unfocused: CaretUnfocused::Hidden,
+            motion: CaretMotion::Snap,
         }
     }
 }
@@ -1620,6 +1667,10 @@ pub mod limits {
     pub const CARET_GLOW: std::ops::RangeInclusive<f32> = 0.0..=3.0;
     /// How long a caret may be lit, and dark, seconds.
     pub const BLINK_INTERVAL: std::ops::RangeInclusive<f32> = 0.05..=5.0;
+    /// How long a caret's `ease` may take, seconds.
+    pub const CARET_EASE: std::ops::RangeInclusive<f32> = 0.05..=1.0;
+    /// How stiff a caret's `spring` may be, radians a second.
+    pub const CARET_SPRING: std::ops::RangeInclusive<f32> = 5.0..=100.0;
     /// How long after it moved a caret may go on blinking, seconds.
     pub const BLINK_FOR: std::ops::RangeInclusive<f32> = 0.0..=3600.0;
     /// How wide a column of the gutter may be, points.

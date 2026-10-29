@@ -20,6 +20,11 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **Where a caret is drawn is the host's to move** (`Editors::paint` takes a function that is told where
+  the carets of the editor that has the keyboard are, `CaretSpots`, and answers how far from there to
+  draw each): a caret that glides. A block that is away from its place does not draw its character
+  again on it.
+
 - **How a caret looks** (`caret.radius`, `glow`, `unfocused`): the caret's box has round corners and a
   soft light (the box's `shadow`, with no offset, in the caret's colour), and away from the keyboard a
   block can be an outline. `Editors::paint` takes a `CaretPhase` (`Lit`, `Dark`, `Away`) in place of a

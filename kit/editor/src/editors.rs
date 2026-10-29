@@ -33,7 +33,7 @@ use pencere_view::{
 
 use crate::buffer::{Buffer, Note};
 use crate::text::Snapshot;
-use crate::view::{CaretPhase, Cell, Kind, Rows, View};
+use crate::view::{CaretPhase, CaretSpots, Cell, Kind, Rows, View};
 
 /// What an editor has to tell its page.
 #[derive(Clone, Debug, PartialEq)]
@@ -734,11 +734,16 @@ impl Editors {
 
     /// The page's draw list with each editor's place filled with what it draws: the carets as
     /// `caret` says they are now (the host blinks them).
+    ///
+    /// Where the carets of the editor that has the keyboard are, the host is asked how far from
+    /// there to draw each (`glide`: an empty answer where it does not move them); it is asked at
+    /// every frame, so that it sees a caret that is dark as well.
     pub fn paint(
         &mut self,
         list: DrawList,
         measure: &mut dyn Measure,
         caret: CaretPhase,
+        glide: &mut dyn FnMut(&CaretSpots) -> Vec<Point>,
     ) -> DrawList {
         let mut out = DrawList::default();
         for item in list.items {
@@ -753,11 +758,15 @@ impl Editors {
             if editor.view.scroll != slot.scroll || editor.view.rows.is_empty() {
                 editor.view.lay_out(&editor.buffer, slot.scroll, measure);
             }
-            out.items.extend(
-                editor
-                    .view
-                    .paint(&editor.buffer, &slot, focused, caret, measure),
-            );
+            let interacting =
+                focused && (self.drag.is_some() || editor.buffer.marked_range().is_some());
+            out.items.extend(editor.view.paint(
+                &editor.buffer,
+                &slot,
+                (focused, caret, interacting),
+                glide,
+                measure,
+            ));
         }
         out
     }

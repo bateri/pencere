@@ -873,6 +873,127 @@ fn the_caret_blinks_as_the_editors_options_say_and_is_what_they_say_away_from_th
     assert_eq!(rig.page.wake_at(), None);
 }
 
+/// A caret goes from a place to another as the editor's `motion` says, on the frames' clock: at once
+/// (`snap`), over 0.18 seconds (`ease`) or as a spring with no overshoot; the page is not asked for a
+/// frame of its own while it does, the caret is lit, and with Reduce Motion it is at its place at once.
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+fn a_caret_glides_as_the_options_say_without_asking_the_page_for_a_frame() {
+    let with = |motion: &str| {
+        EDITOR_PAGE
+            .replace(
+                "{ gutter = false }",
+                &format!("{{ gutter = false, caret = {{ motion = {motion} }} }}"),
+            )
+            .replace("local said = {}", "local said = {}\nlocal renders = 0")
+            .replace(
+                "return pencere.div():size_full()",
+                "renders = renders + 1\n        return pencere.div():size_full()",
+            )
+            .replace(
+                "pencere.text(table.concat(said, \"|\"))",
+                "pencere.text(table.concat(said, \"|\") .. \" renders \" .. renders)",
+            )
+    };
+    let renders = |rig: &Rig| {
+        page_words(&rig.page)
+            .join(" ")
+            .rsplit("renders ")
+            .next()
+            .and_then(|n| n.trim().split(['|', ' ']).next().map(str::to_owned))
+            .and_then(|n| n.parse::<u32>().ok())
+            .expect("the render count")
+    };
+    // Where the caret is drawn across, in the frame at `now`.
+    let caret_x = |rig: &mut Rig, now: f64, still: bool| {
+        let painted = rig.page.frame(FrameAt {
+            reduce_motion: still,
+            ..frame_at(now)
+        });
+        painted.list.items.iter().find_map(|item| match item {
+            Paint::Quad(quad) if quad.fill.and_then(|fill| fill.role()) == Some(Role::Cursor) => {
+                Some(quad.rect.x)
+            }
+            _ => None,
+        })
+    };
+    let right = |rig: &mut Rig| {
+        assert_eq!(rig.page.key(Key::Right, Mods::default()), Route::Done);
+    };
+    // Snap, the default: at its place in the frame after the key.
+    let mut rig = loaded(&with(r#""snap""#));
+    let start = caret_x(&mut rig, 0.0, false).expect("a caret");
+    right(&mut rig);
+    let place = caret_x(&mut rig, 1.0, false).expect("a caret");
+    assert!(place > start);
+    assert!(!rig.page.animating());
+    // Ease: where it was, between, there; and no frame asked for after.
+    let mut rig = loaded(&with(r#""ease""#));
+    let start = caret_x(&mut rig, 0.0, false).expect("a caret");
+    right(&mut rig);
+    assert_eq!(caret_x(&mut rig, 1.0, false), Some(start), "where it was");
+    // The key's events made the page again; the glide's frames do not.
+    assert!(rig.page.module().flush(Duration::from_secs(30)));
+    rig.page.drain();
+    rig.page.frame(frame_at(1.0));
+    let before = renders(&rig);
+    assert!(rig.page.animating(), "frames for it");
+    let between = caret_x(&mut rig, 1.09, false).expect("a caret");
+    assert!(
+        between > start && between < place,
+        "{start} {between} {place}"
+    );
+    assert_eq!(caret_x(&mut rig, 1.18, false), Some(place));
+    assert!(!rig.page.animating(), "no more frames");
+    assert_eq!(
+        renders(&rig),
+        before,
+        "the page is not asked for a frame of its own"
+    );
+    // Lit the whole way, though a half second of the blink would have made it dark.
+    right(&mut rig);
+    for step in 0..30 {
+        let at = caret_x(&mut rig, 3.0 + f64::from(step) * 0.016, false);
+        assert!(at.is_some(), "lit at step {step}");
+    }
+    // A spring: never past its place, and at it before the belt.
+    let mut rig = loaded(&with(r#"{ spring = 30 }"#));
+    let start = caret_x(&mut rig, 0.0, false).expect("a caret");
+    right(&mut rig);
+    let mut last = caret_x(&mut rig, 1.0, false).expect("a caret");
+    assert_eq!(last, start);
+    let mut now = 1.0;
+    while rig.page.animating() {
+        now += 1.0 / 60.0;
+        let at = caret_x(&mut rig, now, false).expect("a caret");
+        assert!(at <= place + 1e-3 && at >= last - 1e-3, "{at} {last}");
+        last = at;
+        assert!(now < 1.8, "settles inside the belt");
+    }
+    assert_eq!(last, place);
+    // Reduce Motion: at its place at once.
+    let mut rig = loaded(&with(r#""spring""#));
+    caret_x(&mut rig, 0.0, false);
+    right(&mut rig);
+    assert_eq!(caret_x(&mut rig, 1.0, true), Some(place));
+    assert!(!rig.page.animating());
+    // A caret the page puts in a place that is out of the room is there at once (the room scrolls).
+    let long: String = (0..60).map(|n| format!("line {n}\n")).collect();
+    let source = with(r#""ease""#).replace(r#"load = "hello\nworld""#, &format!("load = {long:?}"));
+    let mut rig = loaded(&source);
+    caret_x(&mut rig, 0.0, false);
+    let command = Mods {
+        command: true,
+        ..Mods::default()
+    };
+    assert_eq!(rig.page.key(Key::Down, command), Route::Done);
+    caret_x(&mut rig, 1.0, false);
+    assert!(
+        !rig.page.animating(),
+        "a caret that goes out of the room does not glide"
+    );
+}
+
 /// On a screen of two pixels to a point, the page drawn half as large again as its own size: the
 /// caret's box an input method is told and the place under a point are each other's, a press there
 /// puts the caret there, and a press below the room gives the keyboard back.

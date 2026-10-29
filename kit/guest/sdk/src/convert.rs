@@ -4,11 +4,12 @@
 //! `crates/pencere-sandbox/src/world.rs`.
 
 use pencere_view::edit::{
-    CaretHeight, CaretShape, CaretUnfocused, Change, EditCommand, Edited, EditorAsk, EditorColors,
-    EditorOptions, Folds, Found, GutterEvent, GutterHit, GutterKind, GutterShape, HoverEvent,
-    HoverHit, HoverKind, HoverOver, KeyAction, Keys, LineHighlight, Mark, Matches, Movement,
-    Numbers, Origin, Pressing, Range, Refusal, RevealAlign, RulerLane, Selection, TargetEvent,
-    TargetKind, TargetSource, Tint, Underline, Whitespace, WidgetShow, WidgetSide, ZoneSide,
+    CaretHeight, CaretMotion, CaretShape, CaretUnfocused, Change, EditCommand, Edited, EditorAsk,
+    EditorColors, EditorOptions, Folds, Found, GutterEvent, GutterHit, GutterKind, GutterShape,
+    HoverEvent, HoverHit, HoverKind, HoverOver, KeyAction, Keys, LineHighlight, Mark, Matches,
+    Movement, Numbers, Origin, Pressing, Range, Refusal, RevealAlign, RulerLane, Selection,
+    TargetEvent, TargetKind, TargetSource, Tint, Underline, Whitespace, WidgetShow, WidgetSide,
+    ZoneSide,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
@@ -779,6 +780,11 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
                 CaretUnfocused::Hollow => wit::CaretUnfocused::Hollow,
                 CaretUnfocused::Solid => wit::CaretUnfocused::Solid,
             },
+            motion: match options.caret.motion {
+                CaretMotion::Snap => wit::CaretMotion::Snap,
+                CaretMotion::Ease(seconds) => wit::CaretMotion::Ease(Some(seconds)),
+                CaretMotion::Spring(stiffness) => wit::CaretMotion::Spring(Some(stiffness)),
+            },
         },
         colors: editor_colors(&options.colors),
         whitespace: match options.whitespace {
@@ -1432,6 +1438,7 @@ mod tests {
                 blink_interval: 0.4,
                 blink_for: 0.0,
                 unfocused: CaretUnfocused::Hollow,
+                motion: CaretMotion::Spring(40.0),
             },
             whitespace: Whitespace::Boundary,
             indent_guides: true,
@@ -1469,6 +1476,10 @@ mod tests {
         assert!(matches!(
             editor.caret.unfocused,
             wit::CaretUnfocused::Hollow
+        ));
+        assert!(matches!(
+            editor.caret.motion,
+            wit::CaretMotion::Spring(Some(40.0))
         ));
         assert!(matches!(&editor.caret.color, wit::EditorTint::Color(_)));
         assert!(matches!(editor.caret.text, wit::EditorTint::Off));

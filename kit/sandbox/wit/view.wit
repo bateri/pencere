@@ -638,6 +638,19 @@ interface types {
         solid,
     }
 
+    /// How a caret goes from a place to another, on the application's own clock (with Reduce Motion
+    /// on it is `snap`).
+    variant caret-motion {
+        /// At once.
+        snap,
+        /// Over a time that does not depend on how far it goes, seconds (0.05 to 1; none: 0.18, a
+        /// terminal's).
+        ease(option<f32>),
+        /// As a spring with no overshoot, that keeps its speed where it is sent on: how stiff it is,
+        /// radians a second (5 to 100; none: 30, a terminal's).
+        spring(option<f32>),
+    }
+
     /// How an editor's carets look. The application blinks them, as it is told here.
     record editor-caret {
         shape: caret-shape,
@@ -664,6 +677,8 @@ interface types {
         blink-for: option<f32>,
         /// What it is while the window or the pane does not have the keyboard.
         unfocused: caret-unfocused,
+        /// How it goes from a place to another.
+        motion: caret-motion,
     }
 
     /// What the numbers of the lines in an editor's gutter count.

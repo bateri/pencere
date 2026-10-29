@@ -28,6 +28,27 @@ use crate::buffer::{Buffer, Placement};
 use crate::guides::{Levels, active_guide};
 use crate::segments::grapheme_after;
 
+/// Where the carets of the editor that has the keyboard are as a frame is drawn, for the host to say
+/// how far from there to draw each ([`crate::Editors::paint`]): a host that glides them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CaretSpots {
+    /// The editor.
+    pub editor: Id,
+    /// The place of the document each caret is at, one for each selection.
+    pub places: Vec<usize>,
+    /// The top-left of each caret's box in the content (pixels, from the content's corner: what
+    /// scrolling does not move), none where it is not on a line that shows.
+    pub at: Vec<Option<Point>>,
+    /// The part of the content the room shows, pixels: where it is scrolled to and how large it is.
+    pub room: Rect,
+    /// How tall a row is, pixels.
+    pub row: f32,
+    /// The person is selecting with the pointer, or an input method composes.
+    pub interacting: bool,
+    /// How the editor's options say a caret moves.
+    pub motion: pencere_view::edit::CaretMotion,
+}
+
 /// What the carets are as a frame is drawn: lit, dark where they blink, or away: the window or the
 /// pane does not have the keyboard, where an editor of the page does (what the caret's
 /// `unfocused` option says is then drawn). The host says it ([`crate::Editors::paint`]).
@@ -994,13 +1015,15 @@ impl View {
     // --- Drawing ---------------------------------------------------------------------------
 
     /// What the room draws: in `slot` (its place on the page, how far it is scrolled), the editor
-    /// having the keyboard or not, the carets as they are now (the host blinks them: `phase`).
+    /// having the keyboard or not, the carets as they are now (the host blinks them: `phase`), and
+    /// whether the person is selecting with the pointer or an input method composes (`interacting`:
+    /// the carets are where they are at once).
     pub fn paint(
         &self,
         buffer: &Buffer,
         slot: &EditorSlot,
-        focused: bool,
-        phase: CaretPhase,
+        (focused, phase, interacting): (bool, CaretPhase, bool),
+        glide: &mut dyn FnMut(&CaretSpots) -> Vec<Point>,
         measure: &mut dyn Measure,
     ) -> Vec<Paint> {
         let mut out = Vec::new();
@@ -1227,27 +1250,62 @@ impl View {
                 }
             }
         }
-        // The carets; a block's character is drawn again on it.
+        // The carets; a block's character is drawn again on it. Where each is the host is told, and
+        // says how far from there to draw it (a caret that glides).
         let caret = self.options.caret;
-        if focused
-            && let Some(look) = self.caret_look(phase)
-            && let Some(color) = caret.color.or(Role::Cursor.solid())
-        {
-            for range in ranges {
-                if let Some(row) = rows.iter().find(|row| self.on_row(row, range.head)) {
-                    let at = range.head;
-                    let x = origin_x + row.caret_x(at - row.base);
-                    let rect = self.caret_box(buffer, row, at, x, row_y(row));
+        if focused {
+            let boxes: Vec<Option<(Rect, &Row)>> = ranges
+                .iter()
+                .map(|range| {
+                    let row = rows.iter().find(|row| self.on_row(row, range.head))?;
+                    let x = origin_x + row.caret_x(range.head - row.base);
+                    Some((self.caret_box(buffer, row, range.head, x, row_y(row)), *row))
+                })
+                .collect();
+            let spots = CaretSpots {
+                editor: slot.id,
+                places: ranges.iter().map(|range| range.head).collect(),
+                at: boxes
+                    .iter()
+                    .map(|found| {
+                        found.map(|(rect, _)| {
+                            Point::new(
+                                rect.x - room.x + slot.scroll.x,
+                                rect.y - room.y + slot.scroll.y,
+                            )
+                        })
+                    })
+                    .collect(),
+                room: Rect::new(slot.scroll.x, slot.scroll.y, room.w, room.h),
+                row: self.row,
+                interacting,
+                motion: caret.motion,
+            };
+            let shifts = glide(&spots);
+            if let Some(look) = self.caret_look(phase)
+                && let Some(color) = caret.color.or(Role::Cursor.solid())
+            {
+                for (index, found) in boxes.iter().enumerate() {
+                    let Some((rect, row)) = found else {
+                        continue;
+                    };
+                    let shift = shifts.get(index).copied().unwrap_or_default();
+                    let moving = shift.x.abs() + shift.y.abs() > 0.5;
+                    let rect = rect.translate(shift.x, shift.y);
                     out.push(self.caret_quad(rect, fade(color), look, text_clip));
+                    // The character under a block is drawn again on it where it is at rest: one that
+                    // glides covers what it goes over.
                     if caret.shape == CaretShape::Block
                         && look == CaretLook::Solid
+                        && !moving
                         && let Some(text_color) = caret.text.or(Role::Background.solid())
+                        && let Some(range) = ranges.get(index)
                     {
                         let colors = (fade(color), text_color);
                         let opacity = slot.opacity;
                         let place = (rect, row_y(row) + self.lead);
                         self.paint_under_block(
-                            buffer, row, at, place, colors, opacity, text_clip, &mut out,
+                            buffer, row, range.head, place, colors, opacity, text_clip, &mut out,
                         );
                     }
                 }

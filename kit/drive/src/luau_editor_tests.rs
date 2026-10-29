@@ -6,8 +6,8 @@
 
 use pencere_sandbox::Fault;
 use pencere_view::edit::{
-    Caret, CaretHeight, CaretShape, CaretUnfocused, CommentTokens, EditorAsk, EditorColors,
-    EditorOptions, Folds, IndentRules, LineHighlight, Mark, Matches, Numbers, Origin,
+    Caret, CaretHeight, CaretMotion, CaretShape, CaretUnfocused, CommentTokens, EditorAsk,
+    EditorColors, EditorOptions, Folds, IndentRules, LineHighlight, Mark, Matches, Numbers, Origin,
     SelectionLook, Tint, Whitespace,
 };
 use pencere_view::{Event, Id, Key, Mods, Paint, Point, Role};
@@ -353,7 +353,8 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
                     current_line = "all",
                     matches = "word",
                     caret = { shape = "block", height = "text", width = 3, color = "accent", text = { "magenta", 0.5 },
-                        radius = 0.15, glow = 1, blink = false, blink_interval = 0.25, blink_for = 4, unfocused = "hollow" },
+                        radius = 0.15, glow = 1, blink = false, blink_interval = 0.25, blink_for = 4, unfocused = "hollow",
+                        motion = { spring = 45 } },
                     selection = { radius = 0.22 },
                     colors = { current_line = false, selection = "raised1", numbers = "dim", matches = "info" },
                 }):grow(1))
@@ -389,6 +390,7 @@ fn how_an_editor_looks_is_the_pages_to_say_and_what_it_leaves_out_is_the_theme()
                 blink_interval: 0.25,
                 blink_for: 4.0,
                 unfocused: CaretUnfocused::Hollow,
+                motion: CaretMotion::Spring(45.0),
             },
             selection: SelectionLook { radius: 0.22 },
             colors: EditorColors {

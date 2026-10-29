@@ -14,6 +14,8 @@
 use std::sync::Arc;
 
 use pencere_editor::{CaretPhase, EditorEvent, Editors};
+
+use crate::glide::Glide;
 use pencere_view::edit::{Caret, EditorAsk, TextSnapshot};
 use pencere_view::{Event, Id, Keyboard, Laid, Measure, Point, Reply, ScrollTo};
 
@@ -27,6 +29,8 @@ pub(crate) struct Editing {
     /// are made.
     focus: Option<Id>,
     pub(crate) blink: Blink,
+    /// Where the carets are drawn, while they glide.
+    pub(crate) glide: Glide,
 }
 
 /// What came of something done to the editors, for the page and for the host.
@@ -60,6 +64,7 @@ impl Editing {
             asks: Vec::new(),
             focus: None,
             blink: Blink::new(),
+            glide: Glide::default(),
         }
     }
 

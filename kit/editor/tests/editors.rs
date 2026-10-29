@@ -165,7 +165,8 @@ impl Host {
 
     fn paint_as(&mut self, phase: CaretPhase) -> DrawList {
         let list = self.laid.paint(&mut Fake);
-        self.editors.paint(list, &mut Fake, phase)
+        self.editors
+            .paint(list, &mut Fake, phase, &mut |_| Vec::new())
     }
 
     /// The main caret put at `at`, the editor having the keyboard.

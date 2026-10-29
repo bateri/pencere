@@ -39,4 +39,4 @@ pub use editors::{EditorEvent, Editors, Measured, Route};
 pub use find::FIND_MATCHES;
 pub use history::{UNDO_DEPTH, UNDO_PAUSE};
 pub use text::Snapshot;
-pub use view::CaretPhase;
+pub use view::{CaretPhase, CaretSpots};

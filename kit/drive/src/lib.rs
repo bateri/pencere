@@ -16,6 +16,7 @@
 //! The crate knows no window, no renderer, no font and no terminal.
 
 mod editing;
+mod glide;
 pub mod headless;
 mod host;
 mod outline;
@@ -31,6 +32,8 @@ pub use page::{FrameAt, NoText, Page, PageEditors, Painted, Setup};
 pub use pencere_editor::Route;
 pub use scrolling::Scrolling;
 
+#[cfg(test)]
+mod glide_tests;
 #[cfg(test)]
 mod headless_tests;
 #[cfg(all(test, feature = "program"))]

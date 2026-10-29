@@ -999,6 +999,44 @@ pencere_view_types_editor_tint_t tint_at(lua_State* L, int t, const char* name) 
     return out;
 }
 
+// A caret's `motion`: "snap", "ease" or "spring" (a terminal's numbers), `{ ease = seconds }` or
+// `{ spring = stiffness }`; `false` is none, as "snap".
+pencere_view_types_caret_motion_t motion_at(lua_State* L, int t, const char* name) {
+    pencere_view_types_caret_motion_t out = {};
+    out.tag = PENCERE_VIEW_TYPES_CARET_MOTION_SNAP;
+    get(L, t, name);
+    int kind = lua_type(L, -1);
+    if (kind == LUA_TSTRING) {
+        const char* given = lua_tostring(L, -1);
+        if (strcmp(given, "snap") == 0) {
+        } else if (strcmp(given, "ease") == 0) {
+            out.tag = PENCERE_VIEW_TYPES_CARET_MOTION_EASE;
+        } else if (strcmp(given, "spring") == 0) {
+            out.tag = PENCERE_VIEW_TYPES_CARET_MOTION_SPRING;
+        } else {
+            luaL_error(L, "%s: \"%s\" is not one of the words it takes: \"snap\", \"ease\", \"spring\"", name, given);
+        }
+    } else if (kind == LUA_TTABLE) {
+        int table = lua_gettop(L);
+        view_option_f32_t ease = optional_number(L, table, "ease");
+        view_option_f32_t spring = optional_number(L, table, "spring");
+        if (ease.is_some == spring.is_some) {
+            luaL_error(L, "%s is one of { ease = seconds } and { spring = stiffness }", name);
+        }
+        if (ease.is_some) {
+            out.tag = PENCERE_VIEW_TYPES_CARET_MOTION_EASE;
+            out.val.ease = ease;
+        } else {
+            out.tag = PENCERE_VIEW_TYPES_CARET_MOTION_SPRING;
+            out.val.spring = spring;
+        }
+    } else if (kind != LUA_TNIL && !(kind == LUA_TBOOLEAN && !lua_toboolean(L, -1))) {
+        luaL_error(L, "%s is \"snap\", \"ease\", \"spring\", { ease = seconds } or { spring = stiffness }", name);
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
 const char* const kCaretShape[] = {"bar", "block", "underline"};
 const char* const kCaretHeight[] = {"row", "text"};
 const char* const kCaretUnfocused[] = {"hidden", "hollow", "solid"};
@@ -1320,8 +1358,9 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
         out.caret.blink_interval = optional_number(L, caret, "blink_interval");
         out.caret.blink_for = optional_number(L, caret, "blink_for");
         out.caret.unfocused = (uint8_t)word(L, caret, "unfocused", kCaretUnfocused, 3, 0);
+        out.caret.motion = motion_at(L, caret, "motion");
     } else if (!lua_isnil(L, caret)) {
-        luaL_error(L, "the caret of an editor is a table: { shape =, width =, color =, text =, radius =, glow =, blink =, blink_interval =, blink_for =, unfocused = }");
+        luaL_error(L, "the caret of an editor is a table: { shape =, width =, color =, text =, radius =, glow =, blink =, blink_interval =, blink_for =, unfocused =, motion = }");
     }
     lua_pop(L, 1);
     pencere_view_types_editor_colors_t& colors = out.colors;

@@ -387,11 +387,14 @@ end
 -- indent, the caret's block's in its own colour), `matches` (the other places of the main selection's
 -- text marked where they are in view: "none", "selection" (or true), or "word", the caret's word
 -- too), `caret = { shape = "bar" | "block" | "underline", height = "row" | "text", width = 2, color =,
--- text =, radius = 0, glow = 0, blink = true, blink_interval = 0.5, blink_for = 15, unfocused = "hidden" }`
+-- text =, radius = 0, glow = 0, blink = true, blink_interval = 0.5, blink_for = 15, unfocused = "hidden",
+-- motion = "snap" }`
 -- (radius: a fraction of a row's height, 0 to 0.5; glow: the soft light round it, 0 to 3; `blink_interval`:
 -- seconds lit and then dark; `blink_for`: seconds it goes on blinking after it moved, 0: for ever;
 -- `unfocused`: what it is while the window or the pane has not the keyboard, "hidden", "hollow" (a block
--- is an outline) or "solid"), `selection = { radius = 0 }` (how round the corners of a selection are, a fraction of a row's
+-- is an outline) or "solid"; `motion`: how it goes from a place to another, "snap" (at once), "ease" (0.18
+-- seconds, a terminal's), "spring" (a spring of 30, a terminal's, that keeps its speed where it is sent on),
+-- `{ ease = seconds }` or `{ spring = stiffness }`, and at once with Reduce Motion), `selection = { radius = 0 }` (how round the corners of a selection are, a fraction of a row's
 -- height, 0 to 0.5: 0 square; where lines meet the turns inward are rounded too) and `colors = { current_line, selection, selection_blurred, found, brackets, numbers,
 -- current_number, gutter, folds, folded, hint, whitespace, indent_guides, active_indent_guide,
 -- matches, mark_hover }`. A colour it does not say is the theme's;
@@ -437,6 +440,7 @@ local EDITOR_OPTIONS = {
 		blink_interval = true,
 		blink_for = true,
 		unfocused = true,
+		motion = true,
 	},
 	selection = { radius = true },
 	colors = {

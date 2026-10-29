@@ -8,6 +8,8 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Changed
 
+- An editor's caret `motion` crosses the interface.
+
 - An editor's caret (`radius`, `glow`, `blink`, `blink_interval`, `blink_for`, `unfocused`) crosses the
   interface.
 

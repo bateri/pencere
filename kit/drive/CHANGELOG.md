@@ -21,6 +21,11 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
 
 ### Added
 
+- **A caret glides** (`caret.motion`: `ease`, `spring`, or `snap`, the default): on the frames' clock, in
+  the content's coordinates, so that scrolling does not move it; the page is not asked for a frame of
+  its own for it (`Page::animating` is true while it goes), it is lit while it goes, and with Reduce Motion
+  it is at its place at once.
+
 - **A caret's blink is the page's to say**: `Setup::blink` and `Opening::blink` are gone; the caret
   blinks by the options of the editor that has the keyboard (`caret.blink`, `blink_interval`,
   `blink_for`), still with Reduce Motion, and away from the keyboard it is what `caret.unfocused`

@@ -18,6 +18,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- `caret.motion` crosses the interface (`caret-motion`).
+
 - `caret` (`radius`, `glow`, `blink`, `blink_interval`, `blink_for`, `unfocused`) of an editor's
   options crosses the interface (`editor-caret`, `caret-unfocused`).
 
