@@ -200,10 +200,107 @@ pub enum Mark {
     /// ([`pencere_view::EditorMetrics`] says where, for an overlay anchored to it), as an editor's
     /// caret is. A name is an editor's alone: a later decoration of the name is the one that stands.
     Anchor(String),
+    /// Text that is not in the document, drawn at the place of the range (an inlay hint, a line's
+    /// end: an error, a blame): see [`Widget`].
+    Widget(Widget),
     /// The range can be folded away: its first line stays, the lines after it down to the one the
     /// range ends on are hidden while it is folded. Whether it is, is the editor's (the person
     /// folds and unfolds); where it can be, is the page's.
     Fold,
+}
+
+/// Text the page puts in a line that is not the document's: where it stands ([`WidgetSide`]) and what
+/// it says. It takes room in the line (an inline one) or stands after the line's end (the last); the
+/// caret, the keys, copying, searching and the history do not know it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Widget {
+    pub parts: Vec<WidgetPart>,
+    pub side: WidgetSide,
+    /// The group whose options ([`EditorOptions::widgets`]) say how it looks and when it shows.
+    pub group: Option<String>,
+    /// What the page calls it: told with the pointer's rest over it and a press on it.
+    pub id: Option<String>,
+    /// What it says to a screen reader.
+    pub label: Option<String>,
+    pub cursor: Option<Cursor>,
+    /// A name for its box ([`Mark::Anchor`]): a card stands by it.
+    pub anchor: Option<String>,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    /// Points kept inside it before and after its words (the group's `pad` where none).
+    pub pad_left: Option<f32>,
+    pub pad_right: Option<f32>,
+}
+
+/// One run of a [`Widget`]'s words.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WidgetPart {
+    pub text: String,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub weight: Option<u16>,
+    pub italic: Option<bool>,
+    /// What the page calls it, where it is a part to press (a type to go to).
+    pub id: Option<String>,
+}
+
+/// Where a [`Widget`] stands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WidgetSide {
+    /// At the range's start, before the character there (`name: |arg`).
+    Before,
+    /// At the range's end, after the character before it (`x|: int`).
+    #[default]
+    After,
+    /// After the end of the line of the range's start, a gap beyond the text.
+    End,
+}
+
+/// How a group of widgets look, and when they show ([`EditorOptions::widgets`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct WidgetGroup {
+    pub show: WidgetShow,
+    /// The modifiers `show` goes by.
+    pub hold: Mods,
+    /// How large its words are, times the editor's text.
+    pub size: f32,
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    /// Points: the corners' radius, the room kept inside it, the gap before a widget at a line's end.
+    pub radius: f32,
+    pub pad: f32,
+    pub gap: f32,
+}
+
+impl Default for WidgetGroup {
+    fn default() -> Self {
+        Self {
+            show: WidgetShow::On,
+            hold: Mods {
+                control: true,
+                alt: true,
+                ..Mods::default()
+            },
+            size: 0.9,
+            color: None,
+            background: None,
+            radius: 3.0,
+            pad: 3.0,
+            gap: 16.0,
+        }
+    }
+}
+
+/// When a group of widgets shows (VS Code's `inlayHints.enabled`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WidgetShow {
+    #[default]
+    On,
+    Off,
+    /// Shown, but not while the group's modifiers are held.
+    UnlessHeld,
+    /// Shown only while they are held.
+    WhenHeld,
 }
 
 /// A marker in a column of the gutter (a breakpoint, a change, a warning, a bookmark, a result of a
@@ -676,6 +773,9 @@ pub struct EditorOptions {
     /// How long a chord of keys waits for its next key, seconds ([`limits::CHORD_TIMEOUT`]); VS Code's
     /// waits one.
     pub chord_timeout: f32,
+    /// How the groups of widgets look and when they show, by name; a widget of a group not here, or
+    /// of none, is as [`WidgetGroup::default`] says.
+    pub widgets: Vec<(String, WidgetGroup)>,
 }
 
 /// A press as a page names it: a button, the modifiers, and how many presses of a quick run.
@@ -779,6 +879,8 @@ pub enum TargetKind {
 pub enum TargetSource {
     Word,
     Link,
+    /// A widget with a name (or a part of one), pressed whatever the modifiers.
+    Widget,
 }
 
 /// Which events of its own an editor tells the page: none unless the page asks, as the rare things
@@ -820,12 +922,23 @@ pub struct HoverEvent {
     /// The decorations with a name (`id`) that hold `at`: the layer, the name and the range of each,
     /// the later over the earlier.
     pub hits: Vec<HoverHit>,
+    /// Whether it is a word of the text the pointer is on or a widget (`id` is then the widget's, or
+    /// of its part).
+    pub over: HoverOver,
+    pub id: Option<String>,
     /// The word's box, points of the page: where a card is stood.
     pub rect: Rect,
     /// The modifiers held as the drive last knew.
     pub mods: Mods,
     /// The document's version the places are of.
     pub version: u64,
+}
+
+/// What the pointer rests on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum HoverOver {
+    Text,
+    Widget,
 }
 
 /// What the pointer did of resting.
@@ -919,6 +1032,7 @@ impl Default for EditorOptions {
             keymap: Vec::new(),
             links: LinkOptions::default(),
             chord_timeout: 1.0,
+            widgets: Vec::new(),
         }
     }
 }
@@ -1432,6 +1546,14 @@ pub mod limits {
     pub const BINDINGS: usize = 256;
     /// The most keys one chord has.
     pub const CHORD_KEYS: usize = 4;
+    /// The most characters the words of a widget have, parts it has, and widgets standing in a line
+    /// inside it.
+    pub const WIDGET_TEXT: usize = 200;
+    pub const WIDGET_PARTS: usize = 8;
+    pub const WIDGETS_IN_LINE: usize = 32;
+    /// What a widget group's size (times the text), room and gap may be.
+    pub const WIDGET_SIZE: std::ops::RangeInclusive<f32> = 0.5..=2.0;
+    pub const WIDGET_ROOM: std::ops::RangeInclusive<f32> = 0.0..=64.0;
     /// How wide a bar, or a mark of the overview ruler, may be, points.
     pub const MARK_WIDTH: std::ops::RangeInclusive<f32> = 1.0..=16.0;
 }

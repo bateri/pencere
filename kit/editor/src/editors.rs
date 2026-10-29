@@ -422,6 +422,18 @@ impl Editors {
                 },
             );
         }
+        // Over a widget: the hand where it has a name, its own shape where it says one.
+        if let Some((found, part)) = editor.view.widget_under(point) {
+            let named = part
+                .and_then(|part| found.placed.widget.parts.get(part))
+                .is_some_and(|part| part.id.is_some())
+                || found.placed.widget.id.is_some();
+            return Some(found.placed.widget.cursor.unwrap_or(if named {
+                Cursor::Pointer
+            } else {
+                Cursor::Text
+            }));
+        }
         // Over a look the page drew as a link while the modifiers it asks for are held: its shape
         // (the hand, where it says none).
         if self.pointer == Some(at)
@@ -636,7 +648,7 @@ impl Editors {
             editor.zones = zones;
             self.relayout = true;
         }
-        let anchors: Vec<(Id, Rect)> = editor
+        let mut anchors: Vec<(Id, Rect)> = editor
             .buffer
             .anchors()
             .into_iter()
@@ -647,6 +659,20 @@ impl Editors {
                 ))
             })
             .collect();
+        // A widget that names its box is where it stands in its row.
+        for (name, place, _) in editor.buffer.widget_anchors() {
+            let Some((row, _)) = editor.view.row_at_place(&editor.buffer, place, measure) else {
+                continue;
+            };
+            if let Some(found) = editor
+                .view
+                .widget_boxes(&row)
+                .into_iter()
+                .find(|found| found.placed.widget.anchor.as_deref() == Some(name.as_str()))
+            {
+                anchors.push((id.anchor(&name), found.rect));
+            }
+        }
         if anchors != editor.anchors {
             // A range that moved, came or went is where an overlay stands by it is to be put again, and
             // what the layout knows of it (`Laid::bounds`) is to be found again.
@@ -1085,6 +1111,12 @@ impl Editors {
         }
         let place = editor.view.place_at(&editor.buffer, point, measure);
         let others = editor.buffer.ranges().len();
+        if self.press_widget(laid, id, point, (Button::Left, mods, count)) {
+            return true;
+        }
+        let Some(editor) = self.editors.get(&id) else {
+            return true;
+        };
         let pressing = gesture_of(&editor.view.options.gestures, Button::Left, mods, count);
         match pressing {
             Some(Pressing::Nothing) => return true,

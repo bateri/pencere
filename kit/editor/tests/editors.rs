@@ -11,7 +11,7 @@ use pencere_view::edit::{
     EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds, Found, Gesture,
     GutterKind, GutterMark, GutterShape, HoverKind, KeyAction, Keybinding, Keys, LineHighlight,
     Look, Mark, Numbers, Pressing, Preview, Range, RulerLane, RulerMark, TargetKind, TargetSource,
-    Tint, Whitespace, Zone,
+    Tint, Whitespace, Widget, WidgetPart, WidgetSide, Zone,
 };
 use pencere_view::{
     Button, Command, Cursor, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint,
@@ -3189,4 +3189,189 @@ fn the_keys_the_page_changed_do_what_it_says_and_a_chord_waits_for_its_next_key(
     )));
     // The keys it did not change are the editor's.
     assert_eq!(host.key(Key::Left, none()), Route::Done);
+}
+
+// --- Text that is not the document's, in its lines ---------------------------------------------------
+
+fn hint(side: WidgetSide, text: &str) -> Mark {
+    Mark::Widget(Widget {
+        parts: vec![WidgetPart {
+            text: text.into(),
+            ..WidgetPart::default()
+        }],
+        side,
+        ..Widget::default()
+    })
+}
+
+#[test]
+fn a_widget_takes_room_in_its_line_before_or_after_the_caret_and_is_no_part_of_the_text() {
+    let mut host = Host::new(page_with(plain()));
+    host.load("alpha beta");
+    host.editors.set_focus(Some(EDITOR));
+    let x_of = |host: &mut Host, word: &str| {
+        host.texts()
+            .iter()
+            .find(|(text, _, _)| text.trim() == word)
+            .map(|(_, at, _)| at.x)
+            .expect("the word")
+    };
+    // `ab` (14 wide) and 3 of room each side, before `beta`: the word goes 20 across, the text
+    // is the same.
+    host.decorate(
+        "hints",
+        vec![Decoration::new(6, 6, hint(WidgetSide::Before, "ab"))],
+    );
+    assert_eq!(x_of(&mut host, "beta"), 4.0 + 38.0 + 20.0);
+    assert_eq!(x_of(&mut host, "alpha"), 4.0);
+    assert_eq!(host.text(), "alpha beta");
+    // The caret at 6 is after the hint (`ab |beta`) and the caret at 5 is where it was.
+    let laid = host.laid.clone();
+    let _ = laid;
+    host.caret_at(6);
+    let caret = host
+        .editors
+        .metrics(EDITOR)
+        .and_then(|m| m.caret)
+        .expect("a caret");
+    assert_eq!(caret.x, 4.0 + 38.0 + 20.0);
+    // After a character: the caret is before the hint (`x|: int`).
+    host.decorate(
+        "hints",
+        vec![Decoration::new(5, 5, hint(WidgetSide::After, "cd"))],
+    );
+    host.caret_at(5);
+    let caret = host
+        .editors
+        .metrics(EDITOR)
+        .and_then(|m| m.caret)
+        .expect("a caret");
+    assert_eq!(caret.x, 4.0 + 31.0);
+    assert_eq!(x_of(&mut host, "beta"), 4.0 + 31.0 + 20.0);
+    // A press on the hint puts the caret at the nearest place: before it or after, not in it.
+    assert!(host.press(Point::new(4.0 + 31.0 + 4.0, 10.0), none(), 1));
+    host.editors.release();
+    let head = host.ranges()[0].head;
+    assert!(head == 5 || head == 6, "{head}");
+    // Select all and copy the document, with no hint in it.
+    host.editors.take_events();
+    assert_eq!(host.text(), "alpha beta");
+}
+
+#[test]
+fn the_group_says_when_a_widget_shows_by_the_modifiers_and_one_at_a_lines_end_is_cut_where_the_room_ends()
+ {
+    let options = EditorOptions {
+        widgets: vec![(
+            "hints".to_string(),
+            pencere_view::edit::WidgetGroup {
+                show: pencere_view::edit::WidgetShow::UnlessHeld,
+                ..pencere_view::edit::WidgetGroup::default()
+            },
+        )],
+        ..plain()
+    };
+    let mut host = Host::new(page_with(options));
+    host.load("alpha beta");
+    let named = |side, text: &str| {
+        Mark::Widget(Widget {
+            group: Some("hints".into()),
+            ..match hint(side, text) {
+                Mark::Widget(widget) => widget,
+                _ => unreachable!(),
+            }
+        })
+    };
+    host.decorate(
+        "hints",
+        vec![Decoration::new(6, 6, named(WidgetSide::Before, "ab"))],
+    );
+    let x_of = |host: &mut Host, word: &str| {
+        host.texts()
+            .iter()
+            .find(|(text, _, _)| text.trim() == word)
+            .map(|(_, at, _)| at.x)
+            .expect("the word")
+    };
+    assert_eq!(x_of(&mut host, "beta"), 4.0 + 38.0 + 20.0);
+    // ⌃⌥ held: hidden (unless held), the line as it was.
+    host.mods(with(|m| {
+        m.control = true;
+        m.alt = true;
+    }));
+    host.frame();
+    assert!(
+        host.texts()
+            .iter()
+            .any(|(text, at, _)| text == "alpha beta" && at.x == 4.0)
+    );
+    host.mods(none());
+    host.frame();
+    assert_eq!(x_of(&mut host, "beta"), 4.0 + 38.0 + 20.0);
+    // At the line's end, a gap beyond the text, and cut where the room (400 wide) ends.
+    let long = "x".repeat(120);
+    host.decorate(
+        "hints",
+        vec![Decoration::new(0, 0, named(WidgetSide::End, &long))],
+    );
+    let drawn: Vec<(String, Point, Option<Role>)> = host.texts();
+    let end = drawn
+        .iter()
+        .find(|(text, _, _)| text.starts_with('x'))
+        .expect("the widget at the end");
+    assert!(end.0.ends_with('…'), "{}", end.0);
+    assert!(end.1.x > 4.0 + 70.0, "{:?}", end.1);
+}
+
+#[test]
+fn a_widget_with_a_name_is_what_the_pointer_rests_on_and_what_a_press_on_it_is() {
+    let mut host = Host::new(page_with(EditorOptions {
+        events: EditorEvents {
+            hover: true,
+            target: true,
+        },
+        ..plain()
+    }));
+    host.load("alpha beta");
+    host.editors.set_focus(None);
+    host.decorate(
+        "hints",
+        vec![Decoration::new(
+            6,
+            6,
+            Mark::Widget(Widget {
+                id: Some("type:int".into()),
+                ..match hint(WidgetSide::Before, "ab") {
+                    Mark::Widget(widget) => widget,
+                    _ => unreachable!(),
+                }
+            }),
+        )],
+    );
+    host.editors.take_events();
+    // The hint is at 42 to 62; the hand over it, and a rest on it is of the widget.
+    let over = Point::new(50.0, 10.0);
+    host.rest(Some(over));
+    let told = host.wait(0.4);
+    assert_eq!(told.len(), 1);
+    assert_eq!(
+        (told[0].over, told[0].id.as_deref()),
+        (pencere_view::edit::HoverOver::Widget, Some("type:int"))
+    );
+    let laid = host.laid.clone();
+    assert_eq!(host.editors.cursor_at(&laid, over), Some(Cursor::Pointer));
+    // A press on it is the page's, with no modifier, and moves no caret.
+    let before = host.ranges();
+    assert!(host.press(over, none(), 1));
+    host.editors.release();
+    let told = host.targets();
+    let press = told
+        .iter()
+        .find(|t| t.kind == TargetKind::Press)
+        .expect("a press");
+    assert_eq!(
+        (press.source, press.id.as_deref()),
+        (TargetSource::Widget, Some("type:int"))
+    );
+    assert_eq!(host.ranges(), before);
 }

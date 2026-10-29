@@ -19,6 +19,8 @@ pub(crate) struct Layer {
     pub anchors: bool,
     /// The same for the looks that are drawn by the modifiers held or the pointer's place.
     pub gated: bool,
+    /// The same for widgets.
+    pub widgets: bool,
 }
 
 /// An editor's decorations, and its folded regions.
@@ -90,6 +92,7 @@ impl Decorations {
         let gated = all.iter().any(
             |item| matches!(&item.mark, Mark::Style(look) if look.held.is_some() || look.over || look.cursor.is_some()),
         );
+        let widgets = all.iter().any(|item| matches!(item.mark, Mark::Widget(_)));
         match at.and_then(|at| self.layers.get_mut(at)) {
             Some(layer) => {
                 layer.items = all;
@@ -97,6 +100,7 @@ impl Decorations {
                 layer.zones = zones;
                 layer.anchors = anchors;
                 layer.gated = gated;
+                layer.widgets = widgets;
             }
             None => self.layers.push(Layer {
                 name: name.to_owned(),
@@ -105,6 +109,7 @@ impl Decorations {
                 zones,
                 anchors,
                 gated,
+                widgets,
             }),
         }
         self.layers.retain(|layer| !layer.items.is_empty());
@@ -199,6 +204,33 @@ impl Decorations {
             .collect();
         out.sort_by_key(|(at, _)| *at);
         out
+    }
+
+    /// The widgets that name their box, by name, with the place each is at (the range's start, or
+    /// its end for one after a character) and its side.
+    pub fn widget_anchors(&self) -> Vec<(String, usize, pencere_view::edit::WidgetSide)> {
+        let mut out = Vec::new();
+        for layer in self.layers.iter().filter(|layer| layer.widgets) {
+            for item in &layer.items {
+                let Mark::Widget(widget) = &item.mark else {
+                    continue;
+                };
+                let Some(name) = &widget.anchor else {
+                    continue;
+                };
+                let place = match widget.side {
+                    pencere_view::edit::WidgetSide::After => item.to,
+                    _ => item.from,
+                };
+                out.push((name.clone(), place, widget.side));
+            }
+        }
+        out
+    }
+
+    /// Whether any layer holds a widget.
+    pub fn has_widgets(&self) -> bool {
+        self.layers.iter().any(|layer| layer.widgets)
     }
 
     /// Whether any look is drawn by the modifiers held or the pointer's place.

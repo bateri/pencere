@@ -52,6 +52,11 @@ impl Editors {
             if editor.buffer.gated() {
                 self.redraw = true;
             }
+            if editor.buffer.has_widgets() {
+                // What shows of the widgets (and so how wide the lines are) goes by the modifiers.
+                editor.view.counted_again();
+                self.relayout = true;
+            }
         }
         self.retarget(laid, measure);
     }
@@ -185,6 +190,49 @@ impl Editors {
             count: 0,
             version: editor.buffer.version(),
         })
+    }
+
+    /// A press on a widget (or a part of one) that has a name, in an editor that hears of presses: told,
+    /// with whatever modifiers; no caret moves. Whether it was on one.
+    pub(super) fn press_widget(
+        &mut self,
+        laid: &Laid,
+        id: Id,
+        point: Point,
+        (button, mods, count): (Button, Mods, u32),
+    ) -> bool {
+        let Some(editor) = self.editors.get(&id) else {
+            return false;
+        };
+        if !editor.view.options.events.target {
+            return false;
+        }
+        let Some((found, part)) = editor.view.widget_under(point) else {
+            return false;
+        };
+        let Some(name) = part
+            .and_then(|part| found.placed.widget.parts.get(part))
+            .and_then(|part| part.id.clone())
+            .or_else(|| found.placed.widget.id.clone())
+        else {
+            return false;
+        };
+        let word = Word {
+            at: found.placed.at,
+            from: found.placed.at,
+            to: found.placed.at,
+            rect: found.rect,
+        };
+        if let Some(mut event) =
+            self.target_event(laid, id, &word, TargetKind::Press, TargetSource::Widget)
+        {
+            event.mods = mods;
+            event.button = button;
+            event.count = count;
+            event.id = Some(name);
+            self.events.push(EditorEvent::Target(event));
+        }
+        true
     }
 
     /// A press that is the page's: told, as of the link it is on where the page drew one that is

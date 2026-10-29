@@ -53,11 +53,12 @@
 --       and `to`, its `line`, the `hits` ({ { layer =, id =, from =, to = }, ... }: the styles with
 --       an `id` that hold `at`), the `word`'s box ({ x =, y =, w =, h = }, the page's points),
 --       the modifiers held and the `version` the places are of) and when it goes from a word it was
---       told of (`kind = "leave"`, at once, the same fields); "target", in an editor with `events = {
+--       told of (`kind = "leave"`, at once, the same fields; over a widget with a name `over` is "widget" and
+--       `id` its, or its part's); "target", in an editor with `events = {
 --       "target" }`, the `editor`, `kind` ("enter", "leave": the pointer came to a word with the
 --       modifiers of a press that is the page's held, at most once in `links.delay`, or went from
---       it; "press": that press), `source` ("word", or "link": a held look with an `id`, whose range it
---       is), the place `at`, the range `from` and `to`, the link's `id`, the `word`'s box, the modifiers,
+--       it; "press": that press), `source` ("word", "link": a held look with an `id`, whose range it
+--       is, or "widget": a hint with a name, pressed with any modifiers), the place `at`, the range `from` and `to`, the link's `id`, the `word`'s box, the modifiers,
 --       the `button` and `count` of a press and the `version`; "keymap_pending", the `editor` and the
 --       `keys` of a chord waited on so far (none: not any more). Places are characters from 0, lines
 --       from 0.
@@ -112,7 +113,11 @@
 --     `from == to` is fine), a tinted picture of the bundle; `label` is what a screen reader says
 --     of it and what the host says while the pointer rests on it), { from =, to =, ruler = colour,
 --     lane = "full" | "left" | "center" | "right" } (a mark on the overview ruler),
---     { from =, to =, anchor = "name" } (the range has a name an overlay can stand beside,
+--     { from =, to =, widget = "words" | { "words", { "more", color =, id = } }, side = "before" |
+--     "after" | "end", group =, id =, label =, cursor =, anchor =, color =, background =, pad_left =,
+--     pad_right = } (text that is not the document's, where the range is: an inlay hint "before" the
+--     range's start or "after" its end, or after its line's end; at most 8 parts of 200
+--     characters, 32 to a line), { from =, to =, anchor = "name" } (the range has a name an overlay can stand beside,
 --     `pencere.range_of(editor, name)`), { from =, to =, zone = "name", height = points } (a gap kept open after the line the range
 --     starts on, for the page's element that is `:zone("name")` of the editor), { from =, to =,
 --     fold = true }

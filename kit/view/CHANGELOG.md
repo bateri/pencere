@@ -19,6 +19,10 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **Widgets**: `Mark::Widget(Widget)` (parts, `WidgetSide`, group, `id`, `label`, `cursor`, `anchor`,
+  `pad_left`/`pad_right`), `EditorOptions::widgets` (`WidgetGroup`, `WidgetShow`), `limits::WIDGET_*`,
+  `HoverEvent::over` and `id` (`HoverOver`), `TargetSource::Widget`.
+
 - **Looks drawn by the modifiers held and the pointer's place, presses that are the page's, the editor's
   keys as the page changed them.** `Look::held`, `over`, `cursor` (`Look::shows`), `EditorEvents::target`,
   `LinkOptions` (`links.delay`), `EditorOptions::gestures` (`Gesture`, `Pressing`), `keymap`

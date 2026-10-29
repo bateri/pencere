@@ -8,7 +8,7 @@
 //! window's losing the keyboard does ends it (the page is told it left, where it was told of it)
 //! and none begins again until the pointer moves.
 
-use pencere_view::edit::{HoverEvent, HoverHit, HoverKind};
+use pencere_view::edit::{HoverEvent, HoverHit, HoverKind, HoverOver};
 use pencere_view::{Id, Laid, Measure, Mods, Point, Rect};
 
 use super::{EditorEvent, Editors, scroll_of};
@@ -35,6 +35,8 @@ struct Rest {
     to: usize,
     /// Pixels of the content.
     rect: Rect,
+    /// The name of the widget (or its part) the pointer is on, where it is not on a word of the text.
+    widget: Option<String>,
     since: f64,
     /// What it was found at: a scroll or an edit changes what is under the pointer.
     scroll: Point,
@@ -63,13 +65,36 @@ impl Editors {
             at.and_then(|at| {
                 let (id, point) = self.under(laid, at)?;
                 let editor = self.editors.get(&id).filter(|editor| editor.shown)?;
-                let word = editor.view.word_under(&editor.buffer, point, measure)?;
+                // A widget with a name is what the pointer rests on, over the text it stands in.
+                let on_widget = editor.view.widget_under(point).and_then(|(found, part)| {
+                    let name = part
+                        .and_then(|part| found.placed.widget.parts.get(part))
+                        .and_then(|part| part.id.clone())
+                        .or_else(|| found.placed.widget.id.clone())?;
+                    Some((found.placed.at, found.rect, name))
+                });
+                let (word, widget) = match on_widget {
+                    Some((place, rect, name)) => (
+                        crate::view::Word {
+                            at: place,
+                            from: place,
+                            to: place,
+                            rect,
+                        },
+                        Some(name),
+                    ),
+                    None => (
+                        editor.view.word_under(&editor.buffer, point, measure)?,
+                        None,
+                    ),
+                };
                 Some(Rest {
                     editor: id,
                     at: word.at,
                     from: word.from,
                     to: word.to,
                     rect: word.rect,
+                    widget,
                     since: now,
                     scroll: editor.view.scroll,
                     version: editor.buffer.version(),
@@ -79,7 +104,8 @@ impl Editors {
         match (&mut self.hovering.rest, found) {
             (Some(rest), Some(found))
                 if rest.editor == found.editor
-                    && (rest.from, rest.to) == (found.from, found.to) =>
+                    && (rest.from, rest.to) == (found.from, found.to)
+                    && rest.widget == found.widget =>
             {
                 rest.at = found.at;
                 if was_quiet {
@@ -165,6 +191,12 @@ impl Editors {
             to: rest.to,
             line: editor.buffer.line_of(rest.at),
             hits,
+            over: if rest.widget.is_some() {
+                HoverOver::Widget
+            } else {
+                HoverOver::Text
+            },
+            id: rest.widget.clone(),
             rect: Rect::new(
                 (room.pixels.x + rest.rect.x - scroll.x) / s,
                 (room.pixels.y + rest.rect.y - scroll.y) / s,

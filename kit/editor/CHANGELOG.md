@@ -18,6 +18,13 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **Text that is not the document's in its lines** (`Mark::Widget`): an inline widget takes room in its
+  line before or after the caret (`Row::caret_x`, `end_x`; the rows, the wrapping, the places, the
+  selection and the carets go through them), one at a line's end stands beyond the text and is cut with
+  "…"; the line's measure is kept with its widgets and made again only when they change; a group's
+  `show` goes by the modifiers held. A widget with a name is what a rest and a press are told of, and
+  the hand over it; `anchor` names its box.
+
 - **The modifiers held** (`Editors::set_mods`) draw the looks that are `held` and `over`, and give the
   pointer's shape over them; the pointer over a word with the modifiers of a press that is the page's
   held is told once for each word and at most once in `links.delay` (`EditorEvent::Target`), and that

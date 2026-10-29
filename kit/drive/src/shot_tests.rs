@@ -405,3 +405,38 @@ fn a_word_is_a_link_while_the_modifier_is_held_and_the_pointer_is_over_it() -> R
     }
     Ok(())
 }
+
+/// An inlay hint (with a part that is a name to press) before a word, an error at a line's end cut
+/// where the room ends, and the same page with ⌃⌥ held (the hint's group is hidden then).
+/// `PENCERE_SHOTS=hints` writes them to `target/hints-{shown,held}.png`.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_inlay_hint_and_a_line_end_error_are_pictured_in_their_lines() -> Result<(), Error> {
+    use pencere_view::Mods;
+    let fonts = match std::env::var("PENCERE_SHOTS").as_deref() {
+        Ok("hints") => Fonts::none()
+            .terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc").expect("Menlo"))
+            .expect("a font"),
+        _ => Fonts::none(),
+    };
+    let mut page = Headless::script(crate::luau_editor_tests::HINTS)
+        .measure(fonts.clone())
+        .size(300.0, 110.0)
+        .scale(2.0)
+        .open()?;
+    let shown = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    page.hold(Mods {
+        control: true,
+        alt: true,
+        ..Mods::default()
+    })?;
+    page.advance(0.2)?;
+    let held = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    assert_ne!(shown, held, "the group is hidden while ⌃⌥ are held");
+    if std::env::var("PENCERE_SHOTS").as_deref() == Ok("hints") {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        std::fs::write(target.join("hints-shown.png"), &shown).expect("written");
+        std::fs::write(target.join("hints-held.png"), &held).expect("written");
+    }
+    Ok(())
+}

@@ -1022,6 +1022,8 @@ view_string_t string_of(lua_State* L, int t, const char* name);
 pencere_view_types_list_gesture_binding_t gestures_at(lua_State* L, int t);
 pencere_view_types_list_key_binding_t keymap_at(lua_State* L, int t);
 pencere_view_types_option_mods_t held_at(lua_State* L, int t, const char* name);
+pencere_view_types_widget_t widget_at(lua_State* L, int t);
+pencere_view_types_list_widget_group_t widget_groups_at(lua_State* L, int t);
 
 const char* const kCursorNames[] = {"arrow",           "pointer",     "text", "resize_horizontal",
                                     "resize_vertical", "not_allowed", "grab", "grabbing",
@@ -1270,6 +1272,7 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
         luaL_error(L, "the events of an editor are a list of words: { \"hover\" }");
     }
     lua_pop(L, 1);
+    out.widgets = widget_groups_at(L, t);
     out.gestures = gestures_at(L, t);
     out.keymap = keymap_at(L, t);
     out.chord_timeout = optional_number(L, t, "chord_timeout");
@@ -2039,6 +2042,11 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             push_id(L, hover.editor);
             lua_setfield(L, -2, "editor");
             set_word(L, "kind", hover.kind == PENCERE_VIEW_TYPES_HOVER_KIND_LEAVE ? "leave" : "dwell");
+            set_word(L, "over", hover.over == PENCERE_VIEW_TYPES_HOVER_OVER_WIDGET ? "widget" : "text");
+            if (hover.id.is_some) {
+                lua_pushlstring(L, (const char*)hover.id.val.ptr, hover.id.val.len);
+                lua_setfield(L, -2, "id");
+            }
             set_place(L, "at", hover.at);
             set_place(L, "from", hover.from);
             set_place(L, "to", hover.to);
@@ -2075,7 +2083,10 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             push_id(L, target.editor);
             lua_setfield(L, -2, "editor");
             set_word(L, "kind", target.kind < 3 ? kKinds[target.kind] : "press");
-            set_word(L, "source", target.source == PENCERE_VIEW_TYPES_TARGET_SOURCE_LINK ? "link" : "word");
+            set_word(L, "source",
+                     target.source == PENCERE_VIEW_TYPES_TARGET_SOURCE_LINK     ? "link"
+                     : target.source == PENCERE_VIEW_TYPES_TARGET_SOURCE_WIDGET ? "widget"
+                                                                                : "word");
             set_place(L, "at", target.at);
             set_place(L, "from", target.from);
             set_place(L, "to", target.to);
@@ -2261,6 +2272,135 @@ pencere_view_types_option_mods_t held_at(lua_State* L, int t, const char* name) 
                 luaL_error(L, "%s is modifiers joined by +: command, control, alt, shift or mod, not \"%s\"", name, word.c_str());
     } else if (!lua_isnil(L, -1)) {
         luaL_error(L, "%s is modifiers written as words: \"command\", \"mod\", \"control+alt\"", name);
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
+namespace {
+
+view_option_string_t option_string(lua_State* L, int t, const char* name, const char* what) {
+    view_option_string_t out = {};
+    get(L, t, name);
+    if (lua_type(L, -1) == LUA_TSTRING) {
+        size_t length = 0;
+        const char* bytes = lua_tolstring(L, -1, &length);
+        out = {true, host_string(bytes, length)};
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "%s is a string", what);
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
+}  // namespace
+
+// A decoration's `widget = "words"` or `widget = { "words", { "words", color =, id = }, … }`, with `side =
+// "before" | "after" | "end"`, `group =`, `id =`, `label =`, `cursor =`, `anchor =`, `color =`,
+// `background =`, `pad_left =`, `pad_right =`: text that is not the document's.
+pencere_view_types_widget_t widget_at(lua_State* L, int t) {
+    pencere_view_types_widget_t out = {};
+    static const char* const kSides[] = {"before", "after", "end"};
+    out.side = (uint8_t)word(L, t, "side", kSides, 3, PENCERE_VIEW_TYPES_WIDGET_SIDE_AFTER);
+    out.group = option_string(L, t, "group", "the group of a widget");
+    out.id = option_string(L, t, "id", "the id of a widget");
+    out.label = option_string(L, t, "label", "the label of a widget");
+    out.anchor = option_string(L, t, "anchor", "the anchor of a widget");
+    int shape = word(L, t, "cursor", kCursorNames, 9, -1);
+    if (shape >= 0) out.cursor = {true, (uint8_t)shape};
+    out.color = optional_color(L, t, "color");
+    out.background = optional_color(L, t, "background");
+    out.pad_left = optional_number(L, t, "pad_left");
+    out.pad_right = optional_number(L, t, "pad_right");
+    get(L, t, "widget");
+    int widget = lua_gettop(L);
+    std::vector<pencere_view_types_widget_part_t> parts;
+    if (lua_type(L, widget) == LUA_TSTRING) {
+        size_t length = 0;
+        const char* bytes = lua_tolstring(L, widget, &length);
+        pencere_view_types_widget_part_t part = {};
+        part.text = host_string(bytes, length);
+        parts.push_back(part);
+    } else if (lua_type(L, widget) == LUA_TTABLE) {
+        size_t count = (size_t)lua_objlen(L, widget);
+        if (count > 8) luaL_error(L, "a widget has at most 8 parts");
+        for (size_t at = 1; at <= count; at++) {
+            lua_rawgeti(L, widget, (int)at);
+            pencere_view_types_widget_part_t part = {};
+            int item = lua_gettop(L);
+            if (lua_type(L, item) == LUA_TSTRING) {
+                size_t length = 0;
+                const char* bytes = lua_tolstring(L, item, &length);
+                part.text = host_string(bytes, length);
+            } else if (lua_type(L, item) == LUA_TTABLE) {
+                lua_rawgeti(L, item, 1);
+                if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "a part of a widget is its words, then what it is drawn in: { \"words\", color = }");
+                size_t length = 0;
+                const char* bytes = lua_tolstring(L, -1, &length);
+                part.text = host_string(bytes, length);
+                lua_pop(L, 1);
+                part.color = optional_color(L, item, "color");
+                part.background = optional_color(L, item, "background");
+                view_option_f32_t weight = optional_number(L, item, "weight");
+                if (weight.is_some) {
+                    part.weight.is_some = true;
+                    part.weight.val = weight.val < 100 ? 100 : (weight.val > 900 ? 900 : (uint16_t)weight.val);
+                }
+                part.italic = optional_flag(L, item, "italic");
+                part.id = option_string(L, item, "id", "the id of a part of a widget");
+            } else {
+                luaL_error(L, "a part of a widget is words or { \"words\", color = }");
+            }
+            lua_pop(L, 1);
+            parts.push_back(part);
+        }
+    } else {
+        luaL_error(L, "a widget is words, or a list of parts: { from =, to =, widget = \"words\" }");
+    }
+    lua_pop(L, 1);
+    out.parts.len = parts.size();
+    out.parts.ptr = parts.empty() ? nullptr
+                                  : (pencere_view_types_widget_part_t*)xmalloc(parts.size() * sizeof(pencere_view_types_widget_part_t));
+    for (size_t at = 0; at < parts.size(); at++) out.parts.ptr[at] = parts[at];
+    return out;
+}
+
+// `widgets = { hints = { show = "unless_held", hold = "control+alt", size = 0.9, color =, background =,
+// radius = 3, pad = 3, gap = 16 } }`: how a group of widgets look and when they show.
+pencere_view_types_list_widget_group_t widget_groups_at(lua_State* L, int t) {
+    pencere_view_types_list_widget_group_t out = {};
+    get(L, t, "widgets");
+    int table = lua_gettop(L);
+    if (lua_type(L, table) == LUA_TTABLE) {
+        static const char* const kShows[] = {"on", "off", "unless_held", "when_held"};
+        std::vector<pencere_view_types_widget_group_t> found;
+        lua_pushnil(L);
+        while (lua_next(L, table) != 0) {
+            if (lua_type(L, -2) != LUA_TSTRING || lua_type(L, -1) != LUA_TTABLE)
+                luaL_error(L, "the widgets of an editor are groups by name: { hints = { show = \"on\" } }");
+            int group = lua_gettop(L);
+            pencere_view_types_widget_group_t binding = {};
+            size_t length = 0;
+            const char* bytes = lua_tolstring(L, -2, &length);
+            binding.name = host_string(bytes, length);
+            binding.show = (uint8_t)word(L, group, "show", kShows, 4, 0);
+            binding.hold = held_at(L, group, "hold");
+            binding.size = optional_number(L, group, "size");
+            binding.color = optional_color(L, group, "color");
+            binding.background = optional_color(L, group, "background");
+            binding.radius = optional_number(L, group, "radius");
+            binding.pad = optional_number(L, group, "pad");
+            binding.gap = optional_number(L, group, "gap");
+            found.push_back(binding);
+            if (found.size() > 256) luaL_error(L, "an editor has at most 256 groups of widgets");
+            lua_pop(L, 1);
+        }
+        out.len = found.size();
+        out.ptr = found.empty() ? nullptr
+                                : (pencere_view_types_widget_group_t*)xmalloc(found.size() * sizeof(pencere_view_types_widget_group_t));
+        for (size_t at = 0; at < found.size(); at++) out.ptr[at] = found[at];
+    } else if (!lua_isnil(L, table)) {
+        luaL_error(L, "the widgets of an editor are a table of groups: { hints = { show = \"on\" } }");
     }
     lua_pop(L, 1);
     return out;
@@ -2486,6 +2626,14 @@ pencere_view_types_decoration_t decoration_at(lua_State* L, int t) {
         out.mark.val.ruler.lane = (uint8_t)word(L, t, "lane", kRulerLanes, 4, 0);
         return out;
     }
+    get(L, t, "widget");
+    if (!lua_isnil(L, -1)) {
+        lua_pop(L, 1);
+        out.mark.tag = PENCERE_VIEW_TYPES_MARK_WIDGET;
+        out.mark.val.widget = widget_at(L, t);
+        return out;
+    }
+    lua_pop(L, 1);
     get(L, t, "anchor");
     if (lua_type(L, -1) == LUA_TSTRING) {
         size_t length = 0;

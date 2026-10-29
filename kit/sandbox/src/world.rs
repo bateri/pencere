@@ -8,10 +8,11 @@ use std::sync::Arc;
 use pencere_view::edit::{
     Caret, CaretHeight, CaretShape, Change, Column, ColumnEvents, CommentTokens, Decorate,
     Decoration, EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds, Gesture,
-    GutterKind, GutterMark, GutterShape, HoverKind, HoverOptions, IndentRules, KeyAction,
-    Keybinding, Keys, LineHighlight, LinkOptions, Look, Mark, MarkLooks, Matches, Movement,
-    Numbers, Origin, Pressing, Preview, Range, Refusal, RevealAlign, RulerLane, RulerMark,
-    TargetKind, TargetSource, Tint, Underline, Whitespace, Zone, limits,
+    GutterKind, GutterMark, GutterShape, HoverKind, HoverOptions, HoverOver, IndentRules,
+    KeyAction, Keybinding, Keys, LineHighlight, LinkOptions, Look, Mark, MarkLooks, Matches,
+    Movement, Numbers, Origin, Pressing, Preview, Range, Refusal, RevealAlign, RulerLane,
+    RulerMark, TargetKind, TargetSource, Tint, Underline, Whitespace, Widget, WidgetGroup,
+    WidgetPart, WidgetShow, WidgetSide, Zone, limits,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -532,6 +533,7 @@ fn event_in(event: Event) -> wit::Event {
             source: match target.source {
                 TargetSource::Word => wit::TargetSource::Word,
                 TargetSource::Link => wit::TargetSource::Link,
+                TargetSource::Widget => wit::TargetSource::Widget,
             },
             at: place_in(target.at),
             from: place_in(target.from),
@@ -557,6 +559,11 @@ fn event_in(event: Event) -> wit::Event {
             from: place_in(hover.from),
             to: place_in(hover.to),
             line: place_in(hover.line),
+            over: match hover.over {
+                HoverOver::Text => wit::HoverOver::Text,
+                HoverOver::Widget => wit::HoverOver::Widget,
+            },
+            id: hover.id,
             hits: hover
                 .hits
                 .into_iter()
@@ -1724,6 +1731,44 @@ fn editor_options_out(
             delay: options.links.delay.unwrap_or(default.links.delay),
         },
         chord_timeout: options.chord_timeout.unwrap_or(default.chord_timeout),
+        widgets: options
+            .widgets
+            .iter()
+            .take(limits::BINDINGS)
+            .map(|group| {
+                let room = |points: Option<f32>, default: f32| {
+                    points
+                        .filter(|points| points.is_finite())
+                        .map_or(default, |points| {
+                            points.clamp(*limits::WIDGET_ROOM.start(), *limits::WIDGET_ROOM.end())
+                        })
+                };
+                let standard = WidgetGroup::default();
+                (
+                    group.name.clone(),
+                    WidgetGroup {
+                        show: match group.show {
+                            wit::WidgetShow::On => WidgetShow::On,
+                            wit::WidgetShow::Off => WidgetShow::Off,
+                            wit::WidgetShow::UnlessHeld => WidgetShow::UnlessHeld,
+                            wit::WidgetShow::WhenHeld => WidgetShow::WhenHeld,
+                        },
+                        hold: group.hold.as_ref().map_or(standard.hold, mods_out),
+                        size: group.size.filter(|size| size.is_finite()).map_or(
+                            standard.size,
+                            |size| {
+                                size.clamp(*limits::WIDGET_SIZE.start(), *limits::WIDGET_SIZE.end())
+                            },
+                        ),
+                        color: group.color.as_ref().map(color_out),
+                        background: group.background.as_ref().map(color_out),
+                        radius: room(group.radius, standard.radius),
+                        pad: room(group.pad, standard.pad),
+                        gap: room(group.gap, standard.gap),
+                    },
+                )
+            })
+            .collect(),
         hover: HoverOptions {
             delay: options.hover.delay.unwrap_or(default.hover.delay),
         },
@@ -1843,6 +1888,22 @@ fn editor_asks_out(
                 text = text.saturating_add(decorate.layer.len());
                 for item in &decorate.decorations {
                     text = text.saturating_add(mark_text(&item.mark));
+                    if let wit::Mark::Widget(widget) = &item.mark {
+                        let words: usize = widget
+                            .parts
+                            .iter()
+                            .map(|part| part.text.chars().count())
+                            .sum();
+                        if widget.parts.len() > limits::WIDGET_PARTS || words > limits::WIDGET_TEXT
+                        {
+                            return Err(Fault::Malformed(format!(
+                                "a widget of {} parts and {words} characters (at most {} and {})",
+                                widget.parts.len(),
+                                limits::WIDGET_PARTS,
+                                limits::WIDGET_TEXT
+                            )));
+                        }
+                    }
                 }
                 decorations = decorations.saturating_add(decorate.decorations.len());
                 if decorations > limits.editor_decorations {
@@ -1921,6 +1982,35 @@ fn mark_out(mark: &wit::Mark) -> Mark {
             height: pt(zone.height).clamp(0.0, 4096.0),
         }),
         wit::Mark::Anchor(name) => Mark::Anchor(name.clone()),
+        wit::Mark::Widget(widget) => Mark::Widget(Widget {
+            parts: widget
+                .parts
+                .iter()
+                .take(limits::WIDGET_PARTS)
+                .map(|part| WidgetPart {
+                    text: part.text.clone(),
+                    color: part.color.as_ref().map(color_out),
+                    background: part.background.as_ref().map(color_out),
+                    weight: part.weight.map(|weight| weight.clamp(100, 900)),
+                    italic: part.italic,
+                    id: part.id.clone(),
+                })
+                .collect(),
+            side: match widget.side {
+                wit::WidgetSide::Before => WidgetSide::Before,
+                wit::WidgetSide::After => WidgetSide::After,
+                wit::WidgetSide::End => WidgetSide::End,
+            },
+            group: widget.group.clone(),
+            id: widget.id.clone(),
+            label: widget.label.clone(),
+            cursor: widget.cursor.map(cursor_out),
+            anchor: widget.anchor.clone(),
+            color: widget.color.as_ref().map(color_out),
+            background: widget.background.as_ref().map(color_out),
+            pad_left: widget.pad_left.filter(|pad| pad.is_finite()),
+            pad_right: widget.pad_right.filter(|pad| pad.is_finite()),
+        }),
     }
 }
 
@@ -2005,6 +2095,16 @@ fn mark_text(mark: &wit::Mark) -> usize {
         }
         wit::Mark::Style(look) => look.id.as_ref().map_or(0, String::len),
         wit::Mark::Anchor(name) => name.len(),
+        wit::Mark::Widget(widget) => {
+            widget
+                .parts
+                .iter()
+                .map(|part| part.text.len() + part.id.as_ref().map_or(0, String::len))
+                .sum::<usize>()
+                + widget.id.as_ref().map_or(0, String::len)
+                + widget.label.as_ref().map_or(0, String::len)
+                + widget.anchor.as_ref().map_or(0, String::len)
+        }
         _ => 0,
     }
 }

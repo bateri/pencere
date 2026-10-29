@@ -49,9 +49,52 @@ pub(crate) struct Shaped {
     /// The boundaries (characters into the line) that come after a space or a tab: where a row may
     /// break.
     pub breaks: Vec<usize>,
+    /// The room the page's inline widgets take at a boundary, before the caret there and after it
+    /// (none for a line with none), in order of the boundaries.
+    pub gaps: Vec<Gap>,
+    /// The widgets of the line that show, where each is and how wide, for drawing and for what is
+    /// under the pointer (none for a line with none).
+    pub widgets: Vec<Placed>,
+}
+
+/// The room widgets take at a boundary of a line: before the caret, and after it (the caret is
+/// between).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Gap {
+    pub at: usize,
+    pub before: f32,
+    pub after: f32,
+}
+
+/// A widget of a line that shows, measured.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Placed {
+    /// The boundary of the line it is at.
+    pub at: usize,
+    pub widget: pencere_view::edit::Widget,
+    /// How wide it is, pixels, and each part's words.
+    pub width: f32,
+    pub parts: Vec<f32>,
 }
 
 impl Shaped {
+    /// The room widgets take at the boundary `chars` of the line.
+    fn gap_at(&self, chars: usize) -> Option<&Gap> {
+        if self.gaps.is_empty() {
+            return None;
+        }
+        let boundary = self
+            .stops
+            .partition_point(|stop| stop.0 <= chars)
+            .checked_sub(1)
+            .and_then(|at| self.stops.get(at))
+            .map(|stop| stop.0)?;
+        if boundary != chars {
+            return None;
+        }
+        self.gaps.iter().find(|gap| gap.at == chars)
+    }
+
     fn width(&self) -> f32 {
         self.stops.last().map_or(0.0, |stop| stop.1)
     }
@@ -72,6 +115,7 @@ impl Shaped {
             if *chars < from || *chars > to {
                 continue;
             }
+            let at = at - self.gap_at(*chars).map_or(0.0, |gap| gap.after);
             let distance = (at - x).abs();
             if distance < best.1 {
                 best = (*chars, distance);
@@ -103,6 +147,21 @@ impl Row {
     /// Where across the row's text the place `chars` into the line is.
     fn x(&self, chars: usize) -> f32 {
         self.shaped.x_at(chars) - self.shift
+    }
+
+    /// Where across a caret at `chars` is: after what the page put before the place and before what it
+    /// put after it (a hint `name: |arg`, `x|: int`).
+    fn caret_x(&self, chars: usize) -> f32 {
+        self.x(chars) - self.shaped.gap_at(chars).map_or(0.0, |gap| gap.after)
+    }
+
+    /// Where the characters before `chars` end across: before the room the page put at the place.
+    fn end_x(&self, chars: usize) -> f32 {
+        self.x(chars)
+            - self
+                .shaped
+                .gap_at(chars)
+                .map_or(0.0, |gap| gap.before + gap.after)
     }
 }
 
@@ -368,7 +427,12 @@ impl View {
                 breaks.push(chars);
             }
         }
-        let shaped = Rc::new(Shaped { stops, breaks });
+        let shaped = Rc::new(Shaped {
+            stops,
+            breaks,
+            gaps: Vec::new(),
+            widgets: Vec::new(),
+        });
         let mut kept = self.shaped.borrow_mut();
         if kept.len() >= SHAPED {
             kept.clear();
@@ -549,7 +613,7 @@ impl View {
 
     /// The rows of line `line`, laid out.
     fn line_rows(&self, buffer: &Buffer, line: usize, measure: &mut dyn Measure) -> Vec<Row> {
-        let shaped = self.shape(&buffer.line(line), measure);
+        let shaped = self.shape_line(buffer, line, measure);
         let breaks = self.breaks(&shaped);
         let top = self.tops.get(line).copied().unwrap_or(0);
         let count = breaks.len();
@@ -652,7 +716,7 @@ impl View {
     pub fn point_of(&self, buffer: &Buffer, at: usize, measure: &mut dyn Measure) -> Option<Point> {
         let (row, into) = self.row_of(buffer, at, measure)?;
         Some(Point::new(
-            self.text_x() + row.x(into),
+            self.text_x() + row.caret_x(into),
             self.pad + self.y_of(row.index),
         ))
     }
@@ -662,7 +726,7 @@ impl View {
     /// clear of the text it is on.
     pub fn caret_of(&self, buffer: &Buffer, at: usize, measure: &mut dyn Measure) -> Option<Rect> {
         let (row, into) = self.row_of(buffer, at, measure)?;
-        let x = self.text_x() + row.x(into);
+        let x = self.text_x() + row.caret_x(into);
         let top = self.pad + self.y_of(row.index);
         let drawn = self.caret_box(buffer, &row, at, x, top);
         let (y, h) = self.caret_span(top);
@@ -691,7 +755,7 @@ impl View {
         }
         let place = self.place_at(buffer, point, measure);
         let (found, into) = self.row_of(buffer, place, measure)?;
-        let here = self.text_x() + found.x(into);
+        let here = self.text_x() + found.caret_x(into);
         let (start, end) = (buffer.line_start(line), buffer.line_end(line));
         if point.x < here {
             place.checked_sub(1).filter(|at| *at >= start)
@@ -724,6 +788,16 @@ impl View {
         })
     }
 
+    /// The row the place `at` is on, laid out, and the characters into its line.
+    pub(crate) fn row_at_place(
+        &self,
+        buffer: &Buffer,
+        at: usize,
+        measure: &mut dyn Measure,
+    ) -> Option<(Row, usize)> {
+        self.row_of(buffer, at, measure)
+    }
+
     /// The box of the range `from..to`, pixels of the content: from where it starts across, as wide
     /// as its first row's part of it is, from the top of its first row to the bottom of its last. A
     /// range that is a place is as wide as a caret; `None` where its start is not on a line that
@@ -741,9 +815,9 @@ impl View {
         let (last, last_into) = self.row_of(buffer, to.max(from), measure)?;
         let bottom = self.pad + self.y_of(last.index) + self.row;
         let end = if last.index == first.index {
-            self.text_x() + last.x(last_into)
+            self.text_x() + last.end_x(last_into)
         } else {
-            self.text_x() + first.x(first.to.max(into))
+            self.text_x() + first.end_x(first.to.max(into))
         };
         let thick = (self.options.caret.width * self.scale).round().max(1.0);
         Some(Rect::new(
@@ -773,7 +847,7 @@ impl View {
         let wide = || {
             let end = (row.base + row.to).min(grapheme_after(&buffer.text, at));
             if end > at {
-                (row.x(end - row.base) - row.x(at - row.base)).max(thick)
+                (row.end_x(end - row.base) - row.x(at - row.base)).max(thick)
             } else {
                 self.space
             }
@@ -1067,7 +1141,7 @@ impl View {
             for range in ranges {
                 if let Some(row) = rows.iter().find(|row| self.on_row(row, range.head)) {
                     let at = range.head;
-                    let x = origin_x + row.x(at - row.base);
+                    let x = origin_x + row.caret_x(at - row.base);
                     let rect = self.caret_box(buffer, row, at, x, row_y(row));
                     out.push(quad(rect, fade(color), text_clip));
                     if caret.shape == CaretShape::Block
@@ -1122,7 +1196,7 @@ impl View {
         }
         let a = from.max(start) - row.base;
         let b = to.min(end) - row.base;
-        let mut right = row.x(b);
+        let mut right = row.end_x(b);
         if newline && row.last && to > end {
             right += self.space;
         }
@@ -1171,6 +1245,12 @@ impl View {
                 }
             }
         }
+        // And where a widget stands: the text goes on after its room.
+        for gap in &row.shaped.gaps {
+            if gap.at > row.from && gap.at < row.to {
+                cuts.push(gap.at);
+            }
+        }
         for (at, c) in chars.iter().enumerate() {
             if *c == '\t' && at >= row.from && at < row.to {
                 cuts.push(at);
@@ -1212,7 +1292,7 @@ impl View {
                 })
                 .map(|(_, _, look)| *look);
             let x = origin_x + row.x(a);
-            let width = row.x(b) - row.x(a);
+            let width = row.end_x(b) - row.x(a);
             let mut font = self.font;
             let mut color = self.color;
             let mut strike = false;
@@ -1272,6 +1352,7 @@ impl View {
         for (x, color) in guides {
             out.push(self.guide(*x, y, color.faded(slot.opacity), clip));
         }
+        self.paint_widgets(row, (origin_x, y), slot, clip, out);
         // A folded region is a "⋯" after its first line.
         if row.last
             && buffer
@@ -1372,7 +1453,7 @@ impl View {
         (origin_x, y, clip, opacity): (f32, f32, Rect, f32),
         out: &mut Vec<Paint>,
     ) {
-        let end = origin_x + row.x(b);
+        let end = origin_x + row.end_x(b);
         while let Some((x, color)) = guides.next_if(|(x, _)| *x < end) {
             out.push(self.guide(*x, y, color.faded(opacity), clip));
         }
@@ -1386,7 +1467,7 @@ impl View {
             if !c.is_whitespace() {
                 continue;
             }
-            let (left, right) = (origin_x + row.x(at), origin_x + row.x(at + 1));
+            let (left, right) = (origin_x + row.x(at), origin_x + row.end_x(at + 1));
             if left > clip.right() {
                 break;
             }
@@ -2136,6 +2217,12 @@ impl View {
         }
     }
 
+    /// The rows are counted again at the next layout.
+    pub fn counted_again(&mut self) {
+        self.counted = None;
+        self.rows.clear();
+    }
+
     /// The columns laid out again for a document of `lines` lines: those the page lists (the
     /// editor's three where it lists none), each as wide as it says or as its kind is.
     pub fn size_gutter(&mut self, lines: usize) {
@@ -2451,3 +2538,5 @@ impl Placement for Rows<'_> {
             .max(1)
     }
 }
+
+mod hints;

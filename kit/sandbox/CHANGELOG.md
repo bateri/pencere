@@ -18,6 +18,10 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- `widget` decorations, `widgets` (groups of them), `hover`'s `over` and `id`, and `target`'s
+  `source = "widget"` cross the interface (`mark.widget`, `widget-group`); a widget of more than 8 parts
+  or 200 characters is refused.
+
 - **`gestures`, `keymap`, `chord_timeout`, `links`, `events = { "target" }`, and a look's `held`, `over`
   and `cursor` cross the interface** (`gesture-binding`, `key-binding`, `editor-target`,
   `keymap-pending`), `target` and `keymap_pending` events reach a page, `pencere.layout.keymap(editor)`

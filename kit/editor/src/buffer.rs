@@ -296,6 +296,16 @@ impl Buffer {
             .collect()
     }
 
+    /// The widgets that name their box.
+    pub fn widget_anchors(&self) -> Vec<(String, usize, pencere_view::edit::WidgetSide)> {
+        self.decorations.widget_anchors()
+    }
+
+    /// Whether the page put any widget (text that is not the document's) in the lines.
+    pub fn has_widgets(&self) -> bool {
+        self.decorations.has_widgets()
+    }
+
     /// Whether any look is drawn by the modifiers held or the pointer's place: what is drawn is then
     /// drawn again where they change.
     pub fn gated(&self) -> bool {

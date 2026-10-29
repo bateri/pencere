@@ -2285,3 +2285,123 @@ return {
     assert_eq!(selected.map(|r| (r.start(), r.end())), Some((0, 11)));
     Ok(())
 }
+
+// --- Text that is not the document's ---------------------------------------------------------------------
+
+/// A page that puts an inlay hint before the second word and an error at the end of the first line, the
+/// hint with a name and a card standing by it, in a group that is hidden while ⌃⌥ are held.
+pub(crate) const HINTS: &str = r#"
+local b = pencere
+local text = "alpha beta\ngamma delta"
+local version = 0
+local told = {}
+local function layer()
+	return { decorate = "hints", version = version, from = 0, to = #text, decorations = {
+		{ from = 6, to = 6, widget = { "name:", { " int", id = "type:int", color = "accent" } }, side = "before",
+			group = "hints", id = "hint", anchor = "hint" },
+		{ from = 0, to = 0, widget = "expected `;` here, and a rather long message about it", side = "end",
+			group = "errors", color = "error" },
+	} }
+end
+return {
+	render = function()
+		return b.div():size_full():child(
+			b.editor("code", { gutter = false, events = { "hover", "target" },
+				widgets = { hints = { show = "unless_held" }, errors = { gap = 24 } } }):grow(1))
+			:child(b.text(table.concat(told, " ")):id("told"))
+	end,
+	handle = function(event)
+		if event.type == "editor_ready" then
+			return { editor = { code = { { load = text } } } }
+		elseif event.type == "edit" then
+			version = event.version
+			return { editor = { code = { layer() } } }
+		elseif event.type == "target" then
+			table.insert(told, event.kind .. ":" .. event.source .. ":" .. tostring(event.id))
+			return { redraw = true }
+		elseif event.type == "hover" then
+			table.insert(told, "hover:" .. event.over .. ":" .. tostring(event.id))
+			return { redraw = true }
+		end
+		return nil
+	end,
+}
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_puts_a_hint_in_a_line_and_one_at_its_end_and_presses_and_rests_on_the_hint_are_told()
+-> Result<(), Error> {
+    let mut page = open(HINTS)?;
+    let hint = page.anchor_rect("code", "hint").expect("the hint's box");
+    // It stands before `beta`, in the first line: the text of the line goes on after it.
+    assert!(page.says("alpha "), "{:?}", page.words());
+    assert!(
+        page.words().iter().any(|w| w.contains("name:")),
+        "{:?}",
+        page.words()
+    );
+    assert!(
+        page.words().iter().any(|w| w.contains("expected")),
+        "{:?}",
+        page.words()
+    );
+    // The text of the document is as it was.
+    assert_eq!(
+        page.editor("code").map(|b| b.text()),
+        Some("alpha beta\ngamma delta".to_string())
+    );
+    // A press on it is the page's with no modifier, by the part's name, and the caret stays.
+    let before = page.editor("code").map(|b| b.ranges().to_vec());
+    let at = Point::new(hint.x + hint.w - 6.0, hint.y + hint.h / 2.0);
+    page.click_at(at)?;
+    assert!(page.says("press:widget:type:int"), "{:?}", page.words());
+    assert_eq!(page.editor("code").map(|b| b.ranges().to_vec()), before);
+    // A rest on it is told as a rest on a widget.
+    page.move_to(Point::new(at.x - 1.0, at.y))?;
+    page.advance(0.5)?;
+    assert!(page.says("hover:widget:type:int"), "{:?}", page.words());
+    // ⌃⌥ held: the group is hidden, and the line is as it was.
+    page.hold(Mods {
+        control: true,
+        alt: true,
+        ..Mods::default()
+    })?;
+    page.advance(0.2)?;
+    assert!(
+        page.anchor_rect("code", "hint").is_none(),
+        "hidden while held"
+    );
+    assert!(!page.words().iter().any(|w| w.contains("name:")));
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_widget_too_long_or_in_parts_too_many_is_refused() -> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+return {
+	render = function() return pencere.editor("code", { gutter = false }):size_full() end,
+	handle = function(event)
+		if event.type == "editor_ready" then
+			return { editor = { code = { { load = "abc" } } } }
+		elseif event.type == "edit" then
+			return { editor = { code = { { decorate = "w", version = event.version, from = 0, to = 3,
+				decorations = { { from = 1, to = 1, widget = string.rep("x", 201) } } } } } }
+		end
+		return nil
+	end,
+}
+"#,
+    )
+    .size(400.0, 200.0)
+    .open()
+    .map(drop);
+    let _ = &mut page;
+    assert!(
+        matches!(&page, Err(Error::Ended(Fault::Malformed(why))) if why.contains("characters")),
+        "{page:?}"
+    );
+    Ok(())
+}

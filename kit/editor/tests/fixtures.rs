@@ -300,6 +300,7 @@ fn kind_of(mark: &Mark) -> &'static str {
         Mark::Ruler(_) => "ruler",
         Mark::Zone(_) => "zone",
         Mark::Anchor(_) => "anchor",
+        Mark::Widget(_) => "widget",
     }
 }
 

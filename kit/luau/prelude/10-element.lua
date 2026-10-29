@@ -377,7 +377,10 @@ end
 -- "paste", "tab", "escape", "to_line_start", "to_line_end", a command's table, or false: nothing of
 -- the editor's; `pencere.layout.keymap(editor)` says what the keys do now), `chord_timeout` (seconds a
 -- chord waits for its next key, 1), `links = { delay = 0.05 }` (the least time between two words told
--- of), `current_line` (where the caret's line is drawn:
+-- of), `widgets` (how the groups of text the page puts in lines, `{ from =, to =, widget = "words", side =,
+-- group = }`, look and when they show: `{ hints = { show = "unless_held", hold = "control+alt", size = 0.9,
+-- color =, background =, radius = 3, pad = 3, gap = 16 } }`; "on", "off", "unless_held", "when_held"),
+-- `current_line` (where the caret's line is drawn:
 -- "text", "gutter", "all"), `whitespace` (which spaces and tabs it shows, as VS Code: "none",
 -- "boundary" (all but a space alone between words), "selection", "trailing" or "all"; a space is a
 -- dot, a tab an arrow, any other space a box), `indent_guides` (a thin line down each level of
@@ -410,6 +413,7 @@ local EDITOR_OPTIONS = {
 	hover = { delay = true },
 	gestures = true,
 	keymap = true,
+	widgets = true,
 	chord_timeout = true,
 	links = { delay = true },
 	current_line = true,

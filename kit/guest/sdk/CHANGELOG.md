@@ -53,6 +53,8 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Added
 
+- `Mark::Widget`, `EditorOptions::widgets` and `HoverEvent::over`/`id` cross the interface.
+
 - `Event::Target`, `Event::KeymapPending`, `Look::held`, `over` and `cursor`, and the editor's
   `gestures`, `keymap`, `chord_timeout` and `links` cross the interface.
 

@@ -6,9 +6,9 @@
 use pencere_view::edit::{
     CaretHeight, CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions,
     Folds, Found, GutterEvent, GutterHit, GutterKind, GutterShape, HoverEvent, HoverHit, HoverKind,
-    KeyAction, Keys, LineHighlight, Mark, Matches, Movement, Numbers, Origin, Pressing, Range,
-    Refusal, RevealAlign, RulerLane, Selection, TargetEvent, TargetKind, TargetSource, Tint,
-    Underline, Whitespace,
+    HoverOver, KeyAction, Keys, LineHighlight, Mark, Matches, Movement, Numbers, Origin, Pressing,
+    Range, Refusal, RevealAlign, RulerLane, Selection, TargetEvent, TargetKind, TargetSource, Tint,
+    Underline, Whitespace, WidgetShow, WidgetSide,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
@@ -860,6 +860,26 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
             delay: Some(options.links.delay),
         },
         chord_timeout: Some(options.chord_timeout),
+        widgets: options
+            .widgets
+            .iter()
+            .map(|(name, group)| wit::WidgetGroup {
+                name: name.clone(),
+                show: match group.show {
+                    WidgetShow::On => wit::WidgetShow::On,
+                    WidgetShow::Off => wit::WidgetShow::Off,
+                    WidgetShow::UnlessHeld => wit::WidgetShow::UnlessHeld,
+                    WidgetShow::WhenHeld => wit::WidgetShow::WhenHeld,
+                },
+                hold: Some(mods_out(group.hold)),
+                size: Some(group.size),
+                color: group.color.map(color),
+                background: group.background.map(color),
+                radius: Some(group.radius),
+                pad: Some(group.pad),
+                gap: Some(group.gap),
+            })
+            .collect(),
     }
 }
 
@@ -981,6 +1001,34 @@ fn mark(mark: Mark) -> wit::Mark {
             height: zone.height,
         }),
         Mark::Anchor(name) => wit::Mark::Anchor(name),
+        Mark::Widget(widget) => wit::Mark::Widget(wit::Widget {
+            parts: widget
+                .parts
+                .into_iter()
+                .map(|part| wit::WidgetPart {
+                    text: part.text,
+                    color: part.color.map(color),
+                    background: part.background.map(color),
+                    weight: part.weight,
+                    italic: part.italic,
+                    id: part.id,
+                })
+                .collect(),
+            side: match widget.side {
+                WidgetSide::Before => wit::WidgetSide::Before,
+                WidgetSide::After => wit::WidgetSide::After,
+                WidgetSide::End => wit::WidgetSide::End,
+            },
+            group: widget.group,
+            id: widget.id,
+            label: widget.label,
+            cursor: widget.cursor.map(cursor),
+            anchor: widget.anchor,
+            color: widget.color.map(color),
+            background: widget.background.map(color),
+            pad_left: widget.pad_left,
+            pad_right: widget.pad_right,
+        }),
     }
 }
 
@@ -1165,6 +1213,11 @@ fn editor_event(event: wit::Event) -> Event {
                 wit::HoverKind::Dwell => HoverKind::Dwell,
                 wit::HoverKind::Leave => HoverKind::Leave,
             },
+            over: match hover.over {
+                wit::HoverOver::Text => HoverOver::Text,
+                wit::HoverOver::Widget => HoverOver::Widget,
+            },
+            id: hover.id,
             at: unplace(hover.at),
             from: unplace(hover.from),
             to: unplace(hover.to),
@@ -1193,6 +1246,7 @@ fn editor_event(event: wit::Event) -> Event {
             source: match target.source {
                 wit::TargetSource::Word => TargetSource::Word,
                 wit::TargetSource::Link => TargetSource::Link,
+                wit::TargetSource::Widget => TargetSource::Widget,
             },
             at: unplace(target.at),
             from: unplace(target.from),

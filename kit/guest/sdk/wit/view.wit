@@ -765,6 +765,8 @@ interface types {
         links: link-options,
         /// Seconds (0.1 to 10) a chord waits for its next key; none: 1.
         chord-timeout: option<f32>,
+        /// How the groups of widgets look and when they show.
+        widgets: list<widget-group>,
     }
 
     record gesture-binding {
@@ -1324,6 +1326,8 @@ interface types {
     enum target-source {
         word,
         link,
+        /// A widget with a name, or a part of one, pressed whatever the modifiers.
+        widget,
     }
 
     record keymap-pending {
@@ -1350,12 +1354,20 @@ interface types {
         line: u32,
         /// The styles with a name that hold `at`, the later over the earlier.
         hits: list<hover-hit>,
+        over: hover-over,
+        /// The widget's (or its part's) name where the pointer is on one.
+        id: option<string>,
         /// The word's box, in the page's points.
         word: rect,
         /// The modifiers held as the application last knew.
         mods: mods,
         /// The version of the document the places are of.
         version: u64,
+    }
+
+    enum hover-over {
+        text,
+        widget,
     }
 
     enum hover-kind {
@@ -1591,6 +1603,71 @@ interface types {
         /// The range has a name (at most 64 to an editor; of a name said twice the later is the
         /// one): an overlay is anchored to it (`range-of`), as to the caret.
         anchor(string),
+        /// Text that is not the document's, at the range: an inlay hint, a line's end error, a blame.
+        widget(widget),
+    }
+
+    /// Text the page puts in a line; at most 8 parts and 200 characters, 32 in a line.
+    record widget {
+        parts: list<widget-part>,
+        side: widget-side,
+        /// The group whose options (`editor-options.widgets`) say how it looks and when it shows.
+        group: option<string>,
+        /// What the page calls it: told with the pointer's rest over it and a press on it.
+        id: option<string>,
+        /// What a screen reader says of it.
+        label: option<string>,
+        cursor: option<cursor>,
+        /// A name for its box, as `mark.anchor`'s: a card stands by it.
+        anchor: option<string>,
+        color: option<color>,
+        background: option<color>,
+        /// Points kept inside it before and after its words; none: the group's.
+        pad-left: option<f32>,
+        pad-right: option<f32>,
+    }
+
+    record widget-part {
+        text: string,
+        color: option<color>,
+        background: option<color>,
+        weight: option<u16>,
+        italic: option<bool>,
+        /// A part to press (a type to go to).
+        id: option<string>,
+    }
+
+    enum widget-side {
+        /// At the range's start, before the character there.
+        before,
+        /// At the range's end, after the character before it.
+        after,
+        /// After the end of the line the range starts on.
+        end,
+    }
+
+    /// How a group of widgets look and when they show.
+    record widget-group {
+        name: string,
+        show: widget-show,
+        /// The modifiers `show` goes by; control and alt where the page says none.
+        hold: option<mods>,
+        /// Times the editor's text (0.5 to 2); none: 0.9.
+        size: option<f32>,
+        color: option<color>,
+        background: option<color>,
+        /// Points (0 to 64): the corners, the room inside, the gap before a widget at a line's end;
+        /// none: 3, 3 and 16.
+        radius: option<f32>,
+        pad: option<f32>,
+        gap: option<f32>,
+    }
+
+    enum widget-show {
+        on,
+        off,
+        unless-held,
+        when-held,
     }
 
     /// A marker in a gutter column: where it stands is the decoration's range.
