@@ -368,3 +368,40 @@ return {{ render = render, handle = handle }}
     }
     Ok(())
 }
+
+/// A page that makes a link of the word under the pointer while ⌘ is held, pictured with ⌘ held over
+/// `alpha` (drawn as a link) and with it let go (as it was). `PENCERE_SHOTS=links` writes them to
+/// `target/links-{held,free}.png`, in the terminal's font of a Mac, for an eye to check.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_word_is_a_link_while_the_modifier_is_held_and_the_pointer_is_over_it() -> Result<(), Error> {
+    use pencere_view::Mods;
+    let fonts = match std::env::var("PENCERE_SHOTS").as_deref() {
+        Ok("links") => Fonts::none()
+            .terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc").expect("Menlo"))
+            .expect("a font"),
+        _ => Fonts::none(),
+    };
+    let mut page = Headless::script(crate::luau_editor_tests::LINKS)
+        .measure(fonts.clone())
+        .size(360.0, 120.0)
+        .scale(2.0)
+        .open()?;
+    page.move_to(Point::new(16.0, 14.0))?;
+    page.hold(Mods {
+        command: true,
+        ..Mods::default()
+    })?;
+    page.advance(0.2)?;
+    let held = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    page.release()?;
+    page.advance(0.2)?;
+    let free = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    assert_ne!(held, free, "the link is drawn only while ⌘ is held");
+    if std::env::var("PENCERE_SHOTS").as_deref() == Ok("links") {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        std::fs::write(target.join("links-held.png"), &held).expect("written");
+        std::fs::write(target.join("links-free.png"), &free).expect("written");
+    }
+    Ok(())
+}

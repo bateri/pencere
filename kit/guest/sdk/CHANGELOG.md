@@ -53,6 +53,9 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Added
 
+- `Event::Target`, `Event::KeymapPending`, `Look::held`, `over` and `cursor`, and the editor's
+  `gestures`, `keymap`, `chord_timeout` and `links` cross the interface.
+
 - The pointer's rest (`Event::Hover`), the names of ranges (`Mark::Anchor`) and of styles
   (`Look::id`), `EditorOptions::events` and `hover`, `Column::pad` and `Queries::word_at` cross the
   interface.

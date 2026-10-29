@@ -746,6 +746,8 @@ local EDITOR_EVENTS = {
 	editor_ready = true,
 	gutter = true,
 	hover = true,
+	target = true,
+	keymap_pending = true,
 }
 
 -- Gives the event to the component it is for: the reply, the actions that came of it for the page,

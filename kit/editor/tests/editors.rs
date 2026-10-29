@@ -8,9 +8,10 @@
 use pencere_editor::{EditorEvent, Editors, Route};
 use pencere_view::edit::{
     Caret, CaretHeight, CaretShape, Change, Column, ColumnEvents, Decorate, Decoration,
-    EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds, Found, GutterKind,
-    GutterMark, GutterShape, HoverKind, Keys, LineHighlight, Look, Mark, Numbers, Preview, Range,
-    RulerLane, RulerMark, Tint, Whitespace, Zone,
+    EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds, Found, Gesture,
+    GutterKind, GutterMark, GutterShape, HoverKind, KeyAction, Keybinding, Keys, LineHighlight,
+    Look, Mark, Numbers, Pressing, Preview, Range, RulerLane, RulerMark, TargetKind, TargetSource,
+    Tint, Whitespace, Zone,
 };
 use pencere_view::{
     Button, Command, Cursor, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint,
@@ -2105,7 +2106,8 @@ fn the_other_button_and_control_are_a_menu_and_a_column_that_hears_neither_is_no
         host.editors.take_events();
         let laid = host.laid.clone();
         let at = Point::new(20.0, 6.0);
-        host.editors.press_other(&laid, at, Button::Right, none());
+        host.editors
+            .press_other(&laid, at, (Button::Right, none(), 1), &mut Fake);
         host.editors
             .press(&laid, at, with(|m| m.control = true), 1, &mut Fake);
         host.editors.release();
@@ -2622,7 +2624,10 @@ fn what_the_pointer_is_over_is_found_again_when_the_text_scrolls_under_it() {
 /// An editor with no gutter that tells the page of the pointer's rests.
 fn hearing() -> EditorOptions {
     EditorOptions {
-        events: EditorEvents { hover: true },
+        events: EditorEvents {
+            hover: true,
+            ..EditorEvents::default()
+        },
         ..plain()
     }
 }
@@ -2638,7 +2643,7 @@ impl Host {
     fn wait(&mut self, seconds: f64) -> Vec<pencere_view::edit::HoverEvent> {
         self.now += seconds;
         let laid = self.laid.clone();
-        self.editors.tick(&laid, self.now);
+        self.editors.tick(&laid, self.now, &mut Fake);
         self.editors
             .take_events()
             .into_iter()
@@ -2904,4 +2909,284 @@ fn a_decoration_with_a_name_is_told_in_the_hits_of_the_rest_over_it_and_names_ar
         .into_iter()
         .any(|event| matches!(event, EditorEvent::Refused { .. }));
     assert!(refused);
+}
+
+// --- A press that is the page's, links, and the editor's keys as the page changed them -----------
+
+fn cmd() -> Mods {
+    with(|m| m.command = true)
+}
+
+/// An editor that hears of a ⌘-press, which is the page's, and puts the caret as it did for the rest.
+fn linking() -> EditorOptions {
+    EditorOptions {
+        events: EditorEvents {
+            hover: false,
+            target: true,
+        },
+        gestures: vec![(
+            Gesture {
+                button: Button::Left,
+                mods: cmd(),
+                count: 1,
+            },
+            Pressing::Target,
+        )],
+        ..plain()
+    }
+}
+
+impl Host {
+    fn mods(&mut self, mods: Mods) {
+        let laid = self.laid.clone();
+        self.editors.set_mods(&laid, mods, self.now, &mut Fake);
+    }
+
+    fn targets(&mut self) -> Vec<pencere_view::edit::TargetEvent> {
+        self.editors
+            .take_events()
+            .into_iter()
+            .filter_map(|event| match event {
+                EditorEvent::Target(target) => Some(target),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+fn link(id: &str) -> Mark {
+    Mark::Style(Look {
+        color: Some(Role::Red.solid()),
+        id: Some(id.into()),
+        held: Some(cmd()),
+        over: true,
+        ..Look::default()
+    })
+}
+
+#[test]
+fn a_press_that_is_the_pages_is_told_and_moves_no_caret_and_a_link_it_is_on_is_named() {
+    let mut host = Host::new(page_with(linking()));
+    host.load("alpha beta");
+    host.editors.set_focus(None);
+    host.decorate("links", vec![Decoration::new(0, 5, link("def:1"))]);
+    host.editors.take_events();
+    // A press with no ⌘ is the editor's: the caret goes.
+    assert!(host.press(Point::new(50.0, 10.0), none(), 1));
+    host.editors.release();
+    let placed = host.ranges();
+    assert_eq!(placed.len(), 1);
+    host.targets();
+    // With ⌘ it is the page's: told, on a word that is no link as the word; the caret stays.
+    host.mods(cmd());
+    assert!(host.press(Point::new(50.0, 10.0), cmd(), 1));
+    host.editors.release();
+    assert_eq!(host.ranges(), placed);
+    let told = host.targets();
+    let press = told
+        .iter()
+        .find(|t| t.kind == TargetKind::Press)
+        .expect("a press");
+    assert_eq!(
+        (press.source, press.from, press.to, press.id.as_deref()),
+        (TargetSource::Word, 6, 10, None)
+    );
+    // On a link the page drew (held, with a name), as the link, by its name.
+    assert!(host.press(Point::new(10.0, 10.0), cmd(), 1));
+    host.editors.release();
+    let told = host.targets();
+    let press = told
+        .iter()
+        .find(|t| t.kind == TargetKind::Press)
+        .expect("a press");
+    assert_eq!(
+        (press.source, press.from, press.to, press.id.as_deref()),
+        (TargetSource::Link, 0, 5, Some("def:1"))
+    );
+    assert_eq!(host.ranges(), placed);
+}
+
+#[test]
+fn the_pointer_coming_to_a_word_with_the_pages_modifiers_held_is_told_once_for_each_and_taken_back()
+{
+    let mut host = Host::new(page_with(linking()));
+    host.load("alpha beta gamma");
+    host.editors.set_focus(None);
+    host.editors.take_events();
+    // Not held: nothing, over a word.
+    host.rest(Some(Point::new(10.0, 10.0)));
+    assert!(host.targets().is_empty());
+    // Held: the word under the pointer is told.
+    host.mods(cmd());
+    let told = host.targets();
+    assert_eq!(told.len(), 1);
+    assert_eq!(
+        (told[0].kind, told[0].from, told[0].to),
+        (TargetKind::Enter, 0, 5)
+    );
+    // The pointer to another word: the first's leaving now, and the second's coming when the time
+    // has passed (links.delay, 0.05): at most once in that.
+    host.rest(Some(Point::new(50.0, 10.0)));
+    let told = host.targets();
+    assert_eq!(
+        told.iter().map(|t| t.kind).collect::<Vec<_>>(),
+        [TargetKind::Leave]
+    );
+    assert!(
+        host.editors.rest_due().is_some(),
+        "the coming waits its time"
+    );
+    host.now += 0.06;
+    let laid = host.laid.clone();
+    host.editors.tick(&laid, host.now, &mut Fake);
+    let told = host.targets();
+    assert_eq!(told.len(), 1);
+    assert_eq!(
+        (told[0].kind, told[0].from, told[0].to),
+        (TargetKind::Enter, 6, 10)
+    );
+    // The modifier let go: taken back.
+    host.mods(none());
+    let told = host.targets();
+    assert_eq!(
+        told.iter().map(|t| t.kind).collect::<Vec<_>>(),
+        [TargetKind::Leave]
+    );
+}
+
+#[test]
+fn a_look_that_is_held_and_over_is_drawn_only_while_both_are_so_and_gives_the_hand() {
+    let mut host = Host::new(page_with(linking()));
+    host.load("alpha beta");
+    host.editors.set_focus(None);
+    host.decorate("links", vec![Decoration::new(0, 5, link("l"))]);
+    let red = |host: &mut Host| {
+        host.texts()
+            .iter()
+            .any(|(text, _, role)| text == "alpha" && *role == Some(Role::Red))
+    };
+    assert!(!red(&mut host), "no ⌘");
+    host.mods(cmd());
+    assert!(!red(&mut host), "⌘ and the pointer not over it");
+    host.rest(Some(Point::new(10.0, 10.0)));
+    assert!(red(&mut host), "⌘ and the pointer over it");
+    let laid = host.laid.clone();
+    assert_eq!(
+        host.editors.cursor_at(&laid, Point::new(10.0, 10.0)),
+        Some(Cursor::Pointer)
+    );
+    host.rest(Some(Point::new(50.0, 10.0)));
+    assert!(!red(&mut host), "the pointer went");
+    host.rest(Some(Point::new(10.0, 10.0)));
+    host.mods(none());
+    assert!(!red(&mut host), "⌘ let go");
+    assert_eq!(
+        host.editors.cursor_at(&laid, Point::new(10.0, 10.0)),
+        Some(Cursor::Text)
+    );
+}
+
+#[test]
+fn a_press_is_taken_as_the_page_says_and_as_the_editor_does_where_it_says_nothing() {
+    let options = EditorOptions {
+        gestures: vec![
+            (
+                Gesture {
+                    button: Button::Left,
+                    mods: with(|m| m.alt = true),
+                    count: 1,
+                },
+                Pressing::AddCaret,
+            ),
+            (
+                Gesture {
+                    button: Button::Left,
+                    mods: with(|m| m.shift = true),
+                    count: 1,
+                },
+                Pressing::Nothing,
+            ),
+        ],
+        ..plain()
+    };
+    let mut host = Host::new(page_with(options));
+    host.load("alpha beta");
+    assert!(host.press(Point::new(10.0, 10.0), none(), 1));
+    host.editors.release();
+    // ⌥ adds a caret now, where it started a column.
+    assert!(host.press(Point::new(50.0, 10.0), with(|m| m.alt = true), 1));
+    host.editors.release();
+    assert_eq!(host.ranges().len(), 2);
+    // ⇧ does nothing.
+    let before = host.ranges();
+    assert!(host.press(Point::new(30.0, 10.0), with(|m| m.shift = true), 1));
+    host.editors.release();
+    assert_eq!(host.ranges(), before);
+    // ⌘ adds, as it did.
+    assert!(host.press(Point::new(20.0, 10.0), cmd(), 1));
+    host.editors.release();
+    assert_eq!(host.ranges().len(), 3);
+}
+
+#[test]
+fn the_keys_the_page_changed_do_what_it_says_and_a_chord_waits_for_its_next_key() {
+    let shortcut = |words: &str| pencere_view::Shortcut::parse(words).expect("keys");
+    let options = EditorOptions {
+        keymap: vec![
+            // ⌘A is nothing of the editor's now, and ⌘D is Select All.
+            Keybinding {
+                keys: vec![shortcut("cmd+a")],
+                action: None,
+            },
+            Keybinding {
+                keys: vec![shortcut("cmd+d")],
+                action: Some(KeyAction::Command(EditCommand::SelectAll)),
+            },
+            // ⌘K ⌘U is Undo.
+            Keybinding {
+                keys: vec![shortcut("cmd+k"), shortcut("cmd+u")],
+                action: Some(KeyAction::Command(EditCommand::Undo)),
+            },
+        ],
+        ..plain()
+    };
+    let mut host = Host::new(page_with(options));
+    host.load("alpha beta");
+    host.editors.set_focus(Some(EDITOR));
+    host.caret_at(2);
+    assert_eq!(host.key(Key::Character('a'), cmd()), Route::Page);
+    assert_eq!(host.key(Key::Character('d'), cmd()), Route::Done);
+    assert_eq!(host.ranges(), vec![Range::new(0, 10)]);
+    // The chord: ⌘K waits (the page is told, and nothing is typed), ⌘U finishes it.
+    host.caret_at(2);
+    host.editors.take_events();
+    assert_eq!(host.key(Key::Character('k'), cmd()), Route::Done);
+    let pending: Vec<Vec<String>> = host
+        .editors
+        .take_events()
+        .into_iter()
+        .filter_map(|event| match event {
+            EditorEvent::KeymapPending { keys, .. } => Some(keys),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pending, vec![vec!["cmd+k".to_string()]]);
+    assert!(host.editors.rest_due().is_some(), "the wait has its time");
+    assert_eq!(host.key(Key::Character('u'), cmd()), Route::Done);
+    // A key that is no key of the chord ends it and does nothing.
+    assert_eq!(host.key(Key::Character('k'), cmd()), Route::Done);
+    assert_eq!(host.key(Key::Character('x'), none()), Route::Done);
+    assert_eq!(host.text(), "alpha beta", "nothing was typed");
+    // And the time gives it up.
+    assert_eq!(host.key(Key::Character('k'), cmd()), Route::Done);
+    host.editors.take_events();
+    host.now += 1.5;
+    let laid = host.laid.clone();
+    host.editors.tick(&laid, host.now, &mut Fake);
+    assert!(host.editors.take_events().iter().any(|event| matches!(
+        event,
+        EditorEvent::KeymapPending { keys, .. } if keys.is_empty()
+    )));
+    // The keys it did not change are the editor's.
+    assert_eq!(host.key(Key::Left, none()), Route::Done);
 }

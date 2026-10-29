@@ -21,6 +21,10 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
 
 ### Added
 
+- **The pointer's shape when only the modifiers changed it** (`Drained::cursor`), the modifiers a key,
+  a press or `Input::Mods` says (the drive keeps them), and the headless host's and `pencere test`'s
+  `hold`, `release` and `click_holding`.
+
 - **The pointer's rest is timed on the frames' clock** (`Page::wake_at` has `rest_due`; the drive
   keeps the modifiers it was told of), `Page::anchor_rect`, and the headless host and `pencere test`
   can `dwell(element, x, y)` and say where a range the page named is (`anchor_rect`).

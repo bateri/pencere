@@ -18,6 +18,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **`gestures`, `keymap`, `chord_timeout`, `links`, `events = { "target" }`, and a look's `held`, `over`
+  and `cursor` cross the interface** (`gesture-binding`, `key-binding`, `editor-target`,
+  `keymap-pending`), `target` and `keymap_pending` events reach a page, `pencere.layout.keymap(editor)`
+  says what an editor's keys do, and a table the page writes wrongly (a press of the page's with no
+  `"target"` in the events, a chord of five keys, a command that needs more than its name) fails
+  where it is written.
+
 - **The pointer's rest, names for ranges and styles cross the interface** (`editor-hover`,
   `editor-events`, `hover-options`, `mark.anchor`, `look.id`, `layout.word-at`, `gutter-column.pad`),
   and the page API has `events = { "hover" }`, `hover = { delay = }`, `{ anchor = "name" }`,

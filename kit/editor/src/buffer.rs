@@ -296,6 +296,12 @@ impl Buffer {
             .collect()
     }
 
+    /// Whether any look is drawn by the modifiers held or the pointer's place: what is drawn is then
+    /// drawn again where they change.
+    pub fn gated(&self) -> bool {
+        self.decorations.gated()
+    }
+
     /// The ranges the page named, by name ([`Mark::Anchor`]).
     pub fn anchors(&self) -> Vec<(String, usize, usize)> {
         self.decorations.anchors()

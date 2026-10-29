@@ -105,7 +105,7 @@ impl Editing {
     /// reply sent it, and what the replies asked done, at `now`.
     pub(crate) fn settle(&mut self, laid: &Laid, measure: &mut dyn Measure, now: f64) {
         self.editors.sync(laid, measure);
-        self.editors.tick(laid, now);
+        self.editors.tick(laid, now, measure);
         if let Some(id) = self.focus.take() {
             self.editors.set_focus(Some(id));
         }

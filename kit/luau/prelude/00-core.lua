@@ -262,6 +262,60 @@ function layout.word_at(editor, at)
 	return host.word_at(editor, at)
 end
 
+-- What the keys of an editor do: the editor's own keys, `{ keys = "cmd+d", does = "select_next" }`
+-- (what the `keymap` option takes: a command's word, "copy", "cut", "paste", "tab", "escape",
+-- "to_line_start", "to_line_end", or a command's table), as the
+-- page's `keymap` changed them: a key it says is what it says, one it says is false is gone, and a
+-- chord it adds is added. For a page that shows a key where it says what a command does.
+pencere._keymaps = {}
+local function go(movement, extend)
+	return { command = "move", movement = movement, extend = extend or false }
+end
+local DEFAULT_KEYS = {
+	{ "left", go("left") }, { "shift+left", go("left", true) }, { "alt+left", go("word_left") },
+	{ "alt+shift+left", go("word_left", true) }, { "cmd+left", go("line_start") },
+	{ "cmd+shift+left", go("line_start", true) }, { "right", go("right") },
+	{ "shift+right", go("right", true) }, { "alt+right", go("word_right") },
+	{ "alt+shift+right", go("word_right", true) }, { "cmd+right", go("line_end") },
+	{ "cmd+shift+right", go("line_end", true) }, { "up", go("up") }, { "shift+up", go("up", true) },
+	{ "cmd+up", go("document_start") }, { "down", go("down") }, { "shift+down", go("down", true) },
+	{ "cmd+down", go("document_end") }, { "alt+up", "move_lines_up" }, { "alt+down", "move_lines_down" },
+	{ "alt+shift+up", "duplicate_lines" }, { "alt+shift+down", "duplicate_lines" },
+	{ "cmd+alt+up", "add_caret_above" }, { "cmd+alt+down", "add_caret_below" },
+	{ "page_up", go("page_up") }, { "page_down", go("page_down") }, { "home", go("line_start") },
+	{ "end", go("line_end") }, { "cmd+home", go("document_start") }, { "cmd+end", go("document_end") },
+	{ "backspace", "delete_backward" }, { "alt+backspace", "delete_word_backward" },
+	{ "cmd+backspace", "to_line_start" }, { "delete", "delete_forward" },
+	{ "alt+delete", "delete_word_forward" }, { "enter", "newline" }, { "tab", "tab" },
+	{ "shift+tab", "outdent" }, { "escape", "escape" }, { "cmd+z", "undo" }, { "cmd+shift+z", "redo" },
+	{ "cmd+a", "select_all" }, { "cmd+d", "select_next" }, { "cmd+/", "toggle_comment" },
+	{ "cmd+]", "indent" }, { "cmd+[", "outdent" }, { "cmd+alt+]", "unfold" }, { "cmd+alt+[", "fold" },
+	{ "cmd+g", "find_next" }, { "cmd+shift+g", "find_previous" }, { "cmd+c", "copy" },
+	{ "cmd+x", "cut" }, { "cmd+v", "paste" }, { "ctrl+a", go("line_start") },
+	{ "ctrl+e", go("line_end") }, { "ctrl+k", "to_line_end" },
+}
+
+-- The keys of an editor and what they do, as `{ { keys =, does = }, ... }`; `does` is nil where the
+-- page took the key from the editor.
+function layout.keymap(editor)
+	local changed = pencere._keymaps[editor] or {}
+	local out, seen = {}, {}
+	local function resolved(words)
+		return (string.gsub(string.lower(words), "mod", pencere.host.keyboard() == "mac" and "cmd" or "ctrl"))
+	end
+	for words, does in changed do
+		local written = resolved(words)
+		seen[written] = true
+		table.insert(out, { keys = written, does = does or nil })
+	end
+	for _, entry in DEFAULT_KEYS do
+		if not seen[entry[1]] then
+			table.insert(out, { keys = entry[1], does = entry[2] })
+		end
+	end
+	return out
+end
+
 -- The caret of the editor named `editor`: what an overlay stands beside
 -- (`:anchor(pencere.caret_of("sql"), "below")`, a popup of completions) and what
 -- `layout.bounds` says the box of. A name of the editor's own, which no name of the page's is.

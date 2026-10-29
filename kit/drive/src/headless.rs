@@ -1243,6 +1243,44 @@ impl<P: Peer> Headless<P> {
         self.page.anchor_rect(Id::named(editor), name)
     }
 
+    /// The person holds the modifiers `mods` (and nothing else) down: what the page and its editors do
+    /// of them, as the host tells the drive of them.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn hold(&mut self, mods: Mods) -> Result<(), Error> {
+        self.pointer(Input::Mods(mods))
+    }
+
+    /// The person lets every modifier go.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn release(&mut self) -> Result<(), Error> {
+        self.pointer(Input::Mods(Mods::default()))
+    }
+
+    /// The person clicks at `at` (the host's points) with `mods` held: a press and its release.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn click_holding(&mut self, at: Point, mods: Mods) -> Result<(), Error> {
+        self.pointer(Input::Mods(mods))?;
+        self.pointer(Input::Press {
+            at,
+            button: Button::Left,
+            mods,
+            count: 1,
+        })?;
+        self.pointer(Input::Release {
+            at,
+            button: Button::Left,
+        })
+    }
+
     /// The pointer moves to `x`, `y` points from the top-left corner of the element named `name` and
     /// rests there as long as an editor that hears of it takes to tell the page (the clock moves on
     /// to it, a frame at the time): what a person's pointer does over a word.

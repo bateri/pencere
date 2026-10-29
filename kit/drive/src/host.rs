@@ -34,6 +34,10 @@ pub struct Drained {
     /// for the time the page names now ([`crate::Page::wake_at`]), with no frame drawn for it. A
     /// page that asks nothing never says so.
     pub wake: bool,
+    /// The pointer's shape changed where it stands (a modifier was held that makes a link of what is
+    /// under it) and nothing the pointer did says so: the host takes it while the pointer is over the
+    /// page, as it takes the shape of a reply to the pointer.
+    pub cursor: Option<Cursor>,
 }
 
 /// What a reply asked of a host's field before the frame that brings the field was laid out: the
@@ -143,6 +147,9 @@ impl Drained {
         for words in self.diagnostics {
             host.diagnostic(words);
         }
+        if let Some(cursor) = self.cursor {
+            host.cursor(cursor);
+        }
         if let Some(why) = self.ended {
             host.ended(why);
             return;
@@ -246,6 +253,7 @@ mod tests {
             ended: None,
             sent: vec!["{\"call\":{}}".into()],
             wake: true,
+            cursor: None,
         }
         .deliver(&mut log);
         assert_eq!(

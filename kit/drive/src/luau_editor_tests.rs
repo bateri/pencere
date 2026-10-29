@@ -2056,3 +2056,232 @@ return { render = function() return pencere.editor("code", { hover = 1, hovr = {
     assert!(why.contains("an editor has no option hovr"), "{why}");
     Ok(())
 }
+
+// --- A press that is the page's, links while a modifier is held, and the editor's keys -----------------
+
+/// A page that makes a link of the word under the pointer while ⌘ is held: it hears of the word the
+/// pointer came to, asks its (pretend) language server, and draws a look that is `held` and `over`
+/// where the answer says; a ⌘-press on it is told with the link's name.
+pub(crate) const LINKS: &str = r#"
+local b = pencere
+local text = "alpha beta\ngamma delta"
+local version = 0
+local told = {}
+local function layer(links)
+	local marks = {}
+	for _, link in links do
+		table.insert(marks, { from = link.from, to = link.to, color = "accent", underline = "accent",
+			held = "mod", over = true, id = "def:" .. link.from })
+	end
+	return { decorate = "links", version = version, from = 0, to = #text, decorations = marks }
+end
+return {
+	render = function()
+		local says = table.concat(told, " ")
+		return b.div():size_full():child(
+			b.editor("code", {
+				gutter = false,
+				events = { "target" },
+				gestures = { ["mod+press"] = "target", ["alt+press"] = "add_caret" },
+				keymap = { ["mod+d"] = "select_all", ["mod+a"] = false, ["mod+k mod+u"] = "undo" },
+			}):grow(1)):child(b.text(says):id("told"))
+	end,
+	handle = function(event)
+		if event.type == "editor_ready" then
+			return { editor = { code = { { load = text } } } }
+		elseif event.type == "edit" then
+			version = event.version
+		elseif event.type == "target" then
+			table.insert(told, event.kind .. ":" .. event.source .. ":" .. tostring(event.id))
+			if event.kind == "enter" then
+				return { redraw = true, editor = { code = { layer({ { from = event.from, to = event.to } }) } } }
+			elseif event.kind == "leave" then
+				return { redraw = true, editor = { code = { layer({}) } } }
+			end
+			return { redraw = true }
+		elseif event.type == "keymap_pending" then
+			table.insert(told, "chord:" .. table.concat(event.keys, ","))
+			return { redraw = true }
+		end
+		return nil
+	end,
+}
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_modifier_makes_a_link_of_the_word_under_the_pointer_and_a_press_on_it_is_the_pages()
+-> Result<(), Error> {
+    use pencere_view::Cursor;
+    let mut page = open(LINKS)?;
+    let command = Mods {
+        command: true,
+        ..Mods::default()
+    };
+    page.move_to(Point::new(12.0, 12.0))?;
+    assert_eq!(page.cursor(), Some(Cursor::Text));
+    // ⌘ held over a word: the page is told of the word, answers with a look, and the pointer is the hand
+    // though it did not move.
+    page.hold(command)?;
+    page.advance(0.2)?;
+    assert!(page.says("enter:word:nil"), "{:?}", page.words());
+    assert_eq!(page.cursor(), Some(Cursor::Pointer));
+    // The look is the editor's to draw, by the modifier: let go, it is gone from the draw list and the
+    // page is told the word was left.
+    page.release()?;
+    page.advance(0.2)?;
+    assert!(
+        page.says("enter:word:nil leave:word:nil"),
+        "{:?}",
+        page.words()
+    );
+    assert_eq!(page.cursor(), Some(Cursor::Text));
+    // A ⌘-press: the caret stays, the page is told it with the link's name when it is on one.
+    page.hold(command)?;
+    page.advance(0.2)?;
+    let before = page.editor("code").map(|b| b.ranges().to_vec());
+    page.click_holding(Point::new(12.0, 12.0), command)?;
+    assert!(page.says("press:link:def:0"), "{:?}", page.words());
+    assert_eq!(page.editor("code").map(|b| b.ranges().to_vec()), before);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_keys_a_page_changes_and_the_chords_it_adds_work_and_a_bad_table_fails_where_it_is_written()
+-> Result<(), Error> {
+    let mut page = open(LINKS)?;
+    page.focus_editor("code")?;
+    page.press("cmd+d")?;
+    assert_eq!(
+        page.editor("code").map(|b| b.ranges()[0].is_empty()),
+        Some(false),
+        "⌘D selects all here"
+    );
+    page.press("cmd+k")?;
+    assert!(page.says("chord:cmd+k"), "{:?}", page.words());
+    page.press("cmd+u")?;
+    assert!(page.says("chord:cmd+k chord:"), "{:?}", page.words());
+    for (table, why) in [
+        (
+            r#"{ ["mod+q"] = "no_such_command" }"#,
+            "no command of an editor",
+        ),
+        (r#"{ ["mod+q"] = "move" }"#, "needs more than its name"),
+        (
+            r#"{ ["mod+q mod+q mod+q mod+q mod+q"] = "undo" }"#,
+            "one to four keys",
+        ),
+    ] {
+        let failed = failing(&format!(
+            "return {{ render = function() return pencere.editor(\"e\", {{ keymap = {table} }}) end }}"
+        ));
+        assert!(failed.contains(why), "{failed}");
+    }
+    // What the sandbox refuses (a press of the page's with no word of it in the events) it says as it
+    // does a malformed reply.
+    let refused = Headless::script(
+        r#"return { render = function() return pencere.editor("e", { gestures = { ["mod+press"] = "target" } }) end }"#,
+    )
+    .size(1000.0, 700.0)
+    .open()
+    .map(drop);
+    assert!(
+        matches!(&refused, Err(Error::Ended(Fault::Malformed(why))) if why.contains("needs the editor's events")),
+        "{refused:?}"
+    );
+    let failed = failing(
+        r#"return { render = function() return pencere.editor("e", { gestures = { ["mod+tap"] = "word" } }) end }"#,
+    );
+    assert!(failed.contains("ends in \"press\""), "{failed}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_window_that_loses_the_keyboard_lets_go_of_the_modifiers_and_the_links_they_made()
+-> Result<(), Error> {
+    use pencere_view::Cursor;
+    let mut page = open(LINKS)?;
+    let command = Mods {
+        command: true,
+        ..Mods::default()
+    };
+    page.move_to(Point::new(12.0, 12.0))?;
+    page.hold(command)?;
+    page.advance(0.2)?;
+    assert_eq!(page.cursor(), Some(Cursor::Pointer));
+    page.set_active(false)?;
+    page.advance(0.2)?;
+    assert!(page.says("leave:word:nil"), "{:?}", page.words());
+    assert_eq!(page.cursor(), Some(Cursor::Text));
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_key_that_is_a_command_of_the_page_and_a_key_of_an_editor_is_said_where_it_is_written() {
+    let refused = Headless::script(
+        r#"return { render = function()
+            return pencere.div():command("run", "Run", "cmd+d", true)
+                :child(pencere.editor("e", { keymap = { ["mod+d"] = "select_all" } }))
+        end }"#,
+    )
+    .size(1000.0, 700.0)
+    .open()
+    .map(drop);
+    assert!(
+        matches!(&refused, Err(Error::Ended(Fault::Malformed(why))) if why.contains("also a key of an editor's keymap")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn what_an_editors_keys_do_is_read_back_as_the_page_changed_them_and_a_double_press_is_a_line_if_it_says()
+-> Result<(), Error> {
+    let mut page = open(
+        r#"
+local b = pencere
+local said = nil
+return {
+	render = function()
+		return b.div():size_full():child(b.editor("code", { gutter = false,
+			keymap = { ["mod+d"] = "undo", ["mod+a"] = false, ["mod+k mod+u"] = { command = "move", movement = "down" } },
+			gestures = { ["press×2"] = "line" } }):grow(1)):child(b.text(said or "none"))
+	end,
+	handle = function(event)
+		if event.type == "editor_ready" then
+			return { editor = { code = { { load = "alpha beta\ngamma" } } } }
+		elseif event.type == "edit" then
+			local table_of = {}
+			for _, entry in pencere.layout.keymap("code") do
+				table_of[entry.keys] = entry.does
+			end
+			said = tostring(table_of["cmd+d"]) .. " " .. tostring(table_of["cmd+a"]) .. " "
+				.. tostring(table_of["cmd+k cmd+u"] ~= nil) .. " " .. tostring(table_of["cmd+c"]) .. " "
+				.. tostring(type(table_of["left"]))
+			return { redraw = true }
+		end
+		return nil
+	end,
+}
+"#,
+    )?;
+    // The page's: ⌘D is Undo now, ⌘A is none, the chord is there, ⌘C is what it was, ← a table.
+    assert!(page.says("undo nil true copy table"), "{:?}", page.words());
+    // Two quick presses are the line, as it says (the editor took them for a word).
+    page.pointer(pencere_view::Input::Press {
+        at: Point::new(12.0, 12.0),
+        button: pencere_view::Button::Left,
+        mods: Mods::default(),
+        count: 2,
+    })?;
+    page.pointer(pencere_view::Input::Release {
+        at: Point::new(12.0, 12.0),
+        button: pencere_view::Button::Left,
+    })?;
+    let selected = page.editor("code").map(|b| b.ranges()[0]);
+    assert_eq!(selected.map(|r| (r.start(), r.end())), Some((0, 11)));
+    Ok(())
+}

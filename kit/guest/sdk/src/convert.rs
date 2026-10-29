@@ -6,8 +6,9 @@
 use pencere_view::edit::{
     CaretHeight, CaretShape, Change, EditCommand, Edited, EditorAsk, EditorColors, EditorOptions,
     Folds, Found, GutterEvent, GutterHit, GutterKind, GutterShape, HoverEvent, HoverHit, HoverKind,
-    Keys, LineHighlight, Mark, Matches, Movement, Numbers, Origin, Range, Refusal, RevealAlign,
-    RulerLane, Selection, Tint, Underline, Whitespace,
+    KeyAction, Keys, LineHighlight, Mark, Matches, Movement, Numbers, Origin, Pressing, Range,
+    Refusal, RevealAlign, RulerLane, Selection, TargetEvent, TargetKind, TargetSource, Tint,
+    Underline, Whitespace,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
@@ -681,7 +682,9 @@ pub fn from_wit_event(event: wit::Event) -> Event {
         | wit::Event::EditorRefused(_)
         | wit::Event::Found(_)
         | wit::Event::EditorGutter(_)
-        | wit::Event::EditorHover(_)) => editor_event(editor),
+        | wit::Event::EditorHover(_)
+        | wit::Event::EditorTarget(_)
+        | wit::Event::KeymapPending(_)) => editor_event(editor),
         wit::Event::Wake(now) => Event::Wake { now },
         wit::Event::EditorReady(ready) => Event::EditorReady {
             editor: Id::new(ready.editor),
@@ -806,11 +809,91 @@ fn editor_options(options: &EditorOptions, lists: &mut Lists) -> wit::EditorOpti
         },
         events: wit::EditorEvents {
             hover: options.events.hover,
+            target: options.events.target,
         },
         hover: wit::HoverOptions {
             delay: Some(options.hover.delay),
         },
+        gestures: options
+            .gestures
+            .iter()
+            .map(|(gesture, pressing)| wit::GestureBinding {
+                button: match gesture.button {
+                    Button::Left => wit::Button::Left,
+                    Button::Right => wit::Button::Right,
+                    Button::Middle => wit::Button::Middle,
+                },
+                mods: mods_out(gesture.mods),
+                count: gesture.count,
+                pressing: match pressing {
+                    Pressing::Place => wit::Pressing::Place,
+                    Pressing::Extend => wit::Pressing::Extend,
+                    Pressing::AddCaret => wit::Pressing::AddCaret,
+                    Pressing::Column => wit::Pressing::Column,
+                    Pressing::Word => wit::Pressing::Word,
+                    Pressing::Line => wit::Pressing::Line,
+                    Pressing::Target => wit::Pressing::Target,
+                    Pressing::Nothing => wit::Pressing::Nothing,
+                },
+            })
+            .collect(),
+        keymap: options
+            .keymap
+            .iter()
+            .map(|binding| wit::KeyBinding {
+                keys: binding.keys.iter().map(shortcut_words).collect(),
+                action: binding.action.as_ref().map(|action| match action {
+                    KeyAction::Command(command) => {
+                        wit::KeyAction::Command(editor_command(command.clone()))
+                    }
+                    KeyAction::Tab => wit::KeyAction::Tab,
+                    KeyAction::Copy => wit::KeyAction::Copy,
+                    KeyAction::Cut => wit::KeyAction::Cut,
+                    KeyAction::Paste => wit::KeyAction::Paste,
+                    KeyAction::Escape => wit::KeyAction::Escape,
+                    KeyAction::ToLineStart => wit::KeyAction::ToLineStart,
+                    KeyAction::ToLineEnd => wit::KeyAction::ToLineEnd,
+                }),
+            })
+            .collect(),
+        links: wit::LinkOptions {
+            delay: Some(options.links.delay),
+        },
+        chord_timeout: Some(options.chord_timeout),
     }
+}
+
+/// The keys as a page writes them (what `Shortcut::parse` reads).
+fn shortcut_words(shortcut: &pencere_view::Shortcut) -> String {
+    let mut out = String::new();
+    for (held, word) in [
+        (shortcut.mods.control, "ctrl+"),
+        (shortcut.mods.alt, "alt+"),
+        (shortcut.mods.shift, "shift+"),
+        (shortcut.mods.command, "cmd+"),
+    ] {
+        if held {
+            out.push_str(word);
+        }
+    }
+    out.push_str(&match shortcut.key {
+        Key::Up => "up".to_owned(),
+        Key::Down => "down".to_owned(),
+        Key::Left => "left".to_owned(),
+        Key::Right => "right".to_owned(),
+        Key::PageUp => "page_up".to_owned(),
+        Key::PageDown => "page_down".to_owned(),
+        Key::Home => "home".to_owned(),
+        Key::End => "end".to_owned(),
+        Key::Enter => "enter".to_owned(),
+        Key::Escape => "escape".to_owned(),
+        Key::Tab => "tab".to_owned(),
+        Key::Backspace => "backspace".to_owned(),
+        Key::Delete => "delete".to_owned(),
+        Key::Function(n) => format!("f{n}"),
+        Key::Character(c) => c.to_string(),
+    });
+    out
 }
 
 fn tint(tint: Tint) -> wit::EditorTint {
@@ -868,6 +951,9 @@ fn mark(mark: Mark) -> wit::Mark {
             }),
             strike: look.strike,
             id: look.id,
+            held: look.held.map(mods_out),
+            over: look.over,
+            cursor: look.cursor.map(cursor),
         }),
         Mark::Line(c) => wit::Mark::Line(color(c)),
         Mark::Gutter(gutter) => wit::Mark::Gutter(wit::GutterMark {
@@ -1097,6 +1183,31 @@ fn editor_event(event: wit::Event) -> Event {
             mods: mods(hover.mods),
             version: hover.version,
         }),
+        wit::Event::EditorTarget(target) => Event::Target(TargetEvent {
+            editor: Id::new(target.editor),
+            kind: match target.kind {
+                wit::TargetKind::Enter => TargetKind::Enter,
+                wit::TargetKind::Leave => TargetKind::Leave,
+                wit::TargetKind::Press => TargetKind::Press,
+            },
+            source: match target.source {
+                wit::TargetSource::Word => TargetSource::Word,
+                wit::TargetSource::Link => TargetSource::Link,
+            },
+            at: unplace(target.at),
+            from: unplace(target.from),
+            to: unplace(target.to),
+            id: target.link,
+            rect: Rect::new(target.word.x, target.word.y, target.word.w, target.word.h),
+            mods: mods(target.mods),
+            button: button(target.button),
+            count: target.count,
+            version: target.version,
+        }),
+        wit::Event::KeymapPending(pending) => Event::KeymapPending {
+            editor: Id::new(pending.editor),
+            keys: pending.keys,
+        },
         wit::Event::EditorPointer(pointer) => Event::Pointer {
             input: match pointer.input {
                 wit::PointerInput::Move(at) => Input::Move(point(at)),

@@ -53,7 +53,13 @@
 --       and `to`, its `line`, the `hits` ({ { layer =, id =, from =, to = }, ... }: the styles with
 --       an `id` that hold `at`), the `word`'s box ({ x =, y =, w =, h = }, the page's points),
 --       the modifiers held and the `version` the places are of) and when it goes from a word it was
---       told of (`kind = "leave"`, at once, the same fields). Places are characters from 0, lines
+--       told of (`kind = "leave"`, at once, the same fields); "target", in an editor with `events = {
+--       "target" }`, the `editor`, `kind` ("enter", "leave": the pointer came to a word with the
+--       modifiers of a press that is the page's held, at most once in `links.delay`, or went from
+--       it; "press": that press), `source` ("word", or "link": a held look with an `id`, whose range it
+--       is), the place `at`, the range `from` and `to`, the link's `id`, the `word`'s box, the modifiers,
+--       the `button` and `count` of a press and the `version`; "keymap_pending", the `editor` and the
+--       `keys` of a chord waited on so far (none: not any more). Places are characters from 0, lines
 --       from 0.
 --       "wake" has the `now` it was woken at (seconds on `render`'s clock): the time the page asked
 --       to be woken at, with a reply's `wake`, has come. Told only to a page that asked, after the
@@ -94,8 +100,11 @@
 --     "split_line", "transpose_chars", "delete_to_line_start", "delete_to_line_end", …
 --   { decorate = "layer", version =, from =, to =, decorations = { d, ... } }, each `d`
 --     { from =, to =, color =, background =, weight =, italic =, strike =,
---       underline = colour | { wavy = colour }, id = "name" } (the `id` is told in the `hits` of a
---       "hover" over it), or { from =, to =, line = colour },
+--       underline = colour | { wavy = colour }, id = "name", held = "command", over = true,
+--       cursor = "pointer" } (the `id` is told in the `hits` of a "hover" over it and in a "target"
+--       press on it; `held` is the modifiers while which alone it is drawn, `mod` the host's main
+--       one: a link that shows while ⌘ is held; `over` while the pointer is over its range; `cursor`
+--       the pointer's shape there, the hand where it is `held`), or { from =, to =, line = colour },
 --     { from =, to =, gutter = colour, column = "marks", shape = "dot" | "bar" | "above" | "below"
 --       | "image", image = "assets/x.svg", id =, label =, cursor =, hover = colour, pressed = colour }
 --     (a marker in a column of the gutter: a dot by the first line, a bar along every line of the

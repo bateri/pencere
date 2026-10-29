@@ -228,6 +228,9 @@ struct State {
     editing: Editing,
     /// The shape the editor says the pointer has where it last was, over an editor's room.
     cursor_over: Option<Cursor>,
+    /// The shape changed with no move of the pointer (a modifier held that makes a link) and the host
+    /// has not been told ([`Drained::cursor`]).
+    cursor_told: Option<Cursor>,
     /// The frame just drawn left something for the next (a scroll an editor asked, a layout): the
     /// host is asked for it.
     again: bool,
@@ -412,6 +415,7 @@ impl Page {
                 sent: Vec::new(),
                 editing: Editing::new(setup.blink),
                 cursor_over: None,
+                cursor_told: None,
                 again: false,
                 blink_at: None,
                 mods: Mods::default(),
@@ -438,14 +442,14 @@ impl Page {
         {
             self.editors().unmark();
         }
-        let state = &mut self.state;
         match input {
             Input::Mods(mods)
             | Input::Key { mods, .. }
             | Input::KeyUp { mods, .. }
-            | Input::Press { mods, .. } => state.mods = mods,
+            | Input::Press { mods, .. } => self.track_mods(mods),
             _ => {}
         }
+        let state = &mut self.state;
         let place = state.place;
         let now = state.clock.now();
         let (took, redraw) = state.scrolls.pointer(&into_page(input, place), now);
@@ -491,6 +495,28 @@ impl Page {
         });
     }
 
+    /// The modifiers held are `mods` (as far as the host says): what the editors draw by them is drawn
+    /// again, a word the pointer is on is told of or taken back, and the pointer's shape over it is
+    /// the host's to take ([`Drained::cursor`]) though the pointer did not move.
+    fn track_mods(&mut self, mods: Mods) {
+        if mods == self.state.mods {
+            return;
+        }
+        self.state.mods = mods;
+        self.edit(false, |editors, laid, measure, now| {
+            editors.set_mods(laid, mods, now, measure);
+        });
+        let state = &mut self.state;
+        let over = state
+            .laid
+            .as_ref()
+            .and_then(|laid| state.editing.editors.cursor_here(laid));
+        if over != state.cursor_over {
+            state.cursor_over = over;
+            state.cursor_told = over;
+        }
+    }
+
     /// A key pressed, and where it went: to the editor with the keyboard first — the page's command
     /// for the key, the editor's own, the text ([`PageEditors::key`]) — and where no editor has the
     /// keyboard, to the page ([`Page::input`]), which is [`Route::NotEditor`]. The rest of the route
@@ -498,6 +524,7 @@ impl Page {
     /// ([`PageEditors::type_text`]); `Copy` and `Cut`, the text to its pasteboard; `Paste`, its
     /// pasteboard's text to [`PageEditors::paste`].
     pub fn key(&mut self, key: Key, mods: Mods) -> Route {
+        self.track_mods(mods);
         let route = self.editors().key(key, mods);
         if route == Route::NotEditor {
             self.input(Input::Key { key, mods });
@@ -508,6 +535,7 @@ impl Page {
     /// A key went up. An editor with the keyboard took the keys that went down, so the page heard
     /// none of them go down, and hears none go up.
     pub fn key_up(&mut self, key: Key, mods: Mods) {
+        self.track_mods(mods);
         if self.state.editing.editors.focused().is_none() {
             self.input(Input::KeyUp { key, mods });
         }
@@ -625,12 +653,12 @@ impl Page {
     /// Whether the host's keyboard is in the page (not one of its fields, not another view) of the
     /// person's window: an editor's caret is drawn, and blinks, only then.
     pub fn set_active(&mut self, active: bool) {
-        let state = &mut self.state;
         if !active {
             // The pointer's rest, and the modifiers, are of a window that has the keyboard.
-            state.mods = Mods::default();
-            state.editing.editors.end_rest();
+            self.track_mods(Mods::default());
+            self.state.editing.editors.end_rest();
         }
+        let state = &mut self.state;
         let was = state.editing.blink;
         state.editing.blink.set_active(active);
         if state.editing.blink != was && state.editing.editors.focused().is_some() {
@@ -762,6 +790,7 @@ impl Page {
             ended,
             sent: std::mem::take(&mut state.sent),
             wake: std::mem::take(&mut state.rewake),
+            cursor: state.cursor_told.take(),
         }
     }
 
@@ -902,12 +931,12 @@ impl Page {
     fn pointer_in_editors(&mut self, input: &Input) -> (Option<Place>, bool) {
         let mods = self.state.mods;
         if matches!(input, Input::Leave) {
-            self.state.mods = Mods::default();
             let mods = Mods::default();
             self.edit(false, |editors, laid, measure, now| {
                 editors.hover(laid, None);
                 editors.rest(laid, None, mods, now, measure);
             });
+            self.track_mods(mods);
             return (None, false);
         }
         if !matches!(
@@ -933,9 +962,12 @@ impl Page {
                     at
                 }
                 Input::Press {
-                    at, button, mods, ..
+                    at,
+                    button,
+                    mods,
+                    count,
                 } => {
-                    editors.press_other(laid, at, button, mods);
+                    editors.press_other(laid, at, (button, mods, count), measure);
                     at
                 }
                 Input::Move(at) => {
@@ -1150,7 +1182,12 @@ impl State {
                 self.editing.settle(&laid, measure, at.now);
                 // What is under the pointer may not be what was (the text scrolled, grew or
                 // folded): its shape is found again.
-                self.cursor_over = self.editing.editors.cursor_here(&laid);
+                let over = self.editing.editors.cursor_here(&laid);
+                if over != self.cursor_over {
+                    self.cursor_over = over;
+                    // The shape changed with no move of the pointer: the host is told.
+                    self.cursor_told = over.or(self.cursor_told);
+                }
                 if !self.editing.editors.wants_layout() && !laid.wants_layout() {
                     break;
                 }

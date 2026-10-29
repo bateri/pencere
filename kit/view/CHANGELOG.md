@@ -19,6 +19,12 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **Looks drawn by the modifiers held and the pointer's place, presses that are the page's, the editor's
+  keys as the page changed them.** `Look::held`, `over`, `cursor` (`Look::shows`), `EditorEvents::target`,
+  `LinkOptions` (`links.delay`), `EditorOptions::gestures` (`Gesture`, `Pressing`), `keymap`
+  (`Keybinding`, `KeyAction`) and `chord_timeout`, `Event::Target(TargetEvent)` and
+  `Event::KeymapPending`.
+
 - **The pointer's rest, the names of ranges and of styles.** `EditorOptions::events` (`hover`) and
   `hover` (`delay`, 0.3 s, `limits::HOVER_DELAY`), `Event::Hover(HoverEvent)` (`Dwell`, `Leave`, the
   word's range and box, the `hits` of the styles with a name under it), `Look::id`, `Mark::Anchor` (a

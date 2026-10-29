@@ -128,6 +128,21 @@ impl Handle {
     }
 }
 
+/// Modifiers written as words, `"cmd+shift"` (none: `""`).
+fn mods_of(written: &str) -> Result<pencere_view::Mods, mlua::Error> {
+    let mut mods = pencere_view::Mods::default();
+    for word in written.split('+').filter(|word| !word.is_empty()) {
+        match word.to_ascii_lowercase().as_str() {
+            "cmd" | "command" | "super" | "meta" => mods.command = true,
+            "ctrl" | "control" => mods.control = true,
+            "alt" | "option" | "opt" => mods.alt = true,
+            "shift" => mods.shift = true,
+            other => return Err(words(format!("\"{other}\" is no modifier"))),
+        }
+    }
+    Ok(mods)
+}
+
 fn point(x: f32, y: f32) -> Point {
     Point::new(x, y)
 }
@@ -502,6 +517,18 @@ impl UserData for Handle {
             {
                 Some(rect) => Ok(Value::Table(rect_table(lua, rect)?)),
                 None => Ok(Value::Nil),
+            },
+        );
+        methods.add_method("hold", |_, this, mods: String| {
+            let mods = mods_of(&mods)?;
+            this.act(|page| page.hold(mods))
+        });
+        methods.add_method("release", |_, this, ()| this.act(|page| page.release()));
+        methods.add_method(
+            "click_holding",
+            |_, this, (x, y, mods): (f64, f64, String)| {
+                let mods = mods_of(&mods)?;
+                this.act(|page| page.click_holding(point(to_f32(x), to_f32(y)), mods))
             },
         );
         methods.add_method("dwell", |_, this, (name, x, y): (String, f64, f64)| {

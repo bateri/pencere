@@ -17,6 +17,8 @@ pub(crate) struct Layer {
     pub zones: bool,
     /// The same for the names of ranges.
     pub anchors: bool,
+    /// The same for the looks that are drawn by the modifiers held or the pointer's place.
+    pub gated: bool,
 }
 
 /// An editor's decorations, and its folded regions.
@@ -85,12 +87,16 @@ impl Decorations {
         let rulers = all.iter().any(|item| matches!(item.mark, Mark::Ruler(_)));
         let zones = all.iter().any(|item| matches!(item.mark, Mark::Zone(_)));
         let anchors = all.iter().any(|item| matches!(item.mark, Mark::Anchor(_)));
+        let gated = all.iter().any(
+            |item| matches!(&item.mark, Mark::Style(look) if look.held.is_some() || look.over || look.cursor.is_some()),
+        );
         match at.and_then(|at| self.layers.get_mut(at)) {
             Some(layer) => {
                 layer.items = all;
                 layer.rulers = rulers;
                 layer.zones = zones;
                 layer.anchors = anchors;
+                layer.gated = gated;
             }
             None => self.layers.push(Layer {
                 name: name.to_owned(),
@@ -98,6 +104,7 @@ impl Decorations {
                 rulers,
                 zones,
                 anchors,
+                gated,
             }),
         }
         self.layers.retain(|layer| !layer.items.is_empty());
@@ -192,6 +199,11 @@ impl Decorations {
             .collect();
         out.sort_by_key(|(at, _)| *at);
         out
+    }
+
+    /// Whether any look is drawn by the modifiers held or the pointer's place.
+    pub fn gated(&self) -> bool {
+        self.layers.iter().any(|layer| layer.gated)
     }
 
     /// The ranges the page named, by name, each with its range: of a name said more than once, the

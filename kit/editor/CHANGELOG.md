@@ -18,6 +18,14 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **The modifiers held** (`Editors::set_mods`) draw the looks that are `held` and `over`, and give the
+  pointer's shape over them; the pointer over a word with the modifiers of a press that is the page's
+  held is told once for each word and at most once in `links.delay` (`EditorEvent::Target`), and that
+  press (`gestures`: `Pressing::Target`) moves no caret.
+- **A press is taken as the page's `gestures` say** (place, extend, add a caret, column, word, line,
+  nothing) and as the editor did where they say nothing; the editor's keys are as the page's `keymap`
+  says (a key, or a chord that waits `chord_timeout`, `EditorEvent::KeymapPending`).
+
 - **The pointer's rest over a word** (`Editors::rest`, `rest_due`, `tick`, `end_rest`): told once after
   `hover.delay`, and its leaving, to a page that asked (`EditorEvent::Hover`); a scroll, a key, a
   press, an edit or a drag ends it and none is told until the pointer moves again; `Editors::word_at`

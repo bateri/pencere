@@ -757,12 +757,66 @@ interface types {
         events: editor-events,
         /// How long the pointer rests before it is told.
         hover: hover-options,
+        /// How presses are taken, by button, modifiers and count; what is not here is as the
+        /// editor takes it. At most 256.
+        gestures: list<gesture-binding>,
+        /// The editor's keys the page changes, one entry for each key or chord. At most 256.
+        keymap: list<key-binding>,
+        links: link-options,
+        /// Seconds (0.1 to 10) a chord waits for its next key; none: 1.
+        chord-timeout: option<f32>,
+    }
+
+    record gesture-binding {
+        button: button,
+        mods: mods,
+        /// How many presses of a quick run (1, 2, 3).
+        count: u32,
+        pressing: pressing,
+    }
+
+    enum pressing {
+        place,
+        extend,
+        add-caret,
+        column,
+        word,
+        line,
+        /// The page's: told as `editor-target` with `press`.
+        target,
+        nothing,
+    }
+
+    /// Keys of an editor the page changes: a chord of at most four keys (each as `pencere.keys`
+    /// reads them), and what it does; none: nothing of the editor's.
+    record key-binding {
+        keys: list<string>,
+        action: option<key-action>,
+    }
+
+    variant key-action {
+        command(editor-command),
+        tab,
+        copy,
+        cut,
+        paste,
+        escape,
+        to-line-start,
+        to-line-end,
+    }
+
+    record link-options {
+        /// The least seconds between two words told of (0 to 1); none: 0.05.
+        delay: option<f32>,
     }
 
     /// The events an editor tells beyond the rest: none unless the page asks.
     record editor-events {
         /// The pointer rested over a word, or left it (`editor-hover`).
         hover: bool,
+        /// The pointer over a word with the modifiers of a press that is the page's, and that press
+        /// (`editor-target`).
+        target: bool,
     }
 
     record hover-options {
@@ -1238,6 +1292,44 @@ interface types {
         editor-gutter(editor-gutter),
         /// The pointer rested over a word of an editor that asked to hear of it, or left it.
         editor-hover(editor-hover),
+        /// The pointer came to a word with a press of the page's held, or went from it; that press.
+        editor-target(editor-target),
+        /// A chord of keys is waited on, or no longer.
+        keymap-pending(keymap-pending),
+    }
+
+    record editor-target {
+        editor: id,
+        kind: target-kind,
+        source: target-source,
+        at: u32,
+        %from: u32,
+        to: u32,
+        /// The `id` of the link a press is on.
+        link: option<string>,
+        /// The word's or the link's box, in the page's points.
+        word: rect,
+        mods: mods,
+        button: button,
+        count: u32,
+        version: u64,
+    }
+
+    enum target-kind {
+        enter,
+        leave,
+        press,
+    }
+
+    enum target-source {
+        word,
+        link,
+    }
+
+    record keymap-pending {
+        editor: id,
+        /// The keys of the chord so far, as written; none when it is no longer waited on.
+        keys: list<string>,
     }
 
     /// A word of an editor's text, or a run of marks: its range, characters.
@@ -1473,6 +1565,13 @@ interface types {
         /// What the page calls it, told in the `hits` of an `editor-hover` where the pointer rests
         /// on it.
         id: option<string>,
+        /// Drawn (and its cursor given) only while exactly these modifiers are held (`shift` where it
+        /// is true; the other three as they are).
+        held: option<mods>,
+        /// Drawn only while the pointer is over the characters of its range.
+        over: bool,
+        /// The pointer's shape over the range where it is drawn.
+        cursor: option<cursor>,
     }
 
     /// What a decoration marks.

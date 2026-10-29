@@ -445,6 +445,28 @@ pub struct Look {
     /// that a page finds the diagnostic or the link under the pointer without searching its own
     /// lists.
     pub id: Option<String>,
+    /// Drawn (and its `cursor` given) only while exactly these modifiers are held: `command`,
+    /// `control` and `alt` as written, and `shift` where it is written (`mod` is the host's main
+    /// modifier). A link that shows while ⌘ is held ([`Look::over`], [`Look::cursor`]).
+    pub held: Option<Mods>,
+    /// Drawn only while the pointer is over the characters of its range.
+    pub over: bool,
+    /// The pointer's shape over the range where it is drawn: the hand (`Cursor::Pointer`) for a look
+    /// that is `held`, none otherwise.
+    pub cursor: Option<Cursor>,
+}
+
+impl Look {
+    /// Whether the look is drawn as the modifiers `mods` are held and the pointer is (or is not)
+    /// over its range.
+    pub fn shows(&self, mods: Mods, over: bool) -> bool {
+        self.held.is_none_or(|held| {
+            held.control == mods.control
+                && held.alt == mods.alt
+                && held.command == mods.command
+                && (!held.shift || mods.shift)
+        }) && (!self.over || over)
+    }
 }
 
 /// A line under some characters.
@@ -643,6 +665,120 @@ pub struct EditorOptions {
     pub events: EditorEvents,
     /// How the pointer's resting over the text is told ([`HoverOptions`]).
     pub hover: HoverOptions,
+    /// How a press is taken, by the button, the modifiers and how many in a quick run: what the page
+    /// says here is taken as it says, what it does not is as the editor takes it ([`Gesture`]).
+    pub gestures: Vec<(Gesture, Pressing)>,
+    /// How the editor's keys are read where the page says another, by the keys ([`Keybinding`]).
+    pub keymap: Vec<Keybinding>,
+    /// How the pointer's moving over a word with the modifiers of a press that is the page's is
+    /// told ([`LinkOptions`]).
+    pub links: LinkOptions,
+    /// How long a chord of keys waits for its next key, seconds ([`limits::CHORD_TIMEOUT`]); VS Code's
+    /// waits one.
+    pub chord_timeout: f32,
+}
+
+/// A press as a page names it: a button, the modifiers, and how many presses of a quick run.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Gesture {
+    pub button: Button,
+    pub mods: Mods,
+    pub count: u32,
+}
+
+/// What a press does in an editor's text ([`EditorOptions::gestures`]); the drag that follows it is
+/// of the same kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pressing {
+    /// Puts the caret there; dragged, selects.
+    Place,
+    /// Selects from the main selection's start to there.
+    Extend,
+    /// Adds a caret there.
+    AddCaret,
+    /// Starts a column.
+    Column,
+    /// Takes the word (dragged, grows by words).
+    Word,
+    /// Takes the line (dragged, grows by lines).
+    Line,
+    /// Is the page's: told (`target`, [`TargetEvent`]); the caret does not move and the editor has
+    /// the keyboard.
+    Target,
+    /// Does nothing.
+    Nothing,
+}
+
+/// The editor's keys the page changes ([`EditorOptions::keymap`]): one key or a chord of several, and
+/// what they do, or `None`: nothing of the editor's (the page's to read as a key).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Keybinding {
+    pub keys: Vec<crate::Shortcut>,
+    pub action: Option<KeyAction>,
+}
+
+/// What the editor's keys do.
+#[derive(Clone, Debug, PartialEq)]
+pub enum KeyAction {
+    Command(EditCommand),
+    Tab,
+    Copy,
+    Cut,
+    Paste,
+    /// Back to one selection where there are several.
+    Escape,
+    /// Deletes to where the line starts, and to where it ends.
+    ToLineStart,
+    ToLineEnd,
+}
+
+/// How the pointer over a word with a press that is the page's held is told.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LinkOptions {
+    /// The most often a word is told, seconds ([`limits::LINK_DELAY`]).
+    pub delay: f32,
+}
+
+impl Default for LinkOptions {
+    fn default() -> Self {
+        Self { delay: 0.05 }
+    }
+}
+
+/// The pointer over a word that a press of the page's is held for, or that press ([`EditorEvents::target`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TargetEvent {
+    pub editor: Id,
+    pub kind: TargetKind,
+    /// What is under the pointer: a word, or a range the page drew as a link (`held` and `id`).
+    pub source: TargetSource,
+    pub at: usize,
+    pub from: usize,
+    pub to: usize,
+    /// The link's `id`, where it is one.
+    pub id: Option<String>,
+    /// The word's or the link's box, points of the page.
+    pub rect: Rect,
+    pub mods: Mods,
+    /// For a press: the button and how many in a quick run.
+    pub button: Button,
+    pub count: u32,
+    pub version: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TargetKind {
+    /// The modifiers of a press of the page's are held and the pointer came to a word.
+    Enter,
+    /// They were let go, the pointer left the word, or the text changed under it.
+    Leave,
+    Press,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TargetSource {
+    Word,
+    Link,
 }
 
 /// Which events of its own an editor tells the page: none unless the page asks, as the rare things
@@ -651,6 +787,9 @@ pub struct EditorOptions {
 pub struct EditorEvents {
     /// The pointer rested over a word or left it ([`HoverEvent`]).
     pub hover: bool,
+    /// The pointer over a word with the modifiers of a press that is the page's, and that press
+    /// ([`TargetEvent`]).
+    pub target: bool,
 }
 
 /// How long the pointer rests before it is told of ([`EditorOptions::hover`]).
@@ -776,6 +915,10 @@ impl Default for EditorOptions {
             colors: EditorColors::default(),
             events: EditorEvents::default(),
             hover: HoverOptions::default(),
+            gestures: Vec::new(),
+            keymap: Vec::new(),
+            links: LinkOptions::default(),
+            chord_timeout: 1.0,
         }
     }
 }
@@ -801,6 +944,12 @@ impl EditorOptions {
         self.marks.hover = hold(self.marks.hover, limits::MARK_WIDTH, default.marks.hover);
         self.marks.ruler = hold(self.marks.ruler, limits::MARK_WIDTH, default.marks.ruler);
         self.hover.delay = hold(self.hover.delay, limits::HOVER_DELAY, default.hover.delay);
+        self.links.delay = hold(self.links.delay, limits::LINK_DELAY, default.links.delay);
+        self.chord_timeout = hold(
+            self.chord_timeout,
+            limits::CHORD_TIMEOUT,
+            default.chord_timeout,
+        );
         self
     }
 }
@@ -1275,6 +1424,14 @@ pub mod limits {
     pub const ANCHORS: usize = 64;
     /// What the pointer's rest may be, seconds.
     pub const HOVER_DELAY: std::ops::RangeInclusive<f32> = 0.0..=10.0;
+    /// What the least time between two words told of may be, seconds.
+    pub const LINK_DELAY: std::ops::RangeInclusive<f32> = 0.0..=1.0;
+    /// What a chord's wait for its next key may be, seconds.
+    pub const CHORD_TIMEOUT: std::ops::RangeInclusive<f32> = 0.1..=10.0;
+    /// The most entries of a page's table of presses, and of its table of keys.
+    pub const BINDINGS: usize = 256;
+    /// The most keys one chord has.
+    pub const CHORD_KEYS: usize = 4;
     /// How wide a bar, or a mark of the overview ruler, may be, points.
     pub const MARK_WIDTH: std::ops::RangeInclusive<f32> = 1.0..=16.0;
 }

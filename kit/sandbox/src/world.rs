@@ -7,10 +7,11 @@ use std::sync::Arc;
 
 use pencere_view::edit::{
     Caret, CaretHeight, CaretShape, Change, Column, ColumnEvents, CommentTokens, Decorate,
-    Decoration, EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds,
-    GutterKind, GutterMark, GutterShape, HoverKind, HoverOptions, IndentRules, Keys, LineHighlight,
-    Look, Mark, MarkLooks, Matches, Movement, Numbers, Origin, Preview, Range, Refusal,
-    RevealAlign, RulerLane, RulerMark, Tint, Underline, Whitespace, Zone, limits,
+    Decoration, EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds, Gesture,
+    GutterKind, GutterMark, GutterShape, HoverKind, HoverOptions, IndentRules, KeyAction,
+    Keybinding, Keys, LineHighlight, LinkOptions, Look, Mark, MarkLooks, Matches, Movement,
+    Numbers, Origin, Pressing, Preview, Range, Refusal, RevealAlign, RulerLane, RulerMark,
+    TargetKind, TargetSource, Tint, Underline, Whitespace, Zone, limits,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -520,6 +521,31 @@ fn event_in(event: Event) -> wit::Event {
                 to: place_in(hit.to),
             }),
             cell: rect_of(gutter.rect),
+        }),
+        Event::Target(target) => wit::Event::EditorTarget(wit::EditorTarget {
+            editor: id_out(target.editor),
+            kind: match target.kind {
+                TargetKind::Enter => wit::TargetKind::Enter,
+                TargetKind::Leave => wit::TargetKind::Leave,
+                TargetKind::Press => wit::TargetKind::Press,
+            },
+            source: match target.source {
+                TargetSource::Word => wit::TargetSource::Word,
+                TargetSource::Link => wit::TargetSource::Link,
+            },
+            at: place_in(target.at),
+            from: place_in(target.from),
+            to: place_in(target.to),
+            link: target.id,
+            word: rect_of(target.rect),
+            mods: mods_in(target.mods),
+            button: button_in(target.button),
+            count: target.count,
+            version: target.version,
+        }),
+        Event::KeymapPending { editor, keys } => wit::Event::KeymapPending(wit::KeymapPending {
+            editor: id_out(editor),
+            keys,
         }),
         Event::Hover(hover) => wit::Event::EditorHover(wit::EditorHover {
             editor: id_out(hover.editor),
@@ -1306,6 +1332,28 @@ fn frame_out(
             .filter_map(|node| node.meta.editor.as_ref())
             .map(|options| &options.indent),
     )?;
+    // A key that is a command of the page (done wherever the keyboard is, before the editor's own) and
+    // is also a key the page gave an editor is two meanings for one key, said where the page wrote
+    // them: no silent precedence.
+    let commands: Vec<&Command> = nodes
+        .iter()
+        .flat_map(|node| node.meta.commands.iter())
+        .filter(|command| command.enabled)
+        .collect();
+    for options in nodes.iter().filter_map(|node| node.meta.editor.as_ref()) {
+        for binding in &options.keymap {
+            let first = binding.keys.first();
+            if let Some(command) = commands
+                .iter()
+                .find(|command| command.keys.iter().any(|keys| Some(keys) == first))
+            {
+                return Err(Fault::Malformed(format!(
+                    "the keys of the page's command \"{}\" are also a key of an editor's keymap",
+                    command.title
+                )));
+            }
+        }
+    }
     let root = Element::unfold(nodes, limits.depth)
         .map_err(|why: wire::Malformed| Fault::Malformed(why.to_string()))?;
     Ok(Frame {
@@ -1530,6 +1578,69 @@ fn editor_options_out(
             limits.parts
         )));
     }
+    if options.gestures.len() > limits::BINDINGS || options.keymap.len() > limits::BINDINGS {
+        return Err(Fault::Malformed(format!(
+            "an editor with more than {} gestures or keys",
+            limits::BINDINGS
+        )));
+    }
+    let gestures: Vec<(Gesture, Pressing)> = options
+        .gestures
+        .iter()
+        .map(|binding| {
+            (
+                Gesture {
+                    button: button_out(binding.button),
+                    mods: mods_out(&binding.mods),
+                    count: binding.count.clamp(1, 3),
+                },
+                match binding.pressing {
+                    wit::Pressing::Place => Pressing::Place,
+                    wit::Pressing::Extend => Pressing::Extend,
+                    wit::Pressing::AddCaret => Pressing::AddCaret,
+                    wit::Pressing::Column => Pressing::Column,
+                    wit::Pressing::Word => Pressing::Word,
+                    wit::Pressing::Line => Pressing::Line,
+                    wit::Pressing::Target => Pressing::Target,
+                    wit::Pressing::Nothing => Pressing::Nothing,
+                },
+            )
+        })
+        .collect();
+    if gestures
+        .iter()
+        .any(|(_, pressing)| *pressing == Pressing::Target)
+        && !options.events.target
+    {
+        return Err(Fault::Malformed(
+            "a gesture that is the page's (\"target\") needs the editor's events to say \"target\""
+                .into(),
+        ));
+    }
+    let keymap = options
+        .keymap
+        .iter()
+        .map(|binding| {
+            if binding.keys.is_empty() || binding.keys.len() > limits::CHORD_KEYS {
+                return Err(Fault::Malformed(format!(
+                    "a chord of keys has one to {} keys",
+                    limits::CHORD_KEYS
+                )));
+            }
+            let keys = binding
+                .keys
+                .iter()
+                .map(|words| {
+                    Shortcut::parse(words)
+                        .ok_or_else(|| Fault::Malformed(format!("\"{words}\" are not keys")))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Keybinding {
+                keys,
+                action: binding.action.clone().map(key_action_out),
+            })
+        })
+        .collect::<Result<Vec<_>, Fault>>()?;
     Ok(EditorOptions {
         wrap: options.wrap,
         tab_width: options.tab_width.clamp(1, 16),
@@ -1605,7 +1716,14 @@ fn editor_options_out(
         colors: editor_colors_out(&options.colors),
         events: EditorEvents {
             hover: options.events.hover,
+            target: options.events.target,
         },
+        gestures,
+        keymap,
+        links: LinkOptions {
+            delay: options.links.delay.unwrap_or(default.links.delay),
+        },
+        chord_timeout: options.chord_timeout.unwrap_or(default.chord_timeout),
         hover: HoverOptions {
             delay: options.hover.delay.unwrap_or(default.hover.delay),
         },
@@ -1782,6 +1900,9 @@ fn mark_out(mark: &wit::Mark) -> Mark {
             }),
             strike: look.strike,
             id: look.id.clone(),
+            held: look.held.as_ref().map(mods_out),
+            over: look.over,
+            cursor: look.cursor.map(cursor_out),
         }),
         wit::Mark::Line(color) => Mark::Line(color_out(color)),
         wit::Mark::Gutter(mark) => Mark::Gutter(gutter_mark_out(mark)),
@@ -1810,6 +1931,36 @@ fn shape_out(shape: &wit::GutterShape) -> GutterShape {
         wit::GutterShape::Above => GutterShape::Above,
         wit::GutterShape::Below => GutterShape::Below,
         wit::GutterShape::Image(src) => GutterShape::Image(src.clone()),
+    }
+}
+
+fn mods_out(mods: &wit::Mods) -> Mods {
+    Mods {
+        shift: mods.shift,
+        control: mods.control,
+        alt: mods.alt,
+        command: mods.command,
+    }
+}
+
+fn button_out(button: wit::Button) -> Button {
+    match button {
+        wit::Button::Left => Button::Left,
+        wit::Button::Right => Button::Right,
+        wit::Button::Middle => Button::Middle,
+    }
+}
+
+fn key_action_out(action: wit::KeyAction) -> KeyAction {
+    match action {
+        wit::KeyAction::Command(command) => KeyAction::Command(command_out(command)),
+        wit::KeyAction::Tab => KeyAction::Tab,
+        wit::KeyAction::Copy => KeyAction::Copy,
+        wit::KeyAction::Cut => KeyAction::Cut,
+        wit::KeyAction::Paste => KeyAction::Paste,
+        wit::KeyAction::Escape => KeyAction::Escape,
+        wit::KeyAction::ToLineStart => KeyAction::ToLineStart,
+        wit::KeyAction::ToLineEnd => KeyAction::ToLineEnd,
     }
 }
 

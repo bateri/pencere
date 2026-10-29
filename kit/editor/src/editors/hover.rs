@@ -54,6 +54,8 @@ impl Editors {
         measure: &mut dyn Measure,
     ) {
         self.hovering.mods = mods;
+        self.now = now;
+        self.pointer = at;
         let was_quiet = std::mem::take(&mut self.hovering.quiet);
         let found = if self.drag.is_some() {
             None
@@ -89,11 +91,19 @@ impl Editors {
                 self.hovering.rest = found;
             }
         }
+        self.retarget(laid, measure);
     }
 
     /// The time the pointer's rest is next to be told at, on the frames' clock; `None` where it is
     /// not resting on a word the page hears of, or has been told.
     pub fn rest_due(&self) -> Option<f64> {
+        [self.rest_due_hover(), self.target_due(), self.chord_due()]
+            .into_iter()
+            .flatten()
+            .reduce(f64::min)
+    }
+
+    fn rest_due_hover(&self) -> Option<f64> {
         let rest = self.hovering.rest.as_ref()?;
         if self.hovering.quiet || self.hovering.told.is_some() {
             return None;
@@ -108,8 +118,11 @@ impl Editors {
     }
 
     /// The frame at `now`, `laid` the page: a rest whose time has come is told.
-    pub fn tick(&mut self, laid: &Laid, now: f64) {
-        if self.rest_due().is_none_or(|due| now < due) {
+    pub fn tick(&mut self, laid: &Laid, now: f64, measure: &mut dyn Measure) {
+        self.now = now;
+        self.tick_chord(now);
+        self.tick_target(laid, now, measure);
+        if self.rest_due_hover().is_none_or(|due| now < due) {
             return;
         }
         let Some(rest) = self.hovering.rest.clone() else {

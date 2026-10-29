@@ -179,6 +179,15 @@ pub enum Event {
     /// The pointer rested over a word of an editor that hears of it, or left it
     /// ([`crate::edit::EditorEvents::hover`]).
     Hover(crate::edit::HoverEvent),
+    /// The pointer came to a word, or went from it, with the modifiers of a press that is the
+    /// page's held, or that press ([`crate::edit::EditorEvents::target`]).
+    Target(crate::edit::TargetEvent),
+    /// A chord of keys is waited on (the keys so far, as written), or is not waited on any more
+    /// (an empty list).
+    KeymapPending {
+        editor: crate::Id,
+        keys: Vec<String>,
+    },
     /// The host made the editor named `editor`: the page named it and it was laid out, hidden or
     /// not, and what the page asks of it from now on is done. Its text is posted before it is
     /// told (the version `version`, empty where the editor is new): a page loads a document into

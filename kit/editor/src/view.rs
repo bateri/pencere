@@ -19,7 +19,7 @@ use pencere_view::edit::{
     Whitespace, limits,
 };
 use pencere_view::{
-    Border, Color, Cursor, EditorRoom, EditorSlot, Figure, Font, Id, Measure, Paint, Picture,
+    Border, Color, Cursor, EditorRoom, EditorSlot, Figure, Font, Id, Measure, Mods, Paint, Picture,
     Point, Quad, Rect, Role, Run, Size, path,
 };
 use unicode_segmentation::UnicodeSegmentation;
@@ -147,6 +147,10 @@ pub(crate) struct View {
     /// What the page said of the room, held to what an editor takes: its rows, caret, gutter and
     /// colours.
     pub options: EditorOptions,
+    /// The modifiers held, and the character the pointer is over: what a look that is `held` or
+    /// `over` is drawn by.
+    pub mods: Mods,
+    pub pointer_char: Option<usize>,
     /// The columns of the gutter, laid out.
     pub cols: Vec<Col>,
     /// The cell of the gutter the pointer is over, and the one it is pressing.
@@ -203,6 +207,8 @@ impl Default for View {
             gutter: 0.0,
             pad: 4.0,
             options: EditorOptions::default(),
+            mods: Mods::default(),
+            pointer_char: None,
             cols: Vec::new(),
             hover: None,
             pressed: None,
@@ -663,16 +669,15 @@ impl View {
         Some(Rect::new(drawn.x, y, drawn.w, h))
     }
 
-    /// The word (or the run of marks the double click takes) the pointer at `point` (pixels of the
-    /// content) is over: the place it is on, the range of the run and its box (pixels of the
-    /// content). `None` over the gutter, past the end of a line, in a gap kept open for the page and
-    /// over a run of spaces.
-    pub fn word_under(
+    /// The character the pointer at `point` (pixels of the content) is over: the one before the place
+    /// it is nearest where it is left of it, the one after where it is not. `None` over the gutter,
+    /// past the end of a line and in a gap kept open for the page.
+    pub fn char_under(
         &self,
         buffer: &Buffer,
         point: Point,
         measure: &mut dyn Measure,
-    ) -> Option<Word> {
+    ) -> Option<usize> {
         if self.row <= 0.0 || point.x < self.text_x() || point.y < self.pad {
             return None;
         }
@@ -688,13 +693,24 @@ impl View {
         let (found, into) = self.row_of(buffer, place, measure)?;
         let here = self.text_x() + found.x(into);
         let (start, end) = (buffer.line_start(line), buffer.line_end(line));
-        // The character the pointer is over: the one before the place where it is left of it, the
-        // one after where it is not.
-        let char_at = if point.x < here {
-            place.checked_sub(1).filter(|at| *at >= start)?
+        if point.x < here {
+            place.checked_sub(1).filter(|at| *at >= start)
         } else {
-            (place < end).then_some(place)?
-        };
+            (place < end).then_some(place)
+        }
+    }
+
+    /// The word (or the run of marks the double click takes) the pointer at `point` (pixels of the
+    /// content) is over: the place it is on, the range of the run and its box (pixels of the
+    /// content). `None` where there is no character under it ([`View::char_under`]) and over a run
+    /// of spaces.
+    pub fn word_under(
+        &self,
+        buffer: &Buffer,
+        point: Point,
+        measure: &mut dyn Measure,
+    ) -> Option<Word> {
+        let char_at = self.char_under(buffer, point, measure)?;
         let (from, to) = buffer.word_range(char_at);
         if to <= from || buffer.slice(from, to)?.chars().all(char::is_whitespace) {
             return None;
@@ -1188,7 +1204,12 @@ impl View {
             let look = styles
                 .iter()
                 .rev()
-                .find(|(f, t, _)| *f <= from && *t >= to)
+                .find(|(f, t, look)| {
+                    *f <= from && *t >= to && {
+                        let over = self.pointer_char.is_some_and(|at| at >= *f && at < *t);
+                        look.shows(self.mods, over)
+                    }
+                })
                 .map(|(_, _, look)| *look);
             let x = origin_x + row.x(a);
             let width = row.x(b) - row.x(a);

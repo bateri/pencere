@@ -366,7 +366,18 @@ end
 -- column, none after another), `marks = { bar = 3, hover = 6, ruler = 4 }` (how wide a bar, a bar the pointer is over
 -- and the overview ruler are), `events = { "hover" }` (what of its own the editor tells the page:
 -- the pointer's rest over a word and its going from it, once `hover = { delay = 0.3 }` seconds have
--- passed), `current_line` (where the caret's line is drawn:
+-- passed; and "target": the pointer over a word with the modifiers of a press that is the page's held,
+-- and that press), `gestures` (how presses are taken, by their modifiers, button and count:
+-- `{ ["press"] = "place", ["shift+press"] = "extend", ["mod+press"] = "target", ["alt+press"] =
+-- "column", ["press×2"] = "word", ["press×3"] = "line" }` are what an editor does where the page says
+-- nothing; "add_caret" and false (nothing) are the others; "target" is the page's and needs
+-- `events = { "target" }`; `mod` is the host's main modifier), `keymap` (the editor's keys the page
+-- changes: `{ ["mod+d"] = "select_next", ["mod+/"] = false, ["mod+k mod+c"] = "toggle_comment" }`, the keys
+-- of a chord apart by a space; what they do is the name of a command that needs none, "copy", "cut",
+-- "paste", "tab", "escape", "to_line_start", "to_line_end", a command's table, or false: nothing of
+-- the editor's; `pencere.layout.keymap(editor)` says what the keys do now), `chord_timeout` (seconds a
+-- chord waits for its next key, 1), `links = { delay = 0.05 }` (the least time between two words told
+-- of), `current_line` (where the caret's line is drawn:
 -- "text", "gutter", "all"), `whitespace` (which spaces and tabs it shows, as VS Code: "none",
 -- "boundary" (all but a space alone between words), "selection", "trailing" or "all"; a space is a
 -- dot, a tab an arrow, any other space a box), `indent_guides` (a thin line down each level of
@@ -397,6 +408,10 @@ local EDITOR_OPTIONS = {
 	marks = { bar = true, hover = true, ruler = true },
 	events = true,
 	hover = { delay = true },
+	gestures = true,
+	keymap = true,
+	chord_timeout = true,
+	links = { delay = true },
 	current_line = true,
 	whitespace = true,
 	indent_guides = true,
@@ -456,6 +471,7 @@ function Element:editor(id, options)
 		said.pairs = table.concat(said.pairs)
 	end
 	self.meta.editor = said
+	pencere._keymaps[self.meta.id] = said.keymap
 	self.style.overflow = "scroll"
 	return self
 end

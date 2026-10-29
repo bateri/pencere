@@ -505,6 +505,8 @@ impl Pair {
             | Event::EditorReady { .. }
             | Event::Gutter(_)
             | Event::Hover(_)
+            | Event::Target(_)
+            | Event::KeymapPending { .. }
             | Event::Edit { .. }
             | Event::Selection { .. }
             | Event::Viewport { .. }

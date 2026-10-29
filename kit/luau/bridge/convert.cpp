@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <cctype>
+#include <string>
+
 #include <unordered_map>
 #include <vector>
 
@@ -1015,6 +1018,10 @@ static_assert(PENCERE_VIEW_TYPES_LINE_HIGHLIGHT_TEXT == 0 && PENCERE_VIEW_TYPES_
 
 // Defined with the strings the host takes, below.
 view_string_t string_of(lua_State* L, int t, const char* name);
+// Defined with the editor's commands, below.
+pencere_view_types_list_gesture_binding_t gestures_at(lua_State* L, int t);
+pencere_view_types_list_key_binding_t keymap_at(lua_State* L, int t);
+pencere_view_types_option_mods_t held_at(lua_State* L, int t, const char* name);
 
 const char* const kCursorNames[] = {"arrow",           "pointer",     "text", "resize_horizontal",
                                     "resize_vertical", "not_allowed", "grab", "grabbing",
@@ -1255,11 +1262,23 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
             lua_rawgeti(L, told, (int)at);
             const char* said = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "";
             if (strcmp(said, "hover") == 0) out.events.hover = true;
-            else luaL_error(L, "an editor tells of \"hover\", not \"%s\"", said);
+            else if (strcmp(said, "target") == 0) out.events.target = true;
+            else luaL_error(L, "an editor tells of \"hover\" and \"target\", not \"%s\"", said);
             lua_pop(L, 1);
         }
     } else if (!lua_isnil(L, told)) {
         luaL_error(L, "the events of an editor are a list of words: { \"hover\" }");
+    }
+    lua_pop(L, 1);
+    out.gestures = gestures_at(L, t);
+    out.keymap = keymap_at(L, t);
+    out.chord_timeout = optional_number(L, t, "chord_timeout");
+    get(L, t, "links");
+    int links = lua_gettop(L);
+    if (lua_type(L, links) == LUA_TTABLE) {
+        out.links.delay = optional_number(L, links, "delay");
+    } else if (!lua_isnil(L, links)) {
+        luaL_error(L, "the links of an editor are a table: { delay = seconds }");
     }
     lua_pop(L, 1);
     get(L, t, "hover");
@@ -2047,6 +2066,49 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_number(L, "version", (double)hover.version);
             break;
         }
+        case PENCERE_VIEW_TYPES_EVENT_EDITOR_TARGET: {
+            // { editor =, kind = "enter" | "leave" | "press", source = "word" | "link", at =, from =, to =,
+            // id = (of a link), word = { x =, y =, w =, h = }, mods…, button =, count =, version = }
+            const auto& target = event.val.editor_target;
+            static const char* const kKinds[] = {"enter", "leave", "press"};
+            set_word(L, "type", "target");
+            push_id(L, target.editor);
+            lua_setfield(L, -2, "editor");
+            set_word(L, "kind", target.kind < 3 ? kKinds[target.kind] : "press");
+            set_word(L, "source", target.source == PENCERE_VIEW_TYPES_TARGET_SOURCE_LINK ? "link" : "word");
+            set_place(L, "at", target.at);
+            set_place(L, "from", target.from);
+            set_place(L, "to", target.to);
+            if (target.link.is_some) {
+                lua_pushlstring(L, (const char*)target.link.val.ptr, target.link.val.len);
+                lua_setfield(L, -2, "id");
+            }
+            lua_createtable(L, 0, 4);
+            set_number(L, "x", target.word.x);
+            set_number(L, "y", target.word.y);
+            set_number(L, "w", target.word.w);
+            set_number(L, "h", target.word.h);
+            lua_setfield(L, -2, "word");
+            set_mods(L, target.mods);
+            set_word(L, "button", button_name(target.button));
+            set_number(L, "count", (double)target.count);
+            set_number(L, "version", (double)target.version);
+            break;
+        }
+        case PENCERE_VIEW_TYPES_EVENT_KEYMAP_PENDING: {
+            // { editor =, keys = { "cmd+k", … } }: the chord so far; none when it is not waited on.
+            const auto& pending = event.val.keymap_pending;
+            set_word(L, "type", "keymap_pending");
+            push_id(L, pending.editor);
+            lua_setfield(L, -2, "editor");
+            lua_createtable(L, (int)pending.keys.len, 0);
+            for (size_t at = 0; at < pending.keys.len; at++) {
+                lua_pushlstring(L, (const char*)pending.keys.ptr[at].ptr, pending.keys.ptr[at].len);
+                lua_rawseti(L, -2, (int)at + 1);
+            }
+            lua_setfield(L, -2, "keys");
+            break;
+        }
         case PENCERE_VIEW_TYPES_EVENT_EDITOR_READY:
             // { editor =, version = }: the host made the editor; its text is posted.
             set_word(L, "type", "editor_ready");
@@ -2149,6 +2211,218 @@ pencere_view_types_editor_command_t command_at(lua_State* L, int t) {
     return out;
 }
 
+namespace {
+
+std::string lower_of(const std::string& text) {
+    std::string out = text;
+    for (auto& c : out) c = (char)tolower((unsigned char)c);
+    return out;
+}
+
+// The word `mod` is the host's main modifier: the command key on a Mac, control elsewhere.
+const char* main_modifier() {
+    return pencere_view_system_keyboard() == PENCERE_VIEW_SYSTEM_KEY_CONVENTION_MAC ? "cmd" : "ctrl";
+}
+
+// A modifier written as a word, put in `mods`; whether it was one.
+bool modifier_word(const std::string& word, pencere_view_types_mods_t& mods) {
+    std::string w = lower_of(word);
+    if (w == "mod") w = main_modifier();
+    if (w == "cmd" || w == "command" || w == "super" || w == "meta") mods.command = true;
+    else if (w == "ctrl" || w == "control") mods.control = true;
+    else if (w == "alt" || w == "option" || w == "opt") mods.alt = true;
+    else if (w == "shift") mods.shift = true;
+    else return false;
+    return true;
+}
+
+std::vector<std::string> split(const std::string& text, char by) {
+    std::vector<std::string> out;
+    size_t from = 0;
+    while (true) {
+        size_t at = text.find(by, from);
+        out.push_back(text.substr(from, at == std::string::npos ? std::string::npos : at - from));
+        if (at == std::string::npos) break;
+        from = at + 1;
+    }
+    return out;
+}
+
+}  // namespace
+
+// `held = "command"`, `"mod"`, `"control+alt"`: the modifiers a look is drawn while held.
+pencere_view_types_option_mods_t held_at(lua_State* L, int t, const char* name) {
+    pencere_view_types_option_mods_t out = {};
+    get(L, t, name);
+    if (lua_type(L, -1) == LUA_TSTRING) {
+        out.is_some = true;
+        for (const auto& word : split(lua_tostring(L, -1), '+'))
+            if (!modifier_word(word, out.val))
+                luaL_error(L, "%s is modifiers joined by +: command, control, alt, shift or mod, not \"%s\"", name, word.c_str());
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "%s is modifiers written as words: \"command\", \"mod\", \"control+alt\"", name);
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
+const char* const kPressings[] = {"place", "extend", "add_caret", "column", "word", "line", "target", "nothing"};
+
+// `gestures = { ["mod+press"] = "target", ["alt+shift+press"] = "column", ["press\xC3\x972"] = "word", … }`:
+// a press by its modifiers, button (`middle+press`) and count (`press×2`, `pressx2`); what it does, or
+// false (nothing).
+pencere_view_types_list_gesture_binding_t gestures_at(lua_State* L, int t) {
+    pencere_view_types_list_gesture_binding_t out = {};
+    get(L, t, "gestures");
+    int table = lua_gettop(L);
+    if (lua_type(L, table) == LUA_TTABLE) {
+        std::vector<pencere_view_types_gesture_binding_t> found;
+        lua_pushnil(L);
+        while (lua_next(L, table) != 0) {
+            if (lua_type(L, -2) != LUA_TSTRING) luaL_error(L, "the gestures of an editor are named by the press: [\"mod+press\"] = \"target\"");
+            std::string key = lua_tostring(L, -2);
+            pencere_view_types_gesture_binding_t binding = {};
+            binding.count = 1;
+            binding.button = PENCERE_VIEW_TYPES_BUTTON_LEFT;
+            auto words = split(key, '+');
+            for (size_t at = 0; at < words.size(); at++) {
+                std::string word = lower_of(words[at]);
+                if (at + 1 < words.size()) {
+                    if (word == "left") binding.button = PENCERE_VIEW_TYPES_BUTTON_LEFT;
+                    else if (word == "right") binding.button = PENCERE_VIEW_TYPES_BUTTON_RIGHT;
+                    else if (word == "middle") binding.button = PENCERE_VIEW_TYPES_BUTTON_MIDDLE;
+                    else if (!modifier_word(word, binding.mods))
+                        luaL_error(L, "the gesture \"%s\": \"%s\" is no modifier or button", key.c_str(), words[at].c_str());
+                } else {
+                    if (word.rfind("press", 0) != 0)
+                        luaL_error(L, "the gesture \"%s\" ends in \"press\" (or \"press\xC3\x97" "2\")", key.c_str());
+                    std::string rest = word.substr(5);
+                    if (rest.rfind("\xC3\x97", 0) == 0) rest = rest.substr(2);
+                    else if (rest.rfind("x", 0) == 0) rest = rest.substr(1);
+                    if (!rest.empty()) {
+                        binding.count = (uint32_t)atoi(rest.c_str());
+                        if (binding.count < 1 || binding.count > 3)
+                            luaL_error(L, "the gesture \"%s\" counts 1 to 3 presses", key.c_str());
+                    }
+                }
+            }
+            int value = lua_gettop(L);
+            if (lua_type(L, value) == LUA_TBOOLEAN && !lua_toboolean(L, value)) {
+                binding.pressing = PENCERE_VIEW_TYPES_PRESSING_NOTHING;
+            } else if (lua_type(L, value) == LUA_TSTRING) {
+                int found_at = -1;
+                for (int at = 0; at < 8; at++)
+                    if (strcmp(lua_tostring(L, value), kPressings[at]) == 0) found_at = at;
+                if (found_at < 0)
+                    luaL_error(L, "the gesture \"%s\" does \"%s\": place, extend, add_caret, column, word, line, target or false", key.c_str(), lua_tostring(L, value));
+                binding.pressing = (uint8_t)found_at;
+            } else {
+                luaL_error(L, "the gesture \"%s\" is a word (or false)", key.c_str());
+            }
+            found.push_back(binding);
+            if (found.size() > 256) luaL_error(L, "an editor has at most 256 gestures");
+            lua_pop(L, 1);
+        }
+        out.len = found.size();
+        out.ptr = found.empty() ? nullptr
+                                : (pencere_view_types_gesture_binding_t*)xmalloc(found.size() * sizeof(pencere_view_types_gesture_binding_t));
+        for (size_t at = 0; at < found.size(); at++) out.ptr[at] = found[at];
+    } else if (!lua_isnil(L, table)) {
+        luaL_error(L, "the gestures of an editor are a table: { [\"mod+press\"] = \"target\" }");
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
+// `keymap = { ["mod+d"] = "select_next", ["mod+/"] = false, ["mod+k mod+c"] = "toggle_comment",
+// ["ctrl+j"] = { command = "move", movement = "down" } }`: keys (a chord is keys apart by a space) and
+// what they do: the word of an editor command that needs none (`"undo"`), `"copy"`, `"cut"`, `"paste"`,
+// `"tab"`, `"escape"`, `"to_line_start"`, `"to_line_end"`, the table of a command, or false (nothing of
+// the editor's).
+pencere_view_types_list_key_binding_t keymap_at(lua_State* L, int t) {
+    pencere_view_types_list_key_binding_t out = {};
+    get(L, t, "keymap");
+    int table = lua_gettop(L);
+    if (lua_type(L, table) == LUA_TTABLE) {
+        std::vector<pencere_view_types_key_binding_t> found;
+        lua_pushnil(L);
+        while (lua_next(L, table) != 0) {
+            if (lua_type(L, -2) != LUA_TSTRING) luaL_error(L, "the keymap of an editor is named by the keys: [\"mod+d\"] = \"select_next\"");
+            std::string key = lua_tostring(L, -2);
+            pencere_view_types_key_binding_t binding = {};
+            std::vector<std::string> steps;
+            size_t from = 0;
+            while (from < key.size()) {
+                size_t end = key.find(' ', from);
+                if (end == std::string::npos) end = key.size();
+                if (end > from) steps.push_back(key.substr(from, end - from));
+                from = end + 1;
+            }
+            if (steps.empty() || steps.size() > 4) luaL_error(L, "a chord of keys has one to four keys, apart by spaces: \"%s\"", key.c_str());
+            binding.keys.len = steps.size();
+            binding.keys.ptr = (view_string_t*)xmalloc(steps.size() * sizeof(view_string_t));
+            for (size_t at = 0; at < steps.size(); at++) {
+                // The `mod` of a step is the host's main modifier.
+                std::string step = steps[at], written;
+                size_t pos = 0;
+                while (true) {
+                    size_t plus = step.find('+', pos);
+                    if (plus == std::string::npos || plus + 1 == step.size()) break;
+                    std::string token = step.substr(pos, plus - pos);
+                    written += (lower_of(token) == "mod" ? std::string(main_modifier()) : token) + "+";
+                    pos = plus + 1;
+                }
+                written += step.substr(pos);
+                binding.keys.ptr[at] = host_string(written.data(), written.size());
+            }
+            int value = lua_gettop(L);
+            if (lua_type(L, value) == LUA_TBOOLEAN && !lua_toboolean(L, value)) {
+                // Nothing of the editor's.
+            } else if (lua_type(L, value) == LUA_TSTRING) {
+                std::string name = lua_tostring(L, value);
+                binding.action.is_some = true;
+                auto& action = binding.action.val;
+                if (name == "copy") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_COPY;
+                else if (name == "cut") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_CUT;
+                else if (name == "paste") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_PASTE;
+                else if (name == "tab") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_TAB;
+                else if (name == "escape") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_ESCAPE;
+                else if (name == "to_line_start") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_TO_LINE_START;
+                else if (name == "to_line_end") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_TO_LINE_END;
+                else {
+                    int found_at = -1;
+                    for (int at = 0; at < 43; at++)
+                        if (name == kCommands[at]) found_at = at;
+                    if (found_at < 0) luaL_error(L, "the keys \"%s\" do \"%s\", which is no command of an editor", key.c_str(), name.c_str());
+                    if (found_at == PENCERE_VIEW_TYPES_EDITOR_COMMAND_MOVE || found_at == PENCERE_VIEW_TYPES_EDITOR_COMMAND_INSERT ||
+                        found_at == PENCERE_VIEW_TYPES_EDITOR_COMMAND_FIND || found_at == PENCERE_VIEW_TYPES_EDITOR_COMMAND_REPLACE ||
+                        found_at == PENCERE_VIEW_TYPES_EDITOR_COMMAND_REPLACE_ALL)
+                        luaL_error(L, "the keys \"%s\" do \"%s\", which needs more than its name: { command = \"%s\", … }", key.c_str(), name.c_str(), name.c_str());
+                    action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_COMMAND;
+                    action.val.command.tag = (uint8_t)found_at;
+                }
+            } else if (lua_type(L, value) == LUA_TTABLE) {
+                binding.action.is_some = true;
+                binding.action.val.tag = PENCERE_VIEW_TYPES_KEY_ACTION_COMMAND;
+                binding.action.val.val.command = command_at(L, value);
+            } else {
+                luaL_error(L, "the keys \"%s\" do a word, a table or false", key.c_str());
+            }
+            found.push_back(binding);
+            if (found.size() > 256) luaL_error(L, "an editor has at most 256 keymap entries");
+            lua_pop(L, 1);
+        }
+        out.len = found.size();
+        out.ptr = found.empty() ? nullptr
+                                : (pencere_view_types_key_binding_t*)xmalloc(found.size() * sizeof(pencere_view_types_key_binding_t));
+        for (size_t at = 0; at < found.size(); at++) out.ptr[at] = found[at];
+    } else if (!lua_isnil(L, table)) {
+        luaL_error(L, "the keymap of an editor is a table: { [\"mod+d\"] = \"select_next\" }");
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
 // A decoration: `{ from =, to =, fold = true }`, `{ from =, to =, line = colour }`,
 // `{ from =, to =, gutter = colour }`, or a look: `{ from =, to =, color =, background =, weight =,
 // italic =, strike =, underline = colour | { wavy = colour } }`.
@@ -2244,6 +2518,10 @@ pencere_view_types_decoration_t decoration_at(lua_State* L, int t) {
     }
     look.italic = optional_flag(L, t, "italic");
     look.strike = flag(L, t, "strike");
+    look.held = held_at(L, t, "held");
+    look.over = flag(L, t, "over");
+    int shape = word(L, t, "cursor", kCursorNames, 9, -1);
+    if (shape >= 0) look.cursor = {true, (uint8_t)shape};
     get(L, t, "id");
     if (lua_type(L, -1) == LUA_TSTRING) {
         size_t length = 0;

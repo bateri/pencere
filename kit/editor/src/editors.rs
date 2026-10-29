@@ -24,7 +24,7 @@ use std::collections::hash_map::Entry;
 
 use pencere_view::edit::{
     EditCommand, Edited, EditorAsk, Found, GutterEvent, GutterHit, GutterKind, HoverEvent, Keys,
-    Movement, Range, Refusal, RevealAlign, Selection, limits,
+    Mark, Movement, Pressing, Range, Refusal, RevealAlign, Selection, TargetEvent, limits,
 };
 use pencere_view::{
     Button, Cursor, DrawList, EditorMetrics, EditorRoom, Font, Id, Key, Laid, Measure, Metrics,
@@ -59,6 +59,10 @@ pub enum EditorEvent {
     Gutter(GutterEvent),
     /// The pointer rested over a word the page hears of, or left it.
     Hover(HoverEvent),
+    /// The pointer came to a word with a press of the page's held, or went from it; that press.
+    Target(TargetEvent),
+    /// A chord of keys is waited on (its keys so far), or no longer (none).
+    KeymapPending { editor: Id, keys: Vec<String> },
 }
 
 /// Where a key goes ([`Editors::key`]).
@@ -144,6 +148,13 @@ pub struct Editors {
     pointer: Option<Point>,
     /// What the pointer rests on ([`Editors::rest`]).
     hovering: hover::Hovering,
+    /// The pointer over a word with the modifiers of a press of the page's held ([`Editors::set_mods`]).
+    targeting: target::Targeting,
+    /// The modifiers held as the drive knows, and the time of the last thing it told the editors.
+    mods: Mods,
+    now: f64,
+    /// A chord of keys begun and waiting for its next ([`keymap`]).
+    chord: Option<keymap::Chord>,
     drag: Option<Drag>,
     scale: f32,
 }
@@ -411,6 +422,29 @@ impl Editors {
                 },
             );
         }
+        // Over a look the page drew as a link while the modifiers it asks for are held: its shape
+        // (the hand, where it says none).
+        if self.pointer == Some(at)
+            && let Some(char_at) = editor.view.pointer_char
+            && let Some(shape) = editor
+                .buffer
+                .decorations_in(char_at, char_at + 1)
+                .into_iter()
+                .rev()
+                .find_map(|(_, item)| match &item.mark {
+                    Mark::Style(look)
+                        if item.from <= char_at
+                            && item.to > char_at
+                            && look.shows(self.mods, true)
+                            && (look.held.is_some() || look.cursor.is_some()) =>
+                    {
+                        Some(look.cursor.unwrap_or(Cursor::Pointer))
+                    }
+                    _ => None,
+                })
+        {
+            return Some(shape);
+        }
         Some(Cursor::Text)
     }
 
@@ -463,7 +497,13 @@ impl Editors {
     /// A press of `button` that is not the main one's at `at` (points of the page): in a gutter
     /// column that hears menus it is told to the page; nothing else of an editor answers it. Whether
     /// it was one.
-    pub fn press_other(&mut self, laid: &Laid, at: Point, button: Button, mods: Mods) -> bool {
+    pub fn press_other(
+        &mut self,
+        laid: &Laid,
+        at: Point,
+        (button, mods, count): (Button, Mods, u32),
+        measure: &mut dyn Measure,
+    ) -> bool {
         self.end_rest();
         let Some((id, point)) = self.under(laid, at) else {
             return false;
@@ -473,7 +513,14 @@ impl Editors {
         };
         let x = point.x - editor.view.scroll.x;
         let Some(cell) = editor.view.cell_at(&editor.buffer, x, point.y) else {
-            return false;
+            // In the text: a press that is the page's is told it, as the main button's is.
+            let pressing = gesture_of(&editor.view.options.gestures, button, mods, count);
+            return match pressing {
+                Some(Pressing::Target) => {
+                    self.press_target(laid, id, point, (button, mods, count), measure)
+                }
+                _ => false,
+            };
         };
         let heard = editor
             .view
@@ -500,6 +547,9 @@ impl Editors {
             self.hover(laid, self.pointer);
         }
         self.check_rest();
+        if self.pointer.is_some() {
+            self.retarget(laid, measure);
+        }
     }
 
     /// What the pointer is over, found again where it last was: the shape it has there.
@@ -529,6 +579,7 @@ impl Editors {
                 }
             };
             editor.buffer.set_options(room.options.clone());
+            editor.view.mods = self.mods;
             editor.view.set_room(room, self.scale, measure);
             editor.view.size_gutter(editor.buffer.len_lines());
             editor.shown = !room.hidden;
@@ -686,7 +737,17 @@ impl Editors {
         if editor.buffer.options().keys == Keys::Page {
             return Route::Page;
         }
-        let Some(action) = builtin(key, mods) else {
+        let said = self.keymap_says(id, key, mods, now);
+        let Some(editor) = self.editors.get(&id) else {
+            return Route::NotEditor;
+        };
+        let own = match said {
+            keymap::Said::Waiting | keymap::Said::Ended => return Route::Done,
+            keymap::Said::Does(None) => return Route::Page,
+            keymap::Said::Does(Some(action)) => Some(action),
+            keymap::Said::Own => builtin(key, mods),
+        };
+        let Some(action) = own else {
             // ⌥ is how a Mac's keyboards type what is not on a key of its own (`@`, `[`, `{`, `|`,
             // `~` on many of them): a character with it types, as one with ⇧ does.
             return match key {
@@ -1024,23 +1085,39 @@ impl Editors {
         }
         let place = editor.view.place_at(&editor.buffer, point, measure);
         let others = editor.buffer.ranges().len();
-        let (unit, anchor) = match count {
-            2 => (Unit::Word, editor.buffer.word_range(place)),
-            n if n >= 3 => {
-                let line = editor.buffer.line_of(place);
-                (
-                    Unit::Line,
-                    (
-                        editor.buffer.line_start(line),
-                        editor.buffer.line_start(line + 1),
-                    ),
-                )
+        let pressing = gesture_of(&editor.view.options.gestures, Button::Left, mods, count);
+        match pressing {
+            Some(Pressing::Nothing) => return true,
+            Some(Pressing::Target) => {
+                self.press_target(laid, id, point, (Button::Left, mods, count), measure);
+                return true;
             }
-            _ if mods.alt => (Unit::Column, (place, place)),
-            _ => (Unit::Character, (place, place)),
+            _ => {}
+        }
+        let line_of = |place: usize| {
+            let line = editor.buffer.line_of(place);
+            (
+                editor.buffer.line_start(line),
+                editor.buffer.line_start(line + 1),
+            )
         };
-        let shift = mods.shift && count == 1;
-        let add = mods.command;
+        let (unit, anchor, shift, add) = match pressing {
+            Some(Pressing::Place) => (Unit::Character, (place, place), false, false),
+            Some(Pressing::Extend) => (Unit::Character, (place, place), true, false),
+            Some(Pressing::AddCaret) => (Unit::Character, (place, place), false, true),
+            Some(Pressing::Column) => (Unit::Column, (place, place), false, false),
+            Some(Pressing::Word) => (Unit::Word, editor.buffer.word_range(place), false, false),
+            Some(Pressing::Line) => (Unit::Line, line_of(place), false, false),
+            _ => {
+                let (unit, anchor) = match count {
+                    2 => (Unit::Word, editor.buffer.word_range(place)),
+                    n if n >= 3 => (Unit::Line, line_of(place)),
+                    _ if mods.alt => (Unit::Column, (place, place)),
+                    _ => (Unit::Character, (place, place)),
+                };
+                (unit, anchor, mods.shift && count == 1, mods.command)
+            }
+        };
         self.drag = Some(Drag {
             id,
             unit,
@@ -1281,6 +1358,22 @@ fn keep_in_view(
     })
 }
 
+/// What the page's table of presses says of a press: the exact button, modifiers and count.
+fn gesture_of(
+    gestures: &[(pencere_view::edit::Gesture, Pressing)],
+    button: Button,
+    mods: Mods,
+    count: u32,
+) -> Option<Pressing> {
+    gestures
+        .iter()
+        .rev()
+        .find(|(gesture, _)| {
+            gesture.button == button && gesture.mods == mods && gesture.count == count.max(1)
+        })
+        .map(|(_, pressing)| *pressing)
+}
+
 /// What a key does in an editor, apart from typing.
 #[derive(Clone, Debug, PartialEq)]
 enum Action {
@@ -1391,8 +1484,12 @@ impl From<EditorEvent> for pencere_view::Event {
             },
             EditorEvent::Gutter(event) => Event::Gutter(event),
             EditorEvent::Hover(event) => Event::Hover(event),
+            EditorEvent::Target(event) => Event::Target(event),
+            EditorEvent::KeymapPending { editor, keys } => Event::KeymapPending { editor, keys },
         }
     }
 }
 
 mod hover;
+mod keymap;
+mod target;
