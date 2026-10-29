@@ -481,7 +481,8 @@ impl View {
             return 1;
         }
         let text = buffer.line(line);
-        if let Some(shaped) = self.shaped.borrow().get(&text) {
+        let key = self.shape_key(buffer, line, &text);
+        if let Some(shaped) = self.shaped.borrow().get(&key) {
             return self.breaks(shaped).len().max(1);
         }
         let guess = text.chars().count() as f32 * self.digit.max(self.space);
@@ -672,7 +673,11 @@ impl View {
                 from,
                 to,
                 index: top + at,
-                shift: shaped.x_at(from),
+                // Where the row starts across, before the room of what stands at its start.
+                shift: shaped.x_at(from)
+                    - shaped
+                        .gap_at(from)
+                        .map_or(0.0, |gap| gap.before + gap.after),
                 shaped: shaped.clone(),
                 last: at + 1 == count,
             })
@@ -1932,7 +1937,7 @@ impl View {
         }
         // The rows are one under the other, so the first one that starts below `y` is found by
         // halving.
-        let (mut low, mut high) = (0, self.total().max(1));
+        let (mut low, mut high) = (0, self.total().max(1) + 1);
         while low < high {
             let middle = low + (high - low) / 2;
             if self.y_of(middle) <= y {

@@ -911,6 +911,7 @@ fn shortcut_words(shortcut: &pencere_view::Shortcut) -> String {
         Key::Backspace => "backspace".to_owned(),
         Key::Delete => "delete".to_owned(),
         Key::Function(n) => format!("f{n}"),
+        Key::Character(' ') => "space".to_owned(),
         Key::Character(c) => c.to_string(),
     });
     out

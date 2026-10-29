@@ -29,10 +29,23 @@ pub(super) struct Targeting {
 /// The modifiers of the press that is the page's (the first of the left button's that is `Target`
 /// and is not part of a run), where there is one.
 fn link_mods(gestures: &[(pencere_view::edit::Gesture, Pressing)]) -> Option<Mods> {
+    // The row that is in force: of rows that say the same press, the last.
     gestures
         .iter()
+        .rev()
         .find(|(gesture, pressing)| {
-            *pressing == Pressing::Target && gesture.button == Button::Left && gesture.count == 1
+            *pressing == Pressing::Target
+                && gesture.button == Button::Left
+                && gesture.count == 1
+                && gestures
+                    .iter()
+                    .rev()
+                    .find(|(other, _)| {
+                        other.button == gesture.button
+                            && other.mods == gesture.mods
+                            && other.count == gesture.count
+                    })
+                    .is_some_and(|(_, in_force)| *in_force == Pressing::Target)
         })
         .map(|(gesture, _)| gesture.mods)
 }
@@ -218,9 +231,9 @@ impl Editors {
             return false;
         };
         let word = Word {
-            at: found.placed.at,
-            from: found.placed.at,
-            to: found.placed.at,
+            at: found.place,
+            from: found.place,
+            to: found.place,
             rect: found.rect,
         };
         if let Some(mut event) =

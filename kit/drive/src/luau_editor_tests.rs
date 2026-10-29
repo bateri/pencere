@@ -2220,11 +2220,12 @@ fn a_window_that_loses_the_keyboard_lets_go_of_the_modifiers_and_the_links_they_
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
-fn a_key_that_is_a_command_of_the_page_and_a_key_of_an_editor_is_said_where_it_is_written() {
+fn a_key_that_is_a_command_of_the_page_and_the_start_of_a_chord_of_an_editor_is_said_where_it_is_written()
+ {
     let refused = Headless::script(
         r#"return { render = function()
             return pencere.div():command("run", "Run", "cmd+d", true)
-                :child(pencere.editor("e", { keymap = { ["mod+d"] = "select_all" } }))
+                :child(pencere.editor("e", { keymap = { ["mod+d mod+x"] = "select_all" } }))
         end }"#,
     )
     .size(1000.0, 700.0)
@@ -2456,5 +2457,75 @@ fn a_code_lens_is_an_element_in_a_gap_above_a_line_that_the_page_presses_like_an
     // And it is pressed as any element is.
     page.click("run")?;
     assert!(page.says("pressed run"), "{:?}", page.words());
+    Ok(())
+}
+
+// --- text-lua: the page that shows what an editor page does with a server's answers ------------------
+
+const TEXT: &str = include_str!("../../../examples/text-lua/src/view/page.lua");
+
+/// Where the run `text` was drawn, the host's points (the pointer is put a little in).
+fn run_at(page: &Headless, text: &str) -> Point {
+    let at = page
+        .list()
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Paint::Text(run) if run.text == text => Some(run.origin),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no run {text:?}: {:?}", page.words()));
+    Point::new(at.x + 3.0, at.y + 6.0)
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_example_that_answers_what_a_server_would_shows_hints_a_lens_a_card_and_a_link()
+-> Result<(), Error> {
+    let mut page = Headless::app(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/text-lua"),
+    )
+    .size(640.0, 300.0)
+    .open()?;
+    let _ = TEXT;
+    // The hints, the line's end error and the lens are there; the text is the document's.
+    for word in ["left:", "right:", "1 reference", "Run Test"] {
+        assert!(page.words().contains(&word), "{word} in {:?}", page.words());
+    }
+    assert!(page.words().iter().any(|w| w.contains("expected `;`")));
+    assert_eq!(
+        page.editor("code").map(|b| b.text().lines().count()),
+        Some(8)
+    );
+    // The pointer rests on `add`: a card stands by it and says what the style under it is named.
+    let at = run_at(&page, "add");
+    page.move_to(at)?;
+    page.advance(0.4)?;
+    assert!(
+        page.says("warning: warn:unused-result"),
+        "{:?}",
+        page.words()
+    );
+    let word = page.anchor_rect("code", "card").expect("the card's range");
+    let card = page.bounds("card").expect("the card");
+    assert_eq!(card.x, word.x);
+    // ⌘ held over a word makes a link of it and a ⌘-press on it is the page's.
+    let command = Mods {
+        command: true,
+        ..Mods::default()
+    };
+    page.hold(command)?;
+    page.advance(0.2)?;
+    page.click_holding(at, command)?;
+    assert!(page.says("Go to the definition of"), "{:?}", page.words());
+    // ⌃⌥ held: the group of hints is hidden.
+    page.release()?;
+    page.hold(Mods {
+        control: true,
+        alt: true,
+        ..Mods::default()
+    })?;
+    page.advance(0.2)?;
+    assert!(!page.words().contains(&"left:"), "{:?}", page.words());
     Ok(())
 }

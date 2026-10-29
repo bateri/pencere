@@ -555,9 +555,8 @@ pub struct Look {
     /// that a page finds the diagnostic or the link under the pointer without searching its own
     /// lists.
     pub id: Option<String>,
-    /// Drawn (and its `cursor` given) only while exactly these modifiers are held: `command`,
-    /// `control` and `alt` as written, and `shift` where it is written (`mod` is the host's main
-    /// modifier). A link that shows while ⌘ is held ([`Look::over`], [`Look::cursor`]).
+    /// Drawn (and its `cursor` given) only while exactly these modifiers are held (`mod` is the
+    /// host's main modifier). A link that shows while ⌘ is held ([`Look::over`], [`Look::cursor`]).
     pub held: Option<Mods>,
     /// Drawn only while the pointer is over the characters of its range.
     pub over: bool,
@@ -574,7 +573,7 @@ impl Look {
             held.control == mods.control
                 && held.alt == mods.alt
                 && held.command == mods.command
-                && (!held.shift || mods.shift)
+                && held.shift == mods.shift
         }) && (!self.over || over)
     }
 }

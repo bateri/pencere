@@ -1625,7 +1625,8 @@ uint64_t id_of(lua_State* L, int index) {
                 uint64_t mixed = (of ^ ((role + 1) << 56)) * 0x9e3779b97f4a7c15ull;
                 return mixed ^ (mixed >> 29);
             };
-            return mix(editor) ^ mix(named);
+            uint64_t of_name = mix(named);
+            return mix(editor) ^ ((of_name << 17) | (of_name >> 47));
         }
         uint64_t editor = id_of(L, lua_gettop(L));
         lua_pop(L, 1);

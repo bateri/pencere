@@ -1348,7 +1348,13 @@ fn frame_out(
         .filter(|command| command.enabled)
         .collect();
     for options in nodes.iter().filter_map(|node| node.meta.editor.as_ref()) {
-        for binding in &options.keymap {
+        // Only the first key of a chord: a key that is a command of the page alone is the page's to do,
+        // and a library's own commands for a moment (a popup's) are among them.
+        for binding in options
+            .keymap
+            .iter()
+            .filter(|binding| binding.keys.len() > 1)
+        {
             let first = binding.keys.first();
             if let Some(command) = commands
                 .iter()
@@ -1585,7 +1591,10 @@ fn editor_options_out(
             limits.parts
         )));
     }
-    if options.gestures.len() > limits::BINDINGS || options.keymap.len() > limits::BINDINGS {
+    if options.gestures.len() > limits::BINDINGS
+        || options.keymap.len() > limits::BINDINGS
+        || options.widgets.len() > limits::BINDINGS
+    {
         return Err(Fault::Malformed(format!(
             "an editor with more than {} gestures or keys",
             limits::BINDINGS
@@ -1734,7 +1743,6 @@ fn editor_options_out(
         widgets: options
             .widgets
             .iter()
-            .take(limits::BINDINGS)
             .map(|group| {
                 let room = |points: Option<f32>, default: f32| {
                     points

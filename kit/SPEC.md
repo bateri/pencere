@@ -582,9 +582,9 @@ in the outline. It is on the page only while the editor has the gap (a zone is c
 changes as its decoration is, and goes with it).
 
 **Links.** A look may say `held = "command"` (modifiers joined by `+`: `command`, `control`, `alt`,
-`shift` where written, and `mod`, the host's main modifier: ⌘ on a Mac, Ctrl elsewhere), `over = true`
-and `cursor`: it is drawn only while exactly those modifiers (and no other of `command`, `control`,
-`alt`) are held and, with `over`, the pointer is over its range, and gives the pointer's shape then (the
+`shift`, and `mod`, the host's main modifier: ⌘ on a Mac, Ctrl elsewhere), `over = true`
+and `cursor`: it is drawn only while exactly those modifiers (and no other) are held, as a press of
+`gestures` is taken by exactly its modifiers, and, with `over`, the pointer is over its range, and gives the pointer's shape then (the
 hand, where it is `held` and says none). The editor does that itself, so that holding ⌘ and moving over
 words draw and take back links with no event of the pointer's moving: the page writes a link when it is
 told the pointer came to a word (`target`, `kind = "enter"`: with the `version` the event has, as any
@@ -607,7 +607,8 @@ copying, searching and the history do not know it: a click on it puts the caret 
 a selection that ends at it does not take it. `"end"` stands after the line's last row, `gap` points
 beyond the text, takes no room and is cut at the room's edge with "…". It is drawn small (`size`) on a ground
 of its group's, in `color` (the part's own where it says one). A widget in a group that is not shown is
-not there. A widget (or a part) with an `id` is the hand's, is what a rest is told of (`hover`, `over` =
+not there. A widget's `label` is what a screen reader and the host's tips say of it, as a marker's. A widget (or
+a part) with an `id` is the hand's, is what a rest is told of (`hover`, `over` =
 `"widget"`, `id`) and what a press is, whatever modifiers are held, in an editor that has `events = {
 "target" }` (`target`, `source = "widget"`, `id`, no caret moves); `anchor` names its box, as a range's.
 At most 8 parts, 200 characters and 32 widgets to a line; a widget over them is a reply the host
@@ -625,8 +626,9 @@ document's, `page_up`, `page_down`, `home`, `end` as written, `ctrl+a` and `ctrl
 `cmd+g`, `cmd+shift+g` `find_next`, `find_previous`; `cmd+c`, `cmd+x`, `cmd+v` `copy`, `cut`, `paste`;
 `alt+up`, `alt+down` `move_lines_up`, `move_lines_down`; `alt+shift+up`, `alt+shift+down`
 `duplicate_lines`; `cmd+alt+up`, `cmd+alt+down` `add_caret_above`, `add_caret_below`. A key that is a
-command of the page (enabled) and a key of the editor's `keymap`, or the first key of one of its
-chords, is a page that fails where it wrote them.
+command of the page (enabled) and the first key of a chord of the editor's `keymap` is a page that
+fails where it wrote them (a key of the keymap that is one alone is the page's command's, as the
+editor's own keys are).
 
 The pointer's **rest** is told to a page that asks (`events = { "hover" }`): when it stays `hover.delay`
 (0.3 s) over a word (the run a double click takes; not over spaces, the gutter, a gap, or past the end of
@@ -1131,7 +1133,10 @@ name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"
   in that time (the page forwards the editor's `hover` events and its `wake` to `u:handle`, as it
   forwards every event). `focus = true` writes the commands `up`, `down`, `page_up` and `page_down`
   (while it is open) which scroll the card's body, and the keyboard stays in the editor. A card of a
-  range that is not in the room is not shown.
+  range that is not in the room is not shown. `step` (40 points) and `page` (0.9 of the card) say how far
+  the keys of a card that has the focus scroll it, `max_height` (320 points) how tall it grows. A card
+  does not close of itself when the pointer was on it as `hide_delay` ended and goes off it later: it goes at
+  what else `dismiss` lists.
 - `button`, `icon_button`, `toggle`, `badge`, `kbd`, `rule`, `banner`; `input`, `segments`, `tabs`;
   `modal`, `dialog`, `toasts`, `menu` (the host's), `popover`; `list`, `palette`, `completions`, `tree`,
   `grid`; `split`, `status`; `find_bar`. `ui.commands(list)` writes the page's commands once for the host, the

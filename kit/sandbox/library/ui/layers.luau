@@ -356,6 +356,8 @@ local HIDE_DELAY = 0.3
 -- page of it (nine tenths of it).
 local SCROLLS = { up = -1, down = 1, page_up = -1, page_down = 1 }
 local LINE = 40
+-- And the part of a page the page keys scroll.
+local PAGE = 0.9
 
 -- The editor an anchor stands by: the name `pencere.caret_of` or `pencere.range_of` was given, nil
 -- of an element's name.
@@ -383,7 +385,8 @@ end
 -- on its anchor), and of an editor's: "edit", "caret", "scroll", "leave"; all of them where it stands
 -- by an editor, the first two by an element). `hide_delay` (0.3) is how long the pointer may be off the
 -- word it rested on before "leave" does: it may come onto the card, or rest on another word, within
--- it. `focus = true` is the card whose body the keys ↑ ↓ ⇞ ⇟ scroll (commands of the page, while it is
+-- it, and does not close again where the pointer was on the card when it ended: the card then goes at
+-- what else `dismiss` lists. `focus = true` is the card whose body the keys ↑ ↓ ⇞ ⇟ scroll (commands of the page, while it is
 -- open) and Escape closes, with the keyboard staying in the editor.
 local Popover = core.component("popover", {
 	check = function(props)
@@ -479,14 +482,14 @@ local Popover = core.component("popover", {
 		return true, { kind = "dismiss" }
 	end,
 	-- The keys of a card that has the focus scroll its body.
-	command = function(u, id, _, _, part)
+	command = function(u, id, props, _, part)
 		local body = u:name(id, "body")
 		local extent = layout.scroll_extent(body)
 		if extent == nil or SCROLLS[part] == nil then
 			return nil
 		end
 		local height = extent.view or 0
-		local step = SCROLLS[part] * (string.sub(part, 1, 4) == "page" and height * 0.9 or LINE)
+		local step = SCROLLS[part] * (string.sub(part, 1, 4) == "page" and height * (props.page or PAGE) or (props.step or LINE))
 		local top = layout.scroll_offset(body) or 0
 		layout.scroll_to(body, { y = math.max(math.min(top + step, (extent.content or 0) - height), 0) })
 		return true

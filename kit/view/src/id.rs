@@ -53,7 +53,8 @@ impl Id {
     /// while the editor has the room and the range is on a line that shows.
     #[must_use]
     pub fn anchor(self, name: &str) -> Self {
-        Self(self.role(ANCHOR).0 ^ Self::named(name).role(ANCHOR).0)
+        // Not symmetric: an editor named as a range and a range named as an editor are two names.
+        Self(self.role(ANCHOR).0 ^ Self::named(name).role(ANCHOR).0.rotate_left(17))
     }
 
     /// An id related to this one — the same element in another role (a row, and the fade of

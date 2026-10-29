@@ -301,6 +301,23 @@ impl Editors {
             };
             let scroll = scroll_of(laid, &room);
             let (top, bottom) = (room.pixels.y, room.pixels.bottom());
+            // What a widget says of itself, where it stands in view.
+            for row in &editor.view.rows {
+                for found in editor.view.widget_boxes(row) {
+                    let Some(label) = found.placed.widget.label.clone() else {
+                        continue;
+                    };
+                    let y = room.pixels.y + found.rect.y - scroll.y;
+                    let x = room.pixels.x + found.rect.x - scroll.x;
+                    if y + found.rect.h <= top || y >= bottom {
+                        continue;
+                    }
+                    out.push((
+                        Rect::new(x / s, y / s, found.rect.w / s, found.rect.h / s),
+                        label,
+                    ));
+                }
+            }
             for (col, from, to, label) in editor.view.labels(&editor.buffer) {
                 let Some(col) = editor.view.cols.get(col) else {
                     continue;
@@ -757,7 +774,9 @@ impl Editors {
         if editor.buffer.composing() {
             return Route::Type;
         }
-        if let Some(command) = laid.command_for(key, mods) {
+        // A chord that waits takes the next key before the page's commands do.
+        let waiting = self.chord.as_ref().is_some_and(|chord| chord.editor == id);
+        if !waiting && let Some(command) = laid.command_for(key, mods) {
             return Route::Command(command);
         }
         if editor.buffer.options().keys == Keys::Page {

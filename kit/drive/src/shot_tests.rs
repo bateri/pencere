@@ -464,3 +464,58 @@ fn a_code_lens_is_pictured_in_its_gap_above_a_line() -> Result<(), Error> {
     }
     Ok(())
 }
+
+/// The example that answers what a server would (`examples/text-lua`), in the options it sets that
+/// are not the defaults (a rest of a quarter of a second, hints a little smaller with rounder
+/// corners): at rest with its hints, lens and error; with the pointer resting on a word (a card); and
+/// with ⌘ held over one (a link). `PENCERE_SHOTS=text` writes them to `target/text-{rest,card,link}.png`,
+/// in the terminal's font of a Mac, for an eye to check.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_example_with_a_server_less_language_is_pictured_at_rest_with_a_card_and_with_a_link()
+-> Result<(), Error> {
+    use pencere_view::Mods;
+    let fonts = match std::env::var("PENCERE_SHOTS").as_deref() {
+        Ok("text") => Fonts::none()
+            .terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc").expect("Menlo"))
+            .expect("a font"),
+        _ => Fonts::none(),
+    };
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/text-lua");
+    let mut page = Headless::app(&dir)
+        .measure(fonts.clone())
+        .size(520.0, 230.0)
+        .scale(2.0)
+        .open()?;
+    let rest = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    let add = page
+        .list()
+        .items
+        .iter()
+        .find_map(|item| match item {
+            pencere_view::Paint::Text(run) if run.text == "add" => Some(run.origin),
+            _ => None,
+        })
+        .expect("the call");
+    let at = Point::new(add.x / 2.0 + 3.0, add.y / 2.0 + 6.0);
+    page.move_to(at)?;
+    page.advance(0.5)?;
+    let card = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    page.leave()?;
+    page.advance(0.3)?;
+    page.move_to(at)?;
+    page.hold(Mods {
+        command: true,
+        ..Mods::default()
+    })?;
+    page.advance(0.2)?;
+    let link = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    assert!(rest != card && card != link && rest != link);
+    if std::env::var("PENCERE_SHOTS").as_deref() == Ok("text") {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        for (name, bytes) in [("rest", &rest), ("card", &card), ("link", &link)] {
+            std::fs::write(target.join(format!("text-{name}.png")), bytes).expect("written");
+        }
+    }
+    Ok(())
+}

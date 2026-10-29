@@ -71,7 +71,10 @@ impl Decorations {
         let named = |items: &[Decoration]| {
             items
                 .iter()
-                .filter(|item| matches!(item.mark, Mark::Anchor(_)))
+                .filter(|item| {
+                    matches!(&item.mark, Mark::Anchor(_))
+                        || matches!(&item.mark, Mark::Widget(widget) if widget.anchor.is_some())
+                })
                 .count()
         };
         let other_names: usize = self

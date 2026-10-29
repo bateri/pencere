@@ -10,7 +10,7 @@
 --   keys.label("cmd+enter")               -- "⌘Enter"
 --   keys.label("cmd+enter", { symbols = true })   -- "⌘↩"
 --   keys.label("ctrl+alt+delete", { platform = "other" })   -- "Ctrl+Alt+Delete"
---   keys.caps("cmd+enter")                -- { "⌘", "↩" }: one for each key cap drawn
+--   keys.caps("cmd+enter")                -- { "⌘", "Enter" }: one for each key cap drawn
 --   keys.matches(event, "cmd+k")          -- whether a key event is that shortcut
 --
 -- The platform: the host's keyboard convention, as `pencere.keyboard()` says it ("mac", "windows" or

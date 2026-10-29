@@ -503,10 +503,14 @@ impl Page {
             return;
         }
         self.state.mods = mods;
+        let due = self.state.editing.editors.rest_due();
         self.edit(false, |editors, laid, measure, now| {
             editors.set_mods(laid, mods, now, measure);
         });
         let state = &mut self.state;
+        if state.editing.editors.rest_due() != due {
+            state.rewake = true;
+        }
         let over = state
             .laid
             .as_ref()
@@ -1186,7 +1190,7 @@ impl State {
                 if over != self.cursor_over {
                     self.cursor_over = over;
                     // The shape changed with no move of the pointer: the host is told.
-                    self.cursor_told = over.or(self.cursor_told);
+                    self.cursor_told = over;
                 }
                 if !self.editing.editors.wants_layout() && !laid.wants_layout() {
                     break;

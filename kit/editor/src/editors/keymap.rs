@@ -11,7 +11,7 @@ use super::{Action, EditorEvent, Editors};
 /// A chord begun: where, the keys so far and the time it is waited on until.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Chord {
-    editor: Id,
+    pub(super) editor: Id,
     keys: Vec<Shortcut>,
     until: f64,
 }
@@ -71,6 +71,7 @@ pub(super) fn words(shortcut: &Shortcut) -> String {
         Key::Backspace => "backspace".into(),
         Key::Delete => "delete".into(),
         Key::Function(n) => format!("f{n}"),
+        Key::Character(' ') => "space".into(),
         Key::Character(c) => c.to_string(),
     });
     out
@@ -81,8 +82,16 @@ impl Editors {
     pub(super) fn keymap_says(&mut self, id: Id, key: Key, mods: Mods, now: f64) -> Said {
         let step = Shortcut::new(key, mods);
         let held = match self.chord.take() {
-            Some(chord) if chord.editor == id => Some(chord),
-            Some(_) | None => None,
+            Some(chord) if chord.editor == id && now < chord.until => Some(chord),
+            Some(chord) => {
+                // Another editor's, or one whose time was up: the page is told it is not waited on.
+                self.events.push(EditorEvent::KeymapPending {
+                    editor: chord.editor,
+                    keys: Vec::new(),
+                });
+                None
+            }
+            None => None,
         };
         let Some(editor) = self.editors.get(&id) else {
             return Said::Own;

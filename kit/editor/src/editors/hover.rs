@@ -71,7 +71,7 @@ impl Editors {
                         .and_then(|part| found.placed.widget.parts.get(part))
                         .and_then(|part| part.id.clone())
                         .or_else(|| found.placed.widget.id.clone())?;
-                    Some((found.placed.at, found.rect, name))
+                    Some((found.place, found.rect, name))
                 });
                 let (word, widget) = match on_widget {
                     Some((place, rect, name)) => (
@@ -203,7 +203,7 @@ impl Editors {
                 rest.rect.w / s,
                 rest.rect.h / s,
             ),
-            mods: self.hovering.mods,
+            mods: self.mods,
             version: editor.buffer.version(),
         };
         self.hovering.told = Some(event.clone());

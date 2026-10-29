@@ -3468,3 +3468,90 @@ fn a_gap_above_a_line_is_between_it_and_the_line_before_or_over_the_first_and_go
         host.editors.zones(EDITOR)
     );
 }
+
+#[test]
+fn a_widget_on_a_later_line_is_at_a_place_of_the_document_and_a_wrapped_line_takes_the_rows_its_widgets_make()
+ {
+    let mut host = Host::new(page_with(EditorOptions {
+        events: EditorEvents {
+            hover: true,
+            target: true,
+        },
+        ..plain()
+    }));
+    host.load("alpha beta\ngamma delta");
+    host.editors.set_focus(None);
+    host.decorate(
+        "hints",
+        vec![Decoration::new(
+            17,
+            17,
+            Mark::Widget(Widget {
+                id: Some("h".into()),
+                ..match hint(WidgetSide::Before, "ab") {
+                    Mark::Widget(widget) => widget,
+                    _ => unreachable!(),
+                }
+            }),
+        )],
+    );
+    host.editors.take_events();
+    // `delta` is at 17 in the document, 6 in its line; the hint is before it on the second row.
+    let at = Point::new(64.0, 4.0 + ROW + 10.0);
+    host.rest(Some(at));
+    let told = host.wait(0.4);
+    assert_eq!(told.len(), 1);
+    assert_eq!(
+        (told[0].at, told[0].from, told[0].line),
+        (17, 17, 1),
+        "{:?}",
+        told[0]
+    );
+
+    // A line that wraps takes the rows its widgets make it take, and the next line starts below them.
+    let mut host = Host::new(page_with(EditorOptions {
+        wrap: true,
+        ..plain()
+    }));
+    let long = "word ".repeat(70);
+    host.load(&format!("{long}\nnext"));
+    let rows_of_text = |host: &mut Host| {
+        let content = host.editors.metrics(EDITOR).expect("laid out").content.h;
+        ((content - 8.0) / ROW).round() as usize
+    };
+    let before = rows_of_text(&mut host);
+    host.decorate(
+        "hints",
+        vec![Decoration::new(
+            0,
+            0,
+            Mark::Widget(Widget {
+                parts: vec![WidgetPart {
+                    text: "x".repeat(40),
+                    ..WidgetPart::default()
+                }],
+                side: WidgetSide::Before,
+                ..Widget::default()
+            }),
+        )],
+    );
+    host.frame();
+    let after = rows_of_text(&mut host);
+    assert!(after >= before, "{before} {after}");
+    let next = host
+        .texts()
+        .iter()
+        .find(|(text, _, _)| text == "next")
+        .map(|(_, at, _)| at.y)
+        .expect("the next line");
+    let last = host
+        .texts()
+        .iter()
+        .filter(|(text, _, _)| text.starts_with("word") || text.starts_with(' '))
+        .map(|(_, at, _)| at.y)
+        .fold(0.0_f32, f32::max);
+    assert!(
+        next > last,
+        "the next line is below the rows of the wrapped one: {next} {last}"
+    );
+}

@@ -18,6 +18,8 @@ use crate::buffer::Buffer;
 /// Where a widget is, in the content (pixels), and what it is.
 #[derive(Clone, Debug)]
 pub(crate) struct WidgetBox {
+    /// The place of the document it stands at.
+    pub place: usize,
     pub rect: Rect,
     pub placed: Placed,
     /// The boxes of its parts, across, same order as the parts.
@@ -86,6 +88,19 @@ impl View {
             .collect()
     }
 
+    /// What line `line`'s measure is kept under: its text, and its widgets where it has any.
+    pub(super) fn shape_key(&self, buffer: &Buffer, line: usize, text: &str) -> String {
+        let widgets = self.line_widgets(buffer, line);
+        if widgets.is_empty() {
+            text.to_owned()
+        } else {
+            format!(
+                "{text}\u{1}{widgets:?}{:?}{}",
+                self.options.widgets, self.scale
+            )
+        }
+    }
+
     /// Line `line` measured with the room its widgets take.
     pub(super) fn shape_line(
         &self,
@@ -98,10 +113,7 @@ impl View {
         if widgets.is_empty() {
             return self.shape(&text, measure);
         }
-        let key = format!(
-            "{text}\u{1}{widgets:?}{:?}{}",
-            self.options.widgets, self.scale
-        );
+        let key = self.shape_key(buffer, line, &text);
         if let Some(found) = self.shaped.borrow().get(&key) {
             return found.clone();
         }
@@ -245,9 +257,7 @@ impl View {
                         + used
                 }
             };
-            if placed.widget.side == WidgetSide::End {
-                before.clear();
-            } else if !inside {
+            if placed.widget.side != WidgetSide::End && !inside {
                 continue;
             }
             let width = placed.width;
@@ -272,6 +282,7 @@ impl View {
                 across += part;
             }
             out.push(WidgetBox {
+                place: row.base + at,
                 rect,
                 placed: placed.clone(),
                 parts,
@@ -308,7 +319,8 @@ impl View {
         clip: Rect,
         out: &mut Vec<Paint>,
     ) {
-        let room_right = origin_x - self.text_x() + self.room.w - self.pad;
+        // Where the room ends, in the content (it is scrolled across by `scroll.x`).
+        let room_right = self.scroll.x + self.room.w - self.pad;
         for found in self.widget_boxes(row) {
             let widget = &found.placed.widget;
             let group = self.group_of(widget);
@@ -324,7 +336,8 @@ impl View {
                 .background
                 .or(group.background)
                 .or(Some(Role::Foreground.alpha(0.08)));
-            let height = (self.line * 0.95).round().min(self.row);
+            // A little taller than its words, as the group's `size` says they are.
+            let height = (self.line * group.size * 1.05).round().min(self.row);
             let top = rect.y + (self.row - height) / 2.0;
             let boxed = Rect::new(rect.x, top, rect.w, height);
             let end = widget.side == WidgetSide::End;
@@ -346,16 +359,17 @@ impl View {
                 let Some(span) = found.parts.get(at) else {
                     continue;
                 };
+                let (content_x, content_right) = (span.x, span.right());
                 let span = span.translate(dx, dy);
-                let (Some(color), true) = (part.color.or(base), span.x < room_right + self.pad)
+                let (Some(color), true) = (part.color.or(base), content_x < room_right + self.pad)
                 else {
                     continue;
                 };
                 let mut text: String = part.text.chars().take(limits::WIDGET_TEXT).collect();
                 // A widget at a line's end goes as far as the room does, and ends in "…".
-                if end && span.right() > room_right {
+                if end && content_right > room_right {
                     let each = span.w / text.chars().count().max(1) as f32;
-                    let fit = ((room_right - span.x) / each.max(0.1)).floor() as usize;
+                    let fit = ((room_right - content_x) / each.max(0.1)).floor() as usize;
                     text = text.chars().take(fit.saturating_sub(1)).collect::<String>() + "…";
                 }
                 let mut run_font = font;
