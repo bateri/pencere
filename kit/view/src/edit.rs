@@ -392,10 +392,23 @@ pub enum RulerLane {
 /// is a child of the editor's element and says it is the zone's (`Element::zone`) is put there. The
 /// decoration's range says the line: the one its first character is on. It is carried over the
 /// changes as any decoration is.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Zone {
     pub id: Id,
     pub height: f32,
+    /// Whether the gap is after the line or before it (a code lens: the lines above a function).
+    pub side: ZoneSide,
+}
+
+/// Where a [`Zone`]'s gap is, by its line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ZoneSide {
+    /// After the line's rows.
+    #[default]
+    Below,
+    /// Before them: between the line before it that shows and the line. A line folded away has none
+    /// to show; the first line of a fold keeps its own.
+    Above,
 }
 
 /// One column of the gutter ([`EditorOptions::gutters`]).

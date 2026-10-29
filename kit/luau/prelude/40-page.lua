@@ -118,7 +118,7 @@
 --     pad_right = } (text that is not the document's, where the range is: an inlay hint "before" the
 --     range's start or "after" its end, or after its line's end; at most 8 parts of 200
 --     characters, 32 to a line), { from =, to =, anchor = "name" } (the range has a name an overlay can stand beside,
---     `pencere.range_of(editor, name)`), { from =, to =, zone = "name", height = points } (a gap kept open after the line the range
+--     `pencere.range_of(editor, name)`), { from =, to =, zone = "name", height = points, side = "below" | "above" } (a gap kept open after the line the range
 --     starts on, for the page's element that is `:zone("name")` of the editor), { from =, to =,
 --     fold = true }
 -- `link` asks the host to open an address in the person's browser, as a web page's `link` asks:

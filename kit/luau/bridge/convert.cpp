@@ -2652,6 +2652,8 @@ pencere_view_types_decoration_t decoration_at(lua_State* L, int t) {
         out.mark.val.zone.id = id_of(L, lua_gettop(L));
         lua_pop(L, 1);
         out.mark.val.zone.height = number(L, t, "height", 0.0f);
+        static const char* const kZoneSides[] = {"below", "above"};
+        out.mark.val.zone.side = (uint8_t)word(L, t, "side", kZoneSides, 2, 0);
         return out;
     }
     lua_pop(L, 1);

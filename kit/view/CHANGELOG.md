@@ -19,6 +19,8 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- `Zone::side` (`ZoneSide::Above`): a gap before its line, for a code lens.
+
 - **Widgets**: `Mark::Widget(Widget)` (parts, `WidgetSide`, group, `id`, `label`, `cursor`, `anchor`,
   `pad_left`/`pad_right`), `EditorOptions::widgets` (`WidgetGroup`, `WidgetShow`), `limits::WIDGET_*`,
   `HoverEvent::over` and `id` (`HoverOver`), `TargetSource::Widget`.

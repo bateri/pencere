@@ -8,7 +8,7 @@ use pencere_view::edit::{
     Folds, Found, GutterEvent, GutterHit, GutterKind, GutterShape, HoverEvent, HoverHit, HoverKind,
     HoverOver, KeyAction, Keys, LineHighlight, Mark, Matches, Movement, Numbers, Origin, Pressing,
     Range, Refusal, RevealAlign, RulerLane, Selection, TargetEvent, TargetKind, TargetSource, Tint,
-    Underline, Whitespace, WidgetShow, WidgetSide,
+    Underline, Whitespace, WidgetShow, WidgetSide, ZoneSide,
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
@@ -999,6 +999,10 @@ fn mark(mark: Mark) -> wit::Mark {
         Mark::Zone(zone) => wit::Mark::Zone(wit::Zone {
             id: zone.id.number(),
             height: zone.height,
+            side: match zone.side {
+                ZoneSide::Below => wit::ZoneSide::Below,
+                ZoneSide::Above => wit::ZoneSide::Above,
+            },
         }),
         Mark::Anchor(name) => wit::Mark::Anchor(name),
         Mark::Widget(widget) => wit::Mark::Widget(wit::Widget {

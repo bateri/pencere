@@ -516,7 +516,7 @@ weight =, italic =, strike =, underline = colour or { wavy = colour } }` (a look
 line = colour }` (a ground for each line it touches; a look may say an `id`, which the `hits` of a rest
 over it tell), `{ from =, to =, gutter = colour, … }` (a
 marker in a column of the gutter, below), `{ from =, to =, ruler = colour, lane = }` (a mark on the
-overview ruler, below), `{ from =, to =, zone = name, height = points }` (a gap for the page, below),
+overview ruler, below), `{ from =, to =, zone = name, height = points, side = "below" | "above" }` (a gap for the page, below),
 `{ from =, to =, anchor = name }` (a name for the range: `pencere.range_of`, Section 2.1),
 `{ from =, to =, widget = words, side = … }` (text that is not the document's, below) or
 `{ from =, to =, fold = true }` (a region that folds: its first line stays; whether it is folded is the
@@ -641,6 +641,13 @@ that comes late is written with the `version` the event carries: the editor carr
 typed meanwhile as it does any decoration. The page reads the word at its own caret by the same rule
 (`pencere.layout.word_at`), so that a command that does what the pointer's rest does (Show Hover) answers
 as the rest does.
+
+A zone with `side = "above"` is the gap before its line (a code lens: the row of what a function
+has, over it), between the line before it that shows and the line, or before the first row where the
+line is the first; the rows of the line before it do not take it, and it is the page's element as any
+zone's is, made for the lines in view (`viewport`). A line folded away has none to show, and the first
+line of a fold keeps its own. An editor does not hold an editor in a zone: peeking at another file's
+definition is a `popover` that holds a read-only editor element.
 
 A change kept out of the history is how a page puts in what came from elsewhere (a file changed on
 disk, a reformat) and keeps what the person can undo. It sends what changed and not the whole text:

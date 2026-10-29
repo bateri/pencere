@@ -18,6 +18,9 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Added
 
+- **A gap above a line** (`ZoneSide::Above`, a code lens): between the line before it that shows and its
+  line, or before the first row; a line folded away has none.
+
 - **Text that is not the document's in its lines** (`Mark::Widget`): an inline widget takes room in its
   line before or after the caret (`Row::caret_x`, `end_x`; the rows, the wrapping, the places, the
   selection and the carets go through them), one at a line's end stands beyond the text and is cut with

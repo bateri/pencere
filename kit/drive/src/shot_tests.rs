@@ -440,3 +440,27 @@ fn an_inlay_hint_and_a_line_end_error_are_pictured_in_their_lines() -> Result<()
     }
     Ok(())
 }
+
+/// A code lens: a row of buttons in a gap above the second line, the text going on under it.
+/// `PENCERE_SHOTS=lens` writes it to `target/lens.png`.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_code_lens_is_pictured_in_its_gap_above_a_line() -> Result<(), Error> {
+    let fonts = match std::env::var("PENCERE_SHOTS").as_deref() {
+        Ok("lens") => Fonts::none()
+            .terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc").expect("Menlo"))
+            .expect("a font"),
+        _ => Fonts::none(),
+    };
+    let page = Headless::script(crate::luau_editor_tests::LENS)
+        .measure(fonts.clone())
+        .size(300.0, 110.0)
+        .scale(2.0)
+        .open()?;
+    let drawn = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    if std::env::var("PENCERE_SHOTS").as_deref() == Ok("lens") {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        std::fs::write(target.join("lens.png"), &drawn).expect("written");
+    }
+    Ok(())
+}

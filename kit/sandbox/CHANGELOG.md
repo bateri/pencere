@@ -18,6 +18,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- `side = "above"` of a zone (`zone.side`) crosses the interface.
+
 - `widget` decorations, `widgets` (groups of them), `hover`'s `over` and `id`, and `target`'s
   `source = "widget"` cross the interface (`mark.widget`, `widget-group`); a widget of more than 8 parts
   or 200 characters is refused.

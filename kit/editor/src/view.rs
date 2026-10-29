@@ -16,7 +16,7 @@ use std::slice;
 use pencere_view::edit::{
     CaretHeight, CaretShape, Column, ColumnEvents, Decoration, EditorOptions, GutterMark,
     GutterShape, LineHighlight, Look, Mark, Matches, Numbers, Preview, Range, RulerLane, Underline,
-    Whitespace, limits,
+    Whitespace, ZoneSide, limits,
 };
 use pencere_view::{
     Border, Color, Cursor, EditorRoom, EditorSlot, Figure, Font, Id, Measure, Mods, Paint, Picture,
@@ -175,6 +175,9 @@ pub(crate) struct Word {
     /// Its box, pixels of the content.
     pub rect: Rect,
 }
+
+/// The line a gap above the first line that shows is after: none (before them all).
+const HEAD: usize = usize::MAX;
 
 /// What the rows of the lines were counted for: the version, the lines hidden, the width of the text.
 type Counted = (u64, Vec<(usize, usize)>, u32, Vec<(usize, u32, Id)>);
@@ -489,18 +492,45 @@ impl View {
     pub fn count(&mut self, buffer: &Buffer) {
         let hidden = merged(buffer.hidden_lines());
         // The gaps the page keeps open: whole rows, after a line that shows.
-        let zones: Vec<(usize, f32, Id)> = if self.row > 0.0 {
+        // A gap above a line is the one after the line that shows before it (or before the first); a
+        // line that is folded away has none to show.
+        let in_fold = |line: usize| {
+            hidden
+                .iter()
+                .find(|(first, last)| line >= *first && line <= *last)
+                .copied()
+        };
+        let mut zones: Vec<(usize, f32, Id)> = if self.row > 0.0 {
             buffer
                 .zones()
                 .into_iter()
-                .map(|(line, zone)| {
+                .filter_map(|(line, zone)| {
                     let most = limits::ZONE_ROWS as f32 * self.row;
-                    (line, (zone.height.max(0.0) * self.scale).min(most), zone.id)
+                    let height = (zone.height.max(0.0) * self.scale).min(most);
+                    let attach = match zone.side {
+                        ZoneSide::Below => line,
+                        ZoneSide::Above => {
+                            if in_fold(line).is_some() {
+                                return None;
+                            }
+                            let mut before = line.checked_sub(1);
+                            while let Some(at) = before {
+                                match in_fold(at) {
+                                    Some((first, _)) => before = first.checked_sub(1),
+                                    None => break,
+                                }
+                            }
+                            before.unwrap_or(HEAD)
+                        }
+                    };
+                    Some((attach, height, zone.id))
                 })
                 .collect()
         } else {
             Vec::new()
         };
+        // Those of a line are in the order of their lines, below before above.
+        zones.sort_by_key(|(attach, _, _)| *attach);
         let key = (
             buffer.version(),
             hidden.clone(),
@@ -525,6 +555,13 @@ impl View {
         let mut shown_gaps = HashMap::new();
         let mut shrinks = Vec::with_capacity(lines + 1);
         let mut shrink = 0.0_f32;
+        // The gap above the first line that shows is before every row.
+        if let Some(height) = heights.get(&HEAD) {
+            let rows = (height / self.row).ceil() as usize;
+            row += rows;
+            shrink += rows as f32 * self.row - height;
+            shown_gaps.insert(HEAD, rows);
+        }
         let mut folds = hidden.iter().peekable();
         for line in 0..lines {
             tops.push(row);
@@ -576,6 +613,15 @@ impl View {
         let mut out = Vec::new();
         let mut last: Option<(usize, f32)> = None;
         for (line, height, id) in &self.zones {
+            if *line == HEAD {
+                let used = match last {
+                    Some((at, used)) if at == HEAD => used,
+                    _ => 0.0,
+                };
+                out.push((*id, Rect::new(0.0, self.pad + used, self.room.w, *height)));
+                last = Some((HEAD, used + height));
+                continue;
+            }
             let (Some(top), Some(next)) = (self.tops.get(*line), self.tops.get(*line + 1)) else {
                 continue;
             };
@@ -750,7 +796,7 @@ impl View {
             return None;
         }
         let line = self.line_at_row(row);
-        if row >= self.own_end(line) {
+        if row >= self.own_end(line) || row < self.tops.get(line).copied().unwrap_or(0) {
             return None;
         }
         let place = self.place_at(buffer, point, measure);
@@ -2295,7 +2341,9 @@ impl View {
             return None;
         }
         let line = self.line_at_row(row);
-        if row + self.zone_rows(line) >= self.tops.get(line + 1).copied().unwrap_or(0) {
+        if row + self.zone_rows(line) >= self.tops.get(line + 1).copied().unwrap_or(0)
+            || row < self.tops.get(line).copied().unwrap_or(0)
+        {
             return None;
         }
         let col = self

@@ -1722,6 +1722,13 @@ interface types {
     record zone {
         id: id,
         height: f32,
+        /// After the line's rows, or before them (a code lens).
+        side: zone-side,
+    }
+
+    enum zone-side {
+        below,
+        above,
     }
 
     record decoration {

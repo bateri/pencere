@@ -11,7 +11,7 @@ use pencere_view::edit::{
     EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds, Found, Gesture,
     GutterKind, GutterMark, GutterShape, HoverKind, KeyAction, Keybinding, Keys, LineHighlight,
     Look, Mark, Numbers, Pressing, Preview, Range, RulerLane, RulerMark, TargetKind, TargetSource,
-    Tint, Whitespace, Widget, WidgetPart, WidgetSide, Zone,
+    Tint, Whitespace, Widget, WidgetPart, WidgetSide, Zone, ZoneSide,
 };
 use pencere_view::{
     Button, Command, Cursor, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint,
@@ -2318,6 +2318,7 @@ fn a_zone_opens_a_gap_after_its_line_that_the_text_after_goes_down_by_and_scroll
             Mark::Zone(Zone {
                 id: zone,
                 height: 2.0 * ROW,
+                ..Zone::default()
             }),
         )],
     );
@@ -2362,7 +2363,15 @@ fn a_zone_is_as_tall_as_the_page_said_and_not_as_the_rows_that_hold_it() {
     let before = host.editors.metrics(EDITOR).expect("laid out").content.h;
     host.decorate(
         "peek",
-        vec![Decoration::new(2, 2, Mark::Zone(Zone { id: zone, height }))],
+        vec![Decoration::new(
+            2,
+            2,
+            Mark::Zone(Zone {
+                id: zone,
+                height,
+                ..Zone::default()
+            }),
+        )],
     );
     let after = host.editors.metrics(EDITOR).expect("laid out").content.h;
     assert_eq!(after - before, height);
@@ -2422,6 +2431,7 @@ fn a_mark_on_the_ruler_stops_where_the_rows_of_its_line_do_and_the_gap_after_it_
             Mark::Zone(Zone {
                 id: zone,
                 height: 3.0 * ROW,
+                ..Zone::default()
             }),
         )],
     );
@@ -2453,6 +2463,7 @@ fn what_stands_in_a_zone_scrolls_with_the_text_and_is_cut_by_the_room() {
             Mark::Zone(Zone {
                 id: zone,
                 height: 2.0 * ROW,
+                ..Zone::default()
             }),
         )],
     );
@@ -2511,6 +2522,7 @@ fn the_gutter_below_the_text_and_beside_a_gap_is_no_cell_and_a_marker_in_the_edi
                 Mark::Zone(Zone {
                     id: zone,
                     height: 2.0 * ROW,
+                    ..Zone::default()
                 }),
             ),
         ],
@@ -2553,7 +2565,11 @@ fn a_zone_that_takes_the_name_of_another_at_the_same_line_and_height_is_the_one_
         vec![Decoration::new(
             0,
             0,
-            Mark::Zone(Zone { id: a, height: ROW }),
+            Mark::Zone(Zone {
+                id: a,
+                height: ROW,
+                ..Zone::default()
+            }),
         )],
     );
     assert_eq!(
@@ -2569,7 +2585,11 @@ fn a_zone_that_takes_the_name_of_another_at_the_same_line_and_height_is_the_one_
         vec![Decoration::new(
             0,
             0,
-            Mark::Zone(Zone { id: b, height: ROW }),
+            Mark::Zone(Zone {
+                id: b,
+                height: ROW,
+                ..Zone::default()
+            }),
         )],
     );
     assert_eq!(
@@ -3374,4 +3394,77 @@ fn a_widget_with_a_name_is_what_the_pointer_rests_on_and_what_a_press_on_it_is()
         (TargetSource::Widget, Some("type:int"))
     );
     assert_eq!(host.ranges(), before);
+}
+
+// --- A gap above a line (a code lens) ------------------------------------------------------------------
+
+#[test]
+fn a_gap_above_a_line_is_between_it_and_the_line_before_or_over_the_first_and_goes_with_a_fold() {
+    let lens = Id::named("lens");
+    let page = move || {
+        div().child(
+            div()
+                .editor(EDITOR, columns())
+                .size_full()
+                .child(div().id(lens).zone(lens).h(ROW).bg(Role::Red.solid())),
+        )
+    };
+    let mut host = Host::new(page);
+    host.load("a\nb\nc\nd");
+    let y_of = |host: &mut Host, text: &str| {
+        host.texts()
+            .iter()
+            .find(|(t, _, _)| t == text)
+            .map(|(_, at, _)| at.y)
+            .expect("the text")
+    };
+    let b_before = y_of(&mut host, "b");
+    // Above `c` (offset 4): between `b` and `c`; `c` goes down by the gap, `b` does not.
+    let above = |at: usize| {
+        vec![Decoration::new(
+            at,
+            at,
+            Mark::Zone(Zone {
+                id: lens,
+                height: ROW,
+                side: ZoneSide::Above,
+            }),
+        )]
+    };
+    host.decorate("lens", above(4));
+    assert_eq!(y_of(&mut host, "b"), b_before);
+    assert_eq!(
+        host.editors.zones(EDITOR),
+        vec![(lens, Rect::new(0.0, 4.0 + 2.0 * ROW, 400.0, ROW))]
+    );
+    assert_eq!(y_of(&mut host, "c"), 4.0 + 3.0 * ROW + 2.0);
+    // Above the first line: over everything, which goes down.
+    host.decorate("lens", above(0));
+    assert_eq!(
+        host.editors.zones(EDITOR),
+        vec![(lens, Rect::new(0.0, 4.0, 400.0, ROW))]
+    );
+    assert_eq!(y_of(&mut host, "a"), 4.0 + ROW + 2.0);
+    // A press on the first row finds `a`, the gap is the page's.
+    assert!(host.press(Point::new(100.0, 4.0 + ROW + 8.0), none(), 1));
+    host.editors.release();
+    assert!(host.ranges()[0].head <= 1);
+    // A line folded away has no gap to show: above `c` while `b..c` are folded is none.
+    host.decorate("lens", above(4));
+    host.decorate("folds", vec![Decoration::new(2, 5, Mark::Fold)]);
+    host.editors.set_focus(Some(EDITOR));
+    let laid = host.laid.clone();
+    host.editors.ask(
+        &laid,
+        EDITOR,
+        EditorAsk::Command(EditCommand::FoldAll),
+        &mut Fake,
+        host.now,
+    );
+    host.settle();
+    assert!(
+        host.editors.zones(EDITOR).is_empty(),
+        "{:?}",
+        host.editors.zones(EDITOR)
+    );
 }

@@ -2405,3 +2405,56 @@ return {
     );
     Ok(())
 }
+
+// --- A gap above a line: a code lens ---------------------------------------------------------------------
+
+/// A page with a code lens above the second line: a row of buttons the page makes (an element in a
+/// zone that is above the line), which goes with the text as it scrolls.
+pub(crate) const LENS: &str = r#"
+local b = pencere
+local text = "function one()\nfunction two()\nlocal x = 1"
+local version = 0
+local pressed = "none"
+return {
+	render = function()
+		return b.div():size_full():col():child(
+			b.editor("code", { gutter = false }):grow(1)
+				:child(b.div():id("lens"):zone("lens"):h(20):row():gap(10):items_center():px(6)
+					:child(b.text("2 references"):id("refs"):press("refs"):color("accent"))
+					:child(b.text("Run Test"):id("run"):press("run"):color("accent"))))
+			:child(b.text("pressed " .. pressed):id("said"))
+	end,
+	handle = function(event)
+		if event.type == "editor_ready" then
+			return { editor = { code = { { load = text } } } }
+		elseif event.type == "edit" then
+			version = event.version
+			return { editor = { code = { { decorate = "lens", version = version, from = 0, to = #text,
+				decorations = { { from = 15, to = 15, zone = "lens", height = 20, side = "above" } } } } } }
+		elseif event.type == "press" and pencere.layout.hit({ x = event.x, y = event.y }) == "run" then
+			pressed = "run"
+			return { redraw = true }
+		end
+		return nil
+	end,
+}
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_code_lens_is_an_element_in_a_gap_above_a_line_that_the_page_presses_like_any()
+-> Result<(), Error> {
+    let mut page = open(LENS)?;
+    let gap = page.zone("code", "lens").expect("the gap is open");
+    // It is between the first line and the second, as tall as the page said.
+    assert_eq!(gap.h, 20.0);
+    let first = page.words().iter().position(|w| w.contains("function one"));
+    let second = page.words().iter().position(|w| w.contains("function two"));
+    assert!(first.is_some() && second.is_some());
+    let lens = page.bounds("lens").expect("the element is there");
+    assert_eq!((lens.y, lens.h), (gap.y, gap.h));
+    // And it is pressed as any element is.
+    page.click("run")?;
+    assert!(page.says("pressed run"), "{:?}", page.words());
+    Ok(())
+}

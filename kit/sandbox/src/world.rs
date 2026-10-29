@@ -12,7 +12,7 @@ use pencere_view::edit::{
     KeyAction, Keybinding, Keys, LineHighlight, LinkOptions, Look, Mark, MarkLooks, Matches,
     Movement, Numbers, Origin, Pressing, Preview, Range, Refusal, RevealAlign, RulerLane,
     RulerMark, TargetKind, TargetSource, Tint, Underline, Whitespace, Widget, WidgetGroup,
-    WidgetPart, WidgetShow, WidgetSide, Zone, limits,
+    WidgetPart, WidgetShow, WidgetSide, Zone, ZoneSide, limits,
 };
 use pencere_view::wire::{
     self, Direction, Display, FieldKind, Fit, Image, Items, Justify, Kind, Length, Meta, Node,
@@ -1980,6 +1980,10 @@ fn mark_out(mark: &wit::Mark) -> Mark {
         wit::Mark::Zone(zone) => Mark::Zone(Zone {
             id: Id::new(zone.id),
             height: pt(zone.height).clamp(0.0, 4096.0),
+            side: match zone.side {
+                wit::ZoneSide::Below => ZoneSide::Below,
+                wit::ZoneSide::Above => ZoneSide::Above,
+            },
         }),
         wit::Mark::Anchor(name) => Mark::Anchor(name.clone()),
         wit::Mark::Widget(widget) => Mark::Widget(Widget {
