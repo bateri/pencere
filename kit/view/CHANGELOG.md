@@ -14,6 +14,8 @@ The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   outside every selection one caret is put there, inside one the selections stay; the press is told
   the page as any, and `Place` has `inside` (the place was in a selection or at a caret before the
   press moved the caret) and `version`.
+- **Breaking:** `Place` has `inside` and `version`, and `MenuEntry` has `Paste` (a match that names
+  every entry, a struct literal of `Place`, must say them).
 - `EditCommand::Copy` and `EditCommand::Cut`, as the editor's keys do them. There is no command that
   pastes: a page cannot read the pasteboard. `MenuEntry::Paste { title, keys, enabled, editor }` is a
   line the host performs itself when it is picked.

@@ -10,8 +10,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 - The interface has `pressing.context`, `editor-command.copy` and `.cut`, `menu-entry.paste` and
   `place.inside` and `.version`; Lua pages write `["right+press"] = "context"`,
-  `{ command = "copy" }` / `"cut"`, a menu entry `{ title =, paste = editor }` and read
+  `{ command = "copy" }` / `"cut"`, a menu entry `{ paste = editor }` (the line says "Paste" whatever the page wrote) and read
   `event.place.inside`. The interpreter is rebuilt.
+- `@pencere/ui`: `u:editor_menu` and `u:editor_menu_pick`, the menu of an editor (Cut, Copy, Paste, Select
+  All, Toggle Line Comment, Select All Occurrences, with the editor's keys, the page's lines around them),
+  and `ui.EDITOR_MENU_COMMAND` (Shift F10) to open it at the caret; `u:menu` passes a line's `paste`.
 
 ### Fixed
 

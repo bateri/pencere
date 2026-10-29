@@ -72,8 +72,12 @@ local cmds = ui.commands({
 	{ id = "palette", title = "Command palette", group = "Gallery", keys = "mod+shift+p", global = true },
 	{ id = "close_tab", title = "Close tab", group = "View", keys = "mod+w" },
 	{ id = "find", title = "Find in files", group = "Search", keys = "mod+shift+f" },
+	ui.EDITOR_MENU_COMMAND,
 })
 local items = cmds:items()
+
+-- The page's own line of the editor's menu, after the standard ones.
+local DOC_MENU_AFTER = { { key = "palette", title = "Command palette", keys = "mod+shift+p" } }
 
 local function heading(words)
 	return pencere.text(words):text_size(11):weight(700):color("quiet")
@@ -167,7 +171,9 @@ local function editing()
 	return pencere.div():gap(8)
 		:child(pencere.div():border(1, "border"):rounded(6):clip()
 			:child(u:find_bar("find", { editor = "doc", state = S.find }))
-			:child(pencere.editor("doc", { gutter = false, read_only = true }):w_full():h(70)))
+			-- A right press opens the editor's menu (`u:editor_menu`), as VS Code's does: the caret goes where
+			-- the press is unless it is in a selection.
+			:child(pencere.editor("doc", { gutter = false, read_only = true, gestures = { ["right+press"] = "context" } }):w_full():h(70)))
 		:child(pencere.div():h(170):border(1, "border"):rounded(6):clip():child(
 			u:grid("result", { columns = COLUMNS, count = 5000, cell = grid_cell, state = S.grid })))
 end
@@ -230,6 +236,14 @@ local function act(action)
 				break
 			end
 		end
+	elseif action.from == "doc-menu" then
+		if action.entry == "palette" then
+			S.palette = true
+		end
+		return u:editor_menu_pick(action) or true
+	elseif action.from == "commands" and action.id == "editor_menu" then
+		-- By the keyboard: at the caret, under it.
+		return u:editor_menu("doc-menu", { editor = "doc", read_only = true, after = DOC_MENU_AFTER })
 	elseif action.from == "more" then
 		return u:menu("gallery-menu", { { key = "copy", title = "Copy", keys = "mod+c" }, "-", { key = "gone", title = "Delete" } }, { near = "more" })
 	elseif action.from == "palette" and action.kind == "press" or (action.from == "commands" and action.id == "palette") then
@@ -315,6 +329,10 @@ return {
 		local reply, actions = u:handle(event)
 		if event.type == "editor_ready" and event.editor == "doc" then
 			reply = pencere.merge(reply, { editor = { doc = { load = DOC } } })
+		elseif event.type == "press" and event.button == "right" and event.place and event.place.editor == "doc" then
+			reply = pencere.merge(reply, u:editor_menu("doc-menu", {
+				editor = "doc", at = { x = event.x, y = event.y }, read_only = true, after = DOC_MENU_AFTER,
+			}))
 		end
 		for _, action in actions do
 			reply = pencere.merge(reply, act(action))

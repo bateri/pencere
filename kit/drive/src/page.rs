@@ -213,10 +213,14 @@ struct State {
     /// What the module said that the host has not taken.
     replies: Vec<Answer>,
     /// The editor each entry of the menu last asked for pastes into where the host performs the
-    /// pick ([`MenuEntry::Paste`]), by the entry's place; `None` for the rest.
+    /// pick ([`MenuEntry::Paste`]), by the entry's place; `None` for the rest and for a line that is
+    /// off, or that names an editor but the one that had the keyboard when the page asked.
     menu_pastes: Vec<Option<Id>>,
     /// Text the page had an editor copy or cut that the host has not put on its pasteboard.
     copied: Vec<String>,
+    /// A press of the main button with ⌃ was taken as the right button's (a Mac's): its release is
+    /// told as the right button's too.
+    control_menu: bool,
     /// What replies asked of fields the page had not laid out when the host took them, in order: a
     /// frame that lays the page out gives it ([`Painted::held`]).
     held: Vec<Held>,
@@ -412,6 +416,7 @@ impl Page {
                 replies: Vec::new(),
                 menu_pastes: Vec::new(),
                 copied: Vec::new(),
+                control_menu: false,
                 held: Vec::new(),
                 ended: None,
                 told_end: false,
@@ -470,7 +475,7 @@ impl Page {
             state.event(Event::Command(command));
             return;
         }
-        let input = into_page(input, place);
+        let input = self.menu_press_of(into_page(input, place));
         // Over an editor, the pointer is the editor's as well, and the page is told the place under
         // it; after what the editor told (the keyboard it took, the caret it put).
         let due = self.state.editing.editors.rest_due();
@@ -603,12 +608,14 @@ impl Page {
     /// `host` ([`Host::paste`]) and pasted in the editor as its paste key would, so that the page,
     /// which is told the pick as any, never reads it.
     pub fn pick(&mut self, index: usize, host: &mut dyn Host) {
-        let paste = self.state.menu_pastes.get(index).copied().flatten();
+        // The menu is picked from once: what it held is not asked of again.
+        let pastes = std::mem::take(&mut self.state.menu_pastes);
+        let paste = pastes.get(index).copied().flatten();
         if let Some(editor) = paste
+            && self.state.editing.editors.focused() == Some(editor)
             && let Some(text) = host.paste()
         {
             self.edit(true, |editors, laid, measure, now| {
-                editors.set_focus(Some(editor));
                 editors.paste(laid, &text, measure, now);
             });
         }
@@ -959,6 +966,47 @@ impl Page {
     /// the release ends it; a left press outside every editor's room takes the keyboard from the
     /// one that had it, back to the page, as a press outside a field does. The place under the
     /// pointer, where it is over an editor, and whether the page is to be told the keyboard left.
+    /// A Mac's ⌃ with the main button is the right button: an editor whose `gestures` say a right press
+    /// opens a menu (and say nothing of ⌃ with the main button) is pressed, and the page told, with the
+    /// right button and without the ⌃; the release that follows is the right button's too.
+    fn menu_press_of(&mut self, input: Input) -> Input {
+        let mac = self.state.clock.program.keyboard() == KeyConvention::Mac;
+        match input {
+            Input::Press {
+                at,
+                button: Button::Left,
+                mods,
+                count: 1,
+            } if mac
+                && self.state.laid.as_ref().is_some_and(|laid| {
+                    self.state
+                        .editing
+                        .editors
+                        .control_click_opens_menu(laid, at, mods)
+                }) =>
+            {
+                self.state.control_menu = true;
+                Input::Press {
+                    at,
+                    button: Button::Right,
+                    mods: Mods {
+                        control: false,
+                        ..mods
+                    },
+                    count: 1,
+                }
+            }
+            Input::Release {
+                at,
+                button: Button::Left,
+            } if std::mem::take(&mut self.state.control_menu) => Input::Release {
+                at,
+                button: Button::Right,
+            },
+            other => other,
+        }
+    }
+
     fn pointer_in_editors(&mut self, input: &Input) -> (Option<Place>, bool) {
         let mods = self.state.mods;
         if matches!(input, Input::Leave) {
@@ -976,9 +1024,7 @@ impl Page {
         ) {
             return (None, false);
         }
-        let control_click = self.state.clock.program.keyboard() == KeyConvention::Mac;
         let done = self.edit(false, |editors, laid, measure, now| {
-            editors.set_control_click(control_click);
             let mut left = false;
             // Whether the place the pointer is at is in a selection before what it does is done.
             let before = match *input {
@@ -1031,7 +1077,7 @@ impl Page {
                 .map(|(editor, place)| Place {
                     editor,
                     at: place,
-                    inside: before.unwrap_or_else(|| editors.selection_holds(laid, at, measure)),
+                    inside: before.unwrap_or_else(|| editors.in_selection(editor, place)),
                     version: editors.buffer(editor).map_or(0, Buffer::version),
                 });
             (place, left)
@@ -1088,6 +1134,7 @@ impl State {
             // What it asks of the editors is done at the next frame, once they are made for the
             // page it came with: a frame is worth drawing.
             let keep = self.told.is_some();
+            let keyboard_was = self.editing.editors.focused();
             if self.editing.take_reply(&mut answer.reply, keep) && !building {
                 self.redraw = true;
             }
@@ -1104,11 +1151,19 @@ impl State {
                 answer.reply.cursor = over;
             }
             if let Some(menu) = &answer.reply.menu {
+                // A menu pastes only into the editor the person had the keyboard in when the page
+                // asked for it (before its reply moved the keyboard), and only a line that is on:
+                // the page cannot send a paste, whose text it would read as an edit, to an editor
+                // the person is not in.
                 self.menu_pastes = menu
                     .entries
                     .iter()
                     .map(|entry| match entry {
-                        MenuEntry::Paste { editor, .. } => Some(*editor),
+                        MenuEntry::Paste {
+                            editor,
+                            enabled: true,
+                            ..
+                        } if keyboard_was == Some(*editor) => Some(*editor),
                         _ => None,
                     })
                     .collect();
@@ -1154,7 +1209,13 @@ impl State {
         }
         self.asks.extend(told.scrolls);
         let copied = !told.copied.is_empty();
-        self.copied.extend(told.copied);
+        if building {
+            // Within a frame: the host puts it on its pasteboard with the frame, as it gives its
+            // fields what replies asked of them.
+            self.held.extend(told.copied.into_iter().map(Held::Copy));
+        } else {
+            self.copied.extend(told.copied);
+        }
         self.fresh |= told.relayout;
         if building {
             self.again |= more;

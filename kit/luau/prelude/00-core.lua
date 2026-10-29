@@ -329,10 +329,16 @@ function layout.keymap(editor)
 	local function resolved(words)
 		return (string.gsub(string.lower(words), "mod", pencere.host.keyboard() == "mac" and "cmd" or "ctrl"))
 	end
-	for words, does in changed do
+	-- In the order of the keys, so that what is read back is the same every time.
+	local names = {}
+	for words in changed do
+		table.insert(names, words)
+	end
+	table.sort(names)
+	for _, words in names do
 		local written = resolved(words)
 		seen[written] = true
-		table.insert(out, { keys = written, does = does or nil })
+		table.insert(out, { keys = written, does = changed[words] or nil })
 	end
 	for _, entry in DEFAULT_KEYS do
 		if not seen[entry[1]] then

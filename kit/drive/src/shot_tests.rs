@@ -257,6 +257,59 @@ fn the_gallery_of_components_is_pictured_in_a_dark_and_a_light_theme() -> Result
     Ok(())
 }
 
+/// The gallery's read-only editor opens the library's editor menu on a right press: the standard lines,
+/// Cut and Paste off for a document that cannot be changed, the page's own line after them, and Copy
+/// puts the caret's line on the pasteboard.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_gallerys_editor_opens_the_editor_menu_on_a_right_press() -> Result<(), Error> {
+    use pencere_view::{Button, Input, MenuEntry, Mods, Point};
+    let gallery = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/ui-lua");
+    let mut page = Headless::app(&gallery).size(760.0, 1250.0).open()?;
+    let room = page.bounds("doc").expect("the editor");
+    let at = Point::new(room.x + 6.0, room.y + 6.0);
+    page.pointer(Input::Press {
+        at,
+        button: Button::Right,
+        mods: Mods::default(),
+        count: 1,
+    })?;
+    page.pointer(Input::Release {
+        at,
+        button: Button::Right,
+    })?;
+    let titles: Vec<String> = page
+        .menu()
+        .expect("a menu")
+        .entries
+        .iter()
+        .map(|entry| match entry {
+            MenuEntry::Item { title, enabled, .. } | MenuEntry::Paste { title, enabled, .. } => {
+                format!("{title}{}", if *enabled { "" } else { " (off)" })
+            }
+            MenuEntry::Separator => "-".to_owned(),
+        })
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "Cut (off)",
+            "Copy",
+            "Paste (off)",
+            "-",
+            "Select All",
+            "-",
+            "Toggle Line Comment (off)",
+            "Select All Occurrences",
+            "-",
+            "Command palette"
+        ]
+    );
+    page.pick_titled("Copy")?;
+    assert_eq!(page.pasteboard(), Some("A haystack of words\n"));
+    Ok(())
+}
+
 /// The example whose gutter is the page's (`examples/gutter-lua`), pictured with a breakpoint put,
 /// the pointer over an empty cell of its column, a peek open in a zone, and the overview ruler's
 /// marks: the shapes of the bars, the triangle where lines were taken away, the dots and the gap, in

@@ -3093,26 +3093,23 @@ int reply_call(lua_State* L) {
                     entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_SEPARATOR;
                 } else if (lua_type(L, entry_index) == LUA_TTABLE) {
                     // `paste = the editor's name`: a line the application performs itself, the
-                    // pasteboard's text pasted in that editor; the page never reads it.
+                    // pasteboard's text pasted in that editor; the page never reads it. Its words are
+                    // the kit's, so a `title` written with it is not carried.
                     get(L, entry_index, "paste");
                     bool paste = !lua_isnil(L, -1);
-                    if (paste) {
-                        entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_PASTE;
-                        entry.val.paste.editor = id_of(L, lua_gettop(L));
-                    } else {
+                    uint64_t editor = paste ? id_of(L, lua_gettop(L)) : 0;
+                    lua_pop(L, 1);
+                    if (!paste) {
                         entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_ITEM;
+                        get(L, entry_index, "title");
+                        size_t length = 0;
+                        const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
+                        entry.val.item.title = add_words(titles, bytes, length);
+                        lua_pop(L, 1);
                     }
-                    lua_pop(L, 1);
-                    // The same fields, whichever record they are written to (the interface's two
-                    // records of a titled line have them in the same order).
-                    auto& line = entry.val.item;
-                    get(L, entry_index, "title");
-                    size_t length = 0;
-                    const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
-                    line.title = add_words(titles, bytes, length);
-                    lua_pop(L, 1);
                     // The keys that do the same, written as a command's: `keys`, or `key` as a
                     // page wrote it before (one character is keys too).
+                    decltype(entry.val.item.keys) keys = {};
                     get(L, entry_index, "keys");
                     bool legacy = lua_isnil(L, -1);
                     if (legacy) {
@@ -3121,15 +3118,23 @@ int reply_call(lua_State* L) {
                     }
                     if (lua_type(L, -1) == LUA_TSTRING && lua_objlen(L, -1) > 0) {
                         int words = lua_gettop(L);
-                        entry.val.item.keys = {true, legacy ? shortcut_or_character(L, words)
-                                                            : shortcut_of_words(L, words)};
+                        keys = {true, legacy ? shortcut_or_character(L, words) : shortcut_of_words(L, words)};
                     } else if (!lua_isnil(L, -1) && !(lua_type(L, -1) == LUA_TSTRING)) {
                         luaL_error(L, "the keys of a menu's entry are written as words: \"ctrl+w\"");
                     }
                     lua_pop(L, 1);
                     get(L, entry_index, "enabled");
-                    entry.val.item.enabled = lua_isnil(L, -1) ? true : lua_toboolean(L, -1) != 0;
+                    bool enabled = lua_isnil(L, -1) ? true : lua_toboolean(L, -1) != 0;
                     lua_pop(L, 1);
+                    if (paste) {
+                        entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_PASTE;
+                        entry.val.paste.keys = keys;
+                        entry.val.paste.enabled = enabled;
+                        entry.val.paste.editor = editor;
+                    } else {
+                        entry.val.item.keys = keys;
+                        entry.val.item.enabled = enabled;
+                    }
                 } else {
                     luaL_error(L, "an entry of a menu is a table, or \"-\" for a line");
                 }

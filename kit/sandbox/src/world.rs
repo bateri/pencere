@@ -1475,9 +1475,8 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
                         enabled: item.enabled,
                     },
                     wit::MenuEntry::Paste(paste) => MenuEntry::Paste {
-                        title: titles
-                            .words(&paste.title, limits.text, "a menu title")?
-                            .to_owned(),
+                        // The words are the kit's: a page cannot label what pastes as something else.
+                        title: "Paste".to_owned(),
                         keys: paste.keys.as_ref().map(shortcut_out),
                         enabled: paste.enabled,
                         editor: Id::new(paste.editor),

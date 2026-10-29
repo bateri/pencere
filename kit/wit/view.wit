@@ -1892,9 +1892,11 @@ interface types {
 
     /// A line the application performs itself when it is picked: the pasteboard's text pasted in
     /// the editor `editor`, as its paste key would paste it. The page cannot read the pasteboard,
-    /// nor ask an editor to paste; it is told the pick as any.
+    /// nor ask an editor to paste; it is told the pick as any. The line's words are the kit's
+    /// ("Paste"), not the page's: the person is told what the pick does, and a page cannot label it
+    /// as something else. It pastes only into the editor the person had the keyboard in when the page
+    /// asked for the menu.
     record menu-paste {
-        title: slice,
         keys: option<shortcut>,
         enabled: bool,
         editor: id,

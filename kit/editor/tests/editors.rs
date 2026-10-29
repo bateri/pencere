@@ -4073,30 +4073,63 @@ fn a_right_press_the_page_says_nothing_of_does_nothing_in_the_text() {
 }
 
 #[test]
-fn control_with_the_main_button_is_the_right_press_where_the_host_says_it_is_and_the_page_says_nothing_of_it()
+fn control_with_the_main_button_opens_the_menu_where_the_page_says_a_right_press_does_and_says_nothing_of_it()
  {
+    let control = with(|m| m.control = true);
+    let mut host = Host::new(page_with(menu_on_right()));
+    host.load("alpha beta");
+    let laid = host.laid.clone();
+    let at = Point::new(60.0, 10.0);
+    assert!(host.editors.control_click_opens_menu(&laid, at, control));
+    assert!(!host.editors.control_click_opens_menu(&laid, at, none()));
+    // The page wrote ⌃ and the main button itself: that is its own.
+    let own = EditorOptions {
+        gestures: vec![
+            (
+                Gesture {
+                    button: Button::Right,
+                    mods: none(),
+                    count: 1,
+                },
+                Pressing::Context,
+            ),
+            (
+                Gesture {
+                    button: Button::Left,
+                    mods: control,
+                    count: 1,
+                },
+                Pressing::Nothing,
+            ),
+        ],
+        ..plain()
+    };
+    let mut host = Host::new(page_with(own));
+    host.load("alpha beta");
+    let laid = host.laid.clone();
+    assert!(!host.editors.control_click_opens_menu(&laid, at, control));
+    // No right press written: the main button's own.
+    let mut host = Host::new(page_with(plain()));
+    host.load("alpha beta");
+    let laid = host.laid.clone();
+    assert!(!host.editors.control_click_opens_menu(&laid, at, control));
+}
+
+#[test]
+fn a_quick_second_right_press_opens_the_menu_too() {
     let mut host = Host::new(page_with(menu_on_right()));
     host.load("alpha beta");
     host.select(vec![Range::new(0, 5)]);
-    let control = with(|m| m.control = true);
-    // Not on a Mac: ⌃ and the main button is a press like any, and puts the caret.
-    assert!(host.press(Point::new(60.0, 10.0), control, 1));
-    host.editors.release();
+    let laid = host.laid.clone();
+    host.editors.press_other(
+        &laid,
+        Point::new(60.0, 10.0),
+        (Button::Right, none(), 2),
+        &mut Fake,
+    );
+    host.settle();
     assert_eq!(host.ranges().len(), 1);
-    host.select(vec![Range::new(0, 5)]);
-    host.editors.set_control_click(true);
-    // In the selection: it stays (the menu's press, and no caret put).
-    assert!(host.press(Point::new(18.0, 10.0), control, 1));
-    host.editors.release();
-    assert_eq!(host.ranges(), vec![Range::new(0, 5)]);
-    // Without the right press written, it is the main button's as before.
-    let mut plain_host = Host::new(page_with(plain()));
-    plain_host.load("alpha beta");
-    plain_host.select(vec![Range::new(0, 5)]);
-    plain_host.editors.set_control_click(true);
-    assert!(plain_host.press(Point::new(18.0, 10.0), control, 1));
-    plain_host.editors.release();
-    assert!(plain_host.ranges()[0].is_empty());
+    assert!(host.ranges()[0].is_empty(), "the caret went");
 }
 
 #[test]

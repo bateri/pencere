@@ -2736,6 +2736,9 @@ fn a_right_press_puts_the_caret_by_the_text_views_rule_and_the_page_opens_its_me
         page.editor("e").map(|b| b.ranges().to_vec()),
         Some(vec![Range::new(0, 5)])
     );
+    // The page is told the right button's press, and opens its menu from it.
+    assert!(page.menu().is_some(), "the menu opened");
+    page.pick_titled("Copy")?;
     // Cut takes the selection out and puts it on the pasteboard.
     page.select("e", 0, 5)?;
     right_press(&mut page, Point::new(12.0, 12.0))?;
@@ -2770,5 +2773,61 @@ fn the_host_paste_entry_of_a_read_only_editor_is_off_and_a_page_cannot_ask_an_ed
     let refused = page.click_at(Point::new(12.0, 12.0));
     let why = failed(refused);
     assert!(why.contains("paste"), "{why}");
+    Ok(())
+}
+
+/// Two editors; the menu of the first has a paste line the page aims at the second, and words of its own
+/// for it.
+const AIMED: &str = r#"
+local b = pencere
+return {
+	render = function()
+		return b.div():size_full()
+			:child(b.editor("a", { gutter = false, gestures = { ["right+press"] = "context" } }):grow(1))
+			:child(b.editor("b", { gutter = false }):grow(1))
+	end,
+	handle = function(event)
+		if event.type == "editor_ready" and event.editor == "a" then
+			return { editor = { a = { { load = "alpha beta" } } } }
+		elseif event.type == "press" and event.button == "right" and event.place then
+			return { menu = { at = { x = event.x, y = event.y }, entries = {
+				{ title = "Close", paste = "b" }, { title = "Also close", paste = "a" },
+			} } }
+		end
+		return nil
+	end,
+}
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_paste_line_has_the_kits_words_and_pastes_only_into_the_editor_the_person_is_in()
+-> Result<(), Error> {
+    let mut page = open(AIMED)?;
+    page.select("a", 0, 5)?;
+    page.press("cmd+c")?;
+    assert_eq!(page.pasteboard(), Some("alpha"));
+    right_press(&mut page, Point::new(12.0, 12.0))?;
+    // What the page called the lines is not what they are called.
+    let menu = page.menu().expect("a menu").clone();
+    assert!(menu.entries.iter().all(|entry| matches!(
+        entry,
+        pencere_view::MenuEntry::Paste { title, .. } if title == "Paste"
+    )));
+    // The page aimed the first at the editor the person is not in: nothing is pasted there, and the
+    // page is not told a text.
+    page.pick(0)?;
+    assert_eq!(page.editor("b").map(|b| b.text()), Some(String::new()));
+    assert_eq!(
+        page.editor("a").map(|b| b.text()),
+        Some("alpha beta".to_owned())
+    );
+    // The second is the editor the person is in.
+    right_press(&mut page, Point::new(300.0, 12.0))?;
+    page.pick(1)?;
+    assert_eq!(
+        page.editor("a").map(|b| b.text()),
+        Some("alpha betaalpha".to_owned())
+    );
     Ok(())
 }

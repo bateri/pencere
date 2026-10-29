@@ -14,8 +14,11 @@ The drive of a page of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.
   `MenuEntry::Paste`) and `Drained::copied` (text a page had an editor copy or cut). **Breaking:**
   `Page::pick` takes the host (`pick(index, &mut host)`), which pastes first where the entry is one the
   host performs.
-- A press that is the right button's (and, on a Mac, ⌃ with the main button) reaches the editors as
-  the page's `gestures` say; the `Place` of a pointer event says `inside` and the editor's `version`.
+- `Held::Copy`: text a page had an editor copy or cut within a frame is put on the pasteboard with
+  the frame (`Painted::deliver_held`), the rest with the drain (`Drained::copied`). A menu's paste line
+  pastes only into the editor the person was in and only if it is on.
+- A press that is the right button's (and, on a Mac, ⌃ with the main button, told the page as the right
+  button's) reaches the editors as the page's `gestures` say; the `Place` of a pointer event says `inside` and the editor's `version`.
 
 ### Fixed
 

@@ -38,6 +38,7 @@ local lists = require("@self/lists")
 local structure = require("@self/structure")
 local find = require("@self/find")
 local grid = require("@self/grid")
+local editor_menu = require("@self/editor_menu")
 
 local ui = {}
 
@@ -47,11 +48,14 @@ ui.component = core.component
 ui.GLYPHS = look.GLYPHS
 -- A toast to add to the page's items, and the items that have not run out.
 ui.commands = commands.new
+-- The command that opens an editor's menu at its caret (`ui.commands` takes it in its list).
+ui.EDITOR_MENU_COMMAND = editor_menu.COMMAND
 ui.toast = layers.toast
 ui.toasts_prune = layers.toasts_prune
 
 -- The components, as methods of the context.
-for _, parts in { basic, controls, { dialog = layers.dialog, toasts = layers.toasts }, { list = lists.list, palette = lists.palette, completions = lists.completions }, structure, { find_bar = find.find_bar, grid = grid.grid } } do
+for _, parts in { basic, controls, { dialog = layers.dialog, toasts = layers.toasts }, { list = lists.list, palette = lists.palette, completions = lists.completions }, structure, { find_bar = find.find_bar, grid = grid.grid },
+	{ editor_menu = editor_menu.editor_menu, editor_menu_pick = editor_menu.editor_menu_pick } } do
 	for name, component in parts do
 		core.Ctx[name] = component
 	end

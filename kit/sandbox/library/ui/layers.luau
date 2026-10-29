@@ -330,7 +330,7 @@ function core.Ctx:menu(id, entries, options)
 		if entry == "-" then
 			asked[index] = "-"
 		else
-			asked[index] = { title = entry.title, keys = entry.keys, enabled = entry.enabled }
+			asked[index] = { title = entry.title, keys = entry.keys, enabled = entry.enabled, paste = entry.paste }
 			keys[index] = entry.key
 		end
 	end

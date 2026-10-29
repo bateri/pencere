@@ -22,11 +22,18 @@ impl Editors {
             return false;
         };
         let place = editor.view.place_at(&editor.buffer, point, measure);
-        editor
-            .buffer
-            .ranges()
-            .iter()
-            .any(|range| range.start() <= place && place <= range.end())
+        self.in_selection(id, place)
+    }
+
+    /// Whether `place` of the editor `id` is in a selection (at its ends too) or at a caret.
+    pub fn in_selection(&self, id: Id, place: usize) -> bool {
+        self.editors.get(&id).is_some_and(|editor| {
+            editor
+                .buffer
+                .ranges()
+                .iter()
+                .any(|range| range.start() <= place && place <= range.end())
+        })
     }
 
     /// A press that opens a menu in the editor `id`, `point` in its room: the caret put where the
@@ -46,12 +53,7 @@ impl Editors {
             return;
         };
         let place = editor.view.place_at(&editor.buffer, point, measure);
-        let inside = editor
-            .buffer
-            .ranges()
-            .iter()
-            .any(|range| range.start() <= place && place <= range.end());
-        if !inside {
+        if !self.in_selection(id, place) {
             self.with(id, laid, measure, |buffer, _| {
                 buffer.select(vec![Range::caret(place)], 0);
             });

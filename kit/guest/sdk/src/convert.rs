@@ -538,12 +538,11 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
                         enabled,
                     }),
                     MenuEntry::Paste {
-                        title,
                         keys,
                         enabled,
                         editor,
+                        ..
                     } => wit::MenuEntry::Paste(wit::MenuPaste {
-                        title: lists.words(&title),
                         keys: keys.as_ref().map(shortcut_out),
                         enabled,
                         editor: editor.number(),

@@ -14,7 +14,7 @@ use crate::headless::{Error, Focus, Headless};
 /// action).
 const HEAD: &str = r#"
 local ui = require("@pencere/ui")
-local options, view, on_action, finish = nil, nil, nil, nil
+local options, view, on_action, on_event, finish = nil, nil, nil, nil, nil
 local S = {}
 "#;
 
@@ -63,6 +63,9 @@ return {
                 reply = pencere.merge(reply, on_action(act, u))
             end
             reply = pencere.merge(reply, true)
+        end
+        if on_event then
+            reply = pencere.merge(reply, on_event(event, u))
         end
         return reply
     end,
@@ -1948,5 +1951,225 @@ fn a_grid_asks_for_the_rows_it_has_not_read_and_builds_the_columns_as_it_goes_ac
         (10..=30).contains(&made),
         "{made} columns made with an 800 point view and columns 100 points wide"
     );
+    Ok(())
+}
+
+/// A page whose editor opens the library's editor menu on a right press and on the command that asks
+/// for it at the caret; `%OPTIONS%` is the editor's options besides the gesture, `%MENU%` the menu's.
+fn editor_menu_page(options: &str, menu: &str) -> String {
+    r#"
+S.text = "alpha beta\ngamma delta"
+local cmds = ui.commands({ ui.EDITOR_MENU_COMMAND })
+view = function(u)
+    return pencere.editor("code", { gutter = false, %OPTIONS% gestures = { ["right+press"] = "context" } }):grow(1)
+end
+finish = function(u, root)
+    cmds:write(u, root)
+end
+on_event = function(event, u)
+    if event.type == "editor_ready" then
+        return { editor = { code = { { load = S.text } } } }
+    elseif event.type == "press" and event.button == "right" and event.place then
+        return u:editor_menu("code-menu", { editor = event.place.editor, at = { x = event.x, y = event.y }, %MENU% })
+    end
+end
+on_action = function(act, u)
+    if act.from == "commands" and act.id == "editor_menu" then
+        return u:editor_menu("code-menu", { editor = "code", %MENU% })
+    elseif act.from == "code-menu" then
+        return u:editor_menu_pick(act)
+    end
+end
+"#
+    .replace("%OPTIONS%", options)
+    .replace("%MENU%", menu)
+}
+
+fn right_press_in(page: &mut Headless, editor: &str) -> Result<(), Error> {
+    let room = page.bounds(editor).expect("the editor");
+    let at = pencere_view::Point::new(room.x + 6.0, room.y + 6.0);
+    page.pointer(pencere_view::Input::Press {
+        at,
+        button: pencere_view::Button::Right,
+        mods: pencere_view::Mods::default(),
+        count: 1,
+    })?;
+    page.pointer(pencere_view::Input::Release {
+        at,
+        button: pencere_view::Button::Right,
+    })
+}
+
+fn menu_titles(page: &Headless) -> Vec<String> {
+    use pencere_view::MenuEntry;
+    page.menu()
+        .expect("a menu")
+        .entries
+        .iter()
+        .map(|entry| match entry {
+            MenuEntry::Item { title, enabled, .. } | MenuEntry::Paste { title, enabled, .. } => {
+                format!("{title}{}", if *enabled { "" } else { " (off)" })
+            }
+            MenuEntry::Separator => "-".to_owned(),
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_editors_menu_has_the_standard_lines_with_the_editors_keys_and_the_pages_own_around_them()
+-> Result<(), Error> {
+    use pencere_view::MenuEntry;
+    let mut page = open(&editor_menu_page(
+        "",
+        r#"before = { { key = "definition", title = "Go to Definition", keys = "f12" } },
+            after = { { key = "palette", title = "Command Palette" } }"#,
+    ))?;
+    right_press_in(&mut page, "code")?;
+    assert_eq!(
+        menu_titles(&page),
+        [
+            "Go to Definition",
+            "-",
+            "Cut",
+            "Copy",
+            "Paste",
+            "-",
+            "Select All",
+            "-",
+            "Toggle Line Comment",
+            "Select All Occurrences",
+            "-",
+            "Command Palette"
+        ]
+    );
+    // The keys are the editor's now, written as a command's are: ⌘ and a letter, not the word Enter.
+    let keys: Vec<Option<String>> = page
+        .menu()
+        .expect("a menu")
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            MenuEntry::Item { title, keys, .. } | MenuEntry::Paste { title, keys, .. } => {
+                Some((title.clone(), keys.as_ref().map(|k| format!("{k:?}"))))
+            }
+            MenuEntry::Separator => None,
+        })
+        .filter(|(title, _)| ["Cut", "Copy", "Paste", "Select All"].contains(&title.as_str()))
+        .map(|(_, keys)| keys)
+        .collect();
+    assert!(keys.iter().all(Option::is_some), "{keys:?}");
+    // Paste is the host's line; the rest are the page's.
+    assert!(matches!(
+        page.menu().expect("a menu").entries[4],
+        MenuEntry::Paste { enabled: true, .. }
+    ));
+    // The page's own line comes back to the page, and the helper has nothing to ask for it.
+    page.pick_titled("Go to Definition")?;
+    assert_eq!(log(&page), ["code-menu menu entry=definition"]);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_line_of_the_menu_asks_the_editor_and_paste_is_the_hosts_with_its_pasteboard()
+-> Result<(), Error> {
+    let mut page = open(&editor_menu_page("", ""))?;
+    page.select("code", 0, 5)?;
+    right_press_in(&mut page, "code")?;
+    page.pick_titled("Copy")?;
+    assert_eq!(page.pasteboard(), Some("alpha"));
+    right_press_in(&mut page, "code")?;
+    page.pick_titled("Select All Occurrences")?;
+    right_press_in(&mut page, "code")?;
+    page.pick_titled("Select All")?;
+    assert_eq!(
+        page.editor("code").map(|b| b.ranges().to_vec()),
+        Some(vec![pencere_view::edit::Range::new(0, 22)])
+    );
+    right_press_in(&mut page, "code")?;
+    page.pick_titled("Cut")?;
+    assert_eq!(page.editor("code").map(|b| b.text()), Some(String::new()));
+    assert_eq!(page.pasteboard(), Some("alpha beta\ngamma delta"));
+    // Paste: the host reads its pasteboard, and the text goes in as the paste key's does.
+    right_press_in(&mut page, "code")?;
+    page.pick_titled("Paste")?;
+    assert_eq!(
+        page.editor("code").map(|b| b.text()),
+        Some("alpha beta\ngamma delta".to_owned())
+    );
+    right_press_in(&mut page, "code")?;
+    page.pick_titled("Toggle Line Comment")?;
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_read_only_editors_menu_greys_what_changes_the_text_and_not_what_the_keys_leave_on()
+-> Result<(), Error> {
+    let mut page = open(&editor_menu_page("read_only = true,", "read_only = true"))?;
+    right_press_in(&mut page, "code")?;
+    let titles = menu_titles(&page);
+    assert!(titles.contains(&"Cut (off)".to_owned()), "{titles:?}");
+    assert!(titles.contains(&"Paste (off)".to_owned()), "{titles:?}");
+    assert!(
+        titles.contains(&"Toggle Line Comment (off)".to_owned()),
+        "{titles:?}"
+    );
+    // Nothing is greyed for an empty selection: the keys copy and cut the caret's line.
+    assert!(titles.contains(&"Copy".to_owned()), "{titles:?}");
+    assert!(titles.contains(&"Select All".to_owned()), "{titles:?}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_keys_an_editors_menu_shows_are_those_the_page_left_it_and_the_keyboard_opens_it_at_the_caret()
+-> Result<(), Error> {
+    let mut page = open(&editor_menu_page(
+        r#"keymap = { ["mod+shift+c"] = "copy", ["mod+c"] = false, ["mod+k mod+c"] = "toggle_comment" },"#,
+        "",
+    ))?;
+    page.focus_editor("code")?;
+    page.press("shift+f10")?;
+    let menu = page.menu().expect("a menu at the caret");
+    assert!(menu.at.x.is_finite() && menu.at.y > 0.0, "{:?}", menu.at);
+    let copy = menu
+        .entries
+        .iter()
+        .find_map(|entry| match entry {
+            pencere_view::MenuEntry::Item { title, keys, .. } if title == "Copy" => *keys,
+            _ => None,
+        })
+        .expect("Copy has keys");
+    assert_eq!(
+        copy,
+        pencere_view::Shortcut::parse("cmd+shift+c").expect("keys")
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_cannot_name_a_line_of_its_own_as_one_of_the_menus() -> Result<(), Error> {
+    let mut page = open(
+        r#"
+view = function(u)
+    return u:button("more", { title = "More" })
+end
+on_action = function(act, u)
+    return u:editor_menu("m", { editor = "code", at = { x = 1, y = 1 }, before = { { key = "copy", title = "Mine" } } })
+end
+"#,
+    )?;
+    match page.click("more") {
+        Err(Error::Ended(Fault::Failed(why))) => {
+            assert!(
+                why.contains("copy") && why.contains("the menu's own"),
+                "{why}"
+            );
+        }
+        other => panic!("expected the page to fail, it is {other:?}"),
+    }
     Ok(())
 }

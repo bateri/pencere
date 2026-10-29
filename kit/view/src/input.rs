@@ -260,9 +260,11 @@ pub enum MenuEntry {
     },
     Separator,
     /// A line the host performs itself when it is picked: the pasteboard's text pasted in the
-    /// editor `editor`, as its paste key would ([`crate::Place`] is where the page asked it). A
-    /// page cannot read the pasteboard, nor ask the editor to paste: text comes from it only on the
-    /// person's key or the person's pick of this entry. The page is told the pick as any.
+    /// editor `editor`, as its paste key would. A page cannot read the pasteboard, nor ask the editor
+    /// to paste: text comes from it only on the person's key or the person's pick of this entry, and
+    /// the page is told the pick as any. `title` is the kit's ("Paste"; what the page wrote is not
+    /// carried), so that the person is told what the pick does; the drive pastes only into the editor
+    /// the person had the keyboard in when the page asked for the menu.
     Paste {
         title: String,
         keys: Option<Shortcut>,

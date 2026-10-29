@@ -261,7 +261,7 @@ theme's colours:
 | `marks`                                              | `{ bar =, hover =, ruler = }`: how wide a bar of the gutter is (3 points), how wide one the pointer is over is (6) and how wide the overview ruler is (4); 1 to 16                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `events`                                             | what an editor tells the page of its own, as a list of words: `"hover"` is the pointer's rest over a word and its going from it (`hover` event, below), `"target"` the pointer over a word with a press of the page's held and that press (`target` event, below); none unless asked, for the rare things are told and what comes at the rate of the pointer's moving is not                                                                                                                                                                                                                                                                                                                                                                         | none                                       |
 | `hover`                                              | `{ delay = }`: how long the pointer rests over a word before the page is told of it, seconds (0 to 10; VS Code's `editor.hover.delay`, Zed's `hover_popover_delay`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | `{ delay = 0.3 }`                          |
-| `gestures`                                           | how a press is taken, by its button, modifiers and count: `{ ["press"] = "place", ["shift+press"] = "extend", ["mod+press"] = "target", ["alt+press"] = "column", ["press×2"] = "word", ["press×3"] = "line" }` are what an editor does where the page says nothing; `"add_caret"` and `false` (nothing) are the others, `"context"` a press that opens the page's menu (below), `"target"` the page's alone (told as a `target` event, no caret moves, the editor has the keyboard; it needs `events = { "target" }`); `"middle+press"` and the other buttons may be `"target"` or `false`                                                                                                                                                          | as written                                 |
+| `gestures`                                           | how a press is taken, by its button, modifiers and count: `{ ["press"] = "place", ["shift+press"] = "extend", ["mod+press"] = "target", ["alt+press"] = "column", ["press×2"] = "word", ["press×3"] = "line" }` are what an editor does where the page says nothing; `"add_caret"` and `false` (nothing) are the others, `"context"` a press that opens the page's menu (below), `"target"` the page's alone (told as a `target` event, no caret moves, the editor has the keyboard; it needs `events = { "target" }`); `"middle+press"` and the other buttons may be `"target"`, `"context"` or `false`                                                                                                                                             | as written                                 |
 | `keymap`                                             | the editor's keys the page changes: `{ ["mod+d"] = "select_next", ["mod+/"] = false, ["mod+k mod+c"] = "toggle_comment" }`, the keys of a chord apart by a space (at most four); the name of a command that needs none (`"undo"`, …), `"copy"`, `"cut"`, `"paste"`, `"tab"`, `"escape"`, `"to_line_start"`, `"to_line_end"`, the table of a command (`{ command = "move", movement = "down" }`) or `false` (nothing of the editor's: the key is the page's). A chord waits `chord_timeout` seconds for its next key and the page is told (`keymap_pending`); a key that is none of its next ends it and does nothing; Escape ends it. `pencere.layout.keymap(editor)` says what the keys do now                                                      | as written                                 |
 | `chord_timeout`                                      | seconds a chord waits for its next key (0.1 to 10)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | `1`                                        |
 | `widgets`                                            | how the groups of widgets (text the page puts in lines, below) look and when they show, by name: `{ hints = { show = "unless_held", hold = "control+alt", size = 0.9, color =, background =, radius = 3, pad = 3, gap = 16, margin = 3 } }`; `show` is `"on"`, `"off"`, `"unless_held"` (VS Code's `onUnlessPressed`: hidden while `hold` is held) or `"when_held"` (`offUnlessPressed`); `size` times the text (0.5 to 2), `radius`, `pad`, `gap` and `margin` points (0 to 64): the corners, the room inside the box, the gap before a widget at a line's end, and the room kept outside the box of an inline one, between it and the characters beside it                                                                                         | as written                                 |
@@ -506,7 +506,8 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 | `keymap_pending`   | `editor`, `keys` (the chord's keys so far, as written; none when it is not waited on any more)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `editor_ready`     | `editor`, `version`: the host made the editor, as the page was laid out with it, shown or hidden; its text is posted before this is told, and what the page asks of it is done from now on. A page loads a document into an editor it has just made (a tab's that is not in front too) when it hears this                                                                                                                                                                                                                              |
 
-`move`, `press` and `release` over an editor have `place`, `{ editor =, at = }`: the place of its
+`move`, `press` and `release` over an editor have `place`, `{ editor =, at =, inside =, version = }`
+(`inside`: the place was in a selection or at a caret before a press moved the caret): the place of its
 document under the pointer (a word to say what it is of while the pointer rests on it, a name to go to
 at a ⌘-click). A press in an editor is the editor's as well: it puts the caret.
 
@@ -726,7 +727,11 @@ copies and does not cut). **There is no command that pastes**: a page can write 
 never read it, so text reaches an editor from the pasteboard only on the person's key or the person's pick of a
 menu entry the host performs itself (`paste = editor` in a menu's entry): the host reads its pasteboard and the
 text goes in as the paste key's does, in a `read_only` editor not at all and at several carets a line each
-where the text has as many lines; the page is told the pick (`menu`, the `index`) as any and never the text.
+where the text has as many lines; the page is told the pick (`menu`, the `index`) as any and never the text
+(an `edit` that tells what went in is told, as for the person's own key). The line's words are the kit's
+("Paste"), whatever the page wrote, and it pastes only into the editor that had the keyboard when the page
+asked for the menu, and only a line that is on: a page cannot send what is on the pasteboard to an editor
+the person is not in, nor give the pick another name.
 A page asks for a paste by a command, `{ command = "paste" }`, and is failed where it writes it, as for any
 word that is no command.
 
@@ -737,10 +742,13 @@ caret) the selections stay. The press is then told the page as any (`press` with
 the `place` it has: `{ editor, at, inside, version }`, where `inside` says the place was in a selection or at
 a caret before the press moved the caret, and `version` is the editor's after; the page opens its menu from
 that `press` (`menu` in its reply, at the press's `x` and `y`), and asks `copy`, `cut` and its other
-commands at the editor's version when the entry is picked. No `events` word is needed: the gesture is
+commands of the editor when the entry is picked (those carry no version; an ask that does takes the
+editor's current one, `pencere.layout.editor_version`, not the press's). A second press of the quick run
+opens the menu as the first does. No `events` word is needed: the gesture is
 the page's asking. A host whose system makes ⌃ with the main button a right press (a Mac's) may send it
 as the main button with ⌃: the drive takes it for the right press where the page's `gestures` say a
-right press does what opens a menu and say nothing of ⌃ with the main button.
+right press does what opens a menu and say nothing of ⌃ with the main button, and tells the page the
+press as the right button's, without the ⌃ (so does its release).
 
 A reply's **`fill`** and its **`keyboard = { field = name }`** may name a field that the very page the
 reply comes with brings: a reply that opens a field (a find bar, a palette, a dialog) fills it and
@@ -1201,9 +1209,20 @@ name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"
   the keys of a card that has the focus scroll it, `max_height` (320 points) how tall it grows. A card
   does not close of itself when the pointer was on it as `hide_delay` ended and goes off it later: it goes at
   what else `dismiss` lists.
+- `u:editor_menu(id, { editor =, at =, read_only =, before =, after = })` is the menu of an editor, the same
+  in every editor of every page: the reply that asks the host for Cut, Copy, Paste, Select All, Toggle Line
+  Comment and Select All Occurrences, each with the keys the editor has for it now (`layout.keymap`, as the
+  page changed them), the page's own lines before and after (`before`, `after`, `"-"` for a rule). The page
+  opens it from the `press` of a right button in an editor written with `gestures = { ["right+press"] =
+"context" }` (`at` is the press's `x` and `y`), or, without `at`, under the caret for the keyboard
+  (`ui.EDITOR_MENU_COMMAND`, Shift F10, is the command of that). Copy, Cut and the rest are not greyed for an
+  empty selection, as the keys are not (Copy and Cut take the caret's line); `read_only` greys Cut, Paste and
+  Toggle Line Comment. Paste is the host's line (`paste = editor`): the page neither reads the pasteboard nor
+  asks the editor to paste. `u:editor_menu_pick(act)` is the reply that asks the editor for the line picked
+  (nil for the page's lines and Paste).
 - `button`, `icon_button`, `toggle`, `badge`, `kbd`, `rule`, `banner`; `input`, `segments`, `tabs`;
-  `modal`, `dialog`, `toasts`, `menu` (the host's), `popover`; `list`, `palette`, `completions`, `tree`,
-  `grid`; `split`, `status`; `find_bar`. `ui.commands(list)` writes the page's commands once for the host, the
+  `modal`, `dialog`, `toasts`, `menu` (the host's), `editor_menu`, `popover`; `list`, `palette`,
+  `completions`, `tree`, `grid`; `split`, `status`; `find_bar`. `ui.commands(list)` writes the page's commands once for the host, the
   palette and the help, and holds them while a modal is in front. `ui.component(name, spec)` makes
   a component of the page's own the same way.
 - An icon-only button and a field must say what they are in words (`label`), or the page fails at the

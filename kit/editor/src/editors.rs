@@ -142,8 +142,6 @@ pub struct Editors {
     scrolls: Vec<ScrollTo>,
     /// Text the page had copied or cut, for the host's pasteboard, oldest first.
     copied: Vec<String>,
-    /// A press with ⌃ is a right press (a Mac's): the drive says so ([`Editors::set_control_click`]).
-    control_click: bool,
     relayout: bool,
     /// Something only drawn changed (the gutter mark the pointer is over).
     redraw: bool,
@@ -287,11 +285,31 @@ impl Editors {
         std::mem::take(&mut self.copied)
     }
 
-    /// Whether a press of the main button with ⌃ is the right button's, as it is on a Mac: it is
-    /// taken as the right press the page's `gestures` say (`"right+press"`) where they say nothing
-    /// of ⌃ with the main button.
-    pub fn set_control_click(&mut self, on: bool) {
-        self.control_click = on;
+    /// Whether a press of the main button at `at` (points of the page) with `mods` is, on a Mac, the
+    /// right button's: ⌃ held, in the text of an editor whose `gestures` say a right press with the
+    /// other modifiers opens a menu and say nothing of this press. The drive tells the page that
+    /// press as the right button's, without the ⌃.
+    pub fn control_click_opens_menu(&self, laid: &Laid, at: Point, mods: Mods) -> bool {
+        if !mods.control {
+            return false;
+        }
+        let Some((id, point)) = self.under(laid, at) else {
+            return false;
+        };
+        let Some(editor) = self.editors.get(&id) else {
+            return false;
+        };
+        let x = point.x - editor.view.scroll.x;
+        if editor.view.cell_at(&editor.buffer, x, point.y).is_some() {
+            return false;
+        }
+        let gestures = &editor.view.options.gestures;
+        let right = Mods {
+            control: false,
+            ..mods
+        };
+        gesture_of(gestures, Button::Left, mods, 1).is_none()
+            && gesture_of(gestures, Button::Right, right, 1) == Some(Pressing::Context)
     }
 
     /// Where the editors ask to be scrolled (to keep a caret in view), for the host's scrolling.
@@ -568,7 +586,7 @@ impl Editors {
         let x = point.x - editor.view.scroll.x;
         let Some(cell) = editor.view.cell_at(&editor.buffer, x, point.y) else {
             // In the text: a press that is the page's is told it, as the main button's is.
-            let pressing = gesture_of(&editor.view.options.gestures, button, mods, count);
+            let pressing = press_of(&editor.view.options.gestures, button, mods, count);
             return match pressing {
                 Some(Pressing::Target) => {
                     self.press_target(laid, id, point, (button, mods, count), measure)
@@ -1186,18 +1204,7 @@ impl Editors {
         let Some(editor) = self.editors.get(&id) else {
             return true;
         };
-        let gestures = &editor.view.options.gestures;
-        let mut pressing = gesture_of(gestures, Button::Left, mods, count);
-        // A Mac's ⌃ with the main button is the right button: taken so where the page says a right
-        // press does what opens a menu and says nothing of ⌃ with the main button.
-        if pressing.is_none() && self.control_click && mods.control && count == 1 {
-            let right = Mods {
-                control: false,
-                ..mods
-            };
-            pressing = gesture_of(gestures, Button::Right, right, 1)
-                .filter(|pressing| *pressing == Pressing::Context);
-        }
+        let pressing = press_of(&editor.view.options.gestures, Button::Left, mods, count);
         match pressing {
             Some(Pressing::Nothing) => return true,
             Some(Pressing::Target) => {
@@ -1479,6 +1486,19 @@ fn keep_in_view(
 }
 
 /// What the page's table of presses says of a press: the exact button, modifiers and count.
+/// What a press does, as [`gesture_of`] has it, except that a press that opens a menu does so at any
+/// count: a quick second press of the right button is the menu's still.
+fn press_of(
+    gestures: &[(pencere_view::edit::Gesture, Pressing)],
+    button: Button,
+    mods: Mods,
+    count: u32,
+) -> Option<Pressing> {
+    gesture_of(gestures, button, mods, count).or_else(|| {
+        gesture_of(gestures, button, mods, 1).filter(|pressing| *pressing == Pressing::Context)
+    })
+}
+
 fn gesture_of(
     gestures: &[(pencere_view::edit::Gesture, Pressing)],
     button: Button,

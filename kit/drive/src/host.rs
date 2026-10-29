@@ -53,6 +53,9 @@ pub enum Held {
     Fill(Id, Fill),
     /// Where the keyboard goes ([`Host::keyboard`]).
     Keyboard(Keyboard),
+    /// Text a page had an editor copy or cut within this frame, for the host's pasteboard
+    /// ([`Host::copy`]).
+    Copy(String),
 }
 
 impl Held {
@@ -61,6 +64,7 @@ impl Held {
         match self {
             Self::Fill(field, fill) => host.fill(field, fill),
             Self::Keyboard(to) => host.keyboard(to),
+            Self::Copy(text) => host.copy(text),
         }
     }
 }
