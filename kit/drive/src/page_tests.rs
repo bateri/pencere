@@ -994,6 +994,90 @@ fn a_caret_glides_as_the_options_say_without_asking_the_page_for_a_frame() {
     );
 }
 
+/// A block caret that glides shows the text it passes over from the first frame of the glide, as a
+/// terminal's block cursor does: every row the moving box reaches has its text drawn on it, cut at
+/// the box, in the caret's text colour. At rest the one character under it is drawn as ever.
+#[test]
+#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+fn a_block_caret_that_glides_shows_the_text_it_covers_from_the_first_frame() {
+    let page = EDITOR_PAGE
+        .replace(
+            "{ gutter = false }",
+            r#"{ gutter = false, caret = { shape = "block", blink = false, motion = { spring = 30 } } }"#,
+        )
+        .replace(r#"load = "hello\nworld""#, r#"load = "hello world\nsecond""#);
+    // The caret's box, and the runs of text drawn in the caret's text colour (the background), in
+    // the frame at `now`.
+    let frame = |rig: &mut Rig, now: f64| {
+        let painted = rig.page.frame(frame_at(now));
+        let caret = painted.list.items.iter().find_map(|item| match item {
+            Paint::Quad(quad) if quad.fill.and_then(|fill| fill.role()) == Some(Role::Cursor) => {
+                Some(quad.rect)
+            }
+            _ => None,
+        });
+        let on_it: Vec<(String, Rect)> = painted
+            .list
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Paint::Text(run) if run.color.role() == Some(Role::Background) => {
+                    Some((run.text.clone(), run.clip))
+                }
+                _ => None,
+            })
+            .collect();
+        (caret.expect("a caret"), on_it)
+    };
+    let mut rig = loaded(&page);
+    // At rest on the first character: that one alone, cut at the box.
+    let (rest, on_it) = frame(&mut rig, 0.0);
+    assert_eq!(on_it.len(), 1, "{on_it:?}");
+    assert_eq!(on_it[0].0, "h");
+    assert_eq!(on_it[0].1, on_it[0].1.intersect(rest));
+    // Four steps right: the box starts where it was and glides across "ello".
+    for _ in 0..4 {
+        assert_eq!(rig.page.key(Key::Right, Mods::default()), Route::Done);
+    }
+    let (first, on_it) = frame(&mut rig, 1.0);
+    assert_eq!(first.x, rest.x, "the first frame is where it was");
+    assert!(rig.page.animating());
+    assert!(
+        on_it.iter().any(|(text, _)| text == "h"),
+        "the letter it covers shows on the first frame: {on_it:?}"
+    );
+    // Mid-glide: the box is between, and the letters it overlaps show, each cut at the box.
+    let mut now = 1.0;
+    let mut seen = std::collections::BTreeSet::new();
+    while rig.page.animating() {
+        now += 1.0 / 60.0;
+        let (moving, on_it) = frame(&mut rig, now);
+        assert!(!on_it.is_empty(), "text on the box at {now}: {moving:?}");
+        for (text, clip) in &on_it {
+            assert_eq!(*clip, clip.intersect(moving), "{text} is cut at the box");
+            seen.insert(text.clone());
+        }
+        assert!(now < 1.8, "settles inside the belt");
+    }
+    for letter in ["h", "e", "l", "o"] {
+        assert!(
+            seen.contains(letter),
+            "{letter} shows while it glides: {seen:?}"
+        );
+    }
+    // At rest on "o": as before, that one character.
+    let (place, on_it) = frame(&mut rig, now + 1.0);
+    assert!(place.x > rest.x);
+    assert_eq!(on_it.len(), 1, "{on_it:?}");
+    assert_eq!(on_it[0].0, "o");
+    // Down a row and back: the box reaches both rows while it goes, each row's text cut at it.
+    assert_eq!(rig.page.key(Key::Down, Mods::default()), Route::Done);
+    let (_, on_it) = frame(&mut rig, now + 2.0);
+    assert!(on_it.iter().any(|(text, _)| text == "o"), "{on_it:?}");
+    let (_, on_it) = frame(&mut rig, now + 2.0 + 1.0 / 60.0);
+    assert!(!on_it.is_empty(), "{on_it:?}");
+}
+
 /// On a screen of two pixels to a point, the page drawn half as large again as its own size: the
 /// caret's box an input method is told and the place under a point are each other's, a press there
 /// puts the caret there, and a press below the room gives the keyboard back.

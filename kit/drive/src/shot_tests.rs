@@ -577,8 +577,9 @@ fn a_selection_over_lines_is_pictured_square_and_with_round_corners() -> Result<
 
 /// The caret as the page says it looks: the default (a bar), a block with round corners and a glow
 /// as a terminal's cursor has them, and a block away from the keyboard that is hollow. The same
-/// line in each. `PENCERE_SHOTS=caret` writes them to `target/caret-{default,block,hollow}.png`, in
-/// the terminal's font of a Mac, for an eye to check.
+/// line in each, and a block mid-glide over the word. `PENCERE_SHOTS=caret` writes them to
+/// `target/caret-{default,block,hollow,glide}.png`, in the terminal's font of a Mac, for an eye to
+/// check.
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_caret_is_pictured_as_a_bar_as_a_round_block_with_a_glow_and_as_a_hollow_one()
@@ -636,6 +637,19 @@ fn a_caret_is_pictured_as_a_bar_as_a_round_block_with_a_glow_and_as_a_hollow_one
         ));
     }
     assert!(shots[1].1 != shots[0].1 && shots[2].1 != shots[1].1);
+    // A block that glides over a word: a few frames into the spring the letters it passes over show
+    // on it, in its text colour, and the box has not yet come to the end.
+    let mut gliding = open(
+        r#"{ shape = "block", radius = 0.2, color = "accent", blink = false, motion = { spring = 30 } }"#,
+    )?;
+    gliding.caret_to("e", 4)?;
+    gliding.advance(1.0)?;
+    gliding.caret_to("e", 15)?;
+    gliding.advance(0.03)?;
+    shots.push((
+        "glide",
+        gliding.shot_in(&fonts, Palette::Dark).expect("a picture"),
+    ));
     if std::env::var("PENCERE_SHOTS").as_deref() == Ok("caret") {
         let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
         for (name, bytes) in &shots {

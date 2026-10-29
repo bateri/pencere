@@ -153,6 +153,22 @@ impl Shaped {
             .map_or(0.0, |stop| stop.1)
     }
 
+    /// The characters of the line from which to which a box across `x0..x1` may touch (a stop more
+    /// each way, for the room a page puts at a place).
+    fn reach(&self, x0: f32, x1: f32) -> (usize, usize) {
+        let first = self
+            .stops
+            .partition_point(|stop| stop.1 < x0)
+            .saturating_sub(1);
+        let last = self.stops.partition_point(|stop| stop.1 <= x1) + 1;
+        let at = |index: usize| {
+            self.stops
+                .get(index.min(self.stops.len().saturating_sub(1)))
+                .map_or(0, |stop| stop.0)
+        };
+        (at(first), at(last))
+    }
+
     /// The boundary nearest `x` across between the characters `from` and `to` of the line.
     fn nearest(&self, x: f32, from: usize, to: usize) -> usize {
         let mut best = (from, f32::INFINITY);
@@ -1301,20 +1317,33 @@ impl View {
                     let moving = shift.x.abs() + shift.y.abs() > 0.5;
                     let rect = rect.translate(shift.x, shift.y);
                     out.push(self.caret_quad(rect, fade(color), look, text_clip));
-                    // The character under a block is drawn again on it where it is at rest: one that
-                    // glides covers what it goes over.
+                    // The text under a block is drawn again on it, in the block's text colour: the
+                    // character it is at, at rest; and while it glides, whatever it overlaps where it
+                    // is drawn, so that what it passes over and what it comes to show through it on
+                    // every frame.
                     if caret.shape == CaretShape::Block
                         && look == CaretLook::Solid
-                        && !moving
                         && let Some(text_color) = caret.text.or(Role::Background.solid())
                         && let Some(range) = ranges.get(index)
                     {
                         let colors = (fade(color), text_color);
                         let opacity = slot.opacity;
-                        let place = (rect, row_y(row) + self.lead);
-                        self.paint_under_block(
-                            buffer, row, range.head, place, colors, opacity, text_clip, &mut out,
-                        );
+                        if moving {
+                            self.paint_over_block(
+                                buffer,
+                                &rows,
+                                rect,
+                                (origin_x, &row_y),
+                                (colors, opacity, text_clip),
+                                &mut out,
+                            );
+                        } else {
+                            let place = (rect, row_y(row) + self.lead);
+                            self.paint_under_block(
+                                buffer, row, range.head, place, colors, opacity, text_clip,
+                                &mut out,
+                            );
+                        }
                     }
                 }
             }
@@ -1813,25 +1842,79 @@ impl View {
         row: &Row,
         at: usize,
         (rect, text_y): (Rect, f32),
-        (block, color): (Color, Color),
+        colors: (Color, Color),
         opacity: f32,
         clip: Rect,
         out: &mut Vec<Paint>,
     ) {
         let end = (row.base + row.to).min(grapheme_after(&buffer.text, at));
-        let Some(text) = buffer.slice(at, end).filter(|text| !text.trim().is_empty()) else {
-            return;
-        };
+        let origin = Point::new(rect.x, text_y);
+        let clip = clip.intersect(rect);
+        out.extend(self.block_text(buffer, (at, end), origin, colors, opacity, clip));
+    }
+
+    /// The text a block caret that glides, at `rect` now, overlaps: on each of `rows` it reaches
+    /// (`origin_x` where the text starts, `row_y` the top of a row), the characters under it, where
+    /// they are drawn and cut at the box. Only the rows and characters the box touches are looked at.
+    fn paint_over_block(
+        &self,
+        buffer: &Buffer,
+        rows: &[&Row],
+        rect: Rect,
+        (origin_x, row_y): (f32, &dyn Fn(&Row) -> f32),
+        (colors, opacity, clip): ((Color, Color), f32, Rect),
+        out: &mut Vec<Paint>,
+    ) {
+        for row in rows {
+            let y = row_y(row);
+            if y + self.row <= rect.y || y >= rect.bottom() {
+                continue;
+            }
+            let clip = clip
+                .intersect(rect)
+                .intersect(Rect::new(rect.x, y, rect.w, self.row));
+            let (first, last) = row.shaped.reach(
+                rect.x - origin_x + row.shift,
+                rect.right() - origin_x + row.shift,
+            );
+            let (mut at, to) = (first.max(row.from), last.min(row.to));
+            while at < to {
+                let next =
+                    (grapheme_after(&buffer.text, row.base + at) - row.base).clamp(at + 1, to);
+                let x = origin_x + row.x(at);
+                if origin_x + row.end_x(next) > rect.x && x < rect.right() {
+                    let origin = Point::new(x, y + self.lead);
+                    let span = (row.base + at, row.base + next);
+                    out.extend(self.block_text(buffer, span, origin, colors, opacity, clip));
+                }
+                at = next;
+            }
+        }
+    }
+
+    /// The text `from..to` as a run at `origin`, in `color` over the block `block`, cut at `clip`, in
+    /// the weight and slant the page's looks give it; none where it is blank.
+    fn block_text(
+        &self,
+        buffer: &Buffer,
+        (from, to): (usize, usize),
+        origin: Point,
+        (block, color): (Color, Color),
+        opacity: f32,
+        clip: Rect,
+    ) -> Option<Paint> {
+        let text = buffer
+            .slice(from, to)
+            .filter(|text| !text.trim().is_empty())?;
         let mut font = self.font;
-        let look =
-            buffer
-                .decorations_in(at, end)
-                .into_iter()
-                .rev()
-                .find_map(|(_, item)| match &item.mark {
-                    Mark::Style(look) if item.from <= at && item.to >= end => Some(look),
-                    _ => None,
-                });
+        let look = buffer
+            .decorations_in(from, to)
+            .into_iter()
+            .rev()
+            .find_map(|(_, item)| match &item.mark {
+                Mark::Style(look) if item.from <= from && item.to >= to => Some(look),
+                _ => None,
+            });
         if let Some(look) = look {
             if let Some(weight) = look.weight {
                 font.weight = weight;
@@ -1840,17 +1923,17 @@ impl View {
                 font.italic = italic;
             }
         }
-        out.push(Paint::Text(Run {
-            origin: Point::new(rect.x, text_y),
+        Some(Paint::Text(Run {
+            origin,
             text,
             font,
             color,
             opacity,
             grounds: vec![block],
-            clip: clip.intersect(rect),
+            clip,
             underline: false,
             strike: false,
-        }));
+        }))
     }
 
     fn paint_underline(

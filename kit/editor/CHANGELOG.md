@@ -10,6 +10,10 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Fixed
 
+- A block caret that glides (`caret.motion`) shows the text under it from the first frame, as a
+  terminal's block cursor does: it covered the letters it went over and the one it came to, and the
+  letter showed only when the glide ended. The text it overlaps is drawn on it, cut at the box, in
+  the caret's `text` colour on every frame.
 - A caret's glow (`caret.glow = 1`) gives off as much light as bateri's own cursor halo: it reached a
   little more than half as far.
 
