@@ -15,7 +15,7 @@ method and the drawing are its own. The page takes SQL from the kit's library
 indent, the brackets that close themselves), and the language's `syntax` colours the lines in view
 (`@pencere/syntax`: its block comments and strings carried from line to line). The page itself
 makes each statement of more than one line a region that folds, opens a popup of completions (its
-own words) by the caret, and sends the statement under the caret to the program with ⌘↩. It loads a
+own words) by the caret, and sends the statement under the caret to the program with ⌘Enter. It loads a
 large sample in pieces when it opens, and its editor looks as the terminal draws its cursor and its
 selection (`@pencere/terminal`), where the host says how.
 

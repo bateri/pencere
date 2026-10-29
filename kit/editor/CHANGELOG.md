@@ -10,6 +10,9 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Fixed
 
+- A caret's glow (`caret.glow = 1`) gives off as much light as bateri's own cursor halo: it reached a
+  little more than half as far.
+
 - An inline widget keeps `margin` points outside its box, between it and the characters beside
   it: the box of a hint stood against the character after it.
 - A gap kept open for the page is as tall as the page said and its text follows at once: the rows

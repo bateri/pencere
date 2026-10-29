@@ -67,8 +67,10 @@ enum CaretLook {
 }
 
 /// How far a caret's light reaches at a glow of 1, times a row's height, and how dark it is where it
-/// is darkest (at the caret's edge, a fifth: a soft shadow is half its colour there).
-const GLOW_REACH: f32 = 0.13;
+/// is darkest (at the caret's edge, a fifth: a soft shadow is half its colour there). The reach was
+/// measured against bateri's own cursor halo side by side (13 pt at 2×, a 34 px row): at 0.24 the
+/// light the two give off is the same.
+const GLOW_REACH: f32 = 0.24;
 const GLOW_ALPHA: f32 = 0.2;
 
 /// The most lines whose measure is kept.

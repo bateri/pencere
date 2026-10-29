@@ -13,7 +13,7 @@
 -- * completions: a popup anchored to the caret (`pencere.caret_of`), whose keys (↑ ↓ ↩ ⇥ Esc) are
 --   commands of the page only while it is open, and which puts the word in with a change against
 --   the version it was made for (`change`, `base`);
--- * the program: ⌘↩ sends the statement under the caret to the program, and shows what it says;
+-- * the program: ⌘Enter sends the statement under the caret to the program, and shows what it says;
 -- * a large document, loaded in pieces (`load`, `more`) once the editor is made (`editor_ready`);
 -- * the look of the person's terminal: the host says how its terminal draws its cursor and its
 --   selection (`pencere.terminal_look()`) and applies none of it; this page takes all of it
@@ -57,7 +57,7 @@ local composing = false
 -- What is to be loaded still, in pieces, and the size of a piece.
 local PIECE = 8 * 1024
 local pending = nil
-local note = "⌘↩ runs the statement under the caret."
+local note = "⌘Enter runs the statement under the caret."
 
 -- A sample to load: many statements, so that only what is in view is coloured.
 local function sample()
