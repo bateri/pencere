@@ -141,6 +141,128 @@ pub(crate) fn raster(
     }
 }
 
+/// What the header of a PNG or a JPEG says, before a pixel is made: the size the image is shown at
+/// (a photograph that is turned a quarter has its width and height swapped, as [`orient`] does), and
+/// the bytes the decoder will work in besides the pixels (what [`Approve`] is told).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Header {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) working: usize,
+}
+
+/// The header of a PNG or a JPEG; nothing of its pixels is read.
+pub(crate) fn header(bytes: &[u8], format: Format) -> Result<Header, Failure> {
+    match format {
+        Format::Png => {
+            let opened = png_open(bytes)?;
+            Ok(Header {
+                width: opened.width,
+                height: opened.height,
+                working: opened.working,
+            })
+        }
+        Format::Jpeg => {
+            let opened = jpeg_open(bytes)?;
+            let (width, height) = if opened.turn.quarter() {
+                (opened.height, opened.width)
+            } else {
+                (opened.width, opened.height)
+            };
+            Ok(Header {
+                width,
+                height,
+                working: opened.working,
+            })
+        }
+        Format::Svg => Err(Failure::Unknown),
+    }
+}
+
+/// How much of each source pixel goes into each pixel of an axis shrunk from `from` to `to`: for
+/// every target pixel the first source pixel it covers and the share of each (the source pixels
+/// the target pixel's span reaches, by the part of them it covers, the shares adding up to one).
+fn spans(from: usize, to: usize) -> Vec<(usize, Vec<f32>)> {
+    let scale = from as f64 / to as f64;
+    (0..to)
+        .map(|at| {
+            let (start, end) = (
+                at as f64 * scale,
+                ((at + 1) as f64 * scale).min(from as f64),
+            );
+            let first = start.floor() as usize;
+            let last = (end.ceil() as usize).clamp(first + 1, from);
+            let shares = (first..last)
+                .map(|source| {
+                    let covered = end.min((source + 1) as f64) - start.max(source as f64);
+                    (covered / (end - start)).max(0.0) as f32
+                })
+                .collect();
+            (first, shares)
+        })
+        .collect()
+}
+
+/// `raster` shrunk to `width` by `height` pixels, each of which is the average of the part of the
+/// image it covers (a box filter: the pixels are premultiplied, so averaging them is right where
+/// the opacity differs). Not made larger: a side past the raster's is the raster's.
+pub(crate) fn shrink(raster: Raster, width: u32, height: u32) -> Raster {
+    let (width, height) = (
+        width.min(raster.width).max(1),
+        height.min(raster.height).max(1),
+    );
+    if (width, height) == (raster.width, raster.height) {
+        return raster;
+    }
+    let (from_w, from_h) = (raster.width as usize, raster.height as usize);
+    let (to_w, to_h) = (width as usize, height as usize);
+    let across = spans(from_w, to_w);
+    let down = spans(from_h, to_h);
+    let mut pixels = Vec::with_capacity(to_w * to_h * 4);
+    // A row of the source across the target's width (the last one made, since the rows at the
+    // edge of one target row are the first of the next), and the target row it is summed into.
+    let mut row = vec![0.0_f32; to_w * 4];
+    let mut made = usize::MAX;
+    let mut sum = vec![0.0_f32; to_w * 4];
+    for (first, shares) in &down {
+        sum.fill(0.0);
+        for (offset, share) in shares.iter().enumerate() {
+            let y = first + offset;
+            if made != y {
+                let at = y * from_w * 4;
+                let Some(source) = raster.pixels.get(at..at + from_w * 4) else {
+                    continue;
+                };
+                for (target, (start, weights)) in row.chunks_exact_mut(4).zip(&across) {
+                    let (mut r, mut g, mut b, mut a) = (0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32);
+                    let from = source.get(start * 4..).unwrap_or_default();
+                    for (pixel, weight) in from.chunks_exact(4).zip(weights) {
+                        if let &[pr, pg, pb, pa] = pixel {
+                            r += f32::from(pr) * weight;
+                            g += f32::from(pg) * weight;
+                            b += f32::from(pb) * weight;
+                            a += f32::from(pa) * weight;
+                        }
+                    }
+                    target.copy_from_slice(&[r, g, b, a]);
+                }
+                made = y;
+            }
+            for (into, value) in sum.iter_mut().zip(&row) {
+                *into += value * share;
+            }
+        }
+        for value in &sum {
+            pixels.push((value + 0.5).clamp(0.0, 255.0) as u8);
+        }
+    }
+    Raster {
+        width,
+        height,
+        pixels,
+    }
+}
+
 fn broken(why: impl std::fmt::Display) -> Failure {
     Failure::Broken(why.to_string())
 }
@@ -158,15 +280,39 @@ fn premultiplied(colour: u8, alpha: u8) -> u8 {
     u8::try_from((u16::from(colour) * u16::from(alpha) + 127) / 255).unwrap_or(u8::MAX)
 }
 
-fn png(bytes: &[u8], approve: Approve<'_>) -> Result<Raster, Failure> {
+/// A PNG opened: its reader, its size, and the bytes the decoder works in besides the pixels it
+/// gives.
+struct PngOpened<'a> {
+    reader: png::Reader<Cursor<&'a [u8]>>,
+    width: u32,
+    height: u32,
+    working: usize,
+}
+
+fn png_open(bytes: &[u8]) -> Result<PngOpened<'_>, Failure> {
     let mut decoder = png::Decoder::new(Cursor::new(bytes));
     // Palettes, see-through colours and depths other than eight become eight-bit channels.
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-    let mut reader = decoder.read_info().map_err(broken)?;
+    let reader = decoder.read_info().map_err(broken)?;
     let (width, height) = reader.info().size();
     let size = reader
         .output_buffer_size()
         .ok_or_else(|| Failure::Broken("the image is larger than memory".into()))?;
+    Ok(PngOpened {
+        reader,
+        width,
+        height,
+        working: size,
+    })
+}
+
+fn png(bytes: &[u8], approve: Approve<'_>) -> Result<Raster, Failure> {
+    let PngOpened {
+        mut reader,
+        width,
+        height,
+        working: size,
+    } = png_open(bytes)?;
     // The decoder works in a buffer of its own, as large as the image at eight bits a channel,
     // beside the pixels it is turned into.
     approve(width, height, size)?;
@@ -229,7 +375,19 @@ const fn jpeg_working(turns: bool) -> usize {
     if turns { 12 } else { 8 }
 }
 
-fn jpeg(bytes: &[u8], approve: Approve<'_>) -> Result<Raster, Failure> {
+/// A JPEG whose headers are read: its decoder, its size as it was taken (before it is turned),
+/// the way it is to be turned, the bytes its pixels take and the bytes the decoder works in
+/// besides them.
+struct JpegOpened<'a> {
+    decoder: JpegDecoder<ZCursor<&'a [u8]>>,
+    width: u32,
+    height: u32,
+    turn: Turn,
+    size: usize,
+    working: usize,
+}
+
+fn jpeg_open(bytes: &[u8]) -> Result<JpegOpened<'_>, Failure> {
     let options = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGBA);
     let mut decoder = JpegDecoder::new_with_options(ZCursor::new(bytes), options);
     decoder.decode_headers().map_err(broken)?;
@@ -244,6 +402,25 @@ fn jpeg(bytes: &[u8], approve: Approve<'_>) -> Result<Raster, Failure> {
     let size = pixel_bytes(width, height)
         .ok_or_else(|| Failure::Broken("the image is larger than memory".into()))?;
     let working = size.saturating_mul(jpeg_working(turn != Turn::Upright)) / 4;
+    Ok(JpegOpened {
+        decoder,
+        width,
+        height,
+        turn,
+        size,
+        working,
+    })
+}
+
+fn jpeg(bytes: &[u8], approve: Approve<'_>) -> Result<Raster, Failure> {
+    let JpegOpened {
+        mut decoder,
+        width,
+        height,
+        turn,
+        size,
+        working,
+    } = jpeg_open(bytes)?;
     approve(width, height, working)?;
     if decoder.output_buffer_size() != Some(size) {
         return Err(Failure::Broken("not a colour model it can read".into()));
@@ -285,6 +462,16 @@ pub(crate) enum Turn {
     Transversed,
     /// A quarter turn anticlockwise.
     Anticlockwise,
+}
+
+impl Turn {
+    /// Whether the picture is turned a quarter, so that its width becomes its height.
+    pub(crate) fn quarter(self) -> bool {
+        matches!(
+            self,
+            Self::Transposed | Self::Clockwise | Self::Transversed | Self::Anticlockwise
+        )
+    }
 }
 
 /// The orientation the EXIF block `tiff` (from its TIFF header on) says, `Upright` where it says

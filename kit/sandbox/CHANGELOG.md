@@ -28,6 +28,20 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Fixed
 
+- **A page of large pictures no longer loses them as it is scrolled.** `Images` kept a PNG or a JPEG
+  at the file's own size, so six screenshots of 2560 by 1600 pixels (98 MB) went past the 64 MiB
+  a view holds: the ones nothing had asked for in two seconds were let go, and scrolling back
+  left their places empty until the files were decoded again. A PNG or a JPEG is now decoded when
+  its pixels are first drawn, shrunk to the size they are drawn at (each pixel the average of the
+  ones it covers) and only that is kept: six screenshots shown 1560 pixels wide are 48 MB. The
+  size is rounded up to a multiple of 256 pixels of the long side, and never past the file's, so
+  that a pane that is dragged larger decodes a file once for each step; for a larger size the
+  file is decoded again from the bytes `Assets::read` gives while the nearest held size is what
+  there is (the host draws it larger), and for a smaller one the larger is what there is, with
+  nothing decoded. A box that had pixels is never empty. `Images::size` (the layout) is still the
+  file's size, now read from the header on the first ask, so the pixels of a picture that is not
+  drawn are never decoded; a file whose pixels turn out not to decode is refused when they are
+  asked for. `Bitmap::id` is new for every size, as for an SVG; the host changes nothing.
 - A reply to what the program said (or to its room) is posted whenever it asks the host something:
   its `editor` asks and its `fill` too, which were dropped (a page could not load a file it was sent
   into its editor, nor mark a mistake its program told it of, unless the same reply also moved the

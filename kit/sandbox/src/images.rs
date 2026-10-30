@@ -10,20 +10,33 @@
 //! in one works in all.
 //!
 //! **Nothing here waits.** The first time a path is asked for, a worker thread of its own reads
-//! and decodes the file, and the answer is *not yet* until it is done; then the host is woken
-//! — once for everything that arrived since it last looked — and told what [`Images::poll`]
-//! says: that a size is known and the page is to be laid out again, that pixels arrived and it is
-//! to be drawn, and why an image was refused (the page's diagnostics). Each path is read and
-//! decoded once (the result, a refusal as well, is kept for the life of the [`Images`]), and an
-//! SVG is drawn once for each size it is asked at (a few sizes at most, each its own raster): a
-//! host at rest is asked for nothing, and so wakes for nothing.
+//! the file (an SVG it parses, a PNG or a JPEG it reads the header of), and the answer is *not
+//! yet* until it is done; then the host is woken — once for everything that arrived since it
+//! last looked — and told what [`Images::poll`] says: that a size is known and the page is to be
+//! laid out again, that pixels arrived and it is to be drawn, and why an image was refused (the
+//! page's diagnostics). Each path is read once for its size (the result, a refusal as well, is
+//! kept for the life of the [`Images`]), and drawn once for each size it is asked at (a few
+//! sizes at most, each its own raster): a host at rest is asked for nothing, and so wakes for
+//! nothing.
 //!
-//! **What the view holds is bounded, and what it holds is what is drawn.** The pixels of the
-//! images (and the parsed drawings) are held to [`ImageLimits::pixel_bytes`] in all. When a new image
-//! needs room, the pixels of the ones nothing has asked for in [`ImageLimits::idle`] are let go
-//! (they are decoded again if they are asked for later), the oldest first; an image that still
-//! does not fit is not refused for good, it waits, and is tried again when it is asked for after
-//! that time, which is when something may have been let go.
+//! **What the view holds is bounded, and what it holds is what is drawn.** An SVG is drawn at the
+//! size it is asked at, and so is a PNG or a JPEG: the file is decoded at its own size on the
+//! worker, shrunk to the size that is drawn (never made larger than the file; each pixel is the
+//! average of the ones it covers) and only that is kept, so that a screenshot of 2560 by 1600
+//! pixels shown 780 points wide holds the pixels of the 780 and not the 4 million. The size is
+//! rounded up to a step of [`STEP`] pixels of the long side, so that a pane that is dragged larger
+//! asks for a new decoding once for each step and not for each pixel. A size that is larger than
+//! the ones held is decoded again from the bytes the host has ([`Assets::read`]); until it is
+//! there the nearest there is is what there is (the host draws it larger), so that a box that
+//! had pixels is never empty. A size that is smaller than one held is that one (the host draws
+//! it smaller): nothing is decoded again for it.
+//!
+//! The pixels of the images (and the parsed drawings) are held to [`ImageLimits::pixel_bytes`] in
+//! all, the bytes of what is *kept*. When a new drawing needs room, the pixels of the ones nothing
+//! has asked for in [`ImageLimits::idle`] are let go (they are drawn again if they are asked for
+//! later), the oldest first; a drawing that still does not fit is not refused for good, it waits,
+//! and is tried again when it is asked for after that time, which is when something may have been
+//! let go.
 
 use std::collections::{HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -71,8 +84,10 @@ pub trait Assets: Send + Sync + 'static {
 pub struct ImageLimits {
     /// The most pixels an image may be wide or tall (so the most a drawn SVG is).
     pub side: u32,
-    /// Bytes of decoded pixels the view may hold in all, over its images (4 bytes a pixel), and
-    /// of the parsed drawings of its SVGs.
+    /// Bytes of pixels the view may hold in all, over its images as they are kept (4 bytes a
+    /// pixel: a PNG or a JPEG at the sizes it is drawn at, not the file's own), and of the parsed
+    /// drawings of its SVGs. An image whose own pixels are more than this is refused, since it is
+    /// decoded whole before it is shrunk.
     pub pixel_bytes: usize,
     /// Bytes the file of one image may be: the most any file of a bundle may be.
     pub file_bytes: usize,
@@ -83,8 +98,8 @@ pub struct ImageLimits {
     /// holds while it decodes, what a drawing holds in the layers it is drawn on. An image is
     /// worked on at a time.
     pub work_bytes: usize,
-    /// Different sizes an SVG is drawn at, each its own raster; a size past them is shown as the
-    /// nearest of the others.
+    /// Different sizes an image is drawn at, each its own raster; a size past them is shown as
+    /// the nearest of the others.
     pub sizes: usize,
     /// How long the pixels of an image that nothing asks for are kept, if their room is needed.
     pub idle: Duration,
@@ -108,8 +123,7 @@ impl Default for ImageLimits {
 /// the top, `4 * width * height` bytes.
 #[derive(Clone, Debug)]
 pub struct Bitmap {
-    /// Names these pixels and no other: a new decoding of a path, and every new size an SVG is drawn
-    /// at, is another `id`. What the host keeps of an image (its texture) is kept by it.
+    /// Names these pixels and no other: every new size an image is drawn at is another `id`. What the host keeps of an image (its texture) is kept by it.
     pub id: u64,
     pub width: u32,
     pub height: u32,
@@ -173,9 +187,9 @@ impl Arrival {
 }
 
 enum Job {
-    /// Read and decode the file at the path.
+    /// Read the file at the path: an SVG is parsed, a PNG or a JPEG has its header read.
     Decode(String),
-    /// Draw the SVG at the path at this size.
+    /// Draw the image at the path at this size: an SVG is drawn, a PNG or a JPEG decoded and shrunk.
     Draw(String, (u32, u32)),
     /// Let go of the parsed SVG at the path.
     Forget(String),
@@ -189,32 +203,28 @@ struct Kept {
 
 /// What is known of one path.
 enum Entry {
-    /// Being read and decoded.
+    /// Being read.
     Pending,
-    Raster(Kept),
-    /// A raster whose pixels were let go for the room (nothing asked for them): its size is still
-    /// known, and it is decoded again when its pixels are asked for.
-    Released {
-        size: Size,
-        reloading: bool,
-    },
-    Vector(Drawing),
+    /// An image: its size, and the pixels it was drawn into at each size it is asked at.
+    Image(Drawing),
     /// Refused; the diagnostic was told.
     Refused,
     /// There was no room for it, and there may be later: tried again when it is asked for after
     /// [`ImageLimits::idle`].
-    Waiting {
-        since: Instant,
-    },
+    Waiting { since: Instant },
 }
 
-/// An SVG: its size, and the pixels it was drawn into at each size it is asked at.
+/// An image: its size, and the pixels it was drawn into at each size it is asked at.
 struct Drawing {
+    /// Its own size: an SVG's, or the file's of a PNG or a JPEG (as it is shown, turned upright).
     size: Size,
+    /// A PNG or a JPEG, decoded again from its file for each size, never larger than the file;
+    /// not an SVG, which is drawn at any.
+    raster: bool,
     drawn: HashMap<(u32, u32), Drawn>,
 }
 
-/// One size of an SVG.
+/// One size of an image.
 enum Drawn {
     Pending,
     Ready(Kept),
@@ -278,24 +288,16 @@ impl Images {
         }
     }
 
-    /// The size of the image at `src` in pixels of the image itself (an SVG's own size), if it is
-    /// known. The first time a path is asked for it is not: the image starts to be read and decoded,
-    /// and the host is woken when it is (see [`Images::poll`]). A host's
+    /// The size of the image at `src` in pixels of the image itself (an SVG's own size, the file's
+    /// of a PNG or a JPEG, which is not the size of the pixels held: see [`Images::bitmap`]), if it
+    /// is known. The first time a path is asked for it is not: the file starts to be read (a PNG
+    /// or a JPEG only for its header), and the host is woken when it is (see [`Images::poll`]). A host's
     /// [`pencere_view::Measure::image`] is this.
     pub fn size(&self, src: &str) -> Option<Size> {
         let mut state = self.lock();
-        let now = Instant::now();
         let mut wake = false;
-        let size = match state.entries.get_mut(src) {
-            Some(Entry::Raster(kept)) => {
-                kept.asked = now;
-                Some(Size::new(
-                    kept.bitmap.width as f32,
-                    kept.bitmap.height as f32,
-                ))
-            }
-            Some(Entry::Vector(drawing)) => Some(drawing.size),
-            Some(Entry::Released { size, .. }) => Some(*size),
+        let size = match state.entries.get(src) {
+            Some(Entry::Image(drawing)) => Some(drawing.size),
             Some(Entry::Pending | Entry::Refused) => None,
             Some(Entry::Waiting { since }) => {
                 let again = since.elapsed() >= self.shared.limits.idle;
@@ -315,23 +317,22 @@ impl Images {
     }
 
     /// The pixels of the image at `src`, to be drawn so that the whole image is `whole` pixels
-    /// ([`pencere_view::Picture::full`]). A PNG or a JPEG has its pixels once, whatever the size;
-    /// an SVG is drawn at the size, once for each size it is asked at (a few at most: a size past
-    /// them is the nearest of the others), and until the drawing at a new size is done the nearest
-    /// there is of another is what there is (none the first time). The host keeps the texture of
-    /// a bitmap by its [`Bitmap::id`].
+    /// ([`pencere_view::Picture::full`]). An image is drawn at the size, once for each size it is
+    /// asked at (a few at most: a size past them is the nearest of the others), and until the
+    /// drawing at a new size is done the nearest there is of another is what there is (none the
+    /// first time). A PNG or a JPEG is held at the size it is drawn at, rounded up to a step of
+    /// [`STEP`] pixels of its long side and no larger than the file: a larger size than the ones
+    /// held is decoded again from the file, and a smaller one is a held one that is larger (the
+    /// host draws the pixels it is given at the size the page gave them). The host keeps the
+    /// texture of a bitmap by its [`Bitmap::id`].
     pub fn bitmap(&self, src: &str, whole: Size) -> Option<Bitmap> {
         let mut state = self.lock();
         let now = Instant::now();
         let wanted = drawn_size(whole, self.shared.limits.side);
         let mut wake = false;
         let found = match state.entries.get_mut(src) {
-            Some(Entry::Raster(kept)) => {
-                kept.asked = now;
-                Some(kept.bitmap.clone())
-            }
-            Some(Entry::Vector(_)) => {
-                let (found, job, told) = self.vector_at(&mut state, src, wanted, now);
+            Some(Entry::Image(_)) => {
+                let (found, job, told) = self.image_at(&mut state, src, wanted, now);
                 if let Some(job) = job {
                     wake |= self.post(&mut state, job);
                 }
@@ -339,13 +340,6 @@ impl Images {
                     wake |= self.shared.announce(&mut state);
                 }
                 found
-            }
-            Some(Entry::Released { reloading, .. }) => {
-                if !*reloading {
-                    *reloading = true;
-                    wake = self.post(&mut state, Job::Decode(src.to_owned()));
-                }
-                None
             }
             Some(Entry::Pending | Entry::Refused) => None,
             Some(Entry::Waiting { since }) => {
@@ -364,9 +358,10 @@ impl Images {
         found
     }
 
-    /// What an SVG has at `wanted`: its pixels if they are drawn, else the nearest it has; a
-    /// drawing to be started if it is not drawn or being, and whether something is to be told.
-    fn vector_at(
+    /// What an image has at `wanted`: its pixels if they are drawn, else the nearest it has; a
+    /// drawing to be started if it is not drawn or being, and whether something is to be told. A
+    /// PNG or a JPEG is asked at its step ([`stepped`]) and a held size that covers it is it.
+    fn image_at(
         &self,
         state: &mut State,
         src: &str,
@@ -374,8 +369,23 @@ impl Images {
         now: Instant,
     ) -> (Option<Bitmap>, Option<Job>, bool) {
         let limits = &self.shared.limits;
-        let Some(Entry::Vector(drawing)) = state.entries.get_mut(src) else {
+        let Some(Entry::Image(drawing)) = state.entries.get_mut(src) else {
             return (None, None, false);
+        };
+        let wanted = if drawing.raster {
+            let natural = (drawing.size.w as u32, drawing.size.h as u32);
+            let wanted = stepped(natural, wanted);
+            if let Some(kept) = covering(drawing, wanted) {
+                kept.asked = now;
+                return (Some(kept.bitmap.clone()), None, false);
+            }
+            // One that covers it is on its way: no other is started for it.
+            if covered_by_pending(drawing, wanted) {
+                return (stand_in(drawing, wanted, now), None, false);
+            }
+            wanted
+        } else {
+            wanted
         };
         let mut job = None;
         let mut told = false;
@@ -417,31 +427,10 @@ impl Images {
         }
         state.held = state.held.saturating_sub(freed);
         // The nearest drawn size stands in until this one is.
-        let Some(Entry::Vector(drawing)) = state.entries.get_mut(src) else {
+        let Some(Entry::Image(drawing)) = state.entries.get_mut(src) else {
             return (None, job, told);
         };
-        let area = |width: u32, height: u32| f64::from(width) * f64::from(height);
-        let target = area(wanted.0, wanted.1);
-        let nearest = drawing
-            .drawn
-            .values_mut()
-            .filter_map(|drawn| match drawn {
-                Drawn::Ready(kept) => Some(kept),
-                _ => None,
-            })
-            .min_by(|a, b| {
-                let far = |kept: &Kept| {
-                    (area(kept.bitmap.width, kept.bitmap.height) / target)
-                        .ln()
-                        .abs()
-                };
-                far(a).total_cmp(&far(b))
-            });
-        let stand_in = nearest.map(|kept| {
-            kept.asked = now;
-            kept.bitmap.clone()
-        });
-        (stand_in, job, told)
+        (stand_in(drawing, wanted, now), job, told)
     }
 
     /// What arrived since the last look, and the host is not woken again for it. A host that is
@@ -452,7 +441,7 @@ impl Images {
         std::mem::take(&mut state.arrived)
     }
 
-    /// Whether a file is still being read and decoded, or an SVG drawn at a size it was asked at:
+    /// Whether a file is still being read, or an image drawn at a size it was asked at:
     /// the host will be woken for it. What has arrived is [`Images::poll`]'s once this says no.
     ///
     /// **Not for a frame**, which never waits for an image: for a host that wants the page whole
@@ -461,17 +450,12 @@ impl Images {
     /// tried again when it is asked for after [`ImageLimits::idle`], on the system's clock.
     pub fn busy(&self) -> bool {
         self.lock().entries.values().any(|entry| match entry {
-            Entry::Pending
-            | Entry::Released {
-                reloading: true, ..
-            } => true,
-            Entry::Vector(drawing) => drawing
+            Entry::Pending => true,
+            Entry::Image(drawing) => drawing
                 .drawn
                 .values()
                 .any(|drawn| matches!(drawn, Drawn::Pending)),
-            Entry::Raster(_) | Entry::Released { .. } | Entry::Refused | Entry::Waiting { .. } => {
-                false
-            }
+            Entry::Refused | Entry::Waiting { .. } => false,
         })
     }
 
@@ -523,17 +507,16 @@ impl Images {
         let mut freed = 0;
         let mut drawings = Vec::new();
         for src in srcs {
-            match state.entries.remove(src.as_str()) {
-                Some(Entry::Raster(kept)) => freed += kept.bitmap.pixels.len(),
-                Some(Entry::Vector(drawing)) => {
-                    for drawn in drawing.drawn.into_values() {
-                        if let Drawn::Ready(kept) = drawn {
-                            freed += kept.bitmap.pixels.len();
-                        }
+            if let Some(Entry::Image(drawing)) = state.entries.remove(src.as_str()) {
+                for drawn in drawing.drawn.into_values() {
+                    if let Drawn::Ready(kept) = drawn {
+                        freed += kept.bitmap.pixels.len();
                     }
+                }
+                // Only an SVG has a parsed drawing for the worker to let go of.
+                if !drawing.raster {
                     drawings.push(src.clone());
                 }
-                _ => {}
             }
             state
                 .told_room
@@ -586,9 +569,82 @@ impl Drop for Images {
     }
 }
 
+/// The nearest of the sizes an image is drawn at to `wanted`, in the proportion of their areas,
+/// to stand in until it is: none where nothing is drawn yet.
+fn stand_in(drawing: &mut Drawing, wanted: (u32, u32), now: Instant) -> Option<Bitmap> {
+    let area = |width: u32, height: u32| f64::from(width) * f64::from(height);
+    let target = area(wanted.0, wanted.1);
+    let nearest = drawing
+        .drawn
+        .values_mut()
+        .filter_map(|drawn| match drawn {
+            Drawn::Ready(kept) => Some(kept),
+            _ => None,
+        })
+        .min_by(|a, b| {
+            let far = |kept: &Kept| {
+                (area(kept.bitmap.width, kept.bitmap.height) / target)
+                    .ln()
+                    .abs()
+            };
+            far(a).total_cmp(&far(b))
+        });
+    nearest.map(|kept| {
+        kept.asked = now;
+        kept.bitmap.clone()
+    })
+}
+
+/// The drawn size of a PNG or a JPEG that is at least `wanted` on both sides and the least
+/// larger of those that are: what is drawn from it is not larger than its pixels.
+fn covering(drawing: &mut Drawing, wanted: (u32, u32)) -> Option<&mut Kept> {
+    drawing
+        .drawn
+        .iter_mut()
+        .filter_map(|(at, drawn)| match drawn {
+            Drawn::Ready(kept) if at.0 >= wanted.0 && at.1 >= wanted.1 => Some((at, kept)),
+            _ => None,
+        })
+        .min_by_key(|(at, _)| u64::from(at.0) * u64::from(at.1))
+        .map(|(_, kept)| kept)
+}
+
+/// Whether a drawing that covers `wanted` is being made.
+fn covered_by_pending(drawing: &Drawing, wanted: (u32, u32)) -> bool {
+    drawing
+        .drawn
+        .iter()
+        .any(|(at, drawn)| matches!(drawn, Drawn::Pending) && at.0 >= wanted.0 && at.1 >= wanted.1)
+}
+
+/// How many pixels of the long side a PNG or a JPEG is kept in steps of: the size it is asked at
+/// is rounded up to a multiple of this, so that a pane that is dragged larger decodes the file
+/// again once for each step and not for each pixel.
+pub(crate) const STEP: u32 = 256;
+
+/// The size a PNG or a JPEG of `natural` pixels is kept at for a whole image drawn at `wanted`
+/// pixels: the long side, as much as the side that asks for more needs, rounded up to a multiple of
+/// [`STEP`], and not past the file's own; the proportions are the file's.
+pub(crate) fn stepped(natural: (u32, u32), wanted: (u32, u32)) -> (u32, u32) {
+    let (width, height) = (u64::from(natural.0.max(1)), u64::from(natural.1.max(1)));
+    let long = width.max(height);
+    // The long side that makes the file as large as the page draws it on the side that needs most.
+    let need = (u64::from(wanted.0) * long)
+        .div_ceil(width)
+        .max((u64::from(wanted.1) * long).div_ceil(height));
+    let step = u64::from(STEP);
+    let asked = need.div_ceil(step).max(1) * step;
+    if asked >= long {
+        return (natural.0.max(1), natural.1.max(1));
+    }
+    let at =
+        |side: u64| u32::try_from((side * asked + long / 2) / long).map_or(1, |side| side.max(1));
+    (at(width), at(height))
+}
+
 /// The pixels that have gone unasked for the longest: when they were asked, the path they are of,
-/// and the size of the drawing if they are an SVG's.
-type Oldest = (Instant, String, Option<(u32, u32)>);
+/// and the size they were drawn at.
+type Oldest = (Instant, String, (u32, u32));
 
 /// How long a drawn size of an SVG must have gone unasked to be given up for a new one when the
 /// drawing is at its most sizes: longer than the passes of one frame of a page take, which ask for
@@ -686,7 +742,7 @@ impl Shared {
         }
     }
 
-    /// Makes room for `bytes` more: lets go of the pixels of the images nothing has asked for in
+    /// Makes room for `bytes` more: lets go of the pixels of the drawings nothing has asked for in
     /// [`ImageLimits::idle`], the longest unasked first, until they fit; `Budget` if they do not.
     fn make_room(&self, state: &mut State, bytes: usize) -> Result<(), Failure> {
         let most = self.limits.pixel_bytes;
@@ -707,7 +763,7 @@ impl Shared {
         let now = Instant::now();
         let idle = self.limits.idle;
         let mut oldest: Option<Oldest> = None;
-        let mut consider = |asked: Instant, path: &String, at: Option<(u32, u32)>| {
+        let mut consider = |asked: Instant, path: &String, at: (u32, u32)| {
             if now.saturating_duration_since(asked) >= idle
                 && oldest.as_ref().is_none_or(|(before, ..)| asked < *before)
             {
@@ -715,33 +771,19 @@ impl Shared {
             }
         };
         for (path, entry) in &state.entries {
-            match entry {
-                Entry::Raster(kept) => consider(kept.asked, path, None),
-                Entry::Vector(drawing) => {
-                    for (at, drawn) in &drawing.drawn {
-                        if let Drawn::Ready(kept) = drawn {
-                            consider(kept.asked, path, Some(*at));
-                        }
+            if let Entry::Image(drawing) = entry {
+                for (at, drawn) in &drawing.drawn {
+                    if let Drawn::Ready(kept) = drawn {
+                        consider(kept.asked, path, *at);
                     }
                 }
-                _ => {}
             }
         }
         let Some((_, path, at)) = oldest else {
             return false;
         };
-        let freed = match (state.entries.get_mut(&path), at) {
-            (Some(entry @ Entry::Raster(_)), None) => {
-                let Entry::Raster(kept) = std::mem::replace(entry, Entry::Pending) else {
-                    return false;
-                };
-                *entry = Entry::Released {
-                    size: Size::new(kept.bitmap.width as f32, kept.bitmap.height as f32),
-                    reloading: false,
-                };
-                kept.bitmap.pixels.len()
-            }
-            (Some(Entry::Vector(drawing)), Some(at)) => match drawing.drawn.remove(&at) {
+        let freed = match state.entries.get_mut(&path) {
+            Some(Entry::Image(drawing)) => match drawing.drawn.remove(&at) {
                 Some(Drawn::Ready(kept)) => kept.bitmap.pixels.len(),
                 _ => 0,
             },
@@ -751,9 +793,10 @@ impl Shared {
         true
     }
 
-    /// The side and the memory approve an image of this size from its header: its pixels, held
-    /// with the others, within the room (made if it can be), and what the decoder works in within
-    /// what one image may be worked in.
+    /// The side and the memory approve an image of this size from its header: its pixels, which
+    /// are made whole before they are shrunk, within what the view may hold at all, and what the
+    /// decoder works in within what one image may be worked in. The room for what is kept is made
+    /// when it is drawn, at the size it is kept at.
     fn approves(&self, width: u32, height: u32, working: usize) -> Result<(), Failure> {
         let side = self.limits.side;
         if width > side || height > side {
@@ -770,7 +813,11 @@ impl Shared {
             });
         }
         let bytes = decode::pixel_bytes(width, height).unwrap_or(usize::MAX);
-        self.make_room(&mut self.lock(), bytes)
+        let most = self.limits.pixel_bytes;
+        if bytes > most {
+            return Err(Failure::Whole { bytes, most });
+        }
+        Ok(())
     }
 
     fn bitmap(&self, state: &mut State, raster: Raster) -> Bitmap {
@@ -815,25 +862,27 @@ fn serve(shared: &Arc<Shared>, inbox: &Receiver<Job>) {
             match at {
                 // A file that panicked when decoded is refused.
                 None => {
-                    if matches!(
-                        state.entries.get(&path),
-                        Some(Entry::Pending | Entry::Released { .. })
-                    ) {
+                    if matches!(state.entries.get(&path), Some(Entry::Pending)) {
                         let gave_up = Failure::Broken("the decoder gave up".into());
                         shared.refuse(&mut state, &path, &gave_up);
                     }
                 }
-                // An SVG that panicked when drawn stays the shapes it was, and is not drawn at
-                // that size again; the page is told.
+                // An image that panicked when drawn stays what it was, and is not drawn at that
+                // size again; the page is told.
                 Some((width, height)) => {
-                    if let Some(Entry::Vector(drawing)) = state.entries.get_mut(&path)
+                    if let Some(Entry::Image(drawing)) = state.entries.get_mut(&path)
                         && matches!(drawing.drawn.get(&(width, height)), Some(Drawn::Pending))
                     {
+                        let who = if drawing.raster {
+                            "decoder"
+                        } else {
+                            "renderer"
+                        };
                         drawing.drawn.insert((width, height), Drawn::Refused);
                         state.arrived.diagnostics.push(Diagnostic {
                             path: path.clone(),
                             message: format!(
-                                "could not be drawn: the renderer gave up (drawn at {width}\u{d7}{height})"
+                                "could not be drawn: the {who} gave up (drawn at {width}\u{d7}{height})"
                             ),
                         });
                     }
@@ -845,21 +894,24 @@ fn serve(shared: &Arc<Shared>, inbox: &Receiver<Job>) {
     }
 }
 
-/// Reads and decodes the file at `path`.
+/// Reads the file at `path`: an SVG is parsed, a PNG or a JPEG has its size read from the header
+/// (its pixels are decoded when they are drawn, at the size they are asked at).
 fn decode_path(shared: &Arc<Shared>, vectors: &mut HashMap<String, Vector>, path: &str) {
-    let outcome = read_and_decode(shared, path);
+    let outcome = read_and_open(shared, path);
     let mut state = shared.lock();
-    let now = Instant::now();
     match outcome {
-        Ok(Decoded::Raster(raster)) => {
-            let bitmap = shared.bitmap(&mut state, raster);
-            state
-                .entries
-                .insert(path.to_owned(), Entry::Raster(Kept { bitmap, asked: now }));
+        Ok(Opened::Raster(width, height)) => {
+            state.entries.insert(
+                path.to_owned(),
+                Entry::Image(Drawing {
+                    size: Size::new(width as f32, height as f32),
+                    raster: true,
+                    drawn: HashMap::new(),
+                }),
+            );
             state.arrived.relayout = true;
-            state.arrived.redraw = true;
         }
-        Ok(Decoded::Vector(vector)) => {
+        Ok(Opened::Vector(vector)) => {
             // The parsed drawing is held for as long as the view is, and is paid for.
             let kept = vector.weight().bytes;
             match shared.make_room(&mut state, kept) {
@@ -869,8 +921,9 @@ fn decode_path(shared: &Arc<Shared>, vectors: &mut HashMap<String, Vector>, path
                     vectors.insert(path.to_owned(), *vector);
                     state.entries.insert(
                         path.to_owned(),
-                        Entry::Vector(Drawing {
+                        Entry::Image(Drawing {
                             size: Size::new(w, h),
+                            raster: false,
                             drawn: HashMap::new(),
                         }),
                     );
@@ -885,12 +938,14 @@ fn decode_path(shared: &Arc<Shared>, vectors: &mut HashMap<String, Vector>, path
     shared.finish(state, wake);
 }
 
-enum Decoded {
-    Raster(Raster),
+enum Opened {
+    /// A PNG or a JPEG, with its size.
+    Raster(u32, u32),
     Vector(Box<Vector>),
 }
 
-fn read_and_decode(shared: &Shared, path: &str) -> Result<Decoded, Failure> {
+/// The bytes of the file at `path`, within what a file may be, and their format.
+fn read_file(shared: &Shared, path: &str) -> Result<(Arc<[u8]>, Format), Failure> {
     let bytes = shared.assets.read(path).ok_or(Failure::Missing)?;
     if bytes.len() > shared.limits.file_bytes {
         return Err(Failure::Source {
@@ -898,48 +953,85 @@ fn read_and_decode(shared: &Shared, path: &str) -> Result<Decoded, Failure> {
             most: shared.limits.file_bytes,
         });
     }
-    match decode::sniff(&bytes).ok_or(Failure::Unknown)? {
-        Format::Svg => Vector::parse(&bytes).map(|vector| Decoded::Vector(Box::new(vector))),
-        format => decode::raster(&bytes, format, &mut |w, h, working| {
-            shared.approves(w, h, working)
-        })
-        .map(Decoded::Raster),
+    let format = decode::sniff(&bytes).ok_or(Failure::Unknown)?;
+    Ok((bytes, format))
+}
+
+fn read_and_open(shared: &Shared, path: &str) -> Result<Opened, Failure> {
+    let (bytes, format) = read_file(shared, path)?;
+    match format {
+        Format::Svg => Vector::parse(&bytes).map(|vector| Opened::Vector(Box::new(vector))),
+        format => {
+            let header = decode::header(&bytes, format)?;
+            shared.approves(header.width, header.height, header.working)?;
+            Ok(Opened::Raster(header.width, header.height))
+        }
     }
 }
 
-/// Draws the SVG at `path` at `at`, if that is still wanted of it.
+/// The PNG or JPEG at `path`, decoded at its own size and shrunk to `width` by `height` (which is
+/// not past it). The whole image is made on this thread and let go of when this returns.
+fn read_and_shrink(
+    shared: &Shared,
+    path: &str,
+    width: u32,
+    height: u32,
+) -> Result<Raster, Failure> {
+    let (bytes, format) = read_file(shared, path)?;
+    let whole = decode::raster(&bytes, format, &mut |w, h, working| {
+        shared.approves(w, h, working)
+    })?;
+    Ok(decode::shrink(whole, width, height))
+}
+
+/// Draws the image at `path` at `at`, if that is still wanted of it.
 fn draw(shared: &Arc<Shared>, vectors: &HashMap<String, Vector>, path: &str, at: (u32, u32)) {
     let (width, height) = at;
-    {
-        let state = shared.lock();
-        let wanted = matches!(
-            state.entries.get(path),
-            Some(Entry::Vector(drawing)) if matches!(drawing.drawn.get(&at), Some(Drawn::Pending))
-        );
-        if !wanted {
+    let raster = {
+        let mut state = shared.lock();
+        let Some(Entry::Image(drawing)) = state.entries.get_mut(path) else {
+            return;
+        };
+        if !matches!(drawing.drawn.get(&at), Some(Drawn::Pending)) {
             return;
         }
-    }
-    let Some(vector) = vectors.get(path) else {
-        return;
+        // A larger one came first: this is no longer wanted of a file.
+        if drawing.raster && covering(drawing, at).is_some() {
+            drawing.drawn.remove(&at);
+            return;
+        }
+        drawing.raster
     };
-    // The pixels it makes, and the layers it is drawn on while it makes them, are approved before
-    // the first is.
-    let outcome = decode::pixel_bytes(width, height)
-        .ok_or(Failure::Budget {
-            most: shared.limits.pixel_bytes,
-        })
-        .and_then(|bytes| {
-            let working = vector.working(width, height);
-            if working > shared.limits.work_bytes {
-                return Err(Failure::Work {
-                    bytes: working,
-                    most: shared.limits.work_bytes,
-                });
-            }
-            shared.make_room(&mut shared.lock(), bytes)
-        })
-        .and_then(|()| vector.draw(width, height));
+    let outcome = if raster {
+        // The room for what is kept is made before the file is decoded, at the size it is kept at.
+        decode::pixel_bytes(width, height)
+            .ok_or(Failure::Budget {
+                most: shared.limits.pixel_bytes,
+            })
+            .and_then(|bytes| shared.make_room(&mut shared.lock(), bytes))
+            .and_then(|()| read_and_shrink(shared, path, width, height))
+    } else {
+        let Some(vector) = vectors.get(path) else {
+            return;
+        };
+        // The pixels it makes, and the layers it is drawn on while it makes them, are approved
+        // before the first is.
+        decode::pixel_bytes(width, height)
+            .ok_or(Failure::Budget {
+                most: shared.limits.pixel_bytes,
+            })
+            .and_then(|bytes| {
+                let working = vector.working(width, height);
+                if working > shared.limits.work_bytes {
+                    return Err(Failure::Work {
+                        bytes: working,
+                        most: shared.limits.work_bytes,
+                    });
+                }
+                shared.make_room(&mut shared.lock(), bytes)
+            })
+            .and_then(|()| vector.draw(width, height))
+    };
     let mut state = shared.lock();
     let now = Instant::now();
     let mut told = None;
@@ -956,17 +1048,34 @@ fn draw(shared: &Arc<Shared>, vectors: &HashMap<String, Vector>, path: &str, at:
             }
             Drawn::Waiting { since: now }
         }
+        // The file is not what its header said, or is gone: the image is refused for good, and
+        // its box is empty as one that cannot be read is.
+        Err(failure) if raster => {
+            let freed = pixels_held(&mut state, path);
+            state.held = state.held.saturating_sub(freed);
+            shared.refuse(&mut state, path, &failure);
+            state.arrived.relayout = true;
+            let wake = shared.announce(&mut state);
+            shared.finish(state, wake);
+            return;
+        }
         // For good at this size: the shapes it was drawn as before stay what there is.
         Err(failure) => {
             told = Some(failure);
             Drawn::Refused
         }
     };
-    if let Some(Entry::Vector(drawing)) = state.entries.get_mut(path) {
+    let mut freed = 0;
+    if let Some(Entry::Image(drawing)) = state.entries.get_mut(path) {
+        // What a larger drawing covers is not asked for again: it is the one that is given.
+        if raster && matches!(drawn, Drawn::Ready(_)) {
+            freed = give_up_covered(drawing, at);
+        }
         drawing.drawn.insert(at, drawn);
     } else if let Drawn::Ready(kept) = drawn {
-        state.held = state.held.saturating_sub(kept.bitmap.pixels.len());
+        freed += kept.bitmap.pixels.len();
     }
+    state.held = state.held.saturating_sub(freed);
     if let Some(failure) = told {
         state.arrived.diagnostics.push(Diagnostic {
             path: path.to_owned(),
@@ -975,4 +1084,35 @@ fn draw(shared: &Arc<Shared>, vectors: &HashMap<String, Vector>, path: &str, at:
     }
     let wake = shared.announce(&mut state);
     shared.finish(state, wake);
+}
+
+/// The bytes of pixels the image at `path` holds, which are let go of when the image is replaced by
+/// a refusal (nothing is left of it but the diagnostic).
+fn pixels_held(state: &mut State, path: &str) -> usize {
+    let Some(Entry::Image(drawing)) = state.entries.get(path) else {
+        return 0;
+    };
+    drawing
+        .drawn
+        .values()
+        .map(|drawn| match drawn {
+            Drawn::Ready(kept) => kept.bitmap.pixels.len(),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// Lets go of the sizes of a PNG or a JPEG that the one drawn at `at` covers, being no larger on
+/// either side; the bytes of the pixels they held. The host keeps the texture it made of them by
+/// their `id` for as long as it likes.
+fn give_up_covered(drawing: &mut Drawing, at: (u32, u32)) -> usize {
+    let mut freed = 0;
+    drawing.drawn.retain(|size, drawn| match drawn {
+        Drawn::Ready(kept) if size.0 <= at.0 && size.1 <= at.1 && *size != at => {
+            freed += kept.bitmap.pixels.len();
+            false
+        }
+        _ => true,
+    });
+    freed
 }

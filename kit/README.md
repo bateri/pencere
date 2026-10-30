@@ -79,7 +79,7 @@ A page shows pictures with `image(src, fit)` (in Lua, `pencere.image(src):fit(â€
 `src` is the path of a file of the view's own bundle, as its manifest names it, or a file beside
 the bundle: `sha256:` and the digest of one its program attached, `file:` and the handle of one the
 person gave the page; nothing else is reachable (no network, no file system). PNG, JPEG and SVG; at most 4096 Ã— 4096 pixels an image and
-64 MiB of decoded pixels a view; `contain` (all of it, centred) or `cover` (the box filled, the
+64 MiB of pixels a view holds (a PNG or a JPEG is kept at the size it is drawn at, not the file's); `contain` (all of it, centred) or `cover` (the box filled, the
 rest cut off); `tint` paints the image's opacity in a colour, so that an icon of one colour follows
 the theme. The size is the element's, and where it says a side only the image's proportions give the
 other; where it says neither the image's own size in pixels, a point to a pixel.

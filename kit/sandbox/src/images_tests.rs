@@ -122,6 +122,35 @@ impl Rig {
     fn reads(&self) -> Vec<String> {
         self.bundle.reads.lock().unwrap().clone()
     }
+
+    /// The pixels of `src` for a whole image of `whole`, asked for until they are there: the first
+    /// asking starts to read the file, and each wake is a reason to ask again. Whatever is given
+    /// (a drawing of another size stands in for one that is not yet) is what is returned.
+    fn ready(&self, src: &str, whole: Size) -> Bitmap {
+        loop {
+            if let Some(bitmap) = self.images.bitmap(src, whole) {
+                return bitmap;
+            }
+            self.wait();
+        }
+    }
+
+    /// The pixels of `src` at exactly `width` by `height`: asked for until a drawing of that size
+    /// is there, which a smaller one stood in for before.
+    fn ready_at(&self, src: &str, whole: Size, width: u32) -> Bitmap {
+        loop {
+            let bitmap = self.ready(src, whole);
+            if bitmap.width == width {
+                return bitmap;
+            }
+            self.wait();
+        }
+    }
+
+    /// How many times the bundle was asked for `path`.
+    fn read_count(&self, path: &str) -> usize {
+        self.reads().iter().filter(|read| *read == path).count()
+    }
 }
 
 // --- The files themselves -----------------------------------------------------------------------
@@ -225,6 +254,11 @@ fn a_page_is_laid_out_before_its_image_is_decoded_and_once_more_after_and_never_
     let Some(Paint::Image(picture)) = list.items.first() else {
         panic!("the picture, got {list:?}");
     };
+    // The size is known from the header; the pixels are decoded when they are asked for, at the
+    // size they are asked at, and the host is woken once more for them.
+    assert_eq!(rig.images.bitmap(&picture.src, picture.full()), None);
+    let drawn = rig.wait();
+    assert!(drawn.redraw && !drawn.relayout && drawn.diagnostics.is_empty());
     let bitmap = rig
         .images
         .bitmap(&picture.src, picture.full())
@@ -240,7 +274,8 @@ fn a_page_is_laid_out_before_its_image_is_decoded_and_once_more_after_and_never_
         assert!(rig.images.bitmap("logo.png", whole(6.0, 3.0)).is_some());
     }
     rig.quiet();
-    assert_eq!(rig.reads(), ["logo.png"]);
+    // The header, and the pixels at the one size.
+    assert_eq!(rig.reads(), ["logo.png", "logo.png"]);
 }
 
 /// A host that wants the page whole (a test, a picture) can tell whether anything is still on its
@@ -322,7 +357,7 @@ fn a_png_is_decoded_to_premultiplied_pixels_whatever_its_colour_type() {
     while rig.images.size("deep.png").is_none() {
         rig.wait();
     }
-    let get = |name| rig.images.bitmap(name, whole(2.0, 1.0)).expect(name);
+    let get = |name| rig.ready(name, whole(2.0, 1.0));
     // Premultiplied: the colour is the colour times the opacity.
     assert_eq!(pixel(&get("rgba.png"), 1, 0), [100, 50, 25, 128]);
     assert_eq!(pixel(&get("grey.png"), 0, 0), [7, 7, 7, 255]);
@@ -342,7 +377,7 @@ fn a_jpeg_is_decoded_and_is_solid() {
         "{arrived:?}"
     );
     assert_eq!(rig.images.size("photo.jpg"), Some(Size::new(16.0, 8.0)));
-    let bitmap = rig.images.bitmap("photo.jpg", whole(16.0, 8.0)).unwrap();
+    let bitmap = rig.ready("photo.jpg", whole(16.0, 8.0));
     let [r, g, b, a] = pixel(&bitmap, 8, 4);
     assert!(r > 190 && g < 70 && b < 70, "red: {r} {g} {b}");
     assert_eq!(a, 255);
@@ -691,15 +726,18 @@ fn the_pixels_of_a_view_are_held_to_a_budget_and_the_image_that_would_pass_it_is
         .to_vec();
     let rig = rig_with(files, limits, None);
     // One at a time, so that which one is over is not a race.
-    for name in ["a.png", "b.png", "c.png"] {
-        rig.images.size(name);
-        rig.until(|a| a.relayout || !a.diagnostics.is_empty());
-    }
-    assert!(rig.images.size("a.png").is_some());
-    assert!(rig.images.size("b.png").is_some());
-    assert_eq!(rig.images.size("c.png"), None);
-    // The refusal was told with the reason.
-    rig.images.size("c.png");
+    rig.ready("a.png", whole(4.0, 4.0));
+    rig.ready("b.png", whole(4.0, 4.0));
+    // The size of the third is known from its header; its pixels have no room.
+    assert!(rig.images.size("c.png").is_none());
+    rig.until(|a| a.relayout);
+    assert_eq!(rig.images.bitmap("c.png", whole(4.0, 4.0)), None);
+    let told = rig.until(|a| !a.diagnostics.is_empty());
+    assert!(told.diagnostics[0].message.contains("past"), "{told:?}");
+    assert!(rig.images.bitmap("a.png", whole(4.0, 4.0)).is_some());
+    assert!(rig.images.bitmap("b.png", whole(4.0, 4.0)).is_some());
+    // The refusal was told with the reason, once.
+    assert_eq!(rig.images.bitmap("c.png", whole(4.0, 4.0)), None);
     rig.quiet();
 }
 
@@ -778,13 +816,14 @@ fn an_image_that_does_not_fit_waits_and_is_had_when_the_pixels_of_one_nothing_as
         .to_vec();
     let rig = rig_with(files, limits, None);
     for name in ["a.png", "b.png"] {
-        rig.images.size(name);
-        rig.until(|a| a.relayout);
+        rig.ready(name, whole(4.0, 4.0));
     }
     // Both are in use, so the third has no room: told, once, and not refused for good.
-    rig.images.size("a.png");
-    rig.images.size("b.png");
+    rig.images.bitmap("a.png", whole(4.0, 4.0));
+    rig.images.bitmap("b.png", whole(4.0, 4.0));
     assert_eq!(rig.images.size("c.png"), None);
+    rig.until(|a| a.relayout);
+    assert_eq!(rig.images.bitmap("c.png", whole(4.0, 4.0)), None);
     let told = rig.until(|a| !a.diagnostics.is_empty());
     let [one] = told.diagnostics.as_slice() else {
         panic!("one diagnostic, got {told:?}");
@@ -792,17 +831,17 @@ fn an_image_that_does_not_fit_waits_and_is_had_when_the_pixels_of_one_nothing_as
     assert_eq!(one.path, "c.png");
     assert!(one.message.contains("past"), "{one}");
     // Asked again before the time the others are kept for, it starts nothing.
-    assert_eq!(rig.images.size("c.png"), None);
+    assert_eq!(rig.images.bitmap("c.png", whole(4.0, 4.0)), None);
     rig.quiet();
-    assert_eq!(rig.reads(), ["a.png", "b.png", "c.png"]);
+    assert_eq!(rig.reads(), ["a.png", "a.png", "b.png", "b.png", "c.png"]);
 
     // Later, when the other two have gone unasked for that time, it is had: the pixels of the one
     // asked for the longest ago are let go (its size is still known).
     std::thread::sleep(Duration::from_millis(150));
-    assert_eq!(rig.images.size("c.png"), None);
-    let had = rig.until(|a| a.relayout);
+    assert_eq!(rig.images.bitmap("c.png", whole(4.0, 4.0)), None);
+    let had = rig.until(|a| a.redraw);
     assert!(had.diagnostics.is_empty(), "told again: {had:?}");
-    assert_eq!(rig.images.size("c.png"), Some(Size::new(4.0, 4.0)));
+    assert!(rig.images.bitmap("c.png", whole(4.0, 4.0)).is_some());
     assert_eq!(rig.images.size("a.png"), Some(Size::new(4.0, 4.0)));
     // And its pixels come back when something asks for them, in the room of another that nothing asks for.
     std::thread::sleep(Duration::from_millis(150));
@@ -829,7 +868,15 @@ fn what_is_not_an_image_is_refused_and_told_why_once() {
     ] {
         rig.images.size(name);
     }
-    let arrived = rig.until(|a| a.diagnostics.len() == 5);
+    // The truncated PNG has a whole header, and so a size: its pixels are what is not whole.
+    let mut arrived = rig.until(|a| a.diagnostics.len() == 4 && a.relayout);
+    assert_eq!(rig.images.size("cut.png"), Some(Size::new(4.0, 4.0)));
+    assert_eq!(rig.images.bitmap("cut.png", whole(4.0, 4.0)), None);
+    let refused = rig.until(|a| !a.diagnostics.is_empty());
+    // Its box is laid out again, empty, as one that cannot be read is.
+    assert!(refused.relayout);
+    arrived.diagnostics.extend(refused.diagnostics);
+    assert_eq!(arrived.diagnostics.len(), 5);
     let say = |path: &str| {
         arrived
             .diagnostics
@@ -859,7 +906,6 @@ fn what_is_not_an_image_is_refused_and_told_why_once() {
         "{}",
         say("absent.png")
     );
-    assert!(!arrived.relayout, "nothing's size is known");
     // Told once, and not read again.
     for name in [
         "notes.txt",
@@ -872,7 +918,7 @@ fn what_is_not_an_image_is_refused_and_told_why_once() {
         assert_eq!(rig.images.bitmap(name, whole(10.0, 10.0)), None);
     }
     rig.quiet();
-    assert_eq!(rig.reads().len(), 5);
+    assert_eq!(rig.reads().len(), 6);
 }
 
 #[test]
@@ -1116,7 +1162,7 @@ fn a_photograph_is_shown_upright_as_the_exif_of_its_file_says() {
     assert_eq!(rig.images.size("turned.jpg"), Some(Size::new(8.0, 16.0)));
     assert_eq!(rig.images.size("mirrored.jpg"), Some(Size::new(16.0, 8.0)));
     assert_eq!(rig.images.size("odd.jpg"), Some(Size::new(16.0, 8.0)));
-    let turned = rig.images.bitmap("turned.jpg", whole(8.0, 16.0)).unwrap();
+    let turned = rig.ready("turned.jpg", whole(8.0, 16.0));
     assert_eq!((turned.width, turned.height), (8, 16));
     assert_eq!(pixel(&turned, 7, 15)[3], 255);
 }
@@ -1178,4 +1224,252 @@ fn an_exif_block_that_is_not_whole_says_nothing() {
     let mut far = good.clone();
     far[4..8].copy_from_slice(&u32::MAX.to_be_bytes());
     assert_eq!(orientation(&far), Turn::Upright);
+}
+
+// --- A PNG or a JPEG is kept at the size it is drawn at -----------------------------------------
+
+/// A PNG of `width` by `height`, its left half red and its right half blue.
+fn two_halves(width: u32, height: u32) -> Vec<u8> {
+    let row: Vec<u8> = (0..width)
+        .flat_map(|x| {
+            if x < width / 2 {
+                [255, 0, 0]
+            } else {
+                [0, 0, 255]
+            }
+        })
+        .collect();
+    let data: Vec<u8> = row.repeat(height as usize);
+    png_of(
+        width,
+        height,
+        png::ColorType::Rgb,
+        png::BitDepth::Eight,
+        &data,
+    )
+}
+
+/// The wide figure of a screenshot, as a pane of 1560 pixels (780 points on a display of two
+/// pixels to the point) draws it.
+fn drawn_wide() -> Size {
+    whole(1560.0, 975.0)
+}
+
+#[test]
+fn six_screenshots_are_kept_at_the_size_they_are_drawn_and_scrolling_back_decodes_nothing() {
+    // Six screenshots of 2560 by 1600 are 98 MB as they are decoded and 48 MB as they are drawn
+    // in a pane of 1560 pixels; the view may hold 50 MiB, and a file is kept as long as its room
+    // is not needed by another (and then for the time nothing asks for it, here 50 ms).
+    let limits = ImageLimits {
+        pixel_bytes: 50 << 20,
+        idle: Duration::from_millis(50),
+        ..ImageLimits::default()
+    };
+    let file = two_halves(2560, 1600);
+    let names = ["a.png", "b.png", "c.png", "d.png", "e.png", "f.png"];
+    let rig = rig_with(
+        names.iter().map(|name| (*name, file.clone())).collect(),
+        limits.clone(),
+        None,
+    );
+    // The page is laid out with every size and drawn as it is scrolled to: the first time each
+    // is there it is decoded, and shrunk to the step of 256 pixels above the 1560 it is drawn at.
+    let first: Vec<Bitmap> = names
+        .iter()
+        .map(|name| rig.ready(name, drawn_wide()))
+        .collect();
+    let kept: usize = first.iter().map(|bitmap| bitmap.pixels().len()).sum();
+    for bitmap in &first {
+        assert_eq!((bitmap.width, bitmap.height), (1792, 1120));
+    }
+    assert!(
+        kept < limits.pixel_bytes,
+        "{kept} bytes kept of {}",
+        limits.pixel_bytes
+    );
+    // Their size, for the layout, is the file's.
+    assert_eq!(rig.images.size("a.png"), Some(Size::new(2560.0, 1600.0)));
+    let reads = rig.reads();
+    assert_eq!(reads.len(), 2 * names.len(), "a header and a decoding each");
+
+    // Scrolled through again and again, each an image that has gone unasked for longer than the
+    // time they are kept: none is empty, none is decoded again, and none is another bitmap.
+    for _ in 0..3 {
+        for (name, before) in names.iter().zip(&first) {
+            std::thread::sleep(limits.idle);
+            let bitmap = rig
+                .images
+                .bitmap(name, drawn_wide())
+                .unwrap_or_else(|| panic!("{name} is empty"));
+            assert_eq!(bitmap.id, before.id, "{name} was decoded again");
+        }
+    }
+    rig.quiet();
+    assert_eq!(rig.reads(), reads);
+}
+
+#[test]
+fn an_image_nothing_draws_is_never_decoded() {
+    let rig = rig(vec![("a.png", solid(4, 4, [1, 2, 3, 255]))]);
+    assert_eq!(rig.images.size("a.png"), None);
+    rig.until(|a| a.relayout);
+    assert_eq!(rig.images.size("a.png"), Some(Size::new(4.0, 4.0)));
+    rig.quiet();
+    // The header was read and nothing more of the file.
+    assert_eq!(rig.reads(), ["a.png"]);
+    assert!(!rig.images.busy());
+}
+
+#[test]
+fn a_png_is_drawn_no_larger_than_the_file_and_its_size_is_the_files() {
+    let rig = rig(vec![("wide.png", two_halves(1200, 800))]);
+    let bitmap = rig.ready("wide.png", whole(5000.0, 3333.0));
+    assert_eq!((bitmap.width, bitmap.height), (1200, 800));
+    assert_eq!(rig.images.size("wide.png"), Some(Size::new(1200.0, 800.0)));
+    // And at a size asked far less, the long side is a step and the proportions are the file's.
+    let rig = rig_with(
+        vec![("wide.png", two_halves(1200, 800))],
+        ImageLimits::default(),
+        None,
+    );
+    let small = rig.ready("wide.png", whole(300.0, 200.0));
+    assert_eq!((small.width, small.height), (512, 341));
+    assert_eq!(rig.images.size("wide.png"), Some(Size::new(1200.0, 800.0)));
+}
+
+#[test]
+fn a_larger_size_is_decoded_again_while_the_one_held_stands_in_and_a_smaller_one_decodes_nothing() {
+    let rig = rig(vec![("wide.png", two_halves(1200, 800))]);
+    let small = rig.ready("wide.png", whole(300.0, 200.0));
+    assert_eq!(small.width, 512);
+    assert_eq!(rig.read_count("wide.png"), 2);
+
+    // The pane grows: what is held is what there is until the larger one is, and it is not empty.
+    let wanted = whole(700.0, 467.0);
+    let stood_in = rig.images.bitmap("wide.png", wanted).expect("never empty");
+    assert_eq!(stood_in.id, small.id);
+    let large = rig.ready_at("wide.png", wanted, 768);
+    assert_eq!((large.width, large.height), (768, 512));
+    assert_ne!(large.id, small.id, "a new size is a new bitmap");
+    assert_eq!(rig.read_count("wide.png"), 3);
+
+    // It shrinks again, or is asked at what is a step away: the larger one is what is given, and
+    // nothing is read.
+    for smaller in [whole(300.0, 200.0), whole(100.0, 67.0), whole(750.0, 500.0)] {
+        let bitmap = rig.images.bitmap("wide.png", smaller).expect("held");
+        assert_eq!(bitmap.id, large.id);
+    }
+    rig.quiet();
+    assert_eq!(rig.read_count("wide.png"), 3);
+}
+
+#[test]
+fn a_pane_dragged_larger_decodes_a_file_once_for_each_step_and_not_for_each_pixel() {
+    let rig = rig(vec![("wide.png", two_halves(1200, 800))]);
+    rig.ready("wide.png", whole(300.0, 200.0));
+    let mut widths = Vec::new();
+    // Every ten pixels from 300 to 1100 wide: the pane is dragged and the page asks at each.
+    for width in (300..=1100).step_by(10) {
+        let width = width as f32;
+        rig.images
+            .bitmap("wide.png", whole(width, width * 2.0 / 3.0));
+        while rig.images.busy() {
+            rig.wait();
+        }
+        let held = rig
+            .images
+            .bitmap("wide.png", whole(width, width * 2.0 / 3.0))
+            .expect("held")
+            .width;
+        if widths.last() != Some(&held) {
+            widths.push(held);
+        }
+    }
+    // The long side up to 512, 768 and 1024, then the file's own size, which is as much as it is.
+    assert_eq!(widths, [512, 768, 1024, 1200]);
+    // A header and four decodings.
+    assert_eq!(rig.read_count("wide.png"), 5);
+    rig.quiet();
+}
+
+#[test]
+fn a_shrunken_image_has_its_colours_where_they_were() {
+    let rig = rig(vec![("halves.png", two_halves(400, 200))]);
+    let bitmap = rig.ready("halves.png", whole(100.0, 50.0));
+    assert_eq!((bitmap.width, bitmap.height), (256, 128));
+    // The halves meet at 128 of the 256, on a pixel's edge: no pixel is a mixture.
+    for y in [0, 64, 127] {
+        assert_eq!(pixel(&bitmap, 0, y), [255, 0, 0, 255]);
+        assert_eq!(pixel(&bitmap, 127, y), [255, 0, 0, 255]);
+        assert_eq!(pixel(&bitmap, 128, y), [0, 0, 255, 255]);
+        assert_eq!(pixel(&bitmap, 255, y), [0, 0, 255, 255]);
+    }
+}
+
+#[test]
+fn a_jpeg_is_kept_at_the_size_it_is_drawn_at_too() {
+    // 16 by 8 is the file; drawn as a thumbnail it is still not larger than it is.
+    let rig = rig(vec![("photo.jpg", RED_JPEG.to_vec())]);
+    let bitmap = rig.ready("photo.jpg", whole(4.0, 2.0));
+    assert_eq!((bitmap.width, bitmap.height), (16, 8));
+    assert_eq!(rig.images.size("photo.jpg"), Some(Size::new(16.0, 8.0)));
+}
+
+#[test]
+fn shrinking_averages_the_pixels_each_covers() {
+    use crate::decode::{Raster, shrink};
+    let raster = |width: u32, height: u32, pixels: Vec<[u8; 4]>| Raster {
+        width,
+        height,
+        pixels: pixels.into_iter().flatten().collect(),
+    };
+    let pixels = |raster: &Raster| -> Vec<[u8; 4]> {
+        raster
+            .pixels
+            .chunks_exact(4)
+            .map(|pixel| pixel.try_into().unwrap())
+            .collect()
+    };
+    let (red, blue) = ([255, 0, 0, 255], [0, 0, 255, 255]);
+    // Four pixels into three: the middle one is half the red one and half the blue one.
+    let shrunk = shrink(raster(4, 1, vec![red, red, blue, blue]), 3, 1);
+    assert_eq!((shrunk.width, shrunk.height), (3, 1));
+    assert_eq!(pixels(&shrunk), [red, [128, 0, 128, 255], blue]);
+
+    // A colour is the colour it was, whatever the sizes.
+    let flat = shrink(raster(7, 5, vec![[10, 20, 30, 255]; 35]), 3, 2);
+    assert_eq!((flat.width, flat.height), (3, 2));
+    assert!(
+        pixels(&flat)
+            .iter()
+            .all(|pixel| *pixel == [10, 20, 30, 255])
+    );
+
+    // Both ways at once, and premultiplied pixels are averaged as they are: a quarter each of
+    // an opaque and of three clear ones is a quarter opaque.
+    let clear = [0, 0, 0, 0];
+    let grey = [200, 200, 200, 255];
+    let corner = shrink(raster(2, 2, vec![grey, clear, clear, clear]), 1, 1);
+    assert_eq!(pixels(&corner), [[50, 50, 50, 64]]);
+
+    // Never made larger.
+    let same = shrink(raster(2, 2, vec![red; 4]), 5, 9);
+    assert_eq!((same.width, same.height), (2, 2));
+}
+
+#[test]
+fn the_size_a_png_is_kept_at_is_a_step_above_the_size_it_is_drawn_at() {
+    use crate::images::stepped;
+    let natural = (2560, 1600);
+    assert_eq!(stepped(natural, (1560, 975)), (1792, 1120));
+    assert_eq!(stepped(natural, (1792, 1120)), (1792, 1120));
+    assert_eq!(stepped(natural, (1793, 1121)), (2048, 1280));
+    assert_eq!(stepped(natural, (1, 1)), (256, 160));
+    // The file's own size is as much as it is, whatever is asked.
+    assert_eq!(stepped(natural, (2500, 1600)), natural);
+    assert_eq!(stepped(natural, (4096, 2560)), natural);
+    // Tall as well as wide, and with the proportions of the file.
+    assert_eq!(stepped((1000, 3000), (100, 300)), (171, 512));
+    // A side that asks for more than the long one does decides.
+    assert_eq!(stepped((2000, 1000), (100, 800)), (1792, 896));
 }
