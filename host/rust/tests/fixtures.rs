@@ -201,6 +201,12 @@ fn written(direction: Direction, messages: &[Message], split: Split) -> Vec<u8> 
             id: m.id,
             re: m.re(),
             digest: m.digest(),
+            file: pencere_host::frame::FileParams {
+                handle: m.handle(),
+                offset: m.offset(),
+                end: m.end(),
+                error: m.error_code(),
+            },
             payload: &m.payload,
         };
         encode(direction, &msg, split, &mut out).unwrap();

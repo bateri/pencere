@@ -151,6 +151,27 @@ export function dismissPayload(token: string): string {
   return toWire({ token });
 }
 
+/** A file a program attaches to its view (§8.8): its digest and its length in bytes. */
+export interface AttachFile {
+  readonly sha256: string;
+  readonly size: number;
+}
+
+/** The payload of `attach`: files the program adds to the view that runs, for it to draw (§8.8). */
+export function attachPayload(files: readonly AttachFile[]): string {
+  return toWire({ files: files.map(({ sha256, size }) => ({ sha256, size })) });
+}
+
+/** The payload of `detach`: digests of attached files the program lets go of (§8.8). */
+export function detachPayload(digests: readonly string[]): string {
+  return toWire({ files: digests });
+}
+
+/** The payload of `read`: bytes of a file the person gave the view, by its handle (§8.9). */
+export function readPayload(handle: string, offset: number, length: number): string {
+  return toWire({ handle, offset, length });
+}
+
 // ---- what the host says ------------------------------------------------------
 
 /** What a host answers to `hello` with a version in common (§5.2), or offers again unasked (§10.7). */
@@ -299,6 +320,44 @@ export function parseNeed(payload: string): string[] | undefined {
   const body = parseObject(payload);
   if (body === undefined || !Array.isArray(body.missing)) return undefined;
   return strings(body.missing).filter((digest) => DIGEST.test(digest));
+}
+
+/** A digest of an `attach` that the host does not attach, and why: `limit`, `view`, `size`, `digest`. */
+export interface Refusal {
+  readonly sha256: string;
+  readonly code: string;
+}
+
+/**
+ * Reads what a `need` refuses: empty for the `need` of an `open`, and for one that answers an
+ * `attach` whose files were all taken (§8.8).
+ */
+export function parseRefused(payload: string): Refusal[] | undefined {
+  const body = parseObject(payload);
+  if (body === undefined || !Array.isArray(body.missing)) return undefined;
+  if (body.refused === undefined) return [];
+  if (!Array.isArray(body.refused)) return undefined;
+  const out: Refusal[] = [];
+  for (const entry of body.refused as unknown[]) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+    const { sha256, code } = entry as Record<string, unknown>;
+    if (typeof sha256 === "string" && DIGEST.test(sha256) && typeof code === "string")
+      out.push({ sha256, code });
+  }
+  return out;
+}
+
+/** What a host says at the end of a file a program wrote, or at the first thing that went wrong (§8.10). */
+export interface Wrote {
+  /** `handle`, `order`, `size`, `space`, `io`; absent when the file was written. */
+  readonly code?: string;
+}
+
+/** Reads a `wrote`. */
+export function parseWrote(payload: string): Wrote | undefined {
+  const body = parseObject(payload);
+  if (body === undefined) return undefined;
+  return typeof body.code === "string" ? { code: body.code } : {};
 }
 
 /** Why a host ended or refused a view (`Closed.reason`). */

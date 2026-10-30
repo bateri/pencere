@@ -189,6 +189,7 @@ pub fn from_object<T: for<'de> serde::Deserialize<'de>>(text: &str) -> Option<T>
 /// A `T` that is read from a JSON object and from nothing else. A struct that serde reads can
 /// also be read from an array of its fields in order (see [`is_object`]); this is for the
 /// members of a payload, where an array standing for an object is not one.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Object<T>(pub T);
 
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for Object<T> {

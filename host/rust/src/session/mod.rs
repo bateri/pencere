@@ -28,16 +28,22 @@
 //! the pane ([`Observed`]), the clock behind every timeout, the web view, the
 //! sandbox of the views it draws itself and the window.
 
+mod files;
 mod native;
 mod page;
 
 use std::mem;
 use std::sync::Arc;
 
+pub use files::{
+    ATTACHED_SCHEME, FileError, FileGrant, MAX_FILE_PIECE, MAX_OPEN_READS, attached_digest,
+    has_files,
+};
+
 use crate::bundle::{BundleLimits, Digest, Manifest, Received, Receiving, Store};
 use crate::frame::{
-    BodyDecoder, DecodeError, Direction, Event, Ids, Message, Outgoing, Split, StreamDecoder,
-    encode,
+    BodyDecoder, DecodeError, Direction, Event, FileParams, Ids, Message, Outgoing, Split,
+    StreamDecoder, encode,
 };
 use crate::icon::{self, Icon};
 use crate::message::{
@@ -354,8 +360,69 @@ pub enum Action {
         url: String,
     },
     /// Tear the view down and stop serving its bundle. Nothing is waited for and the view is not
-    /// told (specification §10.2): the questions about links that are still open are void.
+    /// told (specification §10.2): the questions about links that are still open are void, and so
+    /// are the panels and the handles of the person's files.
     DestroyView,
+    /// Read `length` bytes, from `offset`, of the file the person gave whose handle this is, and
+    /// answer with [`Session::file_read`] and `read` (specification §8.9). The terminal checks that
+    /// the file is still what it was when the person gave it (its size and the time it changed)
+    /// and answers [`FileError::Gone`] if not.
+    ReadFile {
+        /// Identifies the request in the answer: the id of the program's `read`.
+        read: u32,
+        /// The handle, 32 lowercase hex digits.
+        handle: String,
+        /// Where the bytes start.
+        offset: u64,
+        /// How many, at most ([`MAX_FILE_PIECE`]).
+        length: u64,
+    },
+    /// Write these bytes at `offset` of the place to save whose handle this is, and answer with
+    /// [`Session::file_written`] and `write` (specification §8.10). The writes of a handle come in
+    /// order and without gaps. The terminal writes them to a file of its own beside the place the
+    /// person chose, named so that a person recognises it (`.<name>.pencere-part`), and gives it the
+    /// person's name only when the write with `end` has been written.
+    WriteFile {
+        /// Identifies the request in the answer: the id of the program's `write`.
+        write: u32,
+        /// The handle, 32 lowercase hex digits.
+        handle: String,
+        /// Where the bytes go.
+        offset: u64,
+        /// The bytes, at most [`MAX_FILE_PIECE`].
+        bytes: Vec<u8>,
+        /// Whether these are the last: the file is complete once they are written.
+        end: bool,
+    },
+    /// Throw away what has been written for the place to save whose handle this is: a write failed,
+    /// or the view ended before the program's last write (specification §8.10).
+    AbortWrite {
+        /// The handle.
+        handle: String,
+    },
+    /// The view is to forget the files of these names (`sha256:` and a digest), which the program
+    /// let go of: a view the terminal draws itself drops what it decoded of them (§8.8).
+    ForgetFiles(Vec<String>),
+    /// Show the Open panel for the view that runs, and call [`Session::panel_closed`] with `panel`
+    /// when the person has answered. Each file chosen is granted a handle
+    /// ([`Session::grant_file`]) and handed to the view as a file it was given (§8.9).
+    Pick {
+        /// Identifies the panel.
+        panel: u32,
+        /// Whether the person may choose more than one file.
+        multiple: bool,
+    },
+    /// Show the Save panel for the view that runs, with the name it proposes, and call
+    /// [`Session::panel_closed`] with `panel` when the person has answered. The place chosen is
+    /// granted a handle ([`Session::grant_save`]) and handed to the view (§8.10).
+    Save {
+        /// Identifies the panel.
+        panel: u32,
+        /// The name the view proposes.
+        name: String,
+        /// The media type the view gives the file, if it does.
+        media_type: Option<String>,
+    },
 }
 
 /// Counts of what the session saw and dropped, for diagnostics.
@@ -432,6 +499,8 @@ struct Live {
     context: Option<String>,
     /// The questions about links that are open (specification §9.7).
     links: Vec<u32>,
+    /// What is attached, the person's files, the panel (specification §8.8 to §8.10).
+    files: files::Files,
 }
 
 /// What ended a view.
@@ -467,6 +536,8 @@ pub struct Session<S: Store, E: Entropy> {
     ids: Ids,
     /// The id of the last question about a link ([`Action::OpenLink`]).
     links: u32,
+    /// The id of the last panel ([`Action::Pick`], [`Action::Save`]).
+    panels: u32,
     /// The id of the last question put to the person ([`Consent::id`]).
     questions: u32,
     token: Option<Token>,
@@ -505,6 +576,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             entropy,
             ids: Ids::new(),
             links: 0,
+            panels: 0,
             questions: 0,
             token: None,
             offered: Vec::new(),
@@ -572,6 +644,10 @@ impl<S: Store, E: Entropy> Session<S, E> {
             "hello" => self.on_hello(&message),
             "open" => self.on_open(&message),
             "file" => self.on_file(&message),
+            "attach" => self.on_attach(&message),
+            "detach" => self.on_detach(&message),
+            "read" => self.on_read(&message),
+            "write" => self.on_write(&message),
             "msg" => self.on_msg(&message),
             "bye" => self.on_bye(&message),
             "dismiss" => self.on_dismiss(&message),
@@ -733,10 +809,19 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// The bytes and media type of the file at `path` of the bundle of the view
     /// that is open, which is all the host serves: nothing outside the manifest
     /// answers (§8.6).
+    ///
+    /// A view that has files beside its bundle is also served the files its program attached to
+    /// it, by their names (`sha256:` and the digest, §8.8), as `application/octet-stream`: a view
+    /// tells a picture by its bytes (§9.8). A manifest path has no `:`, so the two never meet.
     pub fn serve(&self, path: &str) -> Option<(String, Arc<[u8]>)> {
         let Phase::Live(live) = &self.phase else {
             return None;
         };
+        if attached_digest(path).is_some() {
+            return self
+                .attached(path)
+                .map(|bytes| ("application/octet-stream".to_owned(), bytes));
+        }
         let file = live.bundle.file(path)?;
         Some((file.media_type.clone(), self.store.get(&file.digest)?))
     }
@@ -1089,6 +1174,13 @@ impl<S: Store, E: Entropy> Session<S, E> {
             self.ignored();
             return;
         };
+        // While the view runs, a file is one an `attach` waits for, or nobody's (§8.8).
+        if matches!(self.phase, Phase::Live(_)) {
+            if !self.attached_file(&digest, &message.payload) {
+                self.ignored();
+            }
+            return;
+        }
         let Some(mut open) = self.take_opening() else {
             self.ignored();
             return;
@@ -1103,7 +1195,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         self.phase = Phase::Opening(open);
         match received {
             Received::Ignored => self.ignored(),
-            Received::Failed => self.fail("bundle"),
+            Received::Failed(_) => self.fail("bundle"),
             Received::Verified(file) => {
                 self.store.insert(file);
                 if complete {
@@ -1161,6 +1253,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         } = open;
         let web = kind == ViewKind::Web;
         let context = web.then(|| page::context_text(&self.context, &grant));
+        let files = files::Files::new(kind, &version);
         let start = ViewStart {
             kind,
             version,
@@ -1186,6 +1279,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             grant,
             context,
             links: Vec::new(),
+            files,
         }));
         self.actions.push(Action::StartView(Box::new(start)));
     }
@@ -1254,6 +1348,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             id,
             re: Some(bye),
             digest: None,
+            file: crate::frame::FileParams::NONE,
             payload: &message::closed(Reason::Program, None, None),
         };
         let mut bytes = Vec::new();
@@ -1298,6 +1393,18 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// Writes a message to the program, unless it has ended; `from_view` marks it as what a view
     /// says ([`Action::WriteView`]).
     fn queue(&mut self, kind: &str, re: Option<u32>, payload: &str, from_view: bool) -> bool {
+        self.queue_with(kind, re, FileParams::NONE, payload, from_view)
+    }
+
+    /// [`queue`](Self::queue), with the parameters of a message about the person's files.
+    fn queue_with(
+        &mut self,
+        kind: &str,
+        re: Option<u32>,
+        file: FileParams<'_>,
+        payload: &str,
+        from_view: bool,
+    ) -> bool {
         if self.ended {
             return false;
         }
@@ -1307,6 +1414,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             id,
             re,
             digest: None,
+            file,
             payload,
         };
         let mut bytes = Vec::new();
@@ -1407,7 +1515,14 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 let re = re.or(Some(open.open));
                 self.finish(cause, re, false);
             }
-            Phase::Live(_) => self.finish(cause, re, true),
+            Phase::Live(live) => {
+                // What was written for a place to save that the program did not finish is the
+                // person's to lose, not to find half-written (§8.10).
+                for handle in live.files.unfinished_saves() {
+                    self.actions.push(Action::AbortWrite { handle });
+                }
+                self.finish(cause, re, true);
+            }
         }
     }
 

@@ -15,7 +15,9 @@ mod common;
 use common::{Rig, TOKENS, kit_config};
 use pencere_host::bundle::Digest;
 use pencere_host::frame::Message;
-use pencere_host::session::{Action, Config, MAX_VIEW_MESSAGE, State, ViewKind, ViewStart};
+use pencere_host::session::{
+    Action, Config, FileGrant, MAX_VIEW_MESSAGE, State, ViewKind, ViewStart,
+};
 use serde_json::{Value, json};
 
 /// What ends a view, played against the rig.
@@ -462,6 +464,34 @@ fn what_a_view_says_is_its_own_kind_of_write_and_the_bound_is_asked_before_it_is
     assert!(rig.host.backlog(MAX_BACKLOG + 1));
     let (wrote, acted) = rig.take();
     assert!(wrote.is_empty() && acted.is_empty());
+}
+
+#[test]
+fn the_bytes_of_a_file_the_person_gave_go_to_the_program_as_the_views_words_do() {
+    // A view whose interface has files beside its bundle (specification §5.5).
+    let mut rig = Rig::with(kit_config(&[(ViewKind::Wasm, &["3.0"])]));
+    rig.hello_with(&json!([{"kind": "wasm", "versions": ["3.0"]}]));
+    open(&mut rig, COMPONENT.len() as u64, &json!({"version": "3.0"}));
+    rig.take();
+    file(&mut rig);
+    rig.take();
+    let handle = rig
+        .host
+        .grant_file(&FileGrant { size: 3 })
+        .expect("a handle");
+    rig.json("read", &json!({"handle": handle, "offset": 0, "length": 3}));
+    let (wrote, acted) = rig.take();
+    assert!(wrote.is_empty(), "{wrote:?}");
+    let [Action::ReadFile { read, .. }] = acted.as_slice() else {
+        panic!("expected one read, got {acted:?}");
+    };
+    // The `data` is held and dropped with what the view says (§4.8): a signal drops it.
+    rig.host.file_read(*read, Ok(b"abc".to_vec()));
+    let actions = rig.host.take_actions();
+    assert!(
+        matches!(actions.as_slice(), [Action::WriteView(_)]),
+        "{actions:?}"
+    );
 }
 
 #[test]

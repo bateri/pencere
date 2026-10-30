@@ -91,6 +91,19 @@ const KIND = /^[a-z-]{1,16}$/;
 const KEY = /^[a-z]{1,8}$/;
 const VALUE = /^[A-Za-z0-9._-]{1,64}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
+/** The handle of a file the person gave (`h`, §4.3): 32 lowercase hex digits. */
+const HANDLE = /^[0-9a-f]{32}$/;
+/** An error code (`e`, §4.3): 1 to 32 of `a-z` and `-`. */
+const CODE = /^[a-z-]{1,32}$/;
+/** The greatest offset `o` may say: 2^53 - 1, the greatest whole number a JSON number holds here. */
+export const MAX_OFFSET = Number.MAX_SAFE_INTEGER;
+
+/** An offset as the wire writes it (`o`, §4.3): digits, no leading zero (but `0`), at most {@link MAX_OFFSET}. */
+function offset(text: string): number | undefined {
+  if (!/^(0|[1-9][0-9]{0,15})$/.test(text)) return undefined;
+  const n = Number(text);
+  return n <= MAX_OFFSET ? n : undefined;
+}
 
 /** A decimal number as the wire writes it: digits, no leading zero (but `0`), at most 4294967295. */
 function decimal(text: string): number | undefined {
@@ -155,6 +168,22 @@ function parseChunk(body: string): Chunk | undefined {
         }
         case "d":
           if (!DIGEST.test(value)) return undefined;
+          control[key] = value;
+          break;
+        case "h":
+          if (!HANDLE.test(value)) return undefined;
+          control[key] = value;
+          break;
+        case "o":
+          if (offset(value) === undefined) return undefined;
+          control[key] = value;
+          break;
+        case "end":
+          if (value !== "0" && value !== "1") return undefined;
+          control[key] = value;
+          break;
+        case "e":
+          if (!CODE.test(value)) return undefined;
           control[key] = value;
           break;
         default:
@@ -390,6 +419,14 @@ export interface Outgoing {
   readonly re?: number;
   /** The `d` parameter, 64 lowercase hex digits. */
   readonly digest?: string;
+  /** The `h` parameter: the handle of a file the person gave, 32 lowercase hex digits. */
+  readonly handle?: string;
+  /** The `o` parameter: where in the file a `write` puts its bytes, at most {@link MAX_OFFSET}. */
+  readonly offset?: number;
+  /** The `end` parameter, written `end=1` when true and left out otherwise. */
+  readonly end?: boolean;
+  /** The `e` parameter: why a `data` carries no bytes, 1 to 32 of `a-z` and `-`. */
+  readonly error?: string;
   /**
    * The payload: printable ASCII, 0x20 to 0x7E. JSON must have been through
    * {@link toWire} or {@link escape}; base64 satisfies it by construction.
@@ -401,16 +438,18 @@ export interface Outgoing {
 export type Split =
   /** Every chunk but the last holds as much payload as its direction's frame limit lets it (§4.4). */
   | "fill"
-  /** Every chunk but the last holds this much payload (rounded down to a multiple of four for `file`). */
+  /** Every chunk but the last holds this much payload (rounded down to a multiple of four for `file`, `write` and `data`). */
   | { readonly fixed: number };
 
 /** Why a message could not be written. Nothing is written in that case. */
-export type WriteErrorCode = "kind" | "id" | "digest" | "payload" | "message-too-long" | "no-room";
+export type WriteErrorCode =
+  "kind" | "id" | "digest" | "file-param" | "payload" | "message-too-long" | "no-room";
 
 const WRITE_ERRORS: Readonly<Record<WriteErrorCode, string>> = {
   kind: "the kind is not 1 to 16 of a-z and -",
   id: "the id is 0",
   digest: "the digest is not 64 lowercase hex digits",
+  "file-param": "a handle, an offset or an error code is outside its range",
   payload: "the payload has a byte a frame may not carry",
   "message-too-long": "the payload is over the message limit",
   "no-room": "no frame can carry this",
@@ -442,6 +481,10 @@ function controlText(message: Outgoing, seq: number, more: boolean): string {
   if (seq === 0) {
     if (message.re !== undefined) text += `,re=${message.re}`;
     if (message.digest !== undefined) text += `,d=${message.digest}`;
+    if (message.handle !== undefined) text += `,h=${message.handle}`;
+    if (message.offset !== undefined) text += `,o=${message.offset}`;
+    if (message.end === true) text += ",end=1";
+    if (message.error !== undefined) text += `,e=${message.error}`;
   }
   return text;
 }
@@ -452,8 +495,8 @@ function frameText(kind: string, control: string, payload: string): string {
 
 /**
  * Writes `message` as one or more frames for `direction`: keys in the order
- * `id`, `seq`, `more`, `re`, `d`, with `seq` and `more` left out when they are
- * 0, and `re` and `d` on the first chunk only (§4.3, §4.4).
+ * `id`, `seq`, `more`, `re`, `d`, `h`, `o`, `end`, `e`, with `seq`, `more` and `end` left out when
+ * they are 0, and the keys after `more` on the first chunk only (§4.3, §4.4).
  *
  * The same message and the same split give the same bytes on every
  * implementation, which is what the fixtures rely on.
@@ -471,10 +514,18 @@ export function encode(direction: Direction, message: Outgoing, split: Split = "
   )
     throw new WriteError("id");
   if (message.digest !== undefined && !DIGEST.test(message.digest)) throw new WriteError("digest");
+  if (
+    (message.handle !== undefined && !HANDLE.test(message.handle)) ||
+    (message.offset !== undefined &&
+      (!Number.isInteger(message.offset) || message.offset < 0 || message.offset > MAX_OFFSET)) ||
+    (message.error !== undefined && !CODE.test(message.error))
+  )
+    throw new WriteError("file-param");
   if (!isFrameText(message.payload)) throw new WriteError("payload");
   if (message.payload.length > limits.message) throw new WriteError("message-too-long");
 
-  const align = message.kind === "file";
+  // Base64 is cut on four-character groups, so that a receiver may decode as it goes (§4.4).
+  const align = message.kind === "file" || message.kind === "write" || message.kind === "data";
   const room = (control: string): number =>
     Math.max(0, limits.frame - (FRAME_FIXED + message.kind.length + control.length));
   const frames: string[] = [];

@@ -9,6 +9,18 @@ under this name) are recorded here. The format follows
 
 ### Added
 
+- **Files beside the bundle** (specification §8.8 to §8.10), for a view opened at `lua` `2.1` or
+  `wasm` `3.0` and later (`has_files`). A program's `attach` adds files to its view, verified as
+  the files of a bundle are and held to 8 MiB a file and 1024 files or 64 MiB a view; it is
+  answered with a `need` that lists what is missing and what is `refused`, and once more when the
+  last of them has come. `Session::attached` gives the bytes behind a `sha256:` name
+  (`attached_digest`), and `detach` lets them go (`Action::ForgetFiles`). `grant_file` and
+  `grant_save` make a handle of a file the person gave or of the place the person chose to save in;
+  the program's `read` is `Action::ReadFile`, answered with `file_read`, and its `write`s are
+  `Action::WriteFile`, answered with `file_written`, with `Action::AbortWrite` for a save that is
+  not finished, also when the view ends. `module_pick` and `module_save` ask for the Open and the
+  Save panel (`Action::Pick`, `Action::Save`, one at a time, `panel_closed`). The `data` that
+  answers a read is an `Action::WriteView`, held and dropped with what the view says.
 - `Session::offer_dismiss(false)` makes a host that does not close a view at the program's request:
   `dismiss` is left out of the `features` of its `welcome`s, and a `dismiss` that comes all the same
   is ignored. (The stand-in terminal's `--no-dismiss`.)

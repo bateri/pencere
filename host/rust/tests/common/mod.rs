@@ -3,7 +3,7 @@
 
 #![allow(dead_code)]
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -38,20 +38,22 @@ pub fn token_bytes(token: &str) -> [u8; 16] {
     bytes.try_into().unwrap()
 }
 
-/// A store that holds digests and no bytes: what a session fixture's `store`
-/// says the host already has.
+/// A store that holds the digests a session fixture's `store` says the host already has, without
+/// their bytes, and keeps what it verifies with them: a file a program attached comes out of it
+/// again when it is attached again (specification §8.8).
 #[derive(Default)]
-pub struct Held(pub HashSet<Digest>);
+pub struct Held(pub HashSet<Digest>, pub HashMap<Digest, Arc<[u8]>>);
 
 impl Store for Held {
     fn contains(&self, digest: &Digest) -> bool {
-        self.0.contains(digest)
+        self.0.contains(digest) || self.1.contains_key(digest)
     }
     fn insert(&mut self, file: Verified) {
-        self.0.insert(*file.digest());
+        let (digest, bytes) = file.into_parts();
+        self.1.insert(digest, Arc::from(bytes));
     }
-    fn get(&self, _: &Digest) -> Option<Arc<[u8]>> {
-        None
+    fn get(&self, digest: &Digest) -> Option<Arc<[u8]>> {
+        self.1.get(digest).cloned()
     }
 }
 
@@ -130,7 +132,7 @@ pub fn session_of(
     if let Some(views) = config["views"].as_array() {
         host.views = views.iter().map(offer).collect();
     }
-    Session::new(host, Held(held), issuing(issued))
+    Session::new(host, Held(held, HashMap::new()), issuing(issued))
 }
 
 /// The bodies of the frames of a stream, as a terminal's parser would hand them
@@ -250,6 +252,7 @@ impl Rig {
             id,
             re,
             digest,
+            file: pencere_host::frame::FileParams::NONE,
             payload,
         };
         let mut bytes = Vec::new();

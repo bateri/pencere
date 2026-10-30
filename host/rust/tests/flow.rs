@@ -104,6 +104,7 @@ fn appendix_c_is_this_conversation_byte_for_byte() {
         .iter()
         .map(|d| Digest::parse(d).unwrap())
         .collect(),
+        Default::default(),
     );
     let mut host = Session::new(
         common::bridge_config(&entry["config"]),
@@ -951,6 +952,7 @@ fn a_store_that_forgets_between_the_need_and_the_end_fails_the_open_rather_than_
                 id: ids.next_id(),
                 re: None,
                 digest: d,
+                file: pencere_host::frame::FileParams::NONE,
                 payload,
             };
             pencere_host::frame::encode(

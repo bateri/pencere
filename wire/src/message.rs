@@ -119,11 +119,39 @@ pub fn welcome_unsupported(host: &HostInfo) -> String {
 
 /// The host's `need`: the digests it does not hold.
 pub fn need(missing: &[String]) -> String {
+    need_refusing(missing, &[])
+}
+
+/// A digest of an `attach` that the host will not attach, and why (`Need.refused`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Refusal {
+    /// The digest, 64 lowercase hex digits.
+    pub sha256: String,
+    /// Why: `limit`, `view`, `size` or `digest` (specification §8.8).
+    pub code: &'static str,
+}
+
+/// The host's `need` with the digests it refuses: the answer to an `attach` (specification
+/// §8.8). An empty `refused` is left out, which makes it the `need` of an `open`.
+pub fn need_refusing(missing: &[String], refused: &[Refusal]) -> String {
     #[derive(Serialize)]
     struct Need<'a> {
         missing: &'a [String],
+        #[serde(skip_serializing_if = "<[Refusal]>::is_empty")]
+        refused: &'a [Refusal],
     }
-    wire(&Need { missing })
+    wire(&Need { missing, refused })
+}
+
+/// The host's `wrote`: the end of what a program wrote to a file the person chose to save, or
+/// the first thing that went wrong with it, by `code` (specification §8.10).
+pub fn wrote(code: Option<&str>) -> String {
+    #[derive(Serialize)]
+    struct Wrote<'a> {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        code: Option<&'a str>,
+    }
+    wire(&Wrote { code })
 }
 
 /// Why the host ended or refused a view (`Closed.reason`).
@@ -184,6 +212,42 @@ pub struct Dismiss {
     /// string, it cannot match anything: the `dismiss` is ignored.
     #[serde(default, deserialize_with = "string_or_none")]
     pub token: Option<String>,
+}
+
+// ---- the person's files ----------------------------------------------------
+
+/// One file of an `attach`: its digest and its size, as the program says them.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AttachFile {
+    /// Its digest, as the text the program gives.
+    pub sha256: String,
+    /// Its length in bytes.
+    pub size: u64,
+}
+
+/// The program's `attach`: files it adds to the view that runs (specification §8.8).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Attach {
+    /// The files, in the program's order.
+    pub files: Vec<Object<AttachFile>>,
+}
+
+/// The program's `detach`: digests of files it attached, which it lets go of.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Detach {
+    /// The digests.
+    pub files: Vec<String>,
+}
+
+/// The program's `read`: bytes of a file the person gave (specification §8.9).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Read {
+    /// The handle the person's gesture made, as the program passes it on.
+    pub handle: String,
+    /// Where the bytes start.
+    pub offset: u64,
+    /// How many bytes, at most.
+    pub length: u64,
 }
 
 /// A member that is a string, or absent, or anything else, which reads as absent.

@@ -158,6 +158,26 @@ impl Message {
     pub fn digest(&self) -> Option<&str> {
         self.param("d")
     }
+
+    /// The `h` parameter: the handle of a file the person gave, 32 lowercase hex digits.
+    pub fn handle(&self) -> Option<&str> {
+        self.param("h")
+    }
+
+    /// The `o` parameter: where in a file a `write` puts its bytes.
+    pub fn offset(&self) -> Option<u64> {
+        self.param("o").and_then(offset)
+    }
+
+    /// The `end` parameter: whether a `write` is the last of its file. Absent means `0`.
+    pub fn end(&self) -> bool {
+        self.param("end") == Some("1")
+    }
+
+    /// The `e` parameter: why a `data` carries no bytes.
+    pub fn error_code(&self) -> Option<&str> {
+        self.param("e")
+    }
 }
 
 /// What a decoder delivers.
@@ -210,6 +230,34 @@ fn is_digest(text: &str) -> bool {
     text.len() == 64 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+/// The handle of a file the person gave (`h`, §4.3): 32 lowercase hex digits.
+pub fn is_handle(text: &str) -> bool {
+    text.len() == 32 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// The greatest offset `o` may say: the greatest whole number a JSON number holds in the
+/// language a page is written in, as for the ids of the six messages (§9.2).
+pub const MAX_OFFSET: u64 = (1 << 53) - 1;
+
+/// An offset as the wire writes it (`o`, §4.3): digits, no leading zero (but `0`), at most
+/// [`MAX_OFFSET`].
+fn offset(text: &str) -> Option<u64> {
+    let plain = !text.is_empty()
+        && text.len() <= 16
+        && text.bytes().all(|b| b.is_ascii_digit())
+        && (text == "0" || !text.starts_with('0'));
+    if plain {
+        text.parse().ok().filter(|&n| n <= MAX_OFFSET)
+    } else {
+        None
+    }
+}
+
+/// An error code (`e`, §4.3): 1 to 32 of `a-z` and `-`.
+pub fn is_code(text: &str) -> bool {
+    (1..=32).contains(&text.len()) && text.bytes().all(|b| b.is_ascii_lowercase() || b == b'-')
+}
+
 /// Parses the body of a frame (everything between `ESC _` and `ESC \`, `pencere;`
 /// included) with the grammar of §4.1 and the parameters of §4.3.
 fn parse_chunk(body: &[u8]) -> Option<Chunk<'_>> {
@@ -246,6 +294,28 @@ fn parse_chunk(body: &[u8]) -> Option<Chunk<'_>> {
                 }
                 "d" => {
                     if !is_digest(value) {
+                        return None;
+                    }
+                    others.push((key, value));
+                }
+                "h" => {
+                    if !is_handle(value) {
+                        return None;
+                    }
+                    others.push((key, value));
+                }
+                "o" => {
+                    offset(value)?;
+                    others.push((key, value));
+                }
+                "end" => {
+                    if !matches!(value, "0" | "1") {
+                        return None;
+                    }
+                    others.push((key, value));
+                }
+                "e" => {
+                    if !is_code(value) {
                         return None;
                     }
                     others.push((key, value));
@@ -597,9 +667,35 @@ pub struct Outgoing<'a> {
     pub re: Option<u32>,
     /// The `d` parameter, 64 lowercase hex digits.
     pub digest: Option<&'a str>,
+    /// The parameters of the messages about the person's files: `h`, `o`, `end`, `e`.
+    pub file: FileParams<'a>,
     /// The payload: printable ASCII, 0x20 to 0x7E. JSON must have been through
     /// [`crate::json::to_wire`]; base64 satisfies it by construction.
     pub payload: &'a str,
+}
+
+/// The parameters only the messages about the person's files carry (§4.3): written after `d`, in
+/// the order `h`, `o`, `end`, `e`, on the first chunk.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FileParams<'a> {
+    /// `h`: the handle, 32 lowercase hex digits.
+    pub handle: Option<&'a str>,
+    /// `o`: the offset, at most [`MAX_OFFSET`].
+    pub offset: Option<u64>,
+    /// `end`: written as `end=1` when true, left out when false.
+    pub end: bool,
+    /// `e`: an error code, 1 to 32 of `a-z` and `-`.
+    pub error: Option<&'a str>,
+}
+
+impl FileParams<'_> {
+    /// None of them: what every message but `write` and `data` carries.
+    pub const NONE: Self = Self {
+        handle: None,
+        offset: None,
+        end: false,
+        error: None,
+    };
 }
 
 /// How a message is cut into chunks.
@@ -609,7 +705,7 @@ pub enum Split {
     /// limit lets it (what §4.4 recommends, and what the canonical fixtures are).
     Fill,
     /// Every chunk but the last holds this much payload (rounded down to a
-    /// multiple of four for `file`).
+    /// multiple of four for `file`, `write` and `data`).
     Fixed(usize),
 }
 
@@ -623,6 +719,8 @@ pub enum WriteError {
     Id,
     /// The `d` parameter is not 64 lowercase hex digits.
     Digest,
+    /// The `h`, `o` or `e` parameter is outside what §4.3 allows.
+    FileParam,
     /// The payload holds a byte a frame may not carry (a C0 control, DEL, a byte
     /// from 0x80 up). A reply written with one would be typed input to whatever
     /// reads the tty next.
@@ -639,6 +737,7 @@ impl fmt::Display for WriteError {
             Self::Kind => "the kind is not 1 to 16 of a-z and -",
             Self::Id => "the id is 0",
             Self::Digest => "the digest is not 64 lowercase hex digits",
+            Self::FileParam => "a handle, an offset or an error code is outside its range",
             Self::Payload => "the payload has a byte a frame may not carry",
             Self::MessageTooLong => "the payload is over the message limit",
             Self::NoRoom => "no frame can carry this",
@@ -663,6 +762,18 @@ fn control_text(msg: &Outgoing<'_>, seq: u32, more: bool) -> String {
         if let Some(digest) = msg.digest {
             text.push_str(&format!(",d={digest}"));
         }
+        if let Some(handle) = msg.file.handle {
+            text.push_str(&format!(",h={handle}"));
+        }
+        if let Some(offset) = msg.file.offset {
+            text.push_str(&format!(",o={offset}"));
+        }
+        if msg.file.end {
+            text.push_str(",end=1");
+        }
+        if let Some(error) = msg.file.error {
+            text.push_str(&format!(",e={error}"));
+        }
     }
     text
 }
@@ -679,8 +790,8 @@ fn push_frame(out: &mut Vec<u8>, kind: &str, control: &str, payload: &[u8]) {
 }
 
 /// Writes `msg` as one or more frames for `direction`, appending them to `out`:
-/// keys in the order `id`, `seq`, `more`, `re`, `d`, `seq` and `more` left out
-/// when they are 0, `re` and `d` on the first chunk only (§4.3, §4.4).
+/// keys in the order `id`, `seq`, `more`, `re`, `d`, `h`, `o`, `end`, `e`, `seq`, `more` and `end`
+/// left out when they are 0, the keys after `more` on the first chunk only (§4.3, §4.4).
 ///
 /// The same message and the same split give the same bytes on every
 /// implementation, which is what the fixtures rely on.
@@ -705,6 +816,12 @@ pub fn encode(
     if msg.digest.is_some_and(|d| !is_digest(d)) {
         return Err(WriteError::Digest);
     }
+    if msg.file.handle.is_some_and(|h| !is_handle(h))
+        || msg.file.offset.is_some_and(|o| o > MAX_OFFSET)
+        || msg.file.error.is_some_and(|e| !is_code(e))
+    {
+        return Err(WriteError::FileParam);
+    }
     if !crate::json::is_frame_text(msg.payload) {
         return Err(WriteError::Payload);
     }
@@ -725,7 +842,8 @@ fn encode_chunks(
     split: Split,
     out: &mut Vec<u8>,
 ) -> Result<(), WriteError> {
-    let align = msg.kind == "file";
+    // Base64 is cut on four-character groups, so that a receiver may decode as it goes (§4.4).
+    let align = matches!(msg.kind, "file" | "write" | "data");
     let payload = msg.payload.as_bytes();
     let room = |control: &str| {
         limits
@@ -823,6 +941,7 @@ mod tests {
             id: 1,
             re: None,
             digest: None,
+            file: FileParams::NONE,
             payload: &m.payload,
         };
         encode(Direction::ToHost, &msg, Split::Fill, &mut written).unwrap();
@@ -938,6 +1057,7 @@ mod tests {
                 id: 9,
                 re: None,
                 digest: None,
+                file: FileParams::NONE,
                 payload: &payload,
             };
             assert_eq!(
@@ -1094,6 +1214,7 @@ mod tests {
             id: 12,
             re: None,
             digest: Some(&digest),
+            file: FileParams::NONE,
             payload: &payload,
         };
         let mut bytes = Vec::new();
@@ -1130,6 +1251,7 @@ mod tests {
             id: 1,
             re: None,
             digest: None,
+            file: FileParams::NONE,
             payload: "{}",
         };
         for payload in [
@@ -1195,6 +1317,7 @@ mod tests {
             id: 1,
             re: None,
             digest: None,
+            file: FileParams::NONE,
             payload: "{}",
         };
         assert_eq!(

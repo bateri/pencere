@@ -374,8 +374,28 @@ pub enum Received {
     Ignored,
     /// It is what the digest says: keep it.
     Verified(Verified),
-    /// It is not: the open ends.
-    Failed,
+    /// It is not: for a bundle the open ends; for a file a program attaches to a view that runs,
+    /// that file is refused and the view goes on.
+    Failed(Mismatch),
+}
+
+/// Why a file is not the one asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mismatch {
+    /// It is longer than the size it was announced with, or its base64 is not well formed.
+    Size,
+    /// Its SHA-256 is not the digest it came under.
+    Digest,
+}
+
+impl Mismatch {
+    /// The name a `need`'s `refused` gives it.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Size => "size",
+            Self::Digest => "digest",
+        }
+    }
 }
 
 /// The files a host is waiting for.
@@ -396,6 +416,26 @@ impl Receiving {
         }
     }
 
+    /// Waits for files given by their digests and the largest size each may have: what a program
+    /// attaches to a view that runs, which has no manifest.
+    pub fn from_sizes(asked: &[(Digest, u64)]) -> Self {
+        Self {
+            asked: asked.iter().map(|(d, size)| (*d, *size, false)).collect(),
+        }
+    }
+
+    /// Whether `digest` is one that is still awaited.
+    pub fn awaits(&self, digest: &Digest) -> bool {
+        self.asked.iter().any(|(d, _, done)| d == digest && !done)
+    }
+
+    /// Stops waiting for `digest`: a file that failed is not asked for again.
+    pub fn give_up(&mut self, digest: &Digest) {
+        if let Some((.., done)) = self.asked.iter_mut().find(|(d, ..)| d == digest) {
+            *done = true;
+        }
+    }
+
     /// Takes the payload of a `file` message with digest `digest`.
     ///
     /// A file is within its size when its decoded length is no more than the
@@ -413,17 +453,17 @@ impl Receiving {
             .ok()
             .and_then(|size| size.div_ceil(3).checked_mul(4));
         if longest.is_none_or(|longest| payload.len() > longest) {
-            return Received::Failed;
+            return Received::Failed(Mismatch::Size);
         }
         let Some(bytes) = base64::decode(payload.as_bytes()) else {
-            return Received::Failed;
+            return Received::Failed(Mismatch::Size);
         };
         if u64::try_from(bytes.len()).is_ok_and(|len| len > *size) {
-            return Received::Failed;
+            return Received::Failed(Mismatch::Size);
         }
         let file = Verified::from_bytes(bytes);
         if file.digest() != digest {
-            return Received::Failed;
+            return Received::Failed(Mismatch::Digest);
         }
         *done = true;
         Received::Verified(file)
@@ -665,14 +705,17 @@ mod tests {
         // Asked for, but other bytes.
         assert_eq!(
             receiving.accept(&hello, &base64::encode(b"HELLO")),
-            Received::Failed
+            Received::Failed(Mismatch::Digest)
         );
         // Not base64.
-        assert_eq!(receiving.accept(&hello, "not base64!"), Received::Failed);
+        assert_eq!(
+            receiving.accept(&hello, "not base64!"),
+            Received::Failed(Mismatch::Size)
+        );
         // Too long for its size, refused before it is decoded.
         assert_eq!(
             receiving.accept(&hello, &base64::encode(&[0u8; 300])),
-            Received::Failed
+            Received::Failed(Mismatch::Size)
         );
         // Right.
         let Received::Verified(file) = receiving.accept(&hello, &base64::encode(b"hello")) else {

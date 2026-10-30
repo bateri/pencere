@@ -331,6 +331,54 @@ pub(crate) fn need(payload: &str) -> Option<Vec<String>> {
     )
 }
 
+/// A digest of an `attach` that the terminal does not attach, and why (`need.refused`, §8.8):
+/// `limit`, `view`, `size` or `digest`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Refusal {
+    pub(crate) sha256: String,
+    pub(crate) code: String,
+}
+
+/// Reads what a `need` refuses: nothing for the `need` of an `open`, and for one that answers an
+/// `attach` whose files were all taken.
+#[cfg_attr(not(test), expect(dead_code, reason = "the file helpers read it"))]
+pub(crate) fn refused(payload: &str) -> Option<Vec<Refusal>> {
+    let body: Value = parsed(payload)?;
+    let body = body.as_object()?;
+    body.get("missing")?.as_array()?;
+    let Some(refused) = body.get("refused") else {
+        return Some(Vec::new());
+    };
+    Some(
+        refused
+            .as_array()?
+            .iter()
+            .filter_map(|entry| {
+                let entry = entry.as_object()?;
+                let sha256 = entry.get("sha256")?.as_str()?;
+                let code = entry.get("code")?.as_str()?;
+                let digest = sha256.len() == 64
+                    && sha256
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+                digest.then(|| Refusal {
+                    sha256: sha256.to_owned(),
+                    code: code.to_owned(),
+                })
+            })
+            .collect(),
+    )
+}
+
+/// Reads a `wrote`: the end of a file the program wrote, or the first thing that went wrong with
+/// it, by its code (§8.10).
+#[cfg_attr(not(test), expect(dead_code, reason = "the file helpers read it"))]
+pub(crate) fn wrote(payload: &str) -> Option<Option<String>> {
+    let body: Value = parsed(payload)?;
+    let body = body.as_object()?;
+    Some(body.get("code").and_then(Value::as_str).map(str::to_owned))
+}
+
 /// Why a terminal ended or refused a view (`closed.reason`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClosedReason {
@@ -688,7 +736,16 @@ mod tests {
                     read += 1;
                     match kind.as_str() {
                         "welcome" => assert!(welcome(&payload).is_some(), "{label}"),
-                        "need" => assert!(need(&payload).is_some(), "{label}"),
+                        "need" => {
+                            assert!(need(&payload).is_some(), "{label}");
+                            assert!(refused(&payload).is_some(), "{label}");
+                        }
+                        "wrote" => assert!(wrote(&payload).is_some(), "{label}"),
+                        // The bytes of a file the person gave, in base64 (§8.9).
+                        "data" => assert!(
+                            pencere_wire::base64::decode(payload.as_bytes()).is_some(),
+                            "{label}"
+                        ),
                         "closed" => assert!(closed(&payload).is_some(), "{label}"),
                         // The words of a page, as the host passes them on.
                         "msg" => {

@@ -15,6 +15,16 @@ All notable changes to the `pencere-wire` crate are recorded here. The format fo
 - `link`: which links a view may ask its host to open (`is_openable`, `MAX_LINK`; specification
   §9.7, §9.8), a web page's `link` message or the link of a kit view's reply. The rule was the host
   crate's; it is here so that the kit's sandbox and the host hold both kinds of view to one copy.
+- The messages of files beside a bundle (specification §8.8 to §8.10): the control keys `h`, `o`,
+  `end` and `e` (`frame::FileParams`, `Message::handle`, `offset`, `end`, `error_code`), the
+  payloads `message::Attach`, `Detach` and `Read`, and the host's answers `need_refusing` (a `need`
+  with `refused`) and `wrote`. `bundle::Receiving::from_sizes` waits for files that are not a
+  manifest's, and `give_up` lets go of those that did not come.
+
+### Changed
+
+- `frame::Outgoing` has `file`, the keys of the messages of files; `FileParams::NONE` for any
+  other message. `bundle::Received::Failed` says how the file failed (`Mismatch`).
 
 ## [0.3.1] - 2026-10-26
 

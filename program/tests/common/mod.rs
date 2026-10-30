@@ -183,6 +183,7 @@ impl Pane {
                 id,
                 re,
                 digest: None,
+                file: pencere_wire::frame::FileParams::NONE,
                 payload: &payload,
             },
             Split::Fill,

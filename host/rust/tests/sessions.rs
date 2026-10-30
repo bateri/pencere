@@ -14,7 +14,7 @@ mod common;
 
 use pencere_host::bundle::Store;
 use pencere_host::sandbox::{Consent, Grant};
-use pencere_host::session::{Action, Observed, Session, Size, State};
+use pencere_host::session::{Action, FileError, FileGrant, Observed, Session, Size, State};
 use pencere_host::token::Entropy;
 use serde_json::Value;
 
@@ -92,6 +92,12 @@ fn name_of(action: &Action) -> Option<&'static str> {
         Action::ToView(_) => Some("to-view"),
         Action::OpenLink { .. } => Some("open-link"),
         Action::DestroyView => Some("destroy-view"),
+        Action::ReadFile { .. } => Some("read-file"),
+        Action::WriteFile { .. } => Some("write-file"),
+        Action::AbortWrite { .. } => Some("abort-write"),
+        Action::ForgetFiles(_) => Some("forget-files"),
+        Action::Pick { .. } => Some("pick"),
+        Action::Save { .. } => Some("save"),
         other => panic!("an action the fixtures do not name: {other:?}"),
     }
 }
@@ -144,7 +150,49 @@ fn happen<S: Store, E: Entropy>(
             };
             host.view_message(&text);
         }
+        // The person gave the view a file, or chose a place to save in: the handle is the next
+        // value of the host's randomness, as a token is.
+        "grant-file" => {
+            let _ = host.grant_file(&FileGrant {
+                size: event["size"].as_u64().unwrap(),
+            });
+        }
+        "grant-save" => {
+            let _ = host.grant_save();
+        }
+        // What came of a read or a write the host asked the terminal for, by the id of the
+        // program's message.
+        "file-read" => {
+            let read = event["read"].as_u64().unwrap() as u32;
+            let result = match event["error"].as_str() {
+                Some(code) => Err(file_error(code)),
+                None => Ok(event["bytes"].as_str().unwrap().as_bytes().to_vec()),
+            };
+            host.file_read(read, result);
+        }
+        "file-written" => {
+            let write = event["write"].as_u64().unwrap() as u32;
+            let result = match event["error"].as_str() {
+                Some(code) => Err(file_error(code)),
+                None => Ok(()),
+            };
+            host.file_written(write, result);
+        }
+        // What a view the terminal draws itself asks of the host in its reply.
+        "module-pick" => host.module_pick(event["multiple"].as_bool().unwrap()),
+        "module-save" => host.module_save(event["name"].as_str().unwrap(), event["type"].as_str()),
+        "panel-closed" => host.panel_closed(event["panel"].as_u64().unwrap() as u32),
         other => panic!("an event called {other}"),
+    }
+}
+
+fn file_error(code: &str) -> FileError {
+    match code {
+        "gone" => FileError::Gone,
+        "range" => FileError::Range,
+        "space" => FileError::Space,
+        "io" => FileError::Io,
+        other => panic!("a file error called {other}"),
     }
 }
 
@@ -220,7 +268,7 @@ fn run(session: &Value, how: impl Fn(usize) -> Feed) {
 fn every_session_gives_the_bytes_the_fixtures_name() {
     let manifest = common::manifest();
     let sessions = manifest["session"].as_array().unwrap();
-    assert_eq!(sessions.len(), 35);
+    assert_eq!(sessions.len(), 39);
     for session in sessions {
         run(session, |_| Feed::Whole);
         run(session, |_| Feed::OneByOne);

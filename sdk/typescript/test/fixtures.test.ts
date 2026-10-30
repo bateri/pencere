@@ -25,8 +25,10 @@ import {
   openPayload,
   parseClosed,
   parseNeed,
+  parseRefused,
   parseViewRequest,
   parseWelcome,
+  parseWrote,
   progressPayload,
   pushPayload,
   readViews,
@@ -108,8 +110,7 @@ describe("every entry decodes as the manifest says, however the stream is cut", 
 function written(entry: DecodeEntry, split: "fill" | { fixed: number }): string {
   return entry.messages
     .map((m) => {
-      const re = m.control.re;
-      const d = m.control.d;
+      const { re, d, h, o, end, e } = m.control;
       const bytes = encode(
         entry.direction,
         {
@@ -118,6 +119,10 @@ function written(entry: DecodeEntry, split: "fill" | { fixed: number }): string 
           payload: m.payload,
           ...(re === undefined ? {} : { re: Number(re) }),
           ...(d === undefined ? {} : { digest: d }),
+          ...(h === undefined ? {} : { handle: h }),
+          ...(o === undefined ? {} : { offset: Number(o) }),
+          ...(end === "1" ? { end: true } : {}),
+          ...(e === undefined ? {} : { error: e }),
         },
         split,
       );
@@ -304,9 +309,10 @@ describe("every session of the manifest", () => {
         if ("in" in step) {
           for (const message of messagesOf("to-host", step.in)) {
             const label = `${session.name} ${step.in} ${message.kind}#${message.id}`;
-            // `file` is base64, and the frames the program writes besides are its own words.
+            // `file` and `write` are base64, and the frames the program writes besides are its own words.
             if (
               message.kind !== "file" &&
+              message.kind !== "write" &&
               !HOSTILE.has(session.name) &&
               rewritten(message) !== undefined
             )
@@ -355,6 +361,16 @@ describe("every session of the manifest", () => {
               }
               case "need":
                 expect(parseNeed(payload), label).toBeDefined();
+                expect(parseRefused(payload), label).toBeDefined();
+                break;
+              case "data":
+                // The bytes of a file the person gave, in base64, or none and why (§8.9).
+                if (message.control.e === undefined)
+                  expect(Buffer.from(payload, "base64").toString("base64"), label).toBe(payload);
+                else expect(payload, label).toBe("");
+                break;
+              case "wrote":
+                expect(parseWrote(payload), label).toBeDefined();
                 break;
               case "closed":
                 expect(parseClosed(payload), label).toBeDefined();

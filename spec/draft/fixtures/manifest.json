@@ -506,6 +506,33 @@
       "errors": ["abandoned"]
     },
     {
+      "file": "invalid/to-host/bad-handle.frame",
+      "direction": "to-host",
+      "note": "a handle of 31 hex digits is malformed",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/bad-offset.frame",
+      "direction": "to-host",
+      "note": "an offset with a leading zero is malformed",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
+      "file": "invalid/to-host/bad-end.frame",
+      "direction": "to-host",
+      "note": "an end that is neither 0 nor 1 is malformed",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
       "file": "to-program/welcome.frame",
       "direction": "to-program",
       "note": "the answer to a hello: a version, a token and, for each kind of view the host opens, the versions of it that both speak",
@@ -958,6 +985,15 @@
       "errors": ["chunk-order"]
     },
     {
+      "file": "invalid/to-program/bad-error-code.frame",
+      "direction": "to-program",
+      "note": "an error code with a capital letter is malformed",
+      "scope": "body",
+      "canonical": false,
+      "messages": [],
+      "errors": ["malformed"]
+    },
+    {
       "file": "to-program/msg-pretty.frame",
       "direction": "to-program",
       "note": "what the host writes for the call of bridge/call-pretty.json: the line feeds between the tokens gone and the spaces kept; the payload is the page's text as it came, not compact JSON",
@@ -1025,6 +1061,115 @@
       "errors": []
     },
     {
+      "file": "to-program/need-refused.frame",
+      "direction": "to-program",
+      "note": "need answering an attach: one digest missing, one refused for a limit",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "need",
+          "id": 3,
+          "control": {
+            "re": "7"
+          },
+          "payload": "{\"missing\":[\"b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9\"],\"refused\":[{\"sha256\":\"e7f0893138aeb54e20f94006b6522ba8331876b1dd2313f77d6c1861cd7b8472\",\"code\":\"limit\"}]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/data.frame",
+      "direction": "to-program",
+      "note": "data: the bytes a read asked for, in base64",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "data",
+          "id": 4,
+          "control": {
+            "re": "4"
+          },
+          "payload": "aGVsbG8gd29ybGQ="
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/data-error.frame",
+      "direction": "to-program",
+      "note": "data with no bytes and why: the file changed since the person gave it",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "data",
+          "id": 4,
+          "control": {
+            "re": "4",
+            "e": "gone"
+          },
+          "payload": ""
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/data-chunked.frame",
+      "direction": "to-program",
+      "note": "data over several frames of 511 bytes, base64 cut on four characters",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "data",
+          "id": 4,
+          "control": {
+            "re": "4"
+          },
+          "payload": "iVBORw0KGgoAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl9gYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKTlJWWl5iZmpucnZ6foKGio6SlpqeoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr/AwcLDxMXGx8jJysvMzc7P0NHS09TV1tfY2drb3N3e3+Dh4uPk5ebn6Onq6+zt7u/w8fLz9PX29/j5+vv8/f7/AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w=="
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/wrote.frame",
+      "direction": "to-program",
+      "note": "wrote: the file the program wrote is complete",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "wrote",
+          "id": 5,
+          "control": {
+            "re": "6"
+          },
+          "payload": "{}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/wrote-error.frame",
+      "direction": "to-program",
+      "note": "wrote: a write came at the wrong offset",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "wrote",
+          "id": 5,
+          "control": {
+            "re": "6"
+          },
+          "payload": "{\"code\":\"order\"}"
+        }
+      ],
+      "errors": []
+    },
+    {
       "file": "to-host/file-image.frame",
       "direction": "to-host",
       "note": "the picture of to-host/open-wasm-image.frame as a file message",
@@ -1038,6 +1183,112 @@
             "d": "2b965986578b523e5024f97f2cf9a3b1d4fc74ca149eeef172dfc74c0c84f4af"
           },
           "payload": "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSIjODg4Ii8+PC9zdmc+Cg=="
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/attach.frame",
+      "direction": "to-host",
+      "note": "attach: two files the program adds to the view that runs, each by its digest and size",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "attach",
+          "id": 7,
+          "control": {},
+          "payload": "{\"files\":[{\"sha256\":\"e7f0893138aeb54e20f94006b6522ba8331876b1dd2313f77d6c1861cd7b8472\",\"size\":520},{\"sha256\":\"b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9\",\"size\":11}]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/detach.frame",
+      "direction": "to-host",
+      "note": "detach: the program lets go of a file it attached",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "detach",
+          "id": 9,
+          "control": {},
+          "payload": "{\"files\":[\"e7f0893138aeb54e20f94006b6522ba8331876b1dd2313f77d6c1861cd7b8472\"]}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/read.frame",
+      "direction": "to-host",
+      "note": "read: bytes of a file the person gave, by its handle",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "read",
+          "id": 4,
+          "control": {},
+          "payload": "{\"handle\":\"664de63fcac3e6e61bd577ba1ea4b4be\",\"offset\":0,\"length\":1048576}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/write.frame",
+      "direction": "to-host",
+      "note": "write: bytes for the place the person chose to save in, with its handle and offset",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "write",
+          "id": 5,
+          "control": {
+            "h": "664de63fcac3e6e61bd577ba1ea4b4be",
+            "o": "0"
+          },
+          "payload": "aGVsbG8g"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/write-end.frame",
+      "direction": "to-host",
+      "note": "write: the last bytes of the file, with end",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "write",
+          "id": 6,
+          "control": {
+            "h": "664de63fcac3e6e61bd577ba1ea4b4be",
+            "o": "6",
+            "end": "1"
+          },
+          "payload": "d29ybGQ="
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/write-chunked.frame",
+      "direction": "to-host",
+      "note": "write in two chunks: handle and offset on the first chunk only, base64 cut on four characters",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "write",
+          "id": 5,
+          "control": {
+            "h": "664de63fcac3e6e61bd577ba1ea4b4be",
+            "o": "4096"
+          },
+          "payload": "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"
         }
       ],
       "errors": []
@@ -2626,6 +2877,407 @@
         {
           "out": "session/view-backlog/08-out.frame",
           "acted": ["destroy-view"]
+        }
+      ]
+    },
+    {
+      "name": "attach-files",
+      "note": "a program attaches two files to its lua 2.1 view: the host asks for both, keeps the one that is what its digest says and refuses the other in a second need, sends nothing for a file already attached, forgets one at detach, attaches it again from its store without asking for it, and refuses a file over 8 MiB for the limit",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA"],
+        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
+        "views": [
+          {
+            "kind": "lua",
+            "versions": ["2.0", "2.1"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/attach-files/01-in.frame"
+        },
+        {
+          "out": "session/attach-files/02-out.frame"
+        },
+        {
+          "in": "session/attach-files/03-in.frame"
+        },
+        {
+          "out": "session/attach-files/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "in": "session/attach-files/05-in.frame"
+        },
+        {
+          "out": "session/attach-files/06-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/attach-files/07-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/attach-files/09-in.frame"
+        },
+        {
+          "out": "session/attach-files/10-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/attach-files/11-in.frame"
+        },
+        {
+          "out": "session/attach-files/12-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/attach-files/13-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["forget-files"]
+        },
+        {
+          "in": "session/attach-files/15-in.frame"
+        },
+        {
+          "out": "session/attach-files/16-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/attach-files/17-in.frame"
+        },
+        {
+          "out": "session/attach-files/18-out.frame",
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "attach-without-files",
+      "note": "an attach while no view runs, and one to a view opened at lua 2.0, which has no files beside its bundle, are answered with every digest refused for view",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA"],
+        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
+        "views": [
+          {
+            "kind": "lua",
+            "versions": ["2.0", "2.1"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/attach-without-files/01-in.frame"
+        },
+        {
+          "out": "session/attach-without-files/02-out.frame"
+        },
+        {
+          "in": "session/attach-without-files/03-in.frame"
+        },
+        {
+          "out": "session/attach-without-files/04-out.frame"
+        },
+        {
+          "in": "session/attach-without-files/05-in.frame"
+        },
+        {
+          "out": "session/attach-without-files/06-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "in": "session/attach-without-files/07-in.frame"
+        },
+        {
+          "out": "session/attach-without-files/08-out.frame",
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "read-files",
+      "note": "the person gives the view a file and the program reads it: two reads may be out and a third is busy; the terminal's bytes come back as data and its failure as data with the code; a handle nobody gave and a length over 1 MiB are refused; after a restart the handle is nothing and a late answer is dropped",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg", "Hn5xQ2wTj8Vb0YcLrE4aMg"],
+        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
+        "views": [
+          {
+            "kind": "lua",
+            "versions": ["2.1"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/read-files/01-in.frame"
+        },
+        {
+          "out": "session/read-files/02-out.frame"
+        },
+        {
+          "in": "session/read-files/03-in.frame"
+        },
+        {
+          "out": "session/read-files/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "grant-file",
+          "size": 11
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/read-files/07-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["read-file"]
+        },
+        {
+          "in": "session/read-files/09-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["read-file"]
+        },
+        {
+          "in": "session/read-files/11-in.frame"
+        },
+        {
+          "out": "session/read-files/12-out.frame",
+          "acted": []
+        },
+        {
+          "event": "file-read",
+          "read": 3,
+          "bytes": "hello world"
+        },
+        {
+          "out": "session/read-files/14-out.frame",
+          "acted": []
+        },
+        {
+          "event": "file-read",
+          "read": 4,
+          "error": "gone"
+        },
+        {
+          "out": "session/read-files/16-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/read-files/17-in.frame"
+        },
+        {
+          "out": "session/read-files/18-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/read-files/19-in.frame"
+        },
+        {
+          "out": "session/read-files/20-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/read-files/21-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["read-file"]
+        },
+        {
+          "event": "restart"
+        },
+        {
+          "out": "session/read-files/24-out.frame",
+          "acted": ["destroy-view"]
+        },
+        {
+          "event": "file-read",
+          "read": 8,
+          "bytes": "hell"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/read-files/27-in.frame"
+        },
+        {
+          "out": "session/read-files/28-out.frame",
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "save-files",
+      "note": "the view asks for the Save panel and a second panel is dropped while it is open; the program writes the place the person chose to its end and is told wrote; a write at the wrong offset fails the file, which is thrown away, and later writes are ignored; a view that ends before the last write throws its file away; a write for a handle nobody gave is told handle",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "Pt6dYe3RcW8nUa2FkJ7oQw"
+        ],
+        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
+        "views": [
+          {
+            "kind": "lua",
+            "versions": ["2.0", "2.1"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/save-files/01-in.frame"
+        },
+        {
+          "out": "session/save-files/02-out.frame"
+        },
+        {
+          "in": "session/save-files/03-in.frame"
+        },
+        {
+          "out": "session/save-files/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "module-save",
+          "name": "notes.txt",
+          "type": "text/plain"
+        },
+        {
+          "out": null,
+          "acted": ["save"]
+        },
+        {
+          "event": "module-pick",
+          "multiple": false
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "panel-closed",
+          "panel": 1
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "grant-save"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/save-files/13-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["write-file"]
+        },
+        {
+          "event": "file-written",
+          "write": 3
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/save-files/17-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["write-file"]
+        },
+        {
+          "event": "file-written",
+          "write": 4
+        },
+        {
+          "out": "session/save-files/20-out.frame",
+          "acted": []
+        },
+        {
+          "event": "grant-save"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/save-files/23-in.frame"
+        },
+        {
+          "out": "session/save-files/24-out.frame",
+          "acted": ["abort-write"]
+        },
+        {
+          "in": "session/save-files/25-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "grant-save"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/save-files/29-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["write-file"]
+        },
+        {
+          "event": "close-view"
+        },
+        {
+          "out": "session/save-files/32-out.frame",
+          "acted": ["abort-write", "destroy-view"]
+        },
+        {
+          "in": "session/save-files/33-in.frame"
+        },
+        {
+          "out": "session/save-files/34-out.frame",
+          "acted": []
         }
       ]
     }

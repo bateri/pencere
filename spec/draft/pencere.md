@@ -30,7 +30,9 @@ This document defines:
 - how a program finds out the terminal can host a view, and which kinds of view, in which versions
   of their interface, the two share (Section 5);
 - who may open a view (Section 6) and where it appears and how it is named (Section 7);
-- how the files of a view are loaded once and kept by content (Section 8);
+- how the files of a view are loaded once and kept by content, and the files beside them: what a
+  program attaches to its view, what the person gives the view and where the person saves what
+  the program gives (Section 8);
 - the six messages a program and its view exchange, and the bridge between a web page and its host
   (Section 9);
 - when a view starts and ends (Section 10);
@@ -51,24 +53,25 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD",
 interpreted as described in BCP 14 (RFC 2119, RFC 8174) when, and only when,
 they appear in all capitals. Grammar is ABNF (RFC 5234); JSON is RFC 8259.
 
-| Term         | Meaning                                                                                                                            |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Host         | A terminal emulator that implements this document: it owns panes, the views and their sandboxes, and the bundle store.             |
-| Program      | A process running on a pane's tty that wants to show a view.                                                                       |
-| Pane         | A terminal pane: one tty and the screen it draws.                                                                                  |
-| View         | What a program shows in its pane: a component, a script or a web page (Section 3).                                                 |
-| Kind         | The sort of a view: a name from a closed table, with a version of its interface (Section 5.5).                                     |
-| Kit          | What a `wasm` or `lua` view is written against: the component interface `pencere:view` and the Lua page API, the global `pencere`. |
-| Page         | A view of the kind `web`.                                                                                                          |
-| Person       | The human looking at the pane. The view runs on the person's machine; the program may run on another.                              |
-| `to-host`    | The direction program → host: bytes the program writes to its tty.                                                                 |
-| `to-program` | The direction host → program: bytes the host writes to the input side of the pane's tty.                                           |
-| Frame        | One APC string in this protocol (Section 4.1).                                                                                     |
-| Message      | A kind, control parameters and a payload, carried by one or more frames (Section 4.4).                                             |
-| Chunk        | One frame of a message.                                                                                                            |
-| View message | One of the six JSON objects a program and its view exchange (Section 9.2), carried in the payload of a `msg`.                      |
-| Token        | A single-use secret the host gives a program so that it can open a view (Section 6.1).                                             |
-| Bundle       | The files of a view, listed with their SHA-256 digests (Section 8).                                                                |
+| Term         | Meaning                                                                                                                             |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Host         | A terminal emulator that implements this document: it owns panes, the views and their sandboxes, and the bundle store.              |
+| Program      | A process running on a pane's tty that wants to show a view.                                                                        |
+| Pane         | A terminal pane: one tty and the screen it draws.                                                                                   |
+| View         | What a program shows in its pane: a component, a script or a web page (Section 3).                                                  |
+| Kind         | The sort of a view: a name from a closed table, with a version of its interface (Section 5.5).                                      |
+| Kit          | What a `wasm` or `lua` view is written against: the component interface `pencere:view` and the Lua page API, the global `pencere`.  |
+| Page         | A view of the kind `web`.                                                                                                           |
+| Person       | The human looking at the pane. The view runs on the person's machine; the program may run on another.                               |
+| `to-host`    | The direction program → host: bytes the program writes to its tty.                                                                  |
+| `to-program` | The direction host → program: bytes the host writes to the input side of the pane's tty.                                            |
+| Frame        | One APC string in this protocol (Section 4.1).                                                                                      |
+| Message      | A kind, control parameters and a payload, carried by one or more frames (Section 4.4).                                              |
+| Chunk        | One frame of a message.                                                                                                             |
+| View message | One of the six JSON objects a program and its view exchange (Section 9.2), carried in the payload of a `msg`.                       |
+| Token        | A single-use secret the host gives a program so that it can open a view (Section 6.1).                                              |
+| Bundle       | The files of a view, listed with their SHA-256 digests (Section 8).                                                                 |
+| Handle       | A secret the host makes when the person gives a view a file or a place to save in; the program reads or writes by it (Section 8.9). |
 
 Examples of frames are written with `<ESC>` for the byte 0x1B, one frame per
 line. The lines of a block are concatenated with nothing between them, so a
@@ -176,12 +179,16 @@ payloads satisfy it by construction.
 | `more` | `0` or `1`                                             | `1`: another chunk of this message follows. Absent means 0.        |
 | `re`   | an `id`                                                | The message of the other side that this one answers (Section 4.5). |
 | `d`    | 64 lowercase hex digits                                | A file's SHA-256 digest (`file` messages only, Section 8.4).       |
+| `h`    | 32 lowercase hex digits                                | A handle (`write` messages only, Section 8.10).                    |
+| `o`    | decimal, 0 to 2^53 - 1, no leading zero (except `0`)   | Where in the file the bytes go (`write` messages only).            |
+| `end`  | `0` or `1`                                             | `1`: these are the file's last bytes (`write` messages only).      |
+| `e`    | 1 to 32 of `a-z` and `-`                               | Why a `data` carries no bytes (`data` messages only, Section 8.9). |
 
 A key may appear once; twice is malformed. A receiver MUST ignore keys it does
 not know, and MUST NOT treat a value outside the table's range as anything but
 malformed. A sender MUST write the keys in the order `id`, `seq`, `more`,
-`re`, `d`, MUST omit `seq` when it is 0 and `more` when it is 0, and MUST NOT
-write any other key in this version. Receivers accept
+`re`, `d`, `h`, `o`, `end`, `e`, MUST omit `seq`, `more` and `end` when they are 0, and MUST NOT
+write any other key in this version, nor a key on a kind the table does not give it to. Receivers accept
 any order and the explicit defaults. (The order exists so that two writers
 produce the same bytes; the fixtures depend on it.)
 
@@ -192,8 +199,8 @@ too long for one frame is split into chunks, each a frame.
 
 1. A sender sends the chunks of a message contiguously and in order, with no
    other frame of this protocol between them, numbering them from `seq` 0.
-2. The parameters that belong to a message (`re`, `d`) appear on its first
-   chunk only. Later chunks carry `id`, `seq` and `more`; a receiver ignores
+2. The parameters that belong to a message (`re`, `d`, `h`, `o`, `end`, `e`) appear on its
+   first chunk only. Later chunks carry `id`, `seq` and `more`; a receiver ignores
    anything else on them.
 3. A message ends with the first chunk whose `more` is not 1. Its payload is
    the payloads of its chunks concatenated in order, and nothing is parsed
@@ -206,8 +213,8 @@ too long for one frame is split into chunks, each a frame.
    the chunk is ignored (error `chunk-order`).
 6. When the payload so far exceeds the message limit (Section 4.6) the message
    is dropped (error `message-too-long`).
-7. `file` payloads are base64 split on four-character groups: every chunk but
-   the last has a payload length that is a multiple of 4, so a receiver may
+7. `file`, `write` and `data` payloads are base64 split on four-character groups: every
+   chunk but the last has a payload length that is a multiple of 4, so a receiver may
    decode as it goes.
 8. A sender numbers its messages from 1 and counts up; it does not reuse an
    `id` for the next message. Receivers compare ids for equality only.
@@ -224,17 +231,23 @@ the frame as written: `ESC _ pencere;`, kind, `;`, control, `;`, payload,
 
 ### 4.5 Message kinds
 
-| Kind      | Direction    | Payload                                         | First-chunk parameters                            | Section |
-| --------- | ------------ | ----------------------------------------------- | ------------------------------------------------- | ------- |
-| `hello`   | `to-host`    | JSON `Hello`                                    | none                                              | 5       |
-| `welcome` | `to-program` | JSON `Welcome`                                  | `re`: the hello answered; none when unsolicited   | 5, 10.7 |
-| `open`    | `to-host`    | JSON `Open`                                     | none                                              | 6       |
-| `need`    | `to-program` | JSON `Need`                                     | `re`: the open answered                           | 8.3     |
-| `file`    | `to-host`    | base64 (RFC 4648 § 4, with padding) of one file | `d`: its digest                                   | 8.4     |
-| `msg`     | both         | one JSON object: a view message (9.2)           | none                                              | 9       |
-| `closed`  | `to-program` | JSON `Closed`                                   | `re`: the open, dismiss or bye it answers, if any | 6.4, 10 |
-| `bye`     | `to-host`    | JSON `Bye`                                      | none (answered by a `closed`, 10.3)               | 10.3    |
-| `dismiss` | `to-host`    | JSON `Dismiss`                                  | none                                              | 10.8    |
+| Kind      | Direction    | Payload                                         | First-chunk parameters                            | Section  |
+| --------- | ------------ | ----------------------------------------------- | ------------------------------------------------- | -------- |
+| `hello`   | `to-host`    | JSON `Hello`                                    | none                                              | 5        |
+| `welcome` | `to-program` | JSON `Welcome`                                  | `re`: the hello answered; none when unsolicited   | 5, 10.7  |
+| `open`    | `to-host`    | JSON `Open`                                     | none                                              | 6        |
+| `need`    | `to-program` | JSON `Need`                                     | `re`: the open or the attach answered             | 8.3, 8.8 |
+| `file`    | `to-host`    | base64 (RFC 4648 § 4, with padding) of one file | `d`: its digest                                   | 8.4, 8.8 |
+| `attach`  | `to-host`    | JSON `Attach`                                   | none (answered by a `need`)                       | 8.8      |
+| `detach`  | `to-host`    | JSON `Detach`                                   | none                                              | 8.8      |
+| `read`    | `to-host`    | JSON `Read`                                     | none (answered by a `data`)                       | 8.9      |
+| `data`    | `to-program` | base64 of bytes of a file the person gave       | `re`: the read answered; `e` when there are none  | 8.9      |
+| `write`   | `to-host`    | base64 of bytes for a place to save in          | `h`: the handle; `o`: the offset; `end`           | 8.10     |
+| `wrote`   | `to-program` | JSON `Wrote`                                    | `re`: the write answered                          | 8.10     |
+| `msg`     | both         | one JSON object: a view message (9.2)           | none                                              | 9        |
+| `closed`  | `to-program` | JSON `Closed`                                   | `re`: the open, dismiss or bye it answers, if any | 6.4, 10  |
+| `bye`     | `to-host`    | JSON `Bye`                                      | none (answered by a `closed`, 10.3)               | 10.3     |
+| `dismiss` | `to-host`    | JSON `Dismiss`                                  | none                                              | 10.8     |
 
 The JSON types are in Appendix A. A sender MUST NOT send a kind in a direction
 the table does not list. A receiver MUST ignore a message of a kind it does not
@@ -372,7 +385,10 @@ number of bytes while the program does not read (Appendix B).
   character, and it closes the view with `closed`, `reason` `error`, `code` `view` (Section 9.8). (A host that
   draws the view itself holds a well-behaved view back well before the limit: the kit's
   `program.send` answers `full` and `page.room` tells the view when it may send again, so that
-  such a view slows down and is not closed.) A **program author** should know that a host
+  such a view slows down and is not closed.) The `data` that answers a `read` (Section 8.9) is
+  what the view brings the program and is held the same way: it counts toward the bound, and a
+  signal character drops it as it drops the view's words; it is the one message of the host's own
+  that is. A **program author** should know that a host
   MAY stop reading the pane's output while its view is behind: a program that writes a great deal
   of output while its view says a great deal may find its own writes waiting until the program
   reads what the view said.
@@ -607,6 +623,13 @@ of it, that the `welcome` of its token did not list is refused as `unsupported` 
 The kinds `wasm` and `lua` are the **kit views**, the views the host draws itself (Section 9.8). They
 have a component or a script for an entry and no document. The kind `web` is a page and has an HTML
 document for an entry; it is the one kind that reaches the host with messages of its own (Section 9.4).
+
+The interfaces from `lua` `2.1` and `wasm` `3.0` on have **files beside the bundle** (Sections 8.8 to
+8.10): a host that lists one of them speaks `attach`, `detach`, `read` and `write`, and a program
+learns that it may send them from the version it opened, not from a feature of the `welcome`. (This
+is what those versions mean, not an order of versions: a host still lists each version it opens.)
+Every other view, a page and a kit view at an earlier version, has none, and the host answers those
+messages as Sections 8.8 to 8.10 say it does when no view runs.
 
 ## 6. Opening a view
 
@@ -927,6 +950,153 @@ The entry of a bundle is the view's own file, and its media type is that of the 
 not decide the kind from the entry, and it does not guess. A page may have other files, which it names
 by their paths; the other kinds have the entry only, unless the kit says otherwise, which it does
 for the images of the kinds the host draws itself (Section 9.8).
+
+### 8.8 Attached files
+
+A program may add files to the view that runs, beside its bundle, for the view to draw: the pictures
+of a project, of a document, of a preview. They are kept by content as the files of a bundle are, so a
+file that the host still holds crosses the stream once, whichever view or open it is for.
+
+The program sends an `attach`: the files, each by its digest (`sha256`) and its length in bytes
+(`size`). The host answers every `attach` with a `need` whose `re` is the attach's id:
+
+- `missing` lists, in the order of the `attach`, the digests it does not hold, which the program sends
+  as `file` messages (Section 8.4);
+- `refused` lists the digests it will not attach, each with a `code`; it is left out when it is empty.
+
+A file that is attached already is in neither list. When `missing` is not empty, the host answers the
+`attach` a second time once the last of its files has come: with a `need` whose `missing` is empty and
+whose `refused` lists the files that came and were not what they said. The view is not told: it learns
+the names of the files from its program (Section 9.2), as `sha256:` and the digest, and draws them by
+those names (Section 9.8). A program that waits for the last answer before it says the name knows that
+the view will find the file.
+
+```frame fixtures/to-host/attach.frame
+<ESC>_pencere;attach;id=7;{"files":[{"sha256":"e7f0893138aeb54e20f94006b6522ba8331876b1dd2313f77d6c1861cd7b8472","size":520},{"sha256":"b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9","size":11}]}<ESC>\
+```
+
+```frame fixtures/to-program/need-refused.frame
+<ESC>_pencere;need;id=3,re=7;{"missing":["b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"],"refused":[{"sha256":"e7f0893138aeb54e20f94006b6522ba8331876b1dd2313f77d6c1861cd7b8472","code":"limit"}]}<ESC>\
+```
+
+The codes of `refused`:
+
+- `limit`: the file is over 8 MiB (8 388 608 bytes, the bound of a file of a bundle, Section 8.2), or
+  attaching it would take the files attached to the view past 1024 or past 64 MiB together. The
+  view's bundle is not counted. A host MAY hold a view to less.
+- `view`: no view runs, or the view that runs has no files beside its bundle (Section 5.5). Every
+  digest of the `attach` is refused so.
+- `size` and `digest`: the file came, and it is longer than its size, its base64 is not well formed, or
+  its SHA-256 is not its digest. A host verifies an attached file as it verifies the file of a bundle
+  (Section 8.4), and a file that fails is refused, not fatal: the view goes on.
+
+The host keeps the bytes of every file attached to the view for as long as the view runs, whatever its
+store keeps (Section 8.5), and counts them against the bounds of `limit`. A view names a digest that its
+program attached to it, and nothing else: a digest the host holds for another view, or for the bundle,
+is no file of this one, so that a view cannot find out what the person has seen elsewhere. The program
+sends a `detach` with digests it attached, and the host lets go of them: the view forgets what it drew
+of them, and they no longer count. A file is attached to one view, and when the view ends, whatever
+ends it, its files are no longer attached; a program that opens a view again attaches them again, and a
+host that still holds one does not ask for it.
+
+```frame fixtures/to-host/detach.frame
+<ESC>_pencere;detach;id=9;{"files":["e7f0893138aeb54e20f94006b6522ba8331876b1dd2313f77d6c1861cd7b8472"]}<ESC>\
+```
+
+A `file` that comes while the view runs and that no `attach` waits for is ignored.
+
+### 8.9 Files the person gives
+
+The person may give the view that runs a file of the person's machine: by dropping it on the view, by
+pasting it, or by choosing it in an Open panel that the view asked for (Section 9.8). Nothing else
+gives the view a file. The host makes each file a **handle**: 128 bits of the terminal's randomness,
+written as 32 lowercase hex digits, that is the file's for as long as the view runs. A kit view is
+handed the handle with the file's name, its size and a media type, and the program is handed none of
+them: the view passes on what it wants the program to have, in its own messages (Section 9.2). The
+name is the person's and the type is the host's guess; a program reads neither as anything but
+words, and never joins a name to a path of its own as it came. A host MAY also hand the view the
+file's path, and only when it knows that the program reads the same file system as the person (a
+program on the person's machine, with no remote shell between).
+
+The program reads the file by its handle, a piece at a time: it sends a `read` with the handle, an
+`offset` and a `length` of at most 1 MiB (1 048 576 bytes). The host answers each `read` with one
+`data` whose `re` is the read's id: the bytes, in base64, as many as were asked for unless the file
+ends first. Fewer bytes than were asked for is the end of the file.
+
+```frame fixtures/to-host/read.frame
+<ESC>_pencere;read;id=4;{"handle":"664de63fcac3e6e61bd577ba1ea4b4be","offset":0,"length":1048576}<ESC>\
+```
+
+```frame fixtures/to-program/data.frame
+<ESC>_pencere;data;id=4,re=4;aGVsbG8gd29ybGQ=<ESC>\
+```
+
+A `data` that carries no bytes says why in its `e`, with an empty payload:
+
+- `handle`: the handle is not one of the view that runs (a view that ended has none, and a handle is no
+  longer anything after the view is opened again, Section 10.7);
+- `range`: the `length` is 0 or over 1 MiB, or the `offset` is past the end of the file;
+- `busy`: two `read`s of the program are out already; one more is answered so, and the program asks
+  again when one of the two has been answered;
+- `gone`: the file is not what it was when the person gave it (its size, or the time it changed), or
+  it can no longer be read;
+- `io`: reading it failed otherwise.
+
+```frame fixtures/to-program/data-error.frame
+<ESC>_pencere;data;id=4,re=4,e=gone;<ESC>\
+```
+
+A piece is 1 MiB at most so that a `data`, whose chunks go out with nothing between them (Section 4.4),
+does not hold up for long what the view says to the program behind it. A `data` is held and dropped as
+what the view says is (Section 4.8): a signal character drops a `data` that was waiting, and a `read` may
+be sent again for the same bytes. The host reads only the file of the handle, and only what was asked
+for; it never reads a path that a view or a program wrote.
+
+### 8.10 Saving
+
+A view may ask for the Save panel, with a name it proposes for the file (Section 9.8). When the person
+chooses a place, the host makes it a handle, as it does for a file the person gives (Section 8.9), and
+hands the view the handle and the name the person chose; the view passes the handle to its program.
+
+The program sends the bytes in `write` messages, each with the handle (`h`), the offset of its first
+byte (`o`) and at most 1 MiB, in base64; the last has `end`, and may have no bytes. The writes of a
+handle come in order and leave no gap: each `o` is where the one before ended.
+
+```frame fixtures/to-host/write.frame
+<ESC>_pencere;write;id=5,h=664de63fcac3e6e61bd577ba1ea4b4be,o=0;aGVsbG8g<ESC>\
+```
+
+```frame fixtures/to-host/write-end.frame
+<ESC>_pencere;write;id=6,h=664de63fcac3e6e61bd577ba1ea4b4be,o=6,end=1;d29ybGQ=<ESC>\
+```
+
+The host writes the bytes to a file of its own beside the place the person chose, named so that a
+person recognises it (`.` and the name, then `.pencere-part`), and gives it the person's name when the
+write with `end` has been written. It answers once, with a `wrote` whose `re` is the id of that write;
+or, if something goes wrong first, at once, with a `wrote` that has a `code` and whose `re` is the id of
+the write that failed, and it throws away what it wrote. The writes for that handle that come after the
+failure are ignored. When the view ends before the write with `end`, the host throws away what it wrote.
+
+```frame fixtures/to-program/wrote.frame
+<ESC>_pencere;wrote;id=5,re=6;{}<ESC>\
+```
+
+```frame fixtures/to-program/wrote-error.frame
+<ESC>_pencere;wrote;id=5,re=6;{"code":"order"}<ESC>\
+```
+
+The codes of `wrote`:
+
+- `handle`: the handle is not a place to save in of the view that runs;
+- `order`: a write's `o` is not where the one before ended, or its base64 is not well formed;
+- `size`: a write carries more than 1 MiB;
+- `space`: the place has no room;
+- `io`: writing failed otherwise.
+
+A process that is killed outright, or a machine that stops, may leave the host's file beside the place
+the person chose: that is the price of never leaving a half-written file under the person's name, and
+the file's name says what it is. The host writes only to the place of the handle; it never writes a path
+that a view or a program wrote.
 
 ## 9. Messages and the bridge of a page
 
@@ -1373,7 +1543,12 @@ bundle by the path the manifest gives it (`icons/stop.svg`), and the host draws 
 element's box. It is the one thing of its bundle besides its entry that such a view reaches, and the
 view does not reach it: the view's code has no file system and is handed no bytes, the host reads the
 file out of the bundle it holds and decodes it. There is no network, so an image is a file of the
-bundle and nothing else, and a path the manifest does not name is an image that is not there.
+bundle and nothing else, and a path the manifest does not name is an image that is not there. A view
+that has files beside its bundle (Section 5.5) also names a file its program attached to it, as
+`sha256:` and the digest (Section 8.8), and a file the person gave it, as `file:` and the handle
+(Section 8.9). A manifest path has no `:`, so the three never meet; the host finds such a name only
+among the view's own attached files and handles, and a name that is none of them is an image that is
+not there.
 
 - _Formats._ PNG, JPEG and SVG, told from the bytes and not from the name or the `type` of the file.
   An SVG draws its shapes: no text in it is drawn and no font is loaded for it, and an `<image>`
@@ -1778,7 +1953,8 @@ for the answer for longer than a time of its choosing with `closed`, `reason` `e
 
 ### 12.3 Files and navigation
 
-The view has no access to files and does not navigate to another document: after the load of its
+The view has no access to files of its own (a kit view reaches only the files the person gives it, by
+their handles, Section 8.9) and does not navigate to another document: after the load of its
 entry, the host MUST cancel every top-level navigation of the web view to another document, whatever
 starts it (a link the page follows, a change of `location`, a form, a script that opens a window). A
 navigation that only changes the fragment (`#…`) of the same document is not one to another document
@@ -1788,6 +1964,14 @@ policy (Section 12.1) says the same of forms to the web view itself. The `link` 
 page is the only way out; what the host accepts and what it does with it is in Section 9.7. A view the
 host draws itself has no document to leave, and its only way out is the `link` of its reply, held to
 the same rule (Section 9.8).
+
+A file moves between the person's machine and a program only by the person's own act: a drop, a paste,
+a choice in an Open or a Save panel. A view asks for a panel only in what it answers something the
+person did (Section 9.8), and one panel is open at a time. The host reads and writes only the files of
+the handles it made, never a path that a view or a program wrote, and a handle is nothing once its view
+has ended. A **page** is given files the web platform's way (a drop, an `<input type="file">`), which is
+the person's act too, and reaches their bytes in its own script, which may pass them on to its program
+in its messages; the messages of Sections 8.8 to 8.10 are not a page's.
 
 ### 12.4 Origin, limits, indication
 
@@ -1988,6 +2172,25 @@ interface Bundle {
 
 interface Need {
   missing: string[]; // sha256 digests
+  refused?: { sha256: string; code: string }[]; // an attach's only (Section 8.8); left out when empty
+}
+
+interface Attach {
+  files: { sha256: string; size: number }[]; // Section 8.8
+}
+
+interface Detach {
+  files: string[]; // sha256 digests the program attached
+}
+
+interface Read {
+  handle: string; // 32 lowercase hex digits (Section 8.9)
+  offset: number; // 0 to 2^53 - 1
+  length: number; // 1 to 1048576
+}
+
+interface Wrote {
+  code?: string; // absent when the file was written (Section 8.10)
 }
 
 interface Closed {
@@ -2055,6 +2258,10 @@ type PageToHost =
   | { close: {} }
   | { link: { url: string } };
 ```
+
+Codes of `Need.refused`: `limit`, `view`, `size`, `digest` (Section 8.8). Codes of the `e` of a `data`:
+`handle`, `range`, `busy`, `gone`, `io` (Section 8.9). Codes of `Wrote`: `handle`, `order`, `size`,
+`space`, `io` (Section 8.10).
 
 Codes of `Closed`: for `refused`, those of Section 6.4; for `error`, `bundle` (Section 8.4), `view`
 (Section 9.8) and `timeout` (Sections 8.4 and 12.2). A receiver treats a code it does not know as the

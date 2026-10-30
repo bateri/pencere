@@ -89,7 +89,7 @@ describe("toWire", () => {
       // A page's text passed on as it came is not compact JSON (`relayed`).
       if (!entry.canonical || entry.relayed === true) continue;
       for (const message of entry.messages) {
-        if (message.kind === "file") continue;
+        if (["file", "write", "data"].includes(message.kind)) continue;
         expect(toWire(JSON.parse(message.payload)), entry.file).toBe(message.payload);
         checked += 1;
       }
