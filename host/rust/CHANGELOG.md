@@ -21,6 +21,11 @@ under this name) are recorded here. The format follows
   not finished, also when the view ends. `module_pick` and `module_save` ask for the Open and the
   Save panel (`Action::Pick`, `Action::Save`, one at a time, `panel_closed`). The `data` that
   answers a read is an `Action::WriteView`, held and dropped with what the view says.
+- `Session::attached_files` gives an `AttachedFiles`, a clone-able, thread-safe table of the files
+  the view that runs has attached, with `get` by the `sha256:` name as `Session::attached` has it.
+  A terminal that reads a picture on another thread than the one that feeds the session no longer
+  has to copy what it was told about: a file is in the table once the session holds it, and gone with its
+  `detach` and when the view ends, by whatever path.
 - `Session::offer_dismiss(false)` makes a host that does not close a view at the program's request:
   `dismiss` is left out of the `features` of its `welcome`s, and a `dismiss` that comes all the same
   is ignored. (The stand-in terminal's `--no-dismiss`.)

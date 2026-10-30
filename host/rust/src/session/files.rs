@@ -16,7 +16,7 @@
 //! all (§5.5); every other view, a page among them, is answered as if it had none.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::{Action, Phase, Session, ViewKind};
 use crate::base64;
@@ -40,6 +40,76 @@ const MAX_SAVE_NAME_CHARS: usize = 255;
 
 /// The name an attached file has for the view that draws it: `sha256:` and its digest.
 pub const ATTACHED_SCHEME: &str = "sha256:";
+
+/// The files a program has attached to the view that runs, which any thread of the terminal can
+/// read by the name the view draws them by. The session writes it and does no I/O; a terminal that
+/// draws on another thread than the one that feeds the session (a picture is read where it is
+/// decoded) keeps a clone of it from [`Session::attached_files`], and finds there what
+/// [`Session::attached`] would give, with no call into the session.
+///
+/// It holds what the view that runs has attached, and nothing else: a file that is detached, and
+/// every file when the view ends, is gone from it (§8.8, §10.2).
+#[derive(Clone, Default)]
+pub struct AttachedFiles(Arc<Mutex<Table>>);
+
+/// The files of an [`AttachedFiles`], with their bytes added up for the limits of §8.8.
+#[derive(Default)]
+struct Table {
+    files: HashMap<Digest, Arc<[u8]>>,
+    bytes: u64,
+}
+
+impl AttachedFiles {
+    /// The bytes behind a `sha256:` name, if the view that runs has attached them.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<Arc<[u8]>> {
+        let digest = attached_digest(name)?;
+        self.table().files.get(&digest).cloned()
+    }
+
+    /// The count and the bytes held.
+    fn load(&self) -> (usize, u64) {
+        let table = self.table();
+        (table.files.len(), table.bytes)
+    }
+
+    fn contains(&self, digest: &Digest) -> bool {
+        self.table().files.contains_key(digest)
+    }
+
+    /// Holds a file, unless it is held already.
+    fn insert(&self, digest: Digest, file: Arc<[u8]>) {
+        let mut table = self.table();
+        if !table.files.contains_key(&digest) {
+            let len = u64::try_from(file.len()).unwrap_or(u64::MAX);
+            table.bytes = table.bytes.saturating_add(len);
+            table.files.insert(digest, file);
+        }
+    }
+
+    /// Lets a file go; whether it was held.
+    fn remove(&self, digest: &Digest) -> bool {
+        let mut table = self.table();
+        let Some(file) = table.files.remove(digest) else {
+            return false;
+        };
+        let len = u64::try_from(file.len()).unwrap_or(u64::MAX);
+        table.bytes = table.bytes.saturating_sub(len);
+        true
+    }
+
+    fn clear(&self) {
+        let mut table = self.table();
+        table.files.clear();
+        table.bytes = 0;
+    }
+
+    /// The table, whether or not a thread that held it panicked: it is only ever changed whole
+    /// entries at a time, so it is never found half-changed.
+    fn table(&self) -> MutexGuard<'_, Table> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 /// What went wrong with a file the terminal read or wrote, by the code the program is told.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,8 +185,8 @@ struct Pending {
 pub(super) struct Files {
     /// Whether the view was opened at a version that has them.
     capable: bool,
-    attached: HashMap<Digest, Arc<[u8]>>,
-    attached_bytes: u64,
+    /// What is attached: the session's own table, which this view empties when it ends.
+    attached: AttachedFiles,
     pending: Vec<Pending>,
     handles: HashMap<String, Handle>,
     /// The `read`s out, by id, with the length each asked for.
@@ -130,11 +200,12 @@ pub(super) struct Files {
 
 impl Files {
     /// The files of a view of `kind` opened at `version` of its interface.
-    pub(super) fn new(kind: ViewKind, version: &str) -> Self {
+    pub(super) fn new(kind: ViewKind, version: &str, attached: AttachedFiles) -> Self {
+        // A table the view before this one left is not this view's.
+        attached.clear();
         Self {
             capable: has_files(kind, version),
-            attached: HashMap::new(),
-            attached_bytes: 0,
+            attached,
             pending: Vec::new(),
             handles: HashMap::new(),
             reads: Vec::new(),
@@ -151,8 +222,9 @@ impl Files {
             .flat_map(|p| p.asked.iter())
             .map(|(_, size)| *size)
             .sum();
-        let count = self.attached.len() + self.pending.iter().map(|p| p.asked.len()).sum::<usize>();
-        (count, self.attached_bytes.saturating_add(reserved))
+        let (held, bytes) = self.attached.load();
+        let count = held + self.pending.iter().map(|p| p.asked.len()).sum::<usize>();
+        (count, bytes.saturating_add(reserved))
     }
 
     /// The places to save that were left unfinished, which the terminal is to throw away.
@@ -189,6 +261,14 @@ pub fn has_files(kind: ViewKind, version: &str) -> bool {
 /// digits.
 pub fn attached_digest(name: &str) -> Option<Digest> {
     name.strip_prefix(ATTACHED_SCHEME).and_then(Digest::parse)
+}
+
+impl Drop for Files {
+    /// A view's files die with it, by whatever path it goes (§10.2): the table is not to outlive
+    /// it, since a thread that holds the table does not hear of the end.
+    fn drop(&mut self) {
+        self.attached.clear();
+    }
 }
 
 impl<S: Store, E: Entropy> Session<S, E> {
@@ -243,7 +323,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         let mut held: Vec<(Digest, Arc<[u8]>)> = Vec::new();
         let mut refused: Vec<Refusal> = Vec::new();
         for (digest, size) in rows {
-            if files.attached.contains_key(&digest) {
+            if files.attached.contains(&digest) {
                 continue;
             }
             // What the store holds is taken now, and counted at its own length, not at what the
@@ -292,11 +372,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
     }
 
     fn pin(&mut self, digest: Digest, file: Arc<[u8]>) {
-        if let Some(files) = self.files_mut()
-            && !files.attached.contains_key(&digest)
-        {
-            let len = u64::try_from(file.len()).unwrap_or(u64::MAX);
-            files.attached_bytes = files.attached_bytes.saturating_add(len);
+        if let Some(files) = self.files_mut() {
             files.attached.insert(digest, file);
         }
     }
@@ -379,9 +455,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             let Some(digest) = Digest::parse(&text) else {
                 continue;
             };
-            if let Some(file) = files.attached.remove(&digest) {
-                let len = u64::try_from(file.len()).unwrap_or(u64::MAX);
-                files.attached_bytes = files.attached_bytes.saturating_sub(len);
+            if files.attached.remove(&digest) {
                 forgotten.push(format!("{ATTACHED_SCHEME}{digest}"));
             }
         }
@@ -394,8 +468,15 @@ impl<S: Store, E: Entropy> Session<S, E> {
     /// it by (`sha256:` and its digest). Nothing else answers: a digest the program did not attach
     /// to this view is no file of the view's, whatever the store holds (§8.8).
     pub fn attached(&self, name: &str) -> Option<Arc<[u8]>> {
-        let digest = attached_digest(name)?;
-        self.files()?.attached.get(&digest).cloned()
+        self.files()?.attached.get(name)
+    }
+
+    /// The table of what is attached, for a thread that reads it without the session (see
+    /// [`AttachedFiles`]). It is the same table for the whole life of the session, and holds the
+    /// files of the view that runs.
+    #[must_use]
+    pub fn attached_files(&self) -> AttachedFiles {
+        self.attached.clone()
     }
 
     // ---- what the person gives (§8.9) -------------------------------------

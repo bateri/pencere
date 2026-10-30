@@ -36,8 +36,8 @@ use std::mem;
 use std::sync::Arc;
 
 pub use files::{
-    ATTACHED_SCHEME, FileError, FileGrant, MAX_FILE_PIECE, MAX_OPEN_READS, attached_digest,
-    has_files,
+    ATTACHED_SCHEME, AttachedFiles, FileError, FileGrant, MAX_FILE_PIECE, MAX_OPEN_READS,
+    attached_digest, has_files,
 };
 
 use crate::bundle::{BundleLimits, Digest, Manifest, Received, Receiving, Store};
@@ -559,6 +559,9 @@ pub struct Session<S: Store, E: Entropy> {
     /// Whether the host closes a view at the program's request (`dismiss`, §10.8).
     dismiss: bool,
     phase: Phase,
+    /// What the view that runs has attached, which a thread other than the session's can read
+    /// (`attached_files`). Every view's files are put in it and emptied from it.
+    attached: AttachedFiles,
     stream: StreamDecoder,
     body: BodyDecoder,
     actions: Vec<Action>,
@@ -588,6 +591,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             allow_opens: true,
             dismiss: true,
             phase: Phase::Idle,
+            attached: AttachedFiles::default(),
             stream: StreamDecoder::new(Direction::ToHost),
             body: BodyDecoder::new(Direction::ToHost),
             actions: Vec::new(),
@@ -1253,7 +1257,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         } = open;
         let web = kind == ViewKind::Web;
         let context = web.then(|| page::context_text(&self.context, &grant));
-        let files = files::Files::new(kind, &version);
+        let files = files::Files::new(kind, &version, self.attached.clone());
         let start = ViewStart {
             kind,
             version,

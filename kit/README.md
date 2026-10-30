@@ -104,7 +104,8 @@ one `Images` for a view, and uses three of its calls:
 
 A terminal that hosts files beside the bundle (`lua` `2.1`, `wasm` `3.0`) answers `Assets::read` for
 a `sha256:` name from the files the program attached to the view (`Session::attached` of the host
-crate) and for a `file:` name from its own table of the handles it made, never from a path, and
+crate, or `AttachedFiles::get` from a thread that has no session: `Session::attached_files` gives
+one table for the life of the session, which the view's end empties) and for a `file:` name from its own table of the handles it made, never from a path, and
 calls `Images::forget` with the names the program let go of (`Action::ForgetFiles`). The panels a
 page asks for are the drive's `Host::panel`, which the terminal hands the session
 (`Session::module_pick`, `module_save`) before it shows one.

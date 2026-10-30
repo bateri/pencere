@@ -16,7 +16,7 @@ use common::{Rig, TOKENS, kit_config};
 use pencere_host::bundle::{Digest, Store as _};
 use pencere_host::frame::Message;
 use pencere_host::session::{
-    Action, Config, FileGrant, MAX_VIEW_MESSAGE, State, ViewKind, ViewStart,
+    Action, AttachedFiles, Config, FileGrant, MAX_VIEW_MESSAGE, State, ViewKind, ViewStart,
 };
 use serde_json::{Value, json};
 
@@ -527,6 +527,118 @@ fn a_file_the_terminal_holds_is_counted_at_its_own_length_not_at_what_the_progra
         need,
         json!({"missing": [], "refused": [{"sha256": digest.to_string(), "code": "limit"}]})
     );
+}
+
+/// A file attached to the view that is up: the program's `attach`, and the `file` the host asks
+/// for. Gives the name the view draws it by.
+fn attach(rig: &mut Rig, bytes: &[u8]) -> String {
+    let digest = Digest::of(bytes).to_string();
+    rig.json(
+        "attach",
+        &json!({"files": [{"sha256": digest, "size": bytes.len()}]}),
+    );
+    rig.take();
+    rig.send(
+        "file",
+        None,
+        Some(&digest),
+        &pencere_host::base64::encode(bytes),
+    );
+    rig.take();
+    format!("sha256:{digest}")
+}
+
+/// What another thread finds in the table under `name`.
+fn read_elsewhere(table: &AttachedFiles, name: &str) -> Option<Vec<u8>> {
+    let table = table.clone();
+    let name = name.to_owned();
+    std::thread::spawn(move || table.get(&name).map(|file| file.to_vec()))
+        .join()
+        .expect("the reader ran")
+}
+
+#[test]
+fn a_file_attached_to_the_view_is_read_from_the_table_by_another_thread() {
+    let mut rig = up_with_files();
+    // The table is the session's, and handed out once: what is attached after is in it.
+    let table = rig.host.attached_files();
+    let picture = attach(&mut rig, b"a picture");
+    assert_eq!(
+        read_elsewhere(&table, &picture),
+        Some(b"a picture".to_vec())
+    );
+    assert_eq!(
+        rig.host.attached(&picture).as_deref(),
+        Some(&b"a picture"[..])
+    );
+    // Only a `sha256:` name for what was attached answers.
+    let other = format!("sha256:{}", Digest::of(b"another"));
+    assert_eq!(read_elsewhere(&table, &other), None);
+    assert_eq!(read_elsewhere(&table, "image.png"), None);
+    assert_eq!(read_elsewhere(&table, &picture[7..]), None);
+}
+
+#[test]
+fn a_file_the_program_lets_go_is_gone_from_the_table_and_the_others_stay() {
+    let mut rig = up_with_files();
+    let table = rig.host.attached_files();
+    let first = attach(&mut rig, b"first");
+    let second = attach(&mut rig, b"second");
+    rig.json("detach", &json!({"files": [&first[7..]]}));
+    let (_, acted) = rig.take();
+    assert!(
+        matches!(acted.as_slice(), [Action::ForgetFiles(names)] if names == &[first.clone()]),
+        "{acted:?}"
+    );
+    assert_eq!(read_elsewhere(&table, &first), None);
+    assert_eq!(read_elsewhere(&table, &second), Some(b"second".to_vec()));
+    // What was let go counts no more toward the limits: it can be attached again.
+    attach(&mut rig, b"first");
+    assert_eq!(read_elsewhere(&table, &first), Some(b"first".to_vec()));
+}
+
+#[test]
+fn nothing_attached_is_in_the_table_once_the_view_is_over_however_it_ended() {
+    type End = fn(&mut Rig);
+    let endings: [(&str, End); 5] = [
+        ("the program's bye", |rig| {
+            rig.json("bye", &json!({ "token": TOKEN, "reason": "exit" }));
+        }),
+        ("the program's dismiss", |rig| {
+            rig.json("dismiss", &json!({ "token": TOKEN }));
+        }),
+        ("the person closing the view", |rig| {
+            rig.host.close_view();
+            rig.collect();
+        }),
+        ("the program ending", |rig| {
+            rig.host.program_ended();
+            rig.collect();
+        }),
+        ("the view failing", |rig| {
+            rig.host.view_failed("the page trapped");
+            rig.collect();
+        }),
+    ];
+    for (name, end) in endings {
+        let mut rig = up_with_files();
+        let table = rig.host.attached_files();
+        let picture = attach(&mut rig, b"a picture");
+        assert!(read_elsewhere(&table, &picture).is_some(), "{name}: held");
+        end(&mut rig);
+        assert_eq!(read_elsewhere(&table, &picture), None, "{name}: gone");
+        assert_eq!(rig.host.attached(&picture), None, "{name}: gone");
+    }
+}
+
+#[test]
+fn a_view_without_files_has_an_empty_table_even_if_the_program_attaches() {
+    let mut rig = rig(&[ViewKind::Lua, ViewKind::Web]);
+    let table = rig.host.attached_files();
+    script_up(&mut rig);
+    let name = attach(&mut rig, b"a picture");
+    assert_eq!(read_elsewhere(&table, &name), None);
+    assert_eq!(rig.host.attached(&name), None);
 }
 
 #[test]
