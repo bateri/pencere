@@ -148,6 +148,52 @@ pub(crate) fn bye(token: &str, reason: ByeReason) -> String {
 }
 
 /// The `dismiss`: the token the view was opened with, as the `bye` has it (§10.8).
+/// The payload of an `attach` (§8.8): each file by its digest and its length.
+pub(crate) fn attach(files: &[(String, u64)]) -> String {
+    #[derive(Serialize)]
+    struct File<'a> {
+        sha256: &'a str,
+        size: u64,
+    }
+    #[derive(Serialize)]
+    struct Attach<'a> {
+        files: Vec<File<'a>>,
+    }
+    wire(&Attach {
+        files: files
+            .iter()
+            .map(|(sha256, size)| File {
+                sha256,
+                size: *size,
+            })
+            .collect(),
+    })
+}
+
+/// The payload of a `detach` (§8.8).
+pub(crate) fn detach(digests: &[String]) -> String {
+    #[derive(Serialize)]
+    struct Detach<'a> {
+        files: &'a [String],
+    }
+    wire(&Detach { files: digests })
+}
+
+/// The payload of a `read` (§8.9).
+pub(crate) fn read(handle: &str, offset: u64, length: u64) -> String {
+    #[derive(Serialize)]
+    struct Read<'a> {
+        handle: &'a str,
+        offset: u64,
+        length: u64,
+    }
+    wire(&Read {
+        handle,
+        offset,
+        length,
+    })
+}
+
 pub(crate) fn dismiss(token: &str) -> String {
     #[derive(Serialize)]
     struct Dismiss<'a> {
@@ -341,7 +387,6 @@ pub(crate) struct Refusal {
 
 /// Reads what a `need` refuses: nothing for the `need` of an `open`, and for one that answers an
 /// `attach` whose files were all taken.
-#[cfg_attr(not(test), expect(dead_code, reason = "the file helpers read it"))]
 pub(crate) fn refused(payload: &str) -> Option<Vec<Refusal>> {
     let body: Value = parsed(payload)?;
     let body = body.as_object()?;
@@ -372,7 +417,6 @@ pub(crate) fn refused(payload: &str) -> Option<Vec<Refusal>> {
 
 /// Reads a `wrote`: the end of a file the program wrote, or the first thing that went wrong with
 /// it, by its code (§8.10).
-#[cfg_attr(not(test), expect(dead_code, reason = "the file helpers read it"))]
 pub(crate) fn wrote(payload: &str) -> Option<Option<String>> {
     let body: Value = parsed(payload)?;
     let body = body.as_object()?;

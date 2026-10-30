@@ -588,6 +588,7 @@ impl Taken {
         if discard {
             discard_input(self.input);
         }
+        crate::files::discard_parts();
         restore();
         WAKE_FD.store(-1, Ordering::SeqCst);
         // Ignored before the old actions are put back, so that there is no moment between them

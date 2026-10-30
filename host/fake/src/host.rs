@@ -22,7 +22,8 @@ use pencere_host::sandbox::Grant;
 use pencere_host::session::{Action, Session, State, ViewStart};
 use serde_json::Value;
 
-use crate::args::{Args, Ask, Then};
+use crate::args::{Args, Ask, Gestures, Then};
+use crate::files::Desk;
 use crate::view::{Reaction, ScriptedView};
 
 /// The keystroke the person ends a program with.
@@ -80,6 +81,11 @@ pub struct Host {
     opens: u32,
     /// The host closes a view at the program's request.
     dismiss: bool,
+    /// What the person gives each view as it starts, and the panels it asks for.
+    gestures: Gestures,
+    desk: Desk,
+    /// How many reads of files the session has asked for.
+    reads: u32,
 }
 
 impl Host {
@@ -120,6 +126,9 @@ impl Host {
             refuse_opens: args.refuse_opens.clone(),
             opens: 0,
             dismiss: args.dismiss,
+            gestures: args.gestures.clone(),
+            desk: Desk::default(),
+            reads: 0,
         })
     }
 
@@ -358,6 +367,53 @@ impl Host {
                 log::line("view", "destroyed");
                 self.view = None;
             }
+            Action::ReadFile {
+                read,
+                handle,
+                offset,
+                length,
+            } => {
+                self.reads += 1;
+                if self.gestures.interrupt_at_read == Some(self.reads) {
+                    log::line("host", "the person presses ^C");
+                    self.typed.type_in(&[INTERRUPT]);
+                }
+                let length = usize::try_from(length).unwrap_or(usize::MAX);
+                let result = self.desk.read(&handle, offset, length);
+                self.session.file_read(read, result);
+            }
+            Action::WriteFile {
+                write,
+                handle,
+                bytes,
+                end,
+                ..
+            } => {
+                let result = self.desk.write(&handle, &bytes, end);
+                self.session.file_written(write, result);
+            }
+            Action::AbortWrite { handle } => self.desk.abort(&handle),
+            Action::ForgetFiles(names) => {
+                log::line("view", format!("forgets {} attached files", names.len()));
+            }
+            Action::Pick { panel, .. } => {
+                log::line("host", "shows the Open panel");
+                if self.gestures.picks.is_empty() {
+                    log::line("person", "dismisses the Open panel");
+                }
+                for path in self.gestures.picks.clone() {
+                    self.desk.give(&mut self.session, "picks", &path);
+                }
+                self.session.panel_closed(panel);
+            }
+            Action::Save { panel, name, .. } => {
+                log::line("host", format!("shows the Save panel for {name:?}"));
+                match self.gestures.save_in.clone() {
+                    Some(dir) => self.desk.choose(&mut self.session, &dir, &name),
+                    None => log::line("person", "dismisses the Save panel"),
+                }
+                self.session.panel_closed(panel);
+            }
             // An action a later version adds is one this host does not know.
             _ => {}
         }
@@ -404,8 +460,30 @@ impl Host {
         // And the pictures it would draw beside them, as the session took them.
         log::line("view", format!("icons {}", drawn(&start.icons)));
         log::line("view", format!("policy {}", start.policy));
+        // What the person does with files as the view starts: the handles it is given are the ones
+        // the page's calls name as `$1`, `$2`, …
+        self.desk.clear();
+        for (how, path) in self.gestures.gives.clone() {
+            self.desk.give(&mut self.session, how.word(), &path);
+        }
+        if self.gestures.open_panel {
+            log::line("view", "asks for the Open panel");
+            self.session.module_pick(self.gestures.picks.len() > 1);
+            self.settle();
+        }
+        if let Some(name) = self.gestures.save.clone() {
+            log::line("view", format!("asks for the Save panel for {name:?}"));
+            self.session.module_save(&name, None);
+            self.settle();
+        }
+        let mut calls = self.calls.clone();
+        for call in &mut calls {
+            if let Some(params) = call.params.as_mut() {
+                self.desk.fill(params);
+            }
+        }
         let mut view = ScriptedView::new(
-            self.calls.clone(),
+            calls,
             self.subscriptions.clone(),
             self.links.clone(),
             self.cancel_after,
@@ -615,7 +693,7 @@ fn describe_program(message: &Message) -> String {
     let id = message.id;
     // Only the kinds that are read for what they say are parsed.
     let payload = match message.kind.as_str() {
-        "open" | "bye" => parsed(&message.payload),
+        "open" | "bye" | "attach" | "detach" | "read" => parsed(&message.payload),
         _ => Value::Null,
     };
     match message.kind.as_str() {
@@ -657,8 +735,33 @@ fn describe_program(message: &Message) -> String {
             "bye id={id} reason={}",
             payload_str(&payload, "reason").unwrap_or("?")
         ),
+        "attach" | "detach" => format!(
+            "{} id={id} files={}",
+            message.kind,
+            payload
+                .get("files")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+        ),
+        "read" => format!(
+            "read id={id} offset={} length={}",
+            payload.get("offset").and_then(Value::as_u64).unwrap_or(0),
+            payload.get("length").and_then(Value::as_u64).unwrap_or(0)
+        ),
+        "write" => format!(
+            "write id={id} offset={}{} {} bytes",
+            message.offset().unwrap_or(0),
+            if message.end() { " end" } else { "" },
+            base64_length(&message.payload)
+        ),
         kind => format!("{kind} id={id}"),
     }
+}
+
+/// How many bytes base64 text of this length holds.
+fn base64_length(text: &str) -> usize {
+    let padding = text.bytes().rev().take_while(|&b| b == b'=').count();
+    (text.len() / 4 * 3).saturating_sub(padding)
 }
 
 /// The kinds of view a `welcome` lists, with their versions: `web@1.0`.
@@ -723,8 +826,28 @@ fn describe_host(message: &Message) -> String {
                 .get("missing")
                 .and_then(Value::as_array)
                 .map_or(0, Vec::len);
-            format!("need id={id}{re} missing={missing}")
+            let refused: Vec<&str> = payload
+                .get("refused")
+                .and_then(Value::as_array)
+                .map(|list| list.iter().filter_map(|r| payload_str(r, "code")).collect())
+                .unwrap_or_default();
+            if refused.is_empty() {
+                format!("need id={id}{re} missing={missing}")
+            } else {
+                format!(
+                    "need id={id}{re} missing={missing} refused={}",
+                    refused.join(",")
+                )
+            }
         }
+        "data" => match message.error_code() {
+            Some(code) => format!("data id={id}{re} e={code}"),
+            None => format!("data id={id}{re} {} bytes", base64_length(&message.payload)),
+        },
+        "wrote" => match payload_str(&payload, "code") {
+            Some(code) => format!("wrote id={id}{re} code={code}"),
+            None => format!("wrote id={id}{re}"),
+        },
         "closed" => {
             let reason = payload_str(&payload, "reason").unwrap_or("?");
             match payload_str(&payload, "code") {

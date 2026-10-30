@@ -6,6 +6,16 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Files beside the view's bundle** (specification §8.8 to §8.10), for a view opened at `lua` 2.1
+  or `wasm` 3.0 and later: `ViewControl.attach(bytes)` adds a file for the view to draw and resolves
+  with the name it draws it by (`sha256:` and the digest) once the host holds it, sending nothing
+  for a file the view has attached already or the host still holds; `detach`, `read(handle, offset,
+length)` of a file the person gave and `write(handle, offset, bytes, end)` to the place the person
+  chose in the Save panel are the messages themselves. A refusal is a `FileError` with the host's
+  code; `MAX_PIECE` is the most a read asks for or a write carries.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

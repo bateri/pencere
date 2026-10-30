@@ -27,6 +27,10 @@ pub const DEVICE_ATTRIBUTES: &[u8] = b"\x1b[?62;4c";
 /// Lua script) that the stand-in speaks.
 pub const KIT_VERSION: &str = "2.0";
 
+/// The version of a Lua page that has files beside its bundle (specification §5.5), which the
+/// stand-in offers beside the kit's.
+pub const FILES_VERSION: &str = "2.1";
+
 /// A pixel is not a cell, but the view's container is told in pixels.
 pub const CELL_WIDTH: u32 = 8;
 pub const CELL_HEIGHT: u32 = 16;
@@ -54,7 +58,9 @@ pub fn config(size: pty::Size) -> Config {
     config
         .views
         .push(Offer::new(ViewKind::Wasm, &[KIT_VERSION]));
-    config.views.push(Offer::new(ViewKind::Lua, &[KIT_VERSION]));
+    config
+        .views
+        .push(Offer::new(ViewKind::Lua, &[KIT_VERSION, FILES_VERSION]));
     config
 }
 

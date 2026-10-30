@@ -56,6 +56,11 @@
 //! shows another with a [`ViewControl`] (§10.8); one that runs a shell or an editor in its pane
 //! lends it the terminal with [`ViewControl::hand_off`], and its view comes back when that ends.
 //!
+//! A view opened at `lua` `2.1` or `wasm` `3.0` and later has files beside its bundle: the program
+//! attaches files for it to draw ([`ViewControl::attach`]), receives a file the person gave the
+//! view ([`ViewControl::receive`]) and writes to the place the person chose in the Save panel
+//! ([`ViewControl::send`]).
+//!
 //! The same handlers are served with no terminal by a [`Conversation`]: for the program's tests,
 //! and for a host that runs the view in the same process.
 
@@ -72,6 +77,7 @@ mod bundle;
 mod control;
 mod conversation;
 mod exchange;
+mod files;
 #[allow(unsafe_code)]
 mod foreground;
 mod handlers;
@@ -95,6 +101,7 @@ pub use app::{App, DEV_VARIABLE, build};
 pub use bundle::{Bundle, BundleError, File};
 pub use control::{CloseResult, HandOff, HandOffResult, ReopenResult, ViewControl};
 pub use conversation::{Conversation, Lent, Said};
+pub use files::{FileError, MAX_PIECE, safe_name};
 pub use handlers::{Answer, Call, Subscription, ViewError};
 pub use terminal::Terminal;
 pub use view::{Access, Icon, IconTheme, Kind, Permission, View, WEB_VERSION};

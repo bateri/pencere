@@ -173,7 +173,14 @@ export class Link {
   send(
     kind: string,
     payload: string,
-    params: { re?: number; digest?: string; split?: Split } = {},
+    params: {
+      re?: number;
+      digest?: string;
+      handle?: string;
+      offset?: number;
+      end?: boolean;
+      split?: Split;
+    } = {},
   ): Sent {
     const id = this.#ids.next();
     const message: Outgoing = {
@@ -182,6 +189,9 @@ export class Link {
       payload,
       ...(params.re === undefined ? {} : { re: params.re }),
       ...(params.digest === undefined ? {} : { digest: params.digest }),
+      ...(params.handle === undefined ? {} : { handle: params.handle }),
+      ...(params.offset === undefined ? {} : { offset: params.offset }),
+      ...(params.end === true ? { end: true } : {}),
     };
     const bytes = encode("to-host", message, params.split ?? "fill");
     return { id, written: this.#write(bytes) };

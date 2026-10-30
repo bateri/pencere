@@ -20,6 +20,8 @@ import { BundleError } from "./bundle.js";
 import type { Bundle } from "./bundle.js";
 import { toBase64 } from "./bytes.js";
 import { bindControl, unbindControl } from "./control.js";
+import { FileError, Files, hasFiles } from "./files.js";
+import type { SendFile } from "./files.js";
 import type {
   CloseResult,
   ReopenOptions,
@@ -523,6 +525,10 @@ class TerminalSession implements ViewTarget {
   #accepted = false;
   /** The view has asked something of the program. */
   #heard = false;
+  /** What the view has attached, and the reads and writes of files that wait for the host. */
+  readonly #files = new Files();
+  readonly #sendFile: SendFile = (kind, payload, params) =>
+    this.#link.send(kind, payload, params ?? {}).id;
   /** What the view asks of the program: found among the handlers, and answered. */
   readonly #router: Router;
   #alternate = false;
@@ -706,7 +712,17 @@ class TerminalSession implements ViewTarget {
         this.#onWelcome(message);
         return;
       case "need":
+        if (this.#files.answersAttach(message.control.re)) {
+          if (this.#phase === "showing") this.#files.onNeed(message, this.#sendFile);
+          return;
+        }
         this.#onNeed(message);
+        return;
+      case "data":
+        this.#files.onData(message);
+        return;
+      case "wrote":
+        this.#files.onWrote(message);
         return;
       case "closed":
         this.#onClosed(message);
@@ -804,6 +820,7 @@ class TerminalSession implements ViewTarget {
   /** What the view had asked is over with it: calls are cancelled, subscriptions stop. */
   #endView(): void {
     this.#router.end();
+    this.#files.forget();
   }
 
   /** The host's view is gone, or the program no longer believes in it: nothing of it is served. */
@@ -912,6 +929,40 @@ class TerminalSession implements ViewTarget {
     const blocked = this.#blocked();
     if (blocked !== undefined) return Promise.resolve({ kind: blocked });
     return new Promise((resolve) => this.#dismissView({ kind: "close", resolve }));
+  }
+
+  // ---- the files beside the bundle (§8.8 to §8.10) -----------------------------
+
+  /** A view runs, its open taken and nothing being done to it, at a version that has files. */
+  #hasFiles(): boolean {
+    const shown = this.#shown;
+    return (
+      this.#phase === "showing" &&
+      this.#live &&
+      this.#accepted &&
+      this.#change === undefined &&
+      shown !== undefined &&
+      hasFiles(shown.kind, shown.version)
+    );
+  }
+
+  attach(data: Uint8Array): Promise<string> {
+    if (!this.#hasFiles()) return Promise.reject(new FileError("unsupported"));
+    return this.#files.attach(data, this.#sendFile);
+  }
+
+  detach(name: string): void {
+    if (this.#hasFiles()) this.#files.detach(name, this.#sendFile);
+  }
+
+  read(handle: string, offset: number, length: number): Promise<Uint8Array> {
+    if (!this.#hasFiles()) return Promise.reject(new FileError("unsupported"));
+    return this.#files.read(handle, offset, length, this.#sendFile);
+  }
+
+  write(handle: string, offset: number, data: Uint8Array, end: boolean): Promise<void> {
+    if (!this.#hasFiles()) return Promise.reject(new FileError("unsupported"));
+    return this.#files.write(handle, offset, data, end, this.#sendFile);
   }
 
   /** Why the view cannot be dismissed now, if it cannot: there is none to close, or the host cannot do it. */

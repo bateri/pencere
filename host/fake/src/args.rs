@@ -58,6 +58,20 @@ options:
                        terminal's own policy refuses one (`policy`), counting
                        from 1 (a view shown again after a hand-off or a
                        reopening is an open too); repeatable
+  --drop PATH          as each view starts, the person drops the file at PATH on
+                       it; repeatable. The handles the person's files and
+                       places are granted are `$1`, `$2`, … in that order, and a
+                       string $N in the params of a --call is the Nth
+  --paste PATH         as --drop, the person pastes the file
+  --pick PATH          as each view starts, the view asks for the Open panel and
+                       the person chooses PATH in it; repeatable
+  --pick-nothing       the view asks for the Open panel and the person dismisses it
+  --save NAME          as each view starts, the view asks for the Save panel,
+                       proposing NAME; the person dismisses it unless --save-in
+  --save-in DIR        the person saves in DIR, as the name proposed
+  --interrupt-at-read N
+                       ^C is typed into the pane as the session asks for the Nth
+                       piece of a file the person gave, counting from 1
   --allow-network      grant the origins and permissions a page asks for
                        (default: refuse them)
   --passthrough        copy what the program writes to this program's stdout
@@ -70,6 +84,40 @@ environment:
                        100): a test that reads what the program answered asks for
                        all of it
 ";
+
+/// How the person gives a view a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Give {
+    Drop,
+    Paste,
+}
+
+impl Give {
+    /// The verb of the record.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Drop => "drops",
+            Self::Paste => "pastes",
+        }
+    }
+}
+
+/// What the person does with files as each view starts (specification §8.9, §8.10).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Gestures {
+    /// The files the person drops or pastes on the view.
+    pub gives: Vec<(Give, PathBuf)>,
+    /// The view asks for the Open panel.
+    pub open_panel: bool,
+    /// What the person chooses in it.
+    pub picks: Vec<PathBuf>,
+    /// The view asks for the Save panel, with this name.
+    pub save: Option<String>,
+    /// Where the person saves; with none it dismisses the panel.
+    pub save_in: Option<PathBuf>,
+    /// ^C is typed as the session asks for this piece of a file, counting from 1.
+    pub interrupt_at_read: Option<u32>,
+}
 
 /// What happens when the script is done.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +161,7 @@ pub struct Args {
     pub dismiss: bool,
     /// The opens the host refuses, counting from 1.
     pub refuse_opens: Vec<u32>,
+    pub gestures: Gestures,
 }
 
 /// What parsing asks of `main`.
@@ -176,6 +225,7 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
         limit: Duration::from_secs(30),
         dismiss: true,
         refuse_opens: Vec::new(),
+        gestures: Gestures::default(),
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -188,8 +238,23 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
             "--allow-network" => parsed.allow_network = true,
             "--passthrough" => parsed.passthrough = true,
             "--no-dismiss" => parsed.dismiss = false,
-            "--call" | "--subscribe" | "--link" | "--cancel-after" | "--then" | "--on-view"
-            | "--store" | "--size" | "--limit" | "--refuse-open" => {
+            "--pick-nothing" => parsed.gestures.open_panel = true,
+            "--call"
+            | "--subscribe"
+            | "--link"
+            | "--cancel-after"
+            | "--then"
+            | "--on-view"
+            | "--store"
+            | "--size"
+            | "--limit"
+            | "--refuse-open"
+            | "--drop"
+            | "--paste"
+            | "--pick"
+            | "--save"
+            | "--save-in"
+            | "--interrupt-at-read" => {
                 let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
                 option(&mut parsed, &arg, &value)?;
             }
@@ -240,6 +305,21 @@ fn option(parsed: &mut Args, name: &str, value: &str) -> Result<(), String> {
         }
         "--on-view" => parsed.on_view = count(name, value)?,
         "--refuse-open" => parsed.refuse_opens.push(count(name, value)?),
+        "--drop" => parsed
+            .gestures
+            .gives
+            .push((Give::Drop, PathBuf::from(value))),
+        "--paste" => parsed
+            .gestures
+            .gives
+            .push((Give::Paste, PathBuf::from(value))),
+        "--pick" => {
+            parsed.gestures.open_panel = true;
+            parsed.gestures.picks.push(PathBuf::from(value));
+        }
+        "--save" => parsed.gestures.save = Some(value.to_owned()),
+        "--save-in" => parsed.gestures.save_in = Some(PathBuf::from(value)),
+        "--interrupt-at-read" => parsed.gestures.interrupt_at_read = Some(count(name, value)?),
         "--store" => parsed.store = Some(PathBuf::from(value)),
         "--size" => {
             parsed.size =

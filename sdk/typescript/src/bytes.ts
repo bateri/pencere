@@ -53,6 +53,16 @@ export function compareBytes(a: Uint8Array, b: Uint8Array): number {
 /** Three bytes make four characters, so a slice of a multiple of three is base64 on its own. */
 const BASE64_SLICE = 3 * 0x1000;
 
+/** The bytes of base64 text with padding (RFC 4648 §4); `undefined` when it is not that. */
+export function fromBase64(text: string): Uint8Array | undefined {
+  if (text.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(text)) return undefined;
+  try {
+    return latin1Bytes(atob(text));
+  } catch {
+    return undefined;
+  }
+}
+
 /** `data` as base64 with padding (RFC 4648 §4). */
 export function toBase64(data: Uint8Array): string {
   const parts: string[] = [];

@@ -14,6 +14,7 @@
 #![deny(unsafe_code)]
 
 mod args;
+mod files;
 mod host;
 mod view;
 

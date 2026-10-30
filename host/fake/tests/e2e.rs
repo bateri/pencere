@@ -2839,3 +2839,348 @@ fn the_lua_apps_page_runs_for_real_and_its_program_answers_it()
     assert!(page.words_in("row web").iter().any(|word| word == "exited"));
     Ok(())
 }
+
+// ---- files beside the bundle (specification §8.8 to §8.10) ---------------------------------
+//
+// The library's example `files` (`program/examples/files.rs`) attaches, receives and saves files
+// at the calls of its view; the stand-in host plays the person (`--drop`, `--save`, …) and does
+// what the session asks of the files on real ones, under the test's own directory.
+
+/// The example `files` of the program library, built once.
+fn files_example() -> PathBuf {
+    static BUILT: OnceLock<PathBuf> = OnceLock::new();
+    BUILT
+        .get_or_init(|| {
+            let profile = Path::new(FAKE_HOST).parent().expect("a directory");
+            let target = profile.parent().expect("the target directory");
+            let mut build = Command::new(env!("CARGO"));
+            build
+                .args(["build", "--quiet", "-p", "pencere", "--example", "files"])
+                .arg("--target-dir")
+                .arg(target);
+            if profile.file_name().is_some_and(|name| name == "release") {
+                build.arg("--release");
+            }
+            let status = build.status().expect("cargo runs");
+            assert!(status.success(), "the example does not build");
+            let binary = profile.join("examples/files");
+            assert!(binary.is_file(), "{} is missing", binary.display());
+            binary
+        })
+        .clone()
+}
+
+fn run_files(options: &[&str], arguments: &[&str]) -> Run {
+    let binary = files_example();
+    let mut program = vec![binary.to_string_lossy().into_owned()];
+    program.extend(arguments.iter().map(|argument| (*argument).to_owned()));
+    let program: Vec<&str> = program.iter().map(String::as_str).collect();
+    run(options, &program)
+}
+
+/// `size` bytes that are not all the same, written to `path`.
+fn made_up(path: &Path, size: usize) -> Vec<u8> {
+    let bytes: Vec<u8> = (0..size)
+        .map(|i| u8::try_from((i * 31 + i / 251) % 251).expect("a byte"))
+        .collect();
+    fs::write(path, &bytes).expect("a file under the test's directory");
+    bytes
+}
+
+/// The names in `dir`, sorted.
+fn names_in(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .expect("the test's directory")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn an_attached_file_crosses_once_and_the_view_shown_again_finds_it_without_its_bytes() {
+    let dir = fresh("files-attach");
+    let picture = dir.join("picture.png");
+    made_up(&picture, 5000);
+    let run = run_files(
+        &[
+            "--call",
+            "attach",
+            "--call",
+            "reopen",
+            "--on-view",
+            "2",
+            "--then",
+            "interrupt",
+        ],
+        &["--attach", &picture.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1",
+        "view: kind=lua version=2.1",
+        "view: -> call id=1 attach",
+        "program: attach id=* files=1",
+        "host: need id=* re=* missing=1",
+        "program: file id=*",
+        // The second answer: the file has come and is what its digest says.
+        "host: need id=* re=* missing=0",
+        r#"view: <- response id=1 result={"name":"sha256:"#,
+        // The view is shown again: what it had attached is no longer, and the file is the store's.
+        "view: kind=lua version=2.1",
+        "view: -> call id=1 attach",
+        "program: attach id=* files=1",
+        "host: need id=* re=* missing=0",
+        r#"view: <- response id=1 result={"name":"sha256:"#,
+    ]);
+    // The bundle's file and the picture, once each.
+    assert_eq!(run.count("program: file id="), 2, "{}", run.text());
+}
+
+#[test]
+fn a_file_the_person_drops_is_received_whole_and_nothing_else_is_left() {
+    let dir = fresh("files-receive");
+    let given = dir.join("given");
+    let into = dir.join("into");
+    fs::create_dir_all(&given).expect("a directory");
+    fs::create_dir_all(&into).expect("a directory");
+    let bytes = made_up(&given.join("big.bin"), 3 * 1024 * 1024);
+    let dropped = given.join("big.bin");
+    let run = run_files(
+        &[
+            "--drop",
+            &dropped.to_string_lossy(),
+            "--call",
+            r#"receive={"handle":"$1","name":"../big.bin"}"#,
+            "--then",
+            "interrupt",
+        ],
+        &["--into", &into.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "person: drops big.bin (3145728 bytes): $1",
+        "program: read id=* offset=0 length=1048576",
+        "host: data id=* re=* 1048576 bytes",
+        "host: data id=* re=* 0 bytes",
+        r#"view: <- response id=1 result={"bytes":3145728}"#,
+    ]);
+    // The name the view passed on is the person's: the program keeps its last part only.
+    assert_eq!(names_in(&into), ["big.bin"]);
+    assert!(fs::read(into.join("big.bin")).expect("the file") == bytes);
+}
+
+#[test]
+fn a_file_chosen_in_the_open_panel_or_pasted_is_received_as_a_dropped_one_is() {
+    let dir = fresh("files-pick");
+    let into = dir.join("into");
+    fs::create_dir_all(&into).expect("a directory");
+    let picked = dir.join("picked.txt");
+    let pasted = dir.join("pasted.txt");
+    let one = made_up(&picked, 10);
+    let two = made_up(&pasted, 20);
+    let run = run_files(
+        &[
+            "--paste",
+            &pasted.to_string_lossy(),
+            "--pick",
+            &picked.to_string_lossy(),
+            "--call",
+            r#"receive={"handle":"$1","name":"pasted.txt"}"#,
+            "--call",
+            r#"receive={"handle":"$2","name":"picked.txt"}"#,
+            "--then",
+            "interrupt",
+        ],
+        &["--into", &into.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "person: pastes pasted.txt (20 bytes): $1",
+        "view: asks for the Open panel",
+        "host: shows the Open panel",
+        "person: picks picked.txt (10 bytes): $2",
+        r#"view: <- response id=1 result={"bytes":20}"#,
+        r#"view: <- response id=2 result={"bytes":10}"#,
+    ]);
+    assert!(fs::read(into.join("pasted.txt")).expect("a file") == two);
+    assert!(fs::read(into.join("picked.txt")).expect("a file") == one);
+    // A panel the person turns away gives the view nothing.
+    let run = run_files(&["--pick-nothing", "--then", "interrupt"], &[]);
+    run.in_order(&[
+        "host: shows the Open panel",
+        "person: dismisses the Open panel",
+    ]);
+}
+
+#[test]
+fn a_file_written_to_the_place_the_person_chose_is_whole_and_leaves_no_part() {
+    let dir = fresh("files-save");
+    let out = dir.join("out");
+    fs::create_dir_all(&out).expect("a directory");
+    let source = dir.join("source.bin");
+    let bytes = made_up(&source, 3 * 1024 * 1024 + 7);
+    let run = run_files(
+        &[
+            "--save",
+            "notes.bin",
+            "--save-in",
+            &out.to_string_lossy(),
+            "--call",
+            r#"send={"handle":"$1"}"#,
+            "--then",
+            "interrupt",
+        ],
+        &["--source", &source.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        r#"view: asks for the Save panel for "notes.bin""#,
+        "person: saves as notes.bin: $1",
+        "program: write id=* offset=0 1048576 bytes",
+        "program: write id=* offset=3145728 end 7 bytes",
+        "host: saved notes.bin (3145735 bytes)",
+        "host: wrote id=* re=*",
+        r#"view: <- response id=1 result={"bytes":3145735}"#,
+    ]);
+    assert_eq!(names_in(&out), ["notes.bin"]);
+    assert!(fs::read(out.join("notes.bin")).expect("the file") == bytes);
+}
+
+#[test]
+fn a_write_that_leaves_a_gap_fails_the_file_and_nothing_is_saved() {
+    let dir = fresh("files-gap");
+    let out = dir.join("out");
+    fs::create_dir_all(&out).expect("a directory");
+    let run = run_files(
+        &[
+            "--save",
+            "gap.bin",
+            "--save-in",
+            &out.to_string_lossy(),
+            "--call",
+            r#"gap={"handle":"$1"}"#,
+            "--then",
+            "interrupt",
+        ],
+        &[],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: write id=* offset=5 4 bytes",
+        "host: wrote id=* re=* code=order",
+        "view: <- response id=1 error code=order",
+    ]);
+    run.never("host: saved");
+    assert!(names_in(&out).is_empty(), "{:?}", names_in(&out));
+}
+
+#[test]
+fn a_file_being_received_when_the_person_presses_ctrl_c_leaves_nothing_behind() {
+    let dir = fresh("files-interrupt");
+    let into = dir.join("into");
+    fs::create_dir_all(&into).expect("a directory");
+    let dropped = dir.join("big.bin");
+    made_up(&dropped, 3 * 1024 * 1024);
+    let run = run_files(
+        &[
+            "--drop",
+            &dropped.to_string_lossy(),
+            "--interrupt-at-read",
+            "2",
+            "--call",
+            r#"receive={"handle":"$1","name":"big.bin"}"#,
+        ],
+        &["--into", &into.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: read id=* offset=0 length=1048576",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+    ]);
+    // Neither the file nor its part: the part is deleted as the terminal is given back.
+    assert!(names_in(&into).is_empty(), "{:?}", names_in(&into));
+}
+
+#[test]
+fn the_typescript_sdk_attaches_reads_and_writes_files_as_the_library_does() {
+    let dir = fresh("files-typescript");
+    let out = dir.join("out");
+    fs::create_dir_all(&out).expect("a directory");
+    let picture = dir.join("picture.png");
+    made_up(&picture, 300);
+    let dropped = dir.join("note.txt");
+    made_up(&dropped, 10);
+    let run = run(
+        &[
+            "--drop",
+            &dropped.to_string_lossy(),
+            "--save",
+            "greeting.txt",
+            "--save-in",
+            &out.to_string_lossy(),
+            "--call",
+            "attach",
+            "--call",
+            "attach",
+            "--call",
+            r#"read={"handle":"$1"}"#,
+            "--call",
+            r#"write={"handle":"$2"}"#,
+            "--then",
+            "interrupt",
+        ],
+        &[
+            "node",
+            &program("files.mjs"),
+            "--attach",
+            &picture.to_string_lossy(),
+        ],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: attach id=* files=1",
+        "host: need id=* re=* missing=1",
+        "host: need id=* re=* missing=0",
+        r#"view: <- response id=1 result={"name":"sha256:"#,
+        // Attached already: the second call is answered without a word to the host.
+        r#"view: <- response id=2 result={"name":"sha256:"#,
+        "program: read id=* offset=0 length=4",
+        "host: data id=* re=* 4 bytes",
+        "host: data id=* re=* 2 bytes",
+        r#"view: <- response id=3 result={"bytes":10}"#,
+        "program: write id=* offset=6 end 5 bytes",
+        "host: saved greeting.txt (11 bytes)",
+        r#"view: <- response id=4 result={"bytes":11}"#,
+    ]);
+    assert_eq!(run.count("program: attach"), 1, "{}", run.text());
+    assert_eq!(
+        fs::read_to_string(out.join("greeting.txt")).expect("the file"),
+        "hello world"
+    );
+    let run = self::run(
+        &[
+            "--save",
+            "gap.txt",
+            "--save-in",
+            &out.to_string_lossy(),
+            "--call",
+            r#"gap={"handle":"$1"}"#,
+            "--then",
+            "interrupt",
+        ],
+        &["node", &program("files.mjs")],
+    );
+    run.in_order(&[
+        "host: wrote id=* re=* code=order",
+        "view: <- response id=1 error code=order",
+    ]);
+    assert_eq!(names_in(&out), ["greeting.txt"]);
+}

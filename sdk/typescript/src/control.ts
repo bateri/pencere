@@ -19,6 +19,8 @@
  * view is not touched and the answer says so.
  */
 
+import { FileError } from "./files.js";
+import type { MAX_PIECE } from "./files.js";
 import type { NoViewReason, ViewSpec } from "./serve.js";
 
 /** What the view that replaces the closed one is made of. */
@@ -70,6 +72,10 @@ export type CloseResult =
 export interface ViewTarget {
   reopen(next: ReopenOptions): Promise<ReopenResult>;
   close(): Promise<CloseResult>;
+  attach(data: Uint8Array): Promise<string>;
+  detach(name: string): void;
+  read(handle: string, offset: number, length: number): Promise<Uint8Array>;
+  write(handle: string, offset: number, data: Uint8Array, end: boolean): Promise<void>;
 }
 
 const targets = new WeakMap<ViewControl, ViewTarget>();
@@ -107,5 +113,51 @@ export class ViewControl {
   close(): Promise<CloseResult> {
     const target = targets.get(this);
     return target === undefined ? Promise.resolve({ kind: "unavailable" }) : target.close();
+  }
+
+  /**
+   * Attaches `data` to the view that runs, for it to draw (§8.8), and resolves with the name the
+   * view draws it by: `sha256:` and its digest. Resolves once the host holds the bytes; a file the
+   * view has attached already, or that the host still holds, does not cross the stream again.
+   * What is attached goes with the view. Rejects with a {@link FileError}: `unsupported` with no
+   * view that has files (`lua` 2.1 or `wasm` 3.0 and later), the host's code when it refuses
+   * (`limit`, …), `ended` when the view ended first.
+   */
+  attach(data: Uint8Array): Promise<string> {
+    const target = targets.get(this);
+    return target === undefined
+      ? Promise.reject(new FileError("unsupported"))
+      : target.attach(data);
+  }
+
+  /** Lets the view's attached file of `name` go: the host forgets it and the view no longer draws it. */
+  detach(name: string): void {
+    targets.get(this)?.detach(name);
+  }
+
+  /**
+   * Reads up to `length` bytes (at most {@link MAX_PIECE}) from `offset` of the file the person
+   * gave by `handle` (§8.9): fewer than were asked for is the end of the file. Rejects with the
+   * host's code (`handle`, `range`, `busy`, `gone`, `io`) as for `attach`.
+   */
+  read(handle: string, offset: number, length: number): Promise<Uint8Array> {
+    const target = targets.get(this);
+    return target === undefined
+      ? Promise.reject(new FileError("unsupported"))
+      : target.read(handle, offset, length);
+  }
+
+  /**
+   * Writes `data` (at most {@link MAX_PIECE}) at `offset` of the place the person chose to save in
+   * by `handle` (§8.10); `end` when they are the file's last, which resolves once the host has
+   * saved it. The writes of a handle go in order with no gap; one that is not the last resolves at
+   * once, and a failure the host told of rejects the next. Rejects with the host's code
+   * (`handle`, `order`, `size`, `space`, `io`) as for `attach`.
+   */
+  write(handle: string, offset: number, data: Uint8Array, end = false): Promise<void> {
+    const target = targets.get(this);
+    return target === undefined
+      ? Promise.reject(new FileError("unsupported"))
+      : target.write(handle, offset, data, end);
   }
 }

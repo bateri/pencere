@@ -39,6 +39,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
 
+use pencere_wire::bundle::Digest;
+
+use crate::files::FileError;
 use crate::handlers::{Outbox, Work};
 use crate::{Error, NoView, Options, View};
 
@@ -161,6 +164,30 @@ pub(crate) enum Request {
         command: Command,
         reply: SyncSender<HandOffResult>,
         then: Option<OnReturn>,
+    },
+    /// Files for the view to draw (§8.8), answered when the terminal holds them.
+    Attach {
+        files: Vec<(Digest, Arc<[u8]>)>,
+        reply: SyncSender<Result<(), FileError>>,
+    },
+    /// Attached files the view lets go of.
+    Detach {
+        digests: Vec<Digest>,
+    },
+    /// A piece of a file the person gave (§8.9).
+    Read {
+        handle: String,
+        offset: u64,
+        length: u64,
+        reply: SyncSender<Result<Vec<u8>, FileError>>,
+    },
+    /// A piece of a file for a place to save in (§8.10).
+    Write {
+        handle: String,
+        offset: u64,
+        bytes: Vec<u8>,
+        end: bool,
+        reply: SyncSender<Result<(), FileError>>,
     },
 }
 
@@ -293,7 +320,7 @@ impl ViewControl {
         }
     }
 
-    fn outbox(&self) -> Option<Outbox> {
+    pub(crate) fn outbox(&self) -> Option<Outbox> {
         self.bound
             .lock()
             .ok()

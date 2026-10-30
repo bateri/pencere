@@ -21,6 +21,17 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **Files beside the view's bundle** (specification §8.8 to §8.10), for a view opened at `lua` `2.1`
+  or `wasm` `3.0` and later. `ViewControl::attach` (and `attach_file`) adds a file for the view to
+  draw and returns the name it draws it by (`sha256:` and the digest of the bytes sent), once the
+  terminal holds it; a file attached already, or still in the terminal's store, does not cross
+  again. `ViewControl::receive` reads a file the person gave the view, by the handle the view passed
+  on, into a place of the program's, two pieces of 1 MiB at a time, through a part
+  (`.<name>.pencere-part`) that is given its name at the end and deleted when the view ends, the
+  program is asked to end or the receiving is given up; `ViewControl::send` writes a file to the
+  place the person chose in the Save panel. Below them `read`, `write` and `detach`; `safe_name`
+  makes the name the person gave a name the program may put in a path, and every refusal is a
+  `FileError` with the terminal's code. The example `files` shows the four.
 - **How a lent command ended, before the view is shown again.** `ViewControl::hand_off_then(command,
 then)` lends the terminal as `hand_off` does and gives `then` how the command ended (or why it
   could not start) once it has, on the library's thread, before the view is asked for again: what it

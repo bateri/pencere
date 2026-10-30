@@ -16,7 +16,7 @@ use std::os::fd::RawFd;
 use std::time::{Duration, Instant};
 
 use pencere_wire::frame::{
-    Direction, Event, Ids, Message, Outgoing, Split, StreamDecoder, WriteError, encode,
+    Direction, Event, FileParams, Ids, Message, Outgoing, Split, StreamDecoder, WriteError, encode,
 };
 
 use crate::terminal::{self, write_piece};
@@ -55,6 +55,28 @@ impl Writer {
         digest: Option<&str>,
         payload: &str,
     ) -> Result<u32, WriteError> {
+        self.queue(kind, re, digest, FileParams::NONE, payload)
+    }
+
+    /// Queues a message that carries the keys of a file's message (`write`, §8.10); its id.
+    pub(crate) fn file_message(
+        &mut self,
+        kind: &str,
+        re: Option<u32>,
+        file: FileParams<'_>,
+        payload: &str,
+    ) -> Result<u32, WriteError> {
+        self.queue(kind, re, None, file, payload)
+    }
+
+    fn queue(
+        &mut self,
+        kind: &str,
+        re: Option<u32>,
+        digest: Option<&str>,
+        file: FileParams<'_>,
+        payload: &str,
+    ) -> Result<u32, WriteError> {
         let id = self.ids.next_id();
         let mut bytes = Vec::new();
         encode(
@@ -64,7 +86,7 @@ impl Writer {
                 id,
                 re,
                 digest,
-                file: pencere_wire::frame::FileParams::NONE,
+                file,
                 payload,
             },
             Split::Fill,
@@ -88,7 +110,7 @@ impl Writer {
                 id,
                 re: None,
                 digest: None,
-                file: pencere_wire::frame::FileParams::NONE,
+                file: FileParams::NONE,
                 payload,
             },
             Split::Fill,

@@ -25,6 +25,7 @@ use pencere_wire::frame::Message as Frame;
 use crate::bundle::{Bundle, BundleError};
 use crate::control::{self, CloseResult, HandOffResult, OnReturn, ReopenResult, Request};
 use crate::exchange::{Exchange, Toward, WORK_ROOM, WRITE_ROOM};
+use crate::files::{self, Files};
 use crate::foreground::{self, Job};
 use crate::handlers::{self, Outbox, Work};
 use crate::link::{Item, Reader, Writer};
@@ -301,6 +302,8 @@ struct Session<'a> {
     live: bool,
     /// What the view asks of the handlers, and what they answer.
     exchange: Exchange,
+    /// What the view has attached, and the reads and writes of files that are out.
+    files: Files,
     bye_sent: bool,
     finished: bool,
     result: Option<Result<Outcome, Error>>,
@@ -356,6 +359,7 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
         closed_reply: None,
         live: false,
         exchange: Exchange::new(outbox),
+        files: Files::default(),
         bye_sent: false,
         finished: false,
         result: None,
@@ -592,6 +596,7 @@ impl Session<'_> {
     /// What the view had asked is over with it: calls are cancelled, subscriptions stop.
     fn end_view(&mut self) {
         self.exchange.end_view();
+        self.files.forget();
     }
 
     /// The terminal's view is gone, or the program no longer believes in it: nothing of it is
@@ -770,9 +775,14 @@ impl Session<'_> {
             }
             Phase::Showing => match message.kind.as_str() {
                 "welcome" => self.on_welcome(message),
+                "need" if self.files.answers_attach(message.re()) => {
+                    self.files.on_need(message, &mut self.writer);
+                }
                 "need" => self.on_need(message),
                 "closed" => self.on_closed(message),
                 "msg" => self.on_msg(message),
+                "data" => self.files.on_data(message),
+                "wrote" => self.files.on_wrote(message),
                 // A kind this version does not know, or one only a program sends: ignored (§4.5).
                 _ => {}
             },
@@ -1050,7 +1060,20 @@ impl Session<'_> {
 
     // ---- closing the view at the program's request (§10.8) --------------------------
 
-    /// The program asks to close its view, or to show another in its place.
+    /// A view runs, its open taken and nothing being done to it, at a version that has files
+    /// beside its bundle (§5.5).
+    fn has_files(&self) -> bool {
+        matches!(self.phase, Phase::Showing)
+            && self.live
+            && self.accepted
+            && self.change.is_none()
+            && self
+                .shown
+                .as_ref()
+                .is_some_and(|shown| files::has_files(shown.kind, &shown.version))
+    }
+
+    /// The program asks to close its view, or to show another in its place, or for a file.
     fn on_control(&mut self, request: Request) {
         // While a command has the terminal, or is about to, a reopening is the view that comes back:
         // with the views it brings, and answered as that view comes back.
@@ -1064,6 +1087,14 @@ impl Session<'_> {
                         handing.reopens.push(reply);
                     }
                 }
+                return;
+            }
+            request @ (Request::Attach { .. }
+            | Request::Detach { .. }
+            | Request::Read { .. }
+            | Request::Write { .. }) => {
+                let has = self.has_files();
+                self.files.on_request(request, has, &mut self.writer);
                 return;
             }
             request => request,
@@ -1083,6 +1114,11 @@ impl Session<'_> {
                 Reply::HandOff(Box::new(HandingOff::new(command, reply, then))),
                 None,
             ),
+            // Taken above.
+            Request::Attach { .. }
+            | Request::Detach { .. }
+            | Request::Read { .. }
+            | Request::Write { .. } => return,
         };
         // There is a view to close only while one is opening or open and nothing else is being
         // done to it; and only a terminal that lists `dismiss` closes it (any other ignores the

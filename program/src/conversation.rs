@@ -36,6 +36,7 @@ use std::time::{Duration, Instant};
 
 use crate::control::{self, Bound, OnReturn, Request};
 use crate::exchange::{Exchange, Toward, WORK_ROOM, WRITE_ROOM};
+use crate::files::FileError;
 use crate::handlers::{Outbox, Work};
 use crate::{CloseResult, HandOffResult, Options, ReopenResult, View};
 
@@ -320,6 +321,14 @@ impl Conversation {
             Request::Reopen { reply, .. } if !self.up() => {
                 let _ = reply.send(ReopenResult::Unavailable);
             }
+            // A conversation has no terminal to hold files.
+            Request::Attach { reply, .. } | Request::Write { reply, .. } => {
+                let _ = reply.send(Err(FileError::Unsupported));
+            }
+            Request::Read { reply, .. } => {
+                let _ = reply.send(Err(FileError::Unsupported));
+            }
+            Request::Detach { .. } => {}
             Request::Reopen { views, reply } => {
                 self.exchange.end_view();
                 let _ = reply.send(ReopenResult::Reopened);
