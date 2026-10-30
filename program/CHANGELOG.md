@@ -8,6 +8,9 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- An app's page of the kit (`pencere::app!`, `App::views`) is offered at `lua` 2.1 as well as 2.0,
+  as the `pencere` command's Lua apps are, preferring 2.1: a Rust program's page can draw a picture
+  the program attached (`sha256:`) and a file the person gave (`file:`), which 2.0 does not name.
 - `ViewControl::receive_from` receives a file the person gave by copying it from the path the
   terminal handed the view, when the view passes the path on with the size: a terminal hands a path
   only where the program reads the same files as the person, and then not a byte of the file crosses

@@ -24,8 +24,10 @@ use crate::{Bundle, BundleError, File, Kind, View, ViewControl};
 /// The variable `pencere dev` sets to the project's `src/` for the program it runs.
 pub const DEV_VARIABLE: &str = "PENCERE_DEV_APP";
 
-/// The version of the page API a page of the kit is written against (`lua` 2.0), as a Lua app's.
-const PAGE_VERSION: &str = "2.0";
+/// The versions of the page API a page of the kit is shown at, as a Lua app's, the one preferred
+/// first: `lua` 2.1, which names the files beside the bundle (a picture the program attached, a file
+/// the person gave), and 2.0, for a terminal without them.
+const PAGE_VERSIONS: [&str; 2] = ["2.1", "2.0"];
 
 /// The directories of an app, under `src/`, and the page of each kind of view.
 const VIEW: &str = "view";
@@ -130,7 +132,7 @@ impl App {
                 }
             }
             let bundle = Bundle::new("page.lua", list)?;
-            views.push(View::new(Kind::Lua, &[PAGE_VERSION], bundle));
+            views.push(View::new(Kind::Lua, &PAGE_VERSIONS, bundle));
         }
         if has(WEB_PAGE) {
             let list = files.iter().filter_map(|(path, data)| {
@@ -355,6 +357,8 @@ mod tests {
         let views = App::dir(&root).views().unwrap();
         assert_eq!(views.len(), 2);
         assert_eq!(views[0].kind, Kind::Lua);
+        // The page names the files beside its bundle where the terminal has them, as a Lua app's.
+        assert_eq!(views[0].versions, ["2.1", "2.0"]);
         assert_eq!(views[1].kind, Kind::Web);
         let paths = |view: &View| match &view.source {
             crate::view::Source::Fixed(bundle) => {
