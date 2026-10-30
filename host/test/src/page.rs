@@ -621,6 +621,78 @@ impl UserData for Handle {
                 this.act(|page| page.drop_files(&name, paths))
             },
         );
+        // Files the person gives the page (specification §8.9): `{ { name =, data = }, ... }`
+        // dropped on the element named `name` (`source` "drop", the default) or pasted
+        // ("paste"). The handles the host made, in order.
+        methods.add_method(
+            "give_files",
+            |_, this, (name, given, source): (String, mlua::Table, Option<String>)| {
+                let source = match source.as_deref() {
+                    None | Some("drop") => pencere_view::FileSource::Drop,
+                    Some("paste") => pencere_view::FileSource::Paste,
+                    Some(other) => {
+                        return Err(words(format!(
+                            "give_files: a file is given by \"drop\" or \"paste\", not {other:?}"
+                        )));
+                    }
+                };
+                let files = given_files(&given)?;
+                let files: Vec<(&str, &[u8])> = files
+                    .iter()
+                    .map(|(name, data)| (name.as_str(), data.as_slice()))
+                    .collect();
+                this.act(|page| page.give_files(&name, source, &files))
+            },
+        );
+        methods.add_method(
+            "drag_files_over",
+            |_, this, (name, count): (String, f64)| {
+                this.act(|page| page.drag_files_over(&name, index_of(count)))
+            },
+        );
+        methods.add_method("drag_files_away", |_, this, ()| {
+            this.act(Headless::drag_files_away)
+        });
+        // The panel the page asked for, while it is up: `{ kind = "pick", multiple = }` or
+        // `{ kind = "save", name =, type = }`.
+        methods.add_method("panel", |lua, this, ()| {
+            let panel = this.look(|page| page.panel().cloned())?;
+            let Some(panel) = panel else {
+                return Ok(Value::Nil);
+            };
+            let table = lua.create_table()?;
+            match panel {
+                pencere_view::Panel::Pick { multiple } => {
+                    table.set("kind", "pick")?;
+                    table.set("multiple", multiple)?;
+                }
+                pencere_view::Panel::Save { name, media_type } => {
+                    table.set("kind", "save")?;
+                    table.set("name", name)?;
+                    table.set("type", media_type)?;
+                }
+            }
+            Ok(Value::Table(table))
+        });
+        // The person chooses files in the Open panel that is up (none: turns it away); the handles.
+        methods.add_method("choose_files", |_, this, given: mlua::Table| {
+            let files = given_files(&given)?;
+            let files: Vec<(&str, &[u8])> = files
+                .iter()
+                .map(|(name, data)| (name.as_str(), data.as_slice()))
+                .collect();
+            this.act(|page| page.choose_files(&files))
+        });
+        // The person chooses a place of this name in the Save panel that is up (nil: turns it
+        // away); its handle.
+        methods.add_method("choose_place", |_, this, name: Option<String>| {
+            this.act(|page| page.choose_place(name.as_deref()))
+        });
+        // The app's program attached these bytes to the page: the name the page draws them by.
+        methods.add_method("attach", |_, this, data: mlua::String| {
+            let data = data.as_bytes().to_vec();
+            this.act(|page| Ok(page.attach(&data)))
+        });
 
         // ---- the view and the clock ----
         methods.add_method("resize", |_, this, (w, h): (f64, f64)| {
@@ -995,4 +1067,21 @@ impl UserData for Handle {
             },
         );
     }
+}
+
+/// The files a test gives the page: `{ { name =, data = }, ... }`.
+fn given_files(given: &mlua::Table) -> mlua::Result<Vec<(String, Vec<u8>)>> {
+    given
+        .sequence_values::<mlua::Table>()
+        .map(|file| {
+            let file = file?;
+            let name: String = file
+                .get("name")
+                .map_err(|_| words("a file given is { name =, data = }: its name is a string"))?;
+            let data: mlua::String = file
+                .get("data")
+                .map_err(|_| words("a file given is { name =, data = }: its data is a string"))?;
+            Ok((name, data.as_bytes().to_vec()))
+        })
+        .collect()
 }

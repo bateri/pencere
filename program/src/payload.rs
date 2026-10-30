@@ -147,7 +147,6 @@ pub(crate) fn bye(token: &str, reason: ByeReason) -> String {
     })
 }
 
-/// The `dismiss`: the token the view was opened with, as the `bye` has it (§10.8).
 /// The payload of an `attach` (§8.8): each file by its digest and its length.
 pub(crate) fn attach(files: &[(String, u64)]) -> String {
     #[derive(Serialize)]
@@ -194,6 +193,7 @@ pub(crate) fn read(handle: &str, offset: u64, length: u64) -> String {
     })
 }
 
+/// The `dismiss`: the token the view was opened with, as the `bye` has it (§10.8).
 pub(crate) fn dismiss(token: &str) -> String {
     #[derive(Serialize)]
     struct Dismiss<'a> {

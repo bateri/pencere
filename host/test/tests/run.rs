@@ -917,7 +917,7 @@ end)
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn the_example_app_is_tested_with_its_own_program_a_stand_in_and_the_editor() {
     let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-    for example in ["containers-lua", "editor-lua"] {
+    for example in ["containers-lua", "editor-lua", "files-lua"] {
         let output = Command::new(RUNNER)
             .args(["--reporter", "tap"])
             .current_dir(examples.join(example))

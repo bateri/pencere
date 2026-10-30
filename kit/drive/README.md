@@ -123,7 +123,10 @@ its own.
   `hover_gutter(editor, column, line)`, `dwell(id, x, y)` (the pointer rests over a word of an editor that
   hears of it, as long as it takes to be told), `hold(mods)`, `release()` and `click_holding(at, mods)` and, for where things are, `gutter_cell`, `zone` and
   `anchor_rect` (an editor's gutter cells, the gaps it keeps open for the page and the ranges it names); `command`, `pick`, `pick_titled`, `fill` (a host's text field),
-  `drop_files`, `resize`, `zoom`, `set_active`, `refresh`.
+  `drop_files`, `resize`, `zoom`, `set_active`, `refresh`; the files beside the bundle: `give_files`
+  (a drop or a paste, with the handles the host makes), `drag_files_over`, `drag_files_away`, the
+  `panel` the page asked for, `choose_files` and `choose_place` (the person's answer in it), and
+  `attach` and `detach` (and `Opening::attached`) for the files a program adds for the page to draw.
 - **The program:** a `Peer` hears what the page says and answers. `Calls` is a table of calls
   (`on(method, handler)`), whose topics a test pushes to (`push`) and whose calls with no handler
   wait for the test to `answer` them; `tell` says anything to the page as the program. A program in

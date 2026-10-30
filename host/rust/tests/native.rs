@@ -13,7 +13,7 @@
 mod common;
 
 use common::{Rig, TOKENS, kit_config};
-use pencere_host::bundle::Digest;
+use pencere_host::bundle::{Digest, Store as _};
 use pencere_host::frame::Message;
 use pencere_host::session::{
     Action, Config, FileGrant, MAX_VIEW_MESSAGE, State, ViewKind, ViewStart,
@@ -485,13 +485,83 @@ fn the_bytes_of_a_file_the_person_gave_go_to_the_program_as_the_views_words_do()
     let [Action::ReadFile { read, .. }] = acted.as_slice() else {
         panic!("expected one read, got {acted:?}");
     };
-    // The `data` is held and dropped with what the view says (§4.8): a signal drops it.
+    // The `data` is the view's words (§4.8): a terminal holds it to their bound, and the signal
+    // character drops it with them.
     rig.host.file_read(*read, Ok(b"abc".to_vec()));
     let actions = rig.host.take_actions();
     assert!(
         matches!(actions.as_slice(), [Action::WriteView(_)]),
         "{actions:?}"
     );
+}
+
+/// A view of `wasm` 3.0 that is up, its component's file sent.
+fn up_with_files() -> Rig {
+    let mut rig = Rig::with(kit_config(&[(ViewKind::Wasm, &["3.0"])]));
+    rig.hello_with(&json!([{"kind": "wasm", "versions": ["3.0"]}]));
+    open(&mut rig, COMPONENT.len() as u64, &json!({"version": "3.0"}));
+    rig.take();
+    file(&mut rig);
+    rig.take();
+    rig
+}
+
+#[test]
+fn a_file_the_terminal_holds_is_counted_at_its_own_length_not_at_what_the_program_says() {
+    let mut rig = up_with_files();
+    // Held already, and longer than a file beside the bundle may be: a program that says it is
+    // one byte does not get it attached.
+    let big = vec![7u8; 8 * 1024 * 1024 + 1];
+    let digest = Digest::of(&big);
+    rig.host
+        .store_mut()
+        .insert(pencere_host::bundle::Verified::from_bytes(big));
+    rig.json(
+        "attach",
+        &json!({"files": [{"sha256": digest.to_string(), "size": 1}]}),
+    );
+    let (wrote, _) = rig.take();
+    assert_eq!(wrote.len(), 1, "{wrote:?}");
+    let need: Value = serde_json::from_str(&wrote[0].payload).unwrap();
+    assert_eq!(
+        need,
+        json!({"missing": [], "refused": [{"sha256": digest.to_string(), "code": "limit"}]})
+    );
+}
+
+#[test]
+fn a_write_to_a_place_whose_file_is_saved_is_told_so() {
+    let mut rig = up_with_files();
+    let handle = rig.host.grant_save().expect("a handle");
+    let write = |rig: &mut Rig| {
+        rig.send_keyed(
+            "write",
+            pencere_host::frame::FileParams {
+                handle: Some(&handle),
+                offset: Some(0),
+                end: true,
+                error: None,
+            },
+            &pencere_host::base64::encode(b"hi"),
+        )
+    };
+    let first = write(&mut rig);
+    let (_, acted) = rig.take();
+    assert!(
+        matches!(acted.as_slice(), [Action::WriteFile { .. }]),
+        "{acted:?}"
+    );
+    rig.host.file_written(first, Ok(()));
+    let (wrote, _) = rig.take();
+    assert_eq!(wrote.len(), 1);
+    assert_eq!(wrote[0].payload, "{}");
+    // Its last write has been written: another is answered at once, and nothing is written.
+    let again = write(&mut rig);
+    let (wrote, acted) = rig.take();
+    assert!(acted.is_empty(), "{acted:?}");
+    assert_eq!(wrote.len(), 1);
+    assert_eq!(wrote[0].re(), Some(again));
+    assert_eq!(wrote[0].payload, r#"{"code":"handle"}"#);
 }
 
 #[test]

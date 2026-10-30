@@ -781,7 +781,7 @@ impl Session<'_> {
                 "need" => self.on_need(message),
                 "closed" => self.on_closed(message),
                 "msg" => self.on_msg(message),
-                "data" => self.files.on_data(message),
+                "data" => self.files.on_data(message, &mut self.writer),
                 "wrote" => self.files.on_wrote(message),
                 // A kind this version does not know, or one only a program sends: ignored (§4.5).
                 _ => {}

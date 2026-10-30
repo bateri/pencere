@@ -320,6 +320,8 @@ pub struct Opening<P: Peer = Calls> {
     look: TerminalLook,
     draws: Vec<Drawing>,
     patience: Duration,
+    /// Files the program attached before the page opened (`sha256:` names).
+    attached: Vec<Arc<[u8]>>,
     peer: P,
 }
 
@@ -572,6 +574,7 @@ impl Opening<Calls> {
             look: TerminalLook::default(),
             draws: vec![Drawing::Shadow],
             patience: Duration::from_secs(60),
+            attached: Vec::new(),
             peer: Calls::new(),
         }
     }
@@ -658,6 +661,13 @@ impl<P: Peer> Opening<P> {
         self
     }
 
+    /// The program attached `bytes` to the page before it opened (specification §8.8): a picture the
+    /// page draws from its first frame, by `sha256:` and the digest the program tells it.
+    pub fn attached(mut self, bytes: &[u8]) -> Self {
+        self.attached.push(bytes.into());
+        self
+    }
+
     /// The program the page speaks to.
     pub fn peer<Q: Peer>(self, peer: Q) -> Opening<Q> {
         Opening {
@@ -673,6 +683,7 @@ impl<P: Peer> Opening<P> {
             look: self.look,
             draws: self.draws,
             patience: self.patience,
+            attached: self.attached,
             peer,
         }
     }
@@ -693,6 +704,10 @@ impl<P: Peer> Opening<P> {
             draws: self.draws,
         });
         let beside = Arc::new(Beside::default());
+        for bytes in self.attached {
+            let name = format!("sha256:{}", pencere_wire::bundle::Digest::of(&bytes));
+            beside.put(name, bytes);
+        }
         let bundle = self.assets.or_else(|| match &self.source {
             Source::Script(script) => script.bundle.clone(),
             Source::Bundle { files, .. } => Some(Arc::clone(files)),

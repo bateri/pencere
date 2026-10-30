@@ -263,6 +263,30 @@ impl Rig {
         id
     }
 
+    /// The program writes a message of a file's (`write`), with its keys.
+    pub fn send_keyed(
+        &mut self,
+        kind: &str,
+        file: pencere_host::frame::FileParams<'_>,
+        payload: &str,
+    ) -> u32 {
+        let id = self.ids.next_id();
+        let message = Outgoing {
+            kind,
+            id,
+            re: None,
+            digest: None,
+            file,
+            payload,
+        };
+        let mut bytes = Vec::new();
+        encode(Direction::ToHost, &message, Split::Fill, &mut bytes)
+            .unwrap_or_else(|e| panic!("{e:?}: {kind} {payload:?}"));
+        self.host.feed(&bytes);
+        self.collect();
+        id
+    }
+
     /// The program writes a message whose payload is `value`.
     pub fn json(&mut self, kind: &str, value: &Value) -> u32 {
         let text = pencere_host::json::to_wire(value).unwrap();

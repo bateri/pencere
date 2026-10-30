@@ -41,6 +41,7 @@ pub fn natives(lua: &Lua, core: &Rc<Core>) -> mlua::Result<Table> {
     native.set("hash", hash(lua)?)?;
     native.set("os", system(lua, &core.world)?)?;
     native.set("io", terminal(lua, &core.world)?)?;
+    super::transfer::natives(lua, core, &native)?;
     native.set("text", super::text::natives(lua)?)?;
     native.set("regex", super::pattern::natives(lua)?)?;
     native.set("args", core.args.clone())?;

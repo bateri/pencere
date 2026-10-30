@@ -20,6 +20,9 @@ import {
 /** The most bytes a `read` asks for and a `write` carries (§8.9, §8.10). */
 export const MAX_PIECE = 1 << 20;
 
+/** How many reads the host answers at once (§8.9). */
+const MAX_READS = 2;
+
 /** The scheme of the name a view draws an attached file by (§9.8). */
 const ATTACHED = "sha256:";
 
@@ -54,6 +57,12 @@ interface Waiting<T> {
   reject(error: FileError): void;
 }
 
+interface Queued extends Waiting<Uint8Array> {
+  readonly handle: string;
+  readonly offset: number;
+  readonly length: number;
+}
+
 interface Attaching extends Waiting<void> {
   readonly files: { readonly digest: string; readonly data: Uint8Array }[];
   /** The missing files are sent: the next `need` is the last answer. */
@@ -76,6 +85,8 @@ export class Files {
   readonly #attached = new Set<string>();
   readonly #attaches = new Map<number, Attaching>();
   readonly #reads = new Map<number, Waiting<Uint8Array>>();
+  /** Reads that wait for one of those out to be answered. */
+  #queued: Queued[] = [];
   /** The handle each write that is out was for. */
   readonly #writes = new Map<number, string>();
   readonly #saves = new Map<string, Saving>();
@@ -85,6 +96,8 @@ export class Files {
     const ended = new FileError("ended", "the view ended before the file was through");
     for (const waiting of this.#attaches.values()) waiting.reject(ended);
     for (const waiting of this.#reads.values()) waiting.reject(ended);
+    for (const waiting of this.#queued) waiting.reject(ended);
+    this.#queued = [];
     for (const saving of this.#saves.values()) saving.last?.reject(ended);
     this.#attached.clear();
     this.#attaches.clear();
@@ -116,9 +129,16 @@ export class Files {
 
   read(handle: string, offset: number, length: number, send: SendFile): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
-      const id = send("read", readPayload(handle, offset, Math.min(length, MAX_PIECE)));
-      this.#reads.set(id, { resolve, reject });
+      const read = { handle, offset, length: Math.min(length, MAX_PIECE), resolve, reject };
+      // The host answers a third read out `busy` (§8.9): it waits for one of the two to be answered.
+      if (this.#reads.size < MAX_READS) this.#sendRead(read, send);
+      else this.#queued.push(read);
     });
+  }
+
+  #sendRead(read: Queued, send: SendFile): void {
+    const id = send("read", readPayload(read.handle, read.offset, read.length));
+    this.#reads.set(id, { resolve: read.resolve, reject: read.reject });
   }
 
   write(
@@ -166,11 +186,13 @@ export class Files {
   }
 
   /** A `data` that answers a read (§8.9). */
-  onData(message: Message): void {
+  onData(message: Message, send: SendFile): void {
     const re = Number(message.control.re);
     const waiting = this.#reads.get(re);
     if (waiting === undefined) return;
     this.#reads.delete(re);
+    const next = this.#queued.shift();
+    if (next !== undefined) this.#sendRead(next, send);
     const code = message.control.e;
     if (code !== undefined) return waiting.reject(new FileError(code));
     const data = fromBase64(message.payload);

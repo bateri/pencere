@@ -14,8 +14,8 @@ The drive of a page of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.
   `Page::files_over`, `Page::files_left` and `Page::saving`; `Host::panel` for the Open or the Save
   panel a page asked for. The headless host plays them: `Headless::give_files`, `drag_files_over`,
   `drag_files_away`, the panel that is up (`panel`, `dropped_panels`), `choose_files` and
-  `choose_place`, and `attach` and `detach` for the files a program adds to the page, which its
-  pictures draw by `sha256:` and `file:` names.
+  `choose_place`, and `attach` and `detach` (and `Opening::attached`, before the page opens) for the
+  files a program adds to the page, which its pictures draw by `sha256:` and `file:` names.
 - `Host::paste` (the host's pasteboard, for a menu entry the host performs itself,
   `MenuEntry::Paste`) and `Drained::copied` (text a page had an editor copy or cut). **Breaking:**
   `Page::pick` takes the host (`pick(index, &mut host)`), which pastes first where the entry is one the

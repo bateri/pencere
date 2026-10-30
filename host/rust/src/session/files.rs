@@ -240,12 +240,19 @@ impl<S: Store, E: Entropy> Session<S, E> {
         };
         let (mut count, mut bytes) = files.load();
         let mut missing: Vec<(Digest, u64)> = Vec::new();
-        let mut held: Vec<Digest> = Vec::new();
+        let mut held: Vec<(Digest, Arc<[u8]>)> = Vec::new();
         let mut refused: Vec<Refusal> = Vec::new();
         for (digest, size) in rows {
             if files.attached.contains_key(&digest) {
                 continue;
             }
+            // What the store holds is taken now, and counted at its own length, not at what the
+            // program said; a store may drop an entry at any time (§8.5), and one it no longer
+            // has is asked for like any other.
+            let kept = self.store.get(&digest);
+            let size = kept
+                .as_ref()
+                .map_or(size, |file| u64::try_from(file.len()).unwrap_or(u64::MAX));
             if size > MAX_FILE_SIZE
                 || count >= MAX_FILES
                 || bytes.saturating_add(size) > MAX_TOTAL_SIZE
@@ -258,19 +265,13 @@ impl<S: Store, E: Entropy> Session<S, E> {
             }
             count += 1;
             bytes = bytes.saturating_add(size);
-            if self.store.contains(&digest) {
-                held.push(digest);
-            } else {
-                missing.push((digest, size));
+            match kept {
+                Some(file) => held.push((digest, file)),
+                None => missing.push((digest, size)),
             }
         }
-        // What the store holds is attached at once; a store may drop an entry at any time
-        // (§8.5), and one that is gone is asked for like any other.
-        for digest in held {
-            match self.store.get(&digest) {
-                Some(file) => self.pin(digest, file),
-                None => missing.push((digest, MAX_FILE_SIZE)),
-            }
+        for (digest, file) in held {
+            self.pin(digest, file);
         }
         let names: Vec<String> = missing.iter().map(|(d, _)| d.to_string()).collect();
         if !missing.is_empty()
@@ -545,7 +546,9 @@ impl<S: Store, E: Entropy> Session<S, E> {
         let next = match state {
             None => return self.wrote(id, Some("handle")),
             // The program has been told; it stops, and what it sent meanwhile is nothing.
-            Some(Saving::Failed | Saving::Ended) => return self.ignored(),
+            Some(Saving::Failed) => return self.ignored(),
+            // The file has had its last write: there is nothing more to write to it.
+            Some(Saving::Ended) => return self.wrote(id, Some("handle")),
             Some(Saving::Open { next, .. }) => next,
         };
         let bytes = if message.payload.len() > max_base64(MAX_FILE_PIECE) {

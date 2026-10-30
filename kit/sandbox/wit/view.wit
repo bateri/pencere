@@ -2025,9 +2025,9 @@ interface types {
         /// number of seconds (below 0, not a number, infinite) is not a reply.
         wake: option<f64>,
         /// A panel the page asks the application to show. Shown only for a reply to something the
-        /// person did (a press, a key, a pick in a menu, a command): asked for in a reply to
-        /// anything else (the pointer moving, a wake, a message of the program), it is passed over;
-        /// and one panel is shown at a time.
+        /// person did (a press or its release, a key, a pick in a menu, a command): asked for in a
+        /// reply to anything else (the pointer moving, a wake, a message of the program), it is
+        /// passed over; and one panel is shown at a time.
         panel: option<panel>,
     }
 }

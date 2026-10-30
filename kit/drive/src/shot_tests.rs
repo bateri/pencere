@@ -770,3 +770,59 @@ fn the_example_editor_is_pictured_under_a_host_that_says_nothing_and_under_one_t
     }
     Ok(())
 }
+
+/// The example that moves files with its view (`examples/files-lua`), pictured after the person
+/// dropped a picture on it: the picture its program attached at the top, drawn by its digest, and
+/// the dropped one in its row, drawn by its handle. `PENCERE_SHOTS=files` writes it to `target/` in
+/// the terminal's font of a Mac, for an eye to check.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_files_example_is_pictured_with_the_picture_it_attached_and_a_file_it_received()
+-> Result<(), Error> {
+    use crate::headless::Calls;
+    use serde_json::json;
+    let example = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/files-lua");
+    let picture = std::fs::read(example.join("src/assets/picture.png")).expect("the picture");
+    let name = format!("sha256:{}", pencere_wire::bundle::Digest::of(&picture));
+    let fonts = match std::env::var("PENCERE_SHOTS").as_deref() {
+        Ok("files") => Fonts::none()
+            .terminal(&std::fs::read("/System/Library/Fonts/Menlo.ttc").expect("Menlo"))
+            .expect("a font"),
+        _ => Fonts::none(),
+    };
+    let calls = Calls::new()
+        .on("picture", move |_| Ok(json!({ "name": name })))
+        .on("receive", |_| Ok(json!({ "size": 4096 })));
+    let mut page = Headless::app(&example)
+        .measure(fonts.clone())
+        .attached(&picture)
+        .size(700.0, 320.0)
+        .scale(2.0)
+        .peer(calls)
+        .open()?;
+    page.give_files(
+        "drop",
+        pencere_view::FileSource::Drop,
+        &[("photo.png", &picture)],
+    )?;
+    assert!(page.says("Received"), "{:?}", page.words());
+    let drawn = page.shot(&fonts).expect("a picture");
+    let images = page.page().images();
+    let pictures = page
+        .list()
+        .items
+        .iter()
+        .filter(|item| match item {
+            pencere_view::Paint::Image(picture) => images
+                .and_then(|images| images.bitmap(&picture.src, picture.full()))
+                .is_some(),
+            _ => false,
+        })
+        .count();
+    assert_eq!(pictures, 2, "the attached picture and the received one");
+    if std::env::var("PENCERE_SHOTS").as_deref() == Ok("files") {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        std::fs::write(target.join("files-example.png"), &drawn).expect("written");
+    }
+    Ok(())
+}

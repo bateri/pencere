@@ -1251,7 +1251,7 @@ fn a_lua_filter_shows_its_view_on_the_terminal_and_writes_what_was_chosen_to_the
         "program: hello id=1",
         "host: sees the tty: canonical=false echo=false",
         "screen: alternate screen on",
-        "program: open id=2 view=lua version=2.0",
+        "program: open id=2 view=lua version=2.1",
         "view: -> call id=1 rows",
         "view: -> call id=2 choose",
         // The program answers the call before it closes the view, so the view hears that the
@@ -2050,15 +2050,15 @@ fn the_built_lua_app_opens_its_view_answers_calls_and_feeds_its_page_until_the_i
     run.in_order(&[
         "program: hello id=1",
         "host: sees the tty: canonical=false echo=false",
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1|2.0",
         "host: answers CSI c",
         "screen: alternate screen on",
-        r#"program: open id=2 view=lua version=2.0 title="Containers" bundle of 5 files"#,
+        r#"program: open id=2 view=lua version=2.1 title="Containers" bundle of 5 files"#,
         "host: need id=2 re=2 missing=5",
         "program: file",
         "view: started from the bundle: entry page.lua, 5 files",
         "view: fetched assets/box.svg image/svg+xml",
-        "view: kind=lua version=2.0",
+        "view: kind=lua version=2.1",
         r#"view: title="Containers" program="containers-lua""#,
         "view: icons png 64x64",
         "view: -> subscribe id=1 stats",
@@ -2146,7 +2146,7 @@ fn an_app_made_by_new_and_built_is_a_program_that_shows_a_view() {
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        r#"program: open id=2 view=lua version=2.0 title="greeter" bundle of 2 files"#,
+        r#"program: open id=2 view=lua version=2.1 title="greeter" bundle of 2 files"#,
         "view: -> subscribe id=1 clock",
         "program: msg id=* push=1",
         r#"view: <- push id=1 value={"now":"#,
@@ -2188,8 +2188,8 @@ fn an_app_whose_page_is_several_files_sends_all_of_them_as_scripts_of_the_view()
     // The page, the two scripts it requires and the picture of the template: the paths are the
     // ones the page writes, relative to the page's own directory, and the scripts are typed as one.
     run.in_order(&[
-        r#"program: open id=2 view=lua version=2.0 title="split" bundle of 4 files"#,
-        "view: kind=lua version=2.0",
+        r#"program: open id=2 view=lua version=2.1 title="split" bundle of 4 files"#,
+        "view: kind=lua version=2.1",
     ]);
     for (path, text) in [("screens/logs.lua", logs), ("parts/init.luau", parts)] {
         let wanted = format!("view: fetched {path} text/x-lua {} bytes", text.len());
@@ -2221,7 +2221,7 @@ fn pencere_dev_shows_the_view_again_and_not_the_app_when_a_script_the_page_requi
         ],
         &[&command, "dev", &directory.to_string_lossy()],
         vec![(
-            "view: kind=lua version=2.0",
+            "view: kind=lua version=2.1",
             Box::new(move || {
                 fs::write(&edited, "return { edited = true }\n").expect("the script is written");
             }),
@@ -2229,13 +2229,13 @@ fn pencere_dev_shows_the_view_again_and_not_the_app_when_a_script_the_page_requi
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "program: open id=2 view=lua version=2.0",
-        "view: kind=lua version=2.0",
+        "program: open id=2 view=lua version=2.1",
+        "view: kind=lua version=2.1",
         // The script of the page changed: the view is closed by the program and shown again.
         "program: dismiss id=",
         "view: destroyed",
-        "program: open id=* view=lua version=2.0",
-        "view: kind=lua version=2.0",
+        "program: open id=* view=lua version=2.1",
+        "view: kind=lua version=2.1",
         "host: the person presses ^C",
         "program: exited with status 130",
     ]);
@@ -2361,7 +2361,7 @@ fn pencere_dev_shows_the_view_again_when_the_page_changes_and_runs_the_app_again
         &[&command, "dev", &directory.to_string_lossy()],
         vec![
             (
-                "view: kind=lua version=2.0",
+                "view: kind=lua version=2.1",
                 Box::new(move || {
                     let mut text = fs::read_to_string(&page_edit).expect("the page");
                     text.push_str("\n-- edited\n");
@@ -2383,23 +2383,23 @@ fn pencere_dev_shows_the_view_again_when_the_page_changes_and_runs_the_app_again
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "program: hello id=1",
-        "program: open id=2 view=lua version=2.0",
-        "view: kind=lua version=2.0",
+        "program: open id=2 view=lua version=2.1",
+        "view: kind=lua version=2.1",
         // The page changed: the view is closed by the program and shown again, of the new file.
         "program: dismiss id=",
         "host: the program asks to close its view",
         "view: destroyed",
         "host: closed id=* re=* reason=program",
         "program: hello id=",
-        "program: open id=* view=lua version=2.0",
-        "view: kind=lua version=2.0",
+        "program: open id=* view=lua version=2.1",
+        "view: kind=lua version=2.1",
         // A script changed: the view is closed the same way, and the program starts again.
         "program: dismiss id=",
         "view: destroyed",
         "host: closed id=* re=* reason=program",
         "program: hello id=",
-        "program: open id=* view=lua version=2.0",
-        "view: kind=lua version=2.0",
+        "program: open id=* view=lua version=2.1",
+        "view: kind=lua version=2.1",
         "host: the person presses ^C",
         "program: bye id=* reason=signal",
         "program: exited with status 130",
@@ -2673,7 +2673,7 @@ fn an_app_that_hands_the_terminal_to_a_program_gets_it_back_and_shows_its_view_a
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "program: open id=2 view=lua version=2.0",
+        "program: open id=2 view=lua version=2.1",
         "view: -> call id=1 shell",
         // The view is closed by the program, and the terminal is the program's.
         "program: dismiss id=",
@@ -2681,7 +2681,7 @@ fn an_app_that_hands_the_terminal_to_a_program_gets_it_back_and_shows_its_view_a
         "host: closed id=* re=* reason=program",
         // Taken back: a new view, asked for as for a first one.
         "program: hello id=",
-        "program: open id=* view=lua version=2.0",
+        "program: open id=* view=lua version=2.1",
         "view: -> call id=1 shell",
         r#"view: <- response id=1 result={"skipped":true}"#,
         "host: the person presses ^C",
@@ -3183,4 +3183,136 @@ fn the_typescript_sdk_attaches_reads_and_writes_files_as_the_library_does() {
         "view: <- response id=1 error code=order",
     ]);
     assert_eq!(names_in(&out), ["greeting.txt"]);
+}
+
+/// The example that moves files with its view, built into one file by `pencere build`.
+fn files_lua_example() -> PathBuf {
+    static BUILT: OnceLock<PathBuf> = OnceLock::new();
+    BUILT
+        .get_or_init(|| {
+            let out = fresh("files-lua-example").join("files-lua");
+            let example = root().join("examples/files-lua");
+            let (status, said) = pencere(&example, &["build", ".", "-o", &out.to_string_lossy()]);
+            assert!(status.success(), "pencere build: {said}");
+            out
+        })
+        .clone()
+}
+
+#[test]
+fn a_lua_app_attaches_a_picture_receives_a_dropped_file_and_saves_a_copy_where_the_person_chose() {
+    let app = files_lua_example().to_string_lossy().into_owned();
+    let dir = fresh("files-lua-run");
+    let into = dir.join("into");
+    let out = dir.join("out");
+    fs::create_dir_all(&into).expect("a directory");
+    fs::create_dir_all(&out).expect("a directory");
+    let dropped = dir.join("big.bin");
+    let bytes = made_up(&dropped, 2 * 1024 * 1024 + 3);
+    let run = run(
+        &[
+            "--drop",
+            &dropped.to_string_lossy(),
+            "--save",
+            "big.bin",
+            "--save-in",
+            &out.to_string_lossy(),
+            "--call",
+            "picture",
+            "--call",
+            "picture",
+            "--call",
+            r#"receive={"handle":"$1","name":"../big.bin"}"#,
+            "--call",
+            r#"save={"handle":"$2","of":"$1"}"#,
+            "--then",
+            "interrupt",
+        ],
+        &[&app, "--into", &into.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1|2.0",
+        "view: kind=lua version=2.1",
+        // The picture is a file of the bundle too: the terminal holds it, and nothing crosses.
+        "program: attach id=* files=1",
+        "host: need id=* re=* missing=0",
+        r#"view: <- response id=1 result={"name":"sha256:"#,
+        // The view has it: the second is answered without a word to the terminal.
+        r#"view: <- response id=2 result={"name":"sha256:"#,
+        "program: read id=* offset=0 length=1048576",
+        r#"view: <- response id=3 result={"size":2097155}"#,
+        "program: write id=* offset=2097152 end 3 bytes",
+        "host: saved big.bin (2097155 bytes)",
+        r#"view: <- response id=4 result={"size":2097155}"#,
+        "program: exited with status 130",
+    ]);
+    assert_eq!(run.count("program: attach"), 1, "{}", run.text());
+    assert_eq!(names_in(&into), ["big.bin"]);
+    assert!(fs::read(into.join("big.bin")).expect("the file") == bytes);
+    assert_eq!(names_in(&out), ["big.bin"]);
+    assert!(fs::read(out.join("big.bin")).expect("the copy") == bytes);
+}
+
+#[test]
+fn a_lua_app_whose_progress_answers_false_gives_the_receiving_up_and_leaves_nothing() {
+    let dir = fresh("files-lua-stop");
+    let app = dir.join("app");
+    let into = dir.join("into");
+    fs::create_dir_all(app.join("src/program")).expect("a directory");
+    fs::create_dir_all(app.join("src/view")).expect("a directory");
+    fs::create_dir_all(&into).expect("a directory");
+    fs::write(
+        app.join("src/program/app.lua"),
+        r#"local pencere = require("pencere")
+local files = pencere.files
+pencere.serve({
+	calls = {
+		receive = function(params)
+			local seen = 0
+			return { size = files.receive(params.handle, pencere.path.join(params.into, "big.bin"), {
+				progress = function(bytes)
+					seen = bytes
+					return bytes < 1048576
+				end,
+			}) }
+		end,
+	},
+})
+"#,
+    )
+    .expect("the program");
+    fs::write(
+        app.join("src/view/page.lua"),
+        "return { render = function() return pencere.text(\"x\") end }\n",
+    )
+    .expect("the page");
+    let built = dir.join("stopper");
+    let (status, said) = pencere(&app, &["build", ".", "-o", &built.to_string_lossy()]);
+    assert!(status.success(), "pencere build: {said}");
+    let dropped = dir.join("big.bin");
+    made_up(&dropped, 3 * 1024 * 1024);
+    let call = format!(
+        r#"receive={{"handle":"$1","into":{}}}"#,
+        serde_json::Value::String(into.to_string_lossy().into_owned())
+    );
+    let run = run(
+        &[
+            "--drop",
+            &dropped.to_string_lossy(),
+            "--call",
+            &call,
+            "--then",
+            "interrupt",
+        ],
+        &[&built.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    // The first piece is in and `progress` says no: no more is asked for, and the call fails.
+    run.in_order(&[
+        "program: read id=* offset=0 length=1048576",
+        "view: <- response id=1 error code=ended",
+    ]);
+    run.never("offset=2097152");
+    assert!(names_in(&into).is_empty(), "{:?}", names_in(&into));
 }

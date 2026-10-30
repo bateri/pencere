@@ -167,6 +167,35 @@ each, `kind` being `created`, `modified`, `removed`, `renamed` or `other`. The s
 on a Mac, inotify on Linux); nothing is polled, and an app whose files do not change is not woken.
 `watch:stop()` stops it.
 
+## Files with the view
+
+A page of the kit can show files and take them, and its bytes never pass through it (the protocol,
+Sections 8.8 to 8.10; a terminal that opens `lua` 2.1). The page gets handles; the program, with
+`pencere.files`, moves the bytes:
+
+- **Showing a file.** `files.attach(path)` (or `files.attach_data(bytes)`) reads it once, gives it to
+  the view and returns the name the page draws it by: `pencere.image(name)` on the page. A file the
+  view has, or the terminal still holds, is not sent again; `files.detach(name)` lets it go. A view
+  shown again needs its files again.
+- **Taking a file.** The person drops a file on the page, pastes one, or chooses it in the Open
+  panel the page asks for (a reply's `pick = true` to a press, a key, a menu pick or a command); the
+  page is told `{ type = "files", source =, files = { { handle =, name =, size =, type = }, ... } }`,
+  draws an image by `"file:" .. handle`, and passes the handle to its program, which calls
+  `files.receive(handle, path, { progress = function(bytes) end })`. The file is written beside
+  `path` as `.<name>.pencere-part` and renamed at the end; a `progress` that returns `false` gives it
+  up, and a part that is not finished is deleted, ⌃C and a closed view included. The name is the
+  person's: `files.safe_name(name)` keeps its last part, with nothing a path could be made of.
+- **Giving a file.** The page asks for the Save panel (`save = { name =, type = }`), is told `saving`
+  with the handle of the place the person chose, and passes it on; `files.send(handle, path)` writes
+  the file there.
+
+Each waits without holding the loop, and runs once the view is up (in a call of the view, or after
+it). A failure is raised as `{ code =, message = }` (the terminal's `limit`, `gone`, `order`, …;
+`unsupported` on a terminal that opens only `lua` 2.0), which a call of the view answers the view
+with. `examples/files-lua` does all three; a test plays the person with `give_files`,
+`drag_files_over`, `panel`, `choose_files` and `choose_place`, and the program's files with
+`test.open{ attach = { bytes } }`.
+
 ## A filter in a pipeline
 
 A program that sits in the middle of a pipeline (`… | tool | …`) has the data on stdin and writes it

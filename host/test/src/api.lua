@@ -476,6 +476,25 @@ function Locator:drop_files(paths)
 	return self.page.raw:drop_files(item.id, paths)
 end
 
+-- Files the person gives the page on this element: `{ { name =, data = }, ... }`, dropped (the
+-- default) or pasted (`{ source = "paste" }`). The handles the host made, in order.
+function Locator:give_files(files, options)
+	local item = the_one(self, "give_files")
+	if item.role ~= "id" then
+		fail("give_files: the thing files are given on is found by its id (get_by_id)")
+	end
+	return self.page.raw:give_files(item.id, files, options and options.source)
+end
+
+-- Files dragged from outside the page are over this element.
+function Locator:drag_files_over(count)
+	local item = the_one(self, "drag_files_over")
+	if item.role ~= "id" then
+		fail("drag_files_over: the thing files are dragged over is found by its id (get_by_id)")
+	end
+	return self.page.raw:drag_files_over(item.id, count or 1)
+end
+
 function Locator:drag_to(other)
 	local from, x1, y1 = reach(self, "drag_to")
 	local to, x2, y2 = reach(other, "drag_to")
@@ -596,6 +615,8 @@ for _, name in ipairs({
 	"closed", "diagnostics", "ended", "sent", "received", "push", "answer", "fail", "lent",
 	"give_back", "log", "fill", "scroll_to", "wheel", "drop_files", "click_gutter", "hover_gutter",
 	"gutter_cell", "zone", "anchor_rect", "dwell", "hold", "release", "click_holding",
+	"give_files", "drag_files_over", "drag_files_away", "panel", "choose_files", "choose_place",
+	"attach",
 }) do
 	Page[name] = function(self, ...)
 		return self.raw[name](self.raw, ...)

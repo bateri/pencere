@@ -795,6 +795,19 @@ fn open(lua: &Lua, session: &Shared, options: &Table) -> mlua::Result<Handle> {
     });
     let calls = options.get::<Option<Table>>("calls")?;
     let command = options.get::<Option<Vec<String>>>("command")?;
+    // Files the program attached before the page opened, which it draws by their `sha256:` names.
+    let attach: Vec<Vec<u8>> = options
+        .get::<Option<Vec<mlua::String>>>("attach")?
+        .unwrap_or_default()
+        .iter()
+        .map(|data| data.as_bytes().to_vec())
+        .collect();
+    let attached = |mut opening: Opening<Calls>| {
+        for data in &attach {
+            opening = opening.attached(data);
+        }
+        opening
+    };
     let root = spec.place.root.clone();
     let env: BTreeMap<String, String> = options
         .get::<Option<BTreeMap<String, String>>>("env")?
@@ -819,8 +832,7 @@ fn open(lua: &Lua, session: &Shared, options: &Table) -> mlua::Result<Handle> {
     let mut app = None;
     let page = if let Some(calls) = calls {
         let peer = Any::Calls(stand_in(lua, &calls)?);
-        spec.opening()
-            .map_err(words)?
+        attached(spec.opening().map_err(words)?)
             .peer(peer)
             .open()
             .map_err(|error| words(error.to_string()))?
@@ -863,9 +875,7 @@ fn open(lua: &Lua, session: &Shared, options: &Table) -> mlua::Result<Handle> {
         log = Some(file);
         let (running, program) = started;
         app = Some(running);
-        let opened = spec
-            .opening()
-            .map_err(words)?
+        let opened = attached(spec.opening().map_err(words)?)
             .peer(Any::InProcess(Box::new(program)))
             .open();
         match opened {

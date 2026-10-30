@@ -796,7 +796,8 @@ A reply's **`pick`** (`true`, or `{ multiple = true }`) asks the host for the Op
 **`save`** (the name to propose, or `{ name =, type = }`) for the Save panel: what the person chooses
 comes as `files` with `source` `"pick"`, or as `saving`. A reply asks for one panel; where replies are
 merged (`pencere.merge`, the timers) the last one's stands. **A panel is shown only for a reply to
-something the person did**: a press, a key, a pick in a menu, a command. Asked for in a reply to
+something the person did**: a press or its release (a button acts on the release), a key, a pick
+in a menu, a command. Asked for in a reply to
 anything else (the pointer moving, a wake, a message of the program, the room to send), it is passed
 over, so that a page cannot open panel after panel by itself; and the host shows one panel at a time,
 dropping one asked for while another is up. (`wasm`: the `panel` of `reply` and the events `files`,

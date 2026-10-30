@@ -207,6 +207,8 @@ pub struct Core {
     pub sub_ends: RefCell<HashMap<u64, Vec<Function>>>,
     /// The directories being watched, by number: what to call, and the watch itself.
     pub watches: RefCell<HashMap<u64, (Function, super::watch::Watcher)>>,
+    /// The files being moved with the view, by number.
+    pub transfers: RefCell<super::transfer::Transfers>,
     /// The `task` function of the prelude.
     task: RefCell<Option<Function>>,
     exit: RefCell<Option<Exit>>,
@@ -253,6 +255,7 @@ impl Core {
             serve: RefCell::new(None),
             sub_ends: RefCell::new(HashMap::new()),
             watches: RefCell::new(HashMap::new()),
+            transfers: RefCell::new(HashMap::new()),
             task: RefCell::new(None),
             exit: RefCell::new(None),
             status: Cell::new(0),

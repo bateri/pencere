@@ -12,10 +12,11 @@
 //! view ends, the program is asked to end (⌃C, a hangup) or the receiving is given up, the part is
 //! deleted, on every path the terminal is given back on as well.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::fs;
 use std::io::{self, Read, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -130,6 +131,14 @@ struct Attaching {
     sent: bool,
 }
 
+/// A read that waits for its turn.
+struct Queued {
+    handle: String,
+    offset: u64,
+    length: u64,
+    reply: SyncSender<Result<Vec<u8>, FileError>>,
+}
+
 /// What is known of a place to save in while its writes go out.
 #[derive(Default)]
 struct Saving {
@@ -147,6 +156,9 @@ pub(crate) struct Files {
     attached: HashSet<Digest>,
     attaches: HashMap<u32, Attaching>,
     reads: HashMap<u32, SyncSender<Result<Vec<u8>, FileError>>>,
+    /// Reads that wait for one of those out to be answered: the terminal answers a third `busy`
+    /// (§8.9), and the reads of the program's helpers are counted together.
+    queued: VecDeque<Queued>,
     /// The handle each write that is out was for.
     writes: HashMap<u32, String>,
     saves: HashMap<String, Saving>,
@@ -223,13 +235,16 @@ impl Files {
                     let _ = reply.send(Err(FileError::Unsupported));
                     return;
                 }
-                match writer.message("read", None, None, &payload::read(&handle, offset, length)) {
-                    Ok(id) => {
-                        self.reads.insert(id, reply);
-                    }
-                    Err(_) => {
-                        let _ = reply.send(Err(FileError::Ended));
-                    }
+                let read = Queued {
+                    handle,
+                    offset,
+                    length,
+                    reply,
+                };
+                if self.reads.len() < READS_OUT {
+                    self.send_read(read, writer);
+                } else {
+                    self.queued.push_back(read);
                 }
             }
             Request::Write {
@@ -322,7 +337,7 @@ impl Files {
     }
 
     /// A `data` that answers a read (§8.9).
-    pub(crate) fn on_data(&mut self, message: &Frame) {
+    pub(crate) fn on_data(&mut self, message: &Frame, writer: &mut Writer) {
         let Some(reply) = message.re().and_then(|re| self.reads.remove(&re)) else {
             return;
         };
@@ -332,6 +347,21 @@ impl Files {
                 .ok_or_else(|| FileError::Refused("io".to_owned())),
         };
         let _ = reply.send(answer);
+        if let Some(next) = self.queued.pop_front() {
+            self.send_read(next, writer);
+        }
+    }
+
+    fn send_read(&mut self, read: Queued, writer: &mut Writer) {
+        let body = payload::read(&read.handle, read.offset, read.length);
+        match writer.message("read", None, None, &body) {
+            Ok(id) => {
+                self.reads.insert(id, read.reply);
+            }
+            Err(_) => {
+                let _ = read.reply.send(Err(FileError::Ended));
+            }
+        }
     }
 
     /// A `wrote` (§8.10): the file is saved, or failed at the write it answers.
@@ -393,10 +423,14 @@ impl Part {
         part_name.push(name);
         part_name.push(".pencere-part");
         let path = to.with_file_name(part_name);
+        // A part a process that was killed left is ours to replace; what is there now is not
+        // followed if it is a link, and one put there meanwhile fails the receiving rather than be
+        // written through.
+        let _ = fs::remove_file(&path);
         let file = fs::OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
+            .custom_flags(libc::O_NOFOLLOW)
             .open(&path)?;
         parts().push(path.clone());
         Ok(Self { path, file })
@@ -654,6 +688,80 @@ mod tests {
         for nothing in ["", ".", "..", "dir/", " "] {
             assert_eq!(safe_name(nothing), "file", "{nothing:?}");
         }
+    }
+
+    #[test]
+    fn a_part_is_written_anew_and_the_way_out_deletes_one_its_helper_did_not() {
+        let dir = std::env::temp_dir().join(format!("pencere-parts-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("a directory");
+        let to = dir.join("a.txt");
+        let part = dir.join(".a.txt.pencere-part");
+        // A part left by a process that was killed is replaced, and a link there is not followed.
+        let elsewhere = dir.join("elsewhere");
+        fs::write(&elsewhere, b"kept").expect("a file");
+        std::os::unix::fs::symlink(&elsewhere, &part).expect("a link");
+        let mut kept = Part::create(&to).expect("a part");
+        kept.file.write_all(b"new").expect("written");
+        assert_eq!(fs::read(&elsewhere).expect("the file"), b"kept");
+        // The terminal is given back while the helper still holds it: the part goes.
+        discard_parts();
+        assert!(!part.exists(), "the part is left");
+        std::mem::forget(kept);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_third_read_waits_for_one_of_the_two_out_to_be_answered() {
+        use pencere_wire::frame::{Direction, Event, Outgoing, Split, StreamDecoder, encode};
+        use std::os::fd::AsRawFd;
+        let (_read, write) = std::os::unix::net::UnixStream::pair().expect("a pair of sockets");
+        let mut writer = Writer::new(write.as_raw_fd());
+        let mut files = Files::default();
+        let mut answers = Vec::new();
+        for offset in 0..3 {
+            let (reply, answer) = sync_channel(1);
+            answers.push(answer);
+            files.on_request(
+                Request::Read {
+                    handle: "0".repeat(32),
+                    offset,
+                    length: 1,
+                    reply,
+                },
+                true,
+                &mut writer,
+            );
+        }
+        assert_eq!((files.reads.len(), files.queued.len()), (2, 1));
+        // The first is answered: the third goes out.
+        let first = *files.reads.keys().min().expect("a read");
+        let mut bytes = Vec::new();
+        encode(
+            Direction::ToProgram,
+            &Outgoing {
+                kind: "data",
+                id: 1,
+                re: Some(first),
+                digest: None,
+                file: FileParams::NONE,
+                payload: "YQ==",
+            },
+            Split::Fill,
+            &mut bytes,
+        )
+        .expect("a frame");
+        let mut events = Vec::new();
+        StreamDecoder::new(Direction::ToProgram).feed(&bytes, &mut events);
+        let Some(Event::Message(data)) = events.pop() else {
+            panic!("no message");
+        };
+        files.on_data(&data, &mut writer);
+        assert_eq!((files.reads.len(), files.queued.len()), (2, 0));
+        assert_eq!(
+            answers[0].try_recv().ok().and_then(Result::ok),
+            Some(b"a".to_vec())
+        );
     }
 
     #[test]

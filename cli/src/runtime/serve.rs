@@ -20,8 +20,9 @@ use super::core::{Core, ServePlan, ServeRun, ViewSpec};
 use super::events::{CallEvent, Event, SubscribeEvent};
 use crate::files::{ASSETS, Files, VIEW, is_page_script};
 
-/// The version of the page API this runner shows views of (`lua` 2.0).
-pub(super) const VERSION: &str = "2.0";
+/// The versions of the page API this runner shows views of, the one it prefers first: `lua` 2.1, which
+/// has the files beside the bundle (`files` of the module), and 2.0, for a terminal without them.
+pub(super) const VERSIONS: [&str; 2] = ["2.1", "2.0"];
 
 /// The page of the kit and the web page of an app, where `pencere new` puts them: in `view/`.
 const PAGE: &str = "view/page.lua";
@@ -104,7 +105,7 @@ pub fn view_of(files: &Files, spec: &ViewSpec) -> Result<View, String> {
                 list.push(File::new(path, bytes));
             }
             let bundle = Bundle::new(entry, list).map_err(|why| why.to_string())?;
-            Ok(View::new(Kind::Lua, &[VERSION], bundle))
+            Ok(View::new(Kind::Lua, &VERSIONS, bundle))
         }
         ViewSpec::Web { dir, access } => {
             let prefix = format!("{}/", dir.trim_end_matches('/'));
@@ -499,6 +500,10 @@ pub fn handle(core: &Core, event: Event) {
         Event::Served(result) => on_served(core, lua, result),
         Event::Restart => core.end(super::core::Exit::Restart),
         Event::Watched { id, changes } => on_watched(core, lua, id, &changes),
+        Event::FileProgress { id, bytes, answer } => {
+            super::transfer::on_progress(core, id, bytes, &answer);
+        }
+        Event::FileDone { id, result } => super::transfer::on_done(core, lua, id, result),
     }
 }
 

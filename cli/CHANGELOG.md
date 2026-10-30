@@ -29,6 +29,15 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **Files with the view** (`pencere.files`, a terminal that opens `lua` 2.1): `attach` and
+  `attach_data` give the view a file to draw and return its name, `detach` lets it go, `receive`
+  takes a file the person gave the page by its handle (through a `.pencere-part` that is deleted when
+  it is not finished), `send` writes a file to the place the person chose in the Save panel, and
+  `safe_name` makes the person's name one a path can take. Each waits without holding the loop; a
+  failure is `{ code =, message = }`. Apps offer `lua` 2.1 first, and 2.0. `pencere test` plays the
+  person's files: `give_files`, `drag_files_over`, `drag_files_away`, `panel`, `choose_files`,
+  `choose_place`, and `test.open{ attach = { bytes } }`. The example `files-lua` shows them.
+
 - `pencere test` says how the host draws its terminal's cursor and selection (`terminal_look`, `draws`
   of `test.open`; `page:set_terminal_look(table)` changes it, and the page is told).
 

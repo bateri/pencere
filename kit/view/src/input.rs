@@ -347,12 +347,13 @@ pub enum Panel {
 
 impl Panel {
     /// Whether a panel asked for in the reply to `event` is shown: only for something the person
-    /// did — a press, a key, a pick in a menu, a command. The pointer moving, a wake, a message of
-    /// the program are not, so that a page cannot open panel after panel by itself.
+    /// did — a press or its release (a button acts on the release), a key, a pick in a menu, a
+    /// command. The pointer moving, a wake, a message of the program are not, so that a page cannot
+    /// open panel after panel by itself.
     pub fn follows(event: &Event) -> bool {
         matches!(
             event,
-            Event::Input(Input::Press { .. } | Input::Key { .. })
+            Event::Input(Input::Press { .. } | Input::Release { .. } | Input::Key { .. })
                 | Event::MenuPick(_)
                 | Event::Command(_)
         )
@@ -397,7 +398,8 @@ pub struct Reply {
     /// gone, and the page asks again for another. A number of seconds: 0 or more, finite.
     pub wake: Option<f64>,
     /// A panel the page asks the host to show ([`Panel`]): only for a reply to something the person
-    /// did ([`Panel::follows`]); asked for in another, it is passed over. One is shown at a time.
+    /// did ([`Panel::follows`]: a press or its release, a key, a pick in a menu, a command); asked
+    /// for in another, it is passed over. One is shown at a time.
     pub panel: Option<Panel>,
 }
 
@@ -456,6 +458,10 @@ mod tests {
             Event::Input(Input::Key {
                 key: Key::Enter,
                 mods,
+            }),
+            Event::Input(Input::Release {
+                at,
+                button: Button::Left,
             }),
             Event::MenuPick(0),
             Event::Command(crate::Id::named("upload")),

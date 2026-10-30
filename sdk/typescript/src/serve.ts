@@ -719,7 +719,7 @@ class TerminalSession implements ViewTarget {
         this.#onNeed(message);
         return;
       case "data":
-        this.#files.onData(message);
+        this.#files.onData(message, this.#sendFile);
         return;
       case "wrote":
         this.#files.onWrote(message);

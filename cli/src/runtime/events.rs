@@ -43,6 +43,18 @@ pub enum Event {
         id: u64,
         changes: Vec<super::watch::Change>,
     },
+    /// A file being moved with the view got this far, bytes; its helper waits for whether to go
+    /// on.
+    FileProgress {
+        id: u64,
+        bytes: u64,
+        answer: std::sync::mpsc::SyncSender<bool>,
+    },
+    /// A file being moved with the view is through, or failed.
+    FileDone {
+        id: u64,
+        result: super::transfer::Ended,
+    },
 }
 
 /// A pipe a thread writes a byte into to wake the loop that polls the other end.

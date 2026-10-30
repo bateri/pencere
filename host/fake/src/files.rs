@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -156,7 +157,15 @@ impl Desk {
         let place = self.places.get_mut(handle).ok_or(FileError::Io)?;
         let written = (|| -> io::Result<()> {
             if place.file.is_none() {
-                place.file = Some(File::create(&place.part)?);
+                // Made anew, and a link put where it goes is not written through.
+                let _ = fs::remove_file(&place.part);
+                place.file = Some(
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .custom_flags(libc::O_NOFOLLOW)
+                        .open(&place.part)?,
+                );
             }
             if let Some(file) = place.file.as_mut() {
                 file.write_all(bytes)?;

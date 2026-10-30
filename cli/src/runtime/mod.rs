@@ -11,6 +11,7 @@ mod process;
 mod serve;
 mod stdin;
 mod text;
+mod transfer;
 mod watch;
 mod world;
 
@@ -145,7 +146,7 @@ impl Drop for Served {
                     by: pencere::EndedBy::Program,
                     view: pencere::Shown {
                         kind: pencere::Kind::Lua,
-                        version: serve::VERSION.to_owned(),
+                        version: serve::VERSIONS[0].to_owned(),
                     },
                     code: None,
                     message: None,

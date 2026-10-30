@@ -96,8 +96,9 @@
 --     it ask an editor to paste), ... } }, editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds,
 --     pick = true or { multiple = true } (the Open panel), save = "name" or { name =, type = } (the
 --     Save panel) }
--- A panel is shown only for a reply to something the person did (a press, a key, a pick in a menu,
--- a command): asked for in a reply to anything else, it is passed over; a reply asks for one.
+-- A panel is shown only for a reply to something the person did (a press or its release, a key, a
+-- pick in a menu, a command): asked for in a reply to anything else, it is passed over; a reply asks
+-- for one.
 -- where an ask of an editor is one of:
 --   { load = "text", more = true }             a piece of the document (the first in place of all)
 --   { change = { { from =, to =, insert = }, ... }, base = version, history = false, tag = "disk" }

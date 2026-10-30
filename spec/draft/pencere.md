@@ -602,7 +602,8 @@ interface `pencere:view@3.0.0` and `lua` `2.0` and `2.1` are the page API whose 
 `2` (which have, among what `2.0` added to `1.0`, the editors of text of Section 9.8; `2.1` and `3.0`
 add the files beside the bundle of Sections 8.8 to 8.10); the
 rule that moves the numbers is in Section 5.4, and a host that updates its kit offers the new major
-version and the one before. The examples in this document use made-up versions (`0.4`, `0.5`,
+version and the one before (while this document is a draft, the kit's own sandbox opens `wasm` `3.0`
+alone: no view the kit knows of was written against `wasm` `2.0`). The examples in this document use made-up versions (`0.4`, `0.5`,
 `0.6`) so that they show several at once. For `web`, a change that only adds an optional member to a message of Section 9.4 moves the
 minor number, and one that renames or drops a member or a message moves the major. A host MAY open
 several versions of a kind — a host that updates its kit offers the one it now has and the one
@@ -1073,7 +1074,8 @@ handle come in order and leave no gap: each `o` is where the one before ended.
 
 The host writes the bytes to a file of its own beside the place the person chose, named so that a
 person recognises it (`.` and the name, then `.pencere-part`), and gives it the person's name when the
-write with `end` has been written. It answers once, with a `wrote` whose `re` is the id of that write;
+write with `end` has been written. It makes that file anew and does not write through a link that is
+where it goes. It answers once, with a `wrote` whose `re` is the id of that write;
 or, if something goes wrong first, at once, with a `wrote` that has a `code` and whose `re` is the id of
 the write that failed, and it throws away what it wrote. The writes for that handle that come after the
 failure are ignored. When the view ends before the write with `end`, the host throws away what it wrote.
@@ -1088,7 +1090,8 @@ failure are ignored. When the view ends before the write with `end`, the host th
 
 The codes of `wrote`:
 
-- `handle`: the handle is not a place to save in of the view that runs;
+- `handle`: the handle is not a place to save in of the view that runs, or its file has had its
+  last write already;
 - `order`: a write's `o` is not where the one before ended, or its base64 is not well formed;
 - `size`: a write carries more than 1 MiB;
 - `space`: the place has no room;

@@ -374,6 +374,62 @@ module.close_view = guarded(native.close_view)
 -- it has gone (`time.after(0, ...)`), or the page's own answer is lost with the view.
 module.handoff = guarded(native.handoff)
 
+-- ---- files beside the view's bundle ------------------------------------------------------------
+
+-- Waits for a file being moved with the view, and the app goes on with other things meanwhile; a
+-- failure is raised as `{ code =, message = }`, which a call of the view answers the view with.
+local function moved(start)
+	local result, failure = suspend(start)
+	if failure then
+		error(failure, 0)
+	end
+	return result
+end
+
+-- files: what a view of `lua` 2.1 (a terminal that has files beside the bundle) moves with its app.
+-- Each waits, as process.run does, and so runs in the app, in a call of the view or in a callback,
+-- once the view is up: before the terminal took the view's open they fail with `unsupported`, as
+-- they do on a terminal that opens only `lua` 2.0. A failure is `{ code =, message = }`: the
+-- terminal's code (`limit`, `gone`, `order`, …), `ended` when the view ended first, `io` when a file
+-- of this machine could not be read or written.
+--
+--   files.attach(path) and files.attach_data(bytes) give the view a file to draw, read once, and
+--   return the name it draws it by ("sha256:..."), once the terminal holds it; a file the view has
+--   already, or the terminal still holds, is not sent again. A view shown again needs them again.
+--   files.detach(name) lets one go.
+--   files.receive(handle, to, { progress = function(bytes) }) receives the file the person gave the
+--   view (the `handle` its page passed on) into `to`, and returns its size. It is written beside
+--   `to` as ".<name>.pencere-part" and given its name at the end; `progress` returning false gives
+--   it up, and a part that is not finished is deleted. Make `to` of files.safe_name(name): the name
+--   the person gave, with nothing a path could be made of.
+--   files.send(handle, from, { progress = function(bytes) }) writes the file `from` to the place
+--   the person chose in the Save panel, and returns its size once the terminal has saved it; its
+--   `progress` is told and cannot stop it (a save the view leaves unfinished is thrown away).
+module.files = {
+	attach = function(path)
+		return moved(function(done)
+			native.file_attach("path", path, done)
+		end)
+	end,
+	attach_data = function(bytes)
+		return moved(function(done)
+			native.file_attach("data", bytes, done)
+		end)
+	end,
+	detach = guarded(native.file_detach),
+	receive = function(handle, to, options)
+		return moved(function(done)
+			native.file_receive(handle, to, options and options.progress, done)
+		end)
+	end,
+	send = function(handle, from, options)
+		return moved(function(done)
+			native.file_send(handle, from, options and options.progress, done)
+		end)
+	end,
+	safe_name = guarded(native.file_safe_name),
+}
+
 -- Ends the app now, with this status (0 unless told).
 function module.exit(code)
 	native.exit(code or 0)
