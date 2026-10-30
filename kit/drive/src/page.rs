@@ -50,9 +50,9 @@ use pencere_sandbox::{
 };
 use pencere_view::edit::{EditCommand, EditorAsk, Range};
 use pencere_view::{
-    Button, Cursor, DrawList, EditorMetrics, Element, Event, Font, Id, Input, Key, KeyConvention,
-    Keyboard, Laid, Measure, MenuEntry, Metrics, Mods, Motions, Phase, Place, Point, Rect, Reply,
-    Role, ScrollTo, Size, div, text,
+    Button, Cursor, DrawList, EditorMetrics, Element, Event, FileEntry, FileSource, Font, Id,
+    Input, Key, KeyConvention, Keyboard, Laid, Measure, MenuEntry, Metrics, Mods, Motions, Phase,
+    Place, Point, Rect, Reply, Role, Saving, ScrollTo, Size, div, text,
 };
 
 use crate::editing::{Editing, Told, in_a_room};
@@ -629,10 +629,52 @@ impl Page {
         self.state.event(Event::Command(id));
     }
 
-    /// Files were dropped on the page at `at`, in the host's points: their paths.
+    /// Files were dropped on the page at `at`, in the host's points: their paths, and nothing more
+    /// of them (a host that gives the page files with handles says [`Page::give`]).
     pub fn files(&mut self, at: Point, paths: Vec<String>) {
         let at = self.state.place.to_page(at);
-        self.state.event(Event::Files { at, paths });
+        self.state.event(Event::Files {
+            at,
+            source: FileSource::Drop,
+            entries: Vec::new(),
+            paths,
+        });
+    }
+
+    /// The person gave the page `entries` at `at`, in the host's points, as `source` says: dropped
+    /// there, pasted at the caret, chosen in the Open panel the page asked for (no entries: the
+    /// person turned it away). Each with the handle the host made of it (specification §8.9): the
+    /// page draws a file as `file:` and the handle, and the host's [`pencere_sandbox::Assets`]
+    /// answers that name from its own table of handles, never from a path.
+    pub fn give(&mut self, at: Point, source: FileSource, entries: Vec<FileEntry>) {
+        let at = self.state.place.to_page(at);
+        let paths = entries
+            .iter()
+            .filter_map(|entry| entry.path.clone())
+            .collect();
+        self.state.event(Event::Files {
+            at,
+            source,
+            entries,
+            paths,
+        });
+    }
+
+    /// `count` files dragged from outside the page are over it at `at`, in the host's points.
+    pub fn files_over(&mut self, at: Point, count: usize) {
+        let at = self.state.place.to_page(at);
+        self.state.event(Event::FilesOver { at, count });
+    }
+
+    /// The files dragged over the page went from it without being dropped.
+    pub fn files_left(&mut self) {
+        self.state.event(Event::FilesLeft);
+    }
+
+    /// The person chose a place in the Save panel the page asked for ([`pencere_view::Panel::Save`]), or turned
+    /// it away (`None`).
+    pub fn saving(&mut self, saving: Option<Saving>) {
+        self.state.event(Event::Saving(saving));
     }
 
     /// The program that opened the page said something: one JSON object, as it wrote it.

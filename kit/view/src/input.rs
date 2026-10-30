@@ -134,12 +134,25 @@ pub enum Event {
     /// The person asked for the command named this, from the host's list of the page's commands
     /// or by its keys ([`crate::Command`]): the key is not told as well.
     Command(Id),
-    /// Files were dropped on the page at `at`, from outside it: their paths, as the system that
-    /// the host runs on writes them.
+    /// The person gave the page files at `at` (the point dropped on, the caret's for a paste, the
+    /// page's corner for the Open panel): how, the files, and the paths of those that have one, as
+    /// the system that the host runs on writes them.
     Files {
         at: Point,
+        source: FileSource,
+        entries: Vec<FileEntry>,
         paths: Vec<String>,
     },
+    /// `count` files dragged from outside the page are over it, at `at`.
+    FilesOver {
+        at: Point,
+        count: usize,
+    },
+    /// The files dragged over the page went from it without being dropped.
+    FilesLeft,
+    /// The person chose a place in the Save panel the page asked for ([`Panel::Save`]), or turned
+    /// it away (`None`).
+    Saving(Option<Saving>),
     /// The host scrolled these boxes (the wheel, the trackpad, a scroll bar, or what the page
     /// asked): each one's name and how far it is scrolled now, across and down, points. A page
     /// that builds only what is in view builds what has come into it.
@@ -281,6 +294,71 @@ pub struct Menu {
     pub entries: Vec<MenuEntry>,
 }
 
+/// How the person gave the page files ([`Event::Files`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileSource {
+    /// Dropped them on it from outside it.
+    Drop,
+    /// Pasted them.
+    Paste,
+    /// Chose them in the Open panel the page asked for ([`Panel::Pick`]); none: turned it away.
+    Pick,
+}
+
+/// A file the person gave the page. The page draws it as `file:` and the handle
+/// ([`crate::Element::image`]) and passes the handle on to its program, which reads the file by it
+/// (specification §8.9); the handle is nothing once the view has ended. The name is the person's
+/// and the type the host's guess: words, never a path to join to another.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileEntry {
+    /// 32 lowercase hex digits; `None` for a folder, which is not read.
+    pub handle: Option<String>,
+    pub name: String,
+    /// Bytes.
+    pub size: u64,
+    /// A media type (`image/png`), the host's guess.
+    pub media_type: String,
+    /// Where the file is, only when the host knows the program reads the same files as the person.
+    pub path: Option<String>,
+    /// It is a folder.
+    pub folder: bool,
+}
+
+/// The place the person chose in the Save panel: its handle, which the page passes on to its
+/// program, which writes the file by it (specification §8.10), and the name the person gave it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Saving {
+    pub handle: String,
+    pub name: String,
+}
+
+/// A panel of the host's for the person to give the page files or a place to save in
+/// ([`Reply::panel`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Panel {
+    /// The Open panel: what the person chooses comes as [`Event::Files`] with [`FileSource::Pick`].
+    Pick { multiple: bool },
+    /// The Save panel, proposing `name`: the place chosen comes as [`Event::Saving`].
+    Save {
+        name: String,
+        media_type: Option<String>,
+    },
+}
+
+impl Panel {
+    /// Whether a panel asked for in the reply to `event` is shown: only for something the person
+    /// did — a press, a key, a pick in a menu, a command. The pointer moving, a wake, a message of
+    /// the program are not, so that a page cannot open panel after panel by itself.
+    pub fn follows(event: &Event) -> bool {
+        matches!(
+            event,
+            Event::Input(Input::Press { .. } | Input::Key { .. })
+                | Event::MenuPick(_)
+                | Event::Command(_)
+        )
+    }
+}
+
 /// What a page says back after an [`Input`].
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Reply {
@@ -318,6 +396,9 @@ pub struct Reply {
     /// stands, so that what one part of it asks is not put off by another; a wake that came is
     /// gone, and the page asks again for another. A number of seconds: 0 or more, finite.
     pub wake: Option<f64>,
+    /// A panel the page asks the host to show ([`Panel`]): only for a reply to something the person
+    /// did ([`Panel::follows`]); asked for in another, it is passed over. One is shown at a time.
+    pub panel: Option<Panel>,
 }
 
 impl Reply {
@@ -354,5 +435,41 @@ impl Reply {
     pub fn with_wake(mut self, seconds: f64) -> Self {
         self.wake = Some(self.wake.map_or(seconds, |asked| asked.min(seconds)));
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_panel_follows_only_what_the_person_did() {
+        let at = Point::new(1.0, 1.0);
+        let mods = Mods::default();
+        for gesture in [
+            Event::Input(Input::Press {
+                at,
+                button: Button::Left,
+                count: 1,
+                mods,
+            }),
+            Event::Input(Input::Key {
+                key: Key::Enter,
+                mods,
+            }),
+            Event::MenuPick(0),
+            Event::Command(crate::Id::named("upload")),
+        ] {
+            assert!(Panel::follows(&gesture), "{gesture:?}");
+        }
+        for not in [
+            Event::Input(Input::Move(at)),
+            Event::Input(Input::Leave),
+            Event::Wake { now: 1.0 },
+            Event::FilesOver { at, count: 1 },
+            Event::Focus(None),
+        ] {
+            assert!(!Panel::follows(&not), "{not:?}");
+        }
     }
 }

@@ -23,9 +23,12 @@ use crate::screen::{Screen, Seen};
 /// What a terminal answers to `CSI c`.
 pub const DEVICE_ATTRIBUTES: &[u8] = b"\x1b[?62;4c";
 
-/// The version of the interface of a view the terminal draws itself (a WebAssembly component or a
-/// Lua script) that the stand-in speaks.
+/// The version of the interface of a Lua script the terminal draws itself that the stand-in speaks.
 pub const KIT_VERSION: &str = "2.0";
+
+/// The version of the interface of a WebAssembly component the stand-in speaks: the kit's
+/// `pencere:view@3.0.0`.
+pub const WASM_VERSION: &str = "3.0";
 
 /// The version of a Lua page that has files beside its bundle (specification §5.5), which the
 /// stand-in offers beside the kit's.
@@ -57,7 +60,7 @@ pub fn config(size: pty::Size) -> Config {
     );
     config
         .views
-        .push(Offer::new(ViewKind::Wasm, &[KIT_VERSION]));
+        .push(Offer::new(ViewKind::Wasm, &[WASM_VERSION]));
     config
         .views
         .push(Offer::new(ViewKind::Lua, &[KIT_VERSION, FILES_VERSION]));

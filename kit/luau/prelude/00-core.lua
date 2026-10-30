@@ -25,6 +25,9 @@
 --
 -- Lengths are points. An element is a plain table; the builders are methods that return it.
 
+-- The major number of the page API (2.1 adds the files beside the bundle to 2.0: the `files`,
+-- `files_over`, `files_left` and `saving` events, the `pick` and `save` of a reply, images named
+-- `sha256:` and `file:`).
 pencere.version = 2
 
 -- A number as the engine holds it, in single precision. The engine measures and draws in

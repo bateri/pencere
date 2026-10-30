@@ -76,8 +76,9 @@ the directory [`sandbox/library`](sandbox/library).
 ## Images
 
 A page shows pictures with `image(src, fit)` (in Lua, `pencere.image(src):fit(…):tint(…):opacity(…)`):
-`src` is the path of a file of the view's own bundle, as its manifest names it, and nothing else is
-reachable (no network, no file system). PNG, JPEG and SVG; at most 4096 × 4096 pixels an image and
+`src` is the path of a file of the view's own bundle, as its manifest names it, or a file beside
+the bundle: `sha256:` and the digest of one its program attached, `file:` and the handle of one the
+person gave the page; nothing else is reachable (no network, no file system). PNG, JPEG and SVG; at most 4096 × 4096 pixels an image and
 64 MiB of decoded pixels a view; `contain` (all of it, centred) or `cover` (the box filled, the
 rest cut off); `tint` paints the image's opacity in a colour, so that an icon of one colour follows
 the theme. The size is the element's, and where it says a side only the image's proportions give the
@@ -101,13 +102,20 @@ one `Images` for a view, and uses three of its calls:
   `redraw` that pixels are there, and `diagnostics` why an image was refused. Nothing is polled
   and nothing woken at rest.
 
+A terminal that hosts files beside the bundle (`lua` `2.1`, `wasm` `3.0`) answers `Assets::read` for
+a `sha256:` name from the files the program attached to the view (`Session::attached` of the host
+crate) and for a `file:` name from its own table of the handles it made, never from a path, and
+calls `Images::forget` with the names the program let go of (`Action::ForgetFiles`). The panels a
+page asks for are the drive's `Host::panel`, which the terminal hands the session
+(`Session::module_pick`, `module_save`) before it shows one.
+
 ## Versions
 
 The kit's version is the one a view names in its `open` (specification Sections 5.4 and 5.5):
-`wasm` `2.0` is the interface `pencere:view@2.0.0`, `lua` `2.0` is the page API whose
+`wasm` `3.0` is the interface `pencere:view@3.0.0`, `lua` `2.1` (and `2.0`) is the page API whose
 `pencere.version` is `2`. (What `2.0` added to `1.0`, from overlays to editors of text, their
-languages and a page's timers, is listed in [`SPEC.md`](SPEC.md), Section 1. The sandbox here opens
-`2.0` alone.)
+languages and a page's timers, and what `2.1` and `3.0` add, the files beside the bundle, are listed
+in [`SPEC.md`](SPEC.md), Section 1. The sandbox here opens `wasm` `3.0` alone.)
 
 - An **addition** that no existing view can notice is a new minor version (`1.1`): a new function in
   the component interface, a new element or a new colour role in the page API.

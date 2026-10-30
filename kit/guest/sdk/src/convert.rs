@@ -13,9 +13,9 @@ use pencere_view::edit::{
 };
 use pencere_view::wire::{Direction, Display, Items, Justify, Kind, Length, Node, Overflow, Style};
 use pencere_view::{
-    AccessibleRole, Align, Button, Color, Command, Cursor, Ease, Event, Family, FieldKind, Fit, Id,
-    Input, Key, Keyboard, MenuEntry, Mods, Path, Place, Point, Rect, Reply, Rgba, Role, Segment,
-    Shift, Side, Source, Span, Track,
+    AccessibleRole, Align, Button, Color, Command, Cursor, Ease, Event, Family, FieldKind,
+    FileEntry, FileSource, Fit, Id, Input, Key, Keyboard, MenuEntry, Mods, Panel, Path, Place,
+    Point, Rect, Reply, Rgba, Role, Saving, Segment, Shift, Side, Source, Span, Track,
 };
 
 use crate::Frame;
@@ -579,6 +579,13 @@ pub fn to_wit_reply(reply: Reply) -> wit::Reply {
         editor: reply.editor.into_iter().map(editor_ask).collect(),
         link: reply.link,
         wake: reply.wake,
+        panel: reply.panel.map(|panel| match panel {
+            Panel::Pick { multiple } => wit::Panel::Pick(wit::PickPanel { multiple }),
+            Panel::Save { name, media_type } => wit::Panel::Save(wit::SavePanel {
+                name,
+                type_: media_type,
+            }),
+        }),
         cursor: cursor(reply.cursor),
     }
 }
@@ -678,8 +685,34 @@ pub fn from_wit_event(event: wit::Event) -> Event {
         wit::Event::Command(id) => Event::Command(Id::new(id)),
         wit::Event::Files(dropped) => Event::Files {
             at: point(dropped.at),
+            source: match dropped.source {
+                wit::FileSource::Drop => FileSource::Drop,
+                wit::FileSource::Paste => FileSource::Paste,
+                wit::FileSource::Pick => FileSource::Pick,
+            },
+            entries: dropped
+                .entries
+                .into_iter()
+                .map(|entry| FileEntry {
+                    handle: entry.handle,
+                    name: entry.name,
+                    size: entry.size,
+                    media_type: entry.type_,
+                    path: entry.path,
+                    folder: entry.folder,
+                })
+                .collect(),
             paths: dropped.paths,
         },
+        wit::Event::FilesOver(over) => Event::FilesOver {
+            at: point(over.at),
+            count: over.count as usize,
+        },
+        wit::Event::FilesLeft => Event::FilesLeft,
+        wit::Event::Saving(saving) => Event::Saving(saving.map(|saving| Saving {
+            handle: saving.handle,
+            name: saving.name,
+        })),
         wit::Event::Scrolled(boxes) => Event::Scrolled(
             boxes
                 .into_iter()

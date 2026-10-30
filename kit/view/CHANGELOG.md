@@ -6,10 +6,17 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
-The engine of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
+The engine of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.1` and `2.0`).
 
 ### Added
 
+- **Files beside the bundle** (specification §8.8 to §8.10): `Event::Files` says how the person gave
+  them (`FileSource`: a drop, a paste, a pick in the Open panel) and each file's `FileEntry` (the
+  handle, the name, the size, the media type, the path where the host knows the program reads the
+  same files); `Event::FilesOver` and `Event::FilesLeft` while files are dragged over the page;
+  `Event::Saving` for the place the person chose in the Save panel; `Reply::panel` (`Panel::Pick`,
+  `Panel::Save`), shown only for a reply to what the person did (`Panel::follows`). **Breaking:**
+  `Event::Files` has `source` and `entries`.
 - **A press that opens a menu** (`Pressing::Context`, `gestures = { ["right+press"] = "context" }`):
   outside every selection one caret is put there, inside one the selections stay; the press is told
   the page as any, and `Place` has `inside` (the place was in a selection or at a caret before the

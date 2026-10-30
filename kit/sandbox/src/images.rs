@@ -49,6 +49,12 @@ pub trait Assets: Send + Sync + 'static {
     /// to a directory, or opens it by itself, or lists a directory with it. Whether the file at a
     /// path of the manifest is within the limits of a bundle was settled when the bundle was
     /// taken in, and the images hold what they read to their own besides ([`ImageLimits`]).
+    ///
+    /// A view of `lua` `2.1` or `wasm` `3.0` also names files beside its bundle: `sha256:` and a
+    /// digest (a file its program attached, specification §8.8) and `file:` and a handle (one the
+    /// person gave it, §8.9). A host answers these from its own tables — the view's attached files,
+    /// the handles it made — and `None` for one that is in neither; a manifest path has no `:`, so
+    /// the names never meet.
     fn read(&self, path: &str) -> Option<Arc<[u8]>>;
 
     /// The media type the manifest gives the file at `path` (`type/subtype`, lower case, as it
@@ -171,6 +177,8 @@ enum Job {
     Decode(String),
     /// Draw the SVG at the path at this size.
     Draw(String, (u32, u32)),
+    /// Let go of the parsed SVG at the path.
+    Forget(String),
 }
 
 /// Pixels the view holds, and when something last asked for them.
@@ -507,6 +515,38 @@ impl Images {
         self.post(state, Job::Decode(src.to_owned()))
     }
 
+    /// Forgets the images at `srcs` and what they held: the files beside the bundle the program let
+    /// go of (`sha256:` names, specification §8.8). A name asked for again is read again, and one
+    /// the host no longer has is an image that is not there.
+    pub fn forget(&self, srcs: &[String]) {
+        let mut state = self.lock();
+        let mut freed = 0;
+        let mut drawings = Vec::new();
+        for src in srcs {
+            match state.entries.remove(src.as_str()) {
+                Some(Entry::Raster(kept)) => freed += kept.bitmap.pixels.len(),
+                Some(Entry::Vector(drawing)) => {
+                    for drawn in drawing.drawn.into_values() {
+                        if let Drawn::Ready(kept) = drawn {
+                            freed += kept.bitmap.pixels.len();
+                        }
+                    }
+                    drawings.push(src.clone());
+                }
+                _ => {}
+            }
+            state
+                .told_room
+                .retain(|told| !told.starts_with(src.as_str()));
+            state.told_sizes.remove(src.as_str());
+        }
+        state.held = state.held.saturating_sub(freed);
+        for src in drawings {
+            self.post(&mut state, Job::Forget(src));
+        }
+        state.arrived.relayout = true;
+    }
+
     /// Hands `job` to the worker, which is started for the first one; whether the host is to be
     /// woken (there is no worker, and what waited for it is refused).
     fn post(&self, state: &mut State, job: Job) -> bool {
@@ -756,11 +796,19 @@ fn serve(shared: &Arc<Shared>, inbox: &Receiver<Job>) {
         let (path, at) = match &job {
             Job::Decode(path) => (path.clone(), None),
             Job::Draw(path, at) => (path.clone(), Some(*at)),
+            Job::Forget(path) => {
+                if let Some(vector) = vectors.remove(path) {
+                    let mut state = shared.lock();
+                    state.held = state.held.saturating_sub(vector.weight().bytes);
+                }
+                continue;
+            }
         };
         // A decoder that gives up by panicking costs the image and not the worker.
         let ran = catch_unwind(AssertUnwindSafe(|| match job {
             Job::Decode(path) => decode_path(shared, &mut vectors, &path),
             Job::Draw(path, at) => draw(shared, &vectors, &path, at),
+            Job::Forget(_) => {}
         }));
         if ran.is_err() {
             let mut state = shared.lock();

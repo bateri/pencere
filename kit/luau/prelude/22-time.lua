@@ -75,8 +75,9 @@ end
 
 -- Two replies (nil, true, false or a table) as one: everything both ask, the first's asks of an
 -- editor before the second's; a frame where either wants one, the page closed where either asks;
--- where both say the one thing (the keyboard, the pasteboard, a menu, a link, the pointer's shape)
--- the second's; and the earlier of two wakes. Neither is changed.
+-- where both say the one thing (the keyboard, the pasteboard, a menu, a link, a panel — `pick` and
+-- `save` are one — the pointer's shape) the second's; and the earlier of two wakes. Neither is
+-- changed.
 local function merge_two(first, second)
 	if first == nil then
 		return second
@@ -123,6 +124,12 @@ local function merge_two(first, second)
 			out.fill = fill
 		else
 			out[key] = value
+		end
+		-- One panel a reply: the second's, whichever it is.
+		if key == "pick" and value ~= nil then
+			out.save = nil
+		elseif key == "save" and value ~= nil then
+			out.pick = nil
 		end
 	end
 	return out

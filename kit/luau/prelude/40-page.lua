@@ -16,7 +16,7 @@
 --   handle(event) -> reply         (optional)
 --       The person did something. `event` is { type = "move" | "leave" | "press" | "release" |
 --       "scroll" | "scrolled" | "key" | "key_up" | "mods" | "text" | "focus" | "menu" | "command" |
---       "files" | "terminal_look",
+--       "files" | "files_over" | "files_left" | "saving" | "terminal_look",
 --       ... } in the page's points: move/press/release/scroll/files have x and y (press and
 --       release a button, "left", "right" or "middle"; press its `count`, 2 for the second of a
 --       double click; press, key, key_up and mods have mods = { shift =, control =, alt =,
@@ -28,7 +28,18 @@
 --       has the `field` (its name) and the `text` it holds, focus the `field` the person clicked
 --       into (nil: the keyboard is the page's again), menu has the `index` (from 1) picked of
 --       the menu the page asked for, command the `id` of the command asked for (its keys are
---       not told as a key), files the `paths` of the files dropped on the page.
+--       not told as a key). "files": the person gave the page files — `source` "drop" (on the
+--       page, at x and y), "paste" (at the caret) or "pick" (in the Open panel the page asked for;
+--       none when the person turned it away) — and `files` lists them, each { handle =, name =,
+--       size =, type =, path =, kind = "file" | "folder" }: the page draws one as
+--       `pencere.image("file:" .. handle)` and passes the handle on to its program, which reads
+--       the file by it; a folder has no handle; `path` only where the host knows the program reads
+--       the same files as the person, and `paths` the paths there are. The name is the person's
+--       and the type the host's guess: words, never a path. "files_over" (x, y and the `count` of
+--       files dragged over the page from outside it) and "files_left" (they went without being
+--       dropped) are for showing where they would go. "saving": the person chose a place in the
+--       Save panel the page asked for, its `handle` (passed on to the program, which writes the
+--       file by it) and the `name` given; neither when the person turned the panel away.
 --       An editor (`pencere.editor`) tells: "editor_ready", the `editor` and its `version`, once the
 --       host has made it (its text is posted: a page loads a document into it then); move, press
 --       and release over it have a `place` ({ editor =, at =, inside = (the place was in a selection, or at a caret, before a press moved the caret), version = }, the place of its document under the
@@ -82,7 +93,11 @@
 --     { title =, keys =, enabled =, paste = editor } (a line the application performs itself: the
 --     pasteboard's text pasted in that editor as its paste key would, honouring a read-only editor
 --     and several carets; the page is told the pick as any and never reads the pasteboard, nor can
---     it ask an editor to paste), ... } }, editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds }
+--     it ask an editor to paste), ... } }, editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds,
+--     pick = true or { multiple = true } (the Open panel), save = "name" or { name =, type = } (the
+--     Save panel) }
+-- A panel is shown only for a reply to something the person did (a press, a key, a pick in a menu,
+-- a command): asked for in a reply to anything else, it is passed over; a reply asks for one.
 -- where an ask of an editor is one of:
 --   { load = "text", more = true }             a piece of the document (the first in place of all)
 --   { change = { { from =, to =, insert = }, ... }, base = version, history = false, tag = "disk" }

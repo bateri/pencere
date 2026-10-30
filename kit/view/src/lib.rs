@@ -67,7 +67,10 @@ pub use field::{FieldState, Fill};
 pub use figure::{Path, Segment, Stroke, path};
 pub use geometry::{Point, Rect, Size};
 pub use id::Id;
-pub use input::{Button, Cursor, Event, Input, Key, Keyboard, Menu, MenuEntry, Mods, Place, Reply};
+pub use input::{
+    Button, Cursor, Event, FileEntry, FileSource, Input, Key, Keyboard, Menu, MenuEntry, Mods,
+    Panel, Place, Reply, Saving,
+};
 pub use layout::{Accessible, AccessibleRole, EditorRoom, Extent, Field, Laid, Queries, layout};
 pub use motion::{Ease, Motion, Motions, Shift, Tip};
 pub use paint::{DrawList, EditorSlot, Figure, Paint, Picture, Quad, Run};

@@ -586,7 +586,7 @@ written against:
 | Name   | The view                                                                                                                               | What its version names                                                                     |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `lua`  | A script in the Lua language that the host runs, with an interpreter of its own, in the same sandbox as a component, and draws itself. | The Lua page API of the kit, the global `pencere` (`pencere.version` is the major number). |
-| `wasm` | A WebAssembly component that the host runs in a sandbox and draws itself.                                                              | The component interface of the kit, `pencere:view` (`pencere:view@2.0.0` is `2.0`).        |
+| `wasm` | A WebAssembly component that the host runs in a sandbox and draws itself.                                                              | The component interface of the kit, `pencere:view` (`pencere:view@3.0.0` is `3.0`).        |
 | `web`  | A web page, shown in a web view of the host's.                                                                                         | The bridge of Section 9.4 between the page and its host: now `1.0`.                        |
 
 A version is a string of two numbers, `major.minor`, such as `0.5`:
@@ -597,9 +597,10 @@ number  = "0" / ( %x31-39 *8DIGIT )
 ```
 
 Versions are compared for equality and for nothing else; the order of a list is the preference of
-whoever wrote it. What a version means is the interface's. For the kit, `wasm` `2.0` is the
-interface `pencere:view@2.0.0` and `lua` `2.0` is the page API whose `pencere.version` is `2` (which
-have, among what `2.0` added to `1.0`, the editors of text of Section 9.8); the
+whoever wrote it. What a version means is the interface's. For the kit, `wasm` `3.0` is the
+interface `pencere:view@3.0.0` and `lua` `2.0` and `2.1` are the page API whose `pencere.version` is
+`2` (which have, among what `2.0` added to `1.0`, the editors of text of Section 9.8; `2.1` and `3.0`
+add the files beside the bundle of Sections 8.8 to 8.10); the
 rule that moves the numbers is in Section 5.4, and a host that updates its kit offers the new major
 version and the one before. The examples in this document use made-up versions (`0.4`, `0.5`,
 `0.6`) so that they show several at once. For `web`, a change that only adds an optional member to a message of Section 9.4 moves the

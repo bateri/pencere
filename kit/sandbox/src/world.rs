@@ -20,9 +20,9 @@ use pencere_view::wire::{
 };
 use pencere_view::{
     AccessibleRole, Align, Anchor, Border, Button, Color, Command, Cursor, Ease, Element, Event,
-    Extent, Family, Fill, Gradient, Id, Input, Key, KeyConvention, Keyboard, Laid, Menu, MenuEntry,
-    Mix, Mods, Motion, Path, Point, Rect, Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift,
-    Shortcut, Side, Size, Source, Span, State, Stroke, Tip, Track,
+    Extent, Family, FileSource, Fill, Gradient, Id, Input, Key, KeyConvention, Keyboard, Laid,
+    Menu, MenuEntry, Mix, Mods, Motion, Panel, Path, Point, Rect, Reply, Rgba, Role, ScrollTo,
+    Segment, Shadow, Shift, Shortcut, Side, Size, Source, Span, State, Stroke, Tip, Track,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -437,10 +437,40 @@ fn event_in(event: Event) -> wit::Event {
         Event::Focus(field) => wit::Event::Focus(field.map(id_out)),
         Event::MenuPick(index) => wit::Event::MenuPick(u32::try_from(index).unwrap_or(u32::MAX)),
         Event::Command(id) => wit::Event::Command(id_out(id)),
-        Event::Files { at, paths } => wit::Event::Files(wit::DroppedFiles {
+        Event::Files {
+            at,
+            source,
+            entries,
+            paths,
+        } => wit::Event::Files(wit::DroppedFiles {
             at: point_in(at),
+            source: match source {
+                FileSource::Drop => wit::FileSource::Drop,
+                FileSource::Paste => wit::FileSource::Paste,
+                FileSource::Pick => wit::FileSource::Pick,
+            },
+            entries: entries
+                .into_iter()
+                .map(|entry| wit::FileEntry {
+                    handle: entry.handle,
+                    name: entry.name,
+                    size: entry.size,
+                    type_: entry.media_type,
+                    path: entry.path,
+                    folder: entry.folder,
+                })
+                .collect(),
             paths,
         }),
+        Event::FilesOver { at, count } => wit::Event::FilesOver(wit::FilesOver {
+            at: point_in(at),
+            count: u32::try_from(count).unwrap_or(u32::MAX),
+        }),
+        Event::FilesLeft => wit::Event::FilesLeft,
+        Event::Saving(saving) => wit::Event::Saving(saving.map(|saving| wit::Saving {
+            handle: saving.handle,
+            name: saving.name,
+        })),
         Event::Scrolled(boxes) => wit::Event::Scrolled(
             boxes
                 .into_iter()
@@ -1529,6 +1559,20 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
             .link
             .filter(|url| pencere_wire::link::is_openable(url)),
         wake: wake_out(reply.wake, "a reply")?,
+        panel: reply
+            .panel
+            .map(|panel| -> Result<Panel, Fault> {
+                Ok(match panel {
+                    wit::Panel::Pick(pick) => Panel::Pick {
+                        multiple: pick.multiple,
+                    },
+                    wit::Panel::Save(save) => Panel::Save {
+                        name: text(save.name)?,
+                        media_type: save.type_.map(text).transpose()?,
+                    },
+                })
+            })
+            .transpose()?,
         cursor: match reply.cursor {
             wit::Cursor::Arrow => Cursor::Arrow,
             wit::Cursor::Pointer => Cursor::Pointer,
@@ -2317,7 +2361,7 @@ fn command_out(command: wit::EditorCommand) -> EditCommand {
 // --- Compiling and the version of the interface -------------------------------------------
 
 /// The interface this crate speaks: the package of `wit/view.wit`.
-const INTERFACE: &str = "pencere:view@2.0.0";
+const INTERFACE: &str = "pencere:view@3.0.0";
 
 /// Compiles `bytes`, if that is done within `within`.
 ///
@@ -3228,6 +3272,7 @@ mod tests {
             editor,
             link: None,
             wake: None,
+            panel: None,
         };
         let ask = |ask: wit::EditorAskKind| wit::EditorAsk { editor: 3, ask };
         let fold = || wit::Decoration {
@@ -3359,6 +3404,7 @@ mod tests {
             editor: Vec::new(),
             link: None,
             wake: None,
+            panel: None,
         };
         // A menu as a module writes it: the titles are one string and each entry names its part.
         // `None` is a line between entries.
@@ -3445,6 +3491,63 @@ mod tests {
     }
 
     #[test]
+    fn a_reply_asks_for_a_panel_and_its_name_is_held_to_the_length_of_a_text() {
+        let reply = |panel: Option<wit::Panel>| wit::Reply {
+            redraw: false,
+            close: false,
+            menu: None,
+            keyboard: None,
+            fill: Vec::new(),
+            copy: None,
+            cursor: wit::Cursor::Arrow,
+            editor: Vec::new(),
+            link: None,
+            wake: None,
+            panel,
+        };
+        // A text of a reply is at most sixteen lines' worth.
+        let limits = ModuleLimits {
+            text: 1,
+            ..ModuleLimits::default()
+        };
+        let pick = reply_out(
+            reply(Some(wit::Panel::Pick(wit::PickPanel { multiple: true }))),
+            &limits,
+        )
+        .expect("a reply");
+        assert_eq!(pick.panel, Some(Panel::Pick { multiple: true }));
+        let save = reply_out(
+            reply(Some(wit::Panel::Save(wit::SavePanel {
+                name: "a.txt".into(),
+                type_: Some("text/plain".into()),
+            }))),
+            &ModuleLimits::default(),
+        )
+        .expect("a reply");
+        assert_eq!(
+            save.panel,
+            Some(Panel::Save {
+                name: "a.txt".into(),
+                media_type: Some("text/plain".into()),
+            })
+        );
+        assert!(
+            reply_out(
+                reply(Some(wit::Panel::Save(wit::SavePanel {
+                    name: "a name that is too long".into(),
+                    type_: None,
+                }))),
+                &limits,
+            )
+            .is_err()
+        );
+        assert_eq!(
+            reply_out(reply(None), &limits).expect("a reply").panel,
+            None
+        );
+    }
+
+    #[test]
     fn a_link_the_host_may_open_is_handed_on_and_any_other_is_dropped_without_failing_the_page() {
         // A text of a reply is held to 64 bytes here: a link is held to the rule of a web page's
         // `link`, not to that, and one past the rule is dropped, never a fault.
@@ -3463,6 +3566,7 @@ mod tests {
             editor: Vec::new(),
             link,
             wake: None,
+            panel: None,
         };
         let read = |link: &str| {
             reply_out(reply(Some(link.to_owned())), &limits)
@@ -3508,6 +3612,7 @@ mod tests {
             editor: Vec::new(),
             link: None,
             wake,
+            panel: None,
         };
         let limits = ModuleLimits::default();
         // What a module asks is handed on as it asked it, with the rest of the reply.
@@ -3646,8 +3751,52 @@ mod tests {
             wit::Event::Command(9)
         ));
         assert!(matches!(
-            event_in(Event::Files { at, paths: vec!["/tmp/a b.png".into()] }),
+            event_in(Event::Files {
+                at,
+                source: FileSource::Drop,
+                entries: Vec::new(),
+                paths: vec!["/tmp/a b.png".into()],
+            }),
             wit::Event::Files(wit::DroppedFiles { paths, .. }) if paths == ["/tmp/a b.png"]
+        ));
+        // A file the person gave, with its handle and what the host knows of it.
+        let given = event_in(Event::Files {
+            at,
+            source: FileSource::Paste,
+            entries: vec![pencere_view::FileEntry {
+                handle: Some("0".repeat(32)),
+                name: "a.png".into(),
+                size: 3,
+                media_type: "image/png".into(),
+                path: None,
+                folder: false,
+            }],
+            paths: Vec::new(),
+        });
+        let wit::Event::Files(given) = given else {
+            panic!("not files");
+        };
+        assert!(matches!(given.source, wit::FileSource::Paste));
+        assert_eq!(
+            given.entries[0].handle.as_deref(),
+            Some("0".repeat(32).as_str())
+        );
+        assert_eq!(given.entries[0].type_, "image/png");
+        assert!(matches!(
+            event_in(Event::FilesOver { at, count: 2 }),
+            wit::Event::FilesOver(wit::FilesOver { count: 2, .. })
+        ));
+        assert!(matches!(event_in(Event::FilesLeft), wit::Event::FilesLeft));
+        assert!(matches!(
+            event_in(Event::Saving(Some(pencere_view::Saving {
+                handle: "1".repeat(32),
+                name: "a.txt".into(),
+            }))),
+            wit::Event::Saving(Some(wit::Saving { name, .. })) if name == "a.txt"
+        ));
+        assert!(matches!(
+            event_in(Event::Saving(None)),
+            wit::Event::Saving(None)
         ));
     }
 
@@ -4048,7 +4197,7 @@ mod tests {
                         why.contains(&format!("written against `pencere:view@{version}`")),
                         "{why}"
                     );
-                    assert!(why.contains("opens `pencere:view@2.0.0`"), "{why}");
+                    assert!(why.contains("opens `pencere:view@3.0.0`"), "{why}");
                 }
                 other => panic!("{other:?}"),
             }

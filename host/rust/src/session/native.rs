@@ -11,9 +11,10 @@
 //! object is read with the same reader a page's messages are.
 //!
 //! What the view asks of the host itself is not among those messages: it is in what the view
-//! replies to the terminal (to be closed, text for the pasteboard, a link to open). The one of
-//! these that is the session's to rule on is a link ([`Session::module_link`]), which is held to
-//! the rule of a page's `link` and put to the person the same way.
+//! replies to the terminal (to be closed, text for the pasteboard, a link to open, a panel). The
+//! ones of these that are the session's to rule on are a link ([`Session::module_link`]), which is
+//! held to the rule of a page's `link` and put to the person the same way, and the Open and Save
+//! panels ([`Session::module_pick`], [`Session::module_save`]), one at a time.
 
 use super::{MAX_VIEW_MESSAGE, Phase, Session, page};
 use crate::bundle::Store;

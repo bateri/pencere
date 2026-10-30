@@ -24,7 +24,7 @@
 /// (`page.room`); it does not ask again and again, and it is not closed for being fast. What the
 /// program says to the page is held to what the page has taken (the program's own `write` slows
 /// down), so a page is never handed more than it can read.
-package pencere:view@2.0.0;
+package pencere:view@3.0.0;
 
 interface types {
     /// A name for an element, so that what is kept about it between frames (a scroll position,
@@ -382,7 +382,9 @@ interface types {
     /// point to a pixel. The formats are PNG, JPEG and SVG, and the application holds them to
     /// its limits; one it cannot read leaves the box empty.
     record image {
-        /// The path of the file in the bundle, as its manifest names it: a part of the frame's
+        /// The path of the file in the bundle, as its manifest names it, or a file beside the
+        /// bundle: `sha256:` and the digest of one the program attached to the view, `file:` and
+        /// the handle of one the person gave it (a manifest path has no `:`). A part of the frame's
         /// `text`.
         src: slice,
         fit: fit,
@@ -1172,11 +1174,57 @@ interface types {
         mods: mods,
     }
 
-    /// Files dropped on the page from outside it: where, and their paths, as the system the
-    /// application runs on writes them.
+    /// How the person gave the page files.
+    enum file-source {
+        /// Dropped them on it from outside it.
+        drop,
+        /// Pasted them.
+        paste,
+        /// Chose them in the Open panel the page asked for (none: the person turned it away).
+        pick,
+    }
+
+    /// A file the person gave the page. The page draws it as `file:` and the handle, and passes the
+    /// handle on to its program, which reads the file by it; the handle is nothing once the view
+    /// has ended. The name is the person's and the type the application's guess: words, never a
+    /// path to join to another.
+    record file-entry {
+        /// 32 lowercase hex digits; none for a folder, which is not read.
+        handle: option<string>,
+        name: string,
+        /// Bytes.
+        size: u64,
+        /// A media type (`image/png`), the application's guess.
+        %type: string,
+        /// Where the file is, only when the application knows the program reads the same files as
+        /// the person (a program on the person's machine, with no remote shell between).
+        path: option<string>,
+        /// It is a folder.
+        folder: bool,
+    }
+
+    /// Files the person gave the page: where (the point dropped on, the caret's for a paste, the
+    /// page's corner for the Open panel), how, and the files.
     record dropped-files {
         at: point,
+        source: file-source,
+        entries: list<file-entry>,
+        /// The paths of the entries that have one, in their order.
         paths: list<string>,
+    }
+
+    /// Files dragged from outside the page are over it, at `at`: how many.
+    record files-over {
+        at: point,
+        count: u32,
+    }
+
+    /// The place the person chose in the Save panel the page asked for: its handle, which the
+    /// page passes on to its program, which writes the file by it, and the name the person gave
+    /// it.
+    record saving {
+        handle: string,
+        name: string,
     }
 
     /// Where a box the application scrolls stands now: its id and how far it is scrolled across
@@ -1326,8 +1374,14 @@ interface types {
         /// The person asked for the command of this name, from the application's list of them or
         /// by its keys (the key is not told as well).
         command(id),
-        /// Files were dropped on the page.
+        /// The person gave the page files: dropped them, pasted them, or chose them in the Open panel.
         files(dropped-files),
+        /// Files dragged from outside the page are over it.
+        files-over(files-over),
+        /// They went from it without being dropped.
+        files-left,
+        /// The person chose a place in the Save panel the page asked for, or turned it away (none).
+        saving(option<saving>),
         /// The application scrolled these boxes (the wheel, the trackpad, a scroll bar, or what
         /// the page asked): a page that builds only what is in view builds what came into it.
         scrolled(list<scrolled>),
@@ -1916,6 +1970,26 @@ interface types {
         titles: string,
     }
 
+    /// The Open panel: the files the person chooses come as `files`, with `source` `pick`.
+    record pick-panel {
+        /// More than one may be chosen.
+        multiple: bool,
+    }
+
+    /// The Save panel: the place the person chooses comes as `saving`.
+    record save-panel {
+        /// The name proposed.
+        name: string,
+        /// The media type of what is saved.
+        %type: option<string>,
+    }
+
+    /// A panel of the application's for the person to give the page files or a place to save in.
+    variant panel {
+        pick(pick-panel),
+        save(save-panel),
+    }
+
     /// What the page says back after an event.
     record reply {
         /// Something the page shows changed: a frame is worth drawing.
@@ -1950,6 +2024,11 @@ interface types {
         /// wake that came is gone: a page that wants another asks again. A value that is not a
         /// number of seconds (below 0, not a number, infinite) is not a reply.
         wake: option<f64>,
+        /// A panel the page asks the application to show. Shown only for a reply to something the
+        /// person did (a press, a key, a pick in a menu, a command): asked for in a reply to
+        /// anything else (the pointer moving, a wake, a message of the program), it is passed over;
+        /// and one panel is shown at a time.
+        panel: option<panel>,
     }
 }
 

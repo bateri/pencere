@@ -10,7 +10,7 @@
 //! the drive holds it and gives it with the frame ([`crate::Painted::held`]).
 
 use pencere_sandbox::{Answer, Fault};
-use pencere_view::{Cursor, Fill, Id, Keyboard, Menu};
+use pencere_view::{Cursor, Fill, Id, Keyboard, Menu, Panel};
 
 /// What a page had besides its replies, since the host last looked ([`crate::Page::drain`]).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -110,6 +110,12 @@ pub trait Host {
     /// page with [`crate::Page::pick`]. Told last of a reply: a menu may hold the host until it is
     /// picked from.
     fn menu(&mut self, _menu: Menu) {}
+    /// A panel for the person to give the page files or a place to save in: asked for in a reply to
+    /// something the person did (the sandbox passes over one asked for in another). What the person
+    /// chooses is told the page with [`crate::Page::give`] or [`crate::Page::saving`]; a host
+    /// shows one at a time, and drops one asked for while another is up (the session of a terminal
+    /// that hosts pencere holds it to that, `Session::module_pick`).
+    fn panel(&mut self, _panel: Panel) {}
     /// A sentence for the page's author: an image that could not be shown.
     fn diagnostic(&mut self, _words: String) {}
     /// The page is gone, and why: the host takes it down. Nothing is told after it.
@@ -122,8 +128,8 @@ pub trait Host {
 impl Drained {
     /// Hands what the page said to `host`, in the order a host does it: what was said to the program
     /// first; then each reply in turn — its wish to close, its redraw, the pointer's shape (a reply
-    /// to the pointer only), the fields' texts, the keyboard, the pasteboard, the link, and the menu
-    /// last; then the images' diagnostics; then the end, after which nothing; and last the frame or
+    /// to the pointer only), the fields' texts, the keyboard, the pasteboard, the link, the panel,
+    /// and the menu last; then the images' diagnostics; then the end, after which nothing; and last the frame or
     /// the clock it wants. A reply's texts and keyboard that name a field the page has not laid out
     /// yet are not among them: the drive held them ([`crate::Page::drain`]) for the frame that lays
     /// it out ([`crate::Painted::held`], [`Held::deliver`]).
@@ -153,6 +159,9 @@ impl Drained {
             }
             if let Some(url) = reply.link {
                 host.link(url);
+            }
+            if let Some(panel) = reply.panel {
+                host.panel(panel);
             }
             if let Some(menu) = reply.menu {
                 host.menu(menu);
@@ -217,6 +226,9 @@ mod tests {
         fn menu(&mut self, menu: Menu) {
             self.0.push(format!("menu {}", menu.entries.len()));
         }
+        fn panel(&mut self, panel: Panel) {
+            self.0.push(format!("panel {panel:?}"));
+        }
         fn diagnostic(&mut self, words: String) {
             self.0.push(format!("diagnostic {words}"));
         }
@@ -245,6 +257,7 @@ mod tests {
             copy: Some("copied".into()),
             cursor: Cursor::Text,
             link: Some("https://example.com".into()),
+            panel: Some(Panel::Pick { multiple: true }),
             ..Reply::none()
         }
     }
@@ -284,6 +297,7 @@ mod tests {
                 "keyboard Page",
                 "copy copied",
                 "link https://example.com",
+                "panel Pick { multiple: true }",
                 "menu 1",
                 "cursor Pointer",
                 "diagnostic image \"x\" is not one",

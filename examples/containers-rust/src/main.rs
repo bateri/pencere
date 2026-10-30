@@ -45,9 +45,10 @@ static VIEW: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/containers.wasm")
 /// The same page as a script.
 const SCRIPT: &[u8] = include_bytes!("../../../kit/luau/examples/containers.lua");
 
-/// The version of the interface of the views the terminal draws itself that the page is written
-/// against.
-const VERSION: &str = "2.0";
+/// The versions of the interface of the views the terminal draws itself that the page is written
+/// against: the Lua page API's, and the component interface's (`pencere:view@3.0.0`).
+const LUA_VERSION: &str = "2.0";
+const WASM_VERSION: &str = "3.0";
 
 /// How often the made-up host reports.
 const EVERY: Duration = Duration::from_secs(1);
@@ -141,7 +142,15 @@ fn shown(
     };
     let upload = Arc::new(Upload::default());
     let options = handlers(flood, stall, &upload)
-        .view(View::new(kind, &[VERSION], bundle))
+        .view(View::new(
+            kind,
+            &[if kind == Kind::Wasm {
+                WASM_VERSION
+            } else {
+                LUA_VERSION
+            }],
+            bundle,
+        ))
         .program("containers-rust")
         .title("Containers")
         // The terminal shows no view: the list as text. A refusal or a failure has its words.

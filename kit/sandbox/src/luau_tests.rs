@@ -1565,6 +1565,8 @@ fn a_script_drags_and_is_told_commands_keys_that_go_up_modifiers_and_dropped_fil
         told(
             Event::Files {
                 at: Point::new(7.0, 3.0),
+                source: pencere_view::FileSource::Drop,
+                entries: Vec::new(),
                 paths: vec!["/tmp/a.png".into(), "/tmp/b.png".into()]
             },
             &mut page

@@ -798,3 +798,128 @@ return {
     assert!((at.x - 10.0).abs() < 0.01 && at.y.abs() < 0.01, "{at:?}");
     Ok(())
 }
+
+// --- Files beside the bundle (specification §8.8 to §8.10) ------------------------------------
+
+/// A picture two pixels wide, for the pages that draw files beside their bundle.
+const PNG: [u8; 84] = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x06, 0x00, 0x00, 0x00, 0x72, 0xb6, 0x0d,
+    0x24, 0x00, 0x00, 0x00, 0x1b, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x38, 0xe1, 0xe0, 0xf0,
+    0xdf, 0x61, 0x41, 0xc0, 0x7f, 0x06, 0x87, 0x84, 0x0b, 0xff, 0x1f, 0x5c, 0x98, 0xf0, 0x1f, 0x00,
+    0x51, 0xbc, 0x0a, 0x25, 0x0f, 0x57, 0x03, 0xad, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44,
+    0xae, 0x42, 0x60, 0x82,
+];
+
+/// A page that draws the picture its program attached, the one the person gave it last, and asks
+/// for the panels: the Open panel at a press of `open`, and also at every wake (which is passed
+/// over); the Save panel at a key.
+const FILES_PAGE: &str = r##"
+    local shown, attached, told = nil, nil, "nothing"
+    return {
+        render = function()
+            local page = pencere.div():child(pencere.text(told))
+                :child(pencere.div():id("drop"):size(100, 40))
+                :child(pencere.div():press("open"):size(100, 20))
+            if attached then page:child(pencere.image(attached):size(10, 10)) end
+            if shown then page:child(pencere.image("file:" .. shown):size(10, 10)) end
+            return page
+        end,
+        handle = function(e)
+            if e.type == "files" then
+                told = e.source .. " " .. #e.files
+                if e.files[1] then
+                    shown = e.files[1].handle
+                    told = told .. " " .. e.files[1].name .. " " .. e.files[1].size .. " " .. e.files[1].type
+                end
+                return true
+            elseif e.type == "files_over" then
+                told = "over " .. e.count
+                return true
+            elseif e.type == "files_left" then
+                told = "left"
+                return true
+            elseif e.type == "saving" then
+                told = "saving " .. tostring(e.name)
+                return true
+            elseif e.type == "press" then
+                return { redraw = true, pick = { multiple = true } }
+            elseif e.type == "key" then
+                return { save = { name = "notes.txt", type = "text/plain" } }
+            elseif e.type == "wake" then
+                return { pick = true, copy = "woken" }
+            end
+        end,
+        message = function(m)
+            attached = m.show
+            return { redraw = true, wake = 0 }
+        end,
+    }
+"##;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_file_the_person_gives_is_drawn_by_its_handle_and_an_attached_one_by_its_digest()
+-> Result<(), Error> {
+    let mut page = Headless::script(FILES_PAGE).size(300.0, 200.0).open()?;
+    page.drag_files_over("drop", 2)?;
+    assert!(page.says("over 2"), "{:?}", page.words());
+    page.drag_files_away()?;
+    assert!(page.says("left"), "{:?}", page.words());
+    let handles = page.give_files("drop", pencere_view::FileSource::Drop, &[("dot.png", &PNG)])?;
+    assert_eq!(handles, [format!("{:032x}", 1)]);
+    assert!(
+        page.says("drop 1 dot.png 84 image/png"),
+        "{:?}",
+        page.words()
+    );
+    assert_eq!(pictures(&page), 1);
+    // A digest the program did not attach is no file of the page's.
+    let unattached = format!("sha256:{}", pencere_wire::bundle::Digest::of(b"nothing"));
+    page.tell(&json!({ "show": unattached }).to_string())?;
+    assert_eq!(pictures(&page), 1);
+    let name = page.attach(&PNG);
+    page.tell(&json!({ "show": name }).to_string())?;
+    assert_eq!(pictures(&page), 2);
+    // Let go of: forgotten, and drawn no more.
+    page.detach(&name)?;
+    assert_eq!(pictures(&page), 1);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_panel_is_shown_for_what_the_person_did_and_one_at_a_time() -> Result<(), Error> {
+    let mut page = Headless::script(FILES_PAGE).size(300.0, 200.0).open()?;
+    // Asked for in the answer to a wake: passed over.
+    page.tell(&json!({}).to_string())?;
+    page.advance(0.1)?;
+    // Woken, and its reply taken: but not the panel in it.
+    assert_eq!(page.pasteboard(), Some("woken"));
+    assert_eq!(page.panel(), None);
+    // Asked for at a press: shown.
+    page.click("open")?;
+    assert_eq!(
+        page.panel(),
+        Some(&pencere_view::Panel::Pick { multiple: true })
+    );
+    // A second while it is up: dropped.
+    page.key(pencere_view::Key::Enter, pencere_view::Mods::default())?;
+    assert_eq!(page.dropped_panels(), 1);
+    let handles = page.choose_files(&[("a.txt", b"hello"), ("b.txt", b"!")])?;
+    assert_eq!(handles.len(), 2);
+    assert!(page.says("pick 2 a.txt 5 text/plain"), "{:?}", page.words());
+    // The Save panel, at a key, and the place the person chose.
+    page.key(pencere_view::Key::Enter, pencere_view::Mods::default())?;
+    assert_eq!(
+        page.panel(),
+        Some(&pencere_view::Panel::Save {
+            name: "notes.txt".into(),
+            media_type: Some("text/plain".into()),
+        })
+    );
+    let handle = page.choose_place(Some("notes 2.txt"))?;
+    assert_eq!(handle.as_deref().map(str::len), Some(32));
+    assert!(page.says("saving notes 2.txt"), "{:?}", page.words());
+    Ok(())
+}

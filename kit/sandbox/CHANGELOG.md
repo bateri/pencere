@@ -8,6 +8,15 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **`pencere:view@3.0.0`**, and the Lua page API `2.1`: the files beside the bundle (specification
+  §8.8 to §8.10). The `files` event carries its `source` and each file's handle, name, size, type
+  and path (Lua `event.files`, each `{ handle =, name =, size =, type =, path =, kind = }`); new
+  events `files-over`, `files-left` and `saving`; a reply's `panel` (Lua `pick = true` or
+  `{ multiple = true }`, `save = "name"` or `{ name =, type = }`, one a reply, the last of merged
+  replies), passed over in the reply to anything but a press, a key, a pick in a menu or a command;
+  images named `sha256:` (a file the program attached) and `file:` (one the person gave), which a
+  host's `Assets` answers from its own tables, and `Images::forget` for the names the program let go
+  of. The interpreter is rebuilt. **Breaking:** the sandbox opens `pencere:view@3.0.0`, not `2.0.0`.
 - The interface has `pressing.context`, `editor-command.copy` and `.cut`, `menu-entry.paste` and
   `place.inside` and `.version`; Lua pages write `["right+press"] = "context"`,
   `{ command = "copy" }` / `"cut"`, a menu entry `{ paste = editor }` (the line says "Paste" whatever the page wrote) and read

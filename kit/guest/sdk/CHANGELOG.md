@@ -8,6 +8,8 @@ All notable changes to the `pencere-page` crate are recorded here. The format fo
 
 ### Added
 
+- `pencere:view@3.0.0`: `Event::Files` with `source` and `entries` (`FileEntry`),
+  `Event::FilesOver`, `Event::FilesLeft`, `Event::Saving`, and `Reply::panel` (`Panel`).
 - `Pressing::Context`, `EditCommand::Copy` and `EditCommand::Cut`, `MenuEntry::Paste`, and `Place`
   with `inside` and `version`.
 

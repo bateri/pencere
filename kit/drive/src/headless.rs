@@ -50,9 +50,9 @@ use pencere_editor::Buffer;
 use pencere_sandbox::{Answer, Assets, Fault, Images, ModuleLimits, Program, Runner, Script};
 use pencere_view::wire::Kind;
 use pencere_view::{
-    Button, Cursor, DrawList, Drawing, Element, Event, FieldKind, Fill, Font, Id, Input, Key,
-    KeyConvention, Keyboard, Laid, Measure, Menu, MenuEntry, Metrics, Mods, Paint, Phase, Point,
-    Rect, Shortcut, Size, TerminalLook, WallTime,
+    Button, Cursor, DrawList, Drawing, Element, Event, FieldKind, FileEntry, FileSource, Fill,
+    Font, Id, Input, Key, KeyConvention, Keyboard, Laid, Measure, Menu, MenuEntry, Metrics, Mods,
+    Paint, Panel, Phase, Point, Rect, Saving, Shortcut, Size, TerminalLook, WallTime,
 };
 
 use field::{Done, Held};
@@ -223,6 +223,8 @@ pub enum Error {
     NoEditor,
     /// No menu is open to pick from.
     NoMenu,
+    /// No panel of the kind is up to choose in.
+    NoPanel,
     /// The open menu has no entry of that place or title.
     NoEntry(String),
     /// A menu is open: it takes the keyboard until an entry is picked or it is closed with escape.
@@ -258,6 +260,7 @@ impl fmt::Display for Error {
             ),
             Self::NoEditor => f.write_str("no editor and no field has the keyboard"),
             Self::NoMenu => f.write_str("no menu is open"),
+            Self::NoPanel => f.write_str("no panel of that kind is up"),
             Self::NoEntry(entry) => write!(f, "the menu has no entry {entry}"),
             Self::MenuOpen => {
                 f.write_str("a menu is open: pick an entry from it, or press escape to close it")
@@ -336,6 +339,8 @@ pub struct Headless<P: Peer = Calls> {
     /// The view changed (it was opened, resized): a frame is due.
     dirty: bool,
     seen: Seen,
+    /// The files beside the bundle: attached, and given the page.
+    beside: Arc<Beside>,
 }
 
 /// What the host did of what the page asked, and what it keeps of its own.
@@ -359,6 +364,75 @@ struct Seen {
     /// What the program said to the page.
     received: Vec<String>,
     replies: Vec<Answer>,
+    /// The panel the page asked for, while it is up.
+    panel: Option<Panel>,
+    /// The panels the page asked for while one was up: dropped, as a terminal drops them.
+    dropped_panels: usize,
+}
+
+/// The files beside the page's bundle, as the headless host holds them: those the test attached
+/// (`sha256:` names) and those it gave the page (`file:` and the handle it made). Read only by
+/// these names, from this table; every other name is the bundle's.
+#[derive(Default)]
+struct Beside {
+    files: Mutex<HashMap<String, Arc<[u8]>>>,
+    /// The handles made so far.
+    made: Mutex<u64>,
+}
+
+impl Beside {
+    fn get(&self, name: &str) -> Option<Arc<[u8]>> {
+        self.files
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(name)
+            .cloned()
+    }
+
+    fn put(&self, name: String, bytes: Arc<[u8]>) {
+        self.files
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(name, bytes);
+    }
+
+    fn remove(&self, name: &str) -> bool {
+        self.files
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(name)
+            .is_some()
+    }
+
+    /// A handle: 32 lowercase hex digits, made in order, so that a test knows them.
+    fn handle(&self) -> String {
+        let mut made = self.made.lock().unwrap_or_else(PoisonError::into_inner);
+        *made += 1;
+        format!("{:032x}", *made)
+    }
+}
+
+/// The bundle's files, and the files beside it by their names.
+struct WithBeside {
+    bundle: Option<Arc<dyn Assets>>,
+    beside: Arc<Beside>,
+}
+
+impl Assets for WithBeside {
+    fn read(&self, path: &str) -> Option<Arc<[u8]>> {
+        if path.starts_with("sha256:") || path.starts_with("file:") {
+            return self.beside.get(path);
+        }
+        self.bundle.as_ref()?.read(path)
+    }
+
+    fn media_type(&self, path: &str) -> Option<String> {
+        // A file beside the bundle is never a script.
+        if path.contains(':') {
+            return None;
+        }
+        self.bundle.as_ref()?.media_type(path)
+    }
 }
 
 /// The headless host's pasteboard, for an entry of a menu it performs itself.
@@ -419,6 +493,14 @@ impl<P: Peer> Host for Deliver<'_, P> {
 
     fn menu(&mut self, menu: Menu) {
         self.seen.menu = Some(menu);
+    }
+
+    fn panel(&mut self, panel: Panel) {
+        if self.seen.panel.is_some() {
+            self.seen.dropped_panels += 1;
+        } else {
+            self.seen.panel = Some(panel);
+        }
     }
 
     fn diagnostic(&mut self, words: String) {
@@ -610,10 +692,19 @@ impl<P: Peer> Opening<P> {
             look: Mutex::new(self.look),
             draws: self.draws,
         });
+        let beside = Arc::new(Beside::default());
+        let bundle = self.assets.or_else(|| match &self.source {
+            Source::Script(script) => script.bundle.clone(),
+            Source::Bundle { files, .. } => Some(Arc::clone(files)),
+            Source::Component(_) | Source::Spawn(_) => None,
+        });
         let setup = Setup {
             limits: self.limits,
             program: Arc::clone(&clock) as Arc<dyn Program>,
-            assets: self.assets,
+            assets: Some(Arc::new(WithBeside {
+                bundle,
+                beside: Arc::clone(&beside),
+            })),
             measure: self.measure,
             ..Setup::default()
         };
@@ -651,6 +742,7 @@ impl<P: Peer> Opening<P> {
             list: DrawList::default(),
             dirty: false,
             seen: Seen::default(),
+            beside,
         };
         headless.peer.opened();
         // The line that stands for the page, which asks the module for its first.
@@ -1643,6 +1735,138 @@ impl<P: Peer> Headless<P> {
         let at = self.reach(name)?;
         self.page.files(at, paths);
         self.settle()
+    }
+
+    /// The program attached `bytes` to the page (specification §8.8): the name the page draws them
+    /// by, `sha256:` and their digest. The page is not told; its program says the name.
+    pub fn attach(&mut self, bytes: &[u8]) -> String {
+        let name = format!("sha256:{}", pencere_wire::bundle::Digest::of(bytes));
+        self.beside.put(name.clone(), bytes.into());
+        name
+    }
+
+    /// The program let go of the attached file `name`: the host forgets it, and so do the page's
+    /// images.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn detach(&mut self, name: &str) -> Result<(), Error> {
+        if self.beside.remove(name) {
+            if let Some(images) = self.page.images() {
+                images.forget(&[name.to_owned()]);
+            }
+        }
+        self.settle()
+    }
+
+    /// The person gives the page `files` (each its name and its bytes) as `source` says, on the
+    /// middle of the element named `name`: the host makes each a handle (in order, so that the
+    /// first of a page is `000…01`) and tells the page. The handles, in order.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::click`].
+    pub fn give_files(
+        &mut self,
+        name: &str,
+        source: FileSource,
+        files: &[(&str, &[u8])],
+    ) -> Result<Vec<String>, Error> {
+        let at = self.reach(name)?;
+        let entries = self.entries(files);
+        let handles = entries.iter().filter_map(|e| e.handle.clone()).collect();
+        self.page.give(at, source, entries);
+        self.settle()?;
+        Ok(handles)
+    }
+
+    fn entries(&self, files: &[(&str, &[u8])]) -> Vec<FileEntry> {
+        files
+            .iter()
+            .map(|(name, bytes)| {
+                let handle = self.beside.handle();
+                self.beside.put(format!("file:{handle}"), (*bytes).into());
+                FileEntry {
+                    handle: Some(handle),
+                    name: (*name).to_owned(),
+                    size: bytes.len() as u64,
+                    media_type: pencere_wire::bundle::media_type_of(name).to_owned(),
+                    path: None,
+                    folder: false,
+                }
+            })
+            .collect()
+    }
+
+    /// `count` files are dragged from outside over the middle of the element named `name`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::click`].
+    pub fn drag_files_over(&mut self, name: &str, count: usize) -> Result<(), Error> {
+        let at = self.reach(name)?;
+        self.page.files_over(at, count);
+        self.settle()
+    }
+
+    /// The files dragged over the page go from it without being dropped.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn drag_files_away(&mut self) -> Result<(), Error> {
+        self.page.files_left();
+        self.settle()
+    }
+
+    /// The panel the page asked for, while it is up.
+    pub fn panel(&self) -> Option<&Panel> {
+        self.seen.panel.as_ref()
+    }
+
+    /// How many panels the page asked for while one was up: dropped.
+    pub fn dropped_panels(&self) -> usize {
+        self.seen.dropped_panels
+    }
+
+    /// The person chooses `files` in the Open panel that is up (none: turns it away); the page is
+    /// told them as given with `source` `pick`, and the handles made, in order, are returned.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoPanel`] where no Open panel is up, and as [`Headless::settle`].
+    pub fn choose_files(&mut self, files: &[(&str, &[u8])]) -> Result<Vec<String>, Error> {
+        if !matches!(self.seen.panel, Some(Panel::Pick { .. })) {
+            return Err(Error::NoPanel);
+        }
+        self.seen.panel = None;
+        let entries = self.entries(files);
+        let handles = entries.iter().filter_map(|e| e.handle.clone()).collect();
+        self.page.give(Point::default(), FileSource::Pick, entries);
+        self.settle()?;
+        Ok(handles)
+    }
+
+    /// The person chooses a place named `name` in the Save panel that is up (none: turns it away);
+    /// the page is told the handle made of it, which is returned.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoPanel`] where no Save panel is up, and as [`Headless::settle`].
+    pub fn choose_place(&mut self, name: Option<&str>) -> Result<Option<String>, Error> {
+        if !matches!(self.seen.panel, Some(Panel::Save { .. })) {
+            return Err(Error::NoPanel);
+        }
+        self.seen.panel = None;
+        let saving = name.map(|name| Saving {
+            handle: self.beside.handle(),
+            name: name.to_owned(),
+        });
+        let handle = saving.as_ref().map(|saving| saving.handle.clone());
+        self.page.saving(saving);
+        self.settle()?;
+        Ok(handle)
     }
 
     /// The view is `width` × `height` points from now on.

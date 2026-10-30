@@ -1911,10 +1911,38 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             lua_setfield(L, -2, "id");
             break;
         case PENCERE_VIEW_TYPES_EVENT_FILES: {
+            // { type = "files", x =, y =, source = "drop" | "paste" | "pick", files = { { handle =,
+            // name =, size =, type =, path =, kind = "file" | "folder" }, ... }, paths = { ... } }
+            const auto& given = event.val.files;
             set_word(L, "type", "files");
-            set_number(L, "x", event.val.files.at.x);
-            set_number(L, "y", event.val.files.at.y);
-            const auto& paths = event.val.files.paths;
+            set_number(L, "x", given.at.x);
+            set_number(L, "y", given.at.y);
+            set_word(L, "source",
+                     given.source == PENCERE_VIEW_TYPES_FILE_SOURCE_PASTE  ? "paste"
+                     : given.source == PENCERE_VIEW_TYPES_FILE_SOURCE_PICK ? "pick"
+                                                                           : "drop");
+            lua_createtable(L, (int)given.entries.len, 0);
+            for (size_t at = 0; at < given.entries.len; at++) {
+                const auto& entry = given.entries.ptr[at];
+                lua_createtable(L, 0, 6);
+                if (entry.handle.is_some) {
+                    lua_pushlstring(L, (const char*)entry.handle.val.ptr, entry.handle.val.len);
+                    lua_setfield(L, -2, "handle");
+                }
+                lua_pushlstring(L, (const char*)entry.name.ptr, entry.name.len);
+                lua_setfield(L, -2, "name");
+                set_number(L, "size", (double)entry.size);
+                lua_pushlstring(L, (const char*)entry.type.ptr, entry.type.len);
+                lua_setfield(L, -2, "type");
+                if (entry.path.is_some) {
+                    lua_pushlstring(L, (const char*)entry.path.val.ptr, entry.path.val.len);
+                    lua_setfield(L, -2, "path");
+                }
+                set_word(L, "kind", entry.folder ? "folder" : "file");
+                lua_rawseti(L, -2, (int)at + 1);
+            }
+            lua_setfield(L, -2, "files");
+            const auto& paths = given.paths;
             lua_createtable(L, (int)paths.len, 0);
             for (size_t at = 0; at < paths.len; at++) {
                 lua_pushlstring(L, (const char*)paths.ptr[at].ptr, paths.ptr[at].len);
@@ -1923,6 +1951,26 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             lua_setfield(L, -2, "paths");
             break;
         }
+        case PENCERE_VIEW_TYPES_EVENT_FILES_OVER:
+            set_word(L, "type", "files_over");
+            set_number(L, "x", event.val.files_over.at.x);
+            set_number(L, "y", event.val.files_over.at.y);
+            set_number(L, "count", event.val.files_over.count);
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_FILES_LEFT:
+            set_word(L, "type", "files_left");
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_SAVING:
+            // { type = "saving", handle =, name = }, neither when the person turned the panel away.
+            set_word(L, "type", "saving");
+            if (event.val.saving.is_some) {
+                const auto& saving = event.val.saving.val;
+                lua_pushlstring(L, (const char*)saving.handle.ptr, saving.handle.len);
+                lua_setfield(L, -2, "handle");
+                lua_pushlstring(L, (const char*)saving.name.ptr, saving.name.len);
+                lua_setfield(L, -2, "name");
+            }
+            break;
         case PENCERE_VIEW_TYPES_EVENT_TEXT:
             set_word(L, "type", "text");
             push_id(L, event.val.text.field);
@@ -3049,6 +3097,55 @@ int reply_call(lua_State* L) {
         luaL_error(L, "link is a string: the http or https address to open");
     }
     lua_pop(L, 1);
+    // A panel for the person: the Open panel (`pick = true`, or `{ multiple = true }`) or the Save
+    // panel (`save = "name"`, or `{ name =, type = }`). One a reply; the prelude's merge keeps the
+    // last, and the host shows it only for a reply to something the person did.
+    get(L, 1, "save");
+    if (lua_type(L, -1) == LUA_TSTRING || lua_type(L, -1) == LUA_TTABLE) {
+        out.panel.is_some = true;
+        out.panel.val.tag = PENCERE_VIEW_TYPES_PANEL_SAVE;
+        auto& save = out.panel.val.val.save;
+        save.type.is_some = false;
+        size_t length = 0;
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            const char* bytes = lua_tolstring(L, -1, &length);
+            save.name = host_string(bytes, length);
+        } else {
+            int given = lua_gettop(L);
+            get(L, given, "name");
+            if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "save is { name =, type = }: the name proposed is a string");
+            const char* bytes = lua_tolstring(L, -1, &length);
+            save.name = host_string(bytes, length);
+            lua_pop(L, 1);
+            get(L, given, "type");
+            if (lua_type(L, -1) == LUA_TSTRING) {
+                const char* type = lua_tolstring(L, -1, &length);
+                save.type.is_some = true;
+                save.type.val = host_string(type, length);
+            } else if (!lua_isnil(L, -1)) {
+                luaL_error(L, "save is { name =, type = }: the type is a media type, a string");
+            }
+            lua_pop(L, 1);
+        }
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "save is the name to propose, or { name =, type = }");
+    }
+    lua_pop(L, 1);
+    if (!out.panel.is_some) {
+        get(L, 1, "pick");
+        if (lua_type(L, -1) == LUA_TBOOLEAN || lua_type(L, -1) == LUA_TTABLE) {
+            bool asked = lua_type(L, -1) == LUA_TTABLE || lua_toboolean(L, -1);
+            if (asked) {
+                out.panel.is_some = true;
+                out.panel.val.tag = PENCERE_VIEW_TYPES_PANEL_PICK;
+                out.panel.val.val.pick.multiple =
+                    lua_type(L, -1) == LUA_TTABLE && optional_flag(L, lua_gettop(L), "multiple").val;
+            }
+        } else if (!lua_isnil(L, -1)) {
+            luaL_error(L, "pick is true, or { multiple = true }");
+        }
+        lua_pop(L, 1);
+    }
     // When to wake the page, seconds from now. The prelude puts it (the earliest its timers and
     // the page ask); what is not a number of seconds is still an error of the script's.
     get(L, 1, "wake");

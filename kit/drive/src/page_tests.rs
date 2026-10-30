@@ -318,7 +318,7 @@ fn a_component_of_another_interface_ends_in_words_that_name_both_versions() {
         why.contains("written against `pencere:view@0.5.0`"),
         "{why}"
     );
-    assert!(why.contains("opens `pencere:view@2.0.0`"), "{why}");
+    assert!(why.contains("opens `pencere:view@3.0.0`"), "{why}");
 }
 
 /// A script that makes an error ends its page with the error and the line it is on, which is what

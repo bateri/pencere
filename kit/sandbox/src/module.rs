@@ -20,7 +20,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use pencere_view::edit::TextSnapshot;
-use pencere_view::{Element, Event, Id, Input, Laid, Point, Reply, ScrollTo, Size};
+use pencere_view::{Element, Event, Id, Input, Laid, Panel, Point, Reply, ScrollTo, Size};
 use pencere_wire::json::unescaped_len;
 
 use crate::luau::Script;
@@ -689,7 +689,12 @@ fn serve<R: Runner>(
                         }
                         event => event.clone(),
                     };
-                    let reply = runner.handle(event.clone())?;
+                    let mut reply = runner.handle(event.clone())?;
+                    // A panel only for what the person did (Panel::follows): a page that asked
+                    // for one in its answer to the pointer moving is passed over.
+                    if !Panel::follows(&event) {
+                        reply.panel = None;
+                    }
                     let reply = wakes.reply(reply, clock(last, program), post);
                     post.say(runner.take_sent(), runner.take_asks());
                     let frame = match (reply.redraw, last) {
@@ -804,8 +809,10 @@ fn newest_of_each(boxes: Vec<(Id, Point)>) -> Vec<(Id, Point)> {
 /// What the page said back to something the program did, or to a wake: whether it wants to be
 /// drawn again (the page that follows the batch), and the rest of the reply (a menu, the keyboard,
 /// the pasteboard, a link, the end), which is told now.
-fn answered(reply: Reply, post: &Post<'_>) -> bool {
+fn answered(mut reply: Reply, post: &Post<'_>) -> bool {
     let redraw = reply.redraw;
+    // Nothing the person did: a panel asked for here is passed over.
+    reply.panel = None;
     // Whatever the reply asks of the host, it is posted: a page that hears its program puts what it
     // heard in a field or an editor (a file it read, a completion, the mark of a mistake), opens the
     // address it was sent, and a reply that only redraws is the frame that follows.
@@ -1349,6 +1356,23 @@ mod tests {
         assert_eq!(waiting.replies.len(), 2, "{:?}", waiting.replies);
         assert_eq!(waiting.replies[0].reply.editor.len(), 1);
         assert_eq!(waiting.replies[1].reply.fill.len(), 1);
+    }
+
+    #[test]
+    fn a_panel_asked_for_on_hearing_the_program_or_a_wake_is_passed_over() {
+        let mailbox = Mailbox::default();
+        let post = Post {
+            mailbox: &mailbox,
+            wake: &|| {},
+        };
+        let mut reply = Reply::none();
+        reply.copy = Some("kept".into());
+        reply.panel = Some(pencere_view::Panel::Pick { multiple: false });
+        answered(reply, &post);
+        let waiting = mailbox.waiting.lock().unwrap();
+        assert_eq!(waiting.replies.len(), 1, "{:?}", waiting.replies);
+        assert_eq!(waiting.replies[0].reply.copy.as_deref(), Some("kept"));
+        assert_eq!(waiting.replies[0].reply.panel, None);
     }
 
     #[test]

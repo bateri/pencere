@@ -59,6 +59,8 @@ end
 -- default) or "cover" (the box filled, what does not fit cut off). `:tint` is a colour (any way
 -- of saying one, as for text): the picture is then a shape, drawn in that colour with its own
 -- opacity at each pixel. How much of it shows is the element's `:opacity`, as for any element.
+-- Besides a file of the bundle, `src` is a file beside it: "sha256:" and the digest of one the
+-- program attached to the view, "file:" and the handle of one the person gave it (a `files` event).
 function pencere.image(src)
 	if type(src) ~= "string" then
 		refuse("pencere.image takes the path of a file of the bundle, not " .. type(src))

@@ -501,6 +501,9 @@ impl Pair {
             Event::Focus(_)
             | Event::Command(_)
             | Event::Files { .. }
+            | Event::FilesOver { .. }
+            | Event::FilesLeft
+            | Event::Saving(_)
             | Event::Pointer { .. }
             | Event::EditorReady { .. }
             | Event::Gutter(_)

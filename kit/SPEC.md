@@ -13,10 +13,10 @@ page as any other.
 
 ## 1. Versions
 
-| Kind   | The version `2.0` is                                                           | Source of truth               |
-| ------ | ------------------------------------------------------------------------------ | ----------------------------- |
-| `wasm` | the component interface `pencere:view@2.0.0`                                   | `wit/view.wit`                |
-| `lua`  | the page API whose `pencere.version` is `2`, in Luau `0.740` (`kit/luau/pins`) | `luau/prelude`, this document |
+| Kind   | The version is                                                                                    | Source of truth               |
+| ------ | ------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `wasm` | `3.0`: the component interface `pencere:view@3.0.0`                                               | `wit/view.wit`                |
+| `lua`  | `2.1` (and `2.0`): the page API whose `pencere.version` is `2`, in Luau `0.740` (`kit/luau/pins`) | `luau/prelude`, this document |
 
 The two kinds are numbered apart (protocol, Section 5.4). `lua` `2.x` is bound to the release of
 Luau that the kit pins: a script that needs syntax or a library function a later Luau added is not a
@@ -41,6 +41,16 @@ the commands of whole lines (Sections 2.1 and 2.3); the time of day and the host
 what a page decodes (Sections 2.1 and 2.4); and the pointer's rest over a word of an editor, the names
 of ranges of its text that an overlay stands by, and the names of its styles; widgets in lines; the presses a page maps and the keys it changes, with chords; and looks
 drawn by the modifiers held (Sections 2.1, 2.3 and 2.6); and how an editor's selection looks, with the corners of its lines rounded as a terminal's are, and its caret (its corners, light, blinking, motion and look away from the keyboard) (Section 2.1); and what the host says of how its terminal draws its cursor and its selection and of what it draws, which a page reads and decides on (Sections 2.2, 2.3, 2.6 and 4). The kit's own sandbox opens `2.0` and no longer `1.0`.
+
+`2.1` is `2.0` and the files beside the bundle (protocol, Sections 8.8 to 8.10), each an addition a
+`2.0` script does not notice (so a minor version of `lua`, and a major one of `wasm`, whose records
+change): the `files` a page is told carry how the person gave them (`source`) and each file's handle,
+name, size, type and, on the person's machine, its path; `files_over` and `files_left` while files
+are dragged over the page; `saving` when the person chose a place in the Save panel; a reply's `pick`
+and `save`, the Open and the Save panel, shown only for a reply to something the person did; and an
+image named `sha256:` and a digest (a file the program attached) or `file:` and a handle (one the
+person gave) (Sections 2.1, 2.3 and 5). A host that opens `lua` `2.1` opens `2.0` too; the kit's own
+sandbox opens `wasm` `3.0` and no longer `2.0`.
 
 The regular expressions of a view (an editor's search, the rules of its indent) are in the syntax of
 Rust's `regex` crate, `1.x` at the release the kit pins (its `Cargo.lock`), and one may take at most
@@ -492,7 +502,10 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 | `key_up`           | `key` and `mods`, as `key`: a key the page was told of went up                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `mods`             | `mods`: the modifiers held changed, with no other key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `command`          | `id`: the command asked for, from the host's list or by its keys (the key is not told as well)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `files`            | `x`, `y`, `paths`: files dropped on the page from outside it, their paths as the host's system writes them                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `files`            | `x`, `y`, `source` (`"drop"` on the page at `x`, `y`; `"paste"` at the caret; `"pick"` in the Open panel the page asked for, with none when the person turned it away), `files` (each `{ handle =, name =, size =, type =, path =, kind = }`, below) and `paths` (those the files have)                                                                                                                                                                                                                                                |
+| `files_over`       | `x`, `y`, `count`: files dragged from outside the page are over it, for showing where they would go                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `files_left`       | (no field) they went from it without being dropped                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `saving`           | `handle` and `name`: the place the person chose in the Save panel the page asked for (neither: turned away)                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `edit`             | `editor`, `version` (what the document came to), `origin` (`"person"`, `"compose"`, `"page"`, `"undo"`, `"redo"`, `"load"`), `tag` (the page's name for a change it asked for with one), `changes` (`{ { from =, to =, insert = }, ... }`, in the places of the version before, in order)                                                                                                                                                                                                                                              |
 | `selection`        | `editor`, `version`, `ranges` (`{ { anchor =, head = }, ... }`), `main` (from 1), `composing` (an input method is composing at the main caret; the host does none of the page's commands then)                                                                                                                                                                                                                                                                                                                                         |
 | `viewport`         | `editor`, `first`, `last`: the lines in view, for a page that colours only what is seen                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -770,6 +783,25 @@ is not a string is an error of the script. The link is the host's, not a message
 is not a span's `link(id)` either, which names a part of a text for the pointer: a page opens what
 such a part stands for by answering its press with `{ link = url }`. (`wasm`: the `link` of `reply`
 in the interface, `Reply::with_link` in the Rust SDK.)
+
+The **files the person gives** a page (`lua` `2.1`, `wasm` `3.0`; protocol, Section 8.9) come as
+`files`, each with the `handle` the host made of it (32 lowercase hex digits; none for a `kind` of
+`"folder"`, which is not read), its `name`, its `size` in bytes, its media `type` (the host's guess)
+and, only where the host knows the program reads the same files as the person, its `path`. The name
+is the person's and the type a guess: words, never a path to join to another. A page draws such a
+file as `image("file:" .. handle)` and passes the handle on to its program, which reads the file by
+it; the handle is nothing once the view has ended.
+
+A reply's **`pick`** (`true`, or `{ multiple = true }`) asks the host for the Open panel, and its
+**`save`** (the name to propose, or `{ name =, type = }`) for the Save panel: what the person chooses
+comes as `files` with `source` `"pick"`, or as `saving`. A reply asks for one panel; where replies are
+merged (`pencere.merge`, the timers) the last one's stands. **A panel is shown only for a reply to
+something the person did**: a press, a key, a pick in a menu, a command. Asked for in a reply to
+anything else (the pointer moving, a wake, a message of the program, the room to send), it is passed
+over, so that a page cannot open panel after panel by itself; and the host shows one panel at a time,
+dropping one asked for while another is up. (`wasm`: the `panel` of `reply` and the events `files`,
+`files-over`, `files-left` and `saving` in the interface; `Reply::panel`, `Panel` and `FileEntry` in
+the Rust SDK.)
 
 A reply's **`wake`** asks the host to wake the page that many seconds from now (0 or more; 0 for the
 next frame). Once the time has come the host tells `handle` `{ type = "wake", now = }`, `now` the
@@ -1400,3 +1432,10 @@ A host:
 
 [`README.md`](README.md) describes how a page names a picture and how the host draws it; the limits
 and the formats are those of the protocol, Section 9.8.
+
+Besides a file of the bundle, a page of `lua` `2.1` or `wasm` `3.0` names a file beside it: `sha256:`
+and the digest of a file its program attached (protocol, Section 8.8) and `file:` and the handle of
+one the person gave it (Section 8.9). A manifest path has no `:`, so the names never meet; the host
+answers them from its own tables (the program's attached files, its handles), and a name that is in
+neither is a picture that is not there. A file the program lets go of (`detach`) is forgotten, and
+not drawn any more.
