@@ -2977,6 +2977,79 @@ fn a_file_the_person_drops_is_received_whole_and_nothing_else_is_left() {
 }
 
 #[test]
+fn a_file_whose_path_the_view_passes_on_is_copied_and_not_a_byte_crosses_the_terminal() {
+    let dir = fresh("files-receive-from");
+    let into = dir.join("into");
+    fs::create_dir_all(&into).expect("a directory");
+    let dropped = dir.join("big.bin");
+    let bytes = made_up(&dropped, 13 * 1024 * 1024 + 7);
+    let call = format!(
+        r#"receive={{"handle":"$1","name":"big.bin","path":"{}","size":{}}}"#,
+        dropped.display(),
+        bytes.len()
+    );
+    let run = run_files(
+        &[
+            "--drop",
+            &dropped.to_string_lossy(),
+            "--call",
+            &call,
+            "--then",
+            "interrupt",
+        ],
+        &["--into", &into.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "person: drops big.bin (13631495 bytes): $1",
+        r#"view: <- response id=1 result={"bytes":13631495}"#,
+    ]);
+    assert_eq!(run.count("program: read"), 0, "{}", run.text());
+    assert_eq!(names_in(&into), ["big.bin"]);
+    assert!(fs::read(into.join("big.bin")).expect("the file") == bytes);
+}
+
+#[test]
+fn a_path_that_is_not_the_file_the_view_was_handed_is_left_and_the_file_read_by_its_handle() {
+    let dir = fresh("files-receive-from-not");
+    let into = dir.join("into");
+    fs::create_dir_all(&into).expect("a directory");
+    let dropped = dir.join("big.bin");
+    let bytes = made_up(&dropped, 2 * 1024 * 1024 + 3);
+    // A size that is not the file's, and a path that is not absolute: each is received by the
+    // handle, through the terminal.
+    for (index, (path, size)) in [
+        (dropped.display().to_string(), bytes.len() + 1),
+        ("big.bin".to_owned(), bytes.len()),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let _ = fs::remove_file(into.join("big.bin"));
+        let call =
+            format!(r#"receive={{"handle":"$1","name":"big.bin","path":"{path}","size":{size}}}"#);
+        let run = run_files(
+            &[
+                "--drop",
+                &dropped.to_string_lossy(),
+                "--call",
+                &call,
+                "--then",
+                "interrupt",
+            ],
+            &["--into", &into.to_string_lossy()],
+        );
+        assert!(run.status.success(), "{index}: {}", run.text());
+        run.in_order(&[
+            "program: read id=* offset=0 length=1048576",
+            r#"view: <- response id=1 result={"bytes":2097155}"#,
+        ]);
+        assert_eq!(names_in(&into), ["big.bin"], "{index}");
+        assert!(fs::read(into.join("big.bin")).expect("the file") == bytes);
+    }
+}
+
+#[test]
 fn a_file_chosen_in_the_open_panel_or_pasted_is_received_as_a_dropped_one_is() {
     let dir = fresh("files-pick");
     let into = dir.join("into");
@@ -3252,6 +3325,37 @@ fn a_lua_app_attaches_a_picture_receives_a_dropped_file_and_saves_a_copy_where_t
     assert!(fs::read(into.join("big.bin")).expect("the file") == bytes);
     assert_eq!(names_in(&out), ["big.bin"]);
     assert!(fs::read(out.join("big.bin")).expect("the copy") == bytes);
+}
+
+#[test]
+fn a_lua_app_copies_a_file_whose_path_its_page_passes_on_and_reads_nothing_through_the_terminal() {
+    let app = files_lua_example().to_string_lossy().into_owned();
+    let dir = fresh("files-lua-from");
+    let into = dir.join("into");
+    fs::create_dir_all(&into).expect("a directory");
+    let dropped = dir.join("big.bin");
+    let bytes = made_up(&dropped, 3 * 1024 * 1024 + 5);
+    let call = format!(
+        r#"receive={{"handle":"$1","name":"big.bin","path":"{}","size":{}}}"#,
+        dropped.display(),
+        bytes.len()
+    );
+    let run = run(
+        &[
+            "--drop",
+            &dropped.to_string_lossy(),
+            "--call",
+            &call,
+            "--then",
+            "interrupt",
+        ],
+        &[&app, "--into", &into.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[r#"view: <- response id=1 result={"size":3145733}"#]);
+    assert_eq!(run.count("program: read"), 0, "{}", run.text());
+    assert_eq!(names_in(&into), ["big.bin"]);
+    assert!(fs::read(into.join("big.bin")).expect("the file") == bytes);
 }
 
 #[test]

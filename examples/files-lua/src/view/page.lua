@@ -41,7 +41,9 @@ end
 local function receive(file)
 	local entry = { handle = file.handle, name = file.name, size = file.size, type = file.type, state = "Receiving" }
 	received[#received + 1] = entry
-	b.call("receive", { handle = file.handle, name = file.name }, function(result, error)
+	-- The path is there only where the program reads the same files as the person: it copies the
+	-- file from there.
+	b.call("receive", { handle = file.handle, name = file.name, path = file.path, size = file.size }, function(result, error)
 		if error then
 			entry.state = "Failed: " .. say(error)
 		else

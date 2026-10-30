@@ -622,6 +622,31 @@ impl ViewControl {
         Ok(received)
     }
 
+    /// Receives the file the person gave by `handle` into `to` as [`Self::receive`] does, but
+    /// copied from `path` when the file there is the one the view was handed: a terminal hands a
+    /// view the path of a file only where the program reads the same files as the person
+    /// (specification §8.9), and then not a byte of it need cross the terminal. `path` and `size`
+    /// are what the view was handed with the file and passed on. A path that is not absolute or
+    /// cannot be read, a file that is no longer `size` bytes, and a copy that fails are received
+    /// by the handle instead.
+    ///
+    /// # Errors
+    ///
+    /// As `receive`.
+    pub fn receive_from(
+        &self,
+        handle: &str,
+        path: &Path,
+        size: u64,
+        to: &Path,
+        mut progress: impl FnMut(u64) -> bool,
+    ) -> Result<u64, FileError> {
+        match copy_given(path, size, to, &mut progress) {
+            Some(copied) => copied,
+            None => self.receive(handle, to, progress),
+        }
+    }
+
     /// Sends the file at `from` to the place the person chose to save in by `handle`, in pieces of
     /// [`MAX_PIECE`], and returns its length once the terminal has saved it; `progress` is told how
     /// many bytes are out so far.
@@ -659,6 +684,44 @@ impl ViewControl {
             next = after;
         }
     }
+}
+
+/// Copies the `size` bytes of the file at `path` to a part beside `to`, which is given `to`'s name
+/// at the end, telling `progress` as `receive` does. `None` where the file is not there to be
+/// copied whole (see [`ViewControl::receive_from`]): the part is deleted, and the caller receives
+/// the file by its handle.
+fn copy_given(
+    path: &Path,
+    size: u64,
+    to: &Path,
+    progress: &mut impl FnMut(u64) -> bool,
+) -> Option<Result<u64, FileError>> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let mut file = fs::File::open(path).ok()?;
+    let meta = file.metadata().ok()?;
+    if !meta.is_file() || meta.len() != size {
+        return None;
+    }
+    let mut part = Part::create(to).ok()?;
+    let mut piece = vec![0; MAX_PIECE];
+    let mut copied: u64 = 0;
+    while copied < size {
+        let filled = read_piece(&mut file, &mut piece).ok()?;
+        // Shorter than it was a moment ago: not the file the view was handed.
+        let wanted = usize::try_from(size - copied).unwrap_or(usize::MAX);
+        let bytes = piece
+            .get(..filled.min(wanted))
+            .filter(|bytes| !bytes.is_empty())?;
+        part.file.write_all(bytes).ok()?;
+        copied += bytes.len() as u64;
+        if !progress(copied) {
+            return Some(Err(FileError::Ended));
+        }
+    }
+    part.keep(to).ok()?;
+    Some(Ok(copied))
 }
 
 /// Fills `piece` from `file` as far as it goes; how much it holds.

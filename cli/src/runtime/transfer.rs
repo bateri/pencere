@@ -5,6 +5,7 @@
 //! ended; the loop never waits on one.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::mpsc::{SyncSender, sync_channel};
 
@@ -110,10 +111,25 @@ pub fn natives(lua: &Lua, core: &Rc<Core>, native: &Table) -> mlua::Result<()> {
     native.set(
         "file_receive",
         lua.create_function(
-            move |_, (handle, to, progress, done): (String, String, Option<Function>, Function)| {
+            move |_,
+                  (handle, to, progress, path, size, done): (
+                String,
+                String,
+                Option<Function>,
+                Option<String>,
+                Option<u64>,
+                Function,
+            )| {
                 let to = hold.world.path(&to);
                 start(&hold, progress, done, move |control, progress| {
-                    let bytes = control.receive(&handle, &to, progress)?;
+                    // The path the terminal handed the page, which the page passed on: the file is
+                    // the person's, not one of the app's, so it is never joined to the app's directory.
+                    let bytes = match path.zip(size) {
+                        Some((path, size)) => {
+                            control.receive_from(&handle, Path::new(&path), size, &to, progress)?
+                        }
+                        None => control.receive(&handle, &to, progress)?,
+                    };
                     Ok(serde_json::Value::from(bytes))
                 })
             },

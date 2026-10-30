@@ -6,6 +6,15 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `ViewControl::receive_from` receives a file the person gave by copying it from the path the
+  terminal handed the view, when the view passes the path on with the size: a terminal hands a path
+  only where the program reads the same files as the person, and then not a byte of the file crosses
+  the terminal. Through the terminal a local file came in pieces of base64, a few megabytes a second;
+  a copy is as fast as the disk. A path that is not absolute or cannot be read, and a file that is no
+  longer that size, are received by the handle as `receive` does.
+
 ### Fixed
 
 - The answer to a call of a view that has been replaced (`ViewControl::reopen`, a terminal that

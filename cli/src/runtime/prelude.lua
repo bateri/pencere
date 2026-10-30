@@ -397,11 +397,15 @@ end
 --   return the name it draws it by ("sha256:..."), once the terminal holds it; a file the view has
 --   already, or the terminal still holds, is not sent again. A view shown again needs them again.
 --   files.detach(name) lets one go.
---   files.receive(handle, to, { progress = function(bytes) }) receives the file the person gave the
---   view (the `handle` its page passed on) into `to`, and returns its size. It is written beside
---   `to` as ".<name>.pencere-part" and given its name at the end; `progress` returning false gives
---   it up, and a part that is not finished is deleted. Make `to` of files.safe_name(name): the name
---   the person gave, with nothing a path could be made of.
+--   files.receive(handle, to, { progress = function(bytes), path =, size = }) receives the file the
+--   person gave the view (the `handle` its page passed on) into `to`, and returns its size. It is
+--   written beside `to` as ".<name>.pencere-part" and given its name at the end; `progress`
+--   returning false gives it up, and a part that is not finished is deleted. Make `to` of
+--   files.safe_name(name): the name the person gave, with nothing a path could be made of. Where the
+--   terminal handed the page the file's `path` (a program on the person's machine) and the page
+--   passes it on with the `size`, the file is copied from there and no byte of it crosses the
+--   terminal; a path that cannot be read, or a file that is no longer that size, is received by
+--   the handle.
 --   files.send(handle, from, { progress = function(bytes) }) writes the file `from` to the place
 --   the person chose in the Save panel, and returns its size once the terminal has saved it; its
 --   `progress` is told and cannot stop it (a save the view leaves unfinished is thrown away).
@@ -419,7 +423,14 @@ module.files = {
 	detach = guarded(native.file_detach),
 	receive = function(handle, to, options)
 		return moved(function(done)
-			native.file_receive(handle, to, options and options.progress, done)
+			native.file_receive(
+				handle,
+				to,
+				options and options.progress,
+				options and options.path,
+				options and options.size,
+				done
+			)
 		end)
 	end,
 	send = function(handle, from, options)

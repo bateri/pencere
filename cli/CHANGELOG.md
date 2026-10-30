@@ -6,6 +6,13 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+### Added
+
+- `pencere.files.receive` takes the `path` and the `size` the page was handed with a file, in its
+  options: where the page passes them on, the file is copied from there rather than read through
+  the terminal, which on the person's machine is as fast as the disk. The `files-lua` example's page
+  passes them on.
+
 ### Fixed
 
 - The calls and the subscriptions of a view start in the order the view made them. Each came in on a

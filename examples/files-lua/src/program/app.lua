@@ -31,10 +31,12 @@ pencere.serve({
 			return { name = files.attach_data(pencere.app.read("assets/picture.png")) }
 		end,
 		-- A file the person gave the page, received under its own name. The name is the person's:
-		-- only its last part, with nothing a path could be made of, goes into the path.
+		-- only its last part, with nothing a path could be made of, goes into the path. Where the
+		-- page was handed the file's path (this program runs on the person's machine), it passes it
+		-- on with the size, and the file is copied from there rather than through the terminal.
 		receive = function(params)
 			local to = path.join(into, files.safe_name(params.name))
-			local size = files.receive(params.handle, to)
+			local size = files.receive(params.handle, to, { path = params.path, size = params.size })
 			received[params.handle] = to
 			return { size = size }
 		end,

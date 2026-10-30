@@ -9,12 +9,13 @@
 //! The calls of its view: `attach` (the file of `--attach`; the answer is the name the view draws it
 //! by), `detach {name}`, `reopen` (the view is shown again, once, and what it had attached is no
 //! longer),
-//! `receive {handle, name}` (into `--into`), `send {handle}` (the file of `--source`) and `gap
+//! `receive {handle, name, path?, size?}` (into `--into`; copied from `path` where the view passed
+//! it on), `send {handle}` (the file of `--source`) and `gap
 //! {handle}` (a write that leaves a gap, which the terminal refuses). The stand-in host plays the
 //! person and the view: `pencere-fake-host --drop PATH --call 'receive={"handle":"$1","name":"a"}'
 //! -- files --into DIR`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -108,9 +109,17 @@ fn main() -> ExitCode {
         .call("receive", move |params, _call| {
             let handle = text(&params, "handle")?;
             let to = into.join(safe_name(&text(&params, "name")?));
-            let bytes = c4
-                .receive(&handle, &to, |_| true)
-                .map_err(|why| failed(&why))?;
+            // Where the terminal handed the view the file's path, the view passes it on with the
+            // size, and the file is copied from there.
+            let path = params.get("path").and_then(Value::as_str);
+            let size = params.get("size").and_then(Value::as_u64);
+            let bytes = match path.zip(size) {
+                Some((path, size)) => {
+                    c4.receive_from(&handle, Path::new(path), size, &to, |_| true)
+                }
+                None => c4.receive(&handle, &to, |_| true),
+            }
+            .map_err(|why| failed(&why))?;
             Ok(json!({ "bytes": bytes }))
         })
         .call("send", move |params, _call| {
