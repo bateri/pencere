@@ -1865,6 +1865,7 @@ view = function(u)
         table.insert(columns, { key = "c" .. index, title = "column " .. index })
     end
     return pencere.div():size_full():child(u:grid("g", { columns = columns, count = S.count or 300, state = S.state,
+        numbers = S.numbers,
         cell = function(row, column)
             local values = S.rows[row]
             if values == nil then return nil end
@@ -1910,6 +1911,25 @@ fn a_grid_builds_the_rows_in_view_and_chooses_a_cell_with_the_pointer_and_the_ke
     page.settle()?;
     let after = log(&page).last().cloned().unwrap();
     assert!(after.starts_with("g select column=1 row="), "{after}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_grid_without_numbers_puts_each_head_over_its_column() -> Result<(), Error> {
+    let page = open(&GRID.replace("S.rows = {}", "S.numbers = false\nS.rows = {}"))?;
+    let row = page.bounds("g/row/3").expect("a row");
+    let id = page.bounds("g/head/id").expect("a column's head");
+    let name = page.bounds("g/head/name").expect("a column's head");
+    assert_eq!(
+        id.x, row.x,
+        "the first head starts where the first cell does"
+    );
+    assert_eq!(
+        name.x - id.x,
+        id.w,
+        "each head starts where the one before it ends"
+    );
     Ok(())
 }
 

@@ -195,11 +195,15 @@ local Grid = core.component("grid", {
 		local chosen = state.cursor
 
 		local header = pencere.div():row():h(head):w(room):no_shrink():bg(t.surface)
-		header:child(
-			pencere.div():w(number):h_full():no_shrink():items_center():justify_end():pr(10):child(
-				pencere.text(props.numbers == false and "" or "#"):text_size(t.text.tiny):color(t.ink_quiet)
+		-- The head of the numbers only where the rows have numbers: a box of no width still has its
+		-- padding, and would put every head of a column that far to the right of its cells.
+		if number > 0 then
+			header:child(
+				pencere.div():w(number):h_full():no_shrink():items_center():justify_end():pr(10):child(
+					pencere.text("#"):text_size(t.text.tiny):color(t.ink_quiet)
+				)
 			)
-		)
+		end
 		for index = first_column, last_column do
 			local column = props.columns[index]
 			local part = u:part(id, "head", column.key)
