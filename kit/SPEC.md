@@ -83,6 +83,23 @@ A script is Luau. What it can use besides the language is the base functions, `s
 clock but the time `render` and a wake hand it (Section 2.3) and the time of day its host says
 (Section 2.2), and no randomness.
 
+Nothing of the prelude's own is a name a script can reach: what its parts share among themselves,
+and the functions of the host that it wraps, are not fields of `pencere` or of any table a script
+is given, so that a script, and a module of the library, can neither read them nor change them
+(`pencere.host`, `pencere._keymaps` and the like are nil). The tables `pencere` holds (`pencere.json`,
+`pencere.layout`, `pencere.time`, the classes of elements, spans, paths and timers with their
+metatables, `pencere.json.null`) are read only, as `pencere` itself is: assigning to one, or adding a
+field, is an error of the script at its line, whatever the script is and whichever script ran before
+it. The tables a script makes with them are its own.
+
+A call of the page API that is given what it refuses (the wrong kind of value, a name it has not, a
+box that cannot be what the call needs it to be) fails the page with the error at the line of the
+script that made the call, `script.lua:12: …` (at the line of the module of the library when one made
+it), and not at a line of the prelude. What the page API finds wrong in what a function of the page
+returned (a `render` that gives no element, a reply's `wake`) has no line of the script to name, and
+says its words as they are. A mistake that is found only once the tree is made, in a style value or a
+colour that is not one, says its words alone: no line of the script is there to name by then.
+
 A script **returns the page**, a table of the functions the host calls:
 
 | Function                                                              | Called when                                                                                                                                                                                                                                                                                      |
@@ -847,7 +864,9 @@ What the page says to its program is the six messages of the protocol (Section 9
 `pencere.call(method, params, done, progress)` asks and is answered once, `pencere.subscribe(topic,
 params, on_value)` asks to hear a topic, `pencere.cancel(id)` gives either up, `pencere.json` encodes
 and decodes JSON (arrays and objects nested up to 127 levels, the outermost counting as the first: protocol, Section 4.5).
-A member that is `null` holds nothing in what is decoded, as one that is not there does, so that
+`pencere.json.decode(text)` is the reader the program's own messages are read with, and gives the
+value, or nil and why (`a comma or a brace was expected at 12`, the place counted from 1; nil alone for
+the text `null`); it reads a message of any length the limits of Section 5 allow. A member that is `null` holds nothing in what is decoded, as one that is not there does, so that
 `if changes.git then` reads both alike; where they mean different things, `pencere.json.has(object,
 key)` says whether the object had the key (`null` too) and `pencere.json.is_null(object, key)`
 whether it had it as `null`, for every object decoded, those of the program's messages included,

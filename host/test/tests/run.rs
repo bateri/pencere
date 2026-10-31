@@ -520,13 +520,19 @@ test("a look the host cannot say is the test's mistake", function()
 	expect(ok):to_be(false)
 	expect(why):to_match("shape")
 end)
+
+test("a component is not a page any more, and the test that gives one is told", function()
+	local ok, why = pcall(test.open, { calls = {}, component = "view.wasm" })
+	expect(ok):to_be(false)
+	expect(why):to_match("component")
+end)
 "#,
             ),
         ],
     );
     let (code, text) = tap(&app, &[]);
     assert_eq!(code, 0, "{text}");
-    assert!(text.contains("1..3"), "{text}");
+    assert!(text.contains("1..4"), "{text}");
 }
 
 #[test]

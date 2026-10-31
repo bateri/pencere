@@ -26,6 +26,7 @@
 
 #include "Luau/Require.h"
 #include "convert.h"
+#include "json.h"
 #include "lua.h"
 #include "luacode.h"
 #include "lualib.h"
@@ -47,6 +48,8 @@ lua_State* L = nullptr;
 bool started = false;
 // The script cannot go on: the application has been told, and is closing the page.
 bool broken = false;
+// The registry reference to the table of the prelude's entry points (`start`, `render`, ...).
+int entry_points = LUA_NOREF;
 
 constexpr size_t kMessageLimit = 2048;
 
@@ -91,6 +94,47 @@ bool load(lua_State* state, const char* name, const char* source, size_t length,
     return true;
 }
 
+// --- Where an error is -----------------------------------------------------------------------------
+
+// The place of the script (or the module of the kit's library) that called the page API: the
+// first function on the stack that is not the prelude's, as "file:line: ", the line `error(message,
+// level)` would have named at that level. Empty where that function is not Lua's (`pcall(pencere.keys,
+// words)` has the word `pcall` called it, and a caller that wants the line adds its own) or where
+// there is none (the bridge itself called, with the script nowhere in the chain).
+std::string script_place(lua_State* state) {
+    for (int level = 1;; level++) {
+        lua_Debug frame;
+        if (!lua_getinfo(state, level, "sl", &frame)) return "";
+        if (strcmp(frame.what, "C") == 0) return "";
+        // The prelude's parts are loaded as `=prelude/..`; a script of the bundle that has such a
+        // path is `@prelude/..`, and a script.
+        if (frame.source && strncmp(frame.source, "=prelude/", 9) == 0) continue;
+        return std::string(frame.short_src) + ":" + std::to_string(frame.currentline) + ": ";
+    }
+}
+
+// An error of the script's making, at its place, and not at a line of the prelude that was only
+// passing the script's word on.
+[[noreturn]] void script_fail(lua_State* state, const char* message) {
+    std::string words = script_place(state) + message;
+    lua_pushlstring(state, words.data(), words.size());
+    lua_error(state);
+}
+
+// `where()`: the place of the script that called the page API, "file:line: ", for the prelude's
+// own refusals (`refuse` in `prelude/00-core.lua`).
+int l_where(lua_State* state) {
+    std::string place = script_place(state);
+    lua_pushlstring(state, place.data(), place.size());
+    return 1;
+}
+
+// A number the script gave, as a coordinate.
+double coordinate(lua_State* state, int index) {
+    if (!lua_isnumber(state, index)) script_fail(state, "a point is { x =, y = }, two numbers");
+    return lua_tonumber(state, index);
+}
+
 // --- What the script may ask of the application -------------------------------------------------
 
 int l_send(lua_State* state) {
@@ -126,7 +170,7 @@ void push_ids(lua_State* state, view_list_id_t& ids) {
 }
 
 int l_hit(lua_State* state) {
-    pencere_view_types_point_t at = {(float)luaL_checknumber(state, 1), (float)luaL_checknumber(state, 2)};
+    pencere_view_types_point_t at = {(float)coordinate(state, 1), (float)coordinate(state, 2)};
     uint64_t id = 0;
     if (pencere_view_layout_hit(&at, &id)) bridge::push_id(state, id);
     else lua_pushnil(state);
@@ -134,7 +178,7 @@ int l_hit(lua_State* state) {
 }
 
 int l_ids_at(lua_State* state) {
-    pencere_view_types_point_t at = {(float)luaL_checknumber(state, 1), (float)luaL_checknumber(state, 2)};
+    pencere_view_types_point_t at = {(float)coordinate(state, 1), (float)coordinate(state, 2)};
     view_list_id_t ids = {nullptr, 0};
     pencere_view_layout_ids_at(&at, &ids);
     push_ids(state, ids);
@@ -198,7 +242,7 @@ int l_path_of(lua_State* state) {
 }
 
 int l_drag_source(lua_State* state) {
-    pencere_view_types_point_t at = {(float)luaL_checknumber(state, 1), (float)luaL_checknumber(state, 2)};
+    pencere_view_types_point_t at = {(float)coordinate(state, 1), (float)coordinate(state, 2)};
     uint64_t id = 0;
     if (pencere_view_layout_drag_source(&at, &id)) bridge::push_id(state, id);
     else lua_pushnil(state);
@@ -206,7 +250,7 @@ int l_drag_source(lua_State* state) {
 }
 
 int l_drop_target(lua_State* state) {
-    pencere_view_types_point_t at = {(float)luaL_checknumber(state, 1), (float)luaL_checknumber(state, 2)};
+    pencere_view_types_point_t at = {(float)coordinate(state, 1), (float)coordinate(state, 2)};
     uint64_t id = 0;
     if (pencere_view_layout_drop_target(&at, &id)) bridge::push_id(state, id);
     else lua_pushnil(state);
@@ -219,9 +263,9 @@ int l_drop_target(lua_State* state) {
 // `edit` event the page was told says. Places and lines are whole numbers from 0.
 
 uint32_t checked_place(lua_State* state, int index, const char* what) {
-    double at = luaL_checknumber(state, index);
+    double at = lua_isnumber(state, index) ? lua_tonumber(state, index) : -1.0;
     if (!(at >= 0 && at <= 4294967295.0) || at != (double)(uint32_t)at)
-        luaL_error(state, "%s is a whole number from 0", what);
+        script_fail(state, (std::string(what) + " is a whole number from 0").c_str());
     return (uint32_t)at;
 }
 
@@ -738,6 +782,10 @@ void open_libraries(lua_State* state) {
     }
 }
 
+// What the prelude takes of the application and keeps from the script: the table of the
+// application's functions, and with it whatever the prelude's parts share among themselves,
+// `internal`. The prelude is run with it as its one argument (`local internal = ...`); the
+// script and the library are given nothing that leads to it.
 void host_functions(lua_State* state) {
     static const luaL_Reg functions[] = {
         {"send", l_send},
@@ -761,11 +809,17 @@ void host_functions(lua_State* state) {
         {"keyboard", l_keyboard},
         {"terminal_look", l_terminal_look},
         {"draws", l_draws},
+        {"json_read", bridge::json_read},
+        {"where", l_where},
         {nullptr, nullptr},
     };
+    // `pencere` is made by the prelude; it is empty here.
+    lua_newtable(state);
+    lua_setglobal(state, "pencere");
+    lua_newtable(state);
     lua_newtable(state);
     luaL_register(state, nullptr, functions);
-    lua_setglobal(state, "pencere");
+    lua_setfield(state, -2, "host");
 }
 
 // Makes the state: the libraries, the prelude, the sandbox, then the script. False (and the
@@ -778,6 +832,7 @@ bool start() {
         return false;
     }
     open_libraries(L);
+    // The prelude's parts share `internal`, which stays at index 1 until they have all run.
     host_functions(L);
     luarequire_pushrequire(L, require_configuration, nullptr);
     lua_pushcclosurek(L, l_require, "require", 1, nullptr);
@@ -785,12 +840,21 @@ bool start() {
     for (const auto& chunk : kPrelude) {
         std::string error;
         std::string name = std::string("=") + chunk.name;
-        if (!load(L, name.c_str(), chunk.source, chunk.length, error) || lua_pcall(L, 0, 0, 0) != 0) {
-            if (error.empty()) error = reason(L);
+        if (!load(L, name.c_str(), chunk.source, chunk.length, error)) {
             fail(error);
             return false;
         }
+        lua_pushvalue(L, 1);
+        if (lua_pcall(L, 1, 0, 0) != 0) {
+            fail(reason(L));
+            return false;
+        }
     }
+    // The entry points are not in `pencere`, where a script could call them: the bridge keeps
+    // the table they are in.
+    lua_getfield(L, 1, "entry");
+    entry_points = lua_ref(L, -1);
+    lua_pop(L, 2);
     luaL_sandbox(L);
     // The script gets a thread of its own, with globals of its own over the shared, read-only
     // ones: what it assigns is its own.
@@ -822,14 +886,14 @@ bool start() {
         return false;
     }
     // The prelude's `start` takes what the script returned: the page.
-    lua_getglobal(L, "pencere");
+    lua_getref(L, entry_points);
     lua_getfield(L, -1, "start");
+    lua_remove(L, -2);
     lua_xmove(thread, L, 1);
     if (lua_pcall(L, 1, 0, 0) != 0) {
         fail(reason(L));
         return false;
     }
-    lua_pop(L, 1);
     return true;
 }
 
@@ -843,7 +907,7 @@ bool ready() {
 // results are left on the stack; false when it failed (and the application has been told).
 bool entry(const char* name, int arguments, int results) {
     // The function goes below its arguments.
-    lua_getglobal(L, "pencere");
+    lua_getref(L, entry_points);
     lua_getfield(L, -1, name);
     lua_remove(L, -2);
     lua_insert(L, -(arguments + 1));

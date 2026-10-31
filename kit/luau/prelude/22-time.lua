@@ -34,8 +34,11 @@
 -- `pencere.time.now()` is the time the host last gave the page, `render`'s `now` or a wake's:
 -- seconds on the host's clock, 0 before it gave any. It does not go on between them.
 
+local internal = ...
+
 local time = {}
 pencere.time = time
+local refuse = internal.refuse
 
 -- The latest time the host gave, and the time of the wake being answered (nil while none is).
 local known = 0
@@ -266,16 +269,17 @@ end
 
 local Timer = {}
 Timer.__index = Timer
+table.insert(internal.classes, Timer)
 
 local function add(seconds, every, fn, name)
 	if type(seconds) ~= "number" or not (seconds >= 0 and seconds < math.huge) then
-		error("pencere.time." .. name .. " takes a number of seconds, 0 or more, then a function", 3)
+		refuse("pencere.time." .. name .. " takes a number of seconds, 0 or more, then a function")
 	end
 	if every and seconds == 0 then
-		error("pencere.time.every: the time between two runs is more than 0 seconds", 3)
+		refuse("pencere.time.every: the time between two runs is more than 0 seconds")
 	end
 	if type(fn) ~= "function" then
-		error("pencere.time." .. name .. " takes a number of seconds, then the function to run", 3)
+		refuse("pencere.time." .. name .. " takes a number of seconds, then the function to run")
 	end
 	made += 1
 	if waking == nil then
@@ -313,7 +317,7 @@ end
 -- asked, it goes on within a call, unlike `time.now()`; it is no clock to time a page's work by
 -- (the person may set the system's clock), but what "4 minutes ago" and "14:32" are told from.
 function time.wall()
-	return pencere.host.wall_clock()
+	return internal.host.wall_clock()
 end
 
 -- Stops the timer: whether it was still waiting (an `after` that ran is not).
@@ -332,7 +336,7 @@ end
 -- --- What the application's calls do with it (`40-page.lua`) -------------------------------------
 
 local hooks = {}
-pencere._time = hooks
+internal.time = hooks
 
 -- The host gave the time `now` (a frame).
 function hooks.given(now)
@@ -349,6 +353,7 @@ function hooks.taken(reply)
 	end
 	local seconds = reply.wake
 	if type(seconds) ~= "number" or not (seconds >= 0 and seconds < math.huge) then
+		-- A reply is what a function of the page returned: no line of the script is on the stack to name.
 		error("wake is a number of seconds, 0 or more", 0)
 	end
 	if waking ~= nil then

@@ -597,17 +597,67 @@ fn a_script_cannot_change_what_every_script_shares() {
         local ok2 = pcall(function() pencere.div = nil end)
         local ok3 = pcall(function() _G.owned = 1 end)
         owned_by_me = 2
+
+        -- What the prelude keeps to itself is not there to read.
+        local hidden = {}
+        for _, name in { "host", "_keymaps", "_lists", "_time", "start", "render", "settle", "handle", "message", "room" } do
+            hidden[#hidden + 1] = name .. "=" .. tostring(pencere[name])
+        end
+        for _, name in { "_heard", "_asked" } do
+            hidden[#hidden + 1] = "layout." .. name .. "=" .. tostring(pencere.layout[name])
+        end
+
+        -- The tables it makes public, and the classes of what a script is handed, cannot be changed.
+        local changed = {}
+        local function held(name, change)
+            if pcall(change) then changed[#changed + 1] = name end
+        end
+        held("json.decode", function() pencere.json.decode = nil end)
+        held("json.encode", function() pencere.json.encode = function() return "" end end)
+        held("json.new", function() pencere.json.extra = 1 end)
+        held("json.null", function() pencere.json.null.extra = 1 end)
+        held("json.null metatable", function() getmetatable(pencere.json.null).__tostring = nil end)
+        held("json.array", function() pencere.json.array.extra = 1 end)
+        held("layout.hit", function() pencere.layout.hit = nil end)
+        held("layout.new", function() pencere.layout.extra = 1 end)
+        held("time.after", function() pencere.time.after = nil end)
+        held("Element", function() pencere.Element.child = nil end)
+        held("an element's class", function() getmetatable(pencere.div()).child = nil end)
+        held("a span's class", function() getmetatable(pencere.span("x")).look = nil end)
+        held("a path's class", function() getmetatable(pencere.path()).fill = nil end)
+        held("a timer's class", function() getmetatable(pencere.time.after(1, function() end)).cancel = nil end)
+        -- What several pages are given is one table: the command of a default key, what the host draws.
+        held("a default key's command", function() pencere.layout.keymap("e")[1].does.movement = "up" end)
+        held("what the host draws", function() pencere.draws().shadow = true end)
+
+        -- What a page makes with them is its own.
+        local mine = pencere.div()
+        local ok4 = pcall(function()
+            mine.style.gap_x = 4
+            mine.extra = true
+        end)
         return { render = function()
-            return pencere.div():child(pencere.text(tostring(ok1) .. tostring(ok2) .. tostring(ok3) .. tostring(owned_by_me)))
+            return pencere.div()
+                :child(pencere.text(tostring(ok1) .. tostring(ok2) .. tostring(ok3) .. tostring(owned_by_me)))
+                :child(pencere.text(table.concat(hidden, " ")))
+                :child(pencere.text(#changed == 0 and "all held" or table.concat(changed, ", ")))
+                :child(pencere.text(tostring(ok4)))
         end }
         "#,
         ModuleLimits::default(),
     );
-    assert_eq!(update.closed, None);
+    assert_eq!(update.closed, None, "{:?}", update.closed);
     // The libraries are read only; the script's own globals are its own.
-    let text = words(&update.frame.expect("a page").root).join("");
-    assert!(text.starts_with("falsefalse"), "{text}");
-    assert!(text.ends_with('2'), "{text}");
+    let said = words(&update.frame.expect("a page").root);
+    assert!(said[0].starts_with("falsefalse"), "{}", said[0]);
+    assert!(said[0].ends_with('2'), "{}", said[0]);
+    assert_eq!(
+        said[1],
+        "host=nil _keymaps=nil _lists=nil _time=nil start=nil render=nil settle=nil handle=nil \
+         message=nil room=nil layout._heard=nil layout._asked=nil"
+    );
+    assert_eq!(said[2], "all held");
+    assert_eq!(said[3], "true");
 }
 
 #[test]
@@ -2040,4 +2090,507 @@ fn replies_put_together_ask_all_they_ask_in_order_and_the_earliest_wake() {
         words(&update.frame.expect("a page").root),
         ["a,b,c,d,two/1,name,text,0.5,true,one nil 2,nil nil false true"]
     );
+}
+
+/// A Lua string that says exactly `bytes`, whatever they are.
+fn lua_literal(bytes: &[u8]) -> String {
+    let mut out = String::from("\"");
+    for &byte in bytes {
+        if (b' '..=b'~').contains(&byte) && byte != b'"' && byte != b'\\' {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("\\{byte:03}"));
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Texts of JSON, good and bad, as `json.decode` (and with it every message of a page's program)
+/// reads them. What each says is written out in `JSON_READ`, in the same order: the values, the
+/// `null`s, the reasons and the places they name. The reader is the bridge's, in C++; the cases are
+/// those the reader in Lua that it replaced gave the same answers to.
+const JSON_TEXTS: &[&[u8]] = &[
+    b"{}",
+    b"[]",
+    b"[ ]",
+    b" [1 , 2 ] ",
+    b"{\"a\":1,\"b\":[true,false,null],\"c\":{\"d\":null}}",
+    b"{\"a\":null}",
+    b"{\"a\":1,\"a\":null}",
+    b"{\"a\":null,\"a\":1}",
+    b"null",
+    b" null ",
+    b"true",
+    b"false",
+    b"\"x\"",
+    b"12",
+    b"-0",
+    b"01",
+    b"1.",
+    b"1.e2",
+    b"1e",
+    b"1e+",
+    b"1+2",
+    b"-",
+    b"--1",
+    b"1.5.5",
+    b"0x10",
+    b"1e999",
+    b"1E5",
+    b"-12.5e-3",
+    b"123456789012345678901234567890",
+    b"\"\\u00e9\"",
+    b"\"\\ud83d\\ude00\"",
+    b"\"\\ud83d\"",
+    b"\"\\ud83dx\"",
+    b"\"\\ude00\"",
+    b"\"\\ud83d\\u0041\"",
+    b"\"\\q\"",
+    b"\"\\u12\"",
+    b"\"\\u12G4\"",
+    b"\"\\u0000\"",
+    b"\"a\\/b\\b\\f\\n\\r\\t\\\"\\\\\"",
+    b"\"a\nb\"",
+    b"\"a\x7fb\"",
+    b"\"a\x00b\"",
+    b"\"caf\xc3\xa9\"",
+    b"\"a\xc8b\"",
+    b"\"abc",
+    b"\"abc\\",
+    b"\"abc\\\"",
+    b"{\"a\" 1}",
+    b"{\"a\":1 \"b\":2}",
+    b"{\"a\":1,}",
+    b"{,}",
+    b"[1,]",
+    b"[,1]",
+    b"[1 2]",
+    b"[1,2",
+    b"{\"a\"",
+    b"{\"a\":",
+    b"{",
+    b"[",
+    b"",
+    b"   ",
+    b"tru",
+    b"nul",
+    b"nullx",
+    b"truex",
+    b"1 2",
+    b"[1] x",
+    b"[]]",
+    b"{\"a\":1}}",
+    b"\"x\" \"y\"",
+    b"{1:2}",
+    b"{'a':1}",
+    b"\t\n [1]\r\n",
+    b"\x00",
+    b"[1,\x00]",
+    b"{\"a\":\x00}",
+    b"{\"a\":{\"b\":{\"c\":[1,{\"d\":null}]}}}",
+    b"[null,null]",
+    b"{\"a\":[],\"b\":{}}",
+    b"{\"\":1}",
+    b"{\"1\":2,\"01\":3}",
+];
+
+const JSON_READ: &[&str] = &[
+    "T{} | nil | n=1",
+    "A{} | nil | n=1",
+    "A{} | nil | n=1",
+    "T{1=1,2=2} | nil | n=1",
+    "T{a=1,b=T{1=true,2=false,3=NULL},c=T{}~d} | nil | n=1",
+    "T{}~a | nil | n=1",
+    "T{a=1} | nil | n=1",
+    "T{a=1} | nil | n=1",
+    "nil | nil | n=1",
+    "nil | nil | n=1",
+    "true | nil | n=1",
+    "false | nil | n=1",
+    "\"x\" | nil | n=1",
+    "12 | nil | n=1",
+    "-0 | nil | n=1",
+    "1 | nil | n=1",
+    "1 | nil | n=1",
+    "100 | nil | n=1",
+    "nil | a bad number at 1 | n=2",
+    "nil | a bad number at 1 | n=2",
+    "nil | a bad number at 1 | n=2",
+    "nil | a value was expected at 1 | n=2",
+    "nil | a value was expected at 1 | n=2",
+    "nil | more after the value at 4 | n=2",
+    "nil | more after the value at 2 | n=2",
+    "inf | nil | n=1",
+    "100000 | nil | n=1",
+    "-0.012500000000000001 | nil | n=1",
+    "1.2345678901234568e+29 | nil | n=1",
+    "\"\\xc3\\xa9\" | nil | n=1",
+    "\"\\xf0\\x9f\\x98\\x80\" | nil | n=1",
+    "\"\\xef\\xbf\\xbd\" | nil | n=1",
+    "\"\\xef\\xbf\\xbdx\" | nil | n=1",
+    "\"\\xef\\xbf\\xbd\" | nil | n=1",
+    "\"\\xef\\xbf\\xbdA\" | nil | n=1",
+    "nil | a bad escape at 2 | n=2",
+    "nil | a bad \\u escape at 2 | n=2",
+    "nil | a bad \\u escape at 2 | n=2",
+    "\"\\x00\" | nil | n=1",
+    "\"a/b\\x08\\x0c\\x0a\\x0d\\x09\\x22\\x5c\" | nil | n=1",
+    "nil | a control character in a string at 3 | n=2",
+    "nil | a control character in a string at 3 | n=2",
+    "nil | a control character in a string at 3 | n=2",
+    "\"caf\\xc3\\xa9\" | nil | n=1",
+    "\"a\\xc8b\" | nil | n=1",
+    "nil | a string that does not end at 1 | n=2",
+    "nil | a bad escape at 5 | n=2",
+    "nil | a string that does not end at 1 | n=2",
+    "nil | a colon was expected at 6 | n=2",
+    "nil | a comma or a brace was expected at 8 | n=2",
+    "nil | a key was expected at 8 | n=2",
+    "nil | a key was expected at 2 | n=2",
+    "nil | a value was expected at 4 | n=2",
+    "nil | a value was expected at 2 | n=2",
+    "nil | a comma or a bracket was expected at 4 | n=2",
+    "nil | a comma or a bracket was expected at 5 | n=2",
+    "nil | a colon was expected at 5 | n=2",
+    "nil | a value was expected at 6 | n=2",
+    "nil | a key was expected at 2 | n=2",
+    "nil | a value was expected at 2 | n=2",
+    "nil | a value was expected at 1 | n=2",
+    "nil | a value was expected at 4 | n=2",
+    "nil | a value was expected at 1 | n=2",
+    "nil | a value was expected at 1 | n=2",
+    "nil | more after the value at 5 | n=2",
+    "nil | more after the value at 5 | n=2",
+    "nil | more after the value at 2 | n=2",
+    "nil | more after the value at 4 | n=2",
+    "nil | more after the value at 3 | n=2",
+    "nil | more after the value at 8 | n=2",
+    "nil | more after the value at 4 | n=2",
+    "nil | a key was expected at 2 | n=2",
+    "nil | a key was expected at 2 | n=2",
+    "T{1=1} | nil | n=1",
+    "nil | a value was expected at 1 | n=2",
+    "nil | a value was expected at 4 | n=2",
+    "nil | a value was expected at 6 | n=2",
+    "T{a=T{b=T{c=T{1=1,2=T{}~d}}}} | nil | n=1",
+    "T{1=NULL,2=NULL} | nil | n=1",
+    "T{a=A{},b=T{}} | nil | n=1",
+    "T{=1} | nil | n=1",
+    "T{01=3,1=2} | nil | n=1",
+];
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn json_is_read_as_it_always_was() {
+    let texts: Vec<String> = JSON_TEXTS.iter().map(|text| lua_literal(text)).collect();
+    let script = format!(
+        r####"
+        local json = pencere.json
+        local function quote(text)
+            return '"' .. string.gsub(text, '[%c"\\\128-\255]', function(c)
+                return string.format("\\x%02x", string.byte(c))
+            end) .. '"'
+        end
+        local function show(v)
+            local kind = type(v)
+            if v == json.null then return "NULL" end
+            if kind == "string" then return quote(v) end
+            if kind == "number" then return string.format("%.17g", v) end
+            if kind ~= "table" then return tostring(v) end
+            local keys = {{}}
+            for k in pairs(v) do keys[#keys + 1] = k end
+            table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+            local out = {{}}
+            for _, k in ipairs(keys) do
+                out[#out + 1] = tostring(k) .. "=" .. show(v[k])
+            end
+            local nulls = {{}}
+            for _, k in ipairs({{ "a", "b", "c", "d" }}) do
+                if json.is_null(v, k) then nulls[#nulls + 1] = k end
+            end
+            return (getmetatable(v) == json.array and "A" or "T") .. "{{" .. table.concat(out, ",") .. "}}"
+                .. (#nulls > 0 and ("~" .. table.concat(nulls)) or "")
+        end
+        local texts = {{ {} }}
+        local lines = {{}}
+        for _, text in ipairs(texts) do
+            local value, why = json.decode(text)
+            lines[#lines + 1] = show(value) .. " | " .. tostring(why) .. " | n=" .. select("#", json.decode(text))
+        end
+        return {{ render = function()
+            local div = pencere.div()
+            for _, line in ipairs(lines) do div:child(pencere.text(line)) end
+            return div
+        end }}
+        "####,
+        texts.join(", ")
+    );
+    let update = first(&script, ModuleLimits::default());
+    assert_eq!(update.closed, None, "{:?}", update.closed);
+    let said = words(&update.frame.expect("a page").root);
+    assert_eq!(said.len(), JSON_TEXTS.len());
+    for (at, said) in said.iter().enumerate() {
+        let text = String::from_utf8_lossy(JSON_TEXTS[at]);
+        assert_eq!(
+            Some(said.as_str()),
+            JSON_READ.get(at).copied(),
+            "reading {text:?} (case {at})\n{said}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn json_objects_are_held_to_the_same_depth_as_lists() {
+    let update = first(
+        r#"
+        local json = pencere.json
+        local function nested(levels)
+            return string.rep('{"a":', levels) .. "1" .. string.rep("}", levels)
+        end
+        local ok127 = json.decode(nested(127)) ~= nil
+        local bad128, why = json.decode(nested(128))
+        -- Lists and objects count together.
+        local mixed, mixed_why = json.decode(string.rep('[{"a":', 63) .. "1" .. string.rep("}]", 63))
+        local mixed_over, over_why = json.decode(string.rep('[{"a":', 64) .. "1" .. string.rep("}]", 64))
+        return { render = function()
+            return pencere.div():child(pencere.text(tostring(ok127))):child(pencere.text(tostring(bad128)))
+                :child(pencere.text(tostring(why))):child(pencere.text(tostring(mixed ~= nil)))
+                :child(pencere.text(tostring(mixed_over) .. " " .. tostring(over_why)))
+        end }
+        "#,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None, "{:?}", update.closed);
+    let said = words(&update.frame.expect("a page").root);
+    assert_eq!(said[0], "true");
+    assert_eq!(said[1], "nil");
+    assert!(said[2].starts_with("nested too deep at "), "{}", said[2]);
+    assert_eq!(said[3], "true");
+    assert!(
+        said[4].starts_with("nil nested too deep at "),
+        "{}",
+        said[4]
+    );
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_message_of_the_program_hundreds_of_kib_long_is_read_as_a_short_one_is() {
+    // A message of 300 KiB and more, which the reader in Lua was not asked for: a long string, a
+    // long list and a long object, as the program's own messages and as `json.decode` reads them.
+    let mut page = open_script(
+        r#"
+        local seen = "nothing yet"
+        pencere.subscribe("stats", nil, function(value)
+            local text = value.text
+            seen = #text .. " " .. #value.list .. " " .. tostring(value.list[#value.list])
+                .. " " .. tostring(value.last)
+            return true
+        end)
+        local big = string.rep("[1,", 100000) .. "2" .. string.rep("]", 100000)
+        local list = pencere.json.decode("[" .. string.rep("7,", 150000) .. "8]")
+        local deep, why = pencere.json.decode(big)
+        return { render = function()
+            return pencere.div():child(pencere.text(seen))
+                :child(pencere.text(#list .. " " .. list[#list]))
+                :child(pencere.text(tostring(deep) .. " " .. tostring(why)))
+        end }
+        "#,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    let list = format!("[{}8]", "7,".repeat(150_000));
+    let pushed = format!(
+        r#"{{"push":{{"id":1,"value":{{"text":"{}","list":{list},"last":true}}}}}}"#,
+        "x".repeat(300 * 1024)
+    );
+    assert!(pushed.len() > 512 * 1024, "{}", pushed.len());
+    page.module.message(pushed);
+    until_seen(&mut page, Duration::from_secs(20), |seen| {
+        seen.frame
+            .as_ref()
+            .is_some_and(|frame| words(&frame.root)[0] != "nothing yet")
+    });
+    assert_eq!(page.seen.closed, None);
+    let said = words(&page.seen.frame.clone().expect("a page").root);
+    assert_eq!(said[0], format!("{} 150001 8 true", 300 * 1024));
+    assert_eq!(said[1], "150001 8");
+    assert!(
+        said[2].starts_with("nil nested too deep at "),
+        "{}",
+        said[2]
+    );
+}
+
+/// Each line of a script that gives the page API something it refuses names the script's own line
+/// in the error (`script.lua:3:`), however many helpers of the prelude lie between that line and
+/// the refusal; the families are those of the prelude's parts.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn what_the_page_api_refuses_it_refuses_at_the_line_of_the_script_that_gave_it() {
+    let families: &[(&str, &[&str])] = &[
+        (
+            "elements",
+            &[
+                "pencere.text({})",
+                r#"pencere.spark("x")"#,
+                "pencere.image(5)",
+                "pencere.span({})",
+                "pencere.rich(5)",
+                "pencere.rich({ 5 })",
+                "pencere.canvas(5)",
+                "pencere.canvas({ 5 })",
+                "pencere.div():children(5)",
+            ],
+        ),
+        (
+            "an image",
+            &[
+                r#"pencere.div():fit("cover")"#,
+                r#"pencere.image("a.png"):fit("zoom")"#,
+                r#"pencere.image("a.png"):opacity("x")"#,
+            ],
+        ),
+        (
+            "fields and editors",
+            &[
+                "pencere.div():text_field()",
+                r#"pencere.div():text_field("a", "zig")"#,
+                "pencere.div():editor()",
+                r#"pencere.div():editor("e", 5)"#,
+                r#"pencere.div():editor("e", { nope = 1 })"#,
+                r#"pencere.div():editor("e", { caret = { nope = 1 } })"#,
+            ],
+        ),
+        (
+            "what an element tells",
+            &[
+                "pencere.div():zone()",
+                "pencere.div():label(5)",
+                "pencere.div():motion(5)",
+                r#"pencere.div():motion({ ease = "zig" })"#,
+                "pencere.div():motion({ spin = 0 })",
+                "pencere.div():tip(5)",
+                r#"pencere.div():tip("a", 5)"#,
+                r#"pencere.div():role("zig")"#,
+                "pencere.div():value({})",
+                "pencere.div():command()",
+                r#"pencere.div():command("a", 5)"#,
+                r#"pencere.div():command("a", "A", 5)"#,
+                r#"pencere.div():command("a", "A", { 5 })"#,
+                r#"pencere.div():command("a", "A", "hyper+k")"#,
+                r#"pencere.div():anchor(pencere.caret_of("e"), "zig")"#,
+                r#"pencere.div():anchor(pencere.caret_of("e"), "below", { align = "zig" })"#,
+                r#"pencere.div():bg_gradient("x")"#,
+                r#"pencere.div():grid("x")"#,
+                "pencere.div():grid_rows(5)",
+            ],
+        ),
+        (
+            "keys and colours",
+            &[
+                "pencere.keys(5)",
+                r#"pencere.keys("hyper+k")"#,
+                r#"pencere.mix("a", "b", "c")"#,
+                r#"pencere.range_of("e", 5)"#,
+                r#"pencere.ease(0.5, "zig")"#,
+            ],
+        ),
+        (
+            "timers",
+            &[
+                r#"pencere.time.after("x", 1)"#,
+                "pencere.time.every(0, function() end)",
+                "pencere.time.after(1, 5)",
+            ],
+        ),
+        (
+            "json",
+            &[
+                "pencere.json.encode(function() end)",
+                "local deep = {}; for _ = 1, 200 do deep = { deep } end; pencere.json.encode(deep)",
+                "pencere.json.decode(nil)",
+            ],
+        ),
+        (
+            "the layout",
+            &[
+                "pencere.layout.hit({})",
+                "pencere.layout.hit(nil)",
+                "pencere.layout.ids_at(5)",
+                "pencere.layout.drag_source()",
+                "pencere.layout.drop_target({ x = 1 })",
+                r#"pencere.layout.scroll_to("box", nil)"#,
+                r#"pencere.layout.line_start("e", -1)"#,
+                r#"pencere.layout.editor_text("e", 0, 1.5)"#,
+            ],
+        ),
+        ("a long list's arguments", &["pencere.div():list(1, 2)"]),
+    ];
+    for (family, calls) in families {
+        for call in *calls {
+            let script = format!(
+                "-- the first line\n-- the second\n{call}\nreturn {{ render = function() return pencere.div() end }}"
+            );
+            let update = first(&script, ModuleLimits::default());
+            let Some(Fault::Failed(why)) = &update.closed else {
+                panic!("{family}: {call}\nwas not refused: {:?}", update.closed);
+            };
+            assert!(
+                why.starts_with("script.lua:3: ") && !why.contains("prelude/"),
+                "{family}: {call}\n{why}"
+            );
+        }
+    }
+}
+
+/// A long list in a box that cannot hold it is found once the tree is made, and says the line of
+/// the `:list` that made it, not the render's end.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_long_list_in_a_box_that_cannot_hold_it_names_the_line_that_made_the_list() {
+    let boxes = [
+        (r#"pencere.div():id("log")"#, "does not scroll"),
+        (r#"pencere.div():id("log"):scroll():row()"#, "not a column"),
+        (
+            r#"pencere.div():id("log"):scroll():p(4)"#,
+            "padding above its rows",
+        ),
+        (
+            r#"pencere.div():id("log"):scroll():gap(3)"#,
+            "gap between its rows",
+        ),
+    ];
+    for (shape, why) in boxes {
+        let script = format!(
+            "local rows = pencere.Rows.even(3, 10)\nreturn {{ render = function()\nreturn {shape}:list(rows, function() return pencere.text('x') end)\nend }}"
+        );
+        let said = failed(&first(&script, ModuleLimits::default()));
+        assert!(
+            said.starts_with("script.lua:3: ") && said.contains(why),
+            "{shape}\n{said}"
+        );
+    }
+}
+
+/// A point that is not two numbers, or a place that is not a whole number from 0, is the script's
+/// mistake where the host's own function is called: the line is the script's, not the prelude's.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_call_the_page_api_passes_to_the_host_that_is_refused_names_the_script_too() {
+    let why = failed(&first(
+        "local a = 1\npencere.layout.hit({ x = 1 })\nreturn {}",
+        ModuleLimits::default(),
+    ));
+    assert_eq!(why, "script.lua:2: a point is { x =, y = }, two numbers");
+    let why = failed(&first(
+        "local a = 1\npencere.layout.line_of('e', 1.5)\nreturn {}",
+        ModuleLimits::default(),
+    ));
+    assert_eq!(why, "script.lua:2: a place is a whole number from 0");
 }

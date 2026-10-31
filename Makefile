@@ -111,6 +111,7 @@ check-heavy:
 	cargo build --quiet -p pencere-cli
 	node tools/cargo-test.mjs --workspace --all-targets -- --ignored
 	node tools/cargo-test.mjs -p pencere-drive --all-features --lib -- --ignored shot_tests in_process_tests
+	$(GUEST_CARGO) clippy --manifest-path kit/guest/Cargo.toml --all-targets -- -D warnings
 
 # The interpreter of the scripting language (`kit/sandbox/luau/luau.wasm`): Luau, the bridge that
 # gives a script the page interface, and the preludes that are the language's side of it

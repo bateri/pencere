@@ -28,6 +28,27 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Changed
 
+- **The prelude's own is out of a script's reach, and what it makes public is frozen.** `pencere.host`
+  (the raw functions of the host), `pencere._keymaps`, `pencere._lists`, `pencere._time` and
+  `pencere.layout._heard` / `_asked`, and the entry points the bridge calls (`pencere.start`,
+  `render`, `settle`, `handle`, `message`, `room`), are no fields of anything a script or a module of
+  the library is given (the bridge hands the prelude's parts a table of their own); `pencere.json`, `pencere.layout`,
+  `pencere.time`, the classes of elements, spans, paths and timers (and their metatables) and
+  `pencere.json.null` are read only once the prelude is made, so a script cannot change what another
+  one, or the library, is given. A script that assigns into one of them now fails at its line. The
+  interpreter is rebuilt.
+- **`pencere.json.decode` and the messages of a page's program are read by the bridge** (C++, in
+  `kit/luau/bridge/json.cpp`) and not by the Lua that was run for every message: the same values,
+  `null`s, reasons and places for the same texts (`json.has` and `json.is_null` as before, and a
+  depth of 127).
+  `json.encode` stays in Lua.
+- **A call of the page API that is refused names the line of the script that made it**, however many
+  helpers of the prelude lie between (`script.lua:12: tip takes the words, not number`), where some of
+  the refusals named a line of the prelude (`json.decode(nil)`, the errors of `json.encode`, a long
+  list in a box that cannot hold it, the points and places given to `pencere.layout`). `:grid()` and
+  `:grid_rows()` refuse what is not a list of tracks when they are called, and not once the tree is
+  made. What a function of the page returned and the page API finds wrong (`render`'s result, a
+  reply's `wake`), and a style value found wrong once the tree is made, still say their words alone.
 - **A terminal gives a page time for a busy machine.** `ModuleLimits::default()` is now a call of
   5 s and a start of 10 s (it was 250 ms and 2 s), and the protocol's floors are
   `ModuleLimits::floor()` (the old values): what an author's page is tested against, since a page

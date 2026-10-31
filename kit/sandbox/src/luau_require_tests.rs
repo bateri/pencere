@@ -303,6 +303,31 @@ fn a_script_has_globals_of_its_own() {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_script_of_the_bundle_in_a_directory_named_prelude_is_a_script_and_not_the_prelude() {
+    // The prelude's own parts are named `prelude/..` in the interpreter; an error at the line of
+    // a script that has such a path is still the script's.
+    let update = first_of(
+        "page.lua",
+        &[
+            (
+                "page.lua",
+                LUA,
+                "local x = require('./prelude/x')\nreturn { render = function() return pencere.div() end }",
+            ),
+            (
+                "prelude/x.lua",
+                LUA,
+                "local one = 1\nlocal _ = pencere.div():grid('x')\nreturn {}",
+            ),
+        ],
+        ModuleLimits::default(),
+    );
+    let why = failed(&update);
+    assert!(why.starts_with("prelude/x.lua:2: grid takes"), "{why}");
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_cycle_is_an_error_that_names_the_chain() {
     let update = first_of(
         "page.lua",

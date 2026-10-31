@@ -18,8 +18,8 @@ under this name) are recorded here. The format follows
   (`StageError`, `FetchError`); `unstage` and the end of the view are `Action::Unstage`, with
   `Action::AbortWrite` for the place a `fetch` had begun to write. At most `MAX_OPEN_TRANSFERS` (2)
   are out at once, and the third is `busy`.
-- **Files beside the bundle** (specification §8.8 to §8.10), for a view opened at `lua` `2.1` or
-  `wasm` `3.0` and later (`has_files`). A program's `attach` adds files to its view, verified as
+- **Files beside the bundle** (specification §8.8 to §8.10), for a view opened at `lua` `2.1`
+  (`has_files`). A program's `attach` adds files to its view, verified as
   the files of a bundle are and held to 8 MiB a file and 1024 files or 64 MiB a view; it is
   answered with a `need` that lists what is missing and what is `refused`, and once more when the
   last of them has come. `Session::attached` gives the bytes behind a `sha256:` name

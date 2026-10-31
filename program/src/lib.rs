@@ -1,7 +1,7 @@
 //! `pencere`: show a view in the pane of the terminal your program runs in.
 //!
-//! A program that runs in a terminal that hosts pencere can ask it for a view — a web page, a
-//! WebAssembly component or a Lua script the terminal draws itself — that takes the pane the way
+//! A program that runs in a terminal that hosts pencere can ask it for a view — a web page or
+//! a Lua script the terminal draws itself — that takes the pane the way
 //! `vim` takes it, and gives it back when it is done. This crate is the program's side of the
 //! protocol: it asks the terminal what it can show, opens the view, sends the files the terminal
 //! lacks, answers the calls of the view and feeds its subscriptions, and, on the way out, leaves

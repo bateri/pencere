@@ -59,14 +59,14 @@ cmake --build "$WORK/build" --target Luau.VM Luau.Compiler Luau.Require >"$WORK/
 # --- The bridge and the bindings, linked with Luau -------------------------------------------------
 INCLUDES="-I$SOURCE/VM/include -I$SOURCE/Compiler/include -I$SOURCE/Require/include -I$BINDINGS -I$WORK -I$HERE/bridge"
 $SDK/bin/clang --target=wasm32-wasip1 -Os -c "$BINDINGS/view.c" -I"$BINDINGS" -o "$WORK/objects/view.o"
-for file in bridge convert; do
+for file in bridge convert json; do
 	$SDK/bin/clang++ --target=wasm32-wasip1 $EH -Os -std=c++17 -Wall -Wextra $INCLUDES \
 		-c "$HERE/bridge/$file.cpp" -o "$WORK/objects/$file.o"
 done
 # `--stack-first` puts the stack below the data, so that a stack that overflows runs off the
 # start of memory (a trap) and not over what the module keeps.
 $SDK/bin/clang++ --target=wasm32-wasip1 $EH -Wno-unused-command-line-argument -Os -mexec-model=reactor \
-	"$WORK/objects/bridge.o" "$WORK/objects/convert.o" "$WORK/objects/view.o" "$BINDINGS/view_component_type.o" \
+	"$WORK/objects/bridge.o" "$WORK/objects/convert.o" "$WORK/objects/json.o" "$WORK/objects/view.o" "$BINDINGS/view_component_type.o" \
 	"$WORK/build/libLuau.Require.a" "$WORK/build/libLuau.Config.a" \
 	"$WORK/build/libLuau.Compiler.a" "$WORK/build/libLuau.Ast.a" "$WORK/build/libLuau.Bytecode.a" \
 	"$WORK/build/libLuau.VM.a" "$WORK/build/libLuau.Common.a" \

@@ -1,7 +1,7 @@
 //! The files of a view: a bundle, listed with the SHA-256 of each (specification §8).
 //!
 //! A program builds a bundle once, from a directory or from files it holds in memory (a
-//! component or a script it carries in its own binary is one file). The manifest goes into the
+//! script it carries in its own binary is one file). The manifest goes into the
 //! `open`; the bytes stay here until the terminal says, in `need`, which of them it lacks.
 
 use std::borrow::Cow;
@@ -92,8 +92,8 @@ pub struct Bundle {
 impl Bundle {
     /// A bundle of files held in memory, listed in the order given: the digests the terminal
     /// asks for come in that order, and a program that wants the document first puts it first.
-    /// `entry` is the path of the document of a page, or of the component or the script of a
-    /// view the terminal draws itself.
+    /// `entry` is the path of the document of a page, or of the script of a view the
+    /// terminal draws itself.
     ///
     /// # Errors
     ///
@@ -163,7 +163,7 @@ impl Bundle {
         Ok(bundle)
     }
 
-    /// A bundle of one file, the whole of a component or a script that the program carries: the
+    /// A bundle of one file, the whole of a script that the program carries: the
     /// file is the entry, and its media type comes from the extension of `name` (`.html`, `.lua`).
     ///
     /// # Errors

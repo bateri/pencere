@@ -63,7 +63,7 @@ pub trait Assets: Send + Sync + 'static {
     /// path of the manifest is within the limits of a bundle was settled when the bundle was
     /// taken in, and the images hold what they read to their own besides ([`ImageLimits`]).
     ///
-    /// A view of `lua` `2.1` or `wasm` `3.0` also names files beside its bundle: `sha256:` and a
+    /// A view of `lua` `2.1` also names files beside its bundle: `sha256:` and a
     /// digest (a file its program attached, specification §8.8) and `file:` and a handle (one the
     /// person gave it, §8.9). A host answers these from its own tables — the view's attached files,
     /// the handles it made — and `None` for one that is in neither; a manifest path has no `:`, so

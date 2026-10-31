@@ -5,6 +5,8 @@
 -- style = {...}, meta = {...}, kids = {...} }.
 -- The host reads it, so the field names are the interface's (`pencere:view` `style`, `node`).
 
+local internal = ...
+
 local Element = {}
 Element.__index = Element
 pencere.Element = Element
@@ -14,11 +16,8 @@ local function make(kind)
 end
 
 -- A helper that finds its argument wrong raises the error at the line of the script that called
--- it, not at a line of this prelude: the person who reads it has the script. Three levels up from
--- here are `refuse`, the helper and then the helper's caller.
-local function refuse(message)
-	error(message, 3)
-end
+-- the page API, not at a line of this prelude: the person who reads it has the script.
+local refuse = internal.refuse
 
 -- A box: a column of its children until told otherwise.
 function pencere.div()
@@ -73,10 +72,10 @@ function pencere.image(src)
 end
 
 -- The picture of an element that is one; the error of any other, at the line that called
--- `method` (two levels up from here are the method and then its caller).
+-- `method`.
 local function picture_of(element, method)
 	if element.kind ~= "image" then
-		error(method .. " is for an image, and this is a " .. element.kind, 3)
+		refuse(method .. " is for an image, and this is a " .. element.kind)
 	end
 	return element.picture
 end
@@ -85,7 +84,7 @@ end
 function Element:fit(how)
 	local picture = picture_of(self, "fit")
 	if how ~= "contain" and how ~= "cover" then
-		error('fit is "contain" or "cover", not ' .. tostring(how), 2)
+		refuse('fit is "contain" or "cover", not ' .. tostring(how))
 	end
 	picture.fit = how
 	return self
@@ -101,7 +100,7 @@ end
 -- much fainter (where the things inside overlap, they show through each other).
 function Element:opacity(opacity)
 	if type(opacity) ~= "number" then
-		error("opacity is a number from 0 to 1, not " .. type(opacity), 2)
+		refuse("opacity is a number from 0 to 1, not " .. type(opacity))
 	end
 	self.style.opacity = opacity
 	return self
@@ -332,11 +331,11 @@ function Element:text_field(id, kind)
 		self.meta.id = id
 	end
 	if self.meta.id == nil then
-		error("a text field is named: text_field(id)", 2)
+		refuse("a text field is named: text_field(id)")
 	end
 	kind = kind or "line"
 	if not FIELD_KINDS[kind] then
-		error('a text field is "line", "lines" or "secret", not ' .. tostring(kind), 2)
+		refuse('a text field is "line", "lines" or "secret", not ' .. tostring(kind))
 	end
 	self.meta.field = kind
 	return self
@@ -470,14 +469,14 @@ local EDITOR_OPTIONS = {
 
 -- An option an editor has no such name for is a mistake, said where it is made: a misspelt one
 -- would be dropped without a word.
-local function check_editor_options(given, known, where, level)
+local function check_editor_options(given, known, where)
 	for key, value in given do
 		local takes = known[key]
 		if takes == nil then
-			error("an editor has no option " .. where .. tostring(key), level)
+			refuse("an editor has no option " .. where .. tostring(key))
 		end
 		if type(takes) == "table" and type(value) == "table" then
-			check_editor_options(value, takes, where .. key .. ".", level + 1)
+			check_editor_options(value, takes, where .. key .. ".")
 		end
 	end
 end
@@ -487,13 +486,13 @@ function Element:editor(id, options)
 		self.meta.id = id
 	end
 	if self.meta.id == nil then
-		error("an editor is named: editor(id, options)", 2)
+		refuse("an editor is named: editor(id, options)")
 	end
 	if options ~= nil and type(options) ~= "table" then
-		error("an editor's options are a table, not " .. type(options), 2)
+		refuse("an editor's options are a table, not " .. type(options))
 	end
 	local given = options or {}
-	check_editor_options(given, EDITOR_OPTIONS, "", 3)
+	check_editor_options(given, EDITOR_OPTIONS, "")
 	local said = {}
 	for key, value in given do
 		said[key] = value
@@ -502,7 +501,7 @@ function Element:editor(id, options)
 		said.pairs = table.concat(said.pairs)
 	end
 	self.meta.editor = said
-	pencere._keymaps[self.meta.id] = said.keymap
+	internal.keymaps[self.meta.id] = said.keymap
 	self.style.overflow = "scroll"
 	return self
 end
@@ -519,7 +518,7 @@ end
 -- while the editor has such a gap. `pencere.editor("code"):child(pencere.div():id("peek"):zone("peek"):height(120))`.
 function Element:zone(id)
 	if id == nil then
-		error("zone takes the name of the zone", 2)
+		refuse("zone takes the name of the zone")
 	end
 	self.meta.zone = id
 	self.style.absolute = true
@@ -531,7 +530,7 @@ end
 -- button that is an icon alone says what it does.
 function Element:label(words)
 	if type(words) ~= "string" then
-		error("label takes the words, not " .. type(words), 2)
+		refuse("label takes the words, not " .. type(words))
 	end
 	self.meta.label = words
 	return self
@@ -556,14 +555,14 @@ local EASES = { linear = true, out = true, ["in-out"] = true, spring = true }
 -- Motion, on the frame the page changes size, or for what scrolling brings in or takes out.
 function Element:motion(motion)
 	if type(motion) ~= "table" then
-		error("motion takes a table, not " .. type(motion), 2)
+		refuse("motion takes a table, not " .. type(motion))
 	end
 	local seconds = motion.seconds or 0.2
 	if motion.ease ~= nil and not EASES[motion.ease] then
-		error('an ease is "out", "linear", "in-out" or "spring", not ' .. tostring(motion.ease), 2)
+		refuse('an ease is "out", "linear", "in-out" or "spring", not ' .. tostring(motion.ease))
 	end
 	if motion.spin ~= nil and not (type(motion.spin) == "number" and motion.spin > 0 and motion.spin < math.huge) then
-		error("spin is the seconds of a turn, more than 0, not " .. tostring(motion.spin), 2)
+		refuse("spin is the seconds of a turn, more than 0, not " .. tostring(motion.spin))
 	end
 	local function shift(given)
 		if given == nil then
@@ -594,10 +593,10 @@ end
 -- (`"1"`, `"⌘K"`): the tooltip of a button that is an icon alone, the key of a section.
 function Element:tip(words, keys)
 	if type(words) ~= "string" then
-		error("tip takes the words, not " .. type(words), 2)
+		refuse("tip takes the words, not " .. type(words))
 	end
 	if keys ~= nil and type(keys) ~= "string" then
-		error("the keys of a tip are words, not " .. type(keys), 2)
+		refuse("the keys of a tip are words, not " .. type(keys))
 	end
 	self.meta.tip = { words = words, keys = keys }
 	return self
@@ -613,8 +612,8 @@ local ROLES = {
 -- "image", "progress", "slider", "button", "text".
 function Element:role(role, level)
 	if not ROLES[role] then
-		error("a role is one of button, text, link, checkbox, switch, radio, tab, menu_item, "
-			.. "heading, image, progress, slider; not " .. tostring(role), 2)
+		refuse("a role is one of button, text, link, checkbox, switch, radio, tab, menu_item, "
+			.. "heading, image, progress, slider; not " .. tostring(role))
 	end
 	self.meta.role = role
 	self.meta.level = level
@@ -633,7 +632,7 @@ function Element:disabled(disabled) self.meta.disabled = disabled ~= false retur
 -- The value the element shows, in words, for a screen reader: "40%".
 function Element:value(words)
 	if type(words) ~= "string" and type(words) ~= "number" then
-		error("value takes the words, not " .. type(words), 2)
+		refuse("value takes the words, not " .. type(words))
 	end
 	self.meta.value = tostring(words)
 	return self
@@ -661,7 +660,7 @@ local KEY_NAMES = {
 -- (`pencere.keyboard()`): "mod+s" is ⌘S on a Mac and Ctrl+S elsewhere.
 function pencere.keys(words)
 	if type(words) ~= "string" then
-		error("keys are written as words: \"cmd+k\", not " .. type(words), 2)
+		refuse("keys are written as words: \"cmd+k\", not " .. type(words))
 	end
 	local parts = string.split(words, "+")
 	-- A `+` at the end is the key, not the mark before it: "cmd++" splits to "cmd", "", "".
@@ -676,7 +675,7 @@ function pencere.keys(words)
 			held = pencere.keyboard() == "mac" and "command" or "control"
 		end
 		if not held then
-			error("\"" .. parts[index] .. "\" is not a modifier (cmd, ctrl, alt, shift or mod)", 2)
+			refuse("\"" .. parts[index] .. "\" is not a modifier (cmd, ctrl, alt, shift or mod)")
 		end
 		mods[held] = true
 	end
@@ -700,12 +699,12 @@ local function keys_of(keys)
 	elseif type(keys) == "string" then
 		return { pencere.keys(keys) }
 	elseif type(keys) ~= "table" then
-		error("the keys of a command are words, \"cmd+k\", or a list of them, not " .. type(keys), 3)
+		refuse("the keys of a command are words, \"cmd+k\", or a list of them, not " .. type(keys))
 	end
 	local list = {}
 	for index, words in ipairs(keys) do
 		if type(words) ~= "string" then
-			error("the keys of a command are words, \"cmd+k\", or a list of them; key " .. index .. " is a " .. type(words), 3)
+			refuse("the keys of a command are words, \"cmd+k\", or a list of them; key " .. index .. " is a " .. type(words))
 		end
 		list[index] = pencere.keys(words)
 	end
@@ -714,10 +713,10 @@ end
 
 function Element:command(id, title, keys, enabled)
 	if id == nil then
-		error("a command is named: command(id, title, keys)", 2)
+		refuse("a command is named: command(id, title, keys)")
 	end
 	if type(title) ~= "string" then
-		error("a command has a title, the words a person reads for it", 2)
+		refuse("a command has a title, the words a person reads for it")
 	end
 	local commands = self.meta.commands
 	if not commands then
@@ -774,6 +773,9 @@ end
 
 -- A grid of `columns`: numbers are points, `pencere.fr(n)`, `pencere.range(least, n)`, "auto".
 function Element:grid(columns)
+	if columns ~= nil and type(columns) ~= "table" then
+		refuse("grid takes a list of tracks (numbers, pencere.fr(n), pencere.range(least, n) or \"auto\"), not a " .. type(columns))
+	end
 	local style = self.style
 	style.display = "grid"
 	style.columns = columns
@@ -781,6 +783,9 @@ function Element:grid(columns)
 end
 
 function Element:grid_rows(rows)
+	if rows ~= nil and type(rows) ~= "table" then
+		refuse("grid_rows takes a list of tracks (numbers, pencere.fr(n), pencere.range(least, n) or \"auto\"), not a " .. type(rows))
+	end
 	self.style.rows = rows
 	return self
 end
@@ -903,12 +908,12 @@ local ALIGNS = { start = true, center = true, ["end"] = true }
 function Element:anchor(to, side, options)
 	side = side or "below"
 	if not SIDES[side] then
-		error('an overlay stands "below", "above", "right" or "left" of its element, not ' .. tostring(side), 2)
+		refuse('an overlay stands "below", "above", "right" or "left" of its element, not ' .. tostring(side))
 	end
 	options = options or {}
 	local align = options.align or "start"
 	if not ALIGNS[align] then
-		error('an overlay lines up with the "start", "center" or "end" of its element, not ' .. tostring(align), 2)
+		refuse('an overlay lines up with the "start", "center" or "end" of its element, not ' .. tostring(align))
 	end
 	local style = self.style
 	style.overlay = true
@@ -939,7 +944,7 @@ function Element:bg(color) self.style.fill = color return self end
 -- linear-gradient: 180 from the top down, 90 from the left to the right.
 function Element:bg_gradient(angle, from, to)
 	if type(angle) ~= "number" then
-		error("bg_gradient takes an angle in degrees, then two colours", 2)
+		refuse("bg_gradient takes an angle in degrees, then two colours")
 	end
 	self.style.gradient = { angle = angle, from = from, to = to }
 	return self

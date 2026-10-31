@@ -5,8 +5,12 @@
 -- in these, and the page reads them when it builds. How far a box is scrolled is kept by the host
 -- (`pencere.layout.scroll_offset`).
 
+local internal = ...
+
 local layout = pencere.layout
 local f32 = pencere.f32
+local refuse = internal.refuse
+local where = internal.host.where
 
 -- --- Highlights that come and go ---------------------------------------------------------------
 
@@ -45,7 +49,7 @@ function pencere.ease(t, ease)
 		end
 		return 1 - (1 + 10 * t) * math.exp(-10 * t)
 	end
-	error('an ease is "out", "linear", "in-out" or "spring", not ' .. tostring(ease), 2)
+	refuse('an ease is "out", "linear", "in-out" or "spring", not ' .. tostring(ease))
 end
 
 -- A highlight takes this long to come to full strength or to go, seconds. The levels are single
@@ -368,7 +372,7 @@ end
 -- the rows given, not of the box as it was last laid out: a log that grew by more than the rows
 -- made ahead is asked for at its new end and built there.)
 local function list_offset(id, rows, view)
-	local offset = layout._asked(id) or (layout.scroll_offset(id))
+	local offset = internal.asked(id) or (layout.scroll_offset(id))
 	return math.max(math.min(offset, rows:total() - view), 0)
 end
 
@@ -386,14 +390,14 @@ end
 --       :list(pencere.Rows.even(#lines, 18), function(i) return line(lines[i]) end)
 function pencere.Element:list(rows, make)
 	if getmetatable(rows) ~= Rows then
-		error("list takes the rows of the list (a pencere.Rows), then a function that makes row i", 2)
+		refuse("list takes the rows of the list (a pencere.Rows), then a function that makes row i")
 	end
 	if type(make) ~= "function" then
-		error("list takes the rows of the list, then a function that makes row i, not a " .. type(make), 2)
+		refuse("list takes the rows of the list, then a function that makes row i, not a " .. type(make))
 	end
 	local id = self.meta.id
 	if id == nil then
-		error("a long list is a box with a name: give it one (:id) before :list", 2)
+		refuse("a long list is a box with a name: give it one (:id) before :list")
 	end
 	local list = lists[id]
 	if list == nil then
@@ -404,6 +408,8 @@ function pencere.Element:list(rows, make)
 	local view = extent and extent.view or page_h
 	local first, last = list.built:span(rows, list_offset(id, rows, view), view)
 	list.rows, list.view, list.first, list.last, list.box, list.seen = rows, view, first, last, self, true
+	-- Where the page made it, for the mistakes found once the tree is made (`internal.lists.finish`).
+	list.place = where()
 	self:child(list_spacer(rows:top(first)))
 	for index = first, last do
 		self:child(make(index))
@@ -425,10 +431,11 @@ function pencere.list_window(id)
 end
 
 -- What the page's part of the prelude asks of the long lists (`40-page.lua`).
-pencere._lists = {}
+internal.lists = {}
+local list_hooks = internal.lists
 
 -- A render of a page `height` tall begins.
-function pencere._lists.begin(height)
+function list_hooks.begin(height)
 	page_h = height
 	for _, list in pairs(lists) do
 		list.seen = false
@@ -437,7 +444,7 @@ end
 
 -- The render made its tree: a list it did not build is forgotten, and a box that cannot hold a
 -- long list is said to be one.
-function pencere._lists.finish()
+function list_hooks.finish()
 	for id, list in pairs(lists) do
 		if not list.seen then
 			lists[id] = nil
@@ -445,19 +452,22 @@ function pencere._lists.finish()
 			local style = list.box.style
 			local name = tostring(id)
 			if style.overflow ~= "scroll" then
-				error("the long list " .. name .. " is in a box that does not scroll: :scroll() it", 0)
+				error(list.place .. "the long list " .. name .. " is in a box that does not scroll: :scroll() it", 0)
 			end
 			if style.display == "grid" or style.direction == "row" then
-				error("the long list " .. name .. " is in a box that is not a column: its rows stand one under another", 0)
+				error(list.place .. "the long list " .. name .. " is in a box that is not a column: its rows stand one under another", 0)
 			end
 			if style.padding and (style.padding[1] or 0) ~= 0 then
 				error(
-					"the long list " .. name .. " has padding above its rows: the room above them is rows:padded(lead, trail)",
+					list.place
+						.. "the long list "
+						.. name
+						.. " has padding above its rows: the room above them is rows:padded(lead, trail)",
 					0
 				)
 			end
 			if (style.gap_y or 0) ~= 0 then
-				error("the long list " .. name .. " has a gap between its rows: a row's height is all of its room", 0)
+				error(list.place .. "the long list " .. name .. " has a gap between its rows: a row's height is all of its room", 0)
 			end
 		end
 	end
@@ -465,7 +475,7 @@ end
 
 -- The host scrolled `boxes` ({ { id =, x =, y = }, ... }): whether a long list among them is to be
 -- built again at its new place.
-function pencere._lists.scrolled(boxes)
+function list_hooks.scrolled(boxes)
 	local again = false
 	for _, box in ipairs(boxes) do
 		local list = lists[box.id]
@@ -481,7 +491,7 @@ function pencere._lists.scrolled(boxes)
 end
 
 -- The page was laid out: whether a long list's window is now one the rows made do not fill.
-function pencere._lists.settle()
+function list_hooks.settle()
 	local again = false
 	for id, list in pairs(lists) do
 		local extent = layout.scroll_extent(id)

@@ -157,10 +157,13 @@
 -- told before: what is said waits its turn and goes when the program can take it (`pencere.send`,
 -- the raw word, says whether it took the message, and the page keeps what it was not).
 
-local host = pencere.host
+local internal = ...
+
+local host = internal.host
 local json = pencere.json
-local time = pencere._time
+local time = internal.time
 local merge = pencere.merge
+local lists = internal.lists
 
 -- A call may say this many messages; the application closes a page that says more.
 local PER_CALL = 8
@@ -255,21 +258,27 @@ end
 
 -- --- What the application calls ----------------------------------------------------------------
 
--- The functions below are the application's entry points (`pencere.start` .. `pencere.room`),
--- called by the interpreter's bridge; the script does not call them.
+-- The functions below are the application's entry points, called by the interpreter's bridge,
+-- which takes them from `internal.entry` when the prelude has run. They are not in `pencere`: a
+-- script that could call them could answer for the program, or start another page.
+local entry = {}
+internal.entry = entry
 
-function pencere.start(returned)
+function entry.start(returned)
 	if type(returned) ~= "table" or type(returned.render) ~= "function" then
 		error("the script must return a page: a table with a render function", 0)
 	end
 	page = returned
 end
 
-function pencere.render(width, height, now, reduce_motion)
+function entry.render(width, height, now, reduce_motion)
 	time.given(now)
-	pencere._lists.begin(height)
+	lists.begin(height)
 	local root, animating, wake_at = page.render({ w = width, h = height }, now, reduce_motion)
-	pencere._lists.finish()
+	lists.finish()
+	-- What render handed back is wrong in these three: no line of the script is on the stack to
+	-- name (the application called, and the script's function has returned), so they say their
+	-- words as they are.
 	if type(root) ~= "table" then
 		error("render must return an element, not a " .. type(root), 0)
 	end
@@ -282,38 +291,38 @@ function pencere.render(width, height, now, reduce_motion)
 	return root, (animating or more) and true or false, wake_at, time.asked()
 end
 
-function pencere.settle()
+function entry.settle()
 	-- Before the first page there is no layout to settle to: the application asks once as the
 	-- script starts, and that is a call that only starts it.
 	if not rendered then
 		return false
 	end
 	-- A long list whose window the rows made no longer fill is built again, whatever the page says.
-	local lists = pencere._lists.settle()
+	local long = lists.settle()
 	local settled = page.settle and page.settle() or false
 	-- A timer set as the page settled has no reply to be asked in: the page is rendered again, and
 	-- its frame asks.
 	local timed = time.owed()
-	return (lists or settled or timed) and true or false
+	return (long or settled or timed) and true or false
 end
 
-function pencere.handle(event)
+function entry.handle(event)
 	local reply = nil
-	local lists = false
+	local long = false
 	if event.type == "wake" then
 		-- The timers that are due, then the page where it asked a wake itself.
 		reply = time.woken(event.now, page.handle)
 	else
 		if event.type == "scrolled" then
-			pencere.layout._heard(event.boxes)
-			lists = pencere._lists.scrolled(event.boxes)
+			internal.heard(event.boxes)
+			long = lists.scrolled(event.boxes)
 		end
 		if page.handle then
 			reply = time.taken(page.handle(event))
 		end
 	end
 	-- A long list scrolled near the end of the rows made is built again, whatever the page says.
-	if flush() or lists then
+	if flush() or long then
 		reply = with_frame(reply)
 	end
 	return time.finish(reply)
@@ -321,7 +330,7 @@ end
 
 -- A message of the program: the answer to what the page asked is for the one who asked, the rest
 -- for the page.
-function pencere.message(text)
+function entry.message(text)
 	heard = true
 	local message = json.decode(text)
 	if type(message) ~= "table" then
@@ -373,7 +382,7 @@ function pencere.message(text)
 	return time.finish(reply)
 end
 
-function pencere.room()
+function entry.room()
 	full = false
 	flush()
 	local reply = nil
@@ -384,4 +393,28 @@ function pencere.room()
 		reply = with_frame(reply)
 	end
 	return time.finish(reply)
+end
+
+-- --- What the script is given is not changed under it --------------------------------------------
+
+-- Every table the prelude made public (`pencere.json`, `pencere.layout`, `pencere.time`, the
+-- classes of the elements, of the timers and of the rest, with the metatables they and their
+-- members have) is frozen now that all of it is made: one page, or one module of the library,
+-- cannot change what another is given. The tables the page makes with them are the page's own.
+local function lock(value, seen)
+	if type(value) ~= "table" or seen[value] then
+		return
+	end
+	seen[value] = true
+	for _, member in value do
+		lock(member, seen)
+	end
+	lock(getmetatable(value), seen)
+	table.freeze(value)
+end
+
+local seen = {}
+lock(pencere, seen)
+for _, class in internal.classes do
+	lock(class, seen)
 end

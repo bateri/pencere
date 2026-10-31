@@ -25,6 +25,13 @@
 --
 -- Lengths are points. An element is a plain table; the builders are methods that return it.
 
+-- What the parts of the prelude share among themselves and the script cannot reach: the bridge
+-- gives this table to each part as its one argument. `internal.host` is the application's own
+-- functions, which the prelude wraps (`pencere.layout`, `pencere.send`); the rest is what a part
+-- fills for the parts after it. Nothing of it is a field of `pencere` or of anything the script is
+-- given, so a page, and a module of the library, can neither read nor change it.
+local internal = ...
+
 -- The major number of the page API (2.1 adds the files beside the bundle to 2.0: the `files`,
 -- `files_over`, `files_left` and `saving` events, the `pick` and `save` of a reply, images named
 -- `sha256:` and `file:`).
@@ -37,38 +44,26 @@ function pencere.f32(value)
 	return (string.unpack("<f", string.pack("<f", value)))
 end
 
--- The host's functions, taken here and given a shape of Lua's below (`pencere.layout`,
--- `pencere.send`); the table of the raw ones stays at `pencere.host` for a page that wants them.
-local host = {
-	send = pencere.send,
-	hit = pencere.hit,
-	ids_at = pencere.ids_at,
-	bounds = pencere.bounds,
-	scroll_extent = pencere.scroll_extent,
-	scroll_to = pencere.scroll_to,
-	focus_order = pencere.focus_order,
-	path_of = pencere.path_of,
-	drag_source = pencere.drag_source,
-	drop_target = pencere.drop_target,
-	editor_version = pencere.editor_version,
-	editor_length = pencere.editor_length,
-	editor_lines = pencere.editor_lines,
-	editor_text = pencere.editor_text,
-	line_start = pencere.line_start,
-	line_of = pencere.line_of,
-	word_at = pencere.word_at,
-	wall_clock = pencere.wall_clock,
-	keyboard = pencere.keyboard,
-	terminal_look = pencere.terminal_look,
-	draws = pencere.draws,
-}
-pencere.send, pencere.hit, pencere.ids_at, pencere.bounds = nil, nil, nil, nil
-pencere.scroll_extent, pencere.scroll_to, pencere.focus_order, pencere.path_of = nil, nil, nil, nil
-pencere.drag_source, pencere.drop_target = nil, nil
-pencere.editor_version, pencere.editor_length, pencere.editor_lines = nil, nil, nil
-pencere.editor_text, pencere.line_start, pencere.line_of, pencere.word_at = nil, nil, nil, nil
-pencere.wall_clock, pencere.keyboard, pencere.terminal_look, pencere.draws = nil, nil, nil, nil
-pencere.host = host
+-- The host's functions, given a shape of Lua's below (`pencere.layout`, `pencere.send`). The
+-- table of the raw ones is the prelude's alone.
+local host = internal.host
+
+-- An error of the script's making: `message` at the line of the script that called the page API
+-- (or of the module of the kit's library that did), and not at a line of the prelude that was only
+-- passing its word on. The place is found on the stack, the first function that is not the
+-- prelude's, so that it is right however many helpers lie between the script and the refusal.
+-- Used where the cause is what the script gave; what the prelude finds wrong in what it was handed
+-- back (the page's render, a reply) has no line of the script to name and says its words as they
+-- are.
+local where = host.where
+local function refuse(message)
+	error(where() .. message, 0)
+end
+internal.refuse = refuse
+
+-- The classes whose objects the script is handed and that `pencere` does not hold, so that the
+-- prelude can freeze them with the rest when it is all made (`40-page.lua`).
+internal.classes = {}
 
 -- How the host's system makes and writes its keyboard shortcuts: "mac" (⌘ the main modifier, the
 -- keys written as signs, ⌘⇧K), "windows" (Ctrl the main one, the keys written as words,
@@ -102,7 +97,8 @@ end
 local draws = nil
 function pencere.draws()
 	if draws == nil then
-		draws = host.draws()
+		-- Frozen: every page that asks is given this very table.
+		draws = table.freeze(host.draws())
 	end
 	return draws
 end
@@ -123,7 +119,7 @@ end
 -- (`pencere.alpha`) like any colour.
 function pencere.mix(colour, toward, amount)
 	if type(amount) ~= "number" then
-		error("pencere.mix takes a colour, the colour it goes toward and how far, 0 to 1", 2)
+		refuse("pencere.mix takes a colour, the colour it goes toward and how far, 0 to 1")
 	end
 	return { colour, 1, toward = toward, amount = amount }
 end
@@ -147,12 +143,20 @@ end
 local layout = {}
 pencere.layout = layout
 
+-- The two numbers of a point; the host names a number that is not one.
+local function point(at)
+	if type(at) ~= "table" then
+		refuse("a point is { x =, y = }, two numbers, not a " .. type(at))
+	end
+	return at.x, at.y
+end
+
 function layout.hit(at)
-	return host.hit(at.x, at.y)
+	return host.hit(point(at))
 end
 
 function layout.ids_at(at)
-	return host.ids_at(at.x, at.y)
+	return host.ids_at(point(at))
 end
 
 function layout.bounds(id)
@@ -198,6 +202,9 @@ end
 -- less motion). Done before the next frame is laid out; a box not on the page yet is there when
 -- it comes.
 function layout.scroll_to(id, to)
+	if type(to) ~= "table" then
+		refuse("scroll_to takes { y =, x =, animate = }, not a " .. type(to))
+	end
 	local x, y = to.x, to.y
 	local known = offsets[id] or { x = 0, y = 0 }
 	local extent = host.scroll_extent(id)
@@ -216,7 +223,7 @@ function layout.scroll_to(id, to)
 end
 
 -- The prelude's: the host scrolled these boxes ({ { id =, x =, y = }, ... }).
-function layout._heard(boxes)
+function internal.heard(boxes)
 	for _, scrolled in ipairs(boxes) do
 		offsets[scrolled.id] = { x = scrolled.x, y = scrolled.y }
 		asked[scrolled.id] = nil
@@ -225,7 +232,7 @@ end
 
 -- The prelude's: how far down the page asked the box named `id` to go, as it asked, while the host
 -- has not said where it went since (nil when it has).
-function layout._asked(id)
+function internal.asked(id)
 	return asked[id]
 end
 
@@ -240,11 +247,11 @@ end
 -- The element under `at` that can be picked up and moved, and the one what is dragged can be put
 -- down on: the topmost of each.
 function layout.drag_source(at)
-	return host.drag_source(at.x, at.y)
+	return host.drag_source(point(at))
 end
 
 function layout.drop_target(at)
-	return host.drop_target(at.x, at.y)
+	return host.drop_target(point(at))
 end
 
 -- --- The text of the page's editors -----------------------------------------------------------
@@ -296,9 +303,10 @@ end
 -- "to_line_start", "to_line_end", or a command's table), as the
 -- page's `keymap` changed them: a key it says is what it says, one it says is false is gone, and a
 -- chord it adds is added. For a page that shows a key where it says what a command does.
-pencere._keymaps = {}
+internal.keymaps = {}
 local function go(movement, extend)
-	return { command = "move", movement = movement, extend = extend or false }
+	-- Frozen: every page that reads the keys is given these very tables.
+	return table.freeze({ command = "move", movement = movement, extend = extend or false })
 end
 local DEFAULT_KEYS = {
 	{ "left", go("left") }, { "shift+left", go("left", true) }, { "alt+left", go("word_left") },
@@ -327,10 +335,10 @@ local DEFAULT_KEYS = {
 -- The keys of an editor and what they do, as `{ { keys =, does = }, ... }`; `does` is nil where the
 -- page took the key from the editor.
 function layout.keymap(editor)
-	local changed = pencere._keymaps[editor] or {}
+	local changed = internal.keymaps[editor] or {}
 	local out, seen = {}, {}
 	local function resolved(words)
-		return (string.gsub(string.lower(words), "mod", pencere.host.keyboard() == "mac" and "cmd" or "ctrl"))
+		return (string.gsub(string.lower(words), "mod", host.keyboard() == "mac" and "cmd" or "ctrl"))
 	end
 	-- In the order of the keys, so that what is read back is the same every time.
 	local names = {}
@@ -365,7 +373,7 @@ end
 -- not in the room, or is gone, is not shown. A name is an editor's alone.
 function pencere.range_of(editor, name)
 	if type(name) ~= "string" then
-		error("range_of takes the editor's name and the range's: range_of(editor, name)", 2)
+		refuse("range_of takes the editor's name and the range's: range_of(editor, name)")
 	end
 	return { anchor = editor, name = name }
 end

@@ -147,7 +147,7 @@ pub struct Config {
     /// has. Their order is the order of the `welcome` of a restart (§10.7), which answers no
     /// `hello`. A kind is opened only if it is listed here.
     pub views: Vec<Offer>,
-    /// The most bytes the entry of a view the terminal draws itself (a component or a script)
+    /// The most bytes the entry of a view the terminal draws itself (a script)
     /// may have; an `open` over it is refused with `limit`. Cannot exceed what the bundle
     /// limits allow a file.
     pub native_entry_limit: u64,
@@ -1150,8 +1150,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         let entry = bundle.entry_file();
         if let Some(kind) = kind {
             // The bundle has to be of the kind the program says: the entry of a page is an HTML
-            // document, and that of a view the terminal draws itself is its component or its
-            // script.
+            // document, and that of a view the terminal draws itself is its script.
             if entry.is_none_or(|entry| entry.media_type != kind.entry_type()) {
                 self.refuse(message.id, "manifest");
                 return;
@@ -1535,7 +1534,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         self.close(Cause::Failed(code), re);
     }
 
-    /// A view ended on its own failure: the component trapped, went over a limit the terminal
+    /// A view ended on its own failure: the interpreter trapped, went over a limit the terminal
     /// holds it to, handed out something it cannot use, a script made an error, or a page's web
     /// view ended. The view is closed as for any other end, and the program is told `closed`
     /// with `reason` `error`, `code` `view` and, in `message`, `why` (specification §9.8): the

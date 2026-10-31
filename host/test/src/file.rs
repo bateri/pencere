@@ -636,6 +636,12 @@ fn spec_of(session: &Shared, options: &Table) -> mlua::Result<Spec> {
         (session.job.root.clone(), remaining)
     };
     let place = app_where(&root);
+    // A page is a script: a test written for a page that was a component would open another page.
+    if options.get::<Option<Value>>("component")?.is_some() {
+        return Err(words(
+            "component: a page is a script now (give `entry` or `script`), a component is not opened",
+        ));
+    }
     let mut size = (800.0, 600.0);
     if let Some(list) = options.get::<Option<Table>>("size")? {
         size = (

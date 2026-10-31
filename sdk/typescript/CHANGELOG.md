@@ -21,8 +21,8 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 ### Added
 
 - `ServeOptions.retryWindow`: how long a view that fell is left alone before it is shown again.
-- **Files beside the view's bundle** (specification §8.8 to §8.10), for a view opened at `lua` 2.1
-  or `wasm` 3.0 and later: `ViewControl.attach(bytes)` adds a file for the view to draw and resolves
+- **Files beside the view's bundle** (specification §8.8 to §8.10), for a view opened at `lua` 2.1:
+  `ViewControl.attach(bytes)` adds a file for the view to draw and resolves
   with the name it draws it by (`sha256:` and the digest) once the host holds it, sending nothing
   for a file the view has attached already or the host still holds; `detach`, `read(handle, offset,
 length)` of a file the person gave and `write(handle, offset, bytes, end)` to the place the person

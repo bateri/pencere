@@ -14,9 +14,15 @@
 -- `null` too, and `json.is_null(object, key)` whether it had it as `null`. They hold for every
 -- object read, those of the program's messages too, while the page has set nothing at that key;
 -- such an object is written again with its `null`s.
+--
+-- Reading is the bridge's (`kit/luau/bridge/json.cpp`), whose result is the one described above;
+-- this part keeps what the two share: `json.null`, `json.array` and the record of the `null`s.
+
+local internal = ...
 
 local json = {}
 pencere.json = json
+local refuse = internal.refuse
 
 json.null = setmetatable({}, { __tostring = function() return "null" end })
 json.array = {}
@@ -41,7 +47,9 @@ function json.has(object, key)
 end
 
 -- Arrays and objects nested this many levels or more, the outermost counting as the first, are
--- no JSON message (specification section 4.5): neither read nor written.
+-- no JSON message (specification section 4.5): neither read nor written. The reader is the
+-- bridge's (`kMaxDepth` in `bridge/json.cpp`), which holds to the same number: keep the two
+-- equal.
 local MAX_DEPTH = 128
 
 local escapes = {
@@ -92,7 +100,7 @@ local function write(value, out, depth)
 		out[#out + 1] = "null"
 	elseif kind == "table" then
 		if depth >= MAX_DEPTH then
-			error("json.encode: the value is nested too deep", 0)
+			refuse("json.encode: the value is nested too deep")
 		end
 		if is_list(value) then
 			out[#out + 1] = "["
@@ -140,7 +148,7 @@ local function write(value, out, depth)
 			out[#out + 1] = "}"
 		end
 	else
-		error("json.encode: a " .. kind .. " cannot be written", 0)
+		refuse("json.encode: a " .. kind .. " cannot be written")
 	end
 end
 
@@ -152,158 +160,15 @@ end
 
 -- --- Reading -------------------------------------------------------------------------------------
 
-local function fail(text, at, why)
-	error({ json = true, message = string.format("%s at %d", why, at) }, 0)
-end
+local read = internal.host.json_read
 
-local function skip(text, at)
-	return string.find(text, "[^ \t\r\n]", at) or #text + 1
-end
-
-local read
-
-local function read_string(text, at)
-	local out = {}
-	local from = at + 1
-	while true do
-		local stop = string.find(text, '["\\%c]', from)
-		if not stop then
-			fail(text, at, "a string that does not end")
-		end
-		out[#out + 1] = string.sub(text, from, stop - 1)
-		local character = string.sub(text, stop, stop)
-		if character == '"' then
-			return table.concat(out), stop + 1
-		elseif character ~= "\\" then
-			fail(text, stop, "a control character in a string")
-		end
-		local escaped = string.sub(text, stop + 1, stop + 1)
-		local plain = { ['"'] = '"', ["\\"] = "\\", ["/"] = "/", b = "\b", f = "\f", n = "\n", r = "\r", t = "\t" }
-		if plain[escaped] then
-			out[#out + 1] = plain[escaped]
-			from = stop + 2
-		elseif escaped == "u" then
-			local digits = string.match(text, "^%x%x%x%x", stop + 2)
-			if not digits then
-				fail(text, stop, "a bad \\u escape")
-			end
-			local code = tonumber(digits, 16)
-			from = stop + 6
-			if code >= 0xD800 and code < 0xDC00 then
-				local low = string.match(text, "^\\u(%x%x%x%x)", from)
-				local lower = low and tonumber(low, 16)
-				if lower and lower >= 0xDC00 and lower < 0xE000 then
-					code = 0x10000 + (code - 0xD800) * 0x400 + (lower - 0xDC00)
-					from += 6
-				else
-					code = 0xFFFD
-				end
-			elseif code >= 0xDC00 and code < 0xE000 then
-				code = 0xFFFD
-			end
-			out[#out + 1] = utf8.char(code)
-		else
-			fail(text, stop, "a bad escape")
-		end
-	end
-end
-
-function read(text, at, depth)
-	at = skip(text, at)
-	local character = string.sub(text, at, at)
-	if (character == "{" or character == "[") and depth >= MAX_DEPTH then
-		fail(text, at, "nested too deep")
-	end
-	if character == "{" then
-		local object = {}
-		at = skip(text, at + 1)
-		if string.sub(text, at, at) == "}" then
-			return object, at + 1
-		end
-		while true do
-			if string.sub(text, at, at) ~= '"' then
-				fail(text, at, "a key was expected")
-			end
-			local key
-			key, at = read_string(text, at)
-			at = skip(text, at)
-			if string.sub(text, at, at) ~= ":" then
-				fail(text, at, "a colon was expected")
-			end
-			local value
-			value, at = read(text, at + 1, depth + 1)
-			if value ~= json.null then
-				object[key] = value
-			else
-				local seen = nulls[object]
-				if not seen then
-					seen = {}
-					nulls[object] = seen
-				end
-				seen[key] = true
-			end
-			at = skip(text, at)
-			local after = string.sub(text, at, at)
-			if after == "}" then
-				return object, at + 1
-			elseif after ~= "," then
-				fail(text, at, "a comma or a brace was expected")
-			end
-			at = skip(text, at + 1)
-		end
-	elseif character == "[" then
-		local list = {}
-		at = skip(text, at + 1)
-		if string.sub(text, at, at) == "]" then
-			-- An empty list is written again as one, not as an empty object.
-			return setmetatable(list, json.array), at + 1
-		end
-		while true do
-			local value
-			value, at = read(text, at, depth + 1)
-			list[#list + 1] = value
-			at = skip(text, at)
-			local after = string.sub(text, at, at)
-			if after == "]" then
-				return list, at + 1
-			elseif after ~= "," then
-				fail(text, at, "a comma or a bracket was expected")
-			end
-			at += 1
-		end
-	elseif character == '"' then
-		return read_string(text, at)
-	elseif string.sub(text, at, at + 3) == "true" then
-		return true, at + 4
-	elseif string.sub(text, at, at + 4) == "false" then
-		return false, at + 5
-	elseif string.sub(text, at, at + 3) == "null" then
-		return json.null, at + 4
-	end
-	local number = string.match(text, "^-?%d+%.?%d*[eE]?[+-]?%d*", at)
-	if not number or number == "" then
-		fail(text, at, "a value was expected")
-	end
-	local value = tonumber(number)
-	if not value then
-		fail(text, at, "a bad number")
-	end
-	return value, at + #number
-end
-
+-- The value `text` says, or nil and why (`... at 12`, the place counted from 1); nil alone for a
+-- text that is `null`. The bridge makes the tables, with `json.null`, `json.array` and the record of
+-- the members that were `null`.
 function json.decode(text)
-	local ok, value, at = pcall(read, text, 1, 1)
-	if not ok then
-		if type(value) == "table" and value.json then
-			return nil, value.message
-		end
-		error(value, 0)
+	local kind = type(text)
+	if kind ~= "string" and kind ~= "number" then
+		refuse("json.decode takes the text to read, not a " .. kind)
 	end
-	if skip(text, at) <= #text then
-		return nil, "more after the value at " .. at
-	end
-	if value == json.null then
-		return nil
-	end
-	return value
+	return read(text, json.null, json.array, nulls)
 end

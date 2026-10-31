@@ -64,8 +64,8 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
-- **Files beside the view's bundle** (specification §8.8 to §8.10), for a view opened at `lua` `2.1`
-  or `wasm` `3.0` and later. `ViewControl::attach` (and `attach_file`) adds a file for the view to
+- **Files beside the view's bundle** (specification §8.8 to §8.10), for a view opened at `lua` `2.1`.
+  `ViewControl::attach` (and `attach_file`) adds a file for the view to
   draw and returns the name it draws it by (`sha256:` and the digest of the bytes sent), once the
   terminal holds it; a file attached already, or still in the terminal's store, does not cross
   again. `ViewControl::receive` reads a file the person gave the view, by the handle the view passed
