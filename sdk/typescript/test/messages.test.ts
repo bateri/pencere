@@ -331,6 +331,40 @@ describe("a welcome", () => {
     return welcome;
   };
 
+  it("that lists stage and says where the folder is carries it, and one that does not list it has none", () => {
+    expect(offer("to-program/welcome-stage.frame")).toMatchObject({
+      features: ["dismiss", "stage"],
+      stage: {
+        dir: expect.stringMatching(/^\//) as string,
+        token: expect.stringMatching(/^[0-9a-f]{32}$/) as string,
+      },
+    });
+    expect(offer("to-program/welcome.frame")).not.toHaveProperty("stage");
+    const token = "0b5d7c1e9a3f4682d0e1c7a95b3f8d24";
+    const welcome = (features: string, stage: string): string =>
+      `{"version":1,"token":"${TOKEN}","features":[${features}],${stage}"views":[]}`;
+    const stageOf = (text: string): unknown =>
+      (parseWelcome(text, VERSIONS) as { stage?: unknown } | undefined)?.stage;
+    expect(stageOf(welcome('"stage"', `"stage":{"dir":"/a","token":"${token}"},`))).toEqual({
+      dir: "/a",
+      token,
+    });
+    // Not listed, not said, or said badly: no offer.
+    expect(
+      stageOf(welcome('"dismiss"', `"stage":{"dir":"/a","token":"${token}"},`)),
+    ).toBeUndefined();
+    expect(stageOf(welcome('"stage"', ""))).toBeUndefined();
+    for (const bad of [
+      `"stage":{"dir":"a","token":"${token}"},`,
+      `"stage":{"dir":"/a","token":"${token.toUpperCase()}"},`,
+      '"stage":{"dir":"/a","token":"0b5d"},',
+      `"stage":{"token":"${token}"},`,
+      '"stage":"/a",',
+    ]) {
+      expect(stageOf(welcome('"stage"', bad)), bad).toBeUndefined();
+    }
+  });
+
   it("with a version and a token is an offer, with the kinds the host opens and their versions", () => {
     expect(parseWelcome(payloadOf("to-program/welcome.frame"), VERSIONS)).toEqual({
       kind: "offer",

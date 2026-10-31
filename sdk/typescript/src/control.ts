@@ -20,8 +20,11 @@
  */
 
 import { FileError } from "./files.js";
-import type { MAX_PIECE } from "./files.js";
+import type { MAX_PIECE, Transfer } from "./files.js";
 import type { NoViewReason, ViewSpec } from "./serve.js";
+import type { StageOffer } from "./messages.js";
+import { proveStage } from "./stage.js";
+import type { StageFolder } from "./stage.js";
 
 /** What the view that replaces the closed one is made of. */
 export interface ReopenOptions {
@@ -76,6 +79,10 @@ export interface ViewTarget {
   detach(name: string): void;
   read(handle: string, offset: number, length: number): Promise<Uint8Array>;
   write(handle: string, offset: number, data: Uint8Array, end: boolean): Promise<void>;
+  /** The folder the host offers, when a view that has files runs. */
+  stageOffer(): StageOffer | undefined;
+  stage(handle: string, offset: number): Promise<Transfer>;
+  fetch(handle: string, size: number, offset: number): Promise<Transfer>;
 }
 
 const targets = new WeakMap<ViewControl, ViewTarget>();
@@ -159,5 +166,47 @@ export class ViewControl {
     return target === undefined
       ? Promise.reject(new FileError("unsupported"))
       : target.write(handle, offset, data, end);
+  }
+
+  /**
+   * The folder the host keeps on the program's machine for the bytes of a file to cross through
+   * (§8.11), when the host offers one, a view that has files runs, and the program proves the folder
+   * is the host's: an absolute path, a directory of the program's own user that the group and others
+   * cannot use, and a `marker` file that holds exactly the token of the `welcome`. `undefined` when
+   * any of it fails; the program then uses {@link ViewControl.read} and {@link ViewControl.write}.
+   * Proved again at every call.
+   */
+  stageFolder(): StageFolder | undefined {
+    const offer = targets.get(this)?.stageOffer();
+    return offer === undefined ? undefined : proveStage(offer);
+  }
+
+  /**
+   * Asks the host to send the file of `handle` (§8.9) from `offset` through a pipe in its folder
+   * (§8.11). The {@link Transfer} says which pipe to open for reading ({@link StageFolder.openPipe}),
+   * and ends with the offset of the end of the file. The program writes what it reads to a part of
+   * its own, and the file is complete when it has read to the end of the pipe and its part is that
+   * long. Rejects as `attach` does, and with `unsupported` where {@link ViewControl.stageFolder}
+   * is `undefined`.
+   */
+  stage(handle: string, offset = 0): Promise<Transfer> {
+    const target = targets.get(this);
+    return target === undefined
+      ? Promise.reject(new FileError("unsupported"))
+      : target.stage(handle, offset);
+  }
+
+  /**
+   * Asks the host to take the program's file, `size` bytes long and starting at `offset`, for the
+   * place the person chose by `handle` (§8.10), through a pipe in its folder (§8.11). The
+   * {@link Transfer} says which pipe to open for writing; the program writes its file from `offset`
+   * to its end and closes the pipe, and the transfer ends with the length of the file the host saved.
+   * After a `route` (`done` rejects with `at`) it is sent again from `at`. Rejects as `stage` does.
+   */
+  fetch(handle: string, size: number, offset = 0): Promise<Transfer> {
+    const target = targets.get(this);
+    return target === undefined
+      ? Promise.reject(new FileError("unsupported"))
+      : target.fetch(handle, size, offset);
   }
 }

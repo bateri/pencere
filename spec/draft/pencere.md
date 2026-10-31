@@ -1135,8 +1135,8 @@ program does not ask where it runs, and uses the one mechanism wherever it is.
 
 **The folder.** It is the host's own: a directory on the program's machine under the account's home
 directory, one for each instance of the host, with no permission for the group and for others (mode
-`0700`). A file in it called `marker` holds the `token` of the `welcome` (Section 5.2), 32 lowercase hex
-digits of the host's randomness. The host makes the folder, its `marker` and the pipes this section
+`0700`). A file in it called `marker` holds the `token` of the `stage` in the `welcome` (Section 5.2), 32 lowercase
+hex digits of the host's randomness, not the token the views are opened with. The host makes the folder, its `marker` and the pipes this section
 names, removes them, and reads and writes nothing else on the program's machine. How it reaches the machine is its own
 business, and this document does not say.
 
@@ -1145,8 +1145,8 @@ remote shell inside a remote shell, or a container, may show another folder, of 
 same path. The program uses the offer only if all of this holds, and checks it again for every `welcome`:
 
 - `dir` is an absolute path;
-- `dir`, opened, is a directory that belongs to the effective user of the program, and the group and
-  others cannot use it;
+- `dir`, opened without following a link, is a directory that belongs to the effective user of the
+  program, and the group and others cannot use it;
 - `marker` in it, opened without following a link, is a regular file whose content is exactly `token`.
 
 When anything fails the program uses messages, as it did before. The same care goes for a pipe: the

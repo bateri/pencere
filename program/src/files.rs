@@ -164,6 +164,9 @@ struct Moving {
     events: Sender<Transferring>,
     /// A `fetch`; a `stage` otherwise.
     fetch: bool,
+    /// The program has taken it back with an `unstage`. It stays until the host's last answer,
+    /// which is `cancelled`, or the end it had already reached: the helper learns which.
+    unstaged: bool,
 }
 
 /// The loop's side: what the view that runs has attached, and the answers the helpers wait for.
@@ -340,7 +343,10 @@ impl Files {
                 self.begin_transfer(has, "fetch", &body, events, true, writer);
             }
             Request::Unstage { id } => {
-                if self.transfers.remove(&id).is_some() {
+                if let Some(moving) = self.transfers.get_mut(&id)
+                    && !moving.unstaged
+                {
+                    moving.unstaged = true;
                     let _ = writer.message("unstage", None, None, &payload::unstage(id));
                 }
             }
@@ -366,7 +372,14 @@ impl Files {
         if let Ok(id) = writer.message(kind, None, None, body)
             && events.send(Transferring::Id(id)).is_ok()
         {
-            self.transfers.insert(id, Moving { events, fetch });
+            self.transfers.insert(
+                id,
+                Moving {
+                    events,
+                    fetch,
+                    unstaged: false,
+                },
+            );
         }
     }
 
@@ -378,7 +391,7 @@ impl Files {
         };
         let Some(moving) = self
             .transfers
-            .get(&re)
+            .get_mut(&re)
             .filter(|moving| moving.fetch == fetch)
         else {
             return;
@@ -391,8 +404,8 @@ impl Files {
         let heard = moving.events.send(Transferring::Told(told)).is_ok();
         if last {
             self.transfers.remove(&re);
-        } else if !heard {
-            self.transfers.remove(&re);
+        } else if !heard && !moving.unstaged {
+            moving.unstaged = true;
             let _ = writer.message("unstage", None, None, &payload::unstage(re));
         }
     }
@@ -521,6 +534,8 @@ pub(crate) fn discard_parts() {
 pub(crate) struct Part {
     path: PathBuf,
     file: fs::File,
+    /// It has been given its place's name: dropping it deletes nothing.
+    kept: bool,
     /// How many bytes it holds: the file's own from the start, in order.
     len: u64,
 }
@@ -549,7 +564,12 @@ impl Part {
             .custom_flags(libc::O_NOFOLLOW)
             .open(&path)?;
         parts().push(path.clone());
-        Ok(Self { path, file, len: 0 })
+        Ok(Self {
+            path,
+            file,
+            kept: false,
+            len: 0,
+        })
     }
 
     /// A part that is a copy-on-write clone of the file at `from`, which is `size` bytes long, with
@@ -580,6 +600,7 @@ impl Part {
         let part = Self {
             path,
             file,
+            kept: false,
             len: size,
         };
         let meta = part.file.metadata().ok()?;
@@ -613,18 +634,19 @@ impl Part {
     }
 
     /// Gives the part the name of its place.
-    fn keep(self, to: &Path) -> io::Result<()> {
+    fn keep(mut self, to: &Path) -> io::Result<()> {
         self.file.sync_all()?;
         fs::rename(&self.path, to)?;
-        parts().retain(|part| *part != self.path);
-        std::mem::forget(self);
+        self.kept = true;
         Ok(())
     }
 }
 
 impl Drop for Part {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        if !self.kept {
+            let _ = fs::remove_file(&self.path);
+        }
         parts().retain(|part| *part != self.path);
     }
 }
@@ -897,8 +919,8 @@ impl ViewControl {
     }
 }
 
-/// Copies the `size` bytes of the file at `path` to a part beside `to`, which is given `to`'s name
-/// at the end, telling `progress` as `receive` does. `None` where the file is not there to be
+/// Clones, where the file system can, or else copies the `size` bytes of the file at `path` to a part
+/// beside `to`, which is given `to`'s name at the end, telling `progress` as `receive` does. `None` where the file is not there to be
 /// copied whole (see [`ViewControl::receive_from`]): the part is deleted, and the caller receives
 /// the file by its handle.
 fn copy_given(
@@ -1142,13 +1164,18 @@ mod tests {
         };
         files.on_request(Request::Unstage { id }, true, &mut writer);
         files.on_request(Request::Unstage { id }, true, &mut writer);
-        assert!(files.transfers.is_empty());
+        // It stays out until the host's last word: `cancelled`, or the end it had reached already.
+        assert_eq!(files.transfers.len(), 1);
         files.on_transfer(
             &from_terminal("fetched", 5, id, r#"{"code":"cancelled"}"#),
             true,
             &mut writer,
         );
-        assert!(heard.try_recv().is_err());
+        assert!(matches!(
+            heard.try_recv(),
+            Ok(Transferring::Told(Transfer::Failed { code, .. })) if code == "cancelled"
+        ));
+        assert!(files.transfers.is_empty());
 
         // No view that has files: nothing is sent and the helper's way is dropped.
         let (events, heard) = std::sync::mpsc::channel();

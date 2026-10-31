@@ -21,7 +21,7 @@ import type { Bundle } from "./bundle.js";
 import { toBase64 } from "./bytes.js";
 import { bindControl, unbindControl } from "./control.js";
 import { FileError, Files, hasFiles } from "./files.js";
-import type { SendFile } from "./files.js";
+import type { SendFile, Transfer } from "./files.js";
 import type {
   CloseResult,
   ReopenOptions,
@@ -55,6 +55,7 @@ import type {
   Choice,
   Closed,
   Icon,
+  StageOffer,
   ViewKind,
   ViewOffer,
   WelcomeOffer,
@@ -667,6 +668,7 @@ class TerminalSession implements ViewTarget {
   async #open(welcome: WelcomeOffer, choice: Choice): Promise<void> {
     this.#phase = "showing";
     this.#dismiss = welcome.features.includes(FEATURE_DISMISS);
+    this.#files.offer(welcome.stage);
     const spec = this.#views.find((view) => view.kind === choice.kind);
     if (spec === undefined)
       throw new Error(`the host chose a kind of view the program did not offer`);
@@ -723,6 +725,12 @@ class TerminalSession implements ViewTarget {
         return;
       case "wrote":
         this.#files.onWrote(message);
+        return;
+      case "staged":
+        this.#files.onTransfer(message, false);
+        return;
+      case "fetched":
+        this.#files.onTransfer(message, true);
         return;
       case "closed":
         this.#onClosed(message);
@@ -963,6 +971,24 @@ class TerminalSession implements ViewTarget {
   write(handle: string, offset: number, data: Uint8Array, end: boolean): Promise<void> {
     if (!this.#hasFiles()) return Promise.reject(new FileError("unsupported"));
     return this.#files.write(handle, offset, data, end, this.#sendFile);
+  }
+
+  stageOffer(): StageOffer | undefined {
+    return this.#hasFiles() ? this.#files.stageOffer : undefined;
+  }
+
+  stage(handle: string, offset: number): Promise<Transfer> {
+    if (!this.#hasFiles() || this.#files.stageOffer === undefined) {
+      return Promise.reject(new FileError("unsupported"));
+    }
+    return Promise.resolve(this.#files.stage(handle, offset, this.#sendFile));
+  }
+
+  fetch(handle: string, size: number, offset: number): Promise<Transfer> {
+    if (!this.#hasFiles() || this.#files.stageOffer === undefined) {
+      return Promise.reject(new FileError("unsupported"));
+    }
+    return Promise.resolve(this.#files.fetch(handle, size, offset, this.#sendFile));
   }
 
   /** Why the view cannot be dismissed now, if it cannot: there is none to close, or the host cannot do it. */

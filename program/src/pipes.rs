@@ -1,7 +1,9 @@
 //! The calls of the system that the fast way of a file needs and `std` does not have: who the
 //! process is, waiting on a descriptor, and cloning a file (specification §8.11, §8.9).
 
-use std::os::fd::RawFd;
+use std::fs::File;
+use std::io;
+use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::path::Path;
 
 /// The effective user id of the process: the user that the folder of the terminal and its pipes
@@ -26,6 +28,32 @@ pub(crate) fn ready(fd: RawFd, for_write: bool, millis: i32) -> bool {
     };
     // SAFETY: one valid `pollfd` that lives for the call, and a count of one.
     unsafe { libc::poll(&raw mut poll, 1, millis) > 0 }
+}
+
+/// Opens `name`, a name of one part, in the directory `dir` that is open, without following a link
+/// at it: what is opened is in that directory and not where a path to it may lead by now.
+pub(crate) fn open_at(dir: &File, name: &str, flags: i32) -> io::Result<File> {
+    if name.is_empty() || name.contains(['/', '\0']) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a name of one part",
+        ));
+    }
+    let name = std::ffi::CString::new(name)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "a NUL in a name"))?;
+    // SAFETY: a descriptor that is open for the call and a NUL-terminated name that lives for it.
+    let fd = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            flags | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `fd` was just opened here and nothing else owns it.
+    Ok(unsafe { File::from_raw_fd(fd) })
 }
 
 /// Makes `to`, which must not exist, a copy-on-write clone of the file at `from`, where the file
@@ -56,7 +84,12 @@ fn clone_file_by_system(from: &Path, to: &Path) -> bool {
     use std::fs;
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::OpenOptionsExt;
-    let Ok(source) = fs::File::open(from) else {
+    // Not a link, if `from` is one, as on the other systems: the file is the one given.
+    let Ok(source) = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(from)
+    else {
         return false;
     };
     let Ok(dest) = fs::OpenOptions::new()

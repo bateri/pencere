@@ -240,12 +240,12 @@ impl Files {
         (count, bytes.saturating_add(reserved))
     }
 
-    /// The places to save that were left unfinished, which the terminal is to throw away.
     /// The ids of the transfers that are out, which the terminal is to stop.
     pub(super) fn open_transfers(&self) -> Vec<u32> {
         self.transfers.iter().map(|t| t.id).collect()
     }
 
+    /// The places to save that were left unfinished, which the terminal is to throw away.
     pub(super) fn unfinished_saves(&self) -> Vec<String> {
         let mut out: Vec<String> = self
             .handles

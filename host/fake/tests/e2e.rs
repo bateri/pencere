@@ -3896,3 +3896,107 @@ fn a_lua_app_receives_and_saves_through_the_hosts_folder_without_a_line_of_it_ch
     assert_eq!(names_in(&out), ["big.bin"]);
     assert!(fs::read(out.join("big.bin")).expect("the copy") == bytes);
 }
+
+/// The TypeScript program that moves a whole file by `stagedRead` and `stagedWrite`, run against a
+/// stand-in host that keeps a folder at `folder` with the `flaws` the options say.
+fn run_typescript_staged(dir: &Path, folder: &Path, flaws: &[&str]) -> (Run, Vec<u8>) {
+    let out = dir.join("out");
+    fs::create_dir_all(&out).expect("a directory");
+    let dropped = dir.join("big.bin");
+    let bytes = made_up(&dropped, 4 * 1024 * 1024 + 9);
+    let received = dir.join("received.bin");
+    let folder_text = folder.to_string_lossy();
+    let dropped_text = dropped.to_string_lossy();
+    let out_text = out.to_string_lossy();
+    let received_text = received.to_string_lossy();
+    let reads = format!(r#"stagedRead={{"handle":"$1","to":{received_text:?}}}"#);
+    let writes = format!(r#"stagedWrite={{"handle":"$2","from":{dropped_text:?}}}"#);
+    let mut options = vec!["--stage", &*folder_text];
+    options.extend_from_slice(flaws);
+    options.extend_from_slice(&[
+        "--drop",
+        &dropped_text,
+        "--save",
+        "copy.bin",
+        "--save-in",
+        &out_text,
+        "--call",
+        &reads,
+        "--call",
+        &writes,
+        "--then",
+        "interrupt",
+    ]);
+    let run = run(&options, &["node", &program("files.mjs")]);
+    assert!(run.status.success(), "{}", run.text());
+    assert!(
+        fs::read(&received).expect("the received file") == bytes,
+        "{}",
+        run.text()
+    );
+    assert!(
+        fs::read(out.join("copy.bin")).expect("the saved file") == bytes,
+        "{}",
+        run.text()
+    );
+    assert!(
+        !folder.exists(),
+        "the folder is left: {:?}",
+        names_in(folder)
+    );
+    (run, bytes)
+}
+
+#[test]
+fn the_typescript_sdk_moves_a_file_through_the_hosts_folder_and_nothing_crosses_in_messages() {
+    let dir = fresh("stage-typescript");
+    let (run, _) = run_typescript_staged(&dir, &dir.join("folder"), &[]);
+    run.in_order(&[
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss,stage views=lua@2.1",
+        "program: stage id=* offset=0",
+        "host: staged id=* re=* pipe",
+        "host: staged id=* re=* sent=4194313",
+        r#"view: <- response id=1 result={"bytes":4194313,"via":"pipe"}"#,
+        "program: fetch id=* size=4194313 offset=0",
+        "host: fetched id=* re=* pipe",
+        "host: saved copy.bin (4194313 bytes)",
+        "host: fetched id=* re=* saved=4194313",
+        r#"view: <- response id=2 result={"bytes":4194313,"via":"pipe"}"#,
+    ]);
+    run.never("program: read");
+    run.never("program: write");
+    run.never("host: data");
+}
+
+#[test]
+fn the_typescript_sdk_goes_on_in_messages_when_the_marker_is_wrong_or_the_pipe_is_silent() {
+    let dir = fresh("stage-typescript-wrong-marker");
+    let (run, _) = run_typescript_staged(&dir, &dir.join("folder"), &["--stage-wrong-marker"]);
+    run.in_order(&[
+        "program: read id=* offset=0 length=1048576",
+        r#"view: <- response id=1 result={"bytes":4194313,"via":"messages"}"#,
+        "program: write id=* offset=0 1048576 bytes",
+        "host: saved copy.bin (4194313 bytes)",
+        r#"view: <- response id=2 result={"bytes":4194313,"via":"messages"}"#,
+    ]);
+    run.never("program: stage");
+    run.never("program: fetch");
+
+    // A pipe that stays silent is taken back, and the place is as it was: the file goes from its start.
+    let dir = fresh("stage-typescript-silent");
+    let (run, _) = run_typescript_staged(&dir, &dir.join("folder"), &["--stage-silent"]);
+    run.in_order(&[
+        "program: stage id=* offset=0",
+        "host: staged id=* re=* pipe",
+        "program: unstage id=* of=*",
+        "host: staged id=* re=* code=cancelled",
+        "program: read id=* offset=0 length=1048576",
+        r#"view: <- response id=1 result={"bytes":4194313,"via":"messages"}"#,
+        "program: fetch id=* size=4194313 offset=0",
+        "program: unstage id=* of=*",
+        "host: fetched id=* re=* code=cancelled",
+        "program: write id=* offset=0 1048576 bytes",
+        "host: saved copy.bin (4194313 bytes)",
+        r#"view: <- response id=2 result={"bytes":4194313,"via":"messages"}"#,
+    ]);
+}

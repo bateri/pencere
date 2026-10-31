@@ -11,7 +11,7 @@ use std::fs;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError, channel};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -52,7 +52,12 @@ const PIECE: usize = 128 << 10;
 const PROGRESS_EVERY: u64 = 1 << 20;
 
 /// How long to wait before looking again at a pipe nobody writes to, or that nobody reads.
-const LOOK_AGAIN: Duration = Duration::from_millis(2);
+const LOOK_AGAIN: Duration = Duration::from_millis(10);
+
+/// How long before a transfer that lost its way is asked for again, for each time it has: the way
+/// may come back (a connection that is made again), and asking at once would spend the tries
+/// before it does.
+const ROUTE_PAUSE: Duration = Duration::from_millis(500);
 
 /// What the program knows of the folder a terminal offers.
 pub(crate) enum Proof {
@@ -73,9 +78,10 @@ pub(crate) enum Went {
     Rest { from: u64 },
 }
 
-/// A folder that is the terminal's, proved.
+/// A folder that is the terminal's, proved. It is held open: the pipes are opened in the directory
+/// that was proved, not in whatever the path leads to later.
 pub(crate) struct Folder {
-    dir: PathBuf,
+    held: fs::File,
 }
 
 /// Proves that the folder a `welcome` offers is the terminal's (§8.11): an absolute path, a
@@ -86,27 +92,27 @@ pub(crate) fn prove(offer: &StageOffer) -> Option<Folder> {
     if !dir.is_absolute() {
         return None;
     }
-    let meta = fs::metadata(dir).ok()?;
+    // Opened, and not a link at its last part: the proof is of this directory.
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(dir)
+        .ok()?;
+    let meta = held.metadata().ok()?;
     if !meta.is_dir() || meta.uid() != pipes::euid() || meta.mode() & 0o077 != 0 {
         return None;
     }
     // Not blocking, so that a `marker` that is a pipe is not waited on: it is not a regular file.
-    let marker = fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(dir.join(MARKER))
-        .ok()?;
+    let marker = pipes::open_at(&held, MARKER, libc::O_RDONLY | libc::O_NONBLOCK).ok()?;
     if !marker.metadata().ok()?.is_file() {
         return None;
     }
-    let mut held = Vec::new();
+    let mut content = Vec::new();
     marker
         .take(offer.token.len() as u64 + 1)
-        .read_to_end(&mut held)
+        .read_to_end(&mut content)
         .ok()?;
-    (held == offer.token.as_bytes()).then(|| Folder {
-        dir: dir.to_owned(),
-    })
+    (content == offer.token.as_bytes()).then_some(Folder { held })
 }
 
 impl Folder {
@@ -119,11 +125,12 @@ impl Folder {
                 "not a name the terminal gives a pipe",
             ));
         }
-        let pipe = fs::OpenOptions::new()
-            .read(!for_write)
-            .write(for_write)
-            .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
-            .open(self.dir.join(name))?;
+        let access = if for_write {
+            libc::O_WRONLY
+        } else {
+            libc::O_RDONLY
+        };
+        let pipe = pipes::open_at(&self.held, name, access | libc::O_NONBLOCK)?;
         let meta = pipe.metadata()?;
         if !meta.file_type().is_fifo() || meta.uid() != pipes::euid() {
             return Err(io::Error::new(
@@ -155,6 +162,8 @@ struct Out<'a> {
     inbox: Receiver<Transferring>,
     /// The terminal has given its last answer.
     over: bool,
+    /// An `unstage` has been sent already.
+    taken_back: bool,
 }
 
 /// What the loop has for a transfer, if anything.
@@ -182,6 +191,7 @@ impl<'a> Out<'a> {
                 id,
                 inbox,
                 over: false,
+                taken_back: false,
             }),
             // The loop dropped the request: no view that has files, or the view ended.
             _ => Err(FileError::Ended),
@@ -214,55 +224,53 @@ impl<'a> Out<'a> {
         self.listened(got)
     }
 
-    /// What the terminal says within `within`, a pipe's name aside.
-    fn wait(&mut self, within: Duration) -> Result<Option<Transfer>, FileError> {
+    /// What the terminal says within `within`; the name of the pipe too when `pipe` is true, and
+    /// otherwise only how the transfer ended. `None` when it says nothing in time.
+    fn listen(&mut self, within: Duration, pipe: bool) -> Result<Option<Transfer>, FileError> {
         let until = Instant::now() + within;
         loop {
             let left = until.saturating_duration_since(Instant::now());
-            let got = match self.inbox.recv_timeout(left) {
-                Ok(Transferring::Told(Transfer::Pipe(_)) | Transferring::Id(_)) => {
-                    if left.is_zero() {
-                        return Ok(None);
-                    }
-                    continue;
-                }
-                Ok(Transferring::Told(told)) => Heard::Word(told),
-                Err(RecvTimeoutError::Timeout) => Heard::Nothing,
-                Err(RecvTimeoutError::Disconnected) => Heard::Gone,
-            };
-            return self.listened(got);
+            match self.inbox.recv_timeout(left) {
+                // What is not waited for is skipped, for as long as there is time.
+                Ok(Transferring::Id(_)) => {}
+                Ok(Transferring::Told(Transfer::Pipe(_))) if !pipe => {}
+                Ok(Transferring::Told(told)) => return self.listened(Heard::Word(told)),
+                Err(RecvTimeoutError::Timeout) => return self.listened(Heard::Nothing),
+                Err(RecvTimeoutError::Disconnected) => return self.listened(Heard::Gone),
+            }
         }
+    }
+
+    /// How the transfer ended, within `within`, a pipe's name aside.
+    fn wait(&mut self, within: Duration) -> Result<Option<Transfer>, FileError> {
+        self.listen(within, false)
     }
 
     /// The terminal's naming of the pipe, or how the transfer ended instead; `None` when the
     /// terminal did not answer in time.
     fn pipe(&mut self) -> Result<Option<Transfer>, FileError> {
-        let until = Instant::now() + NAMED_WITHIN;
-        loop {
-            let left = until.saturating_duration_since(Instant::now());
-            let got = match self.inbox.recv_timeout(left) {
-                Ok(Transferring::Id(_)) => {
-                    if left.is_zero() {
-                        return Ok(None);
-                    }
-                    continue;
-                }
-                Ok(Transferring::Told(told)) => Heard::Word(told),
-                Err(RecvTimeoutError::Timeout) => Heard::Nothing,
-                Err(RecvTimeoutError::Disconnected) => Heard::Gone,
-            };
-            return self.listened(got);
+        self.listen(NAMED_WITHIN, true)
+    }
+
+    /// Takes the transfer back now. The terminal's last word is then `cancelled`, or the end it had
+    /// already reached, which [`Out::wait`] tells.
+    fn take_back(&mut self) {
+        if !self.over
+            && !self.taken_back
+            && let Some(outbox) = self.control.outbox()
+        {
+            outbox.send(Work::Control(Request::Unstage { id: self.id }));
         }
+        self.taken_back = true;
     }
 }
 
 impl Drop for Out<'_> {
     fn drop(&mut self) {
-        if !self.over
-            && let Some(outbox) = self.control.outbox()
-        {
-            outbox.send_without_waiting(Work::Control(Request::Unstage { id: self.id }));
-        }
+        // Waiting for room, and not a thread of its own that may come later: the messages the
+        // helper sends next (a `read`, a `write` of the place the `unstage` gives back) must find
+        // the transfer already taken back. The helper's thread is never the loop's.
+        self.take_back();
     }
 }
 
@@ -314,6 +322,7 @@ pub(crate) fn receive(
                 if routes > ROUTES {
                     return Ok(Went::Rest { from: part.len() });
                 }
+                sleep(ROUTE_PAUSE * routes);
             }
         }
     }
@@ -449,6 +458,7 @@ pub(crate) fn send(
                 if routes > ROUTES {
                     return Ok(Went::Rest { from: at });
                 }
+                sleep(ROUTE_PAUSE * routes);
                 offset = at;
             }
         }
@@ -498,7 +508,7 @@ fn fetch(
                     Some(Transfer::Done(_)) => return Err(disagree()),
                     _ => {}
                 }
-                sleep(LOOK_AGAIN * 10);
+                sleep(LOOK_AGAIN * 5);
             }
             Err(_) => return Ok(Fetched::Rest(0)),
         }
@@ -561,9 +571,20 @@ fn fetch(
         }
         Some(Transfer::Done(_)) => Err(disagree()),
         Some(Transfer::Failed { code, at: held }) => fetching_failed(&code, held, size, offset),
-        // Never saved, and no word of why: the `unstage` that follows leaves the place as it was,
-        // and the messages carry the file.
-        _ => Ok(Fetched::Rest(0)),
+        // Never saved, and no word of why. The terminal's last word on the `unstage` says whether it
+        // was saved after all (it ended the transfer before it heard), and otherwise leaves the
+        // place as it was, for the messages to carry the file.
+        _ => {
+            out.take_back();
+            match out.wait(WHY_WITHIN)? {
+                Some(Transfer::Done(saved)) if saved == size => {
+                    progress(size);
+                    Ok(Fetched::Whole)
+                }
+                Some(Transfer::Done(_)) => Err(disagree()),
+                _ => Ok(Fetched::Rest(0)),
+            }
+        }
     }
 }
 
@@ -597,6 +618,7 @@ fn fetching_failed(
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
     use std::process::Command;
 
     const TOKEN: &str = "0b5d7c1e9a3f4682d0e1c7a95b3f8d24";
@@ -668,6 +690,13 @@ mod tests {
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).expect("a mode");
         // The folder is a file.
         assert!(prove(&offer(&dir.join(MARKER))).is_none());
+        // The folder is a link to a good one: the path is not the folder it was made as.
+        let link = root.join("link");
+        std::os::unix::fs::symlink(&dir, &link).expect("a link");
+        assert!(
+            prove(&offer(&link)).is_none(),
+            "a linked folder is followed"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 

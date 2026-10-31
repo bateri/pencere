@@ -90,6 +90,37 @@ The terminal's modes are set with `stty`, not with `process.stdin.setRawMode` or
 mode also turns off ISIG, and ⌃C would arrive as a byte instead of a SIGINT. A system with no `stty`,
 such as Windows, has no host as far as this library is concerned.
 
+## Files
+
+For a view opened at `lua` 2.1 or `wasm` 3.0 and later, `ViewControl` moves files between the person's
+machine and the program: `attach(bytes)` adds a file for the view to draw, `read(handle, offset,
+length)` reads a file the person gave the view (dropped on it, pasted, chosen in the Open panel) and
+`write(handle, offset, bytes, end)` writes to the place the person chose in the Save panel. Each is
+one message, a piece of at most 1 MiB in base64 through the terminal's stream.
+
+When the program runs on another machine, behind a remote shell, that stream is the slow way. A host
+that has a way of its own to the program's machine keeps a folder there and lists `stage` in its
+`welcome`; the bytes then cross through a pipe in it, and only the bytes. The steps are yours to
+drive:
+
+```ts
+const folder = control.stageFolder(); // undefined unless the program has proved the folder is the host's
+if (folder !== undefined) {
+  const transfer = await control.stage(handle, 0); // or control.fetch(handle, size, 0) for a Save panel's place
+  const fd = folder.openPipe(await transfer.pipe, "read"); // a descriptor of a FIFO of your own user
+  // read fd until the end of the file, writing it to a part of your own...
+  const end = await transfer.done; // the offset of the end of the file; the part must be that long
+}
+```
+
+`stageFolder()` checks that the folder is an absolute path, a directory of your user that the group and
+others cannot use, with a `marker` file whose content is exactly the token of the `welcome`; anything
+less and it is `undefined`, and `read` and `write` do the work. `openPipe` opens without following a
+link and without blocking, and only a FIFO of your user. A pipe that stays silent is yours to give up on:
+`transfer.unstage()` takes it back, the place is as it was before, and `read` and `write` go on from there.
+After a `route` (`transfer.done` rejects with `code` `route`; a `fetch` also says `at`, how long a file the
+host holds) a new `stage` starts at the length of your part and a new `fetch` at `at`.
+
 ## Runtimes
 
 The same code runs on Node (20 and later), Deno (2) and Bun, with nothing to configure. The terminal's

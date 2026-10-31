@@ -23,7 +23,7 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   no change of signature: the bytes of the file cross through a pipe in it, not as base64 through the
   terminal's stream and the tty. The program proves the folder is the terminal's before it uses it
   (an absolute path; a directory of its own user that the group and others cannot use; a `marker`
-  file, opened without following a link, that holds exactly the `welcome`'s token) and that a pipe is
+  file, opened without following a link, that holds exactly the token of the `welcome`'s `stage`) and that a pipe is
   a FIFO of its own user, and goes on with messages whenever the way does not work: a terminal that
   is busy, a pipe that stays silent for three seconds, bytes that stop for eight. After a `route` it
   goes on from where the file stands. A part that was begun is continued by `read`s from where it

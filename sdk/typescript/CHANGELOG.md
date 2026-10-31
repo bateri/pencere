@@ -15,6 +15,16 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 length)` of a file the person gave and `write(handle, offset, bytes, end)` to the place the person
   chose in the Save panel are the messages themselves. A refusal is a `FileError` with the host's
   code; `MAX_PIECE` is the most a read asks for or a write carries.
+- **The host's folder** (specification §8.11), for a host that lists `stage` in its `welcome`:
+  `WelcomeOffer.stage` says where it is. `ViewControl.stageFolder()` proves it (an absolute path; a
+  directory of the program's own user that the group and others cannot use; a `marker` file, opened
+  without following a link, that holds exactly the token) and returns a `StageFolder` whose
+  `openPipe(name, "read" | "write")` opens a pipe the host named, without following a link and without
+  blocking, if it is a FIFO of the program's user. `ViewControl.stage(handle, offset)` and
+  `ViewControl.fetch(handle, size, offset)` send the file of a handle, or the program's file for the
+  place of a handle, through that pipe, and answer a `Transfer`: the `pipe` to open, `done` with where
+  the file ended, `unstage()` to take it back. A `FileError` carries `at` with the `route` of a
+  `fetch`. The bytes cross no message; what the program asks and what it is told stay messages.
 
 ## [0.2.0] - 2026-10-25
 

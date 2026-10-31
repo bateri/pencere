@@ -658,6 +658,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_stage_the_fetch_and_the_unstage_are_written_as_the_fixtures_are() {
+        if fixtures().is_none() {
+            return;
+        }
+        let handle = "664de63fcac3e6e61bd577ba1ea4b4be";
+        assert_eq!(stage(handle, 0), payload_of("to-host/stage.frame"));
+        assert_eq!(fetch(handle, 11, 0), payload_of("to-host/fetch.frame"));
+        assert_eq!(unstage(4), payload_of("to-host/unstage.frame"));
+    }
+
     /// The three files of the bundle in the examples of the specification, byte for byte.
     fn page() -> Bundle {
         Bundle::new(

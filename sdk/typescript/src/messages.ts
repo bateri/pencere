@@ -192,6 +192,14 @@ export function unstagePayload(id: number): string {
 
 // ---- what the host says ------------------------------------------------------
 
+/** The folder a `welcome` offers (`welcome.stage`, §8.11). */
+export interface StageOffer {
+  /** An absolute path. */
+  readonly dir: string;
+  /** What the folder's `marker` file holds: 32 lowercase hex digits. */
+  readonly token: string;
+}
+
 /** What a host answers to `hello` with a version in common (§5.2), or offers again unasked (§10.7). */
 export interface WelcomeOffer {
   readonly kind: "offer";
@@ -199,6 +207,11 @@ export interface WelcomeOffer {
   readonly token: string;
   readonly host?: { readonly name: string; readonly version: string };
   readonly features: readonly string[];
+  /**
+   * The folder the host keeps on the program's machine, when it lists `stage` and says where (§5.2,
+   * §8.11). Whether it is the host's is for the program to prove.
+   */
+  readonly stage?: StageOffer;
   /**
    * What the host will open: for an answer to a `hello`, the program's list cut down to what both
    * speak, in the program's order; for an unsolicited `welcome`, every kind and every version the
@@ -223,6 +236,15 @@ export type Welcome =
 const TOKEN = /^[A-Za-z0-9_-]{22}$/;
 
 const DIGEST = /^[0-9a-f]{64}$/;
+
+/** The `stage` of a `welcome`: an absolute `dir` and a `token` of 32 lowercase hex digits; anything else is no offer. */
+function readStage(value: unknown): StageOffer | undefined {
+  if (!isRecord(value)) return undefined;
+  const { dir, token } = value;
+  if (typeof dir !== "string" || !dir.startsWith("/")) return undefined;
+  if (typeof token !== "string" || !PIPE.test(token)) return undefined;
+  return { dir, token };
+}
 
 function strings(value: unknown): string[] {
   return Array.isArray(value)
@@ -264,6 +286,8 @@ export function parseWelcome(payload: string, offered: readonly number[]): Welco
     if (typeof token !== "string" || !TOKEN.test(token)) return undefined;
     if (!offered.includes(version)) return { kind: "unsupported", supported: [] };
     const host = body.host;
+    const features = strings(body.features);
+    const stage = features.includes(FEATURE_STAGE) ? readStage(body.stage) : undefined;
     return {
       kind: "offer",
       version,
@@ -271,7 +295,8 @@ export function parseWelcome(payload: string, offered: readonly number[]): Welco
       ...(isRecord(host) && typeof host.name === "string" && typeof host.version === "string"
         ? { host: { name: host.name, version: host.version } }
         : {}),
-      features: strings(body.features),
+      features,
+      ...(stage === undefined ? {} : { stage }),
       views: readViews(body.views),
       opens: readViews(body.opens),
       restart: body.restart === true,
@@ -379,6 +404,11 @@ export function parseWrote(payload: string): Wrote | undefined {
 }
 
 const PIPE = /^[0-9a-f]{32}$/;
+
+/** Whether `text` is a name the host gives a pipe: 32 lowercase hex digits and nothing a path could be made of (§8.11). */
+export function isPipeName(text: string): boolean {
+  return PIPE.test(text);
+}
 
 /** A byte count of a `staged` or `fetched`. */
 function count(value: unknown): number | undefined {

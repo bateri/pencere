@@ -11,11 +11,17 @@ import type { Message } from "./frame.js";
 import {
   attachPayload,
   detachPayload,
+  fetchPayload,
+  parseFetched,
   parseNeed,
   parseRefused,
+  parseStaged,
   parseWrote,
   readPayload,
+  stagePayload,
+  unstagePayload,
 } from "./messages.js";
+import type { StageOffer } from "./messages.js";
 
 /** The most bytes a `read` asks for and a `write` carries (§8.9, §8.10). */
 export const MAX_PIECE = 1 << 20;
@@ -31,16 +37,46 @@ const ATTACHED = "sha256:";
  * files runs (none is up, or it was opened at a version without them: `lua` before 2.1, `wasm`
  * before 3.0, a page), `ended` when the view ended before the host answered, or the host's own:
  * for an attach `limit`, `view`, `size`, `digest`; for a read `handle`, `range`, `busy`, `gone`,
- * `io`; for a write `handle`, `order`, `size`, `space`, `io`.
+ * `io`; for a write `handle`, `order`, `size`, `space`, `io`; for a `stage` or a `fetch` `handle`,
+ * `busy`, `gone`, `size`, `space`, `route`, `io`, `cancelled` (§8.11).
  */
 export class FileError extends Error {
   readonly code: string;
+  /** With `route` of a `fetch`: how long a file the host holds (§8.11). */
+  readonly at?: number;
 
-  constructor(code: string, message?: string) {
+  constructor(code: string, message?: string, at?: number) {
     super(message ?? `the file: ${code}`);
     this.name = "FileError";
     this.code = code;
+    if (at !== undefined) this.at = at;
   }
+}
+
+/**
+ * A `stage` or a `fetch` that is out (§8.11): the file of a handle, or the program's file for the
+ * place of a handle, crossing through a pipe in the host's folder.
+ */
+export interface Transfer {
+  /** The id of the message, which an `unstage` names. */
+  readonly id: number;
+  /**
+   * The name of the pipe in the folder, once the host has made it; rejects with the host's code
+   * when it could not begin.
+   */
+  readonly pipe: Promise<string>;
+  /**
+   * How the transfer ended: the offset of the end of the file a `stage` carried (`sent`), the
+   * length of the file a `fetch` saved (`saved`). Rejects with a {@link FileError} of the host's
+   * code (`at` goes with a `route` of a `fetch`), or `ended` when the view ended first.
+   */
+  readonly done: Promise<number>;
+  /**
+   * Takes the transfer back: the host closes and removes the pipe, and throws away what a `fetch`
+   * had written of its place, which is then as it was before the `fetch`. `done` rejects with
+   * `cancelled` at once.
+   */
+  unstage(): void;
 }
 
 /** Whether a view of `kind` opened at `version` has files beside its bundle (§5.5). */
@@ -74,6 +110,15 @@ interface Saving {
   last?: Waiting<void> | undefined;
 }
 
+/** A `stage` or a `fetch` that waits for the host's answers. */
+interface Moving {
+  readonly fetch: boolean;
+  readonly pipe: Waiting<string>;
+  readonly done: Waiting<number>;
+  /** The host has named the pipe. */
+  named: boolean;
+}
+
 /** How a message goes to the host: its id. */
 export type SendFile = (
   kind: string,
@@ -90,10 +135,29 @@ export class Files {
   /** The handle each write that is out was for. */
   readonly #writes = new Map<number, string>();
   readonly #saves = new Map<string, Saving>();
+  /** The `stage`s and `fetch`es that are out, by the id they went out with. */
+  readonly #transfers = new Map<number, Moving>();
+  /** The folder the host offers (§8.11). It is the host's, not the view's: it outlives the view. */
+  #stage: StageOffer | undefined;
+
+  /** The host's `welcome` says where its folder is, or that it has none. */
+  offer(stage: StageOffer | undefined): void {
+    this.#stage = stage;
+  }
+
+  /** Where the host says its folder is. */
+  get stageOffer(): StageOffer | undefined {
+    return this.#stage;
+  }
 
   /** The view is over: what it attached is no longer, and every wait is told it ended. */
   forget(): void {
     const ended = new FileError("ended", "the view ended before the file was through");
+    for (const moving of this.#transfers.values()) {
+      moving.pipe.reject(ended);
+      moving.done.reject(ended);
+    }
+    this.#transfers.clear();
     for (const waiting of this.#attaches.values()) waiting.reject(ended);
     for (const waiting of this.#reads.values()) waiting.reject(ended);
     for (const waiting of this.#queued) waiting.reject(ended);
@@ -161,6 +225,76 @@ export class Files {
     return new Promise((resolve, reject) => {
       waiting.last = { resolve, reject };
     });
+  }
+
+  /** Sends a `stage` for the file of `handle` from `offset` (§8.11). */
+  stage(handle: string, offset: number, send: SendFile): Transfer {
+    return this.#begin(false, "stage", stagePayload(handle, offset), send);
+  }
+
+  /** Sends a `fetch` of the program's file, `size` bytes long, for the place of `handle`, its bytes starting at `offset` (§8.11). */
+  fetch(handle: string, size: number, offset: number, send: SendFile): Transfer {
+    return this.#begin(true, "fetch", fetchPayload(handle, size, offset), send);
+  }
+
+  #begin(fetch: boolean, kind: string, payload: string, send: SendFile): Transfer {
+    let pipe!: Waiting<string>;
+    let done!: Waiting<number>;
+    const pipePromise = new Promise<string>((resolve, reject) => (pipe = { resolve, reject }));
+    const donePromise = new Promise<number>((resolve, reject) => (done = { resolve, reject }));
+    // A transfer whose result nobody awaits is not an unhandled rejection: whoever does await gets it.
+    pipePromise.catch(() => undefined);
+    donePromise.catch(() => undefined);
+    const id = send(kind, payload);
+    this.#transfers.set(id, { fetch, pipe, done, named: false });
+    return {
+      id,
+      pipe: pipePromise,
+      done: donePromise,
+      unstage: () => this.unstage(id, send),
+    };
+  }
+
+  /** Takes a `stage` or a `fetch` back (§8.11). One that is not out is nothing to take back. */
+  unstage(id: number, send: SendFile): void {
+    const moving = this.#transfers.get(id);
+    if (moving === undefined) return;
+    this.#transfers.delete(id);
+    send("unstage", unstagePayload(id));
+    const cancelled = new FileError("cancelled");
+    moving.pipe.reject(cancelled);
+    moving.done.reject(cancelled);
+  }
+
+  /** A `staged` or a `fetched` (§8.11): the transfer is told, and the last answer ends it. */
+  onTransfer(message: Message, fetch: boolean): void {
+    const re = Number(message.control.re);
+    const moving = this.#transfers.get(re);
+    if (moving === undefined || moving.fetch !== fetch) return;
+    const told = fetch ? parseFetched(message.payload) : parseStaged(message.payload);
+    if (told === undefined) return;
+    switch (told.kind) {
+      case "pipe":
+        if (moving.named) return;
+        moving.named = true;
+        moving.pipe.resolve(told.pipe);
+        return;
+      case "sent":
+        this.#transfers.delete(re);
+        moving.done.resolve(told.sent);
+        return;
+      case "saved":
+        this.#transfers.delete(re);
+        moving.done.resolve(told.saved);
+        return;
+      case "failed": {
+        this.#transfers.delete(re);
+        // Only the `fetched` of a `route` has `at`.
+        const failure = new FileError(told.code, undefined, (told as { at?: number }).at);
+        if (!moving.named) moving.pipe.reject(failure);
+        moving.done.reject(failure);
+      }
+    }
   }
 
   /** A `need` that answers an attach (§8.8). */
