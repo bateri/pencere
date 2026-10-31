@@ -847,7 +847,11 @@ impl Page {
             state.ended.clone().inspect(|_| state.told_end = true)
         };
         let mut replies = std::mem::take(&mut state.replies);
+        let held = state.held.len();
         hold(&mut replies, &state.outline.fields, &mut state.held);
+        // What was held waits for the frame that lays its field out, and a reply that a frame took
+        // (so that it asked for none) has no other frame coming: the host is to draw one.
+        state.redraw |= state.held.len() > held;
         Drained {
             replies,
             copied: std::mem::take(&mut state.copied),

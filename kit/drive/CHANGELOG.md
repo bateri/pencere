@@ -49,6 +49,11 @@ The drive of a page of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.
   (`Painted::deliver_held`, `Held::deliver`), after the host has the frame's fields, in the order it
   was asked; a name that frame does not have either is passed over as before. The host with no
   screen has a field only once a frame has laid it out, so its tests fail where a real host would.
+- **What a drain holds for the next frame now asks for that frame.** A reply that gave the keyboard
+  to an editor (a name the host's outline never has) and asked for no page of its own, taken by a
+  frame built before the drain, was held with nothing coming to tell it: on a page at rest the host
+  was never told where the keyboard went. `Drained::redraw` is now set whenever the drain holds
+  something new.
 
 ### Added
 

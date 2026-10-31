@@ -1716,6 +1716,48 @@ fn what_replies_ask_of_fields_not_yet_laid_is_held_in_order() {
     );
 }
 
+/// A reply that gives the keyboard to the page's editor and asks for no page of its own, taken by a
+/// frame that happened to be built before the drain (a pointer move, a tick), is held for the next
+/// frame like any name the host's outline does not have: so the drain says that frame is wanted, or
+/// on a page at rest nothing ever tells the host where the keyboard went.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
+fn a_keyboard_held_for_an_editor_by_a_frame_before_the_drain_asks_for_the_frame_that_tells_it() {
+    let mut rig = script_rig(
+        r#"return {
+            render = function()
+                return pencere.div():size_full()
+                    :child(pencere.editor("e", { gutter = false }):h(200):w(400))
+            end,
+            handle = function(event)
+                if event.type == "key" and event.key == "k" then
+                    return { keyboard = { field = "e" } }
+                end
+                return true
+            end,
+        }"#,
+    );
+    rig.page.frame(frame_at(0.0));
+    rig.first();
+    rig.settle();
+    rig.press_key('k');
+    assert!(rig.page.module().flush(Duration::from_secs(30)));
+    // The frame comes first, for a reason of its own: it takes the reply, and shows what it can.
+    let painted = rig.page.frame(frame_at(0.5));
+    assert!(painted.held.is_empty(), "nothing was held before the drain");
+    let drained = rig.page.drain();
+    assert_eq!(
+        drained.replies[0].reply.keyboard, None,
+        "the host's outline does not name an editor, so the keyboard waits: {drained:?}"
+    );
+    assert!(
+        drained.redraw,
+        "the keyboard waits for a frame and nobody asked for one: {drained:?}"
+    );
+    let painted = rig.page.frame(frame_at(0.6));
+    assert_eq!(painted.held.len(), 1, "the frame has the keyboard to tell");
+}
+
 /// A page with an editor that hears of the pointer's rest.
 const REST_PAGE: &str = r#"
 return {
