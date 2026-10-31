@@ -135,14 +135,26 @@ impl Desk {
         }
     }
 
-    /// The session asks for a piece of a file the person gave.
-    pub fn read(&self, handle: &str, offset: u64, length: usize) -> Result<Vec<u8>, FileError> {
+    /// The path and the size of a file the person gave, if it is still as it was when it was given.
+    pub fn source(&self, handle: &str) -> Result<(PathBuf, u64), FileError> {
         let given = self.given.get(handle).ok_or(FileError::Gone)?;
         let now = fs::metadata(&given.path).map_err(|_| FileError::Gone)?;
         if now.len() != given.size || now.modified().ok() != given.modified {
             return Err(FileError::Gone);
         }
-        let mut file = File::open(&given.path).map_err(|_| FileError::Gone)?;
+        Ok((given.path.clone(), given.size))
+    }
+
+    /// The name the person gave a place to save in, and the part beside it.
+    pub fn place_of(&self, handle: &str) -> Option<(PathBuf, PathBuf)> {
+        let place = self.places.get(handle)?;
+        Some((place.target.clone(), place.part.clone()))
+    }
+
+    /// The session asks for a piece of a file the person gave.
+    pub fn read(&self, handle: &str, offset: u64, length: usize) -> Result<Vec<u8>, FileError> {
+        let (path, _) = self.source(handle)?;
+        let mut file = File::open(&path).map_err(|_| FileError::Gone)?;
         file.seek(SeekFrom::Start(offset))
             .map_err(|_| FileError::Io)?;
         let mut bytes = Vec::with_capacity(length);
@@ -153,9 +165,29 @@ impl Desk {
     }
 
     /// The session asks for bytes to be written to a place the person chose.
-    pub fn write(&mut self, handle: &str, bytes: &[u8], end: bool) -> Result<(), FileError> {
+    pub fn write(
+        &mut self,
+        handle: &str,
+        offset: u64,
+        bytes: &[u8],
+        end: bool,
+    ) -> Result<(), FileError> {
         let place = self.places.get_mut(handle).ok_or(FileError::Io)?;
         let written = (|| -> io::Result<()> {
+            if place.file.is_none() && offset > 0 {
+                // A part that a `fetch` kept when the way was lost, which the writes go on with.
+                let part = fs::OpenOptions::new()
+                    .append(true)
+                    .custom_flags(libc::O_NOFOLLOW)
+                    .open(&place.part)?;
+                if part.metadata()?.len() != offset {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "not where it ends",
+                    ));
+                }
+                place.file = Some(part);
+            }
             if place.file.is_none() {
                 // Made anew, and a link put where it goes is not written through.
                 let _ = fs::remove_file(&place.part);

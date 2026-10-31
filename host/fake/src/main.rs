@@ -16,6 +16,7 @@
 mod args;
 mod files;
 mod host;
+mod stage;
 mod view;
 
 use std::io::{self, IsTerminal};

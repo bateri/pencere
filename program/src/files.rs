@@ -15,10 +15,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::fs;
-use std::io::{self, Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use pencere_wire::base64;
@@ -29,7 +29,9 @@ use crate::Kind;
 use crate::control::{Request, ViewControl};
 use crate::handlers::Work;
 use crate::link::Writer;
-use crate::payload;
+use crate::payload::{self, StageOffer, Transfer};
+use crate::pipes;
+use crate::staged::{self, Proof, Went};
 
 /// The most bytes a `read` asks for and a `write` carries (specification §8.9, §8.10).
 pub const MAX_PIECE: usize = 1 << 20;
@@ -148,6 +150,22 @@ struct Saving {
     last: Option<SyncSender<Result<(), FileError>>>,
 }
 
+/// What the loop tells a helper of a `stage` or a `fetch` it was asked for (§8.11).
+#[derive(Debug)]
+pub(crate) enum Transferring {
+    /// The id the message went out with, which is how the transfer is taken back.
+    Id(u32),
+    /// What the terminal said of it.
+    Told(Transfer),
+}
+
+/// A `stage` or a `fetch` that is out: who is told of it.
+struct Moving {
+    events: Sender<Transferring>,
+    /// A `fetch`; a `stage` otherwise.
+    fetch: bool,
+}
+
 /// The loop's side: what the view that runs has attached, and the answers the helpers wait for.
 /// Everything is the view's and goes with it ([`Files::forget`]): a helper that waits is told the
 /// view ended.
@@ -162,13 +180,27 @@ pub(crate) struct Files {
     /// The handle each write that is out was for.
     writes: HashMap<u32, String>,
     saves: HashMap<String, Saving>,
+    /// The `stage`s and `fetch`es that are out, by the id they went out with.
+    transfers: HashMap<u32, Moving>,
+    /// The folder the terminal offers (§8.11). It is the terminal's, not the view's: it outlives
+    /// the view, and a `welcome` sets it again.
+    stage: Option<StageOffer>,
 }
 
 impl Files {
     /// The view is over: what it had attached is no longer, and every helper that waits is told so
     /// (its answer's way is dropped).
     pub(crate) fn forget(&mut self) {
-        *self = Self::default();
+        let stage = self.stage.take();
+        *self = Self {
+            stage,
+            ..Self::default()
+        };
+    }
+
+    /// The terminal's `welcome` says where its folder is, or that it has none.
+    pub(crate) fn offer(&mut self, stage: Option<StageOffer>) {
+        self.stage = stage;
     }
 
     /// Whether the `need` with this `re` answers an attach.
@@ -283,8 +315,85 @@ impl Files {
                     }
                 }
             }
+            Request::StageOffer { reply } => {
+                let _ = reply.send(if has {
+                    Ok(self.stage.clone())
+                } else {
+                    Err(FileError::Unsupported)
+                });
+            }
+            Request::Stage {
+                handle,
+                offset,
+                events,
+            } => {
+                let body = payload::stage(&handle, offset);
+                self.begin_transfer(has, "stage", &body, events, false, writer);
+            }
+            Request::Fetch {
+                handle,
+                size,
+                offset,
+                events,
+            } => {
+                let body = payload::fetch(&handle, size, offset);
+                self.begin_transfer(has, "fetch", &body, events, true, writer);
+            }
+            Request::Unstage { id } => {
+                if self.transfers.remove(&id).is_some() {
+                    let _ = writer.message("unstage", None, None, &payload::unstage(id));
+                }
+            }
             // The others are the loop's own.
             _ => {}
+        }
+    }
+
+    /// Sends a `stage` or a `fetch` and tells its helper the id. Where it cannot go the helper's
+    /// way is dropped, and it is told the view ended.
+    fn begin_transfer(
+        &mut self,
+        has: bool,
+        kind: &str,
+        body: &str,
+        events: Sender<Transferring>,
+        fetch: bool,
+        writer: &mut Writer,
+    ) {
+        if !has {
+            return;
+        }
+        if let Ok(id) = writer.message(kind, None, None, body)
+            && events.send(Transferring::Id(id)).is_ok()
+        {
+            self.transfers.insert(id, Moving { events, fetch });
+        }
+    }
+
+    /// A `staged` or a `fetched` (§8.11): the helper that asked is told, and the last answer ends
+    /// the transfer. A helper that is gone has its transfer taken back.
+    pub(crate) fn on_transfer(&mut self, message: &Frame, fetch: bool, writer: &mut Writer) {
+        let Some(re) = message.re() else {
+            return;
+        };
+        let Some(moving) = self
+            .transfers
+            .get(&re)
+            .filter(|moving| moving.fetch == fetch)
+        else {
+            return;
+        };
+        let done = if fetch { "saved" } else { "sent" };
+        let Some(told) = payload::transfer(&message.payload, done) else {
+            return;
+        };
+        let last = !matches!(told, Transfer::Pipe(_));
+        let heard = moving.events.send(Transferring::Told(told)).is_ok();
+        if last {
+            self.transfers.remove(&re);
+        } else if !heard {
+            self.transfers.remove(&re);
+            let _ = writer.message("unstage", None, None, &payload::unstage(re));
         }
     }
 
@@ -409,20 +518,27 @@ pub(crate) fn discard_parts() {
 }
 
 /// A part being written; deleted when it is dropped without being kept.
-struct Part {
+pub(crate) struct Part {
     path: PathBuf,
     file: fs::File,
+    /// How many bytes it holds: the file's own from the start, in order.
+    len: u64,
 }
 
 impl Part {
-    fn create(to: &Path) -> io::Result<Self> {
+    /// The name of the part of the file that will be `to`.
+    fn path_of(to: &Path) -> io::Result<PathBuf> {
         let name = to
             .file_name()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "a place with no name"))?;
         let mut part_name = std::ffi::OsString::from(".");
         part_name.push(name);
         part_name.push(".pencere-part");
-        let path = to.with_file_name(part_name);
+        Ok(to.with_file_name(part_name))
+    }
+
+    fn create(to: &Path) -> io::Result<Self> {
+        let path = Self::path_of(to)?;
         // A part a process that was killed left is ours to replace; what is there now is not
         // followed if it is a link, and one put there meanwhile fails the receiving rather than be
         // written through.
@@ -433,7 +549,67 @@ impl Part {
             .custom_flags(libc::O_NOFOLLOW)
             .open(&path)?;
         parts().push(path.clone());
-        Ok(Self { path, file })
+        Ok(Self { path, file, len: 0 })
+    }
+
+    /// A part that is a copy-on-write clone of the file at `from`, which is `size` bytes long, with
+    /// the rights a part made by [`Part::create`] has, where the file system can clone; `None`
+    /// where it cannot, or `from` is not what was expected.
+    fn cloned(to: &Path, from: &Path, size: u64) -> Option<Self> {
+        // The rights of a file of the program's own user are learned from a part made anew: a clone
+        // has the rights of the file it was cloned from, and those are not the receiver's to
+        // choose.
+        let probe = Self::create(to).ok()?;
+        let rights = probe.file.metadata().ok()?.permissions().mode() & 0o7777;
+        let path = probe.path.clone();
+        drop(probe);
+        if !pipes::clone_file(from, &path) {
+            return None;
+        }
+        // Not followed if it is a link: it was made a moment ago and is a file, or it is not ours.
+        let opened = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&path);
+        let Ok(file) = opened else {
+            let _ = fs::remove_file(&path);
+            return None;
+        };
+        parts().push(path.clone());
+        // From here the part is deleted if it is dropped.
+        let part = Self {
+            path,
+            file,
+            len: size,
+        };
+        let meta = part.file.metadata().ok()?;
+        if !meta.is_file() || meta.len() != size {
+            return None;
+        }
+        part.file
+            .set_permissions(fs::Permissions::from_mode(rights))
+            .ok()?;
+        Some(part)
+    }
+
+    /// How many bytes the part holds.
+    pub(crate) fn len(&self) -> u64 {
+        self.len
+    }
+
+    /// Appends the next bytes of the file.
+    pub(crate) fn push(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.file.write_all(bytes)?;
+        self.len += bytes.len() as u64;
+        Ok(())
+    }
+
+    /// Empties the part: what it holds is not the file's.
+    pub(crate) fn restart(&mut self) -> io::Result<()> {
+        self.file.set_len(0)?;
+        self.file.seek(SeekFrom::Start(0))?;
+        self.len = 0;
+        Ok(())
     }
 
     /// Gives the part the name of its place.
@@ -457,7 +633,7 @@ impl Drop for Part {
 
 impl ViewControl {
     /// Hands the loop a request that is answered on `answer`; `Ended` when no loop runs.
-    fn ask<T>(
+    pub(crate) fn ask<T>(
         &self,
         request: impl FnOnce(SyncSender<Result<T, FileError>>) -> Request,
     ) -> Receiver<Result<T, FileError>> {
@@ -592,10 +768,29 @@ impl ViewControl {
         to: &Path,
         mut progress: impl FnMut(u64) -> bool,
     ) -> Result<u64, FileError> {
+        self.receive_proven(self.stage_proof(), handle, to, &mut progress)
+    }
+
+    /// `receive`, given what the program makes of the terminal's folder. With one that is proved
+    /// the bytes cross through a pipe in it (§8.11); they cross in messages where it is not, or
+    /// where the pipe stops short, from where the part ends.
+    fn receive_proven(
+        &self,
+        proof: Proof,
+        handle: &str,
+        to: &Path,
+        progress: &mut impl FnMut(u64) -> bool,
+    ) -> Result<u64, FileError> {
         let mut part = Part::create(to)?;
+        if let Proof::Proven(folder) = proof
+            && let Went::Whole(total) = staged::receive(self, &folder, handle, &mut part, progress)?
+        {
+            part.keep(to)?;
+            return Ok(total);
+        }
         let mut out = std::collections::VecDeque::new();
-        let mut asked: u64 = 0;
-        let mut received: u64 = 0;
+        let mut asked: u64 = part.len();
+        let mut received: u64 = part.len();
         let mut ended = false;
         let piece = MAX_PIECE as u64;
         loop {
@@ -607,7 +802,7 @@ impl ViewControl {
                 break;
             };
             let bytes = next.recv().unwrap_or(Err(FileError::Ended))?;
-            part.file.write_all(&bytes)?;
+            part.push(&bytes)?;
             received += bytes.len() as u64;
             if (bytes.len() as u64) < piece {
                 // The end of the file: what else is out is past it.
@@ -641,10 +836,15 @@ impl ViewControl {
         to: &Path,
         mut progress: impl FnMut(u64) -> bool,
     ) -> Result<u64, FileError> {
-        match copy_given(path, size, to, &mut progress) {
-            Some(copied) => copied,
-            None => self.receive(handle, to, progress),
+        let proof = self.stage_proof();
+        // A terminal that offers a folder the program cannot prove is the terminal of another
+        // machine or account: the path it handed over is not this machine's.
+        if !matches!(proof, Proof::Unproven)
+            && let Some(copied) = copy_given(path, size, to, &mut progress)
+        {
+            return copied;
         }
+        self.receive_proven(proof, handle, to, &mut progress)
     }
 
     /// Sends the file at `from` to the place the person chose to save in by `handle`, in pieces of
@@ -662,6 +862,17 @@ impl ViewControl {
     ) -> Result<u64, FileError> {
         let mut file = fs::File::open(from)?;
         let mut offset: u64 = 0;
+        // With a folder the terminal proved, the bytes cross through a pipe in it (§8.11), and in
+        // messages from where the pipe stops short.
+        if let Proof::Proven(folder) = self.stage_proof() {
+            match staged::send(self, &folder, handle, &mut file, &mut progress)? {
+                Went::Whole(total) => return Ok(total),
+                Went::Rest { from } => {
+                    file.seek(SeekFrom::Start(from))?;
+                    offset = from;
+                }
+            }
+        }
         let mut piece = vec![0; MAX_PIECE];
         let mut next = read_piece(&mut file, &mut piece)?;
         loop {
@@ -704,6 +915,14 @@ fn copy_given(
     if !meta.is_file() || meta.len() != size {
         return None;
     }
+    // A file system that can clone does not copy a byte.
+    if let Some(part) = Part::cloned(to, path, size) {
+        if !progress(size) {
+            return Some(Err(FileError::Ended));
+        }
+        part.keep(to).ok()?;
+        return Some(Ok(size));
+    }
     let mut part = Part::create(to).ok()?;
     let mut piece = vec![0; MAX_PIECE];
     let mut copied: u64 = 0;
@@ -714,7 +933,7 @@ fn copy_given(
         let bytes = piece
             .get(..filled.min(wanted))
             .filter(|bytes| !bytes.is_empty())?;
-        part.file.write_all(bytes).ok()?;
+        part.push(bytes).ok()?;
         copied += bytes.len() as u64;
         if !progress(copied) {
             return Some(Err(FileError::Ended));
@@ -725,7 +944,7 @@ fn copy_given(
 }
 
 /// Fills `piece` from `file` as far as it goes; how much it holds.
-fn read_piece(file: &mut fs::File, piece: &mut [u8]) -> io::Result<usize> {
+pub(crate) fn read_piece(file: &mut fs::File, piece: &mut [u8]) -> io::Result<usize> {
     let mut filled = 0;
     while let Some(rest) = piece.get_mut(filled..).filter(|rest| !rest.is_empty()) {
         match file.read(rest) {
@@ -825,6 +1044,198 @@ mod tests {
             answers[0].try_recv().ok().and_then(Result::ok),
             Some(b"a".to_vec())
         );
+    }
+
+    /// A message of the terminal, as the loop reads it.
+    fn from_terminal(kind: &str, id: u32, re: u32, payload: &str) -> Frame {
+        use pencere_wire::frame::{Direction, Event, Outgoing, Split, StreamDecoder, encode};
+        let mut bytes = Vec::new();
+        encode(
+            Direction::ToProgram,
+            &Outgoing {
+                kind,
+                id,
+                re: Some(re),
+                digest: None,
+                file: FileParams::NONE,
+                payload,
+            },
+            Split::Fill,
+            &mut bytes,
+        )
+        .expect("a frame");
+        let mut events = Vec::new();
+        StreamDecoder::new(Direction::ToProgram).feed(&bytes, &mut events);
+        let Some(Event::Message(message)) = events.pop() else {
+            panic!("no message");
+        };
+        message
+    }
+
+    #[test]
+    fn a_transfer_is_told_to_its_helper_until_its_last_answer_and_a_stranger_is_not() {
+        use std::os::fd::AsRawFd;
+        let (_read, write) = std::os::unix::net::UnixStream::pair().expect("a pair of sockets");
+        let mut writer = Writer::new(write.as_raw_fd());
+        let mut files = Files::default();
+        let name = "0b5d7c1e9a3f4682d0e1c7a95b3f8d24";
+        let (events, heard) = std::sync::mpsc::channel();
+        files.on_request(
+            Request::Stage {
+                handle: "0".repeat(32),
+                offset: 0,
+                events,
+            },
+            true,
+            &mut writer,
+        );
+        let Ok(Transferring::Id(id)) = heard.try_recv() else {
+            panic!("the id");
+        };
+        // A `fetched` is not the answer to a `stage`, and an id that is not out is nobody's.
+        files.on_transfer(
+            &from_terminal("fetched", 1, id, &format!(r#"{{"pipe":"{name}"}}"#)),
+            true,
+            &mut writer,
+        );
+        files.on_transfer(
+            &from_terminal("staged", 2, id + 7, &format!(r#"{{"pipe":"{name}"}}"#)),
+            false,
+            &mut writer,
+        );
+        assert!(heard.try_recv().is_err());
+        files.on_transfer(
+            &from_terminal("staged", 3, id, &format!(r#"{{"pipe":"{name}"}}"#)),
+            false,
+            &mut writer,
+        );
+        assert!(matches!(
+            heard.try_recv(),
+            Ok(Transferring::Told(Transfer::Pipe(told))) if told == name
+        ));
+        assert_eq!(files.transfers.len(), 1);
+        files.on_transfer(
+            &from_terminal("staged", 4, id, r#"{"sent":11}"#),
+            false,
+            &mut writer,
+        );
+        assert!(matches!(
+            heard.try_recv(),
+            Ok(Transferring::Told(Transfer::Done(11)))
+        ));
+        assert!(files.transfers.is_empty());
+
+        // Taken back, a transfer is told no more; one that is not out is nothing to take back.
+        let (events, heard) = std::sync::mpsc::channel();
+        files.on_request(
+            Request::Fetch {
+                handle: "0".repeat(32),
+                size: 5,
+                offset: 0,
+                events,
+            },
+            true,
+            &mut writer,
+        );
+        let Ok(Transferring::Id(id)) = heard.try_recv() else {
+            panic!("the id");
+        };
+        files.on_request(Request::Unstage { id }, true, &mut writer);
+        files.on_request(Request::Unstage { id }, true, &mut writer);
+        assert!(files.transfers.is_empty());
+        files.on_transfer(
+            &from_terminal("fetched", 5, id, r#"{"code":"cancelled"}"#),
+            true,
+            &mut writer,
+        );
+        assert!(heard.try_recv().is_err());
+
+        // No view that has files: nothing is sent and the helper's way is dropped.
+        let (events, heard) = std::sync::mpsc::channel();
+        files.on_request(
+            Request::Stage {
+                handle: "0".repeat(32),
+                offset: 0,
+                events,
+            },
+            false,
+            &mut writer,
+        );
+        assert!(heard.recv().is_err());
+        assert!(files.transfers.is_empty());
+    }
+
+    #[test]
+    fn the_terminals_folder_outlives_its_view_and_the_view_s_transfers_do_not() {
+        use std::os::fd::AsRawFd;
+        let (_read, write) = std::os::unix::net::UnixStream::pair().expect("a pair of sockets");
+        let mut writer = Writer::new(write.as_raw_fd());
+        let mut files = Files::default();
+        let offer = StageOffer {
+            dir: "/a".to_owned(),
+            token: "0b5d7c1e9a3f4682d0e1c7a95b3f8d24".to_owned(),
+        };
+        files.offer(Some(offer.clone()));
+        let (events, heard) = std::sync::mpsc::channel();
+        files.on_request(
+            Request::Stage {
+                handle: "0".repeat(32),
+                offset: 0,
+                events,
+            },
+            true,
+            &mut writer,
+        );
+        assert!(matches!(heard.try_recv(), Ok(Transferring::Id(_))));
+        files.forget();
+        // A helper that waits is told the view ended, by its way being dropped.
+        assert!(heard.recv().is_err());
+        let (reply, answer) = sync_channel(1);
+        files.on_request(Request::StageOffer { reply }, true, &mut writer);
+        assert!(matches!(answer.recv(), Ok(Ok(Some(kept))) if kept == offer));
+        let (reply, answer) = sync_channel(1);
+        files.on_request(Request::StageOffer { reply }, false, &mut writer);
+        assert!(matches!(answer.recv(), Ok(Err(FileError::Unsupported))));
+    }
+
+    #[test]
+    fn a_file_given_by_its_path_is_copied_with_the_rights_of_the_receiver_not_the_givers() {
+        let dir = std::env::temp_dir().join(format!("pencere-copy-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("a directory");
+        let from = dir.join("from.bin");
+        let bytes: Vec<u8> = (0..300_000u32).map(|n| (n % 251) as u8).collect();
+        fs::write(&from, &bytes).expect("a file");
+        fs::set_permissions(&from, fs::Permissions::from_mode(0o400)).expect("a mode");
+        let to = dir.join("to.bin");
+        let mut told = Vec::new();
+        let copied = copy_given(&from, bytes.len() as u64, &to, &mut |n| {
+            told.push(n);
+            true
+        });
+        assert!(matches!(copied, Some(Ok(n)) if n == bytes.len() as u64));
+        assert_eq!(fs::read(&to).expect("the copy"), bytes);
+        assert_eq!(told.last(), Some(&(bytes.len() as u64)));
+        // A part made anew has the mode of a new file; the copy must not carry the read-only one.
+        let fresh = dir.join("fresh");
+        fs::write(&fresh, b"").expect("a file");
+        let wanted = fs::metadata(&fresh).expect("meta").permissions().mode();
+        assert_eq!(
+            fs::metadata(&to).expect("meta").permissions().mode(),
+            wanted
+        );
+        assert!(!to.with_file_name(".to.bin.pencere-part").exists());
+        // A clone, where the file system makes one, is the same bytes and is not written through.
+        if let Some(part) = Part::cloned(&dir.join("cloned.bin"), &from, bytes.len() as u64) {
+            assert_eq!(part.len(), bytes.len() as u64);
+            part.keep(&dir.join("cloned.bin")).expect("kept");
+            assert_eq!(fs::read(dir.join("cloned.bin")).expect("the clone"), bytes);
+            fs::set_permissions(dir.join("cloned.bin"), fs::Permissions::from_mode(0o600))
+                .expect("a mode");
+            fs::write(dir.join("cloned.bin"), b"changed").expect("written");
+            assert_eq!(fs::read(&from).expect("the file"), bytes, "written through");
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

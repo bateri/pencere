@@ -6,6 +6,8 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use crate::stage::Flaws;
+
 pub const USAGE: &str = "\
 usage: pencere-fake-host [options] -- <program> [args...]
 
@@ -72,6 +74,20 @@ options:
   --interrupt-at-read N
                        ^C is typed into the pane as the session asks for the Nth
                        piece of a file the person gave, counting from 1
+  --stage DIR          keep the host's folder (specification section 8.11) at
+                       DIR, made if it is not there, and let the bytes of a file
+                       cross through pipes in it: the welcome lists `stage`.
+                       The folder is removed when the run ends
+  --stage-wrong-marker the folder's marker file holds another token than the
+                       welcome's, as a folder of another host at the same path
+                       would; the program is expected to use messages
+  --stage-route-after N
+                       the first transfer through a pipe loses its way after N
+                       bytes (`route`), and the program is expected to go on
+  --stage-silent       no byte ever crosses a pipe; the program is expected to
+                       take the transfer back and use messages
+  --interrupt-at-pipe  ^C is typed into the pane once a pipe has been made for a
+                       transfer and the program told its name
   --allow-network      grant the origins and permissions a page asks for
                        (default: refuse them)
   --passthrough        copy what the program writes to this program's stdout
@@ -117,6 +133,8 @@ pub struct Gestures {
     pub save_in: Option<PathBuf>,
     /// ^C is typed as the session asks for this piece of a file, counting from 1.
     pub interrupt_at_read: Option<u32>,
+    /// ^C is typed once a pipe of the folder has been made for a transfer.
+    pub interrupt_at_pipe: bool,
 }
 
 /// What happens when the script is done.
@@ -162,6 +180,10 @@ pub struct Args {
     /// The opens the host refuses, counting from 1.
     pub refuse_opens: Vec<u32>,
     pub gestures: Gestures,
+    /// Where the host's folder is, when it keeps one (§8.11).
+    pub stage: Option<PathBuf>,
+    /// The flaws it is asked to have.
+    pub stage_flaws: Flaws,
 }
 
 /// What parsing asks of `main`.
@@ -226,6 +248,8 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
         dismiss: true,
         refuse_opens: Vec::new(),
         gestures: Gestures::default(),
+        stage: None,
+        stage_flaws: Flaws::default(),
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -239,6 +263,9 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
             "--passthrough" => parsed.passthrough = true,
             "--no-dismiss" => parsed.dismiss = false,
             "--pick-nothing" => parsed.gestures.open_panel = true,
+            "--stage-wrong-marker" => parsed.stage_flaws.wrong_marker = true,
+            "--stage-silent" => parsed.stage_flaws.silent = true,
+            "--interrupt-at-pipe" => parsed.gestures.interrupt_at_pipe = true,
             "--call"
             | "--subscribe"
             | "--link"
@@ -254,7 +281,9 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
             | "--pick"
             | "--save"
             | "--save-in"
-            | "--interrupt-at-read" => {
+            | "--interrupt-at-read"
+            | "--stage"
+            | "--stage-route-after" => {
                 let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
                 option(&mut parsed, &arg, &value)?;
             }
@@ -263,6 +292,9 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
     }
     if parsed.program.is_empty() {
         return Err("no program: put it after --".to_owned());
+    }
+    if parsed.stage.is_none() && parsed.stage_flaws != Flaws::default() {
+        return Err("a flaw of the folder needs --stage DIR".to_owned());
     }
     Ok(Some(parsed))
 }
@@ -320,6 +352,15 @@ fn option(parsed: &mut Args, name: &str, value: &str) -> Result<(), String> {
         "--save" => parsed.gestures.save = Some(value.to_owned()),
         "--save-in" => parsed.gestures.save_in = Some(PathBuf::from(value)),
         "--interrupt-at-read" => parsed.gestures.interrupt_at_read = Some(count(name, value)?),
+        "--stage" => {
+            if value.is_empty() {
+                return Err("--stage needs a directory".to_owned());
+            }
+            parsed.stage = Some(PathBuf::from(value));
+        }
+        "--stage-route-after" => {
+            parsed.stage_flaws.route_after = Some(u64::from(count(name, value)?));
+        }
         "--store" => parsed.store = Some(PathBuf::from(value)),
         "--size" => {
             parsed.size =
@@ -447,6 +488,30 @@ mod tests {
     }
 
     #[test]
+    fn the_folder_and_its_flaws_are_kept() {
+        let Outcome::Run(args) = parsed(&[
+            "--stage",
+            "/tmp/folder",
+            "--stage-wrong-marker",
+            "--stage-silent",
+            "--stage-route-after",
+            "4096",
+            "--",
+            "p",
+        ]) else {
+            panic!("did not parse");
+        };
+        assert_eq!(args.stage, Some(PathBuf::from("/tmp/folder")));
+        assert!(args.stage_flaws.wrong_marker && args.stage_flaws.silent);
+        assert_eq!(args.stage_flaws.route_after, Some(4096));
+        assert!(!args.gestures.interrupt_at_pipe);
+        let Outcome::Run(args) = parsed(&["--", "p"]) else {
+            panic!("did not parse");
+        };
+        assert_eq!(args.stage, None);
+    }
+
+    #[test]
     fn mistakes_say_what_they_are() {
         for bad in [
             &["--"][..],
@@ -460,6 +525,9 @@ mod tests {
             &["--on-view", "0", "--", "p"],
             &["--on-view", "two", "--", "p"],
             &["--refuse-open", "0", "--", "p"],
+            &["--stage-silent", "--", "p"],
+            &["--stage", "", "--", "p"],
+            &["--stage", "d", "--stage-route-after", "0", "--", "p"],
             &["--wat", "--", "p"],
             &["--limit"],
         ] {

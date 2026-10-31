@@ -328,6 +328,11 @@ impl Conversation {
             Request::Read { reply, .. } => {
                 let _ = reply.send(Err(FileError::Unsupported));
             }
+            Request::StageOffer { reply } => {
+                let _ = reply.send(Err(FileError::Unsupported));
+            }
+            // Nothing is asked of a folder that nobody offered.
+            Request::Stage { .. } | Request::Fetch { .. } | Request::Unstage { .. } => {}
             Request::Detach { .. } => {}
             Request::Reopen { views, reply } => {
                 self.exchange.end_view();

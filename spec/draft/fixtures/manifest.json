@@ -3733,7 +3733,7 @@
     },
     {
       "name": "fetch-files",
-      "note": "the program sends a file to the place the person chose through the host's folder: the host makes a pipe, names it and says when the file is saved; a way that is gone is answered route with the length the host holds, and the program sends the rest from there; a failure or a fetch the program takes back throws away what was written; a fetch at an offset that is not where the file stands, a place with its file done or failed, and a write to a place whose fetch is out are refused",
+      "note": "the program sends a file to the place the person chose through the host's folder: the host makes a pipe, names it and says when the file is saved; a way that is gone is answered route with the length the host holds, and the program sends the rest from there; a failure throws away what was written and fails the place, a fetch the program takes back throws it away and leaves the place as it was; a fetch at an offset that is not where the file stands, a place with its file done or failed, and a write to a place whose fetch is out are refused",
       "config": {
         "host": {
           "name": "pencere-test",
@@ -3749,7 +3749,8 @@
           "_cqyW0styaAGRN-Sq3h1lg",
           "nwbKv2jcAq1nneOilvK0HA",
           "XBzeOL8JCTgtvDsNs64n_A",
-          "o6956Ymjg5QOv76kDjneVQ"
+          "o6956Ymjg5QOv76kDjneVQ",
+          "hvhcsL2SCyl1JDcR6nOQ0Q"
         ],
         "stage": {
           "dir": "/home/alice/.pencere/stage/6d0f9f1c",
@@ -3932,6 +3933,22 @@
           "acted": []
         },
         {
+          "in": "session/fetch-files/45-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["fetch-file"]
+        },
+        {
+          "event": "fetched",
+          "transfer": 12,
+          "saved": 11
+        },
+        {
+          "out": "session/fetch-files/48-out.frame",
+          "acted": []
+        },
+        {
           "event": "grant-save"
         },
         {
@@ -3939,26 +3956,26 @@
           "acted": []
         },
         {
-          "in": "session/fetch-files/47-in.frame"
+          "in": "session/fetch-files/51-in.frame"
         },
         {
           "out": null,
           "acted": ["fetch-file"]
         },
         {
-          "in": "session/fetch-files/49-in.frame"
+          "in": "session/fetch-files/53-in.frame"
         },
         {
-          "out": "session/fetch-files/50-out.frame",
+          "out": "session/fetch-files/54-out.frame",
           "acted": []
         },
         {
           "event": "fetched",
-          "transfer": 12,
+          "transfer": 13,
           "error": "size"
         },
         {
-          "out": "session/fetch-files/52-out.frame",
+          "out": "session/fetch-files/56-out.frame",
           "acted": ["abort-write"]
         }
       ]

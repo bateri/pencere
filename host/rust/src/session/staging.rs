@@ -242,8 +242,19 @@ impl<S: Store, E: Entropy> Session<S, E> {
             transfer: transfer.id,
         });
         if let Way::Fetch { .. } = transfer.way {
-            // What was written of the file is thrown away, as for a write that failed.
-            self.save_failed(&transfer.handle);
+            // What was written of the file is thrown away, and the place is as it was before the
+            // fetch: the program that gave up the pipe may send the file in `write`s, or fetch
+            // again, from the start.
+            self.set_saving(
+                &transfer.handle,
+                Saving::Open {
+                    next: 0,
+                    written: false,
+                },
+            );
+            self.actions.push(Action::AbortWrite {
+                handle: transfer.handle.clone(),
+            });
         }
         self.answer_transfer(
             transfer.way,

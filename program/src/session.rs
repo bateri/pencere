@@ -783,6 +783,8 @@ impl Session<'_> {
                 "msg" => self.on_msg(message),
                 "data" => self.files.on_data(message, &mut self.writer),
                 "wrote" => self.files.on_wrote(message),
+                "staged" => self.files.on_transfer(message, false, &mut self.writer),
+                "fetched" => self.files.on_transfer(message, true, &mut self.writer),
                 // A kind this version does not know, or one only a program sends: ignored (§4.5).
                 _ => {}
             },
@@ -823,6 +825,7 @@ impl Session<'_> {
                         .features
                         .iter()
                         .any(|feature| feature == FEATURE_DISMISS);
+                    self.files.offer(offer.stage);
                     self.open(offer.token, choice);
                 }
             },
@@ -867,6 +870,7 @@ impl Session<'_> {
             .features
             .iter()
             .any(|feature| feature == FEATURE_DISMISS);
+        self.files.offer(offer.stage);
         self.open(offer.token, choice);
     }
 
@@ -1092,7 +1096,11 @@ impl Session<'_> {
             request @ (Request::Attach { .. }
             | Request::Detach { .. }
             | Request::Read { .. }
-            | Request::Write { .. }) => {
+            | Request::Write { .. }
+            | Request::StageOffer { .. }
+            | Request::Stage { .. }
+            | Request::Fetch { .. }
+            | Request::Unstage { .. }) => {
                 let has = self.has_files();
                 self.files.on_request(request, has, &mut self.writer);
                 return;
@@ -1118,7 +1126,11 @@ impl Session<'_> {
             Request::Attach { .. }
             | Request::Detach { .. }
             | Request::Read { .. }
-            | Request::Write { .. } => return,
+            | Request::Write { .. }
+            | Request::StageOffer { .. }
+            | Request::Stage { .. }
+            | Request::Fetch { .. }
+            | Request::Unstage { .. } => return,
         };
         // There is a view to close only while one is opening or open and nothing else is being
         // done to it; and only a terminal that lists `dismiss` closes it (any other ignores the

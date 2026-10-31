@@ -3420,3 +3420,479 @@ pencere.serve({
     run.never("offset=2097152");
     assert!(names_in(&into).is_empty(), "{:?}", names_in(&into));
 }
+
+// ---- the host's folder (specification §8.11) ---------------------------------------------
+//
+// With `--stage DIR` the stand-in keeps a folder on this machine and lets the bytes of a file cross
+// through pipes in it. The program proves the folder before it uses it, and goes on with messages
+// whenever the way does not work: a marker that is not the welcome's token, a pipe that stays
+// silent, one that is not read.
+
+/// The options that make the stand-in drop `path` on the view and keep a folder at `folder`.
+fn folder_options<'a>(folder: &'a str, more: &[&'a str]) -> Vec<&'a str> {
+    let mut options = vec!["--stage", folder];
+    options.extend_from_slice(more);
+    options
+}
+
+#[test]
+fn a_dropped_file_crosses_a_pipe_in_the_hosts_folder_and_the_stream_carries_none_of_its_bytes() {
+    let dir = fresh("stage-receive");
+    let into = dir.join("into");
+    fs::create_dir_all(&into).expect("a directory");
+    let dropped = dir.join("big.bin");
+    let bytes = made_up(&dropped, 9 * 1024 * 1024 + 5);
+    let folder = dir.join("folder");
+    let (folder_text, dropped_text) = (folder.to_string_lossy(), dropped.to_string_lossy());
+    let run = run_files(
+        &folder_options(
+            &folder_text,
+            &[
+                "--drop",
+                &dropped_text,
+                "--call",
+                r#"receive={"handle":"$1","name":"big.bin"}"#,
+                "--then",
+                "interrupt",
+            ],
+        ),
+        &["--into", &into.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "host: keeps a folder at",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss,stage views=lua@2.1",
+        "person: drops big.bin (9437189 bytes): $1",
+        "program: stage id=* offset=0",
+        "host: stages big.bin from 0 through a pipe",
+        "host: staged id=* re=* pipe",
+        "host: staged id=* re=* sent=9437189",
+        r#"view: <- response id=1 result={"bytes":9437189}"#,
+    ]);
+    // Not a byte in a message, and the folder is gone with the run.
+    run.never("program: read");
+    run.never("host: data");
+    assert_eq!(names_in(&into), ["big.bin"]);
+    assert!(fs::read(into.join("big.bin")).expect("the file") == bytes);
+    assert!(
+        !folder.exists(),
+        "the folder is left: {:?}",
+        names_in(&folder)
+    );
+}
+
+#[test]
+fn a_file_saved_where_the_person_chose_crosses_a_pipe_in_the_hosts_folder() {
+    let dir = fresh("stage-save");
+    let out = dir.join("out");
+    fs::create_dir_all(&out).expect("a directory");
+    let source = dir.join("source.bin");
+    let bytes = made_up(&source, 9 * 1024 * 1024 + 7);
+    let folder = dir.join("folder");
+    let folder_text = folder.to_string_lossy();
+    let run = run_files(
+        &folder_options(
+            &folder_text,
+            &[
+                "--save",
+                "notes.bin",
+                "--save-in",
+                &out.to_string_lossy(),
+                "--call",
+                r#"send={"handle":"$1"}"#,
+                "--then",
+                "interrupt",
+            ],
+        ),
+        &["--source", &source.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "person: saves as notes.bin: $1",
+        "program: fetch id=* size=9437191 offset=0",
+        "host: fetches notes.bin from 0 through a pipe",
+        "host: fetched id=* re=* pipe",
+        "host: saved notes.bin (9437191 bytes)",
+        "host: fetched id=* re=* saved=9437191",
+        r#"view: <- response id=1 result={"bytes":9437191}"#,
+    ]);
+    run.never("program: write");
+    assert_eq!(names_in(&out), ["notes.bin"]);
+    assert!(fs::read(out.join("notes.bin")).expect("the file") == bytes);
+    assert!(
+        !folder.exists(),
+        "the folder is left: {:?}",
+        names_in(&folder)
+    );
+}
+
+#[test]
+fn a_folder_whose_marker_is_not_the_welcomes_token_is_not_used_and_messages_carry_the_files() {
+    let dir = fresh("stage-wrong-marker");
+    let into = dir.join("into");
+    let out = dir.join("out");
+    fs::create_dir_all(&into).expect("a directory");
+    fs::create_dir_all(&out).expect("a directory");
+    let dropped = dir.join("big.bin");
+    let bytes = made_up(&dropped, 2 * 1024 * 1024 + 3);
+    let folder = dir.join("folder");
+    let folder_text = folder.to_string_lossy();
+    // The path the view passes on is not used either: the terminal that offers a folder the
+    // program cannot prove is not on its machine.
+    let call = format!(
+        r#"receive={{"handle":"$1","name":"big.bin","path":"{}","size":{}}}"#,
+        dropped.display(),
+        bytes.len()
+    );
+    let run = run_files(
+        &folder_options(
+            &folder_text,
+            &[
+                "--stage-wrong-marker",
+                "--drop",
+                &dropped.to_string_lossy(),
+                "--save",
+                "copy.bin",
+                "--save-in",
+                &out.to_string_lossy(),
+                "--call",
+                &call,
+                "--call",
+                r#"send={"handle":"$2"}"#,
+                "--then",
+                "interrupt",
+            ],
+        ),
+        &[
+            "--into",
+            &into.to_string_lossy(),
+            "--source",
+            &dropped.to_string_lossy(),
+        ],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: read id=* offset=0 length=1048576",
+        r#"view: <- response id=1 result={"bytes":2097155}"#,
+        "program: write id=* offset=0 1048576 bytes",
+        "host: saved copy.bin (2097155 bytes)",
+        r#"view: <- response id=2 result={"bytes":2097155}"#,
+    ]);
+    run.never("program: stage");
+    run.never("program: fetch");
+    assert!(fs::read(into.join("big.bin")).expect("the file") == bytes);
+    assert!(fs::read(out.join("copy.bin")).expect("the copy") == bytes);
+}
+
+#[test]
+fn a_file_whose_path_the_view_passes_on_is_still_copied_when_the_host_keeps_a_folder() {
+    let dir = fresh("stage-from");
+    let into = dir.join("into");
+    fs::create_dir_all(&into).expect("a directory");
+    let dropped = dir.join("big.bin");
+    let bytes = made_up(&dropped, 3 * 1024 * 1024 + 1);
+    let folder = dir.join("folder");
+    let folder_text = folder.to_string_lossy();
+    let call = format!(
+        r#"receive={{"handle":"$1","name":"big.bin","path":"{}","size":{}}}"#,
+        dropped.display(),
+        bytes.len()
+    );
+    let run = run_files(
+        &folder_options(
+            &folder_text,
+            &[
+                "--drop",
+                &dropped.to_string_lossy(),
+                "--call",
+                &call,
+                "--then",
+                "interrupt",
+            ],
+        ),
+        &["--into", &into.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[r#"view: <- response id=1 result={"bytes":3145729}"#]);
+    // Nothing crosses at all: the file is on this machine.
+    run.never("program: read");
+    run.never("program: stage");
+    assert!(fs::read(into.join("big.bin")).expect("the file") == bytes);
+}
+
+#[test]
+fn a_pipe_that_stays_silent_is_taken_back_and_the_file_goes_on_in_messages() {
+    let dir = fresh("stage-silent-receive");
+    let into = dir.join("into");
+    fs::create_dir_all(&into).expect("a directory");
+    let dropped = dir.join("big.bin");
+    let bytes = made_up(&dropped, 2 * 1024 * 1024 + 3);
+    let folder = dir.join("folder");
+    let folder_text = folder.to_string_lossy();
+    let run = run_files(
+        &folder_options(
+            &folder_text,
+            &[
+                "--stage-silent",
+                "--drop",
+                &dropped.to_string_lossy(),
+                "--call",
+                r#"receive={"handle":"$1","name":"big.bin"}"#,
+                "--then",
+                "interrupt",
+            ],
+        ),
+        &["--into", &into.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: stage id=* offset=0",
+        "host: staged id=* re=* pipe",
+        // No byte comes: the transfer is taken back and the host answers it `cancelled`.
+        "program: unstage id=* of=*",
+        "host: takes back the pipe of",
+        "host: staged id=* re=* code=cancelled",
+        "program: read id=* offset=0 length=1048576",
+        r#"view: <- response id=1 result={"bytes":2097155}"#,
+    ]);
+    assert_eq!(names_in(&into), ["big.bin"]);
+    assert!(fs::read(into.join("big.bin")).expect("the file") == bytes);
+}
+
+#[test]
+fn a_pipe_nobody_reads_is_taken_back_and_the_file_goes_on_in_writes() {
+    let dir = fresh("stage-silent-save");
+    let out = dir.join("out");
+    fs::create_dir_all(&out).expect("a directory");
+    let source = dir.join("source.bin");
+    let bytes = made_up(&source, 2 * 1024 * 1024 + 7);
+    let folder = dir.join("folder");
+    let folder_text = folder.to_string_lossy();
+    let run = run_files(
+        &folder_options(
+            &folder_text,
+            &[
+                "--stage-silent",
+                "--save",
+                "notes.bin",
+                "--save-in",
+                &out.to_string_lossy(),
+                "--call",
+                r#"send={"handle":"$1"}"#,
+                "--then",
+                "interrupt",
+            ],
+        ),
+        &["--source", &source.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: fetch id=* size=2097159 offset=0",
+        "host: fetched id=* re=* pipe",
+        "program: unstage id=* of=*",
+        "host: fetched id=* re=* code=cancelled",
+        // The place is as it was before the `fetch`: the file goes from its start.
+        "program: write id=* offset=0 1048576 bytes",
+        "program: write id=* offset=2097152 end 7 bytes",
+        "host: saved notes.bin (2097159 bytes)",
+        r#"view: <- response id=1 result={"bytes":2097159}"#,
+    ]);
+    assert_eq!(names_in(&out), ["notes.bin"]);
+    assert!(fs::read(out.join("notes.bin")).expect("the file") == bytes);
+}
+
+#[test]
+fn a_transfer_that_loses_its_way_goes_on_from_where_the_file_stands_not_from_its_start() {
+    let dir = fresh("stage-route");
+    let into = dir.join("into");
+    let out = dir.join("out");
+    fs::create_dir_all(&into).expect("a directory");
+    fs::create_dir_all(&out).expect("a directory");
+    let dropped = dir.join("big.bin");
+    let bytes = made_up(&dropped, 3 * 1024 * 1024 + 11);
+    let folder = dir.join("folder");
+    let folder_text = folder.to_string_lossy();
+    let run = run_files(
+        &folder_options(
+            &folder_text,
+            &[
+                "--stage-route-after",
+                "1000000",
+                "--drop",
+                &dropped.to_string_lossy(),
+                "--call",
+                r#"receive={"handle":"$1","name":"big.bin"}"#,
+                "--then",
+                "interrupt",
+            ],
+        ),
+        &["--into", &into.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: stage id=* offset=0",
+        "host: staged id=* re=* code=route",
+        // The part is 1000000 bytes long: the file is taken again from there.
+        "program: stage id=* offset=1000000",
+        "host: staged id=* re=* sent=3145739",
+        r#"view: <- response id=1 result={"bytes":3145739}"#,
+    ]);
+    run.never("program: read");
+    assert_eq!(names_in(&into), ["big.bin"]);
+    assert!(fs::read(into.join("big.bin")).expect("the file") == bytes);
+
+    // And the other way: the host holds 1000000 bytes of the file it was sent and says so.
+    let run = run_files(
+        &folder_options(
+            &folder_text,
+            &[
+                "--stage-route-after",
+                "1000000",
+                "--save",
+                "copy.bin",
+                "--save-in",
+                &out.to_string_lossy(),
+                "--call",
+                r#"send={"handle":"$1"}"#,
+                "--then",
+                "interrupt",
+            ],
+        ),
+        &["--source", &dropped.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: fetch id=* size=3145739 offset=0",
+        "host: fetched id=* re=* code=route at=1000000",
+        "program: fetch id=* size=3145739 offset=1000000",
+        "host: saved copy.bin (3145739 bytes)",
+        "host: fetched id=* re=* saved=3145739",
+        r#"view: <- response id=1 result={"bytes":3145739}"#,
+    ]);
+    run.never("program: write");
+    assert_eq!(names_in(&out), ["copy.bin"]);
+    assert!(fs::read(out.join("copy.bin")).expect("the file") == bytes);
+}
+
+#[test]
+fn a_transfer_out_when_the_person_presses_ctrl_c_leaves_no_part_and_no_pipe() {
+    let dir = fresh("stage-interrupt");
+    let into = dir.join("into");
+    let out = dir.join("out");
+    fs::create_dir_all(&into).expect("a directory");
+    fs::create_dir_all(&out).expect("a directory");
+    let dropped = dir.join("big.bin");
+    made_up(&dropped, 3 * 1024 * 1024);
+    let folder = dir.join("folder");
+    let folder_text = folder.to_string_lossy();
+    // The pipe is silent, so the transfer is out when ^C comes, whichever way the file goes.
+    let run = run_files(
+        &folder_options(
+            &folder_text,
+            &[
+                "--stage-silent",
+                "--interrupt-at-pipe",
+                "--drop",
+                &dropped.to_string_lossy(),
+                "--call",
+                r#"receive={"handle":"$1","name":"big.bin"}"#,
+            ],
+        ),
+        &["--into", &into.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "host: stages big.bin from 0 through a pipe",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "host: takes back the pipe of",
+    ]);
+    assert!(names_in(&into).is_empty(), "{:?}", names_in(&into));
+    assert!(
+        !folder.exists(),
+        "the folder is left: {:?}",
+        names_in(&folder)
+    );
+
+    let run = run_files(
+        &folder_options(
+            &folder_text,
+            &[
+                "--stage-silent",
+                "--interrupt-at-pipe",
+                "--save",
+                "copy.bin",
+                "--save-in",
+                &out.to_string_lossy(),
+                "--call",
+                r#"send={"handle":"$1"}"#,
+            ],
+        ),
+        &["--source", &dropped.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "host: fetches copy.bin from 0 through a pipe",
+        "host: the person presses ^C",
+        "program: bye id=* reason=signal",
+        "host: takes back the pipe of",
+        "host: throws away what was written of copy.bin",
+    ]);
+    assert!(names_in(&out).is_empty(), "{:?}", names_in(&out));
+    assert!(
+        !folder.exists(),
+        "the folder is left: {:?}",
+        names_in(&folder)
+    );
+}
+
+#[test]
+fn a_lua_app_receives_and_saves_through_the_hosts_folder_without_a_line_of_it_changing() {
+    let app = files_lua_example().to_string_lossy().into_owned();
+    let dir = fresh("stage-lua");
+    let into = dir.join("into");
+    let out = dir.join("out");
+    fs::create_dir_all(&into).expect("a directory");
+    fs::create_dir_all(&out).expect("a directory");
+    let dropped = dir.join("big.bin");
+    let bytes = made_up(&dropped, 2 * 1024 * 1024 + 3);
+    let folder = dir.join("folder");
+    let run = run(
+        &[
+            "--stage",
+            &folder.to_string_lossy(),
+            "--drop",
+            &dropped.to_string_lossy(),
+            "--save",
+            "big.bin",
+            "--save-in",
+            &out.to_string_lossy(),
+            "--call",
+            "picture",
+            "--call",
+            "picture",
+            "--call",
+            r#"receive={"handle":"$1","name":"../big.bin"}"#,
+            "--call",
+            r#"save={"handle":"$2","of":"$1"}"#,
+            "--then",
+            "interrupt",
+        ],
+        &[&app, "--into", &into.to_string_lossy()],
+    );
+    assert!(run.status.success(), "{}", run.text());
+    run.in_order(&[
+        "program: stage id=* offset=0",
+        "host: staged id=* re=* sent=2097155",
+        r#"view: <- response id=3 result={"size":2097155}"#,
+        "program: fetch id=* size=2097155 offset=0",
+        "host: fetched id=* re=* saved=2097155",
+        r#"view: <- response id=4 result={"size":2097155}"#,
+    ]);
+    run.never("program: read");
+    run.never("program: write");
+    assert_eq!(names_in(&into), ["big.bin"]);
+    assert!(fs::read(into.join("big.bin")).expect("the file") == bytes);
+    assert_eq!(names_in(&out), ["big.bin"]);
+    assert!(fs::read(out.join("big.bin")).expect("the copy") == bytes);
+}

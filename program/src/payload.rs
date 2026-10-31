@@ -17,6 +17,10 @@ pub(crate) const VERSIONS: &[u32] = &[1];
 /// The feature a terminal lists when it closes a view at the program's request (§10.8).
 pub(crate) const FEATURE_DISMISS: &str = "dismiss";
 
+/// A feature a terminal lists: it keeps a folder on the program's machine that a file's bytes can
+/// cross through (§8.11).
+pub(crate) const FEATURE_STAGE: &str = "stage";
+
 /// Why a program ends (`bye.reason`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ByeReason {
@@ -178,6 +182,41 @@ pub(crate) fn detach(digests: &[String]) -> String {
     wire(&Detach { files: digests })
 }
 
+/// The payload of a `stage` (§8.11): the file of a handle, from an offset.
+pub(crate) fn stage(handle: &str, offset: u64) -> String {
+    #[derive(Serialize)]
+    struct Stage<'a> {
+        handle: &'a str,
+        offset: u64,
+    }
+    wire(&Stage { handle, offset })
+}
+
+/// The payload of a `fetch` (§8.11): the file of `size` bytes for the place of a handle, whose
+/// bytes sent start at `offset`.
+pub(crate) fn fetch(handle: &str, size: u64, offset: u64) -> String {
+    #[derive(Serialize)]
+    struct Fetch<'a> {
+        handle: &'a str,
+        size: u64,
+        offset: u64,
+    }
+    wire(&Fetch {
+        handle,
+        size,
+        offset,
+    })
+}
+
+/// The payload of an `unstage` (§8.11): the id of the `stage` or `fetch` taken back.
+pub(crate) fn unstage(id: u32) -> String {
+    #[derive(Serialize)]
+    struct Unstage {
+        id: u32,
+    }
+    wire(&Unstage { id })
+}
+
 /// The payload of a `read` (§8.9).
 pub(crate) fn read(handle: &str, offset: u64, length: u64) -> String {
     #[derive(Serialize)]
@@ -223,6 +262,9 @@ pub(crate) struct Listed {
 pub(crate) struct Offer {
     pub(crate) token: String,
     pub(crate) features: Vec<String>,
+    /// The folder the terminal keeps on the program's machine, when it lists `stage` and says
+    /// where (§5.2, §8.11). Whether it is the terminal's is for the program to prove.
+    pub(crate) stage: Option<StageOffer>,
     /// What the terminal will open. For an answer to a `hello` the program's list cut down to what
     /// both speak, in the program's order; for an unsolicited `welcome`, every kind the terminal
     /// opens, in its own order. Empty when nothing is shared.
@@ -231,6 +273,15 @@ pub(crate) struct Offer {
     /// speaks, each with the versions it does open (§5.2).
     pub(crate) opens: Vec<Listed>,
     pub(crate) restart: bool,
+}
+
+/// The folder a terminal offers (`welcome.stage`, §8.11).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StageOffer {
+    /// An absolute path.
+    pub(crate) dir: String,
+    /// What the folder's `marker` file holds: 32 lowercase hex digits.
+    pub(crate) token: String,
 }
 
 /// What a terminal answers to `hello`.
@@ -306,9 +357,16 @@ pub(crate) fn welcome(payload: &str) -> Option<Welcome> {
         if !VERSIONS.iter().any(|v| u64::from(*v) == version) {
             return Some(Welcome::Unsupported);
         }
+        let features = strings(body.get("features"));
+        let stage = features
+            .iter()
+            .any(|feature| feature == FEATURE_STAGE)
+            .then(|| stage_offer(body.get("stage")))
+            .flatten();
         return Some(Welcome::Offer(Offer {
             token: token.to_owned(),
-            features: strings(body.get("features")),
+            features,
+            stage,
             views: listed(body.get("views")),
             opens: listed(body.get("opens")),
             restart: body.get("restart") == Some(&Value::Bool(true)),
@@ -317,6 +375,62 @@ pub(crate) fn welcome(payload: &str) -> Option<Welcome> {
     body.get("supported")
         .is_some_and(Value::is_array)
         .then_some(Welcome::Unsupported)
+}
+
+/// The `stage` of a `welcome`: an absolute `dir` and a `token` of 32 lowercase hex digits; anything
+/// else is no offer.
+fn stage_offer(value: Option<&Value>) -> Option<StageOffer> {
+    let body = value?.as_object()?;
+    let dir = body
+        .get("dir")?
+        .as_str()
+        .filter(|dir| dir.starts_with('/'))?;
+    let token = body.get("token")?.as_str().filter(|t| is_pipe_name(t))?;
+    Some(StageOffer {
+        dir: dir.to_owned(),
+        token: token.to_owned(),
+    })
+}
+
+/// 32 lowercase hex digits: the token of a folder's marker and the name of a pipe in it (§8.11).
+pub(crate) fn is_pipe_name(text: &str) -> bool {
+    text.len() == 32
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// What a terminal says of a `stage` or a `fetch` (§8.11).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Transfer {
+    /// The pipe to open.
+    Pipe(String),
+    /// The file is through: `sent` is where a staged file ended, `saved` how long a fetched one
+    /// is.
+    Done(u64),
+    /// It did not go, by this code; `at` is what the terminal holds of a fetched file when the way
+    /// to the program's machine is gone.
+    Failed { code: String, at: Option<u64> },
+}
+
+/// Reads a `staged` (`done` is `sent`) or a `fetched` (`done` is `saved`).
+pub(crate) fn transfer(payload: &str, done: &str) -> Option<Transfer> {
+    let body: Value = parsed(payload)?;
+    let body = body.as_object()?;
+    if let Some(pipe) = body.get("pipe") {
+        return pipe
+            .as_str()
+            .filter(|name| is_pipe_name(name))
+            .map(|name| Transfer::Pipe(name.to_owned()));
+    }
+    if let Some(end) = body.get(done) {
+        return end.as_u64().map(Transfer::Done);
+    }
+    let code = body.get("code")?.as_str()?;
+    Some(Transfer::Failed {
+        code: code.to_owned(),
+        at: body.get("at").and_then(Value::as_u64),
+    })
 }
 
 /// What the program opens, given its own list and what a `welcome` lists (§5.3): the first kind
@@ -679,6 +793,73 @@ mod tests {
     }
 
     #[test]
+    fn the_folder_a_welcome_offers_is_read_only_when_it_lists_stage_and_says_where() {
+        let dir =
+            r#""stage":{"dir":"/home/a/.pencere/x","token":"0b5d7c1e9a3f4682d0e1c7a95b3f8d24"}"#;
+        let with = |features: &str, stage: &str| {
+            format!(
+                r#"{{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","features":[{features}],{stage}"views":[]}}"#
+            )
+        };
+        let offered = |text: &str| match welcome(text) {
+            Some(Welcome::Offer(offer)) => offer.stage,
+            other => panic!("an offer, not {other:?}"),
+        };
+        assert_eq!(
+            offered(&with(r#""dismiss","stage""#, &format!("{dir},"))),
+            Some(StageOffer {
+                dir: "/home/a/.pencere/x".to_owned(),
+                token: "0b5d7c1e9a3f4682d0e1c7a95b3f8d24".to_owned(),
+            })
+        );
+        // Not listed: the folder is not offered, whatever else is said.
+        assert_eq!(offered(&with(r#""dismiss""#, &format!("{dir},"))), None);
+        // Listed and not said, or said badly: no offer.
+        assert_eq!(offered(&with(r#""stage""#, "")), None);
+        for bad in [
+            r#""stage":{"dir":"relative","token":"0b5d7c1e9a3f4682d0e1c7a95b3f8d24"},"#,
+            r#""stage":{"dir":"/a","token":"0B5D7C1E9A3F4682D0E1C7A95B3F8D24"},"#,
+            r#""stage":{"dir":"/a","token":"0b5d"},"#,
+            r#""stage":{"token":"0b5d7c1e9a3f4682d0e1c7a95b3f8d24"},"#,
+            r#""stage":"/a","#,
+        ] {
+            assert_eq!(offered(&with(r#""stage""#, bad)), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn what_a_terminal_says_of_a_transfer_is_its_pipe_its_end_or_its_code() {
+        let name = "0b5d7c1e9a3f4682d0e1c7a95b3f8d24";
+        assert_eq!(
+            transfer(&format!(r#"{{"pipe":"{name}"}}"#), "sent"),
+            Some(Transfer::Pipe(name.to_owned()))
+        );
+        assert_eq!(transfer(r#"{"sent":11}"#, "sent"), Some(Transfer::Done(11)));
+        // `sent` answers a `stage`, `saved` a `fetch`: the other is no end.
+        assert_eq!(transfer(r#"{"sent":11}"#, "saved"), None);
+        assert_eq!(
+            transfer(r#"{"code":"route","at":4}"#, "saved"),
+            Some(Transfer::Failed {
+                code: "route".to_owned(),
+                at: Some(4),
+            })
+        );
+        assert_eq!(
+            transfer(r#"{"code":"gone"}"#, "sent"),
+            Some(Transfer::Failed {
+                code: "gone".to_owned(),
+                at: None,
+            })
+        );
+        // A pipe is 32 lowercase hex digits and nothing a path could be made of.
+        for bad in ["../x", "", "0B5D7C1E9A3F4682D0E1C7A95B3F8D24", "0b5d"] {
+            assert_eq!(transfer(&format!(r#"{{"pipe":"{bad}"}}"#), "sent"), None);
+        }
+        assert_eq!(transfer("[]", "sent"), None);
+        assert_eq!(transfer("{}", "sent"), None);
+    }
+
+    #[test]
     fn a_welcome_is_read_as_the_fixtures_have_it() {
         let offer = welcome(
             r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"t","version":"0"},"features":["dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}"#,
@@ -785,10 +966,9 @@ mod tests {
                             assert!(refused(&payload).is_some(), "{label}");
                         }
                         "wrote" => assert!(wrote(&payload).is_some(), "{label}"),
-                        // The answers to a `stage` and a `fetch` (§8.11) are JSON objects.
-                        "staged" | "fetched" => {
-                            assert!(pencere_wire::json::is_object(&payload), "{label}");
-                        }
+                        // The answers to a `stage` and a `fetch` (§8.11).
+                        "staged" => assert!(transfer(&payload, "sent").is_some(), "{label}"),
+                        "fetched" => assert!(transfer(&payload, "saved").is_some(), "{label}"),
                         // The bytes of a file the person gave, in base64 (§8.9).
                         "data" => assert!(
                             pencere_wire::base64::decode(payload.as_bytes()).is_some(),

@@ -83,7 +83,10 @@ mod foreground;
 mod handlers;
 mod link;
 mod payload;
+#[allow(unsafe_code)]
+mod pipes;
 mod session;
+mod staged;
 #[allow(unsafe_code)]
 mod terminal;
 mod view;

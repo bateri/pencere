@@ -19,11 +19,12 @@ use pencere_host::bundle::MemoryStore;
 use pencere_host::frame::{Direction, Event, Message, StreamDecoder};
 use pencere_host::icon::{Icon, IconTheme};
 use pencere_host::sandbox::Grant;
-use pencere_host::session::{Action, Session, State, ViewStart};
+use pencere_host::session::{Action, FetchError, Session, StageError, State, ViewStart};
 use serde_json::Value;
 
 use crate::args::{Args, Ask, Gestures, Then};
 use crate::files::Desk;
+use crate::stage::{Finished, Stage};
 use crate::view::{Reaction, ScriptedView};
 
 /// The keystroke the person ends a program with.
@@ -86,6 +87,8 @@ pub struct Host {
     desk: Desk,
     /// How many reads of files the session has asked for.
     reads: u32,
+    /// The folder the bytes of files cross through, when the command line asks for one (§8.11).
+    stage: Option<Stage>,
 }
 
 impl Host {
@@ -99,6 +102,15 @@ impl Host {
         // accepts the two kinds and plays their page as a script, with nothing drawn.
         let mut session = Session::new(pane::config(size), store, pane::entropy(urandom));
         session.offer_dismiss(args.dismiss);
+        let stage = match &args.stage {
+            Some(dir) => {
+                let (stage, offered) = Stage::open(dir, args.stage_flaws.clone())?;
+                log::line("host", format!("keeps a folder at {}", offered.dir()));
+                session.offer_stage(Some(offered));
+                Some(stage)
+            }
+            None => None,
+        };
         Ok(Self {
             session,
             answering: args.answer,
@@ -129,6 +141,7 @@ impl Host {
             gestures: args.gestures.clone(),
             desk: Desk::default(),
             reads: 0,
+            stage,
         })
     }
 
@@ -385,12 +398,31 @@ impl Host {
             Action::WriteFile {
                 write,
                 handle,
+                offset,
                 bytes,
                 end,
-                ..
             } => {
-                let result = self.desk.write(&handle, &bytes, end);
+                let result = self.desk.write(&handle, offset, &bytes, end);
                 self.session.file_written(write, result);
+            }
+            Action::StageFile {
+                stage,
+                handle,
+                offset,
+                pipe,
+            } => self.stage_file(stage, &handle, offset, &pipe),
+            Action::FetchFile {
+                fetch,
+                handle,
+                offset,
+                size,
+                pipe,
+            } => self.fetch_file(fetch, &handle, offset, size, &pipe),
+            Action::Unstage { transfer } => {
+                log::line("host", format!("takes back the pipe of {transfer}"));
+                if let Some(stage) = self.stage.as_mut() {
+                    stage.cancel(transfer);
+                }
             }
             Action::AbortWrite { handle } => self.desk.abort(&handle),
             Action::ForgetFiles(names) => {
@@ -416,6 +448,58 @@ impl Host {
             }
             // An action a later version adds is one this host does not know.
             _ => {}
+        }
+    }
+
+    /// The session asks for the file of a handle to be sent through a pipe (§8.11).
+    fn stage_file(&mut self, transfer: u32, handle: &str, offset: u64, pipe: &str) {
+        let source = self.desk.source(handle);
+        let started = match (source, self.stage.as_mut()) {
+            (Ok((path, size)), Some(stage)) => {
+                log::line(
+                    "host",
+                    format!("stages {} from {offset} through a pipe", name_of(&path)),
+                );
+                stage.stage_file(transfer, pipe, path, size, offset)
+            }
+            (Err(_), _) => Err(StageError::Gone),
+            (_, None) => Err(StageError::Io),
+        };
+        match started {
+            Ok(()) => {
+                self.session.pipe_ready(transfer);
+                self.person_may_interrupt();
+            }
+            Err(error) => self.session.staged(transfer, Err(error)),
+        }
+    }
+
+    /// The person presses ^C once a pipe is up, when the command line says so.
+    fn person_may_interrupt(&mut self) {
+        if self.gestures.interrupt_at_pipe {
+            log::line("host", "the person presses ^C");
+            self.typed.type_in(&[INTERRUPT]);
+        }
+    }
+
+    /// The session asks for a file to be taken in from a pipe, into the place of a handle (§8.11).
+    fn fetch_file(&mut self, transfer: u32, handle: &str, offset: u64, size: u64, pipe: &str) {
+        let started = match (self.desk.place_of(handle), self.stage.as_mut()) {
+            (Some(place), Some(stage)) => {
+                log::line(
+                    "host",
+                    format!("fetches {} from {offset} through a pipe", name_of(&place.0)),
+                );
+                stage.fetch_file(transfer, pipe, place, size, offset)
+            }
+            _ => Err(FetchError::Io),
+        };
+        match started {
+            Ok(()) => {
+                self.session.pipe_ready(transfer);
+                self.person_may_interrupt();
+            }
+            Err(error) => self.session.fetched(transfer, Err(error)),
         }
     }
 
@@ -584,6 +668,15 @@ impl Host {
 
     /// Gives up on what has been waited for too long.
     pub fn tick(&mut self, now: Instant) {
+        // What the transfers through the folder's pipes came to.
+        let finished = self.stage.as_mut().map(Stage::take_finished);
+        for finished in finished.into_iter().flatten() {
+            match finished {
+                Finished::Staged { transfer, result } => self.session.staged(transfer, result),
+                Finished::Fetched { transfer, result } => self.session.fetched(transfer, result),
+            }
+            self.settle();
+        }
         let state = self.session.state();
         let patience = match state {
             State::Opening => OPENING_PATIENCE,
@@ -683,6 +776,14 @@ fn named(body: &Value, key: &str) -> String {
         .map_or_else(String::new, |name| format!(" {name}"))
 }
 
+/// The last part of a path, as the record shows a file.
+fn name_of(path: &std::path::Path) -> String {
+    path.file_name().map_or_else(
+        || "?".to_owned(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
+
 fn payload_str<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
     payload.get(key).and_then(Value::as_str)
 }
@@ -693,7 +794,9 @@ fn describe_program(message: &Message) -> String {
     let id = message.id;
     // Only the kinds that are read for what they say are parsed.
     let payload = match message.kind.as_str() {
-        "open" | "bye" | "attach" | "detach" | "read" => parsed(&message.payload),
+        "open" | "bye" | "attach" | "detach" | "read" | "stage" | "fetch" | "unstage" => {
+            parsed(&message.payload)
+        }
         _ => Value::Null,
     };
     match message.kind.as_str() {
@@ -747,6 +850,19 @@ fn describe_program(message: &Message) -> String {
             "read id={id} offset={} length={}",
             payload.get("offset").and_then(Value::as_u64).unwrap_or(0),
             payload.get("length").and_then(Value::as_u64).unwrap_or(0)
+        ),
+        "stage" => format!(
+            "stage id={id} offset={}",
+            payload.get("offset").and_then(Value::as_u64).unwrap_or(0)
+        ),
+        "fetch" => format!(
+            "fetch id={id} size={} offset={}",
+            payload.get("size").and_then(Value::as_u64).unwrap_or(0),
+            payload.get("offset").and_then(Value::as_u64).unwrap_or(0)
+        ),
+        "unstage" => format!(
+            "unstage id={id} of={}",
+            payload.get("id").and_then(Value::as_u64).unwrap_or(0)
         ),
         "write" => format!(
             "write id={id} offset={}{} {} bytes",
@@ -844,6 +960,25 @@ fn describe_host(message: &Message) -> String {
             Some(code) => format!("data id={id}{re} e={code}"),
             None => format!("data id={id}{re} {} bytes", base64_length(&message.payload)),
         },
+        "staged" | "fetched" => {
+            let kind = &message.kind;
+            if payload.get("pipe").is_some() {
+                format!("{kind} id={id}{re} pipe")
+            } else if let Some(code) = payload_str(&payload, "code") {
+                match payload.get("at").and_then(Value::as_u64) {
+                    Some(at) => format!("{kind} id={id}{re} code={code} at={at}"),
+                    None => format!("{kind} id={id}{re} code={code}"),
+                }
+            } else {
+                let done = payload
+                    .get("sent")
+                    .or_else(|| payload.get("saved"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                let word = if kind == "staged" { "sent" } else { "saved" };
+                format!("{kind} id={id}{re} {word}={done}")
+            }
+        }
         "wrote" => match payload_str(&payload, "code") {
             Some(code) => format!("wrote id={id}{re} code={code}"),
             None => format!("wrote id={id}{re}"),

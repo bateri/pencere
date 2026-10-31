@@ -1251,8 +1251,9 @@ and then answered `io`.
 
 **Taking one back: `unstage`.** The program sends an `unstage` with the `id` of the `stage` or the
 `fetch` it takes back, and is answered, as if it had gone wrong, with the last answer of that message:
-`cancelled`. The host closes the pipe and removes it, and a place that a `fetch` had begun to write is
-thrown away, as one whose write failed is (Section 8.10). An `unstage` for a transfer that is not out is
+`cancelled`. The host closes the pipe and removes it, and throws away what a `fetch` had written of its
+place, which is then as it was before the `fetch`: the program may send the file in `write`s
+(Section 8.10), or fetch it again, from its start. An `unstage` for a transfer that is not out is
 ignored.
 
 ```frame fixtures/to-host/unstage.frame

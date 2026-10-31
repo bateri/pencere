@@ -18,6 +18,21 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   a copy is as fast as the disk. A path that is not absolute or cannot be read, and a file that is no
   longer that size, are received by the handle as `receive` does.
 
+- **The host's folder** (specification §8.11). A terminal that lists `stage` in its `welcome` keeps a
+  folder on the program's machine, and `ViewControl::receive`, `receive_from` and `send` use it with
+  no change of signature: the bytes of the file cross through a pipe in it, not as base64 through the
+  terminal's stream and the tty. The program proves the folder is the terminal's before it uses it
+  (an absolute path; a directory of its own user that the group and others cannot use; a `marker`
+  file, opened without following a link, that holds exactly the `welcome`'s token) and that a pipe is
+  a FIFO of its own user, and goes on with messages whenever the way does not work: a terminal that
+  is busy, a pipe that stays silent for three seconds, bytes that stop for eight. After a `route` it
+  goes on from where the file stands. A part that was begun is continued by `read`s from where it
+  ends. A terminal that offers a folder the program cannot prove is not on the program's machine,
+  and the path it handed `receive_from` is not used either.
+- A file the person gave is copied from its path by a copy-on-write clone where the file system makes
+  one (APFS, Btrfs, XFS with reflinks), and not a byte is written; the copy has the rights a new
+  file of the program's own user has, not the rights of the file it was cloned from.
+
 ### Fixed
 
 - The answer to a call of a view that has been replaced (`ViewControl::reopen`, a terminal that

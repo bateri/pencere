@@ -36,13 +36,14 @@ use std::cell::{Cell, RefCell};
 use std::io;
 use std::process::{Command, ExitStatus};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
 
 use pencere_wire::bundle::Digest;
 
-use crate::files::FileError;
+use crate::files::{FileError, Transferring};
 use crate::handlers::{Outbox, Work};
+use crate::payload::StageOffer;
 use crate::{Error, NoView, Options, View};
 
 /// What `ViewControl::reopen` came to.
@@ -188,6 +189,28 @@ pub(crate) enum Request {
         bytes: Vec<u8>,
         end: bool,
         reply: SyncSender<Result<(), FileError>>,
+    },
+    /// The folder the terminal offers on the program's machine, if it does and a view that has
+    /// files runs (§8.11).
+    StageOffer {
+        reply: SyncSender<Result<Option<StageOffer>, FileError>>,
+    },
+    /// The file of a handle, through a pipe (§8.11); what comes of it is told on `events`.
+    Stage {
+        handle: String,
+        offset: u64,
+        events: Sender<Transferring>,
+    },
+    /// A file for the place of a handle, through a pipe (§8.11).
+    Fetch {
+        handle: String,
+        size: u64,
+        offset: u64,
+        events: Sender<Transferring>,
+    },
+    /// A `stage` or a `fetch` the program takes back, by the id it was sent with.
+    Unstage {
+        id: u32,
     },
 }
 

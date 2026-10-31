@@ -64,8 +64,10 @@ several views, as one that reloads its view does, takes the action at the Nth vi
 that cannot close a view at the program's request (so a program's reopening, closing and
 hand-off are `Unsupported`), `--refuse-open N` refuses the Nth open by the host's policy (a
 view that does not come back after a hand-off or a reopening), `--allow-network` answers yes
-to the question a page's `access` raises, `--store` keeps verified files between runs, and
-`--help` lists the rest.
+to the question a page's `access` raises, `--store` keeps verified files between runs, `--stage DIR`
+keeps the host's folder (specification §8.11) at DIR so that the bytes of files cross through pipes in
+it, with `--stage-wrong-marker`, `--stage-route-after N` and `--stage-silent` for the ways it can go
+wrong, and `--help` lists the rest.
 
 It is not a terminal emulator: it draws nothing, tracks only the alternate screen and
 answers only `CSI c`, and it keeps the pane's size as it was when the program started.
