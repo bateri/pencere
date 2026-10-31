@@ -54,6 +54,11 @@ The drive of a page of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.
   frame built before the drain, was held with nothing coming to tell it: on a page at rest the host
   was never told where the keyboard went. `Drained::redraw` is now set whenever the drain holds
   something new.
+- **A large answer from `InProcess` no longer hangs the page.** The host counted the size of what the
+  program said on the text it is taken in, escaped by the wire, and refused an answer that is within
+  the limit before the escapes (specification §9.3): the call was owed for ever and the settling
+  waited 60 seconds for "the program did not answer the page", hiding the real timeout. It is counted
+  as the program counts it.
 
 ### Added
 

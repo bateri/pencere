@@ -6,7 +6,8 @@ use std::process::{Command, ExitStatus};
 use std::time::{Duration, Instant};
 
 use pencere::{Conversation, Lent, Options, Said};
-use pencere_wire::messages::Message;
+use pencere_wire::json;
+use pencere_wire::messages::{MAX_BYTES, Message};
 
 use super::Peer;
 
@@ -53,6 +54,20 @@ pub struct InProcess {
     fresh: bool,
 }
 
+/// The call that a message the program said answers, if it is a response. What the program says
+/// comes as the wire carries it, escaped, and its size is counted before the escapes (specification
+/// §9.3), not on that text, which is [`Message::parse`]'s way and refuses an answer of the size the
+/// program may write: a call whose answer was refused would be owed for ever.
+fn answered(text: &str) -> Option<u64> {
+    if json::unescaped_len(text) > MAX_BYTES || json::too_deep(text) {
+        return None;
+    }
+    match serde_json::from_str::<Message>(text).ok()? {
+        Message::Response(response) => Some(response.id),
+        _ => None,
+    }
+}
+
 impl InProcess {
     /// The handlers of `options`, serving a view that is up.
     pub fn new(options: Options) -> Self {
@@ -97,8 +112,8 @@ impl InProcess {
         while let Some(said) = next {
             match said {
                 Said::Message(text) => {
-                    if let Ok(Message::Response(response)) = Message::parse(&text) {
-                        self.owed.remove(&response.id);
+                    if let Some(id) = answered(&text) {
+                        self.owed.remove(&id);
                     }
                     taken += text.len();
                     self.said.push(text);
@@ -246,6 +261,27 @@ mod tests {
             assert!(bytes < READ + 64, "{bytes} bytes taken at once");
             takings += usize::from(!said.is_empty());
         }
+    }
+
+    /// An answer is as large as the program may write it counted before the wire's escapes (§9.3),
+    /// not as the text it is taken in: one of 300 000 two-byte characters is 1.8 MB of `\u00e9`s
+    /// and a message all the same, and the call it answers is no longer owed.
+    #[test]
+    fn a_large_answer_that_is_within_the_limit_before_the_wire_escapes_it_is_an_answer() {
+        let mut program = InProcess::new(
+            Options::new().call("big", |_params, _call| Ok(json!("\u{e9}".repeat(300_000)))),
+        );
+        program.opened();
+        program.heard(r#"{"call":{"id":2,"method":"big","params":{}}}"#);
+        assert!(program.busy());
+        program.wait(Duration::from_secs(10));
+        let said = program.said();
+        assert_eq!(said.len(), 1, "the answer");
+        assert!(
+            said[0].len() > 1 << 20,
+            "longer than a message as the wire has it"
+        );
+        assert!(!program.busy(), "the call was answered");
     }
 
     /// A page speaks to the view it was opened for and no other: the words of a page whose view the
