@@ -19,9 +19,10 @@ use crate::{FieldKind, Key, Mods};
 pub struct Fill {
     /// What the field holds from now on; `None` keeps what it holds.
     pub text: Option<String>,
-    /// What is selected, in characters from 0 (code points, as an editor counts them): the caret
+    /// What is selected, in bytes from 0 (UTF-8 offsets, as a page's text counts them): the caret
     /// alone where the range is empty. Its ends are taken in order, and one past the end of the
-    /// text is its end, so that `0..usize::MAX` is all of it. `None`: where a text is put in, the
+    /// text is its end, so that `0..usize::MAX` is all of it. An end inside a character is the
+    /// start of it: a reply cannot be told of a mistake, and the host's own field takes it so. `None`: where a text is put in, the
     /// caret goes where the host's system puts it (at the end); where none is, the selection stays.
     pub select: Option<Range<usize>>,
 }
@@ -43,7 +44,7 @@ impl Fill {
         }
     }
 
-    /// The same, with `range` selected (characters from 0; see [`Fill::select`]).
+    /// The same, with `range` selected (bytes from 0; see [`Fill::select`]).
     #[must_use]
     pub fn select(mut self, range: Range<usize>) -> Self {
         self.select = Some(range);
@@ -56,7 +57,7 @@ impl Fill {
         self.select(0..usize::MAX)
     }
 
-    /// What is to be selected in a text of `length` characters: the ends in order and within it.
+    /// What is to be selected in a text of `length` bytes: the ends in order and within it.
     pub fn selection_in(&self, length: usize) -> Option<Range<usize>> {
         self.select.as_ref().map(|range| {
             let (a, b) = (range.start.min(length), range.end.min(length));

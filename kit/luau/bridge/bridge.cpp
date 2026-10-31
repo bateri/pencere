@@ -260,13 +260,26 @@ int l_drop_target(lua_State* state) {
 // --- The text of the page's editors ------------------------------------------------------------
 //
 // What the application posted of each editor's document: read at once, of the version the last
-// `edit` event the page was told says. Places and lines are whole numbers from 0.
+// `edit` event the page was told says. A place is a whole number of bytes of the text, from 1 (one
+// past its last byte is its end), and a line a whole number from 1: the host counts both from 0,
+// and the shift is made here (and in `convert.cpp`) and nowhere else.
 
-uint32_t checked_place(lua_State* state, int index, const char* what) {
+uint32_t checked_place(lua_State* state, int index, const char* what, const char* unit) {
     double at = lua_isnumber(state, index) ? lua_tonumber(state, index) : -1.0;
-    if (!(at >= 0 && at <= 4294967295.0) || at != (double)(uint32_t)at)
-        script_fail(state, (std::string(what) + " is a whole number from 0").c_str());
-    return (uint32_t)at;
+    if (!(at >= 1 && at <= 4294967295.0) || at != (double)(uint32_t)at)
+        script_fail(state, (std::string(what) + " is a whole number of " + unit + " from 1").c_str());
+    return (uint32_t)at - 1;
+}
+
+// A place or a line the host tells, on the script's side of the count.
+double told_from_one(uint32_t counted_from_zero) { return (double)counted_from_zero + 1.0; }
+
+// What the host says of a place of the script's that it refuses (inside a character), as the
+// script's own error, at its line.
+[[noreturn]] void refused_by_host(lua_State* state, view_string_t* why) {
+    std::string words(reinterpret_cast<const char*>(why->ptr), why->len);
+    view_string_free(why);
+    script_fail(state, words.c_str());
 }
 
 // The time of day: seconds of Unix time, and the person's offset from UTC, seconds.
@@ -392,12 +405,14 @@ int l_editor_lines(lua_State* state) {
 
 int l_editor_text(lua_State* state) {
     uint64_t editor = bridge::id_of(state, 1);
-    uint32_t from = checked_place(state, 2, "from");
-    uint32_t to = checked_place(state, 3, "to");
-    view_string_t text = {nullptr, 0};
-    if (pencere_view_layout_editor_text(editor, from, to, &text)) {
-        lua_pushlstring(state, (const char*)text.ptr, text.len);
-        view_string_free(&text);
+    uint32_t from = checked_place(state, 2, "from", "bytes");
+    uint32_t to = checked_place(state, 3, "to", "bytes");
+    view_option_string_t text = {};
+    view_string_t why = {nullptr, 0};
+    if (!pencere_view_layout_editor_text(editor, from, to, &text, &why)) refused_by_host(state, &why);
+    if (text.is_some) {
+        lua_pushlstring(state, (const char*)text.val.ptr, text.val.len);
+        view_option_string_free(&text);
     } else {
         lua_pushnil(state);
     }
@@ -407,25 +422,32 @@ int l_editor_text(lua_State* state) {
 int l_line_start(lua_State* state) {
     uint64_t editor = bridge::id_of(state, 1);
     uint32_t at = 0;
-    if (pencere_view_layout_line_start(editor, checked_place(state, 2, "a line"), &at)) lua_pushnumber(state, at);
+    if (pencere_view_layout_line_start(editor, checked_place(state, 2, "a line", "lines"), &at))
+        lua_pushnumber(state, told_from_one(at));
     else lua_pushnil(state);
     return 1;
 }
 
 int l_line_of(lua_State* state) {
     uint64_t editor = bridge::id_of(state, 1);
-    uint32_t line = 0;
-    if (pencere_view_layout_line_of(editor, checked_place(state, 2, "a place"), &line)) lua_pushnumber(state, line);
+    view_option_u32_t line = {};
+    view_string_t why = {nullptr, 0};
+    if (!pencere_view_layout_line_of(editor, checked_place(state, 2, "a place", "bytes"), &line, &why))
+        refused_by_host(state, &why);
+    if (line.is_some) lua_pushnumber(state, told_from_one(line.val));
     else lua_pushnil(state);
     return 1;
 }
 
 int l_word_at(lua_State* state) {
     uint64_t editor = bridge::id_of(state, 1);
-    pencere_view_types_word_range_t word = {};
-    if (pencere_view_layout_word_at(editor, checked_place(state, 2, "a place"), &word)) {
-        lua_pushnumber(state, word.from);
-        lua_pushnumber(state, word.to);
+    pencere_view_layout_option_word_range_t word = {};
+    view_string_t why = {nullptr, 0};
+    if (!pencere_view_layout_word_at(editor, checked_place(state, 2, "a place", "bytes"), &word, &why))
+        refused_by_host(state, &why);
+    if (word.is_some) {
+        lua_pushnumber(state, told_from_one(word.val.from));
+        lua_pushnumber(state, told_from_one(word.val.to));
         return 2;
     }
     lua_pushnil(state);

@@ -16,6 +16,15 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 - The page's `copy` and `cut` commands (`Editors::take_copied` gives the text for the host's
   pasteboard); a key the page binds to them does what the editor's own key does.
 
+### Changed
+
+- **What a page asks of an editor and what the editor tells it are in bytes of UTF-8**
+  (`Buffer::change`, `select_at`, `carry`, `decorate`; `Note::Edited` and `Note::Selection`; the
+  hover, target and gutter events, the place of the pointer, `Snapshot`), while the editor goes on
+  holding characters (`Buffer::byte_of` and `Buffer::char_of_byte` turn one into the other). A place
+  of an older version is carried over what was done since as bytes, and turned into a character
+  only in the text as it is; one inside a character is refused (`Refusal::MidCharacter`).
+
 ### Fixed
 
 - A block caret that glides (`caret.motion`) shows the text under it from the first frame, as a

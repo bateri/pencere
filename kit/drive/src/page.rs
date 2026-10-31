@@ -1125,7 +1125,10 @@ impl Page {
                 .place_at(laid, at, measure)
                 .map(|(editor, place)| Place {
                     editor,
-                    at: place,
+                    // The page is told the place in bytes; the editor holds it in characters.
+                    at: editors
+                        .buffer(editor)
+                        .map_or(place, |buffer| buffer.byte_of(place)),
                     inside: before.unwrap_or_else(|| editors.in_selection(editor, place)),
                     version: editors.buffer(editor).map_or(0, Buffer::version),
                 });
@@ -1508,11 +1511,16 @@ impl PageEditors<'_> {
         self.page.state.editing.person_moved_keyboard();
         self.page.edit(true, |editors, laid, measure, now| {
             editors.set_focus(Some(id));
-            let Some(version) = editors.buffer(id).map(Buffer::version) else {
+            let Some(buffer) = editors.buffer(id) else {
                 return;
             };
+            // A page is asked in bytes; the host says characters.
+            let ranges = ranges
+                .into_iter()
+                .map(|range| Range::new(buffer.byte_of(range.anchor), buffer.byte_of(range.head)))
+                .collect();
             let ask = EditorAsk::Select {
-                version,
+                version: buffer.version(),
                 ranges,
                 main: 0,
             };

@@ -25,7 +25,7 @@
           "notes": [
             { "edited": { "version": 2, "origin": "compose", "changes": [[0, 1, "ka"]] } },
             { "edited": { "version": 3, "origin": "compose", "changes": [[0, 2, "か"]] } },
-            { "selection": { "ranges": [[1, 1]], "composing": true } }
+            { "selection": { "ranges": [[3, 3]], "composing": true } }
           ]
         },
         { "do": "commit" },
@@ -34,7 +34,7 @@
           "text": "か",
           "composing": false,
           "marked": null,
-          "notes": [{ "selection": { "ranges": [[1, 1]] } }]
+          "notes": [{ "selection": { "ranges": [[3, 3]] } }]
         },
         { "do": "command", "command": "undo" },
         { "do": "expect", "text": "" }

@@ -368,8 +368,8 @@ files not in front and keeps their documents. The language is the page's or its 
 editor colours, marks and folds what the page says (Section 2.3), comments and indents as its
 options say, and knows no language itself.
 
-A place in a document is a **character** (a code point) counted from 0, and a line is counted from
-0; a range is from one place to another, the end not in it. A version is a number that grows by one
+A place in a document is counted as Section 2.7 says: a byte of the text, from 1, a line from 1,
+a range from one place to another, the end not in it. A version is a number that grows by one
 with every change of the document, whoever made it. The caret of an editor has a name of its own,
 `pencere.caret_of(id)`: an overlay anchored to it stands by the caret (`:anchor(pencere.caret_of("sql"),
 "below")`, a popup of completions, which goes above it where there is no room below), and
@@ -414,10 +414,11 @@ that can be dragged, and that what is dragged can be put down on). They are defi
 
 The text of an editor is read at once, from what the host posted of it before it told the page of
 the version it is: `pencere.layout.editor_version(id)` (the version read, the one the last `edit`
-said), `editor_length(id)` and `editor_lines(id)`, `editor_text(id, from, to)` (at most 1 MiB a read;
+said), `editor_length(id)` (the bytes of the text) and `editor_lines(id)`, `editor_text(id, from, to)` (at most 1 MiB a read;
 a large document is read in pieces), `line_start(id, line)`, `line_of(id, at)` and `word_at(id, at)` (the word at a place, or the run of
 marks or of spaces, as a double click takes it: its `from` and `to`; nil past the end of the text, so that a
-page that asks for what is at its caret asks of the word the pointer rests on by the same rule). A page reads in
+page that asks for what is at its caret asks of the word the pointer rests on by the same rule). A place
+that is inside a character is an error at the line of the script, not nil and not the character's. A page reads in
 the `edit` event the text of the version the event is of.
 
 **How the host's terminal draws** is told by the host and applied by the page. `pencere.terminal_look()`
@@ -543,13 +544,13 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 | `saving`           | `handle` and `name`: the place the person chose in the Save panel the page asked for (neither: turned away)                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `edit`             | `editor`, `version` (what the document came to), `origin` (`"person"`, `"compose"`, `"page"`, `"undo"`, `"redo"`, `"load"`), `tag` (the page's name for a change it asked for with one), `changes` (`{ { from =, to =, insert = }, ... }`, in the places of the version before, in order)                                                                                                                                                                                                                                              |
 | `selection`        | `editor`, `version`, `ranges` (`{ { anchor =, head = }, ... }`), `main` (from 1), `composing` (an input method is composing at the main caret; the host does none of the page's commands then)                                                                                                                                                                                                                                                                                                                                         |
-| `viewport`         | `editor`, `first`, `last`: the lines in view, for a page that colours only what is seen                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `editor_refused`   | `editor`, `reason` (`"reversed"`, `"out-of-document"`, `"overlapping"`, `"stale-version"`, `"future-version"`, `"too-large"`, `"too-many-decorations"`, `"outside-range"`, `"bad-pattern"`, `"no-editor"`): what the page asked was not done, none of it                                                                                                                                                                                                                                                                               |
+| `viewport`         | `editor`, `first`, `last`: the lines in view (from 1), for a page that colours only what is seen                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `editor_refused`   | `editor`, `reason` (`"reversed"`, `"out-of-document"`, `"overlapping"`, `"stale-version"`, `"future-version"`, `"too-large"`, `"too-many-decorations"`, `"outside-range"`, `"bad-pattern"`, `"no-editor"`, `"mid-character"`): what the page asked was not done, none of it                                                                                                                                                                                                                                                            |
 | `found`            | `editor`, `version`, `count` (at most 10 000), `current` (the match the main selection is exactly on, from 1; nil for none), `more` (there may be more than `count`): what its search finds (below)                                                                                                                                                                                                                                                                                                                                    |
 | `wake`             | `now`: the time the page asked to be woken at (a reply's `wake`, below) has come, seconds on `render`'s clock; told only to a page that asked, after the timers that were due ran (Section 2.2)                                                                                                                                                                                                                                                                                                                                        |
 | `terminal_look`    | (no field) what `pencere.terminal_look()` says is not what it was: the person changed a setting of the host's terminal that is its cursor's or its selection's. Told once for each change, and not for what was the same. The page reads it again and answers as it answers any event (a page that takes it for its editors answers `true`: the editor's options are asked again)                                                                                                                                                      |
-| `gutter`           | `editor`, `column`, `line` (from 0), `kind` (`"press"`, `"enter"`, `"leave"`), `button`, `count`, `mods` (of a press), `marker` (`{ id =, layer =, from =, to = }`, nil where the cell is empty) and `cell` (`{ x =, y =, w =, h = }`, the page's points): the pointer in a gutter column that hears it (below)                                                                                                                                                                                                                        |
-| `hover`            | `editor`, `kind` (`"dwell"`, `"leave"`), `at` (the place under the pointer), `from`, `to` (the word it is on, or the run of marks: a double click's), `line`, `hits` (`{ { layer =, id =, from =, to = }, … }`: the styles with an `id` that hold `at`), `word` (its box, the page's points) , `mods` and `version`: in an editor with `events = { "hover" }`, the pointer rested `hover.delay` over a word, or went from one it was told of                                                                                           |
+| `gutter`           | `editor`, `column`, `line` (from 1), `kind` (`"press"`, `"enter"`, `"leave"`), `button`, `count`, `mods` (of a press), `marker` (`{ id =, layer =, from =, to = }`, nil where the cell is empty) and `cell` (`{ x =, y =, w =, h = }`, the page's points): the pointer in a gutter column that hears it (below)                                                                                                                                                                                                                        |
+| `hover`            | `editor`, `kind` (`"dwell"`, `"leave"`), `at` (the place under the pointer), `from`, `to` (the word it is on, or the run of marks: a double click's), `line` (from 1), `hits` (`{ { layer =, id =, from =, to = }, … }`: the styles with an `id` that hold `at`), `word` (its box, the page's points) , `mods` and `version`: in an editor with `events = { "hover" }`, the pointer rested `hover.delay` over a word, or went from one it was told of                                                                                  |
 | `target`           | `editor`, `kind` (`"enter"`, `"leave"`, `"press"`), `source` (`"word"`, `"link"`, `"widget"`), `at`, `from`, `to`, `id` (of a link), `word` (the box), `mods`, `button`, `count` (of a press) and `version`: in an editor with `events = { "target" }`, the pointer came to a word (or went from it) while exactly the modifiers of the press that is the page's (`gestures`: `"target"`) are held, at most once in `links.delay`, or that press: `source = "link"` where it is on a look that is `held`, has an `id` and is drawn now |
 | `keymap_pending`   | `editor`, `keys` (the chord's keys so far, as written; none when it is not waited on any more)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `editor_ready`     | `editor`, `version`: the host made the editor, as the page was laid out with it, shown or hidden; its text is posted before this is told, and what the page asks of it is done from now on. A page loads a document into an editor it has just made (a tab's that is not in front too) when it hears this                                                                                                                                                                                                                              |
@@ -564,8 +565,9 @@ at a ⌘-click). A press in an editor is the editor's as well: it puts the caret
 pasteboard), `cursor` (`"arrow"`, `"pointer"`, `"text"`, `"resize_horizontal"`, `"resize_vertical"`,
 `"not_allowed"`, `"grab"`, `"grabbing"` or `"crosshair"`), `keyboard` (`"page"` or `{ field = name }`),
 `fill` (`{ [name] = text }`, or `{ [name] = { text =, select = } }`: what fields are to hold from now
-on, and what is selected in them; `select` is `{ from =, to = }`, characters from 0 in either order,
-past the end the end, or `true` for all of it; a field given no `text` keeps what it holds, and one
+on, and what is selected in them; `select` is `{ from =, to = }`, bytes from 1 (Section 2.7) in either order,
+past the end the end (an end inside a character is where the character starts: a reply cannot be
+told of a mistake), or `true` for all of it; a field given no `text` keeps what it holds, and one
 given no `select` has its caret where its system puts it after a text, at the end; a name that is
 not a field of the page is passed over, below), `menu = { at = { x =, y = }, entries = { { title =, keys =,
 enabled = }, "-", { title =, keys =, enabled =, paste = editor } } }` (an entry's `keys` are written as a
@@ -597,8 +599,9 @@ overview ruler, below), `{ from =, to =, zone = name, height = points, side = "b
 `{ from =, to =, fold = true }` (a region that folds: its first line stays; whether it is folded is the
 person's). Decorations of an older version are carried over the changes made
 since. What the editor cannot do is refused and the page told why (`editor_refused`): a range the wrong
-way round, a place past the end, changes that overlap, a version older than the last 1 024 or yet to
-come, a document larger than an editor may hold.
+way round, a place past the end or inside a character (`"mid-character"`: Section 2.7), changes that
+overlap, a version older than the last 1 024 or yet to come, a document larger than an editor may
+hold.
 
 **The gutter** is a row of named columns at the left of an editor's text. The page lists them in the
 order it wants (`gutters = { "numbers", { name = "breakpoints", width = 14 }, "marks", "folds" }`);
@@ -686,7 +689,7 @@ not there. A widget's `label` is what a screen reader and the host's tips say of
 a part) with an `id` is the hand's, is what a rest is told of (`hover`, `over` =
 `"widget"`, `id`) and what a press is, whatever modifiers are held, in an editor that has `events = {
 "target" }` (`target`, `source = "widget"`, `id`, no caret moves); `anchor` names its box, as a range's.
-At most 8 parts, 200 characters and 32 widgets to a line; a widget over them is a reply the host
+At most 8 parts, 200 bytes and 32 widgets to a line; a widget over them is a reply the host
 refuses. Its measure is kept with the line's, and is made again only when what it says or how wide it
 is changes.
 
@@ -1304,6 +1307,30 @@ name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"
   a component of the page's own the same way.
 - An icon-only button and a field must say what they are in words (`label`), or the page fails at the
   line that drew them. A layer takes the keyboard when it opens and gives it back when it closes.
+
+### 2.7 Counting
+
+A page counts what it is told and what it says by one rule, wherever a number is a place in a text:
+
+- **A place is a byte** of the text's UTF-8, the unit of a Luau string, so that what `string.find`
+  returns is a place of the editor with no `utf8` call between them, and a place is counted **from 1**:
+  the first byte is place 1, and the end of a text of `n` bytes is place `n + 1`. A place must be where
+  a character starts (or the end): a place inside a character is an error at the line of the script
+  where a call reads the text (`layout.editor_text`, `line_of`, `word_at`), and an ask that names one
+  is refused (`editor_refused`, `"mid-character"`). It is never rounded to a character, which would
+  hide the mistake. The lengths the interface tells are bytes (`editor_length`, and the limits that
+  are of text: a widget's 200).
+- **A range is two places**, `[from, to)`: the end is not in it, so that `string.sub(text, from, to - 1)`
+  is what the range holds and an empty range (`from == to`) is a place text is put in. A match that
+  `string.find` reports as `i, j` is the range `i, j + 1`.
+- **A line is counted from 1**, as a place is (`line_start`, `line_of`, the `line` of a `gutter` or a
+  `hover` event, the `first` and `last` of a `viewport`), and so is the index into a list the page
+  keeps (`main` of a selection, `current` of a search).
+
+What speaks of places says "Counting" and means this: the editor's events and asks (Sections 2.1
+and 2.3), a field's `select`, and the places of the kit's library (Section 2.6). What counts something
+else says so: the points of a layout, the offsets of a list's rows (`Rows`, in points from 0), the
+columns of a line, which a screen draws and a page counts in characters or in cells.
 
 ## 3. Colours
 

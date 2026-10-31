@@ -188,9 +188,9 @@ impl Editors {
             editor: id,
             kind,
             source,
-            at: word.at,
-            from: word.from,
-            to: word.to,
+            at: editor.buffer.byte_of(word.at),
+            from: editor.buffer.byte_of(word.from),
+            to: editor.buffer.byte_of(word.to),
             id: None,
             rect: Rect::new(
                 (room.pixels.x + word.rect.x - scroll.x) / s,

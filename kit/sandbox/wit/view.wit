@@ -1153,9 +1153,9 @@ interface types {
         text: string,
     }
 
-    /// The characters `from..to` of a text, counted from 0 (code points); the two ends in either
+    /// The bytes `from..to` of a text, counted from 0 (UTF-8 offsets); the two ends in either
     /// order.
-    record char-range {
+    record byte-range {
         %from: u32,
         to: u32,
     }
@@ -1167,11 +1167,13 @@ interface types {
         field: id,
         /// What it holds from now on; none keeps what it holds.
         text: option<string>,
-        /// What is selected in it: the ends in order, one past the end of the text its end (so
-        /// `0` to the largest `u32` is all of it), the caret alone where the two are one. None:
-        /// where a text is put in, the caret goes where the application's system puts it (its
-        /// end); where none is, the selection stays.
-        select: option<char-range>,
+        /// What is selected in it: the ends in order, in bytes, one past the end of the text its
+        /// end (so `0` to the largest `u32` is all of it), the caret alone where the two are one;
+        /// an end inside a character is the start of it, as the field's own system takes it
+        /// (the page cannot be told of a mistake of a reply). None: where a text is put in, the
+        /// caret goes where the application's system puts it (its end); where none is, the
+        /// selection stays.
+        select: option<byte-range>,
     }
 
     record key-press {
@@ -1239,8 +1241,8 @@ interface types {
         offset: point,
     }
 
-    /// A place in an editor's document: the editor and the place, characters (code points) from
-    /// the start.
+    /// A place in an editor's document: the editor and the place, UTF-8 bytes from the start (at
+    /// the start of a character).
     record place {
         editor: id,
         at: u32,
@@ -1264,7 +1266,7 @@ interface types {
         place: place,
     }
 
-    /// One change of a document: the characters `from..to` replaced by `insert`.
+    /// One change of a document: the bytes `from..to` replaced by `insert`.
     record change {
         %from: u32,
         to: u32,
@@ -1332,6 +1334,8 @@ interface types {
         outside-range,
         bad-pattern,
         no-editor,
+        /// A place inside a character: not the start of one, and rounded to neither side.
+        mid-character,
     }
 
     record editor-refused {
@@ -1458,7 +1462,7 @@ interface types {
         keys: list<string>,
     }
 
-    /// A word of an editor's text, or a run of marks: its range, characters.
+    /// A word of an editor's text, or a run of marks: its range, bytes.
     record word-range {
         %from: u32,
         to: u32,
@@ -1525,7 +1529,7 @@ interface types {
 
     record gutter-hit {
         id: option<string>,
-        /// The layer of decorations it is of, and its range, characters.
+        /// The layer of decorations it is of, and its range, bytes.
         layer: string,
         %from: u32,
         to: u32,
@@ -1735,7 +1739,7 @@ interface types {
         widget(widget),
     }
 
-    /// Text the page puts in a line; at most 8 parts and 200 characters, 32 in a line.
+    /// Text the page puts in a line; at most 8 parts and 200 bytes, 32 in a line.
     record widget {
         parts: list<widget-part>,
         side: widget-side,
@@ -2079,19 +2083,21 @@ interface layout {
     /// application posted, of the version the last `edit` event it was told says. None for an
     /// editor the page has not.
     editor-version: func(editor: id) -> option<u64>;
-    /// How many characters the editor's text has.
+    /// How many bytes the editor's text has.
     editor-length: func(editor: id) -> option<u32>;
     /// How many lines it has: one more than it has line breaks.
     editor-lines: func(editor: id) -> option<u32>;
-    /// The characters `from..to` of the editor's text: none for a range it has not, or one of more
-    /// than 1 MiB (a large document is read in pieces).
-    editor-text: func(editor: id, %from: u32, to: u32) -> option<string>;
-    /// Where line `line` (from 0) of the editor's text starts.
+    /// The bytes `from..to` of the editor's text: none for a range it has not, or one of more
+    /// than 1 MiB (a large document is read in pieces); an error, in words for the person who
+    /// wrote the script, for an end that is inside a character.
+    editor-text: func(editor: id, %from: u32, to: u32) -> result<option<string>, string>;
+    /// Where line `line` (from 0) of the editor's text starts, in bytes.
     line-start: func(editor: id, line: u32) -> option<u32>;
-    /// The line the place `at` is on.
-    line-of: func(editor: id, at: u32) -> option<u32>;
-    /// The word (or run of marks) at the place `at`, by the rule a double click has: its range.
-    word-at: func(editor: id, at: u32) -> option<word-range>;
+    /// The line (from 0) the place `at` (bytes) is on; an error for a place inside a character.
+    line-of: func(editor: id, at: u32) -> result<option<u32>, string>;
+    /// The word (or run of marks) at the place `at` (bytes), by the rule a double click has: its
+    /// range; an error for a place inside a character.
+    word-at: func(editor: id, at: u32) -> result<option<word-range>, string>;
 }
 
 /// What the module can say to the program that opened the page, if one did.

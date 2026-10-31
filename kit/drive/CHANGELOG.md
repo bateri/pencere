@@ -34,6 +34,11 @@ The drive of a page of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.
 
 ### Changed
 
+- **The places a page says and is told are bytes of the editor's text** (see `pencere-view`); what a
+  host says of the person (`Page::select`, `Headless::select`, `caret_to`) stays in characters, and
+  the headless host's field takes a reply's `select` in bytes, an end inside a character being the
+  start of it.
+
 - **The headless host holds a page to the floor.** Where a test does not say (`Opening::limits`),
   a page is held to `ModuleLimits::floor()` (a call 250 ms, unless `PENCERE_CALL_MS` says), the
   least a host gives; `ModuleLimits::default()`, which a terminal gives, is now more

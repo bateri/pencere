@@ -201,8 +201,8 @@ fn a_page_reads_the_text_of_the_version_it_is_told_of_in_the_event_that_tells_it
                     local length = pencere.layout.editor_length("e")
                     seen = string.format("v%d=%s %s lines %d line1 %d of %s",
                         event.version, tostring(pencere.layout.editor_version("e")),
-                        pencere.layout.editor_text("e", 6, length), pencere.layout.editor_lines("e"),
-                        pencere.layout.line_start("e", 1), event.changes[1].insert)
+                        pencere.layout.editor_text("e", 7, length + 1), pencere.layout.editor_lines("e"),
+                        pencere.layout.line_start("e", 2), event.changes[1].insert)
                     return true
                 end
             end,
@@ -212,7 +212,7 @@ fn a_page_reads_the_text_of_the_version_it_is_told_of_in_the_event_that_tells_it
     assert_eq!(text(&page, "e"), "hello\nwörld");
     assert_eq!(
         page.tree_words(),
-        vec!["v1=1 wörld lines 2 line1 6 of hello\nwörld".to_owned()]
+        vec!["v1=1 wörld lines 2 line1 7 of hello\nwörld".to_owned()]
     );
     Ok(())
 }
@@ -268,7 +268,7 @@ fn a_change_the_editor_cannot_make_is_refused_and_the_page_told_why() -> Result<
                 if event.type == "viewport" and not asked then
                     asked = true
                     return { editor = { e = {
-                        { change = { { from = 0, to = 0, insert = "x" } }, base = 99 },
+                        { change = { { from = 1, to = 1, insert = "x" } }, base = 99 },
                         { change = { { from = 3, to = 1, insert = "" } }, base = 0 },
                     } } }
                 elseif event.type == "editor_refused" then
@@ -283,6 +283,201 @@ fn a_change_the_editor_cannot_make_is_refused_and_the_page_told_why() -> Result<
     assert_eq!(
         page.tree_words(),
         vec!["future-version, reversed".to_owned()]
+    );
+    Ok(())
+}
+
+/// What a script that finds with `string.find` reads back with the places `find` gives, a place
+/// being a byte from 1 and a range `[from, to)`: no `utf8` call is made, and the text has a letter
+/// of two bytes and a sign of four before what is looked for.
+const FIND_BY_BYTES: &str = r#"
+local said = "nothing"
+local text = "let é = 🙂; word\nsecond"
+return {
+    render = function()
+        return pencere.div():size_full()
+            :child(pencere.editor("e", { gutter = false }):grow(1))
+            :child(pencere.text(said))
+    end,
+    handle = function(event)
+        if event.type == "editor_ready" then
+            return { editor = { e = { load = text } } }
+        elseif event.type == "edit" then
+            local length = pencere.layout.editor_length("e")
+            local whole = pencere.layout.editor_text("e", 1, length + 1)
+            local i, j = string.find(whole, "word", 1, true)
+            local k, l = string.find(whole, "🙂", 1, true)
+            said = table.concat({
+                length, whole == text and "same" or "differ",
+                i .. "-" .. j, pencere.layout.editor_text("e", i, j + 1),
+                k .. "-" .. l, pencere.layout.editor_text("e", k, l + 1),
+                "line " .. pencere.layout.line_of("e", i) .. pencere.layout.line_of("e", length + 1),
+                pencere.layout.line_start("e", 2),
+            }, " ")
+            return { redraw = true }
+        end
+    end,
+}
+"#;
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn what_string_find_finds_is_read_back_from_the_editor_by_the_places_it_gives_with_no_utf8_call()
+-> Result<(), Error> {
+    assert!(!FIND_BY_BYTES.contains("utf8"));
+    let page = open(FIND_BY_BYTES)?;
+    // 26 bytes: `word` is bytes 16 to 19 (the end, 20, not in it), the sign 10 to 13, the second
+    // line starts at 21, and the end of the text is on it.
+    assert_eq!(
+        page.tree_words(),
+        vec!["26 same 16-19 word 10-13 🙂 line 12 21".to_owned()]
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_place_inside_a_code_point_is_an_error_at_the_scripts_line_in_a_query_and_not_rounded() {
+    // The letter `é` is bytes 2 and 3 of "aéb": a place at 3 is inside it.
+    let why = failing(
+        r#"
+return {
+    render = function()
+        return pencere.editor("e", { gutter = false })
+    end,
+    handle = function(event)
+        if event.type == "editor_ready" then
+            return { editor = { e = { load = "aéb" } } }
+        elseif event.type == "edit" then
+            pencere.layout.editor_text("e", 1, 3)
+        end
+    end,
+}"#,
+    );
+    assert!(
+        why.contains(":10:") && why.contains("is inside a character"),
+        "{why}"
+    );
+    for query in [
+        "pencere.layout.line_of('e', 3)",
+        "pencere.layout.word_at('e', 3)",
+    ] {
+        let why = failing(&format!(
+            r#"
+return {{
+    render = function()
+        return pencere.editor("e", {{ gutter = false }})
+    end,
+    handle = function(event)
+        if event.type == "editor_ready" then
+            return {{ editor = {{ e = {{ load = "aéb" }} }} }}
+        elseif event.type == "edit" then
+            {query}
+        end
+    end,
+}}"#
+        ));
+        assert!(
+            why.contains(":10:") && why.contains("is inside a character"),
+            "{query}: {why}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_place_inside_a_code_point_in_an_ask_is_refused_as_mid_character_and_the_text_is_as_it_was()
+-> Result<(), Error> {
+    let page = open(
+        r#"
+local said = {}
+local stage = 0
+return {
+    render = function()
+        return pencere.div():size_full()
+            :child(pencere.editor("e", { gutter = false }):grow(1))
+            :child(pencere.text(table.concat(said, "|")))
+    end,
+    handle = function(event)
+        if event.type == "editor_ready" then
+            return { editor = { e = { load = "aéb" } } }
+        elseif event.type == "edit" and event.origin == "load" then
+            -- Bytes 2 and 3 are `é`: a change at 3, a selection at 3 and a decoration from 3.
+            return { editor = { e = {
+                { change = { { from = 3, to = 3, insert = "x" } }, base = event.version },
+                { select = { { anchor = 3, head = 3 } }, version = event.version },
+                { decorate = "d", version = event.version, from = 1, to = 4,
+                    decorations = { { from = 3, to = 4, background = "accent" } } },
+            } } }
+        elseif event.type == "editor_refused" then
+            said[#said + 1] = event.reason
+            return { redraw = true }
+        end
+    end,
+}"#,
+    )?;
+    assert_eq!(text(&page, "e"), "aéb");
+    assert_eq!(
+        page.tree_words(),
+        vec!["mid-character|mid-character|mid-character".to_owned()]
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_selection_and_a_change_are_told_and_asked_in_bytes_from_1_and_an_empty_range_is_an_insertion()
+-> Result<(), Error> {
+    let page = open(
+        r#"
+local said = {}
+local stage = 0
+local function note(words)
+    said[#said + 1] = words
+end
+return {
+    render = function()
+        return pencere.div():size_full()
+            :child(pencere.editor("e", { gutter = false }):grow(1))
+            :child(pencere.text(table.concat(said, "|")))
+    end,
+    handle = function(event)
+        if event.type == "editor_ready" then
+            return { editor = { e = { load = "héllo\nwörld" } } }
+        elseif event.type == "edit" and event.origin == "load" then
+            -- `llo` after the letter of two bytes: bytes 4 to 6, so the range is [4, 7).
+            return { editor = { e = { select = { { anchor = 4, head = 7 } }, version = event.version } } }
+        elseif event.type == "selection" and stage == 0 then
+            stage = 1
+            local range = event.ranges[1]
+            note("selected " .. range.anchor .. "-" .. range.head .. " main " .. event.main)
+            return { editor = { e = {
+                change = { { from = range.anchor, to = range.head, insert = "Z" } },
+                base = event.version,
+            } } }
+        elseif event.type == "edit" and event.origin == "page" and stage == 1 then
+            stage = 2
+            local change = event.changes[1]
+            note("replaced " .. change.from .. "-" .. change.to .. " by " .. change.insert)
+            -- An empty range is an insertion: before the letter of two bytes.
+            return { redraw = true, editor = { e = {
+                change = { { from = 2, to = 2, insert = "[" } },
+                base = event.version,
+            } } }
+        elseif event.type == "edit" and event.origin == "page" and stage == 2 then
+            stage = 3
+            local change = event.changes[1]
+            note("inserted " .. change.from .. "-" .. change.to .. " " .. change.insert)
+            note("line " .. pencere.layout.line_of("e", pencere.layout.editor_length("e") + 1))
+            return { redraw = true }
+        end
+    end,
+}"#,
+    )?;
+    assert_eq!(text(&page, "e"), "h[éZ\nwörld");
+    assert_eq!(
+        page.tree_words(),
+        vec!["selected 4-7 main 1|replaced 4-7 by Z|inserted 2-2 [|line 2".to_owned()]
     );
     Ok(())
 }
@@ -654,7 +849,7 @@ local function document()
     DOCUMENT
 end
 local function change(line, take, insert)
-    local at = pencere.layout.line_start("e", line)
+    local at = pencere.layout.line_start("e", line + 1)
     return { change = { { from = at, to = at + take, insert = insert } }, base = pencere.layout.editor_version("e") }
 end
 return {
@@ -688,9 +883,9 @@ return {
             elseif event.id == "split" then
                 ask = change(100, 0, "\n")
             elseif event.id == "far" then
-                ask = { reveal = pencere.layout.line_start("e", 15000), version = pencere.layout.editor_version("e") }
+                ask = { reveal = pencere.layout.line_start("e", 15001), version = pencere.layout.editor_version("e") }
             elseif event.id == "end" then
-                local last = pencere.layout.editor_lines("e") - 1
+                local last = pencere.layout.editor_lines("e")
                 ask = { reveal = pencere.layout.line_start("e", last), version = pencere.layout.editor_version("e") }
             end
         end
@@ -797,6 +992,37 @@ fn a_language_colours_a_block_comment_over_its_lines_and_only_the_lines_in_view(
         lines < 200 && most < 200,
         "only what is in view is read: {lines}, {most}"
     );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_language_colours_a_line_of_letters_of_many_bytes_where_the_editor_holds_its_characters()
+-> Result<(), Error> {
+    let mut page = open(&coloured(
+        r#"local lines = {}
+        for i = 1, 30 do
+            lines[i] = string.format("v = %05d", i)
+        end
+        lines[3] = 'é "é😀" 12 /* ü */ 7'
+        return table.concat(lines, "\n")"#,
+        "{}",
+    ))?;
+    page.idle()?;
+    page.refresh()?;
+    // The tokens are bytes of the line from 1, and the editor holds characters: the string is the
+    // characters 2 to 5 of `é "é😀" 12 /* ü */ 7`, the number after it 7 and 8, the comment 10 to
+    // 16 and the last number 18.
+    assert_eq!(
+        looks(&page, 2),
+        vec![
+            (2, 6, "string"),
+            (7, 9, "number"),
+            (10, 17, "comment"),
+            (18, 19, "number")
+        ]
+    );
+    assert_eq!(looks(&page, 3), vec![(4, 9, "number")]);
     Ok(())
 }
 
@@ -1155,10 +1381,10 @@ local document = table.concat({ line, line, line, line }, "\n")
 -- The page's own decorations of `a`'s first ten characters, in the layer `layer`.
 local function marks(layer)
     local made = {}
-    for k = 0, 9 do
+    for k = 1, 10 do
         made[#made + 1] = { from = k, to = k + 1, background = "accent" }
     end
-    return { editor = { a = { decorate = layer, from = 0, to = 10,
+    return { editor = { a = { decorate = layer, from = 1, to = 11,
         version = pencere.layout.editor_version("a"), decorations = made } } }
 end
 return {
@@ -1332,7 +1558,7 @@ fn a_language_reads_a_line_from_a_stream_as_codemirrors_does() -> Result<(), Err
     assert_eq!(
         page.tree_words(),
         vec![
-            "6, false, no b, Key, Key, K, no dot, K, \t  Key=42, 13, é, 15, word 0-13, rest 13-14, \
+            "6, false, no b, Key, Key, K, no dot, K, \t  Key=42, 13, é, 15, word 1-15, rest 15-16, \
              states 2"
                 .to_owned()
         ]
@@ -1699,7 +1925,7 @@ fn a_change_kept_out_of_the_history_leaves_what_was_done_before_it_to_undo() -> 
                 end
             end,
             message = function(message)
-                local at = pencere.layout.editor_length("e")
+                local at = pencere.layout.editor_length("e") + 1
                 return { editor = { e = {
                     change = { { from = at, to = at, insert = message.insert } },
                     base = pencere.layout.editor_version("e"),
@@ -1767,17 +1993,18 @@ fn a_place_is_revealed_where_the_page_asks_and_the_commands_of_lines_are_asked_b
         .laid()
         .and_then(|laid| laid.scroll_extent(Id::named("e")))
         .map_or(0.0, |extent| extent.content.h / 400.0);
-    page.tell(r#"{"line":200,"align":"start"}"#)?;
+    // Line 201 (from 1) is the row 200 from the top.
+    page.tell(r#"{"line":201,"align":"start"}"#)?;
     let start = offset(&page);
     assert!((start - 200.0 * row).abs() <= row, "{start} {row}");
-    page.tell(r#"{"line":200,"align":"center"}"#)?;
+    page.tell(r#"{"line":201,"align":"center"}"#)?;
     let center = offset(&page);
     assert!((center - (200.5 * row - 100.0)).abs() <= row, "{center}");
-    page.tell(r#"{"line":200,"align":"end"}"#)?;
+    page.tell(r#"{"line":201,"align":"end"}"#)?;
     let end = offset(&page);
     assert!((end - (201.0 * row - 200.0)).abs() <= row, "{end}");
     // Already in view: the nearest way does not move it.
-    page.tell(r#"{"line":199}"#)?;
+    page.tell(r#"{"line":200}"#)?;
     assert_eq!(offset(&page), end);
     page.focus_editor("e")?;
     page.caret_to("e", 0)?;
@@ -1954,7 +2181,7 @@ local card = nil
 local version = 0
 
 local function layer(from, to)
-	return { decorate = "card", version = version, from = 0, to = #text, decorations = card and {
+	return { decorate = "card", version = version, from = 1, to = #text + 1, decorations = card and {
 		{ from = card.from, to = card.to, anchor = "card" },
 	} or {} }
 end
@@ -1976,8 +2203,8 @@ local function handle(event)
 		return { editor = { code = { { load = text } } } }
 	elseif event.type == "edit" then
 		version = event.version
-		return { editor = { code = { { decorate = "diagnostics", version = version, from = 0, to = #text,
-			decorations = { { from = 0, to = 5, underline = { wavy = "error" }, id = "e1" } } } } } }
+		return { editor = { code = { { decorate = "diagnostics", version = version, from = 1, to = #text + 1,
+			decorations = { { from = 1, to = 6, underline = { wavy = "error" }, id = "e1" } } } } } }
 	elseif event.type == "hover" and event.kind == "dwell" then
 		card = { from = event.from, to = event.to,
 			word = pencere.layout.editor_text("code", event.from, event.to) .. #event.hits }
@@ -2058,8 +2285,9 @@ return {
 }
 "#,
     )?;
-    // `bar` is 4 to 7; a place in the spaces is their run, 7 to 9; none past the end.
-    assert!(page.says("4-7 7-9 nil"), "{:?}", page.words());
+    // `bar` is 5 to 8 (from 1, the end not in it); a place in the spaces is their run, 8 to 10; none
+    // past the end.
+    assert!(page.says("5-8 8-10 nil"), "{:?}", page.words());
     let why = failing(
         r#"
 return { render = function() return pencere.editor("code", { hover = 1, hovr = {} }) end }
@@ -2085,7 +2313,7 @@ local function layer(links)
 		table.insert(marks, { from = link.from, to = link.to, color = "accent", underline = "accent",
 			held = "mod", over = true, id = "def:" .. link.from })
 	end
-	return { decorate = "links", version = version, from = 0, to = #text, decorations = marks }
+	return { decorate = "links", version = version, from = 1, to = #text + 1, decorations = marks }
 end
 return {
 	render = function()
@@ -2153,7 +2381,7 @@ fn a_modifier_makes_a_link_of_the_word_under_the_pointer_and_a_press_on_it_is_th
     page.advance(0.2)?;
     let before = page.editor("code").map(|b| b.ranges().to_vec());
     page.click_holding(Point::new(12.0, 12.0), command)?;
-    assert!(page.says("press:link:def:0"), "{:?}", page.words());
+    assert!(page.says("press:link:def:1"), "{:?}", page.words());
     assert_eq!(page.editor("code").map(|b| b.ranges().to_vec()), before);
     Ok(())
 }
@@ -2309,10 +2537,10 @@ local text = "alpha beta\ngamma delta"
 local version = 0
 local told = {}
 local function layer()
-	return { decorate = "hints", version = version, from = 0, to = #text, decorations = {
-		{ from = 6, to = 6, widget = { "name:", { " int", id = "type:int", color = "accent" } }, side = "before",
+	return { decorate = "hints", version = version, from = 1, to = #text + 1, decorations = {
+		{ from = 7, to = 7, widget = { "name:", { " int", id = "type:int", color = "accent" } }, side = "before",
 			group = "hints", id = "hint", anchor = "hint" },
-		{ from = 0, to = 0, widget = "expected `;` here, and a rather long message about it", side = "end",
+		{ from = 1, to = 1, widget = "expected `;` here, and a rather long message about it", side = "end",
 			group = "errors", color = "error" },
 	} }
 end
@@ -2400,8 +2628,8 @@ return {
 		if event.type == "editor_ready" then
 			return { editor = { code = { { load = "abc" } } } }
 		elseif event.type == "edit" then
-			return { editor = { code = { { decorate = "w", version = event.version, from = 0, to = 3,
-				decorations = { { from = 1, to = 1, widget = string.rep("x", 201) } } } } } }
+			return { editor = { code = { { decorate = "w", version = event.version, from = 1, to = 4,
+				decorations = { { from = 2, to = 2, widget = string.rep("x", 201) } } } } } }
 		end
 		return nil
 	end,
@@ -2413,7 +2641,7 @@ return {
     .map(drop);
     let _ = &mut page;
     assert!(
-        matches!(&page, Err(Error::Ended(Fault::Malformed(why))) if why.contains("characters")),
+        matches!(&page, Err(Error::Ended(Fault::Malformed(why))) if why.contains("bytes")),
         "{page:?}"
     );
     Ok(())
@@ -2442,8 +2670,8 @@ return {
 			return { editor = { code = { { load = text } } } }
 		elseif event.type == "edit" then
 			version = event.version
-			return { editor = { code = { { decorate = "lens", version = version, from = 0, to = #text,
-				decorations = { { from = 15, to = 15, zone = "lens", height = 20, side = "above" } } } } } }
+			return { editor = { code = { { decorate = "lens", version = version, from = 1, to = #text + 1,
+				decorations = { { from = 16, to = 16, zone = "lens", height = 20, side = "above" } } } } } }
 		elseif event.type == "press" and pencere.layout.hit({ x = event.x, y = event.y }) == "run" then
 			pressed = "run"
 			return { redraw = true }

@@ -475,14 +475,6 @@ local function lines_of(text)
 	return lines
 end
 
--- The byte of `line` where character `count` (from 0) starts.
-local function byte_of(line, count, ascii)
-	if ascii then
-		return count + 1
-	end
-	return utf8.offset(line, count + 1) or #line + 1
-end
-
 -- Puts a line of code in the parts, its tokens in the looks of `syntax`; the state after it, or nil
 -- where it could not be read (it is then put plain).
 local function put_tokens(parts, line, syntax, state, looks, plain)
@@ -491,10 +483,10 @@ local function put_tokens(parts, line, syntax, state, looks, plain)
 		put(parts, line, plain)
 		return nil, false
 	end
-	local ascii = not find(line, "[\128-\255]")
 	local at = 1
 	for _, token in ipairs(tokens) do
-		local from, to = byte_of(line, token.from, ascii), byte_of(line, token.to, ascii)
+		-- A token's places are bytes from 1, its end not in it: they cut the line as they are.
+		local from, to = token.from, token.to
 		if from > at then
 			put(parts, sub(line, at, from - 1), plain)
 		end

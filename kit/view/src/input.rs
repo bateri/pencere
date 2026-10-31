@@ -101,7 +101,7 @@ pub enum Input {
 }
 
 /// A place in the document of an editor ([`crate::Element::editor`]): the editor's name and the
-/// place, in characters ([`crate::edit`]).
+/// place, in bytes ([`crate::edit`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Place {
     pub editor: Id,

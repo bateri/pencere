@@ -8,15 +8,20 @@ use pencere_view::edit::{Range, Refusal, limits};
 
 use crate::changes::{Done, Step, compose};
 
-/// The steps of the last [`limits::VERSIONS`] versions of a document.
+/// The steps of the last [`limits::VERSIONS`] versions of a document, in characters, as the editor
+/// holds places, and in bytes, as the page says them: a page's place is of the version it saw, and
+/// the text of that version is not kept, so that its bytes are carried over what was done since
+/// as bytes, and are turned into characters only in the text as it is.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Log {
     /// The oldest version a set here was made against.
     oldest: u64,
     /// The steps that took `oldest + i` to `oldest + i + 1`.
     sets: VecDeque<Vec<Step>>,
-    /// The length of the text at `oldest + i`.
-    lens: VecDeque<usize>,
+    /// The same steps, in bytes.
+    byte_sets: VecDeque<Vec<Step>>,
+    /// The length of the text at `oldest + i`, bytes.
+    byte_lens: VecDeque<usize>,
 }
 
 impl Log {
@@ -32,13 +37,16 @@ impl Log {
         self.oldest + self.sets.len() as u64
     }
 
-    /// One more version: the steps that made it and the length of the text before them.
-    pub fn push(&mut self, steps: Vec<Step>, len_before: usize) {
+    /// One more version: the steps that made it, in characters and in bytes, and the length of
+    /// the text before them in bytes.
+    pub fn push(&mut self, steps: Vec<Step>, bytes: Vec<Step>, bytes_before: usize) {
         self.sets.push_back(steps);
-        self.lens.push_back(len_before);
+        self.byte_sets.push_back(bytes);
+        self.byte_lens.push_back(bytes_before);
         while self.sets.len() as u64 > limits::VERSIONS {
             self.sets.pop_front();
-            self.lens.pop_front();
+            self.byte_sets.pop_front();
+            self.byte_lens.pop_front();
             self.oldest += 1;
         }
     }
@@ -56,8 +64,20 @@ impl Log {
         Ok(self.sets.iter().skip(skip).collect())
     }
 
-    /// How long the text was at `version` (`now` is its length at the current one).
-    pub fn len_at(&self, version: u64, now: usize) -> Result<usize, Refusal> {
+    /// As [`Log::since`], the steps in bytes.
+    pub fn bytes_since(&self, version: u64) -> Result<Vec<&Vec<Step>>, Refusal> {
+        if version > self.current() {
+            return Err(Refusal::FutureVersion);
+        }
+        let Some(skip) = version.checked_sub(self.oldest) else {
+            return Err(Refusal::StaleVersion);
+        };
+        let skip = usize::try_from(skip).map_err(|_| Refusal::StaleVersion)?;
+        Ok(self.byte_sets.iter().skip(skip).collect())
+    }
+
+    /// How long the text was at `version` in bytes (`now` is its length at the current one).
+    pub fn bytes_at(&self, version: u64, now: usize) -> Result<usize, Refusal> {
         if version == self.current() {
             return Ok(now);
         }
@@ -68,7 +88,10 @@ impl Log {
             .checked_sub(self.oldest)
             .and_then(|at| usize::try_from(at).ok())
             .ok_or(Refusal::StaleVersion)?;
-        self.lens.get(back).copied().ok_or(Refusal::StaleVersion)
+        self.byte_lens
+            .get(back)
+            .copied()
+            .ok_or(Refusal::StaleVersion)
     }
 }
 

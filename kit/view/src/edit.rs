@@ -9,9 +9,10 @@
 //! version it saw), selected, coloured, folded and marked ([`Decorate`]). It reads the text itself
 //! through what the host posts it ([`TextSnapshot`]).
 //!
-//! A place in a document is counted in **characters**: Unicode code points, from 0 at the start
-//! (what Lua's `utf8` library counts, and LSP's `utf-32` encoding). A range is from one place to
-//! another, the end not in it. A version is a number that grows by one with every change made to
+//! A place in a document is counted in **bytes** of its UTF-8, from 0 at the start (what Lua's
+//! strings count, once the bridge has added the one that Lua's strings start at), and it is the
+//! start of a character: a place inside one is refused ([`Refusal::MidCharacter`]), not rounded.
+//! A range is from one place to another, the end not in it. A version is a number that grows by one with every change made to
 //! the document, whoever made it.
 //!
 //! These types are here, in the engine and not in the editor's crate, so that what carries them
@@ -20,7 +21,7 @@
 
 use crate::{Button, Color, Cursor, Id, Mods, Rect};
 
-/// One change of a document: the characters `from..to` replaced by `insert` (`from == to` inserts,
+/// One change of a document: the bytes `from..to` replaced by `insert` (`from == to` inserts,
 /// an empty `insert` deletes). The places are those of the version the change is made against.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Change {
@@ -1559,6 +1560,9 @@ pub enum Refusal {
     Reversed,
     /// A place past the end of the document.
     OutOfDocument,
+    /// A place inside a character, and not at the start of one (a byte of a character of more
+    /// than one): rounded to neither side, which would hide the page's mistake.
+    MidCharacter,
     /// Changes that overlap, or are not in order.
     Overlapping,
     /// A version older than the oldest the editor still knows the changes since.
@@ -1584,6 +1588,7 @@ impl Refusal {
         match self {
             Refusal::Reversed => "reversed",
             Refusal::OutOfDocument => "out-of-document",
+            Refusal::MidCharacter => "mid-character",
             Refusal::Overlapping => "overlapping",
             Refusal::StaleVersion => "stale-version",
             Refusal::FutureVersion => "future-version",
@@ -1600,6 +1605,7 @@ impl Refusal {
         Some(match word {
             "reversed" => Refusal::Reversed,
             "out-of-document" => Refusal::OutOfDocument,
+            "mid-character" => Refusal::MidCharacter,
             "overlapping" => Refusal::Overlapping,
             "stale-version" => Refusal::StaleVersion,
             "future-version" => Refusal::FutureVersion,
@@ -1620,18 +1626,24 @@ impl Refusal {
 pub trait TextSnapshot: Send + Sync + std::fmt::Debug {
     /// The version the text is of.
     fn version(&self) -> u64;
-    /// How many characters it has.
-    fn len_chars(&self) -> usize;
+    /// How many bytes it has.
+    fn len_bytes(&self) -> usize;
     /// How many lines: one more than it has line breaks.
     fn len_lines(&self) -> usize;
-    /// The characters `from..to`; `None` for a range that is not one of the text.
+    /// Whether the byte `at` is inside a character: in the text, and not where one starts. A
+    /// place that is (a byte of a character of more than one) is a page's mistake, refused and
+    /// not rounded; one past the end is the text's other mistake, answered with `None`.
+    fn inside_character(&self, at: usize) -> bool;
+    /// The bytes `from..to`; `None` for a range that is not one of the text. A range with an end
+    /// inside a character is not one either: [`TextSnapshot::inside_character`] tells it apart.
     fn slice(&self, from: usize, to: usize) -> Option<String>;
-    /// Where line `line` (from 0) starts; `None` past the last.
+    /// Where line `line` (from 0) starts, in bytes; `None` past the last.
     fn line_start(&self, line: usize) -> Option<usize>;
-    /// The line the character at `at` is on (`at` may be the end); `None` past the end.
+    /// The line the byte `at` is on (`at` may be the end); `None` past the end or inside a
+    /// character.
     fn line_of(&self, at: usize) -> Option<usize>;
     /// The word at `at`, or the run of marks or of spaces, by the rule a double click has: its
-    /// range; `None` for a place past the end.
+    /// range, in bytes; `None` for a place past the end or inside a character.
     fn word_range(&self, at: usize) -> Option<(usize, usize)>;
 }
 
@@ -1703,7 +1715,7 @@ pub mod limits {
     pub const BINDINGS: usize = 256;
     /// The most keys one chord has.
     pub const CHORD_KEYS: usize = 4;
-    /// The most characters the words of a widget have, parts it has, and widgets standing in a line
+    /// The most bytes the words of a widget have, parts it has, and widgets standing in a line
     /// inside it.
     pub const WIDGET_TEXT: usize = 200;
     pub const WIDGET_PARTS: usize = 8;

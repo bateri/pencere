@@ -308,23 +308,30 @@ impl pencere::view::layout::Host for Host {
     }
 
     fn editor_length(&mut self, editor: u64) -> Option<u32> {
-        u32::try_from(self.texts.get(&Id::new(editor))?.len_chars()).ok()
+        u32::try_from(self.texts.get(&Id::new(editor))?.len_bytes()).ok()
     }
 
     fn editor_lines(&mut self, editor: u64) -> Option<u32> {
         u32::try_from(self.texts.get(&Id::new(editor))?.len_lines()).ok()
     }
 
-    fn editor_text(&mut self, editor: u64, from: u32, to: u32) -> Option<String> {
-        let text = self.texts.get(&Id::new(editor))?;
-        let (from, to) = (usize::try_from(from).ok()?, usize::try_from(to).ok()?);
-        // More characters than a query answers with bytes are more bytes: refused before they are
-        // copied; a range of fewer that comes to more bytes is refused after.
-        if to.saturating_sub(from) > self.query_text {
-            return None;
+    fn editor_text(&mut self, editor: u64, from: u32, to: u32) -> Result<Option<String>, String> {
+        let Some(text) = self.texts.get(&Id::new(editor)) else {
+            return Ok(None);
+        };
+        let (from, to) = (place_out(from), place_out(to));
+        // A byte inside a character is the script's mistake, not a range the text has not.
+        for (name, at) in [("from", from), ("to", to)] {
+            if text.inside_character(at) {
+                return Err(inside_character(name));
+            }
         }
-        text.slice(from, to)
-            .filter(|words| words.len() <= self.query_text)
+        if to.saturating_sub(from) > self.query_text {
+            return Ok(None);
+        }
+        Ok(text
+            .slice(from, to)
+            .filter(|words| words.len() <= self.query_text))
     }
 
     fn line_start(&mut self, editor: u64, line: u32) -> Option<u32> {
@@ -332,19 +339,38 @@ impl pencere::view::layout::Host for Host {
         u32::try_from(text.line_start(usize::try_from(line).ok()?)?).ok()
     }
 
-    fn line_of(&mut self, editor: u64, at: u32) -> Option<u32> {
-        let text = self.texts.get(&Id::new(editor))?;
-        u32::try_from(text.line_of(usize::try_from(at).ok()?)?).ok()
+    fn line_of(&mut self, editor: u64, at: u32) -> Result<Option<u32>, String> {
+        let Some(text) = self.texts.get(&Id::new(editor)) else {
+            return Ok(None);
+        };
+        let at = place_out(at);
+        if text.inside_character(at) {
+            return Err(inside_character("a place"));
+        }
+        Ok(text.line_of(at).and_then(|line| u32::try_from(line).ok()))
     }
 
-    fn word_at(&mut self, editor: u64, at: u32) -> Option<wit::WordRange> {
-        let text = self.texts.get(&Id::new(editor))?;
-        let (from, to) = text.word_range(usize::try_from(at).ok()?)?;
-        Some(wit::WordRange {
-            from: u32::try_from(from).ok()?,
-            to: u32::try_from(to).ok()?,
-        })
+    fn word_at(&mut self, editor: u64, at: u32) -> Result<Option<wit::WordRange>, String> {
+        let Some(text) = self.texts.get(&Id::new(editor)) else {
+            return Ok(None);
+        };
+        let at = place_out(at);
+        if text.inside_character(at) {
+            return Err(inside_character("a place"));
+        }
+        Ok(text.word_range(at).and_then(|(from, to)| {
+            Some(wit::WordRange {
+                from: u32::try_from(from).ok()?,
+                to: u32::try_from(to).ok()?,
+            })
+        }))
     }
+}
+
+/// What a script is told of a place of its editor's text that is inside a character (the bridge
+/// puts the line of the script before it).
+fn inside_character(name: &str) -> String {
+    format!("{name} is inside a character: a place is where one starts")
 }
 
 fn id_out(id: Id) -> u64 {
@@ -570,6 +596,7 @@ fn event_in(event: Event) -> wit::Event {
                 Refusal::OutsideRange => wit::Refusal::OutsideRange,
                 Refusal::BadPattern => wit::Refusal::BadPattern,
                 Refusal::NoEditor => wit::Refusal::NoEditor,
+                Refusal::MidCharacter => wit::Refusal::MidCharacter,
             },
         }),
         Event::Found { editor, found } => wit::Event::Found(wit::Found {
@@ -663,7 +690,7 @@ fn event_in(event: Event) -> wit::Event {
     }
 }
 
-/// A place (a count of characters) as the interface carries it: a document holds fewer than four
+/// A place (a count of bytes) as the interface carries it: a document holds fewer than four
 /// billion of them.
 fn place_in(at: usize) -> u32 {
     u32::try_from(at).unwrap_or(u32::MAX)
@@ -2034,15 +2061,11 @@ fn editor_asks_out(
                 for item in &decorate.decorations {
                     text = text.saturating_add(mark_text(&item.mark));
                     if let wit::Mark::Widget(widget) = &item.mark {
-                        let words: usize = widget
-                            .parts
-                            .iter()
-                            .map(|part| part.text.chars().count())
-                            .sum();
+                        let words: usize = widget.parts.iter().map(|part| part.text.len()).sum();
                         if widget.parts.len() > limits::WIDGET_PARTS || words > limits::WIDGET_TEXT
                         {
                             return Err(Fault::Malformed(format!(
-                                "a widget of {} parts and {words} characters (at most {} and {})",
+                                "a widget of {} parts and {words} bytes (at most {} and {})",
                                 widget.parts.len(),
                                 limits::WIDGET_PARTS,
                                 limits::WIDGET_TEXT
@@ -3019,47 +3042,64 @@ mod tests {
         assert!(refused(frame(Vec::new())));
     }
 
-    /// A text an editor posted, as plain characters.
+    /// A text an editor posted, as plain text: its places are bytes.
     #[derive(Debug)]
-    struct Plain(Vec<char>);
+    struct Plain(String);
+
+    impl Plain {
+        fn word(&self, at: usize) -> bool {
+            self.0
+                .get(at..)
+                .and_then(|rest| rest.chars().next())
+                .is_some_and(char::is_alphanumeric)
+        }
+    }
 
     impl pencere_view::edit::TextSnapshot for Plain {
         fn version(&self) -> u64 {
             4
         }
-        fn len_chars(&self) -> usize {
+        fn len_bytes(&self) -> usize {
             self.0.len()
         }
         fn len_lines(&self) -> usize {
-            self.0.iter().filter(|c| **c == '\n').count() + 1
+            self.0.matches('\n').count() + 1
+        }
+        fn inside_character(&self, at: usize) -> bool {
+            at <= self.0.len() && !self.0.is_char_boundary(at)
         }
         fn slice(&self, from: usize, to: usize) -> Option<String> {
-            self.0.get(from..to).map(|chars| chars.iter().collect())
+            self.0.get(from..to).map(str::to_owned)
         }
         fn line_start(&self, line: usize) -> Option<usize> {
             if line == 0 {
                 return Some(0);
             }
             self.0
-                .iter()
-                .enumerate()
-                .filter(|(_, c)| **c == '\n')
+                .match_indices('\n')
                 .nth(line - 1)
                 .map(|(at, _)| at + 1)
         }
         fn line_of(&self, at: usize) -> Option<usize> {
-            (at <= self.0.len()).then(|| self.0.iter().take(at).filter(|c| **c == '\n').count())
+            self.0.get(..at).map(|before| before.matches('\n').count())
         }
         fn word_range(&self, at: usize) -> Option<(usize, usize)> {
-            let word = |at: usize| self.0.get(at).is_some_and(|c| c.is_alphanumeric());
-            if !word(at) {
+            if !self.word(at) {
                 return None;
             }
-            let from = (0..at).rev().take_while(|n| word(*n)).last().unwrap_or(at);
-            let to = (at..self.0.len())
-                .take_while(|n| word(*n))
-                .last()
-                .map_or(at, |n| n + 1);
+            let mut from = at;
+            while let Some((start, _)) = self.0[..from]
+                .char_indices()
+                .next_back()
+                .filter(|(_, c)| c.is_alphanumeric())
+            {
+                from = start;
+            }
+            let to = at
+                + self.0[at..]
+                    .char_indices()
+                    .find(|(_, c)| !c.is_alphanumeric())
+                    .map_or(self.0.len() - at, |(end, _)| end);
             Some((from, to))
         }
     }
@@ -3073,19 +3113,29 @@ mod tests {
         };
         let mut host = Host::new(&limits, Arc::new(Unbounded));
         assert_eq!(host.editor_version(3), None);
+        // Four bytes of two characters, a line break, and six of a word: eleven bytes.
         host.texts
-            .insert(Id::new(3), Arc::new(Plain("ğü\nselect".chars().collect())));
+            .insert(Id::new(3), Arc::new(Plain("ğü\nselect".into())));
         assert_eq!(host.editor_version(3), Some(4));
-        assert_eq!(host.editor_length(3), Some(9));
+        assert_eq!(host.editor_length(3), Some(11));
         assert_eq!(host.editor_lines(3), Some(2));
-        assert_eq!(host.editor_text(3, 0, 2).as_deref(), Some("ğü"));
-        assert_eq!(host.line_start(3, 1), Some(3));
-        assert_eq!(host.line_of(3, 5), Some(1));
+        assert_eq!(host.editor_text(3, 0, 4), Ok(Some("ğü".into())));
+        assert_eq!(host.line_start(3, 1), Some(5));
+        assert_eq!(host.line_of(3, 7), Ok(Some(1)));
+        assert_eq!(
+            host.word_at(3, 7).map(|word| word.map(|w| (w.from, w.to))),
+            Ok(Some((5, 11)))
+        );
         // Past the end, the wrong way round, or more than a query answers with: none.
-        assert_eq!(host.editor_text(3, 5, 99), None);
-        assert_eq!(host.editor_text(3, 4, 2), None);
-        assert_eq!(host.editor_text(3, 0, 9), None);
-        assert_eq!(host.editor_text(4, 0, 1), None);
+        assert_eq!(host.editor_text(3, 5, 99), Ok(None));
+        assert_eq!(host.editor_text(3, 4, 2), Ok(None));
+        assert_eq!(host.editor_text(3, 0, 11), Ok(None));
+        assert_eq!(host.editor_text(4, 0, 1), Ok(None));
+        // A place inside a character is the script's mistake: an error, not none.
+        assert!(host.editor_text(3, 1, 4).is_err());
+        assert!(host.editor_text(3, 0, 3).is_err());
+        assert!(host.line_of(3, 1).is_err());
+        assert!(host.word_at(3, 3).is_err());
     }
 
     #[test]
@@ -3307,7 +3357,7 @@ mod tests {
                 wit::FieldFill {
                     field: 8,
                     text: None,
-                    select: Some(wit::CharRange { from: 5, to: 1 }),
+                    select: Some(wit::ByteRange { from: 5, to: 1 }),
                 },
             ],
             copy,

@@ -50,9 +50,10 @@ local KEYWORDS = {
 
 -- --- The document ------------------------------------------------------------------------------
 
--- What the page knows of the editor: the version it was last told, and where the main caret is.
+-- What the page knows of the editor: the version it was last told, and where the main caret is (a
+-- place: a byte of the text, from 1, as Luau counts a string).
 local version = 0
-local caret = 0
+local caret = 1
 local composing = false
 -- What is to be loaded still, in pieces, and the size of a piece.
 local PIECE = 8 * 1024
@@ -96,24 +97,21 @@ local function folds()
 		return nil
 	end
 	local regions = {}
-	local text = layout.editor_text(SQL, 0, length) or ""
-	local start = 0
-	local at = 0
-	local lines = 0
-	for _, code in utf8.codes(text) do
-		local c = utf8.char(code)
-		if c == "\n" then
-			lines += 1
+	local text = layout.editor_text(SQL, 1, length + 1) or ""
+	local start = 1
+	while true do
+		local semicolon = string.find(text, ";", start, true)
+		if not semicolon then
+			break
 		end
-		at += 1
-		if c == ";" then
-			if lines > 0 then
-				regions[#regions + 1] = { from = start, to = at, fold = true }
-			end
-			start, lines = at, 0
+		-- A region is from after the last `;` to after this one; the places are the bytes of `text`.
+		local _, lines = string.gsub(string.sub(text, start, semicolon), "\n", "")
+		if lines > 0 then
+			regions[#regions + 1] = { from = start, to = semicolon + 1, fold = true }
 		end
+		start = semicolon + 1
 	end
-	return { decorate = "folds", version = layout.editor_version(SQL), from = 0, to = length, decorations = regions }
+	return { decorate = "folds", version = layout.editor_version(SQL), from = 1, to = length + 1, decorations = regions }
 end
 
 -- --- Completions -------------------------------------------------------------------------------
@@ -124,13 +122,14 @@ local popup = nil
 
 -- The word before the caret: where it starts, and its letters.
 local function word_before()
-	local start = math.max(0, caret - 32)
-	local text = layout.editor_text(SQL, start, caret) or ""
+	local line = layout.line_of(SQL, caret)
+	local start = line and layout.line_start(SQL, line)
+	local text = start and layout.editor_text(SQL, start, caret) or ""
 	local word = string.match(text, "([%a_][%w_]*)$")
 	if not word then
 		return nil
 	end
-	return caret - utf8.len(word), word
+	return caret - #word, word
 end
 
 local function complete()
@@ -165,19 +164,15 @@ end
 -- The statement the caret is in: from after the `;` before it to the `;` after it.
 local function statement()
 	local length = layout.editor_length(SQL) or 0
-	local text = layout.editor_text(SQL, 0, length) or ""
-	local chars = {}
-	for _, code in utf8.codes(text) do
-		chars[#chars + 1] = utf8.char(code)
+	local text = layout.editor_text(SQL, 1, length + 1) or ""
+	local before = 0
+	local at = string.find(text, ";", 1, true)
+	while at and at < caret do
+		before = at
+		at = string.find(text, ";", at + 1, true)
 	end
-	local from, to = caret, caret
-	while from > 0 and chars[from] ~= ";" do
-		from -= 1
-	end
-	while to < #chars and chars[to + 1] ~= ";" do
-		to += 1
-	end
-	return table.concat(chars, "", from + 1, to)
+	-- `at` is the first `;` at or after the caret, if there is one.
+	return string.sub(text, before + 1, (at or #text + 1) - 1)
 end
 
 local function run()

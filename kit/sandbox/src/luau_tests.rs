@@ -1175,7 +1175,7 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
                         return {
                             redraw = true,
                             fill = {
-                                name = { text = "draft.md", select = { from = 0, to = 5 } },
+                                name = { text = "draft.md", select = { from = 1, to = 6 } },
                                 notes = { select = true },
                             },
                         }
@@ -2647,7 +2647,7 @@ fn a_long_list_in_a_box_that_cannot_hold_it_names_the_line_that_made_the_list() 
     }
 }
 
-/// A point that is not two numbers, or a place that is not a whole number from 0, is the script's
+/// A point that is not two numbers, or a place that is not a whole number of bytes from 1, is the script's
 /// mistake where the host's own function is called: the line is the script's, not the prelude's.
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
@@ -2661,5 +2661,14 @@ fn a_call_the_page_api_passes_to_the_host_that_is_refused_names_the_script_too()
         "local a = 1\npencere.layout.line_of('e', 1.5)\nreturn {}",
         ModuleLimits::default(),
     ));
-    assert_eq!(why, "script.lua:2: a place is a whole number from 0");
+    assert_eq!(
+        why,
+        "script.lua:2: a place is a whole number of bytes from 1"
+    );
+    // Places count from 1: the first byte is 1, and 0 is no place.
+    let why = failed(&first(
+        "local a = 1\npencere.layout.editor_text('e', 0, 1)\nreturn {}",
+        ModuleLimits::default(),
+    ));
+    assert_eq!(why, "script.lua:2: from is a whole number of bytes from 1");
 }

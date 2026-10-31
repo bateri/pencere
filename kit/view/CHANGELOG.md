@@ -238,6 +238,14 @@ DeleteToLineEnd}`; `EditorAsk::Change` has `history` and `tag` (told back in `Ed
 
 ### Changed
 
+- **A place of an editor's text is a byte of its UTF-8, not a character** (`Change`, `Range`,
+  `Edited`, `Selection`, `Decoration`, `Decorate`, `EditorAsk::Reveal`, the places of `HoverEvent`,
+  `TargetEvent`, `GutterHit` and `Place`, and `Fill::select`), counted from 0 as before: the unit of a
+  Luau string, so that a script need not turn characters into bytes. A place inside a character is
+  refused, not rounded (`Refusal::MidCharacter`, `"mid-character"`). `TextSnapshot::len_chars` is
+  `len_bytes`, its other queries answer in bytes, and `inside_character` tells a place that is
+  inside one. The most a widget's words may be is 200 bytes (`limits::WIDGET_TEXT`).
+
 - How far a box is scrolled is no longer the page's: `Element::scroll()` makes a box that scrolls,
   in place of `scroll_y(offset)` and `scroll_x(offset)`, and `Ui` keeps no offsets (`scroll_offset`,
   `scroll_to`, `set_scroll`, `scroll_by` and `settle` are gone; the host's `Scrolls` does it). A

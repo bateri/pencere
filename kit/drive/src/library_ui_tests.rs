@@ -1070,7 +1070,7 @@ local u = ui.new()
 local card = nil
 local version = 0
 local function layer()
-	return { decorate = "card", version = version, from = 0, to = #text, decorations = card and {
+	return { decorate = "card", version = version, from = 1, to = #text + 1, decorations = card and {
 		{ from = card.from, to = card.to, anchor = "card" } } or {} }
 end
 local function render(size, now, reduce_motion)

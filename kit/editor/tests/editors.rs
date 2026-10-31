@@ -11,7 +11,7 @@ use pencere_view::edit::{
     Decoration, EditCommand, EditorAsk, EditorColors, EditorEvents, EditorOptions, Folds, Found,
     Gesture, GutterKind, GutterMark, GutterShape, HoverKind, KeyAction, Keybinding, Keys,
     LineHighlight, Look, Mark, Numbers, Pressing, Preview, Range, RulerLane, RulerMark, TargetKind,
-    TargetSource, Tint, Whitespace, Widget, WidgetPart, WidgetSide, Zone, ZoneSide,
+    TargetSource, TextSnapshot, Tint, Whitespace, Widget, WidgetPart, WidgetSide, Zone, ZoneSide,
 };
 use pencere_view::{
     Button, Command, Cursor, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint,
@@ -4201,4 +4201,130 @@ fn a_key_the_page_binds_to_the_copy_or_cut_command_does_what_the_editors_own_key
         host.key(Key::Character('k'), cmd()),
         Route::Cut("alpha".into())
     );
+}
+
+/// What the page is told of the selections, last: where they are, as it counts places.
+fn selection_told(events: Vec<EditorEvent>) -> Option<Vec<Range>> {
+    events
+        .into_iter()
+        .filter_map(|event| match event {
+            EditorEvent::Selection { selection, .. } => Some(selection.ranges),
+            _ => None,
+        })
+        .next_back()
+}
+
+#[test]
+fn a_page_says_and_is_told_its_places_in_bytes_while_the_editor_holds_characters() {
+    let mut host = Host::new(page_with(plain()));
+    // `a` is one byte, `é` two, the emoji four, `b` one: the caret before `b` is the 3rd character
+    // and the 7th byte.
+    host.load("aé😀b");
+    host.editors.take_events();
+    host.caret_at(7);
+    assert_eq!(host.ranges(), vec![Range::caret(3)]);
+    assert_eq!(
+        selection_told(host.editors.take_events()),
+        Some(vec![Range::caret(7)])
+    );
+
+    // A change is in bytes, and what the page is told of it is.
+    let laid = host.laid.clone();
+    let version = host.editors.buffer(EDITOR).expect("the editor").version();
+    host.editors.ask(
+        &laid,
+        EDITOR,
+        EditorAsk::Change {
+            base: version,
+            changes: vec![Change::new(3, 7, "x")],
+            history: true,
+            tag: None,
+        },
+        &mut Fake,
+        host.now,
+    );
+    host.settle();
+    assert_eq!(host.text(), "aéxb");
+    let told: Vec<_> = host
+        .editors
+        .take_events()
+        .into_iter()
+        .filter_map(|event| match event {
+            EditorEvent::Edited { edited, .. } => Some(edited.changes),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told, vec![vec![Change::new(3, 7, "x")]]);
+
+    // What the page reads of the text is in bytes too.
+    let (_, snapshot) = host.editors.snapshots().remove(0);
+    assert_eq!(snapshot.len_bytes(), 5);
+    assert_eq!(snapshot.slice(1, 3).as_deref(), Some("é"));
+    assert_eq!(snapshot.slice(1, 2), None);
+    assert!(snapshot.inside_character(2));
+    assert!(!snapshot.inside_character(3) && !snapshot.inside_character(99));
+    assert_eq!(snapshot.line_of(4), Some(0));
+    assert_eq!(snapshot.line_of(2), None);
+    assert_eq!(snapshot.word_range(1), Some((0, 5)));
+}
+
+#[test]
+fn a_place_inside_a_character_is_refused_and_not_rounded() {
+    let mut host = Host::new(page_with(plain()));
+    host.load("aé😀b");
+    host.caret_at(7);
+    host.editors.take_events();
+    let ranges = host.ranges();
+    for inside in [2, 4, 5, 6] {
+        host.caret_at(inside);
+        let refused = host.editors.take_events().into_iter().any(|event| {
+            matches!(
+                event,
+                EditorEvent::Refused {
+                    refusal: pencere_view::edit::Refusal::MidCharacter,
+                    ..
+                }
+            )
+        });
+        assert!(refused, "byte {inside} is inside a character");
+        assert_eq!(host.ranges(), ranges);
+    }
+    // The ends of a character are places.
+    for edge in [1, 3, 7, 8] {
+        host.caret_at(edge);
+        assert!(
+            host.editors
+                .take_events()
+                .iter()
+                .all(|event| !matches!(event, EditorEvent::Refused { .. }))
+        );
+    }
+}
+
+#[test]
+fn a_place_of_an_older_version_is_carried_over_what_was_done_since_as_bytes() {
+    let mut host = Host::new(page_with(plain()));
+    host.load("ab");
+    let version = host.editors.buffer(EDITOR).expect("the editor").version();
+    // The person types a two-byte character at the start: the page's place 1, of the version
+    // before, is the 3rd byte now and the 2nd character.
+    host.select(vec![Range::caret(0)]);
+    host.editors.set_focus(Some(EDITOR));
+    let laid = host.laid.clone();
+    host.editors.type_text(&laid, "é", &mut Fake, host.now);
+    host.settle();
+    assert_eq!(host.text(), "éab");
+    host.editors.ask(
+        &laid,
+        EDITOR,
+        EditorAsk::Select {
+            version,
+            ranges: vec![Range::caret(1)],
+            main: 0,
+        },
+        &mut Fake,
+        host.now,
+    );
+    host.settle();
+    assert_eq!(host.ranges(), vec![Range::caret(2)]);
 }

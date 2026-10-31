@@ -34,7 +34,9 @@
 --   handle = function(event) syntax:handle(event); return syntax:reply(respond(event)) end
 --
 -- A place the stream says (`pos`, `start`) is a byte of the line's text from 1, as `string.find`
--- counts; the module makes characters of them for the editor.
+-- counts, and so is a place of the editor's text (Section 2.7 of the kit's specification): the
+-- module gives the editor the stream's places as they are, the line's own added. (Its lines it
+-- counts from 0 itself; the editor's are from 1: `start_of` and `line_at` are where they meet.)
 --
 -- It is written on the page API alone: `pencere.layout` to read the editor's text,
 -- `pencere.time` to go on by itself and `pencere.merge` to put its asks in the page's reply.
@@ -42,12 +44,35 @@
 local layout = pencere.layout
 local merge = pencere.merge
 
+-- The place where line `line` (from 0) of the editor's text starts, from 1; nil past the last.
+local function start_of(id, line)
+	return layout.line_start(id, line + 1)
+end
+
+-- The line (from 0) a place of the editor's text is on.
+local function line_at(id, place)
+	local line = layout.line_of(id, place)
+	return line and line - 1
+end
+
+-- The place of `text` that a boundary at `at` comes to once it does not cut a character: a token
+-- may end where a pattern took one byte of a character, and the editor's places are where a
+-- character starts.
+local function snap(text, at)
+	local byte = string.byte(text, at)
+	while byte and byte >= 0x80 and byte < 0xC0 do
+		at += 1
+		byte = string.byte(text, at)
+	end
+	return at
+end
+
 -- A line is read to its first this many characters: a line of a minified file does not stall the
 -- page, and the state after it is the state at that character (CodeMirror's `MaxLineLength`). A
 -- line so has at most this many decorations, a character each.
 local LINE_CHARACTERS = 10000
--- How much text is read from the editor at a time, characters (more than a line is read to).
-local CHUNK_CHARACTERS = 32768
+-- How much text is read from the editor at a time, bytes (more than a line is read to).
+local CHUNK_BYTES = 32768
 -- The most decorations a syntax holds for the page before they are handed out: half of what one
 -- reply may hand the editors (20 000), so that two syntaxes fit in one reply. A line whose
 -- decorations would take it past this waits for those it holds to be handed out; a line has at
@@ -684,26 +709,6 @@ local function read_line(language, stream, before, out)
 	return state
 end
 
--- The characters from byte `from` to byte `to` of `text` (a token's end may cut a character a
--- pattern took a byte of: the bytes that start one are counted).
-local function characters(text, from, to)
-	if to < from then
-		return 0
-	end
-	local count = utf8.len(text, from, to)
-	if count then
-		return count
-	end
-	count = 0
-	for at = from, to do
-		local byte = string.byte(text, at)
-		if byte < 0x80 or byte >= 0xC0 then
-			count += 1
-		end
-	end
-	return count
-end
-
 -- The text of a line as the language reads it: its `\r` left out, and no longer than it reads.
 local function as_read(text)
 	local length = #text
@@ -721,8 +726,9 @@ local function as_read(text)
 end
 
 -- The tokens of one line of text, as a page colours a text that is not in an editor (a block of
--- code in a note): { { from =, to =, name = }, ... } in characters from 0 (the end not in it), the
--- tokens with no name left out, and the state after the line. `state` is the state before it (the
+-- code in a note): { { from =, to =, name = }, ... } in bytes from 1 (the end not in it, so that
+-- `string.sub(text, from, to - 1)` is the token), the tokens with no name left out, and the state
+-- after the line. `state` is the state before it (the
 -- language's `start()` where nil), and is not changed; `tab_width` is what a tab is to the
 -- stream's columns (4).
 function Language:tokens(text, state, tab_width)
@@ -740,12 +746,8 @@ function Language:tokens(text, state, tab_width)
 		error(self.name .. ": " .. tostring(after), 2)
 	end
 	local tokens = {}
-	local at_byte, at_char = 1, 0
 	for k = 1, #out, 3 do
-		local from = at_char + characters(text, at_byte, out[k] - 1)
-		local to = from + characters(text, out[k], out[k + 1] - 1)
-		at_byte, at_char = out[k + 1], to
-		tokens[#tokens + 1] = { from = from, to = to, name = out[k + 2] }
+		tokens[#tokens + 1] = { from = snap(text, out[k]), to = snap(text, out[k + 1]), name = out[k + 2] }
 	end
 	return tokens, after
 end
@@ -892,9 +894,18 @@ end
 -- Reads lines from `line` on, a chunk of the text at a time.
 local function fill(self, line)
 	local id = self.editor
-	local from = layout.line_start(id, line) or 0
-	local to = math.min(from + CHUNK_CHARACTERS, self.length)
-	local text = layout.editor_text(id, from, to) or ""
+	local from = start_of(id, line) or 1
+	local to = math.min(from + CHUNK_BYTES, self.length + 1)
+	-- A chunk is cut at a number of bytes: a cut inside a character goes back to where it starts.
+	local text
+	for back = 0, 3 do
+		local ok, read = pcall(layout.editor_text, id, from, to - back)
+		if ok then
+			text, to = read or "", to - back
+			break
+		end
+	end
+	text = text or ""
 	local starts, stops = {}, {}
 	local at = 1
 	while true do
@@ -905,7 +916,7 @@ local function fill(self, line)
 		else
 			-- The end of the document ends a line; the end of a chunk does not, but where it is
 			-- the whole chunk it is a line longer than the language reads.
-			if to >= self.length or #starts == 0 then
+			if to >= self.length + 1 or #starts == 0 then
 				starts[#starts + 1], stops[#stops + 1] = at, #text
 			end
 			break
@@ -927,9 +938,9 @@ end
 -- Where line `line` ends: the place of its line break, or the end of the document.
 local function line_end(self, line)
 	if line + 1 < self.lines then
-		return (layout.line_start(self.editor, line + 1) or self.length + 1) - 1
+		return (start_of(self.editor, line + 1) or self.length + 2) - 1
 	end
-	return self.length
+	return self.length + 1
 end
 
 -- --- Reading and colouring -----------------------------------------------------------------------
@@ -985,7 +996,7 @@ local function flush(self)
 	ask(self, {
 		decorate = self.layer,
 		version = self.version,
-		from = layout.line_start(self.editor, segment[1]) or 0,
+		from = start_of(self.editor, segment[1]) or 1,
 		to = line_end(self, segment[2]),
 		decorations = segment[3],
 	})
@@ -997,23 +1008,17 @@ end
 local function paint(self, line, text)
 	local out = self.out
 	local language = self.language
-	local base = layout.line_start(self.editor, line) or 0
+	local base = (start_of(self.editor, line) or 1) - 1
 	local made = self.made
 	table.clear(made)
 	local ascii = string.find(text, "[\128-\255]") == nil
-	local at_byte, at_char = 1, 0
 	local last, last_look = nil, nil
 	for k = 1, #out, 3 do
 		local look = look_of(language, out[k + 2])
 		if look then
-			local from_byte, to_byte = out[k], out[k + 1]
-			local from, to
-			if ascii then
-				from, to = from_byte - 1, to_byte - 1
-			else
-				from = at_char + characters(text, at_byte, from_byte - 1)
-				to = from + characters(text, from_byte, to_byte - 1)
-				at_byte, at_char = to_byte, to
+			local from, to = out[k], out[k + 1]
+			if not ascii then
+				from, to = snap(text, from), snap(text, to)
 			end
 			from += base
 			to += base
@@ -1177,11 +1182,11 @@ local function paint_known(self, line)
 	return cost
 end
 
--- The characters from the start of line `a` to the start of line `b`.
+-- The bytes from the start of line `a` to the start of line `b`.
 local function span(self, a, b)
 	local id = self.editor
-	local from = layout.line_start(id, a) or 0
-	local to = b < self.lines and (layout.line_start(id, b) or self.length) or self.length
+	local from = start_of(id, a) or 1
+	local to = b < self.lines and (start_of(id, b) or self.length + 1) or self.length + 1
 	return to - from
 end
 
@@ -1245,7 +1250,7 @@ local function forget_outside(self, first, last)
 		ask(self, {
 			decorate = self.layer,
 			version = self.version,
-			from = layout.line_start(self.editor, held[1]) or 0,
+			from = start_of(self.editor, held[1]) or 1,
 			to = line_end(self, first - 1),
 			decorations = {},
 		})
@@ -1254,8 +1259,8 @@ local function forget_outside(self, first, last)
 		ask(self, {
 			decorate = self.layer,
 			version = self.version,
-			from = layout.line_start(self.editor, last + 1) or self.length,
-			to = self.length,
+			from = start_of(self.editor, last + 1) or self.length + 1,
+			to = self.length + 1,
 			decorations = {},
 		})
 	end
@@ -1382,8 +1387,8 @@ local function apply(self)
 	-- The first line a change touched, and the last, in the text as it is (the text before the
 	-- first and after the last is as it was), and how many lines came or went.
 	local prefix = math.min(batch.prefix, length)
-	local first = layout.line_of(id, prefix)
-	local last = layout.line_of(id, math.max(length - batch.suffix, prefix))
+	local first = line_at(id, prefix + 1)
+	local last = line_at(id, math.max(length - batch.suffix, prefix) + 1)
 	if first == nil or last == nil then
 		reset(self)
 		return
@@ -1453,11 +1458,11 @@ local function edited(self, event)
 	local changes = event.changes or {}
 	local count = #changes
 	if count > 0 then
-		batch.prefix = math.min(batch.prefix, changes[1].from)
-		batch.suffix = math.min(batch.suffix, length - changes[count].to)
+		-- The places are bytes from 1: the bytes before a change are its place less one.
+		batch.prefix = math.min(batch.prefix, changes[1].from - 1)
+		batch.suffix = math.min(batch.suffix, length - (changes[count].to - 1))
 		for _, change in ipairs(changes) do
-			local insert = change.insert or ""
-			length += (utf8.len(insert) or #insert) - (change.to - change.from)
+			length += #(change.insert or "") - (change.to - change.from)
 		end
 	end
 	self.batch = batch
@@ -1497,7 +1502,7 @@ function Syntax:handle(event)
 			edited(self, event)
 		end
 	else
-		self.view = { event.first, event.last }
+		self.view = { event.first - 1, event.last - 1 }
 	end
 	self:work()
 	go_on(self)

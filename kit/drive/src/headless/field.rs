@@ -54,9 +54,10 @@ impl Held {
         if let Some(text) = &fill.text {
             *self = Self::holding(text);
         }
-        if let Some(range) = fill.selection_in(self.length()) {
-            self.anchor = range.start;
-            self.head = range.end;
+        // The page says bytes; the field holds characters. An end inside a character is its start.
+        if let Some(range) = fill.selection_in(self.text.len()) {
+            self.anchor = chars_before(&self.text, range.start);
+            self.head = chars_before(&self.text, range.end);
         }
     }
 
@@ -180,6 +181,14 @@ impl Held {
     }
 }
 
+/// How many characters of `text` end at or before the byte `at`: a byte inside a character is the
+/// place the character starts at.
+fn chars_before(text: &str, at: usize) -> usize {
+    text.char_indices()
+        .take_while(|(byte, character)| byte + character.len_utf8() <= at)
+        .count()
+}
+
 /// Where the `at`th character of `text` starts, bytes.
 fn byte_at(text: &str, at: usize) -> usize {
     text.char_indices()
@@ -227,9 +236,13 @@ mod tests {
 
     #[test]
     fn a_fill_with_no_text_keeps_the_text_and_one_with_no_selection_puts_the_caret_at_its_end() {
+        // The page says bytes: `é` is two, a space one, `ü` two.
         let mut held = Held::holding("é ü");
-        held.fill(&Fill::selection(Range { start: 9, end: 1 }));
+        held.fill(&Fill::selection(Range { start: 9, end: 2 }));
         assert_eq!(held.selection(), 1..3);
+        // An end inside a character is where the character starts.
+        held.fill(&Fill::selection(Range { start: 1, end: 4 }));
+        assert_eq!(held.selection(), 0..2);
         held.fill(&Fill::text("ab"));
         assert_eq!((held.text.as_str(), held.selection()), ("ab", 2..2));
         held.insert("ç");

@@ -115,6 +115,26 @@ impl Handle {
         }
     }
 
+    /// A place of the editor `name` as the script gives it (bytes of its text, from 1) as the
+    /// editor holds it (characters from 0). A place inside a character is the script's mistake; one
+    /// past the end is left for the editor to refuse, as it is for a page.
+    fn place_in(&self, name: &str, place: f64) -> mlua::Result<usize> {
+        if !(place >= 1.0 && place.fract() == 0.0) {
+            return Err(words("a place is a whole number of bytes from 1"));
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let byte = place as usize - 1;
+        let found = self.look(|page| page.editor(name).map(|buffer| buffer.char_of_byte(byte)))?;
+        match found {
+            Some(Err(pencere_view::edit::Refusal::MidCharacter)) => Err(words(format!(
+                "{place} is inside a character of the text of {name:?}: a place is where one starts"
+            ))),
+            Some(Ok(place)) => Ok(place),
+            // Past the end, or no such editor: left to the page's own answer.
+            _ => Ok(usize::MAX),
+        }
+    }
+
     /// Looks at the page.
     fn look<R>(&self, f: impl FnOnce(&Headless<Any>) -> R) -> mlua::Result<R> {
         let open = self.0.try_borrow().map_err(|_| {
@@ -425,10 +445,12 @@ impl UserData for Handle {
             this.act(|page| page.focus_editor(&name))
         });
         methods.add_method("select", |_, this, (name, a, b): (String, f64, f64)| {
-            this.act(|page| page.select(&name, index_of(a), index_of(b)))
+            let (a, b) = (this.place_in(&name, a)?, this.place_in(&name, b)?);
+            this.act(|page| page.select(&name, a, b))
         });
         methods.add_method("caret_to", |_, this, (name, at): (String, f64)| {
-            this.act(|page| page.caret_to(&name, index_of(at)))
+            let at = this.place_in(&name, at)?;
+            this.act(|page| page.caret_to(&name, at))
         });
         methods.add_method(
             "edit",
@@ -769,10 +791,16 @@ impl UserData for Handle {
                     (
                         buffer.text(),
                         buffer.version(),
+                        // As a script counts a place: bytes of the text, from 1.
                         buffer
                             .ranges()
                             .iter()
-                            .map(|range| (range.anchor, range.head))
+                            .map(|range| {
+                                (
+                                    buffer.byte_of(range.anchor) + 1,
+                                    buffer.byte_of(range.head) + 1,
+                                )
+                            })
                             .collect::<Vec<_>>(),
                     )
                 })

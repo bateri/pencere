@@ -1,0 +1,94 @@
+{
+  "examples": [
+    {
+      "about": "the page is told its places in bytes of UTF-8, the editor holds characters",
+      "text": "éa",
+      "steps": [
+        { "do": "select", "ranges": [[2, 2]] },
+        { "do": "type", "text": "ü" },
+        {
+          "do": "expect",
+          "text": "éaü",
+          "ranges": [[3, 3]],
+          "notes": [
+            { "edited": { "version": 1, "origin": "person", "changes": [[3, 3, "ü"]] } },
+            { "selection": { "ranges": [[5, 5]] } }
+          ]
+        }
+      ]
+    },
+    {
+      "about": "a change the page asks is in bytes, against the document as it was written",
+      "text": "éa",
+      "steps": [
+        { "do": "change", "base": 0, "changes": [[2, 3, "b"]] },
+        {
+          "do": "expect",
+          "text": "éb",
+          "notes": [{ "edited": { "version": 1, "origin": "page", "changes": [[2, 3, "b"]] } }]
+        }
+      ]
+    },
+    {
+      "about": "a place of an older version is carried over what was done since, in bytes, and lands on the character it meant",
+      "text": "ab",
+      "steps": [
+        { "do": "select", "ranges": [[0, 0]] },
+        { "do": "type", "text": "é" },
+        { "do": "page_select", "version": 0, "ranges": [[1, 2]] },
+        { "do": "expect", "text": "éab", "ranges": [[2, 3]] },
+        {
+          "do": "change",
+          "base": 0,
+          "changes": [[1, 2, "B"]]
+        },
+        { "do": "expect", "text": "éaB" }
+      ]
+    },
+    {
+      "about": "decorations are put by bytes and held by characters",
+      "text": "éa é",
+      "steps": [
+        {
+          "do": "decorate",
+          "layer": "syntax",
+          "version": 0,
+          "from": 0,
+          "to": 6,
+          "decorations": [
+            [0, 2, "style"],
+            [4, 6, "style"]
+          ]
+        },
+        {
+          "do": "expect",
+          "decorations": {
+            "syntax": [
+              [0, 1, "style"],
+              [3, 4, "style"]
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "about": "a place inside a character is refused and rounded to neither side",
+      "text": "aé",
+      "steps": [
+        { "do": "change", "base": 0, "changes": [[2, 2, "x"]] },
+        { "do": "expect", "text": "aé", "version": 0, "notes": [{ "refused": "mid-character" }] },
+        { "do": "page_select", "version": 0, "ranges": [[0, 2]] },
+        { "do": "expect", "text": "aé", "notes": [{ "refused": "mid-character" }] },
+        {
+          "do": "decorate",
+          "layer": "syntax",
+          "version": 0,
+          "from": 0,
+          "to": 3,
+          "decorations": [[2, 3, "style"]]
+        },
+        { "do": "expect", "notes": [{ "refused": "mid-character" }] }
+      ]
+    }
+  ]
+}

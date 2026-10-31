@@ -27,10 +27,10 @@ local lines = {
 }
 local text = table.concat(lines, "\n")
 
--- Where each line starts, in characters (the text is ASCII).
+-- Where each line starts: a place, a byte of the text counted from 1 as Luau counts a string.
 local starts = {}
 do
-	local at = 0
+	local at = 1
 	for n, line in lines do
 		starts[n] = at
 		at += #line + 1
@@ -67,7 +67,7 @@ local function layers()
 		table.insert(named, { from = card.from, to = card.to, anchor = "card" })
 	end
 	local function asked(layer, decorations)
-		return { decorate = layer, version = version, from = 0, to = #text, decorations = decorations }
+		return { decorate = layer, version = version, from = 1, to = #text + 1, decorations = decorations }
 	end
 	return {
 		asked("diagnostics", diagnostics),

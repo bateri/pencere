@@ -1921,7 +1921,7 @@ pub trait Queries {
     fn editor_version(&self, _editor: Id) -> Option<u64> {
         None
     }
-    /// How many characters it has.
+    /// How many bytes it has.
     fn editor_length(&self, _editor: Id) -> Option<usize> {
         None
     }
@@ -1929,8 +1929,8 @@ pub trait Queries {
     fn editor_lines(&self, _editor: Id) -> Option<usize> {
         None
     }
-    /// The characters `from..to`: none for a range it has not, or of more than a query answers
-    /// with ([`crate::edit::limits::REPLY_TEXT_BYTES`]).
+    /// The bytes `from..to`: none for a range it has not, or of more than a query answers with
+    /// ([`crate::edit::limits::REPLY_TEXT_BYTES`]).
     fn editor_text(&self, _editor: Id, _from: usize, _to: usize) -> Option<String> {
         None
     }

@@ -8,6 +8,10 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Changed
 
+- **`pencere test` counts places as a script does**: `page:select`, `page:caret_to` and the
+  `anchor` and `head` of `page:editor(name).selections` are bytes of the text from 1, as
+  `layout.editor_text` and an editor's events say them.
+
 - **A page that fails is shown again, and the app goes on.** `pencere.serve` shows a
   page that made an error, trapped or went over a limit once more from the start, silently, once in
   a minute (the page asks the app for where it was); `ended = "error"` now means that was given up

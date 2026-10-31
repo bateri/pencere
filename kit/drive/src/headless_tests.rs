@@ -445,7 +445,7 @@ return {
             return {
                 redraw = true,
                 keyboard = { field = "name" },
-                fill = { name = { text = "draft.md", select = { from = 0, to = 5 } } },
+                fill = { name = { text = "draft.md", select = { from = 1, to = 6 } } },
             }
         elseif event.type == "command" then
             said[#said + 1] = event.id

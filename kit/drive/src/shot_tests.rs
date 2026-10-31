@@ -375,7 +375,7 @@ local text = {{}}
 for n = 1, {lines} do text[n] = "line " .. n end
 local joined = table.concat(text, "\n")
 local function start_of(line)
-	local at = 0
+	local at = 1
 	for n = 1, line do at += #text[n] + 1 end
 	return at
 end
@@ -392,7 +392,7 @@ local function handle(event)
 		return {{ editor = {{ code = {{ {{ load = joined }} }} }} }}
 	elseif event.type == "edit" then
 		return {{ editor = {{ code = {{
-			{{ decorate = "peek", version = event.version, from = 0, to = #joined, decorations = {{
+			{{ decorate = "peek", version = event.version, from = 1, to = #joined + 1, decorations = {{
 				{{ from = start_of(2), to = start_of(2), zone = "peek", height = 33 }},
 				{{ from = start_of(2), to = start_of(2), ruler = "blue", lane = "full" }},
 			}} }},

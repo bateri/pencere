@@ -64,8 +64,9 @@ local function colours(name, sample, expected)
             say(name .. ": line " .. number .. " has no " .. text)
             return
         end
-        local from = utf8.len(string.sub(line, 1, at - 1))
-        local to = from + utf8.len(text)
+        -- A token's places are bytes from 1, its end not in it: the text's own.
+        local from = at
+        local to = at + #text
         local found = nil
         for _, token in read[number] do
             if style == "-" and token.from < to and token.to > from then
@@ -600,7 +601,7 @@ return {
             local language = languages.load(description)
             local tokens = language.syntax:tokens(line)
             local far = tokens[#tokens]
-            said[#said + 1] = description.name .. " " .. tostring(far == nil or far.to <= 10000)
+            said[#said + 1] = description.name .. " " .. tostring(far == nil or far.to <= #line + 1)
         end
         local column = pencere.div():child(pencere.text(done > #list and "done" or "reading"))
         for _, words in said do
@@ -630,6 +631,35 @@ return {
     for words in &shown[1..] {
         assert!(words.ends_with(" true"), "{words}");
     }
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn the_range_of_a_token_holds_the_token_in_bytes_from_one_in_a_line_of_letters_of_many_bytes() {
+    let said = said(
+        r##"
+local Syntax = require("@pencere/syntax")
+local probe = Syntax.define {
+    name = "probe",
+    start = function() return {} end,
+    token = function(stream)
+        if stream:eat_space() then return nil end
+        if stream:match('"[^"]*"?') then return "string" end
+        if stream:match("%d+") then return "number" end
+        if stream:match("[%a_]+") then return "word" end
+        stream:next()
+        return nil
+    end,
+}
+local text = 'ğ = "é ü 😀" + 12 öz _x'
+local got = {}
+for _, token in probe:tokens(text) do
+    got[#got + 1] = token.name .. ":" .. string.sub(text, token.from, token.to - 1)
+end
+say(table.concat(got, "|"))
+"##,
+    );
+    assert_eq!(said, ["string:\"é ü 😀\"|number:12|word:z|word:_x"]);
 }
 
 #[test]

@@ -28,6 +28,17 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Changed
 
+- **Places of the Lua page API are bytes of the text, counted from 1, and so are lines.** A script
+  gives `string.find`'s results to an editor as they are: the places of `layout.editor_text`,
+  `line_start`, `line_of`, `word_at`, of the `edit`, `selection`, `hover`, `target` and `gutter`
+  events and of an editor's asks (`change`, `select`, `reveal`, `decorate`), and a field's `select`,
+  are bytes from 1, a range `[from, to)` (`string.sub(text, from, to - 1)`); the `line` of a
+  `gutter` or `hover` event, the `first` and `last` of a `viewport` and the lines of `line_start`
+  and `line_of` are from 1. A place inside a character is an error at the script's line (the
+  `layout` queries) or an `editor_refused` with `"mid-character"` (an ask). The interface
+  (`pencere:view@3.0.0`) says it: `char-range` is `byte-range`, `refusal` has `mid-character`, and
+  `editor-text`, `line-of` and `word-at` are `result`s. A widget's words are 200 bytes at most.
+
 - **The prelude's own is out of a script's reach, and what it makes public is frozen.** `pencere.host`
   (the raw functions of the host), `pencere._keymaps`, `pencere._lists`, `pencere._time` and
   `pencere.layout._heard` / `_asked`, and the entry points the bridge calls (`pencere.start`,

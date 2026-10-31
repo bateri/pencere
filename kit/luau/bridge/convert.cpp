@@ -1833,13 +1833,19 @@ void push_character(lua_State* L, uint32_t cp) {
 
 namespace {
 
-// A place of a document as the script is told it: a whole number of characters from 0.
-void set_place(lua_State* L, const char* name, uint32_t at) { set_number(L, name, (double)at); }
+// A place of a document as the script is told it: a whole number of bytes of its UTF-8 from 1, the
+// way Luau counts a string, and the end of the text one past its last byte. (The host counts them
+// from 0; the shift is made here and nowhere else.)
+void set_place(lua_State* L, const char* name, uint32_t at) { set_number(L, name, (double)at + 1.0); }
+
+// A line of a document as the script is told it: from 1, as a place is.
+void set_line(lua_State* L, const char* name, uint32_t line) { set_number(L, name, (double)line + 1.0); }
 
 const char* const kOrigins[] = {"person", "compose", "page", "undo", "redo", "load"};
 const char* const kRefusals[] = {"reversed",       "out-of-document",      "overlapping",   "stale-version",
                                  "future-version", "too-large",            "too-many-decorations",
-                                 "outside-range",  "bad-pattern",          "no-editor"};
+                                 "outside-range",  "bad-pattern",          "no-editor",
+                                 "mid-character"};
 
 // The ranges of a selection, as a list of { anchor =, head = }.
 void push_ranges(lua_State* L, const pencere_view_types_list_text_range_t& ranges) {
@@ -2084,15 +2090,15 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_word(L, "type", "viewport");
             push_id(L, event.val.viewport.editor);
             lua_setfield(L, -2, "editor");
-            set_number(L, "first", (double)event.val.viewport.first);
-            set_number(L, "last", (double)event.val.viewport.last);
+            set_line(L, "first", event.val.viewport.first);
+            set_line(L, "last", event.val.viewport.last);
             break;
         case PENCERE_VIEW_TYPES_EVENT_EDITOR_REFUSED:
             set_word(L, "type", "editor_refused");
             push_id(L, event.val.editor_refused.editor);
             lua_setfield(L, -2, "editor");
             set_word(L, "reason",
-                     event.val.editor_refused.reason < 10 ? kRefusals[event.val.editor_refused.reason] : "unknown");
+                     event.val.editor_refused.reason < 11 ? kRefusals[event.val.editor_refused.reason] : "unknown");
             break;
         case PENCERE_VIEW_TYPES_EVENT_FOUND: {
             // { editor =, version =, count =, current = (from 1, nil for none), more = }
@@ -2114,7 +2120,7 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_number(L, "now", event.val.wake);
             break;
         case PENCERE_VIEW_TYPES_EVENT_EDITOR_GUTTER: {
-            // { editor =, column =, line = (from 0), kind = "press" | "enter" | "leave", button =,
+            // { editor =, column =, line = (from 1), kind = "press" | "enter" | "leave", button =,
             // count =, mods…, marker = { id =, layer =, from =, to = } (none where the cell is
             // empty), cell = { x =, y =, w =, h = } }
             const auto& gutter = event.val.editor_gutter;
@@ -2124,7 +2130,7 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             lua_setfield(L, -2, "editor");
             lua_pushlstring(L, (const char*)gutter.column.ptr, gutter.column.len);
             lua_setfield(L, -2, "column");
-            set_number(L, "line", (double)gutter.line);
+            set_line(L, "line", gutter.line);
             set_word(L, "kind", gutter.kind < 3 ? kKinds[gutter.kind] : "press");
             set_word(L, "button", button_name(gutter.button));
             set_number(L, "count", (double)gutter.count);
@@ -2150,7 +2156,7 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             break;
         }
         case PENCERE_VIEW_TYPES_EVENT_EDITOR_HOVER: {
-            // { editor =, kind = "dwell" | "leave", at =, from =, to =, line = (from 0), hits = { { layer =,
+            // { editor =, kind = "dwell" | "leave", at =, from =, to =, line = (from 1), hits = { { layer =,
             // id =, from =, to = }, … }, word = { x =, y =, w =, h = }, mods…, version = }
             const auto& hover = event.val.editor_hover;
             set_word(L, "type", "hover");
@@ -2165,7 +2171,7 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_place(L, "at", hover.at);
             set_place(L, "from", hover.from);
             set_place(L, "to", hover.to);
-            set_number(L, "line", (double)hover.line);
+            set_line(L, "line", hover.line);
             lua_createtable(L, (int)hover.hits.len, 0);
             for (size_t at = 0; at < hover.hits.len; at++) {
                 const auto& hit = hover.hits.ptr[at];
@@ -2247,15 +2253,16 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
 
 namespace {
 
-// A place of a document the script gives: a whole number of characters from 0.
+// A place of a document the script gives: a whole number of bytes from 1, as the host counts
+// them from 0.
 uint32_t place_of(lua_State* L, int t, const char* name) {
     get(L, t, name);
-    if (lua_type(L, -1) != LUA_TNUMBER) luaL_error(L, "%s is a place: a whole number of characters from 0", name);
+    if (lua_type(L, -1) != LUA_TNUMBER) luaL_error(L, "%s is a place: a whole number of bytes from 1", name);
     double at = lua_tonumber(L, -1);
     lua_pop(L, 1);
-    if (!(at >= 0 && at <= 4294967295.0) || at != (double)(uint32_t)at)
-        luaL_error(L, "%s is a place: a whole number of characters from 0", name);
-    return (uint32_t)at;
+    if (!(at >= 1 && at <= 4294967295.0) || at != (double)(uint32_t)at)
+        luaL_error(L, "%s is a place: a whole number of bytes from 1", name);
+    return (uint32_t)at - 1;
 }
 
 // A version of a document the script gives (it was told it).
@@ -3040,8 +3047,8 @@ int reply_call(lua_State* L) {
                     luaL_error(L, "fill: a field's text is a string");
                 }
                 lua_pop(L, 1);
-                // What is selected: { from =, to = } (characters from 0, either way round), or
-                // true for all of it.
+                // What is selected: { from =, to = } (bytes from 1, either way round), or true for
+                // all of it.
                 get(L, given, "select");
                 if (lua_type(L, -1) == LUA_TBOOLEAN && lua_toboolean(L, -1)) {
                     said.select = {true, {0, 4294967295u}};

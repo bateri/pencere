@@ -550,8 +550,8 @@ impl Editors {
                 .get(held.layer)
                 .cloned()
                 .unwrap_or_default(),
-            from: held.from,
-            to: held.to,
+            from: editor.buffer.byte_of(held.from),
+            to: editor.buffer.byte_of(held.to),
         });
         Some(GutterEvent {
             editor: id,
@@ -692,8 +692,9 @@ impl Editors {
             self.events.push(match note {
                 Note::Edited(edited) => EditorEvent::Edited { id, edited },
                 Note::Selection(selection) => {
-                    let head = selection.ranges.get(selection.main).map_or(0, |r| r.head);
-                    editor.reveal = Some((head, RevealAlign::Nearest));
+                    // The caret to keep in view is the editor's own place, in characters; the
+                    // selection is told in bytes.
+                    editor.reveal = Some((editor.buffer.main().head, RevealAlign::Nearest));
                     EditorEvent::Selection { id, selection }
                 }
                 Note::Refused(refusal) => EditorEvent::Refused { id, refusal },

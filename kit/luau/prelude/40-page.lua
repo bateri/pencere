@@ -52,13 +52,13 @@
 --       before, in order); "selection" the `editor`, the `version`, its `ranges`
 --       ({ { anchor =, head = }, ... }), which is `main` (from 1) and whether an input method is
 --       `composing`; "viewport" the `editor` and the `first` and `last` of its lines in view;
---       "editor_refused" the `editor` and the `reason` ("stale-version", "out-of-document", …) it
+--       "editor_refused" the `editor` and the `reason` ("stale-version", "out-of-document", "mid-character", …) it
 --       did not do what the page asked; "found", while it searches (after every "find" asked
 --       for, and whenever these change; a `count` of 0 when the search stops), the `editor`, the
 --       `version` searched, the `count` of matches (at most 10 000), which of them the main
 --       selection is exactly on, `current` (from 1, as a find widget shows it; nil for none), and
 --       `more` (the search stopped before the end: there may be more); "gutter", in a column of its
---       gutter that hears the pointer, the `editor`, the `column`, the `line` (from 0), the `kind`
+--       gutter that hears the pointer, the `editor`, the `column`, the `line` (from 1), the `kind`
 --       ("press", "enter", "leave"), the `button`, `count` and modifiers of a press, the `marker`
 --       under the pointer (`{ id =, layer =, from =, to = }`; nil where the cell is empty: the page
 --       may put one there) and the `cell` ({ x =, y =, w =, h = }, the page's points); "hover", in an
@@ -74,8 +74,9 @@
 --       it; "press": that press), `source` ("word", "link": a held look with an `id`, whose range it
 --       is, or "widget": a hint with a name, pressed with any modifiers), the place `at`, the range `from` and `to`, the link's `id`, the `word`'s box, the modifiers,
 --       the `button` and `count` of a press and the `version`; "keymap_pending", the `editor` and the
---       `keys` of a chord waited on so far (none: not any more). Places are characters from 0, lines
---       from 0.
+--       `keys` of a chord waited on so far (none: not any more). Places are bytes of the text, counted
+--       from 1 as a string's are (the end of the text is one past its last byte); lines are
+--       counted from 1.
 --       "wake" has the `now` it was woken at (seconds on `render`'s clock): the time the page asked
 --       to be woken at, with a reply's `wake`, has come. Told only to a page that asked, after the
 --       timers that were due ran (`pencere.time`).
@@ -91,7 +92,7 @@
 --   { redraw =, close =, copy = "text for the pasteboard", cursor = "arrow" | "pointer" | "text" |
 --     "resize_horizontal" | "resize_vertical" | "not_allowed" | "grab" | "grabbing" | "crosshair",
 --     keyboard = "page" | { field = name }, fill = { [name] = "text for that field", or
---     { text =, select = { from =, to = } (characters from 0) or true (all of it) }, ... },
+--     { text =, select = { from =, to = } (bytes from 1) or true (all of it) }, ... },
 --     menu = { at = { x =, y = }, entries = { { title =, keys = "ctrl+w", enabled = }, "-" (a line),
 --     { title =, keys =, enabled =, paste = editor } (a line the application performs itself: the
 --     pasteboard's text pasted in that editor as its paste key would, honouring a read-only editor
@@ -142,7 +143,7 @@
 --     "after" | "end", group =, id =, label =, cursor =, anchor =, color =, background =, pad_left =,
 --     pad_right =, margin_left =, margin_right = } (text that is not the document's, where the range is: an inlay hint "before" the
 --     range's start or "after" its end, or after its line's end; at most 8 parts of 200
---     characters, 32 to a line), { from =, to =, anchor = "name" } (the range has a name an overlay can stand beside,
+--     bytes, 32 to a line), { from =, to =, anchor = "name" } (the range has a name an overlay can stand beside,
 --     `pencere.range_of(editor, name)`), { from =, to =, zone = "name", height = points, side = "below" | "above" } (a gap kept open after the line the range
 --     starts on, for the page's element that is `:zone("name")` of the editor), { from =, to =,
 --     fold = true }

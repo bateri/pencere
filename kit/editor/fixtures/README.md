@@ -7,7 +7,9 @@ pencere-editor`). The page's side of the same (the queries, the events, the repl
 the sandbox's tests.
 
 Places are characters (code points), from 0; a range is `[from, to]` (a selection's is
-`[anchor, head]`), the end not in it.
+`[anchor, head]`), the end not in it. Where the page is the one who says or is told a place (the
+`change`, `page_select` and `decorate` steps, and the `notes`), it is a byte of the text's UTF-8,
+from 0, and a place inside a character is refused (`mid-character`).
 
 ## A file
 

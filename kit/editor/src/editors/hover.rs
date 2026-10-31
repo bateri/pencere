@@ -178,17 +178,17 @@ impl Editors {
                 Some(HoverHit {
                     layer: names.get(layer).cloned().unwrap_or_default(),
                     id: look.id.clone()?,
-                    from: item.from,
-                    to: item.to,
+                    from: editor.buffer.byte_of(item.from),
+                    to: editor.buffer.byte_of(item.to),
                 })
             })
             .collect();
         let event = HoverEvent {
             editor: rest.editor,
             kind: HoverKind::Dwell,
-            at: rest.at,
-            from: rest.from,
-            to: rest.to,
+            at: editor.buffer.byte_of(rest.at),
+            from: editor.buffer.byte_of(rest.from),
+            to: editor.buffer.byte_of(rest.to),
             line: editor.buffer.line_of(rest.at),
             hits,
             over: if rest.widget.is_some() {

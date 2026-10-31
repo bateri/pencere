@@ -1,9 +1,10 @@
 //! The document's text: a rope of characters, every place of it checked before it is used, so that
-//! nothing a page sends reaches the rope as a place it does not have.
+//! nothing a page sends reaches the rope as a place it does not have. The editor counts in
+//! characters; the page counts in bytes of UTF-8, and the two are turned into one another here.
 
 use std::fmt;
 
-use pencere_view::edit::TextSnapshot;
+use pencere_view::edit::{Refusal, TextSnapshot};
 use ropey::Rope;
 
 #[cfg(test)]
@@ -13,7 +14,9 @@ thread_local! {
     pub(crate) static COPIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// The text of a document. Places are characters (code points); a line ends at its `\n`.
+/// The text of a document. Places are characters (code points), as the editor holds them; the
+/// page's places are bytes ([`Text::char_of_byte`], [`Text::byte_of_char`]). A line ends at its
+/// `\n`.
 #[derive(Clone, Default)]
 pub(crate) struct Text {
     rope: Rope,
@@ -53,6 +56,19 @@ impl Text {
             return None;
         }
         self.rope.get_slice(from..to).map(|slice| slice.to_string())
+    }
+
+    /// The place of the character that starts at the byte `at`: the page's place, as the editor
+    /// holds it. A byte past the end is out of the document, and one inside a character is
+    /// refused ([`Refusal::MidCharacter`]), not rounded.
+    pub fn char_of_byte(&self, at: usize) -> Result<usize, Refusal> {
+        char_of_byte(&self.rope, at)
+    }
+
+    /// The byte the character at `at` starts at: the place the page is told. The end of the text
+    /// is its length in bytes; a place past it is as far past it in bytes.
+    pub fn byte_of_char(&self, at: usize) -> usize {
+        byte_of_char(&self.rope, at)
     }
 
     /// The bytes of UTF-8 the characters `from..to` take.
@@ -157,6 +173,30 @@ impl Text {
     }
 }
 
+/// The character that starts at the byte `at` of `rope`.
+fn char_of_byte(rope: &Rope, at: usize) -> Result<usize, Refusal> {
+    if at > rope.len_bytes() {
+        return Err(Refusal::OutOfDocument);
+    }
+    // `try_byte_to_char` rounds a byte inside a character down to it: the byte that character
+    // starts at must be the one asked for.
+    let at_char = rope
+        .try_byte_to_char(at)
+        .map_err(|_| Refusal::OutOfDocument)?;
+    match rope.try_char_to_byte(at_char) {
+        Ok(start) if start == at => Ok(at_char),
+        _ => Err(Refusal::MidCharacter),
+    }
+}
+
+fn byte_of_char(rope: &Rope, at: usize) -> usize {
+    match rope.try_char_to_byte(at) {
+        Ok(byte) => byte,
+        // Past the end it stays past it, as far.
+        Err(_) => rope.len_bytes().saturating_add(at - rope.len_chars()),
+    }
+}
+
 /// A document's text at one version, as the page is posted it to read.
 #[derive(Clone)]
 pub struct Snapshot {
@@ -178,18 +218,26 @@ impl TextSnapshot for Snapshot {
         self.version
     }
 
-    fn len_chars(&self) -> usize {
-        self.rope.len_chars()
+    fn len_bytes(&self) -> usize {
+        self.rope.len_bytes()
     }
 
     fn len_lines(&self) -> usize {
         self.rope.len_lines()
     }
 
+    fn inside_character(&self, at: usize) -> bool {
+        at <= self.rope.len_bytes() && char_of_byte(&self.rope, at) == Err(Refusal::MidCharacter)
+    }
+
     fn slice(&self, from: usize, to: usize) -> Option<String> {
         if from > to {
             return None;
         }
+        let (from, to) = (
+            char_of_byte(&self.rope, from).ok()?,
+            char_of_byte(&self.rope, to).ok()?,
+        );
         self.rope.get_slice(from..to).map(|slice| slice.to_string())
     }
 
@@ -197,21 +245,22 @@ impl TextSnapshot for Snapshot {
         if line >= self.rope.len_lines() {
             return None;
         }
-        self.rope.try_line_to_char(line).ok()
+        self.rope.try_line_to_byte(line).ok()
     }
 
     fn line_of(&self, at: usize) -> Option<usize> {
+        let at = char_of_byte(&self.rope, at).ok()?;
         self.rope.try_char_to_line(at).ok()
     }
 
     fn word_range(&self, at: usize) -> Option<(usize, usize)> {
-        (at <= self.rope.len_chars()).then(|| {
-            crate::segments::run_at(
-                &Text {
-                    rope: self.rope.clone(),
-                },
-                at,
-            )
-        })
+        let at = char_of_byte(&self.rope, at).ok()?;
+        let (from, to) = crate::segments::run_at(
+            &Text {
+                rope: self.rope.clone(),
+            },
+            at,
+        );
+        Some((byte_of_char(&self.rope, from), byte_of_char(&self.rope, to)))
     }
 }

@@ -499,7 +499,7 @@ return {
             note("load")
             return { redraw = true, keyboard = { field = "e" }, editor = { e = { load = "hello\nworld" } } }
         elseif event.type == "edit" then
-            note("edit " .. event.origin .. " " .. pencere.layout.editor_text("e", 0, pencere.layout.editor_length("e")))
+            note("edit " .. event.origin .. " " .. pencere.layout.editor_text("e", 1, pencere.layout.editor_length("e") + 1))
         elseif event.type == "focus" then
             note("focus " .. tostring(event.field))
         elseif event.type == "press" then
@@ -669,7 +669,7 @@ fn a_press_in_an_editor_puts_its_caret_and_one_elsewhere_takes_the_keyboard_back
     // At the end of the second line: "hello\n" is 6, "world" 5.
     assert_eq!(rig.page.editors().selected(), Some((11, 0)));
     let said = page_words(&rig.page).join(" ");
-    assert!(said.contains("focus e|press e@11"), "{said}");
+    assert!(said.contains("focus e|press e@12"), "{said}");
 }
 
 /// A caret moved out of the room is brought into view by the host's scrolling of the room, and the
@@ -707,7 +707,7 @@ fn the_caret_is_kept_in_view_by_the_rooms_scrolling_and_blinks_at_rest() {
         .next()
         .and_then(|lines| lines.split(['-', '|']).nth(1))
         .and_then(|last| last.trim().parse::<usize>().ok());
-    assert!(told.is_some_and(|last| last >= 59), "{said}");
+    assert!(told.is_some_and(|last| last >= 60), "{said}");
     // At rest: no frame is asked for but the caret's next blink.
     assert!(!rig.page.animating());
     assert_eq!(rig.page.wake_at(), Some(0.5));

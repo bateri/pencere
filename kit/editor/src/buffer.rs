@@ -15,7 +15,8 @@ use crate::indent::Rules;
 use crate::segments::{at_column, column_of};
 use crate::text::{Snapshot, Text};
 
-/// What an editor has to tell its page, in the order it happened.
+/// What an editor has to tell its page, in the order it happened. The places in it are the
+/// page's: bytes of UTF-8 (the editor itself counts characters).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Note {
     /// The document changed.
@@ -251,6 +252,26 @@ impl Buffer {
         }
     }
 
+    /// The selections in the places the page says: bytes.
+    fn selection_in_bytes(&self) -> Selection {
+        let ranges = self
+            .ranges
+            .iter()
+            .map(|range| {
+                Range::new(
+                    self.text.byte_of_char(range.anchor),
+                    self.text.byte_of_char(range.head),
+                )
+            })
+            .collect();
+        Selection {
+            ranges,
+            main: self.main,
+            version: self.version,
+            composing: self.marked.is_some(),
+        }
+    }
+
     pub fn ranges(&self) -> &[Range] {
         &self.ranges
     }
@@ -422,7 +443,7 @@ impl Buffer {
     pub fn take_notes(&mut self) -> Vec<Note> {
         let mut notes = std::mem::take(&mut self.notes);
         if std::mem::take(&mut self.selection_moved) {
-            notes.push(Note::Selection(self.selection()));
+            notes.push(Note::Selection(self.selection_in_bytes()));
         }
         if let Some(found) = self.found_to_tell() {
             notes.push(Note::Found(found));
@@ -527,12 +548,32 @@ impl Buffer {
                 insert: change.insert.clone(),
             })
             .collect();
+        // The same changes in bytes, while the text is as they were written in: how the page is
+        // told of them, and how a place it says of the version before is carried over them.
+        let bytes_before = self.text.len_bytes();
+        let in_bytes: Vec<Step> = changes
+            .iter()
+            .map(|change| Step {
+                from: self.text.byte_of_char(change.from),
+                to: self.text.byte_of_char(change.to),
+                len: change.insert.len(),
+            })
+            .collect();
+        let told: Vec<Change> = changes
+            .iter()
+            .zip(&in_bytes)
+            .map(|(change, step)| Change {
+                from: step.from,
+                to: step.to,
+                insert: change.insert.clone(),
+            })
+            .collect();
         for change in changes.iter().rev() {
             // Checked above: every range is the text's.
             self.text.replace(change.from, change.to, &change.insert);
         }
         let steps = steps(&changes);
-        self.log.push(steps.clone(), len);
+        self.log.push(steps.clone(), in_bytes, bytes_before);
         self.version += 1;
         self.decorations.map(&steps);
         if let Some(found) = &mut self.found {
@@ -546,7 +587,7 @@ impl Buffer {
         }
         self.notes.push(Note::Edited(Edited {
             version: self.version,
-            changes,
+            changes: told,
             origin,
             tag,
         }));
@@ -708,6 +749,23 @@ impl Buffer {
     }
 
     // --- What the page asks -----------------------------------------------------------------
+    //
+    // The page's places are bytes of UTF-8, of the version it names: carried over what was done
+    // since as bytes (the text of that version is not kept), and turned into the characters the
+    // editor holds only in the text as it is. A byte inside a character is refused, not rounded
+    // ([`Refusal::MidCharacter`]).
+
+    /// The place `at` of the editor (characters) as the page says it: bytes. A place past the end
+    /// is as far past it in bytes.
+    pub fn byte_of(&self, at: usize) -> usize {
+        self.text.byte_of_char(at)
+    }
+
+    /// The place the page says (bytes) as the editor holds it (characters), in the text as it is:
+    /// refused where it is past the end or inside a character.
+    pub fn char_of_byte(&self, at: usize) -> Result<usize, Refusal> {
+        self.text.char_of_byte(at)
+    }
 
     /// The page's changes, against the document at `base`: carried over what was done since and
     /// done, to be undone as one. The selections are carried over them.
@@ -738,10 +796,20 @@ impl Buffer {
         history: bool,
         tag: Option<String>,
     ) -> Result<(), Refusal> {
-        let len = self.log.len_at(base, self.text.len_chars())?;
+        let len = self.log.bytes_at(base, self.text.len_bytes())?;
         check(&changes, len)?;
-        let since = self.log.since(base)?;
+        let since = self.log.bytes_since(base)?;
         let changes = rebase(changes, since.iter().copied());
+        let changes = changes
+            .into_iter()
+            .map(|change| {
+                Ok(Change {
+                    from: self.char_of_byte(change.from)?,
+                    to: self.char_of_byte(change.to)?,
+                    insert: change.insert,
+                })
+            })
+            .collect::<Result<Vec<_>, Refusal>>()?;
         if !history {
             // Undoing goes back over it: each group is carried over what was done after it.
             let done = self.apply_as(changes, Origin::Page, tag)?;
@@ -772,14 +840,14 @@ impl Buffer {
         ranges: Vec<Range>,
         main: usize,
     ) -> Result<(), Refusal> {
-        let len = self.log.len_at(version, self.text.len_chars())?;
+        let len = self.log.bytes_at(version, self.text.len_bytes())?;
         if ranges
             .iter()
             .any(|range| range.anchor > len || range.head > len)
         {
             return Err(Refusal::OutOfDocument);
         }
-        let since = self.log.since(version)?;
+        let since = self.log.bytes_since(version)?;
         let carry = |at: usize| {
             since
                 .iter()
@@ -787,22 +855,30 @@ impl Buffer {
         };
         let ranges = ranges
             .into_iter()
-            .map(|range| Range::new(carry(range.anchor), carry(range.head)))
-            .collect();
+            .map(|range| {
+                Ok(Range::new(
+                    self.char_of_byte(carry(range.anchor))?,
+                    self.char_of_byte(carry(range.head))?,
+                ))
+            })
+            .collect::<Result<Vec<_>, Refusal>>()?;
         self.select(ranges, main);
         Ok(())
     }
 
-    /// The place `at` of `version`, carried over what was done since.
+    /// The place `at` of `version` (bytes), carried over what was done since: the character it is
+    /// now, in the text as it is.
     pub fn carry(&mut self, version: u64, at: usize) -> Result<usize, Refusal> {
-        let len = self.log.len_at(version, self.text.len_chars())?;
+        let len = self.log.bytes_at(version, self.text.len_bytes())?;
         if at > len {
             return Err(Refusal::OutOfDocument);
         }
-        let since = self.log.since(version)?;
-        Ok(since
-            .iter()
-            .fold(at, |at, steps| map(steps, at, Assoc::After)))
+        let since = self.log.bytes_since(version)?;
+        self.char_of_byte(
+            since
+                .iter()
+                .fold(at, |at, steps| map(steps, at, Assoc::After)),
+        )
     }
 
     /// The page's decorations of a layer for a range of the document.
@@ -819,7 +895,7 @@ impl Buffer {
             to,
             decorations,
         } = decorate;
-        let len = self.log.len_at(version, self.text.len_chars())?;
+        let len = self.log.bytes_at(version, self.text.len_bytes())?;
         if from > to {
             return Err(Refusal::Reversed);
         }
@@ -837,25 +913,31 @@ impl Buffer {
                 return Err(Refusal::OutsideRange);
             }
         }
-        let since = self.log.since(version)?;
+        let since = self.log.bytes_since(version)?;
         let carry =
             |at: usize, assoc: Assoc| since.iter().fold(at, |at, steps| map(steps, at, assoc));
         let new_from = carry(from, Assoc::After);
         let new_to = carry(to, Assoc::Before).max(new_from);
-        let items: Vec<Decoration> = decorations
-            .into_iter()
-            .filter_map(|mut item| {
-                if item.from == item.to {
-                    let at = carry(item.from, Assoc::Before);
-                    item.from = at;
-                    item.to = at;
-                    return Some(item);
-                }
-                item.from = carry(item.from, Assoc::After);
-                item.to = carry(item.to, Assoc::Before);
-                (item.from < item.to).then_some(item)
-            })
-            .collect();
+        let mut items: Vec<Decoration> = Vec::with_capacity(decorations.len());
+        for mut item in decorations {
+            if item.from == item.to {
+                let at = self.char_of_byte(carry(item.from, Assoc::Before))?;
+                item.from = at;
+                item.to = at;
+                items.push(item);
+                continue;
+            }
+            let (start, end) = (
+                carry(item.from, Assoc::After),
+                carry(item.to, Assoc::Before),
+            );
+            if start < end {
+                item.from = self.char_of_byte(start)?;
+                item.to = self.char_of_byte(end)?;
+                items.push(item);
+            }
+        }
+        let (new_from, new_to) = (self.char_of_byte(new_from)?, self.char_of_byte(new_to)?);
         self.decorations.replace(&layer, new_from, new_to, items)?;
         self.keep_folded();
         Ok(())

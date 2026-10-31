@@ -257,17 +257,20 @@ end
 -- --- The text of the page's editors -----------------------------------------------------------
 --
 -- What the host posted of each editor's document (`pencere.editor`), read at once: the text is of
--- the version the last `edit` event said (`layout.editor_version`). Places are characters (code
--- points) and lines are counted from 0, as the host counts them; a range is from one place to
--- another, the end not in it. A large document is read in pieces: one read answers with at most
--- 1 MiB.
+-- the version the last `edit` event said (`layout.editor_version`). A place is a byte of the text,
+-- counted from 1 as a Luau string counts: the place of the first byte is 1 and the end of the text is
+-- `layout.editor_length(editor) + 1`; a range is from one place to another, the end not in it, so
+-- that `string.sub(text, from, to - 1)` is what it holds and `string.find`'s `i, j` is
+-- `i, j + 1`. A place is where a character starts: one inside a character is an error at the
+-- script's line. Lines are counted from 1. A large document is read in pieces: one read answers
+-- with at most 1 MiB.
 
 -- The version of the editor's text that is read; nil for an editor the page has not.
 function layout.editor_version(editor)
 	return host.editor_version(editor)
 end
 
--- How many characters it has, and how many lines.
+-- How many bytes it has, and how many lines.
 function layout.editor_length(editor)
 	return host.editor_length(editor)
 end
@@ -276,12 +279,12 @@ function layout.editor_lines(editor)
 	return host.editor_lines(editor)
 end
 
--- The characters `from` to `to` (the end not in it); nil for a range it has not.
+-- The bytes `from` to `to` (the end not in it); nil for a range it has not.
 function layout.editor_text(editor, from, to)
 	return host.editor_text(editor, from, to)
 end
 
--- Where line `line` starts, and the line the place `at` is on.
+-- Where line `line` starts (a place), and the line the place `at` is on.
 function layout.line_start(editor, line)
 	return host.line_start(editor, line)
 end

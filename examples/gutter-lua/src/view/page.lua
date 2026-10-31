@@ -22,20 +22,21 @@ for n = 1, 40 do
 end
 local text = table.concat(lines, "\n")
 
--- Where each line starts, in characters (the text is ASCII).
+-- Where line `line` (from 1, as the events say it) starts: a place, a byte of the text counted from 1
+-- as Luau counts a string.
 local function start_of(line)
-	local at = 0
-	for n = 1, line do
+	local at = 1
+	for n = 1, line - 1 do
 		at += #lines[n] + 1
 	end
 	return at
 end
 
--- The changes the page shows: lines (from 0) and what happened to them.
+-- The changes the page shows: lines (from 1) and what happened to them.
 local CHANGES = {
-	{ first = 3, last = 5, kind = "modified" },
-	{ first = 12, last = 13, kind = "added" },
-	{ first = 20, last = 20, kind = "deleted", was = "the lines that were here" },
+	{ first = 4, last = 6, kind = "modified" },
+	{ first = 13, last = 14, kind = "added" },
+	{ first = 21, last = 21, kind = "deleted", was = "the lines that were here" },
 }
 local COLORS = { modified = "blue", added = "green", deleted = "red" }
 
@@ -62,7 +63,7 @@ local function changes_layer()
 			from = start_of(change.first), to = start_of(change.last + 1), ruler = color, lane = "left",
 		}
 	end
-	return { decorate = "changes", version = version, from = 0, to = #text, decorations = marks }
+	return { decorate = "changes", version = version, from = 1, to = #text + 1, decorations = marks }
 end
 
 local function breakpoints_layer()
@@ -70,11 +71,11 @@ local function breakpoints_layer()
 	for line in breakpoints do
 		marks[#marks + 1] = {
 			from = start_of(line), to = start_of(line), gutter = "red", column = "breakpoints",
-			id = "breakpoint " .. line, label = "Breakpoint on line " .. (line + 1),
+			id = "breakpoint " .. line, label = "Breakpoint on line " .. line,
 		}
 		marks[#marks + 1] = { from = start_of(line), to = start_of(line), ruler = "red", lane = "right" }
 	end
-	return { decorate = "breakpoints", version = version, from = 0, to = #text, decorations = marks }
+	return { decorate = "breakpoints", version = version, from = 1, to = #text + 1, decorations = marks }
 end
 
 local function peek_layer()
@@ -82,7 +83,7 @@ local function peek_layer()
 	if peek then
 		marks[1] = { from = start_of(peek.line), to = start_of(peek.line), zone = PEEK, height = 60 }
 	end
-	return { decorate = "peek", version = version, from = 0, to = #text, decorations = marks }
+	return { decorate = "peek", version = version, from = 1, to = #text + 1, decorations = marks }
 end
 
 local OPTIONS = {
