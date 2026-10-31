@@ -439,20 +439,263 @@ fn an_error_before_the_view_ran_is_no_view_and_one_after_it_is_a_view_that_faile
     assert_eq!(no_view.reason, NoViewReason::Failed);
     assert_eq!(no_view.message.as_deref(), Some("a file did not verify"));
 
-    // A view the terminal draws itself that failed ran.
+    // A view the terminal draws itself that failed ran. The program asks for it again, and a
+    // terminal that does not answer leaves it with the failure.
     let mut pane = Pane::new();
-    let handle = serve_on(pane.terminal(), |options| options);
+    let handle = serve_on(pane.terminal(), |options| {
+        options.reopen_timeout(Duration::from_millis(300))
+    });
     let (_, open) = pane.open_a_view(&web_views());
     pane.send(
         "closed",
         Some(open.id),
         &json!({ "reason": "error", "code": "view", "message": "script:12: boom" }),
     );
+    pane.expect("hello");
     let Outcome::Closed(closed) = finished(handle) else {
         panic!("closed");
     };
     assert_eq!(closed.by, EndedBy::Error);
     assert_eq!(closed.message.as_deref(), Some("script:12: boom"));
+}
+
+/// The terminal's `closed` for a view that failed after it ran (§9.8).
+fn view_failed(pane: &mut Pane, open: u32, words: &str) {
+    pane.send(
+        "closed",
+        Some(open),
+        &json!({ "reason": "error", "code": "view", "message": words }),
+    );
+}
+
+/// The program's `hello` for a view it asks for again: the tty is still the program's, in the
+/// modes it asked in, and no `bye` went before it.
+fn asked_again(pane: &mut Pane) -> u32 {
+    let hello = pane.expect("hello");
+    assert!(
+        !pane.text().contains("\x1b[?1049l"),
+        "the alternate screen was left: {:?}",
+        pane.text()
+    );
+    let modes = termios_of(pane.slave);
+    assert_eq!(modes.c_lflag & libc::ICANON, 0, "canonical");
+    assert_eq!(modes.c_lflag & libc::ECHO, 0, "echo");
+    hello.id
+}
+
+#[test]
+fn a_view_that_fails_after_it_ran_is_asked_for_again_and_the_tty_is_not_given_back_between() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let handle = serve_on(pane.terminal(), |options| options);
+    let open = shown(&mut pane);
+    view_failed(&mut pane, open.id, "script:12: boom");
+
+    // The view comes back from the start, with the token the terminal gives now.
+    let hello = asked_again(&mut pane);
+    assert!(!handle.is_finished(), "serve returned");
+    pane.welcome(hello, TOKEN_2, &web_views());
+    let second = pane.expect("open");
+    let body: Value = serde_json::from_str(&second.payload).expect("JSON");
+    assert_eq!(body["token"], TOKEN_2);
+    assert_ne!(second.id, open.id);
+    pane.send("need", Some(second.id), &json!({ "missing": [] }));
+
+    // The view that is back is the view: a `bye` carries its token, and the end is the person's.
+    interrupt();
+    let bye = pane.expect("bye");
+    let body: Value = serde_json::from_str(&bye.payload).expect("JSON");
+    assert_eq!(body["token"], TOKEN_2);
+    pane.send("closed", Some(bye.id), &json!({ "reason": "program" }));
+    let Outcome::Closed(closed) = finished(handle) else {
+        panic!("closed");
+    };
+    assert_eq!(closed.by, EndedBy::Signal(2));
+}
+
+#[test]
+fn a_second_failure_inside_the_window_ends_serve_with_that_failure() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let handle = serve_on(pane.terminal(), |options| options);
+    let open = shown(&mut pane);
+    view_failed(&mut pane, open.id, "first");
+    let hello = asked_again(&mut pane);
+    pane.welcome(hello, TOKEN_2, &web_views());
+    let second = pane.expect("open");
+    pane.send("need", Some(second.id), &json!({ "missing": [] }));
+    view_failed(&mut pane, second.id, "second");
+
+    let Outcome::Closed(closed) = finished(handle) else {
+        panic!("closed");
+    };
+    assert_eq!(closed.by, EndedBy::Error);
+    assert_eq!(closed.code.as_deref(), Some("view"));
+    assert_eq!(closed.message.as_deref(), Some("second"));
+    modes_are_back(&pane);
+}
+
+#[test]
+fn a_view_that_fails_again_after_the_window_is_asked_for_once_more() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let handle = serve_on(pane.terminal(), |options| {
+        options.retry_window(Duration::from_millis(100))
+    });
+    let mut open = shown(&mut pane);
+    // Each failure comes later than the window after the one before it: each is asked for again.
+    for words in ["first", "second", "third"] {
+        view_failed(&mut pane, open.id, words);
+        let hello = asked_again(&mut pane);
+        pane.welcome(hello, TOKEN_2, &web_views());
+        open = pane.expect("open");
+        pane.send("need", Some(open.id), &json!({ "missing": [] }));
+        std::thread::sleep(Duration::from_millis(150));
+    }
+    interrupt();
+    let bye = pane.expect("bye");
+    pane.send("closed", Some(bye.id), &json!({ "reason": "program" }));
+    let Outcome::Closed(closed) = finished(handle) else {
+        panic!("closed");
+    };
+    assert_eq!(closed.by, EndedBy::Signal(2));
+}
+
+#[test]
+fn a_view_the_terminal_does_not_bring_back_leaves_serve_with_the_failure_it_fell_with() {
+    let _one = one_at_a_time();
+    // The terminal does not answer the new `hello`.
+    let mut pane = Pane::new();
+    let handle = serve_on(pane.terminal(), |options| {
+        options.reopen_timeout(Duration::from_millis(300))
+    });
+    let open = shown(&mut pane);
+    view_failed(&mut pane, open.id, "script:12: boom");
+    asked_again(&mut pane);
+    let Outcome::Closed(closed) = finished(handle) else {
+        panic!("closed");
+    };
+    assert_eq!(closed.by, EndedBy::Error);
+    assert_eq!(closed.code.as_deref(), Some("view"));
+    assert_eq!(closed.message.as_deref(), Some("script:12: boom"));
+    modes_are_back(&pane);
+
+    // The terminal refuses the new `open`.
+    let mut pane = Pane::new();
+    let handle = serve_on(pane.terminal(), |options| options);
+    let open = shown(&mut pane);
+    view_failed(&mut pane, open.id, "script:12: boom");
+    let hello = asked_again(&mut pane);
+    pane.welcome(hello, TOKEN_2, &web_views());
+    let second = pane.expect("open");
+    pane.send("closed", Some(second.id), &json!({ "reason": "refused" }));
+    let Outcome::Closed(closed) = finished(handle) else {
+        panic!("closed");
+    };
+    assert_eq!(closed.by, EndedBy::Error);
+    assert_eq!(closed.message.as_deref(), Some("script:12: boom"));
+
+    // The terminal opens none of the program's kinds now.
+    let mut pane = Pane::new();
+    let handle = serve_on(pane.terminal(), |options| options);
+    let open = shown(&mut pane);
+    view_failed(&mut pane, open.id, "script:12: boom");
+    let hello = asked_again(&mut pane);
+    pane.welcome(hello, TOKEN_2, &json!([]));
+    let Outcome::Closed(closed) = finished(handle) else {
+        panic!("closed");
+    };
+    assert_eq!(closed.by, EndedBy::Error);
+    assert_eq!(closed.message.as_deref(), Some("script:12: boom"));
+}
+
+#[test]
+fn a_terminal_that_comes_up_again_while_a_view_that_fell_is_asked_for_gives_it_the_view() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let handle = serve_on(pane.terminal(), |options| options);
+    let open = shown(&mut pane);
+    view_failed(&mut pane, open.id, "script:12: boom");
+    asked_again(&mut pane);
+    // The `hello` is not answered; the terminal asks for the view itself (§10.7).
+    pane.send(
+        "welcome",
+        None,
+        &json!({
+            "version": 1,
+            "token": TOKEN_2,
+            "host": { "name": "test", "version": "0" },
+            "features": ["dismiss"],
+            "views": web_views(),
+            "restart": true,
+        }),
+    );
+    let second = pane.expect("open");
+    let body: Value = serde_json::from_str(&second.payload).expect("JSON");
+    assert_eq!(body["token"], TOKEN_2);
+    pane.send("need", Some(second.id), &json!({ "missing": [] }));
+    interrupt();
+    let bye = pane.expect("bye");
+    pane.send("closed", Some(bye.id), &json!({ "reason": "program" }));
+    let Outcome::Closed(closed) = finished(handle) else {
+        panic!("closed");
+    };
+    assert_eq!(closed.by, EndedBy::Signal(2));
+}
+
+#[test]
+fn a_view_that_is_back_ends_with_its_own_end_not_with_the_failure_it_fell_with() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let handle = serve_on(pane.terminal(), move |options| {
+        options
+            .control(given)
+            .reopen_timeout(Duration::from_millis(200))
+            .bye_timeout(Duration::from_millis(150))
+    });
+    let open = shown(&mut pane);
+    view_failed(&mut pane, open.id, "script:12: boom");
+    let hello = asked_again(&mut pane);
+    pane.welcome(hello, TOKEN_2, &web_views());
+    let second = pane.expect("open");
+    pane.send("need", Some(second.id), &json!({ "missing": [] }));
+    // The program then replaces the view, and the terminal does not answer: that is a timeout of
+    // the reopening, not the first failure again.
+    let reopener = asking(move || control.reopen(None));
+    pane.expect("dismiss");
+    pane.expect("bye");
+    match joined(reopener).expect("a reopening") {
+        ReopenResult::NoView(no_view) => assert_eq!(no_view.reason, NoViewReason::Timeout),
+        other => panic!("no view: {other:?}"),
+    }
+    let Outcome::NoView(no_view) = finished(handle) else {
+        panic!("no view");
+    };
+    assert_eq!(no_view.reason, NoViewReason::Timeout);
+}
+
+#[test]
+fn a_view_that_fails_while_the_program_closes_it_is_not_asked_for_again() {
+    let _one = one_at_a_time();
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let handle = serve_on(pane.terminal(), {
+        let control = control.clone();
+        move |options| options.control(control)
+    });
+    let open = shown(&mut pane);
+    let closing = asking(move || control.close());
+    pane.expect("dismiss");
+    // The view fails as the program closes it: the program's wait is over, no new view.
+    view_failed(&mut pane, open.id, "late");
+    assert_eq!(joined(closing), CloseResult::Unavailable);
+    let Outcome::Closed(closed) = finished(handle) else {
+        panic!("closed");
+    };
+    assert_eq!(closed.by, EndedBy::Error);
+    assert!(pane.next_within(Duration::from_millis(200)).is_none());
 }
 
 #[test]

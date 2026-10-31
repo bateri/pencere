@@ -6,6 +6,13 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+### Changed
+
+- **A page that fails is shown again, and the app goes on.** `pencere.serve` shows a
+  page that made an error, trapped or went over a limit once more from the start, silently, once in
+  a minute (the page asks the app for where it was); `ended = "error"` now means that was given up
+  on, because the failure came twice inside the minute or the terminal did not bring the view back.
+
 ### Added
 
 - `pencere.files.receive` takes the `path` and the `size` the page was handed with a file, in its

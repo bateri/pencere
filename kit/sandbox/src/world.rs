@@ -2539,6 +2539,11 @@ impl World {
 }
 
 impl Runner for World {
+    fn interrupter(&self) -> Option<Box<dyn Fn() + Send + Sync>> {
+        let engine = self.store.engine().clone();
+        Some(Box::new(move || engine.increment_epoch()))
+    }
+
     fn render(&mut self, size: Size, now: f64, reduce_motion: bool) -> Result<Frame, Fault> {
         let page = self.view.pencere_view_page();
         let size = wit::Size {

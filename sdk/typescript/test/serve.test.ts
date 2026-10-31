@@ -564,10 +564,12 @@ describe("when the host ends the view", () => {
 
   it("tells what a view the host draws itself failed with: the words, and that it ran", async () => {
     const rig = new Rig();
+    // The program asks for the view again, and a host that does not answer leaves it with this.
     const { served } = await shown(
       rig,
       {
         views: [{ kind: "lua", versions: ["0.5"], bundle: luaBundle() }],
+        reopenTimeout: 40,
       },
       { views: offers("lua") },
     );
@@ -578,6 +580,92 @@ describe("when the host ends the view", () => {
       view: { kind: "lua", version: "0.5" },
       code: "view",
       message: "script:12: attempt to index nil with 'x'",
+    });
+  });
+
+  describe("a view that fails after it ran", () => {
+    const fell = (words: string) => closed("error", { code: "view", message: words });
+
+    it("is asked for again, with the terminal still the program's and no bye between", async () => {
+      const rig = new Rig();
+      const { served } = await shown(rig);
+      rig.say("closed", fell("script:12: boom"));
+      const hello = await rig.next("hello");
+      expect(rig.terminal.calls).toEqual(["enter"]);
+      rig.say("welcome", welcomePayload(TOKEN_2), hello.id);
+      const again = await rig.next("open");
+      expect(JSON.parse(again.payload)).toMatchObject({ token: TOKEN_2, view: "web" });
+      rig.say("need", need(), again.id);
+      await rig.settle();
+      expect(rig.terminal.calls).toEqual(["enter"]);
+      expect(rig.messages().map((m) => m.kind)).toEqual(["hello", "open", "hello", "open"]);
+      // The view that is back is the view: the person closing it is the end.
+      rig.say("closed", closed("user"));
+      expect(await served).toEqual({ kind: "closed", by: "user", view });
+    });
+
+    it("ends the program with the second failure inside the window", async () => {
+      const rig = new Rig();
+      const { served } = await shown(rig);
+      rig.say("closed", fell("first"));
+      const hello = await rig.next("hello");
+      rig.say("welcome", welcomePayload(TOKEN_2), hello.id);
+      const again = await rig.next("open");
+      rig.say("need", need(), again.id);
+      await rig.settle();
+      rig.say("closed", fell("second"));
+      expect(await served).toEqual({
+        kind: "closed",
+        by: "error",
+        view,
+        code: "view",
+        message: "second",
+      });
+      expect(rig.terminal.calls).toEqual(["enter", "restore"]);
+      expect(rig.messages().filter((m) => m.kind === "hello")).toHaveLength(2);
+    });
+
+    it("is asked for again once more when it falls after the window", async () => {
+      const rig = new Rig();
+      const { served } = await shown(rig, { retryWindow: 40 });
+      for (const words of ["first", "second"]) {
+        rig.say("closed", fell(words));
+        const hello = await rig.next("hello");
+        rig.say("welcome", welcomePayload(TOKEN_2), hello.id);
+        const again = await rig.next("open");
+        rig.say("need", need(), again.id);
+        await rig.settle();
+        await sleep(60);
+      }
+      rig.say("closed", closed("user"));
+      expect(await served).toMatchObject({ kind: "closed", by: "user" });
+      expect(rig.messages().filter((m) => m.kind === "hello")).toHaveLength(3);
+    });
+
+    it("leaves the program with its failure when the host does not answer, refuses, or opens nothing", async () => {
+      const failure = { kind: "closed", by: "error", view, code: "view", message: "boom" };
+
+      const silent = new Rig();
+      const first = await shown(silent, { reopenTimeout: 40 });
+      silent.say("closed", fell("boom"));
+      expect(await first.served).toEqual(failure);
+      expect(silent.terminal.calls).toEqual(["enter", "restore"]);
+
+      const refusing = new Rig();
+      const second = await shown(refusing);
+      refusing.say("closed", fell("boom"));
+      const hello = await refusing.next("hello");
+      refusing.say("welcome", welcomePayload(TOKEN_2), hello.id);
+      const open = await refusing.next("open");
+      refusing.say("closed", closed("refused"), open.id);
+      expect(await second.served).toEqual(failure);
+
+      const nothing = new Rig();
+      const third = await shown(nothing);
+      nothing.say("closed", fell("boom"));
+      const again = await nothing.next("hello");
+      nothing.say("welcome", welcomePayload(TOKEN_2, undefined, []), again.id);
+      expect(await third.served).toEqual(failure);
     });
   });
 

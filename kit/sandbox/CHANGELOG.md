@@ -35,7 +35,12 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   thread of its own, so 250 ms protected no one's smoothness and ended a page when the machine
   was busy. `Fault::Timeout` is now `Fault::Timeout { limit, within }` (`TimeLimit::Call` or
   `TimeLimit::Start`, and how long it was), and says so: "the page did not come back within 5 s (a
-  call: a frame, a settle, an event)". **Breaking** for a host that matches `Fault::Timeout`.
+  call: a frame, a settle, an event)". **Breaking** for a host that matches `Fault::Timeout`. A test
+  that means the floor (a page held to what every host gives) says `ModuleLimits::floor()`:
+  `default()` no longer is it, and a test that built on it is loosened without a compile error.
+- **A module that is let go of in a call has the call cut short.** Longer limits would have left a
+  page that does not come back running for seconds after its view was gone: dropping a `Module` now
+  interrupts the call it is in (`Runner::interrupter`, which a runner with a call to cut gives).
 
 ### Fixed
 

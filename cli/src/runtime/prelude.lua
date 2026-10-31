@@ -336,6 +336,10 @@ module.process = {
 --     "refused" | "failed" | "timeout" | "interrupted", code =, message =, status = }
 -- A terminal that has no view to show is not an error: `fallback(outcome)` runs, once the terminal is
 -- the shell's again, and is where the app shows its text.
+-- A page that fails (an error, a trap, a limit it went past) is shown again from the start, once in a minute, without a word and
+-- with the terminal the app's throughout (the page asks the app for where it was); `ended = "error"`
+-- says that was given up on: the failure came twice inside the minute, or the terminal did not bring
+-- the view back, and `message` is the failure.
 function module.serve(options)
 	if type(options) ~= "table" then
 		error("serve takes a table: { calls = {...}, topics = {...} }", 2)

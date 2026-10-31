@@ -304,6 +304,12 @@ struct Session<'a> {
     exchange: Exchange,
     /// What the view has attached, and the reads and writes of files that are out.
     files: Files,
+    /// When the view last failed after it ran: a view that fails again within
+    /// `Options::retry_window` of it is not shown again.
+    last_failure: Option<Instant>,
+    /// The failure of the view that fell and is being asked for again: what `serve` returns if
+    /// the terminal does not bring it back.
+    revival: Option<Outcome>,
     bye_sent: bool,
     finished: bool,
     result: Option<Result<Outcome, Error>>,
@@ -360,6 +366,8 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
         live: false,
         exchange: Exchange::new(outbox),
         files: Files::default(),
+        last_failure: None,
+        revival: None,
         bye_sent: false,
         finished: false,
         result: None,
@@ -611,6 +619,17 @@ impl Session<'_> {
     }
 
     fn over(&mut self, result: Result<Outcome, Error>) {
+        // A view that fell, and that the terminal did not bring back (it did not answer, refused,
+        // or ended the open): the program's view ended with the failure it fell with. A signal is
+        // the person's and stays what it is.
+        let result = match (self.revival.take(), result) {
+            (Some(failure), Ok(Outcome::NoView(no_view)))
+                if !matches!(no_view.reason, NoViewReason::Interrupted(_)) =>
+            {
+                Ok(failure)
+            }
+            (_, result) => result,
+        };
         self.end_view();
         self.settle_change(&result);
         self.phase = Phase::Over;
@@ -748,7 +767,7 @@ impl Session<'_> {
             // The reply came before any `welcome`: there is no host, and a `welcome` that comes
             // later is ignored (§5.3).
             // A reopening asks without the fence: this reply is the first view's, late.
-            Phase::Asking { .. } if self.change.is_some() => {}
+            Phase::Asking { .. } if self.change.is_some() || self.revival.is_some() => {}
             Phase::Asking { .. } => self.no_view(NoViewReason::NoHost),
             Phase::Draining { .. } => self.drained(),
             _ => {}
@@ -763,9 +782,12 @@ impl Session<'_> {
                 }
                 if message.re() == Some(*hello) {
                     self.on_answer(message);
-                } else if message.re().is_none() && self.change.is_some() {
-                    // The terminal came up again while the program was asking for another view:
-                    // it asks for the view, and the answer to the `hello` is not waited for.
+                } else if message.re().is_none()
+                    && (self.change.is_some() || self.revival.is_some())
+                {
+                    // The terminal came up again while the program was asking for another view,
+                    // or for the one that fell: it asks for the view, and the answer to the
+                    // `hello` is not waited for.
                     if let Some(Welcome::Offer(offer)) = payload::welcome(&message.payload)
                         && offer.restart
                     {
@@ -993,6 +1015,9 @@ impl Session<'_> {
             return;
         };
         self.accepted = true;
+        // The terminal took the open: the view that fell is back, and what ends it from here is its
+        // own end, not the failure of the one before.
+        self.revival = None;
         // The terminal took the open of the view the program asked for in place of the old one.
         match self.change.take().map(|change| change.reply) {
             Some(Reply::Reopen(reply)) => {
@@ -1378,7 +1403,49 @@ impl Session<'_> {
         };
         // The terminal has torn the view down and forgotten its token: there is no `bye` to send.
         self.forget_view();
+        if self.revive(&outcome) {
+            return;
+        }
         self.over(Ok(outcome));
+    }
+
+    /// A view that ran has failed (§9.8): the program asks for it again, once in
+    /// `Options::retry_window`, and whether it did. It asks with a `hello` as the end of a
+    /// hand-off does, and now: the terminal answers a `hello` only while the tty is raw and the
+    /// program is in the foreground, and it is neither once `serve` has returned it. Not while a
+    /// reopening, a closing or a hand-off is under way, which has its own answer to wait for.
+    fn revive(&mut self, outcome: &Outcome) -> bool {
+        // Only the page's own failure (§9.8): the terminal's other errors are not the view's.
+        let Outcome::Closed(Closed {
+            by: EndedBy::Error,
+            code: Some(code),
+            ..
+        }) = outcome
+        else {
+            return false;
+        };
+        if code != "view" {
+            return false;
+        }
+        let now = Instant::now();
+        let window = self.options.retry_window;
+        let long_ago = self
+            .last_failure
+            .replace(now)
+            .is_none_or(|at| now.saturating_duration_since(at) >= window);
+        if !long_ago || self.change.is_some() {
+            return false;
+        }
+        let hello = payload::hello(&self.offers());
+        let Ok(id) = self.writer.message("hello", None, None, &hello) else {
+            return false;
+        };
+        self.phase = Phase::Asking {
+            hello: id,
+            until: now + self.options.reopen_timeout,
+        };
+        self.revival = Some(outcome.clone());
+        true
     }
 }
 

@@ -73,6 +73,14 @@ pub trait Runner: Send + 'static {
         Vec::new()
     }
 
+    /// What cuts a call that is running short, from another thread, once the module is let go of:
+    /// a page that does not come back is stopped at its time, and that time is long (seconds), so
+    /// that a page that is let go of is not left to run to the end of it. `None` for a runner
+    /// that has no call to cut.
+    fn interrupter(&self) -> Option<Box<dyn Fn() + Send + Sync>> {
+        None
+    }
+
     /// The boxes the module has asked to be scrolled since the last taking.
     fn take_asks(&mut self) -> Vec<ScrollTo> {
         Vec::new()
@@ -117,6 +125,9 @@ struct Mailbox {
     arrived: Condvar,
     /// The application has been woken and has not taken what is waiting yet.
     woken: AtomicBool,
+    /// Cuts the call the module is in, once the application lets the module go
+    /// ([`Runner::interrupter`]).
+    interrupt: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
 #[derive(Default)]
@@ -364,6 +375,17 @@ impl Module {
 impl Drop for Module {
     fn drop(&mut self) {
         let _ = self.commands.send(Command::Stop);
+        // The stop is read between calls: a call that is running is cut short, not waited for to
+        // the end of its time.
+        if let Some(interrupt) = self
+            .mailbox
+            .interrupt
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
+            interrupt();
+        }
     }
 }
 
@@ -576,6 +598,11 @@ fn serve<R: Runner>(
     post: &Post<'_>,
 ) -> Result<(), Fault> {
     let mut runner = make()?;
+    *post
+        .mailbox
+        .interrupt
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = runner.interrupter();
     // What the page was last made for: what an event that changed it makes it again for.
     let mut last: Option<Asked> = None;
     // How many times in a row a settle has asked for the page again without anyone else asking
@@ -1572,6 +1599,53 @@ mod tests {
         rig.module.render(Size::new(1.0, 1.0), 1.0, false);
         rig.module.event(move_to(1.0));
         assert!(matches!(rig.module.poll().closed, Some(Fault::Trap(_))));
+    }
+
+    #[test]
+    fn a_module_let_go_of_in_a_call_has_the_call_cut_short() {
+        use std::sync::atomic::AtomicBool;
+        // A page in a call that does not come back until it is cut.
+        struct Stuck {
+            started: Arc<AtomicBool>,
+            cut: Arc<AtomicBool>,
+        }
+        impl Runner for Stuck {
+            fn render(&mut self, _: Size, _: f64, _: bool) -> Result<Frame, Fault> {
+                self.started.store(true, Ordering::SeqCst);
+                let until = Instant::now() + Duration::from_secs(30);
+                while !self.cut.load(Ordering::SeqCst) && Instant::now() < until {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(Fault::Trap("cut".into()))
+            }
+            fn settle(&mut self) -> Result<bool, Fault> {
+                unreachable!()
+            }
+            fn handle(&mut self, _: Event) -> Result<Reply, Fault> {
+                unreachable!()
+            }
+            fn lay_out(&mut self, _: Arc<Laid>) {}
+            fn interrupter(&self) -> Option<Box<dyn Fn() + Send + Sync>> {
+                let cut = Arc::clone(&self.cut);
+                Some(Box::new(move || cut.store(true, Ordering::SeqCst)))
+            }
+        }
+        let started = Arc::new(AtomicBool::new(false));
+        let cut = Arc::new(AtomicBool::new(false));
+        let (seen_started, seen_cut) = (Arc::clone(&started), Arc::clone(&cut));
+        let module = Module::spawn(
+            move || Ok(Stuck { started, cut }),
+            Arc::new(Unbounded),
+            || {},
+        );
+        module.render(Size::new(1.0, 1.0), 0.0, false);
+        let until = Instant::now() + Duration::from_secs(5);
+        while !seen_started.load(Ordering::SeqCst) {
+            assert!(Instant::now() < until, "the call does not begin");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        drop(module);
+        assert!(seen_cut.load(Ordering::SeqCst), "the call was not cut");
     }
 
     #[test]

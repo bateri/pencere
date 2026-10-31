@@ -159,6 +159,16 @@ export interface ServeOptions {
    */
   reopenTimeout?: number;
   /**
+   * How long a view that fell is left alone before it is shown again, in milliseconds. A view
+   * that fails (the host's `closed` with `reason` `error` and `code` `view`) is
+   * shown again from the start, the page asking the program for its place, but not more than once
+   * in this time, so that a view that fails every time it is opened ends the program with its
+   * failure instead of being opened for ever. 60000 by default. The failure of a second view
+   * inside the time, and of a view the host does not bring back in {@link reopenTimeout}, is
+   * what `serve` gives (`closed`, `by` `error`).
+   */
+  retryWindow?: number;
+  /**
    * After an answer that did not come in time: how long to go on reading, so that
    * a reply to `CSI c` that is only late does not reach the shell as typed text
    * (§5.3), in milliseconds. 1000 by default.
@@ -526,6 +536,10 @@ class TerminalSession implements ViewTarget {
   #accepted = false;
   /** The view has asked something of the program. */
   #heard = false;
+  /** When the view last failed after it ran (`performance.now()`): see {@link ServeOptions.retryWindow}. */
+  #lastFailure: number | undefined;
+  /** The failure of the view that fell and is being asked for again: what `serve` gives if the host does not bring it back. */
+  #revival: ServeResult | undefined;
   /** What the view has attached, and the reads and writes of files that wait for the host. */
   readonly #files = new Files();
   readonly #sendFile: SendFile = (kind, payload, params) =>
@@ -657,8 +671,10 @@ class TerminalSession implements ViewTarget {
     this.#replyWait?.finish();
     // A program that is leaving only waits for this: it concludes nothing from it.
     if (this.#phase === "leaving") return;
-    // The terminal answered `CSI c` before any `welcome`: there is no host (§5.3).
-    this.#asking?.settle({ kind: "reply" });
+    // The terminal answered `CSI c` before any `welcome`: there is no host (§5.3). Not to a view
+    // that fell and is asked for again, which asks without the fence: this reply is the first
+    // view's, late.
+    if (this.#revival === undefined) this.#asking?.settle({ kind: "reply" });
     this.#draining?.();
   }
 
@@ -754,7 +770,7 @@ class TerminalSession implements ViewTarget {
         asking.settle(
           welcome.kind === "offer" ? { kind: "offer", welcome } : { kind: "unsupported" },
         );
-      } else if (re === undefined && this.#change !== undefined) {
+      } else if (re === undefined && (this.#change !== undefined || this.#revival !== undefined)) {
         // A host that came up after a break while the program waits to be offered a view
         // (§10.7): what it offers is what the `hello` was for, and the `hello` may be lost.
         const welcome = parseWelcome(message.payload, VERSIONS);
@@ -793,6 +809,8 @@ class TerminalSession implements ViewTarget {
     const missing = parseNeed(message.payload);
     if (missing === undefined) return;
     this.#accepted = true;
+    // The host took the open: the view that fell is back, and what ends it from here is its own end.
+    this.#revival = undefined;
     try {
       for (const digest of new Set(missing)) {
         const data = bundle.read(digest);
@@ -863,13 +881,66 @@ class TerminalSession implements ViewTarget {
   }
 
   async #hostClosed(closed: Closed, shown: ShownView): Promise<void> {
-    const result = this.#resultOf(closed, shown);
+    let result = this.#resultOf(closed, shown);
     // The host has torn the view down and forgotten its token: there is no `bye` to send.
+    if (this.#shouldRevive(result)) {
+      this.#forgetView();
+      await this.#revive(result);
+      return;
+    }
     this.#phase = "over";
     this.#forgetView();
+    // A view that fell, and that the host did not bring back (it refused, or ended the open): the
+    // program's view ended with the failure it fell with.
+    const revival = this.#revival;
+    this.#revival = undefined;
+    if (revival !== undefined && result.kind === "no-view") result = revival;
     await this.#link.flush();
     this.#cleanup();
     this.#settle(result);
+  }
+
+  /**
+   * A view that ran has failed (§9.8): whether the program asks for it again, once in
+   * {@link ServeOptions.retryWindow}. Not while a reopening, a closing or a hand-off is under way,
+   * which has its own answer to wait for.
+   */
+  #shouldRevive(result: ServeResult): boolean {
+    // Only the page's own failure (§9.8): the host's other errors are not the view's.
+    if (result.kind !== "closed" || result.by !== "error" || result.code !== "view") return false;
+    const now = performance.now();
+    const last = this.#lastFailure;
+    this.#lastFailure = now;
+    const longAgo = last === undefined || now - last >= (this.#options.retryWindow ?? 60_000);
+    return longAgo && this.#change === undefined;
+  }
+
+  /**
+   * Asks for the view that fell again, as the end of a reopening does and now: the host answers a
+   * `hello` only while the tty is raw and the program is in the foreground, and it is neither once
+   * `serve` has given it back. `failure` is what `serve` gives if the host does not bring the view
+   * back.
+   */
+  async #revive(failure: ServeResult): Promise<void> {
+    this.#revival = failure;
+    try {
+      const hello = this.#link.send("hello", helloPayload(this.#offers()));
+      const answer = await this.#ask(hello.id, this.#options.reopenTimeout ?? 10_000);
+      // Something ended the wait (a signal): the view is not opened.
+      if (this.#phase !== "showing") return;
+      const choice = answer.kind === "offer" ? this.#choose(answer.welcome) : undefined;
+      if (answer.kind !== "offer" || choice === undefined) {
+        this.#phase = "over";
+        this.#revival = undefined;
+        await this.#link.flush();
+        this.#cleanup();
+        this.#settle(failure);
+        return;
+      }
+      await this.#open(answer.welcome, choice);
+    } catch (error) {
+      this.#fail(error);
+    }
   }
 
   /** What `closed` means for the program that asked for the view (§13). */

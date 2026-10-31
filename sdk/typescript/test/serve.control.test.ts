@@ -307,6 +307,49 @@ describe("a program that closes its view and goes on (§10.8)", () => {
   });
 });
 
+describe("a view that fell and a program that goes on", () => {
+  const fell = (words: string) => closed("error", { code: "view", message: words });
+
+  it("is back as the view it was: a later refusal of a reopening is that refusal, not the failure", async () => {
+    const { rig, control, served } = await withControl();
+    rig.say("closed", fell("boom"));
+    const hello = await rig.next("hello");
+    rig.say("welcome", welcomePayload(TOKEN_2), hello.id);
+    const again = await rig.next("open");
+    rig.say("need", need(), again.id);
+    await rig.settle();
+    const reopening = control.reopen();
+    const { open } = await replaced(rig);
+    rig.say("closed", closed("refused", { code: "policy" }), open.id);
+    const refused = { kind: "no-view", reason: "refused", code: "policy" };
+    expect(await reopening).toEqual(refused);
+    expect(await served).toEqual(refused);
+  });
+
+  it("is given the view by a host that comes up again while it is asked for", async () => {
+    const { rig, served } = await withControl();
+    rig.say("closed", fell("boom"));
+    await rig.next("hello");
+    rig.sayBytes(fixture("to-program/welcome-restart.frame"));
+    const again = await rig.next("open");
+    expect(JSON.parse(again.payload)).toMatchObject({ token: TOKEN_2, view: "web" });
+    rig.say("need", need(), again.id);
+    await rig.settle();
+    rig.say("closed", closed("user"));
+    expect(await served).toMatchObject({ kind: "closed", by: "user" });
+  });
+
+  it("is not asked for again while the program is closing it", async () => {
+    const { rig, control, served } = await withControl();
+    const closing = control.close();
+    await rig.next("dismiss");
+    rig.say("closed", fell("late"));
+    expect(await closing).toEqual({ kind: "unavailable" });
+    expect(await served).toMatchObject({ kind: "closed", by: "error", message: "late" });
+    expect(rig.messages().filter((m) => m.kind === "hello")).toHaveLength(1);
+  });
+});
+
 describe("a host that starts the view again (§10.7)", () => {
   it("is answered with a new open and a new token, and what the old view asked is over", async () => {
     let subscription: Subscription | undefined;

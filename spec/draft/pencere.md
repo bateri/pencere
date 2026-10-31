@@ -1791,7 +1791,8 @@ bidirectional overrides, as it does for `program` and `title`, but it allows the
 being an explanation. A program that wants its person to see them prints them once the terminal is
 its own again; the host does not write to the screen the program shares with the shell. A host
 that has nothing to say leaves `message` out. A host MAY end a page that fails in the same way (its
-web view's process ends, say) with the same `reason` and `code`.
+web view's process ends, say) with the same `reason` and `code`. A program may show the view again
+from the start, as it does for any view after the first (Section 10.2), instead of ending with it.
 
 ```frame fixtures/to-program/closed-error-view.frame
 <ESC>_pencere;closed;id=5,re=2;{"reason":"error","code":"view","message":"script:12: attempt to index nil with 'x'"}<ESC>\

@@ -233,8 +233,10 @@ pub enum TimeLimit {
 fn said(time: Duration) -> String {
     if time.subsec_nanos() == 0 {
         format!("{} s", time.as_secs())
-    } else {
+    } else if time.subsec_nanos() % 1_000_000 == 0 {
         format!("{} ms", time.as_millis())
+    } else {
+        format!("{time:?}")
     }
 }
 

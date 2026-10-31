@@ -6,8 +6,21 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **A view that fails is shown again, not the end of `serve`.** The terminal's `closed`
+  with `reason` `error` and `code` `view` (a page that trapped, went over a limit or made an error)
+  no longer ends the program: `serve` forgets the view and asks for it again, silently and with the
+  terminal still the program's, so that the page starts from the beginning and asks the program for
+  where it was. It does so once in `Options::retry_window` (a minute by default); a second failure
+  inside it, and a terminal that does not answer, refuses the view or opens none of the program's
+  kinds, end `serve` as before, with the failure the view fell with (`EndedBy::Error`). An error
+  with another `code`, and a failure while a reopening, a closing or a hand-off is under way, are as
+  they were. A Lua app, which runs on this library, gets it with no change.
+
 ### Added
 
+- `Options::retry_window`: how long a view that fell is left alone before it is shown again.
 - An app's page of the kit (`pencere::app!`, `App::views`) is offered at `lua` 2.1 as well as 2.0,
   as the `pencere` command's Lua apps are, preferring 2.1: a Rust program's page can draw a picture
   the program attached (`sha256:`) and a file the person gave (`file:`), which 2.0 does not name.

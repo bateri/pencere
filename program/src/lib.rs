@@ -131,6 +131,7 @@ pub struct Options {
     late_reply_grace: Duration,
     bye_timeout: Duration,
     reopen_timeout: Duration,
+    retry_window: Duration,
 }
 
 impl fmt::Debug for Options {
@@ -174,6 +175,7 @@ impl Options {
             late_reply_grace: Duration::from_secs(1),
             bye_timeout: Duration::from_millis(500),
             reopen_timeout: Duration::from_secs(10),
+            retry_window: Duration::from_secs(60),
         }
     }
 
@@ -411,6 +413,18 @@ impl Options {
         self
     }
 
+    /// How long a view that fell is left alone before it is shown again: a view that fails (the
+    /// terminal's `closed` with `code` `view`) is shown again from the start, the page asking the
+    /// program for its place, but not more than once in this time (a minute by default), so that a view that fails every time it
+    /// is opened ends the program with its failure instead of being opened for ever. The failure
+    /// of a second view inside the time, and of a view the terminal does not bring back in
+    /// [`Options::reopen_timeout`], is what `serve` returns ([`EndedBy::Error`]).
+    #[must_use]
+    pub fn retry_window(mut self, window: Duration) -> Self {
+        self.retry_window = window;
+        self
+    }
+
     /// Checks what the program offers.
     fn check(&self) -> Result<(), Error> {
         Self::check_views(&self.views)
@@ -559,7 +573,10 @@ pub enum EndedBy {
     View,
     /// The terminal says the program closed it (§10.8).
     Program,
-    /// The view failed after it ran, or the terminal ended it with an error.
+    /// The view failed, or the terminal ended it with an error. A view that failed with `code`
+    /// `view` is shown again first (see [`serve`]), so this is its failure when it fell twice
+    /// within [`Options::retry_window`] or the terminal did not bring it back; any other error is
+    /// this at once.
     Error,
     /// A signal (its number) ended the program's use of the view: ⌃C is `SIGINT`, 2. The program
     /// said `bye` and the terminal is given back; what the program does next is its own.
@@ -624,6 +641,13 @@ pub enum NoViewReason {
 /// A signal that ends the program while the view is up (⌃C reaches the program as `SIGINT`,
 /// §10.4) ends the view, and `serve` returns [`EndedBy::Signal`]: the program decides what comes
 /// next, and [`Outcome::shell_status`] is what a shell would call it.
+///
+/// A view that fails (the terminal's `closed` with `reason` `error` and `code` `view`: a page that
+/// trapped, went over a limit or made an error) is not the end of the program: `serve` shows it
+/// again from the start, silently, with the terminal still the program's, and the page asks the
+/// program for where it was. It does so once in [`Options::retry_window`] (a minute); a second
+/// failure inside that time, or a terminal that does not answer or refuses the new view, ends
+/// `serve` with the failure as [`EndedBy::Error`].
 ///
 /// # Errors
 ///

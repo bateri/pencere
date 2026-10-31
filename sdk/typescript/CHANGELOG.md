@@ -6,8 +6,21 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **A view that fails is shown again, not the end of `serve`.** The host's `closed` with
+  `reason` `error` and `code` `view` (a page that trapped, went over a limit or made an error) no
+  longer ends the program: `serve` forgets the view and asks for it again with a new `hello`,
+  silently and with the terminal still the program's, so that the page starts from the beginning and
+  asks the program for where it was. It does so once in `retryWindow` (60 000 ms by default); a
+  second failure inside it, and a host that does not answer, refuses the view or opens none of the
+  program's kinds, end `serve` as before, with the failure the view fell with (`by` `error`). An
+  error with another `code`, and a failure while a reopening or a closing is under way, are as they
+  were.
+
 ### Added
 
+- `ServeOptions.retryWindow`: how long a view that fell is left alone before it is shown again.
 - **Files beside the view's bundle** (specification §8.8 to §8.10), for a view opened at `lua` 2.1
   or `wasm` 3.0 and later: `ViewControl.attach(bytes)` adds a file for the view to draw and resolves
   with the name it draws it by (`sha256:` and the digest) once the host holds it, sending nothing

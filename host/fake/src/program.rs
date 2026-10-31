@@ -380,6 +380,19 @@ impl Program {
 }
 
 impl Program {
+    /// The page of the view failed (a script's error, a limit it went past), as a terminal that
+    /// draws the view itself ends it for its program: the program is told with the page's words
+    /// (§9.8), and the view it shows in its place, if it shows one, is waited for by [`view_of`].
+    pub fn view_failed(&mut self, why: &str) {
+        self.started = None;
+        if !self.ended {
+            self.closed = None;
+        }
+        self.session.view_failed(why);
+        self.settle();
+        self.turn(Duration::ZERO);
+    }
+
     /// How many of the page's calls the program has not answered yet.
     pub fn owed(&self) -> usize {
         self.owed.len()

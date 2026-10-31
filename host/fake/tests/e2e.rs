@@ -2840,6 +2840,90 @@ fn the_lua_apps_page_runs_for_real_and_its_program_answers_it()
     Ok(())
 }
 
+/// A Lua app that shows its view and, once `serve` is over, writes how it ended: what `serve` gave
+/// (`ended`) and the words of the failure.
+const LUA_REPORTS_ITS_END: &str = r#"
+local pencere = require("pencere")
+local outcome = pencere.serve {
+	calls = { hello = function() return { hello = true } end },
+}
+pencere.fs.write(ENDED, tostring(outcome.ended) .. ":" .. tostring(outcome.message) .. "\n")
+pencere.exit(0)
+"#;
+
+/// A page that draws once and fails when a key is pressed.
+const LUA_PAGE_THAT_FALLS: &str = r#"
+return {
+	render = function() return pencere.div():child(pencere.text("a page")) end,
+	handle = function(e)
+		if e.type == "key" then error("the page fell") end
+	end,
+}
+"#;
+
+/// A view that fails after it ran is not the end of the program: the program shows it again from
+/// the start, and the terminal is not given back between. A second failure inside the minute is the
+/// end, with the failure the page fell with.
+#[test]
+#[ignore = "heavy: compiles the interpreter and runs a program with its page; make check-heavy"]
+fn a_lua_apps_page_that_fails_after_it_ran_comes_back_once_and_the_second_failure_ends_the_app()
+-> Result<(), Box<dyn std::error::Error>> {
+    use pencere_drive::headless::Peer;
+
+    let dir = fresh("lua-page-falls");
+    let source = dir.join("app");
+    fs::create_dir_all(&source).expect("a directory");
+    let ended = dir.join("ended.txt");
+    fs::write(
+        source.join("app.lua"),
+        LUA_REPORTS_ITS_END.replace("ENDED", &format!("{:?}", ended.to_string_lossy())),
+    )
+    .expect("an app");
+    fs::write(source.join("page.lua"), LUA_PAGE_THAT_FALLS).expect("a page");
+    let app = dir.join("falls");
+    let (status, said) = pencere(&dir, &["build", "app", "-o", &app.to_string_lossy()]);
+    assert!(status.success(), "pencere build: {said}");
+    let app = app.to_string_lossy().into_owned();
+
+    // The page draws, and then a key makes it fail.
+    let mut page = program::open(&[&app])?.size(800.0, 500.0).open()?;
+    assert!(page.says("a page"));
+    let key = pencere_view::Key::Character('x');
+    let _ = page.key(key, pencere_view::Mods::default());
+    let why = page.ended().ok_or("the page did not fail")?.to_string();
+    assert!(why.contains("the page fell"), "{why}");
+    let mut program = page.into_peer();
+    program.view_failed(&why);
+
+    // The view is shown again, a page from the start, and the app has not ended.
+    let mut page = program::view_of(&mut program, Duration::from_secs(60))?
+        .peer(program)
+        .size(800.0, 500.0)
+        .open()?;
+    assert!(page.says("a page"));
+    assert!(!ended.exists(), "the app ended with its first failure");
+
+    // The second failure, inside the minute, is the end of the app, with its words.
+    let _ = page.key(key, pencere_view::Mods::default());
+    let why = page
+        .ended()
+        .ok_or("the page did not fail again")?
+        .to_string();
+    let mut program = page.into_peer();
+    program.view_failed(&why);
+    let until = std::time::Instant::now() + Duration::from_secs(60);
+    while program.closed().is_none() && std::time::Instant::now() < until {
+        program.wait(Duration::from_millis(100));
+        program.said();
+    }
+    let report = fs::read_to_string(&ended).unwrap_or_default();
+    assert!(
+        report.starts_with("error:") && report.contains("the page fell"),
+        "{report:?}"
+    );
+    Ok(())
+}
+
 // ---- files beside the bundle (specification §8.8 to §8.10) ---------------------------------
 //
 // The library's example `files` (`program/examples/files.rs`) attaches, receives and saves files
