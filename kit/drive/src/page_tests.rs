@@ -1466,8 +1466,9 @@ fn wait(woken: &Receiver<()>) -> bool {
     woken.recv_timeout(Duration::from_secs(30)).is_ok()
 }
 
-/// A decoded PNG wakes the host once, the drain says the page is to be drawn again, that frame has
-/// the picture, and after it the page at rest asks for and wakes nothing.
+/// A PNG is two arrivals, as an SVG is: its size (from the header), which lays the page out again,
+/// then its pixels at the size the page gave it. Each wakes the host once, each drain says the page
+/// is to be drawn again, and after them the page at rest asks for and wakes nothing.
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_decoded_image_wakes_the_page_once_and_a_page_at_rest_not_at_all() {
@@ -1488,16 +1489,27 @@ fn a_decoded_image_wakes_the_page_once_and_a_page_at_rest_not_at_all() {
     );
     assert_eq!(assets.reads.load(std::sync::atomic::Ordering::SeqCst), 1);
 
-    // The file arrives: one wake for it, one drain that says the page is to be laid out and drawn
-    // again, and that frame has the picture.
+    // The file arrives: one wake for its size, one drain that says the page is to be laid out and
+    // drawn again, and that frame asks for the pixels at the size it gives the picture. The file is
+    // read twice, for its header and for its pixels, and the gate lets both through.
     open.send(()).unwrap();
-    assert!(wait(&rig.woken), "the decoded image woke nobody");
+    open.send(()).unwrap();
+    assert!(wait(&rig.woken), "the size of the image woke nobody");
     let drained = rig.page.drain();
     assert!(drained.redraw, "{drained:?}");
     assert!(drained.diagnostics.is_empty(), "{drained:?}");
     let list = rig.page.frame(frame_at(0.4)).list;
+    assert_eq!(pictures(&rig.page, &list), 0, "no pixels at this size yet");
+
+    // The pixels arrive: one more wake, one drain that says the page is to be drawn again, and that
+    // frame has the picture.
+    assert!(wait(&rig.woken), "the pixels of the image woke nobody");
+    let drained = rig.page.drain();
+    assert!(drained.redraw, "{drained:?}");
+    assert!(drained.diagnostics.is_empty(), "{drained:?}");
+    let list = rig.page.frame(frame_at(0.5)).list;
     assert_eq!(pictures(&rig.page, &list), 1, "the image is in the list");
-    assert!(rig.quiet(), "one image woke the host more than once");
+    assert!(rig.quiet(), "one image woke the host more than twice");
 
     // At rest: the frames that follow ask nothing, and the drain has nothing to say.
     for step in 0..3 {
@@ -1507,19 +1519,35 @@ fn a_decoded_image_wakes_the_page_once_and_a_page_at_rest_not_at_all() {
     let drained = rig.page.drain();
     assert!(!drained.redraw, "{drained:?}");
     assert!(rig.quiet(), "a page at rest woke the host");
-    assert_eq!(assets.reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(
+        assets.reads.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "the header, and the pixels at the one size: a page at rest reads nothing more"
+    );
 }
 
-/// A frame that is built between the file's arrival and the drain of the wake that came with it is
-/// the frame that shows the picture; the drain after it has no other frame to ask for.
+/// A frame that is built between an arrival (the size, then the pixels) and the drain of the wake
+/// that came with it is the frame that shows it; the drain after it has no other frame to ask for.
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_frame_built_before_the_drain_shows_the_arrived_image_and_no_other_is_asked_for() {
     let (ImageRig { mut rig, open, .. }, _) = image_rig("dot.png", PNG.to_vec());
+    // The file is read twice, for its header and for its pixels, and the gate lets both through.
     open.send(()).unwrap();
-    assert!(wait(&rig.woken), "the decoded image woke nobody");
-    // The frame comes first, for a reason of its own (a pointer move, a tick).
+    open.send(()).unwrap();
+    assert!(wait(&rig.woken), "the size of the image woke nobody");
+    // The frame comes first, for a reason of its own (a pointer move, a tick): it lays the page
+    // out with the size, and asks for the pixels at it.
     let list = rig.page.frame(frame_at(0.4)).list;
+    assert_eq!(pictures(&rig.page, &list), 0, "no pixels at this size yet");
+    let drained = rig.page.drain();
+    assert!(
+        !drained.redraw,
+        "the wake of a size a frame already laid out asked for one more: {drained:?}"
+    );
+    // The same for the pixels.
+    assert!(wait(&rig.woken), "the pixels of the image woke nobody");
+    let list = rig.page.frame(frame_at(0.5)).list;
     assert_eq!(pictures(&rig.page, &list), 1, "the frame has the picture");
     let drained = rig.page.drain();
     assert!(
