@@ -23,23 +23,16 @@ use crate::screen::{Screen, Seen};
 /// What a terminal answers to `CSI c`.
 pub const DEVICE_ATTRIBUTES: &[u8] = b"\x1b[?62;4c";
 
-/// The version of the interface of a Lua script the terminal draws itself that the stand-in speaks.
-pub const KIT_VERSION: &str = "2.0";
-
-/// The version of the interface of a WebAssembly component the stand-in speaks: the kit's
-/// `pencere:view@3.0.0`.
-pub const WASM_VERSION: &str = "3.0";
-
-/// The version of a Lua page that has files beside its bundle (specification §5.5), which the
-/// stand-in offers beside the kit's.
-pub const FILES_VERSION: &str = "2.1";
+/// The version of the interface of a Lua script the terminal draws itself that the stand-in speaks:
+/// `2.1`, the one that has files beside the bundle (specification §5.5).
+pub const KIT_VERSION: &str = "2.1";
 
 /// A pixel is not a cell, but the view's container is told in pixels.
 pub const CELL_WIDTH: u32 = 8;
 pub const CELL_HEIGHT: u32 = 16;
 
 /// What the session of a pane of `size` cells is: the stand-in host, a dark theme, and the views it
-/// opens besides a page — a component and a Lua script, which a terminal draws itself.
+/// opens besides a page — a Lua script, which a terminal draws itself.
 pub fn config(size: pty::Size) -> Config {
     let theme = Theme::new(
         Rgb(0x11, 0x13, 0x18),
@@ -58,12 +51,7 @@ pub fn config(size: pty::Size) -> Config {
             height: u32::from(size.rows) * CELL_HEIGHT,
         },
     );
-    config
-        .views
-        .push(Offer::new(ViewKind::Wasm, &[WASM_VERSION]));
-    config
-        .views
-        .push(Offer::new(ViewKind::Lua, &[KIT_VERSION, FILES_VERSION]));
+    config.views.push(Offer::new(ViewKind::Lua, &[KIT_VERSION]));
     config
 }
 
@@ -276,6 +264,21 @@ impl Typing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The stand-in opens a page and a Lua script at the one version the kit has until its first
+    /// general release: a program that offers only `2.0` finds nothing in common.
+    #[test]
+    fn the_stand_in_opens_lua_at_2_1_alone() {
+        let config = config(pty::Size { cols: 80, rows: 24 });
+        let lua: Vec<&Offer> = config
+            .views
+            .iter()
+            .filter(|offer| offer.kind == ViewKind::Lua)
+            .collect();
+        assert_eq!(lua.len(), 1);
+        assert_eq!(lua[0].versions, [KIT_VERSION]);
+        assert_eq!(KIT_VERSION, "2.1");
+    }
 
     /// What a view said goes past the bound with the terminal's own bytes after it: the view's
     /// that were not begun go, the terminal's answer to `CSI c` after them stays, and so does the

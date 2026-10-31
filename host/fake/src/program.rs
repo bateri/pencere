@@ -1,13 +1,13 @@
 //! A program on a pty whose view is run for real: the program started as a terminal starts it, the
 //! terminal's side of the conversation held by `pencere-host`'s session as the stand-in host holds
-//! it ([`crate::pane`]), and the view it opens — a Lua script or a WebAssembly component — run in the
+//! it ([`crate::pane`]), and the view it opens — a Lua script — run in the
 //! kit's sandbox under the drive's host with no screen (`pencere_drive::headless`), its page
 //! speaking to the program through the session. A program and its page are tested together, as a
 //! terminal shows them:
 //!
 //! ```no_run
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut page = pencere_fake_host::program::open(&["target/debug/containers-rust", "--lua"])?
+//! let mut page = pencere_fake_host::program::open(&["target/debug/containers-rust"])?
 //!     .size(900.0, 500.0)
 //!     .open()?;
 //! assert!(page.says("Containers"));
@@ -154,13 +154,6 @@ pub fn view_of(program: &mut Program, within: Duration) -> Result<Opening<Calls>
     let started = program.view(within)?;
     Ok(match started.kind {
         ViewKind::Lua => Headless::bundle(started.files, &started.entry),
-        ViewKind::Wasm => {
-            let bytes = started
-                .files
-                .read(&started.entry)
-                .ok_or_else(|| Error::NoView(format!("its entry {} is missing", started.entry)))?;
-            Headless::component(bytes.to_vec()).assets(started.files)
-        }
         other => {
             return Err(Error::NoView(format!(
                 "it opened a view of the kind {}",

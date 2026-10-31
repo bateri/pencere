@@ -275,9 +275,9 @@ function rewritten(message: Message): string | undefined {
 const CHOSEN: Readonly<Record<string, { kind: string; version: string } | null>> = {
   "no-common-version#1": { kind: "web", version: "1.0" },
   "no-common-version#2": null,
-  "several-versions#1": { kind: "wasm", version: "0.5" },
-  "several-versions#2": { kind: "wasm", version: "0.4" },
-  "several-versions#3": { kind: "wasm", version: "0.4" },
+  "several-versions#1": { kind: "lua", version: "0.5" },
+  "several-versions#2": { kind: "lua", version: "0.4" },
+  "several-versions#3": { kind: "lua", version: "0.4" },
   "handshake#1": { kind: "web", version: "1.0" },
 };
 
@@ -458,16 +458,16 @@ describe("every session of the manifest", () => {
     expect(welcome).toMatchObject({
       kind: "offer",
       views: [{ kind: "web", versions: ["1.0"] }],
-      opens: [{ kind: "wasm", versions: ["1.0"] }],
+      opens: [{ kind: "lua", versions: ["1.0"] }],
     });
     if (welcome?.kind !== "offer") throw new Error("an offer");
     const mine: ViewOffer[] = [
-      { kind: "wasm", versions: ["2.0"] },
+      { kind: "lua", versions: ["2.0"] },
       { kind: "web", versions: ["1.0"] },
     ];
     expect(chooseView(mine, welcome.views)).toEqual({ kind: "web", version: "1.0" });
     expect(noVersionSentence(mine, welcome.opens)).toBe(
-      "this program is written for wasm 2.0; this terminal opens wasm 1.0",
+      "this program is written for lua 2.0; this terminal opens lua 1.0",
     );
   });
 

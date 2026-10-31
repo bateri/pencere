@@ -724,11 +724,9 @@ fn the_program_opens_the_first_of_its_kinds_the_terminal_lists_at_a_version_both
         let terminal = pane.terminal();
         move || {
             let script = Bundle::single("view.lua", &b"return {}\n"[..]).expect("a bundle");
-            let component = Bundle::single("view.wasm", &b"\0asm\x01\0\0\0"[..]).expect("a bundle");
             pencere::serve(
                 Options::new()
-                    .view(View::new(Kind::Wasm, &["0.5", "0.4"], component))
-                    .view(View::new(Kind::Lua, &["0.5"], script))
+                    .view(View::new(Kind::Lua, &["0.5", "0.4"], script))
                     .view(View::web(page()))
                     .terminal(terminal),
             )
@@ -739,34 +737,32 @@ fn the_program_opens_the_first_of_its_kinds_the_terminal_lists_at_a_version_both
     assert_eq!(
         body["views"],
         json!([
-            { "kind": "wasm", "versions": ["0.5", "0.4"] },
-            { "kind": "lua", "versions": ["0.5"] },
+            { "kind": "lua", "versions": ["0.5", "0.4"] },
             { "kind": "web", "versions": ["1.0"] },
         ])
     );
-    // The terminal draws scripts and pages and has an older component interface: the program's
-    // first kind has a version in common (0.4), and it is the one opened.
+    // The terminal draws pages and has an older interface of scripts: the program's first kind
+    // has a version in common (0.4), and it is the one opened.
     pane.welcome(
         hello.id,
         TOKEN,
         &json!([
             { "kind": "web", "versions": ["1.0"] },
-            { "kind": "lua", "versions": ["0.5"] },
-            { "kind": "wasm", "versions": ["0.4"] },
+            { "kind": "lua", "versions": ["0.4"] },
         ]),
     );
     let open = pane.expect("open");
     let body: Value = serde_json::from_str(&open.payload).expect("JSON");
     assert_eq!(
         (body["view"].as_str(), body["version"].as_str()),
-        (Some("wasm"), Some("0.4"))
+        (Some("lua"), Some("0.4"))
     );
-    assert_eq!(body["bundle"]["files"][0]["type"], "application/wasm");
+    assert_eq!(body["bundle"]["files"][0]["type"], "text/x-lua");
     pane.send("closed", None, &json!({ "reason": "user" }));
     let Outcome::Closed(closed) = finished(handle) else {
         panic!("closed");
     };
-    assert_eq!(closed.view.kind, Kind::Wasm);
+    assert_eq!(closed.view.kind, Kind::Lua);
     assert_eq!(closed.view.version, "0.4");
 }
 
@@ -876,24 +872,24 @@ fn what_a_program_offers_is_checked_before_the_terminal_is_touched() {
             "twice",
         ),
         (
-            Options::new().view(View::new(Kind::Wasm, &["1"], page())),
+            Options::new().view(View::new(Kind::Lua, &["1"], page())),
             "not a version",
         ),
         (
-            Options::new().view(View::new(Kind::Wasm, &[], page())),
+            Options::new().view(View::new(Kind::Lua, &[], page())),
             "versions",
         ),
     ] {
         let error = pencere::serve(options.terminal(pane.terminal())).expect_err(why);
         assert!(error.to_string().contains(why), "{error} ({why})");
     }
-    // A page is not a component.
+    // A page is not a script.
     let error = pencere::serve(
         Options::new()
-            .view(View::new(Kind::Wasm, &["1.0"], page()))
+            .view(View::new(Kind::Lua, &["1.0"], page()))
             .terminal(pane.terminal()),
     )
-    .expect_err("a page is not a component");
+    .expect_err("a page is not a script");
     assert!(matches!(error, Error::Bundle(_)), "{error}");
     modes_are_back(&pane);
 }

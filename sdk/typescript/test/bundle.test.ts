@@ -54,15 +54,15 @@ describe("a bundle of files", () => {
     expect(bundle.manifest.entry).toBe("main.html");
   });
 
-  it("has the media type of a component and of a script for the kit views", () => {
+  it("has the media type of a script for the kit view, and of a module for a page", () => {
     const bundle = bundleFromFiles(
       [
-        { path: "view.wasm", data: Buffer.from([0, 0x61, 0x73, 0x6d]) },
         { path: "view.lua", data: Buffer.from("return {}") },
+        { path: "page.wasm", data: Buffer.from([0, 0x61, 0x73, 0x6d]) },
       ],
-      { entry: "view.wasm" },
+      { entry: "view.lua" },
     );
-    expect(bundle.manifest.files.map((f) => f.type)).toEqual(["application/wasm", "text/x-lua"]);
+    expect(bundle.manifest.files.map((f) => f.type)).toEqual(["text/x-lua", "application/wasm"]);
   });
 
   it("types the scripts a Lua view requires as scripts, whichever of Luau's extensions they have", () => {

@@ -143,7 +143,7 @@ pub struct Config {
     /// The kinds of view the host will open, each with the versions of its interface it speaks
     /// (specification §5.2): what its `welcome` offers of what the program's `hello` listed.
     /// Only [`ViewKind::Web`] at [`WEB_BRIDGE_VERSION`] by default; a terminal that draws a view
-    /// itself adds [`ViewKind::Wasm`] and [`ViewKind::Lua`] with the versions of the kit it
+    /// itself adds [`ViewKind::Lua`] with the version of the kit it
     /// has. Their order is the order of the `welcome` of a restart (§10.7), which answers no
     /// `hello`. A kind is opened only if it is listed here.
     pub views: Vec<Offer>,
@@ -217,11 +217,8 @@ pub enum ViewKind {
     /// A web page: HTML, scripts and styles in a web view of the terminal's, that reaches the
     /// host only through the bridge of specification §9.4.
     Web,
-    /// A WebAssembly component the terminal runs in its own sandbox and draws itself
-    /// (specification §9.8).
-    Wasm,
-    /// A script in the Lua language, which the terminal runs in the same sandbox (its interpreter
-    /// is a component) and draws itself (specification §9.8).
+    /// A script in the Lua language, which the terminal runs in a sandbox of its own (its
+    /// interpreter is a WebAssembly component) and draws itself (specification §9.8).
     Lua,
 }
 
@@ -231,7 +228,6 @@ impl ViewKind {
     pub fn name(self) -> &'static str {
         match self {
             Self::Web => "web",
-            Self::Wasm => "wasm",
             Self::Lua => "lua",
         }
     }
@@ -239,13 +235,13 @@ impl ViewKind {
     /// Whether the terminal draws a view of this kind itself, with no document and no web view:
     /// the kit views of specification §9.8.
     pub fn is_native(self) -> bool {
-        matches!(self, Self::Wasm | Self::Lua)
+        matches!(self, Self::Lua)
     }
 
     /// The kind a wire name stands for. A name that is not in the table of kinds is nobody's:
     /// a program may list a kind this host has never heard of.
     pub fn from_name(name: &str) -> Option<Self> {
-        [Self::Web, Self::Wasm, Self::Lua]
+        [Self::Web, Self::Lua]
             .into_iter()
             .find(|kind| kind.name() == name)
     }
@@ -255,7 +251,6 @@ impl ViewKind {
     fn entry_type(self) -> &'static str {
         match self {
             Self::Web => "text/html",
-            Self::Wasm => crate::bundle::WASM_MEDIA_TYPE,
             Self::Lua => crate::bundle::LUA_MEDIA_TYPE,
         }
     }

@@ -1435,8 +1435,7 @@ fn check_the_example_prints_its_containers(run: &Run) {
 //
 // The same program in another language, held to the same scenarios: the handshake, the files the
 // terminal lacks, a call, a subscription, ⌃C, a terminal that is not a host, and the state the
-// tty is left in. The view is the Lua one, which every build carries: the stand-in opens the
-// three kinds of view the same way.
+// tty is left in. The view is the Lua one.
 
 /// The Rust example (`examples/containers-rust`), built by cargo next to the stand-in host. It is
 /// built here once, so that these tests run on the example as it is now whichever way they were
@@ -1485,7 +1484,7 @@ fn the_rust_example_opens_answers_a_call_and_pushes_to_its_page() {
             "--then",
             "interrupt",
         ],
-        &["--lua"],
+        &[],
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
@@ -1493,15 +1492,15 @@ fn the_rust_example_opens_answers_a_call_and_pushes_to_its_page() {
         // The host looked at the tty before it answered (§6.2): the library had made it
         // non-canonical with echo off.
         "host: sees the tty: canonical=false echo=false",
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1",
         // The answer to the question comes before the reply to `CSI c` (§5.2).
         "host: answers CSI c",
         "screen: alternate screen on",
-        r#"program: open id=2 view=lua version=2.0 title="Containers" bundle of 1 files"#,
+        r#"program: open id=2 view=lua version=2.1 title="Containers" bundle of 1 files"#,
         "host: need id=2 re=2 missing=1",
         "program: file",
         "view: started from the bundle: entry containers.lua, 1 files",
-        "view: kind=lua version=2.0",
+        "view: kind=lua version=2.1",
         // What the strip above the view says: the program's words for the view and for itself.
         r#"view: title="Containers" program="containers-rust""#,
         // The program pushes the use of the running containers as soon as it is asked.
@@ -1563,11 +1562,11 @@ fn a_lua_view_asks_to_open_a_link_as_a_page_does_and_its_program_never_hears_of_
             "--then",
             "interrupt",
         ],
-        &["--lua"],
+        &[],
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "view: kind=lua version=2.0",
+        "view: kind=lua version=2.1",
         "view: -> link https://example.com/docs",
         "view: -> link file:///etc/passwd",
         "view: -> call id=1 nobody",
@@ -1593,7 +1592,7 @@ fn the_rust_example_has_a_flood_of_readings_cancelled_and_ends_at_the_interrupt(
             "--then",
             "interrupt",
         ],
-        &["--lua", "--flood"],
+        &["--flood"],
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
@@ -1613,10 +1612,10 @@ fn the_rust_example_has_a_flood_of_readings_cancelled_and_ends_at_the_interrupt(
 
 #[test]
 fn the_rust_example_is_asked_for_its_view_again_by_a_host_that_starts_it_again() {
-    let run = run_rust_example(&["--subscribe", "stats", "--then", "restart"], &["--lua"]);
+    let run = run_rust_example(&["--subscribe", "stats", "--then", "restart"], &[]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1",
         "program: open id=2 view=lua",
         "view: -> subscribe id=1 stats",
         "host: starts the view again, as after a reconnection",
@@ -1634,7 +1633,7 @@ fn the_rust_example_is_asked_for_its_view_again_by_a_host_that_starts_it_again()
 
 #[test]
 fn the_rust_example_ends_when_the_terminal_goes_away() {
-    let run = run_rust_example(&["--subscribe", "stats", "--then", "hangup"], &["--lua"]);
+    let run = run_rust_example(&["--subscribe", "stats", "--then", "hangup"], &[]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "view: -> subscribe id=1 stats",
@@ -1651,7 +1650,7 @@ fn the_rust_example_ends_when_the_terminal_goes_away() {
 
 #[test]
 fn the_rust_example_prints_its_containers_where_no_view_can_be_shown() {
-    let run = run_rust_example(&["--no-host"], &["--lua"]);
+    let run = run_rust_example(&["--no-host"], &[]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "program: hello id=1",
@@ -1676,7 +1675,6 @@ fn the_rust_example_prints_its_containers_where_no_view_can_be_shown() {
 fn the_rust_example_prints_its_containers_where_it_has_no_terminal_at_all() {
     // Not a pane: its output is a pipe, and a pipe is no place to ask for a view.
     let output = Command::new(rust_example())
-        .arg("--lua")
         .stdin(Stdio::null())
         .output()
         .expect("the example starts");
@@ -2050,7 +2048,7 @@ fn the_built_lua_app_opens_its_view_answers_calls_and_feeds_its_page_until_the_i
     run.in_order(&[
         "program: hello id=1",
         "host: sees the tty: canonical=false echo=false",
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1|2.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1",
         "host: answers CSI c",
         "screen: alternate screen on",
         r#"program: open id=2 view=lua version=2.1 title="Containers" bundle of 5 files"#,
@@ -2447,7 +2445,7 @@ fn pencere_dev_shows_a_rust_programs_view_again_when_its_page_changes_and_builds
         &[&command, "dev", &project.to_string_lossy()],
         vec![
             (
-                "view: kind=lua version=2.0",
+                "view: kind=lua version=2.1",
                 Box::new(move || {
                     let mut text = fs::read_to_string(&page).expect("the page");
                     text.push_str("\n-- edited\n");
@@ -2470,20 +2468,20 @@ fn pencere_dev_shows_a_rust_programs_view_again_when_its_page_changes_and_builds
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "program: hello id=1",
-        "program: open id=2 view=lua version=2.0",
-        "view: kind=lua version=2.0",
+        "program: open id=2 view=lua version=2.1",
+        "view: kind=lua version=2.1",
         // The page changed: the program closes its view and shows it again, of the new file.
         "program: dismiss id=",
         "view: destroyed",
         "host: closed id=* re=* reason=program",
         "program: hello id=",
-        "program: open id=* view=lua version=2.0",
-        "view: kind=lua version=2.0",
+        "program: open id=* view=lua version=2.1",
+        "view: kind=lua version=2.1",
         // The source changed: the program is stopped, built and run again.
         "program: bye id=* reason=signal",
         "program: hello id=1",
-        "program: open id=2 view=lua version=2.0",
-        "view: kind=lua version=2.0",
+        "program: open id=2 view=lua version=2.1",
+        "view: kind=lua version=2.1",
         "host: the person presses ^C",
         "program: bye id=* reason=signal",
     ]);
@@ -2529,8 +2527,8 @@ fn pencere_build_makes_a_rust_program_that_carries_its_page_and_shows_it() {
     let _ = fs::remove_dir_all(&directory);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "program: open id=2 view=lua version=2.0",
-        "view: kind=lua version=2.0",
+        "program: open id=2 view=lua version=2.1",
+        "view: kind=lua version=2.1",
         r#"view: <- response id=* result={"message":"Hello, rust!"}"#,
         "host: the person presses ^C",
         "program: exited with status 130",
@@ -2712,10 +2710,10 @@ fn an_app_that_hands_the_terminal_to_a_program_gets_it_back_and_shows_its_view_a
 fn a_kit_views_page_that_asks_to_be_closed_keeps_its_view_and_tells_the_program_nothing() {
     let run = run_rust_example(
         &["--call", "list", "--then", "page-close", "--limit", "3"],
-        &["--lua"],
+        &[],
     );
     run.in_order(&[
-        "view: kind=lua version=2.0",
+        "view: kind=lua version=2.1",
         "view: -> call id=1 list",
         "host: msg id=* call=1 list",
         "view: -> close",
@@ -2752,9 +2750,7 @@ fn the_rust_examples_lua_page_runs_for_real_and_hears_its_program()
 -> Result<(), Box<dyn std::error::Error>> {
     let binary = rust_example();
     let binary = binary.to_string_lossy();
-    let mut page = program::open(&[&binary, "--lua"])?
-        .size(1000.0, 600.0)
-        .open()?;
+    let mut page = program::open(&[&binary])?.size(1000.0, 600.0).open()?;
     assert!(
         page.sent()
             .iter()
@@ -2770,43 +2766,6 @@ fn the_rust_examples_lua_page_runs_for_real_and_hears_its_program()
                 .iter()
                 .any(|said| said.contains(r#""push""#))
     })?;
-    page.key(
-        pencere_view::Key::Character('U'),
-        pencere_view::Mods {
-            shift: true,
-            ..pencere_view::Mods::default()
-        },
-    )?;
-    page.wait_for(Duration::from_secs(120), |page| {
-        page.says("containers-rust counted 4194304 bytes")
-    })?;
-    Ok(())
-}
-
-/// The Rust example as `make guest` builds it, with the container list as a WebAssembly component:
-/// the component run for real, its readings shown as its program pushes them, its payload said and
-/// counted.
-#[test]
-#[ignore = "heavy: needs the page modules of `make guest` and runs a program; make check-heavy"]
-fn the_rust_examples_component_runs_for_real_and_hears_its_program()
--> Result<(), Box<dyn std::error::Error>> {
-    let binary = root().join("kit/guest/dist/containers-rust");
-    assert!(
-        binary.is_file(),
-        "{} is not there: `make guest` builds it",
-        binary.display()
-    );
-    let binary = binary.to_string_lossy();
-    let mut page = program::open(&[&binary])?.size(1000.0, 600.0).open()?;
-    page.wait_for(Duration::from_secs(30), |page| {
-        shows_a_reading(page)
-            && page
-                .received()
-                .iter()
-                .any(|said| said.contains(r#""push""#))
-    })?;
-    assert!(page.says("Containers"), "{:?}", page.words());
-    // ⇧U, as the Lua page has it.
     page.key(
         pencere_view::Key::Character('U'),
         pencere_view::Mods {
@@ -3389,7 +3348,7 @@ fn a_lua_app_attaches_a_picture_receives_a_dropped_file_and_saves_a_copy_where_t
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1|2.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1",
         "view: kind=lua version=2.1",
         // The picture is a file of the bundle too: the terminal holds it, and nothing crosses.
         "program: attach id=* files=1",

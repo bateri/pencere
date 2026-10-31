@@ -26,8 +26,8 @@ pub const DEV_VARIABLE: &str = "PENCERE_DEV_APP";
 
 /// The versions of the page API a page of the kit is shown at, as a Lua app's, the one preferred
 /// first: `lua` 2.1, which names the files beside the bundle (a picture the program attached, a file
-/// the person gave), and 2.0, for a terminal without them.
-const PAGE_VERSIONS: [&str; 2] = ["2.1", "2.0"];
+/// the person gave). Until the first general release the kit has the one version.
+const PAGE_VERSIONS: [&str; 1] = ["2.1"];
 
 /// The directories of an app, under `src/`, and the page of each kind of view.
 const VIEW: &str = "view";
@@ -358,7 +358,7 @@ mod tests {
         assert_eq!(views.len(), 2);
         assert_eq!(views[0].kind, Kind::Lua);
         // The page names the files beside its bundle where the terminal has them, as a Lua app's.
-        assert_eq!(views[0].versions, ["2.1", "2.0"]);
+        assert_eq!(views[0].versions, ["2.1"]);
         assert_eq!(views[1].kind, Kind::Web);
         let paths = |view: &View| match &view.source {
             crate::view::Source::Fixed(bundle) => {

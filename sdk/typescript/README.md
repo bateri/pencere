@@ -48,8 +48,8 @@ the first kind it can, at the first version of that kind's interface it speaks:
   `bundleFromFiles`), sent once and then served from the terminal's store by content. A page that
   needs to reach a domain, or the camera, microphone, location or clipboard, says so in its
   `access`; the person is asked, once, and the page is told what they allowed.
-- `wasm` and `lua` are views the terminal draws itself with the pencere kit. They say which
-  `versions` of the kit's interface they are written against, and `bundle` may be a function of
+- `lua` is a view the terminal draws itself with the pencere kit. It says which
+  `versions` of the kit's interface it is written against, and `bundle` may be a function of
   the version that was agreed, for a view that has a build for each.
 
 `program`, `title` and `icons` are what the terminal writes above the view and draws beside it. A
@@ -92,7 +92,7 @@ such as Windows, has no host as far as this library is concerned.
 
 ## Files
 
-For a view opened at `lua` 2.1 or `wasm` 3.0 and later, `ViewControl` moves files between the person's
+For a view opened at `lua` 2.1 and later, `ViewControl` moves files between the person's
 machine and the program: `attach(bytes)` adds a file for the view to draw, `read(handle, offset,
 length)` reads a file the person gave the view (dropped on it, pasted, chosen in the Open panel) and
 `write(handle, offset, bytes, end)` writes to the place the person chose in the Save panel. Each is

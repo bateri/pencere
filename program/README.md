@@ -74,9 +74,9 @@ repository, which plays the host and writes the conversation to stderr
 
 A program offers the kinds of view it can show, in the order it prefers them, each with the
 versions of its interface it is written against: `View::web(bundle)` for a page, and
-`View::new(Kind::Wasm, &["1.0"], bundle)` or `Kind::Lua` for a view the terminal draws itself. The
+`View::new(Kind::Lua, &["2.1"], bundle)` for a view the terminal draws itself. The
 first kind the terminal will open, at the first of the versions the terminal speaks, is the view.
-`Bundle::single("view.wasm", include_bytes!(…))` is the bundle of a component or a script the
+`Bundle::single("view.lua", include_bytes!(…))` is the bundle of a script the
 program carries; `Bundle::from_dir` and `Bundle::new` build a page's. A view with a bundle for each
 version is `View::per_version`.
 

@@ -18,8 +18,8 @@ the view talk to each other in six small messages (Section 9.2).
 
 There are two families of views, and every kind of view speaks the same six messages:
 
-- views the terminal draws itself, in its own font and theme, with the pencere kit: a WebAssembly
-  component (`wasm`) or a Lua script (`lua`), run in a sandbox of the terminal's;
+- views the terminal draws itself, in its own font and theme, with the pencere kit: a Lua script
+  (`lua`), run in a sandbox of the terminal's;
 - a web page (`web`): HTML and JavaScript in a sandboxed web view of the terminal's, which reaches
   nothing the person did not allow.
 
@@ -42,8 +42,8 @@ This document defines:
 Non-goals: letting a program choose where its view appears (a view always takes the pane of the
 program that asked; a person who wants it elsewhere splits the pane first and starts the program
 there); reaching a host through a terminal multiplexer that does not forward the stream untouched
-(such a program sees no host and falls back, Section 5.3); the interface of the kit that a `wasm`
-or `lua` view is written against, which has a document of its own (`kit/SPEC.md`); the internals of
+(such a program sees no host and falls back, Section 5.3); the interface of the kit that a `lua`
+view is written against, which has a document of its own (`kit/SPEC.md`); the internals of
 any platform's web view.
 
 ## 2. Conventions and terms
@@ -58,9 +58,9 @@ they appear in all capitals. Grammar is ABNF (RFC 5234); JSON is RFC 8259.
 | Host         | A terminal emulator that implements this document: it owns panes, the views and their sandboxes, and the bundle store.              |
 | Program      | A process running on a pane's tty that wants to show a view.                                                                        |
 | Pane         | A terminal pane: one tty and the screen it draws.                                                                                   |
-| View         | What a program shows in its pane: a component, a script or a web page (Section 3).                                                  |
+| View         | What a program shows in its pane: a script or a web page (Section 3).                                                               |
 | Kind         | The sort of a view: a name from a closed table, with a version of its interface (Section 5.5).                                      |
-| Kit          | What a `wasm` or `lua` view is written against: the component interface `pencere:view` and the Lua page API, the global `pencere`.  |
+| Kit          | What a `lua` view is written against: the Lua page API, the global `pencere`.                                                       |
 | Page         | A view of the kind `web`.                                                                                                           |
 | Person       | The human looking at the pane. The view runs on the person's machine; the program may run on another.                               |
 | `to-host`    | The direction program → host: bytes the program writes to its tty.                                                                  |
@@ -81,11 +81,10 @@ tool checks that they match.
 
 ## 3. The two families of views
 
-A **kit view** — kind `wasm` or `lua` — is drawn by the terminal itself. Its program hands the
-terminal a WebAssembly component or a Lua script; the terminal runs it in a sandbox that gives it
-nothing it was not handed, and draws what it asks to draw in the terminal's font and theme. What the
-component or the script may ask of the terminal is the interface of the pencere kit: the component
-interface `pencere:view` for `wasm`, the page API of the global `pencere` for `lua`. The kit has a
+A **kit view** — kind `lua` — is drawn by the terminal itself. Its program hands the terminal a Lua
+script; the terminal runs it in a sandbox that gives it nothing it was not handed, and draws what
+it asks to draw in the terminal's font and theme. What the script may ask of the terminal is the
+interface of the pencere kit: the page API of the global `pencere`. The kit has a
 document of its own, `kit/SPEC.md` in this repository, and sources that are normative with it
 (Section 9.8); this one names them and the version of the kit that a kind carries (Section 5.5).
 
@@ -372,8 +371,8 @@ number of bytes while the program does not read (Appendix B).
 - A signal character flushes the tty's input (Appendix B, fact 4), so what is written after it
   is read by whatever reads the tty next, and what is written before it and not yet read is gone.
   A host that writes one (⌃C, ⌃\ or ⌃Z) for the program of a view MUST therefore put it **first**:
-  it drops everything of the view's component it has not written yet, including the rest of a
-  frame it has begun, and writes nothing of the component's after it. It does not wait for the
+  it drops everything of the view's it has not written yet, including the rest of a
+  frame it has begun, and writes nothing of the view's after it. It does not wait for the
   frame that was under way, and it does not write the character behind frames that are waiting.
   The three characters are the program's whatever the view is (Section 11.3).
 - Once the host knows the program has ended (Section 10.3) it MUST NOT begin a frame, because
@@ -441,10 +440,10 @@ with `supported` (Section 5.2). A kind that is listed twice counts once, at its 
 <ESC>[c
 ```
 
-A program that can show several kinds, one of them in two versions:
+A program that can show two kinds, one of them in two versions:
 
 ```frame fixtures/to-host/hello-views.frame
-<ESC>_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"lua","versions":["0.5"]},{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"lua","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}<ESC>\
 ```
 
 ### 5.2 The answer
@@ -492,10 +491,10 @@ changes nothing about which kinds the program may open (`views` alone does that)
 finds nothing to open in `views` but a kind in `opens` SHOULD say so in words that name both sides
 (Section 5.3). A restart `welcome` (Section 10.7) lists every version the host speaks in `views`, so it
 has no `opens`. The answer of a host that opens web pages at `1.0` and the kit's interface at `1.0`
-to a program that listed `wasm` at `2.0` and `web` at `1.0`:
+to a program that listed `lua` at `2.0` and `web` at `1.0`:
 
 ```frame fixtures/to-program/welcome-opens.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}],"opens":[{"kind":"wasm","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}],"opens":[{"kind":"lua","versions":["1.0"]}]}<ESC>\
 ```
 
 ```frame fixtures/session/handshake/02-out.frame
@@ -503,13 +502,13 @@ to a program that listed `wasm` at `2.0` and `web` at `1.0`:
 ```
 
 ```frame fixtures/to-program/welcome-versions.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"lua","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}<ESC>\
 ```
 
-The host in this example opens `wasm` at `0.4` and `0.5` and `web` at `1.0`; the program's `hello`
-(`session/several-versions`) listed `wasm` at `0.6`, `0.5` and `0.4`, `lua` and `web`. The version
-`0.6` is left out because the host does not speak it, `lua` because the host does not open it, and the two
-versions of `wasm` that remain are in the program's order, not the host's.
+The host in this example opens `lua` at `0.4` and `0.5` and `web` at `1.0`; the program's `hello`
+(`session/several-versions`) listed `lua` at `0.6`, `0.5` and `0.4`, and `web`. The version
+`0.6` is left out because the host does not speak it, and the two
+versions of `lua` that remain are in the program's order, not the host's.
 
 ```frame fixtures/to-program/welcome-unsupported.frame
 <ESC>_pencere;welcome;id=1,re=1;{"supported":[1],"host":{"name":"pencere-test","version":"0.0.0"}}<ESC>\
@@ -536,7 +535,7 @@ a shell as typed text.
 
 A program that falls back because `views` is empty, and finds in `opens` a kind it listed, SHOULD
 say what would have served before its fallback runs, in a sentence that names the kind and the
-versions of both sides, for instance `this program is written for wasm 2.0; this terminal opens wasm
+versions of both sides, for instance `this program is written for lua 2.0; this terminal opens lua
 1.0`; the libraries of this repository print it on the program's standard error as
 `pencere: <sentence>`. A program that finds nothing in `opens` says nothing of the kind: the host
 does not open what it lists, or there is no host.
@@ -564,28 +563,29 @@ change of the wire is a new version with new fixtures.
 The versions of a kind (Section 5.5) are another thing and do not move with this one: they are the
 versions of the interface a view of that kind is written against.
 
-The versions of the kit views (`wasm` and `lua`, Section 5.5) follow one rule, and each of the two
-kinds is numbered by itself: the number of `wasm` is that of the component interface and the number
-of `lua` that of the page API, so `wasm` `1.1` and `lua` `1.0` can be the versions of one kit, and
-nothing ties the minor number of the one to the other's. A change that no existing view can notice
-is a new **minor** version, `1.1` after `1.0`: a new function in the component interface, a new
-element or a new colour role in the page API. A change to something a view already uses is a new
-**major** version, `2.0`: a type that gains a variant or a field (a new kind of element, a new role
-in the interface's colour type, a new member of a record), or a function that means something else.
-A host that adopts a new major version offers it together with the one before, as this section asks
-of the protocol's own versions; a host that has stopped opening a version refuses an `open` for it
-as `unsupported` (Section 6.4). For `lua` the interpreter is the host's: a new element or a new
-role is an addition for a script, and what breaks a script is a function of the page API that means
-something else.
+The versions of the kit view (`lua`, Section 5.5) follow one rule, **from the first general release
+of this document on**. Until then none of it is applied: the kit changes without a new number, and
+a draft opens `lua` at one version. The number of `lua` is that of the page API of the global
+`pencere`, and the libraries the host brings with it (`@pencere/*`, `kit/SPEC.md`) are a part of that
+API and follow the same rule.
+
+- A change that no existing view can notice is a new **minor** version, `2.2` after `2.1`: a new
+  function, a new element, a new colour role. A minor version only adds.
+- A host opens every published minor version of a major (Section 5.5), and the newest major
+  together with the one before it. A host that has stopped opening a version refuses an `open` for
+  it as `unsupported` (Section 6.4).
+- A new **major** version, `3.0` after `2.1`, comes only when a function of the page API has to mean
+  something else and a new name cannot do it. A new element or a new role is an addition for a
+  script, not a reason for a major version.
+- Every change is one of two sorts: one that applies to every view (a fix of security, of a limit
+  or of a bug), or one that applies only to a view opened at the version that carries it (a
+  behaviour). The `CHANGELOG` of the package that carries the change says which.
+- A new kind of event reaches only a view opened at the version that adds it.
+- A script that uses something a later version added asks first whether it exists
+  (`if pencere.x then`).
 
 A program whose `hello` listed a version the host stopped opening finds out from `opens` (Section
-5.2), and its library says so in words that name both sides (Section 5.3). A **component** that is
-opened under a version (`open.version`) while its own interface is another one cannot run: the host
-MUST close the view with `closed`, `reason` `error`, `code` `view` (Section 9.8) and a `message`
-that names both versions, the one the component is written against and the one it was opened as
-(for instance "this view is written against `pencere:view@0.5.0`; this terminal opens
-`pencere:view@1.0.0`"). The host cannot read the interface out of a file before it has the file, so
-this is found out when the component is loaded, after the `open` was accepted.
+5.2), and its library says so in words that name both sides (Section 5.3).
 
 A program MAY send `hello` again at any time; each answered `hello` gets a new
 token (Section 6.1).
@@ -597,11 +597,10 @@ from the files of a bundle. A **kind** of view is named by a string in a closed 
 document defines, and each kind has **versions**, which name the interface a view of that kind is
 written against:
 
-| Name   | The view                                                                                                                               | What its version names                                                                     |
-| ------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `lua`  | A script in the Lua language that the host runs, with an interpreter of its own, in the same sandbox as a component, and draws itself. | The Lua page API of the kit, the global `pencere` (`pencere.version` is the major number). |
-| `wasm` | A WebAssembly component that the host runs in a sandbox and draws itself.                                                              | The component interface of the kit, `pencere:view` (`pencere:view@3.0.0` is `3.0`).        |
-| `web`  | A web page, shown in a web view of the host's.                                                                                         | The bridge of Section 9.4 between the page and its host: now `1.0`.                        |
+| Name  | The view                                                                                                         | What its version names                                                                     |
+| ----- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `lua` | A script in the Lua language that the host runs, with an interpreter of its own, in a sandbox, and draws itself. | The Lua page API of the kit, the global `pencere` (`pencere.version` is the major number). |
+| `web` | A web page, shown in a web view of the host's.                                                                   | The bridge of Section 9.4 between the page and its host: now `1.0`.                        |
 
 A version is a string of two numbers, `major.minor`, such as `0.5`:
 
@@ -611,13 +610,12 @@ number  = "0" / ( %x31-39 *8DIGIT )
 ```
 
 Versions are compared for equality and for nothing else; the order of a list is the preference of
-whoever wrote it. What a version means is the interface's. For the kit, `wasm` `3.0` is the
-interface `pencere:view@3.0.0` and `lua` `2.0` and `2.1` are the page API whose `pencere.version` is
-`2` (which have, among what `2.0` added to `1.0`, the editors of text of Section 9.8; `2.1` and `3.0`
-add the files beside the bundle of Sections 8.8 to 8.10); the
+whoever wrote it. What a version means is the interface's. For the kit, `lua` `2.1` is the
+page API whose `pencere.version` is `2` (it has, among what `2.0` added to `1.0`, the editors of
+text of Section 9.8, and `2.1` added the files beside the bundle of Sections 8.8 to 8.10); the
 rule that moves the numbers is in Section 5.4, and a host that updates its kit offers the new major
-version and the one before (while this document is a draft, the kit's own sandbox opens `wasm` `3.0`
-alone: no view the kit knows of was written against `wasm` `2.0`). The examples in this document use made-up versions (`0.4`, `0.5`,
+version and the one before (while this document is a draft, the libraries of this repository offer
+`lua` `2.1` alone). The examples in this document use made-up versions (`0.4`, `0.5`,
 `0.6`) so that they show several at once. For `web`, a change that only adds an optional member to a message of Section 9.4 moves the
 minor number, and one that renames or drops a member or a message moves the major. A host MAY open
 several versions of a kind — a host that updates its kit offers the one it now has and the one
@@ -636,14 +634,14 @@ the host cannot open for this program, and it leaves it out as well (Section 5.2
 the kind and the version again in its `open` (Section 6.3), and an `open` of a kind, or of a version
 of it, that the `welcome` of its token did not list is refused as `unsupported` (Section 6.4).
 
-The kinds `wasm` and `lua` are the **kit views**, the views the host draws itself (Section 9.8). They
-have a component or a script for an entry and no document. The kind `web` is a page and has an HTML
+The kind `lua` is the **kit view**, the view the host draws itself (Section 9.8). It
+has a script for an entry and no document. The kind `web` is a page and has an HTML
 document for an entry; it is the one kind that reaches the host with messages of its own (Section 9.4).
 
-The interfaces from `lua` `2.1` and `wasm` `3.0` on have **files beside the bundle** (Sections 8.8 to
-8.10): a host that lists one of them speaks `attach`, `detach`, `read` and `write`, and a program
+The interface from `lua` `2.1` on has **files beside the bundle** (Sections 8.8 to
+8.10): a host that lists it speaks `attach`, `detach`, `read` and `write`, and a program
 learns that it may send them from the version it opened, not from a feature of the `welcome`. (This
-is what those versions mean, not an order of versions: a host still lists each version it opens.)
+is what that version means, not an order of versions: a host still lists each version it opens.)
 Every other view, a page and a kit view at an earlier version, has none, and the host answers those
 messages as Sections 8.8 to 8.10 say it does when no view runs. The host's folder (Section 8.11) is
 a feature, not a version: whether a host can reach the program's machine does not depend on the
@@ -719,10 +717,10 @@ having switched to the alternate screen (Section 6.5). Its members, in this orde
   (Sections 7.3 and 12.4);
 - `icons`: OPTIONAL, a list of icons for the program (Section 7.3);
 - `access`: OPTIONAL, for a `web` view: the origins and the browser capabilities the page asks to
-  reach, which the person is asked about (Section 12.2). It is not read for a `wasm` or `lua` view,
+  reach, which the person is asked about (Section 12.2). It is not read for a `lua` view,
   which reaches nothing that the host does not hand it;
 - `bundle`: the bundle of Section 8, REQUIRED for every kind. The `type` of its entry has to be that
-  of the kind: `text/html` for `web`, `application/wasm` for `wasm`, `text/x-lua` for `lua`.
+  of the kind: `text/html` for `web`, `text/x-lua` for `lua`.
 
 `access` has up to five members, each a list of strings that may be left out: `connect`, the origins
 the page may send network requests to; `resources`, those it may load scripts, styles, images, fonts
@@ -749,8 +747,8 @@ counted as they are written, whether or not they are origins, and a host MAY enf
 
 The `open` of a view the host draws itself is the same without `access`:
 
-```frame fixtures/to-host/open-wasm.frame
-<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"wasm","version":"0.5","program":"demopen","title":"Containers","bundle":{"entry":"view.wasm","files":[{"path":"view.wasm","sha256":"93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476","size":8,"type":"application/wasm"}]}}<ESC>\
+```frame fixtures/to-host/open-lua.frame
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"lua","version":"0.5","program":"demopen","title":"Containers","bundle":{"entry":"view.lua","files":[{"path":"view.lua","sha256":"1232d8379de77e154ca533689af2e42629dd7574bda5a0a390799849f07607c3","size":10,"type":"text/x-lua"}]}}<ESC>\
 ```
 
 ### 6.4 Host checks and refusal
@@ -861,7 +859,7 @@ most 64 KiB, at most 512 pixels a side and only a still image, and at most four 
 first sixteen entries of a list.
 
 ```frame fixtures/to-host/open-icons.frame
-<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"wasm","version":"0.5","program":"demopen","title":"Containers","icons":[{"src":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==","mimeType":"image/png","sizes":["1x1"],"theme":"dark"}],"bundle":{"entry":"view.wasm","files":[{"path":"view.wasm","sha256":"93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476","size":8,"type":"application/wasm"}]}}<ESC>\
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"lua","version":"0.5","program":"demopen","title":"Containers","icons":[{"src":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==","mimeType":"image/png","sizes":["1x1"],"theme":"dark"}],"bundle":{"entry":"view.lua","files":[{"path":"view.lua","sha256":"1232d8379de77e154ca533689af2e42629dd7574bda5a0a390799849f07607c3","size":10,"type":"text/x-lua"}]}}<ESC>\
 ```
 
 ## 8. Bundles
@@ -964,10 +962,10 @@ it names, out of the store (Section 9.8).
 ### 8.7 The entry
 
 The entry of a bundle is the view's own file, and its media type is that of the kind
-(Section 6.3): an HTML document for a page, a component for `wasm`, a script for `lua`. The host does
+(Section 6.3): an HTML document for a page, a script for `lua`. The host does
 not decide the kind from the entry, and it does not guess. A page may have other files, which it names
-by their paths; the other kinds have the entry only, unless the kit says otherwise, which it does
-for the images of the kinds the host draws itself (Section 9.8).
+by their paths; the other kind has the entry only, unless the kit says otherwise, which it does
+for the images and the scripts of the kind the host draws itself (Section 9.8).
 
 ### 8.8 Attached files
 
@@ -1411,7 +1409,7 @@ program's input are not counted, and the limit toward the program leaves room fo
 host writes the message otherwise as it came, except that it leaves out the tab, line feed and
 carriage return that JSON allows between tokens, because a frame has no byte for them; a space is
 kept, and the program parses any valid JSON. A program's message over the limit is dropped. A
-message of the view over it, a page's or a component's, is one nobody could answer, and a view that
+message of the view over it, a page's or a script's, is one nobody could answer, and a view that
 waited for the answer would wait for ever, so the host does what it does to a view that goes over
 any limit it is held to: it ends the view and tells the program `closed` with `reason` `error` and
 `code` `view` (Section 9.8), and the message is not written.
@@ -1566,63 +1564,51 @@ The first is put to the person; the second is dropped.
 
 ### 9.8 Kit views
 
-This section is to the kinds `wasm` and `lua` what Sections 9.4 to 9.7 are to `web`: what the kind means,
+This section is to the kind `lua` what Sections 9.4 to 9.7 are to `web`: what the kind means,
 and what the host does for it. A kit view has no bridge of the host's own; it talks to its program in the
 six messages (Section 9.2) and nothing else. What it asks of the host itself (to be closed, text for the
 pasteboard, a link to open, to be woken at a time) is not among those messages: it is in what the view
-answers the host, by the rule of the kit, and never reaches the program. A view of the kind `wasm` or
-`lua` (Section 5.5) is one the host draws itself, in the terminal's font and theme, without a web view:
+answers the host, by the rule of the kit, and never reaches the program. A view of the kind `lua`
+(Section 5.5) is one the host draws itself, in the terminal's font and theme, without a web view.
 
-- a **WebAssembly view** (`wasm`): the entry of its bundle, whose media type is `application/wasm`,
-  is a WebAssembly component (the component model's binary format) that the host runs in a sandbox
-  of its own. What the component is given and may ask of the host is the interface `pencere:view`
-  of the kit, defined by `kit/wit/view.wit` in this repository, which is not part of this document
-  and is normative for `wasm` views;
-- a **Lua view** (`lua`): the entry of its bundle, whose media type is `text/x-lua`, is the text of
-  a script in the Lua language (Luau). The host runs it in the same kind of sandbox, with an
-  interpreter that is itself such a component; what the script is given and may ask of the host is
-  the same interface, in the interpreter's terms, as the page API of the global `pencere`, and it is
-  not part of this document either: `kit/SPEC.md` in this repository describes the page API (the
-  elements, the colour strings, the functions), and the prelude it is written in (`kit/luau/prelude`)
-  is normative with it for `lua` views. The language is **Luau at the release the kit pins**
-  (`0.740` for `lua` `2.x`, `kit/luau/pins`) with the library the interpreter exposes: a script
-  that uses syntax a later Luau added is not a `lua` `2.x` script, and such syntax arrives with a
-  minor version of `lua` that raises Luau (Section 5.4). A host SHOULD run the kit's own interpreter
-  component (`kit/sandbox/luau/luau.wasm`) rather than another Luau, so that a script means one thing
-  on every host. The script is source text: a host does not load compiled code from a program.
-  The entry is the script, and it MAY `require` the other files of its bundle whose media type is
-  `text/x-lua`, by the rules of Luau for requiring by string, relative to the entry's path in the
-  bundle (`kit/SPEC.md`, Section 2.5): `require` reaches nothing outside the bundle, so a path that
-  leaves its root, an absolute path, an alias, a file of another media type and a file the bundle does
-  not have are errors of the script, and no file of the host is read. The text of the scripts a view
-  loads, the entry's included, is held to the same limit as the entry alone (the table below).
+The entry of its bundle, whose media type is `text/x-lua`, is the text of
+a script in the Lua language (Luau). The host runs it in a sandbox of its own, with an
+interpreter that is itself a WebAssembly component of the kit (the program never hands the host
+anything but the script); what the script is given and may ask of the host is
+the page API of the global `pencere`, and it is not part of this document:
+`kit/SPEC.md` in this repository describes the page API (the
+elements, the colour strings, the functions), and the prelude it is written in (`kit/luau/prelude`)
+is normative with it. The language is **Luau at the release the kit pins**
+(`0.740` for `lua` `2.x`, `kit/luau/pins`) with the library the interpreter exposes: a script
+that uses syntax a later Luau added is not a `lua` `2.x` script, and such syntax arrives with a
+minor version of `lua` that raises Luau (Section 5.4). A host MUST run the kit's own interpreter
+component (`kit/sandbox/luau/luau.wasm`) rather than another Luau, so that a script means one thing
+on every host. The script is source text: a host does not load compiled code from a program.
+The entry is the script, and it MAY `require` the other files of its bundle whose media type is
+`text/x-lua`, by the rules of Luau for requiring by string, relative to the entry's path in the
+bundle (`kit/SPEC.md`, Section 2.5): `require` reaches nothing outside the bundle, so a path that
+leaves its root, an absolute path, an alias, a file of another media type and a file the bundle does
+not have are errors of the script, and no file of the host is read. The text of the scripts a view
+loads, the entry's included, is held to the same limit as the entry alone (the table below).
 
-What these views may ask of the host, and what the host does with it, is the rule of the kit: the
-interface of `kit/wit/view.wit`, the page API of `kit/SPEC.md` and the sandbox floors below. The
+What this view may ask of the host, and what the host does with it, is the rule of the kit: the
+page API of `kit/SPEC.md` and the sandbox floors below. The
 versions of the kit are those of Section 5.4. (This repository also carries an implementation of the
 kit that a terminal may use under the same licence: a page engine that lays out the elements and
-makes the draw list, a sandbox that runs a component or a script and hands out pages, the
-interpreter for the scripts, and the SDK a page module is written with. It is one way of keeping the
-rule and not a part of it: a host that implements the same rules in its own way shows the same
+makes the draw list, a sandbox that runs the interpreter and hands out pages, and the
+interpreter for the scripts. It is one way of keeping the rule and not a part of it: a host that
+implements the same rules in its own way, with the interpreter of the kit, shows the same
 views.)
 
-A host that shows such views offers `wasm`, `lua` or both in the `views` of its `welcome`
-(Section 5.2), when the program listed them at a version the host speaks. A program sends such an
+A host that shows kit views offers `lua` in the `views` of its `welcome`
+(Section 5.2), when the program listed it at a version the host speaks. A program sends such an
 `open` only to a host that offered the kind and the version; a host that did not refuses one with
 `unsupported` (Section 6.4). A bundle whose entry is not of the kind's type, sent with that kind, is
 refused with `manifest`.
 
-```frame fixtures/to-program/welcome-wasm.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"wasm","versions":["0.5"]},{"kind":"web","versions":["1.0"]}]}<ESC>\
-```
-
 Such a view has no `access`: it reaches nothing that the host does not hand it, so there are no
 domains to ask the person about (Section 12.2), and an `access` in its `open` is not read. A network
 capability, if one is added, is an extension of the kit.
-
-```frame fixtures/to-host/open-lua.frame
-<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"lua","version":"0.5","program":"demopen","title":"Containers","bundle":{"entry":"view.lua","files":[{"path":"view.lua","sha256":"7d06ba2f8d1d231826e549de62e88f14c83997c82437df8b44597470da66d081","size":34,"type":"text/x-lua"}]}}<ESC>\
-```
 
 A script of several files lists each of them in its bundle, with the entry as `entry`; the files other
 than the entry are the ones the entry may `require`, and they are of the type `text/x-lua` like it
@@ -1640,31 +1626,31 @@ a program must be ready for that.
 stays within these opens on every host, so a host MUST give a view at least the following, and MAY
 give it more:
 
-| Limit                                                                                    | At least               |
-| ---------------------------------------------------------------------------------------- | ---------------------- |
-| Memory of the module (and its tables)                                                    | 64 MiB                 |
-| One call (a frame, a settle, an event) before it is cut off                              | 250 ms                 |
-| The start of the module (its first code to run)                                          | 2 s                    |
-| Compiling a component                                                                    | 20 s                   |
-| The component itself, or the scripts of a view together (the entry and what it requires) | 4 MiB                  |
-| Elements in one frame                                                                    | 20 000                 |
-| Depth of the tree of one frame (the root is 1)                                           | 128                    |
-| Bytes of one line of text, of a title, of text for the pasteboard                        | 64 KiB                 |
-| Bytes a frame says apart from its elements' fixed fields (words, paths…)                 | 4 MiB                  |
-| Tracks of a grid's columns or rows                                                       | 64                     |
-| Values of a sparkline, steps of a path of a canvas                                       | 4096                   |
-| Parts of a text of many looks, paths of a canvas, commands of an element                 | 1024                   |
-| Entries of a menu                                                                        | 256                    |
-| Messages to the program that one call may send                                           | 32                     |
-| Bytes of one message to the program                                                      | 1 MiB (Section 9.3)    |
-| Pictures: the sides, the file, the decoded pixels, the paths named                       | as listed under Images |
-| The document of one editor of the view (bytes of UTF-8)                                  | 16 MiB                 |
-| The documents of all the view's editors together                                         | 64 MiB                 |
-| Text one reply hands the view's editors, and text one read of an editor answers with     | 1 MiB                  |
-| Decorations one reply sends the view's editors                                           | 20 000                 |
-| Layers of decorations of one editor, and decorations of all its layers                   | 16, and 200 000        |
-| Names of ranges of one editor's text                                                     | 64                     |
-| Versions back a change or a decoration of an editor may be made against                  | 1 024                  |
+| Limit                                                                                | At least               |
+| ------------------------------------------------------------------------------------ | ---------------------- |
+| Memory of the module (and its tables)                                                | 64 MiB                 |
+| One call (a frame, a settle, an event) before it is cut off                          | 250 ms                 |
+| The start of the module (its first code to run)                                      | 2 s                    |
+| Compiling the interpreter                                                            | 20 s                   |
+| The scripts of a view together (the entry and what it requires)                      | 4 MiB                  |
+| Elements in one frame                                                                | 20 000                 |
+| Depth of the tree of one frame (the root is 1)                                       | 128                    |
+| Bytes of one line of text, of a title, of text for the pasteboard                    | 64 KiB                 |
+| Bytes a frame says apart from its elements' fixed fields (words, paths…)             | 4 MiB                  |
+| Tracks of a grid's columns or rows                                                   | 64                     |
+| Values of a sparkline, steps of a path of a canvas                                   | 4096                   |
+| Parts of a text of many looks, paths of a canvas, commands of an element             | 1024                   |
+| Entries of a menu                                                                    | 256                    |
+| Messages to the program that one call may send                                       | 32                     |
+| Bytes of one message to the program                                                  | 1 MiB (Section 9.3)    |
+| Pictures: the sides, the file, the decoded pixels, the paths named                   | as listed under Images |
+| The document of one editor of the view (bytes of UTF-8)                              | 16 MiB                 |
+| The documents of all the view's editors together                                     | 64 MiB                 |
+| Text one reply hands the view's editors, and text one read of an editor answers with | 1 MiB                  |
+| Decorations one reply sends the view's editors                                       | 20 000                 |
+| Layers of decorations of one editor, and decorations of all its layers               | 16, and 200 000        |
+| Names of ranges of one editor's text                                                 | 64                     |
+| Versions back a change or a decoration of an editor may be made against              | 1 024                  |
 
 A view that goes over a limit it is held to is closed as one that fails (below). The limits of an
 editor are of two sorts: a reply that hands the editors more text or decorations than it may is not a
@@ -1756,12 +1742,12 @@ not there.
   readability of text does not apply to it. A picture may also be given an opacity of its own, `0`
   to `1`.
 
-A view of the kit at `1.0` of the interface, with a picture beside its entry. The manifest lists the
+A view of the kit with a picture beside its entry. The manifest lists the
 picture like any file, and the view names it by its path (`icons/stop.svg`); the picture is sent when the
 host asks for it, like the rest:
 
-```frame fixtures/to-host/open-wasm-image.frame
-<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"wasm","version":"1.0","program":"demopen","title":"Containers","bundle":{"entry":"view.wasm","files":[{"path":"view.wasm","sha256":"24eaf3439a60c96764c4f2c92a0a81b52bd4fe5d5b91f090184a0f6486b1bf29","size":8,"type":"application/wasm"},{"path":"icons/stop.svg","sha256":"2b965986578b523e5024f97f2cf9a3b1d4fc74ca149eeef172dfc74c0c84f4af","size":112,"type":"image/svg+xml"}]}}<ESC>\
+```frame fixtures/to-host/open-lua-image.frame
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"lua","version":"0.5","program":"demopen","title":"Containers","bundle":{"entry":"view.lua","files":[{"path":"view.lua","sha256":"1232d8379de77e154ca533689af2e42629dd7574bda5a0a390799849f07607c3","size":10,"type":"text/x-lua"},{"path":"icons/stop.svg","sha256":"2b965986578b523e5024f97f2cf9a3b1d4fc74ca149eeef172dfc74c0c84f4af","size":112,"type":"image/svg+xml"}]}}<ESC>\
 ```
 
 ```frame fixtures/to-host/file-image.frame
@@ -1782,8 +1768,8 @@ fixtures of a page's `link`, `fixtures/bridge/link*.json`, come to the same outc
 kit view's reply.)
 
 **Ending.** Section 10.2 runs as for any view: the view is not told and not waited for, it is stopped.
-A view that fails (a component traps, goes over a limit the host holds it to, a message of the view
-among them (Section 9.3), or hands the host something it cannot use; a script makes an error) is closed as if the person had
+A view that fails (a script makes an error, goes over a limit the host holds it to, a message of the view
+among them (Section 9.3), or hands the host something it cannot use) is closed as if the person had
 closed it, except that the program is told `closed` with `reason` `error` and `code` `view`, and
 with `message`: the words the view failed with, which for a script is its error and the line it is
 on. They are text the view wrote, so the host cuts them and leaves out control characters and
@@ -1894,13 +1880,13 @@ is why the wait is long enough to make that rare and short enough for a person n
 the characters into SIGINT, SIGQUIT and SIGTSTP for the foreground process group. A program library that opened a view SHOULD
 handle SIGINT by sending `bye` with reason `signal`, waiting for its answer and throwing away what
 it has not read (Section 10.3), restoring the terminal (Section 4.9), leaving the alternate screen
-(Section 6.5) and exiting. The host writes the character ahead of anything of the view's component
+(Section 6.5) and exiting. The host writes the character ahead of anything of the view's
 that is waiting, and writes none of it afterwards (Section 4.8): the interrupt does not queue behind
-the messages of a component that is saying a lot.
+the messages of a view that is saying a lot.
 
 A program that goes on after the signal keeps its view on the screen but hears nothing more from
 it: the host cannot tell what the program wrote before it took the signal from what it writes
-after, so it does not start writing the component's words again. A program that wants its view
+after, so it does not start writing the view's words again. A program that wants its view
 to talk to it again ends it (`dismiss`, Section 10.8) and opens a new one.
 
 SIGTSTP (⌃Z) stops the program, and a stopped program cannot take the view's words or answer them.
@@ -2232,7 +2218,7 @@ decoder. A host fetches none, so an icon cannot reveal who opened a program; it 
 images whose bytes it has checked and bounded; and it draws none in a question it asks in its
 own name (Section 7.3).
 
-**A view the host draws itself, and the messages.** The component or the script is untrusted code from a program the
+**A view the host draws itself, and the messages.** The script is untrusted code from a program the
 person may not control, and what it is given is the host's to decide (Section 9.8): the host runs
 it in a sandbox that gives it nothing it was not handed, and bounds its memory and time
 (Section 12.4). The messages between it and its program are a stream anyone can write to while the

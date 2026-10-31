@@ -178,23 +178,18 @@ fn appendix_c_is_this_conversation_byte_for_byte() {
 
 #[test]
 fn a_welcome_offers_each_kind_at_the_versions_both_speak_in_the_programs_order() {
-    let mut config =
-        common::kit_config(&[(ViewKind::Wasm, &["0.4", "0.5"]), (ViewKind::Web, &["1.0"])]);
-    config
-        .views
-        .push(pencere_host::session::Offer::new(ViewKind::Lua, &[]));
+    let config = common::kit_config(&[(ViewKind::Lua, &["0.4", "0.5"]), (ViewKind::Web, &["1.0"])]);
     let mut rig = Rig::with(config);
     let welcome = rig.hello_with(&json!([
-        {"kind": "wasm", "versions": ["0.6", "0.5", "0.5", "0.4"]},
-        {"kind": "lua", "versions": ["0.5"]},
+        {"kind": "lua", "versions": ["0.6", "0.5", "0.5", "0.4"]},
         {"kind": "gopher", "versions": ["1.0"]},
         {"kind": "web", "versions": ["1.0", "0.9"]},
-        {"kind": "wasm", "versions": ["0.4"]},
+        {"kind": "lua", "versions": ["0.4"]},
     ]));
     assert_eq!(
         welcome["views"],
         json!([
-            {"kind": "wasm", "versions": ["0.5", "0.4"]},
+            {"kind": "lua", "versions": ["0.5", "0.4"]},
             {"kind": "web", "versions": ["1.0"]},
         ])
     );
@@ -388,7 +383,7 @@ fn what_cannot_be_answered_is_refused_with_a_code_in_the_order_of_the_specificat
     // The type of the entry is that of the kind, and the host infers nothing.
     assert_eq!(
         refused_with(|b| {
-            b["view"] = json!("wasm");
+            b["view"] = json!("lua");
             b["version"] = json!("0.5");
         }),
         "manifest"

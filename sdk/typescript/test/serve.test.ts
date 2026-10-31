@@ -22,7 +22,6 @@ import {
   payloadOf,
   shown,
   start,
-  wasmBundle,
   webBundle,
   welcomePayload,
 } from "./support.js";
@@ -152,21 +151,20 @@ describe("what a program may offer", () => {
   });
 
   it("names the versions of a kit view, in the form of §5.5, each once", async () => {
-    await rejected([{ kind: "wasm", bundle: wasmBundle() }], TypeError);
-    await rejected([{ kind: "wasm", versions: [], bundle: wasmBundle() }], TypeError);
-    await rejected([{ kind: "wasm", versions: ["0.5.1"], bundle: wasmBundle() }], TypeError);
-    await rejected([{ kind: "wasm", versions: ["0.5", "0.5"], bundle: wasmBundle() }], TypeError);
+    await rejected([{ kind: "lua", bundle: luaBundle() }], TypeError);
+    await rejected([{ kind: "lua", versions: [], bundle: luaBundle() }], TypeError);
+    await rejected([{ kind: "lua", versions: ["0.5.1"], bundle: luaBundle() }], TypeError);
+    await rejected([{ kind: "lua", versions: ["0.5", "0.5"], bundle: luaBundle() }], TypeError);
   });
 
   it("has an entry of the type of its kind", async () => {
-    await rejected([{ kind: "wasm", versions: ["0.5"], bundle: webBundle() }], BundleError);
-    await rejected([{ kind: "web", bundle: wasmBundle() }], BundleError);
-    await rejected([{ kind: "lua", versions: ["0.5"], bundle: wasmBundle() }], BundleError);
+    await rejected([{ kind: "lua", versions: ["0.5"], bundle: webBundle() }], BundleError);
+    await rejected([{ kind: "web", bundle: luaBundle() }], BundleError);
   });
 
   it("asks to reach something only for a page", async () => {
     await rejected(
-      [{ kind: "wasm", versions: ["0.5"], bundle: wasmBundle(), access: { connect: [] } }],
+      [{ kind: "lua", versions: ["0.5"], bundle: luaBundle(), access: { connect: [] } }],
       TypeError,
     );
   });
@@ -174,11 +172,11 @@ describe("what a program may offer", () => {
   it("is checked when a function makes the bundle, for the version the host chose", async () => {
     const rig = new Rig();
     const served = serveWith(
-      options({ views: [{ kind: "wasm", versions: ["0.5"], bundle: () => webBundle() }] }),
+      options({ views: [{ kind: "lua", versions: ["0.5"], bundle: () => webBundle() }] }),
       rig.environment(),
     );
     const hello = await rig.next("hello");
-    rig.say("welcome", welcomePayload(TOKEN, undefined, offers("wasm")), hello.id);
+    rig.say("welcome", welcomePayload(TOKEN, undefined, offers("lua")), hello.id);
     rig.sayBytes(DA_REPLY);
     await expect(served).rejects.toThrow(BundleError);
     // The terminal is given back, and no open was written.
@@ -263,7 +261,7 @@ describe("with no host", () => {
 
   it("concludes it from a host that opens a kind the program did not offer", async () => {
     const rig = new Rig();
-    const { served } = await start(rig, {}, { views: offers(["wasm", "0.5"], "lua") });
+    const { served } = await start(rig, {}, { views: offers(["lua", "0.5"], "lua") });
     expect(await served).toEqual({ kind: "no-view", reason: "no-common-view" });
   });
 
@@ -305,8 +303,7 @@ describe("the hello", () => {
     const rig = new Rig();
     const { served, hello } = await start(rig, {
       views: [
-        { kind: "wasm", versions: ["0.5", "0.4"], bundle: wasmBundle() },
-        { kind: "lua", versions: ["0.5"], bundle: luaBundle() },
+        { kind: "lua", versions: ["0.5", "0.4"], bundle: luaBundle() },
         { kind: "web", bundle: webBundle() },
       ],
     });
@@ -355,26 +352,25 @@ describe("the open", () => {
         program: "demopen",
         views: [
           {
-            kind: "wasm",
+            kind: "lua",
             versions: ["0.6", "0.5", "0.4"],
-            bundle: (version) => (asked.push(version), wasmBundle()),
+            bundle: (version) => (asked.push(version), luaBundle()),
           },
-          { kind: "lua", versions: ["0.5"], bundle: luaBundle() },
           { kind: "web", bundle: webBundle() },
         ],
       },
-      // The host of session/several-versions: wasm at 0.5 and 0.4, no lua, web.
-      { views: offers(["wasm", "0.5", "0.4"], "web") },
+      // The host of session/several-versions: lua at 0.5 and 0.4, and web.
+      { views: offers(["lua", "0.5", "0.4"], "web") },
     );
     const open = await rig.next("open");
-    expect(open.payload).toBe(payloadOf("to-host/open-wasm.frame"));
+    expect(open.payload).toBe(payloadOf("to-host/open-lua.frame"));
     // The bundle is made for the version chosen, and for no other.
     expect(asked).toEqual(["0.5"]);
     rig.say("closed", closed("user"));
     expect(await served).toEqual({
       kind: "closed",
       by: "user",
-      view: { kind: "wasm", version: "0.5" },
+      view: { kind: "lua", version: "0.5" },
     });
   });
 
@@ -384,18 +380,17 @@ describe("the open", () => {
       rig,
       {
         views: [
-          { kind: "wasm", versions: ["0.9"], bundle: wasmBundle() },
-          { kind: "lua", versions: ["0.5"], bundle: luaBundle() },
+          { kind: "lua", versions: ["0.9"], bundle: luaBundle() },
           { kind: "web", bundle: webBundle() },
         ],
       },
-      // session/no-common-version: the host's wasm is at 0.4 and 0.5.
-      { views: offers(["wasm", "0.4", "0.5"], "lua", "web") },
+      // session/no-common-version: the host's lua is at 0.4 and 0.5.
+      { views: offers(["lua", "0.4", "0.5"], "web") },
     );
     const open = await rig.next("open");
-    expect(JSON.parse(open.payload)).toMatchObject({ view: "lua", version: "0.5" });
+    expect(JSON.parse(open.payload)).toMatchObject({ view: "web", version: "1.0" });
     rig.say("closed", closed("user"));
-    expect(await served).toMatchObject({ view: { kind: "lua", version: "0.5" } });
+    expect(await served).toMatchObject({ view: { kind: "web", version: "1.0" } });
   });
 
   it("opens a page without the access of a kit view, and a kit view without any", async () => {
@@ -426,10 +421,10 @@ describe("the open", () => {
       rig,
       {
         program: "demopen",
-        views: [{ kind: "wasm", versions: ["0.5"], bundle: wasmBundle() }],
+        views: [{ kind: "lua", versions: ["0.5"], bundle: luaBundle() }],
         icons: [{ src, mimeType: "image/png", sizes: ["1x1"], theme: "dark" }],
       },
-      { views: offers("wasm") },
+      { views: offers("lua") },
     );
     const open = await rig.next("open");
     expect(open.payload).toBe(payloadOf("to-host/open-icons.frame"));
@@ -764,10 +759,10 @@ describe("the result", () => {
     const rig = new Rig();
     const { served } = await shown(
       rig,
-      { views: [{ kind: "wasm", versions: ["0.5"], bundle: wasmBundle() }] },
-      { views: offers("wasm") },
+      { views: [{ kind: "lua", versions: ["0.5"], bundle: luaBundle() }] },
+      { views: offers("lua") },
     );
     rig.say("closed", closed("user"));
-    expect(await served).toMatchObject({ view: { kind: "wasm", version: "0.5" } });
+    expect(await served).toMatchObject({ view: { kind: "lua", version: "0.5" } });
   });
 });

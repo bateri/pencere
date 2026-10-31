@@ -164,7 +164,7 @@ impl Bundle {
     }
 
     /// A bundle of one file, the whole of a component or a script that the program carries: the
-    /// file is the entry, and its media type comes from the extension of `name` (`.wasm`, `.lua`).
+    /// file is the entry, and its media type comes from the extension of `name` (`.html`, `.lua`).
     ///
     /// # Errors
     ///
@@ -317,7 +317,7 @@ mod tests {
     #[test]
     fn a_file_over_the_limit_is_refused() {
         let big = vec![0u8; usize::try_from(MAX_FILE_SIZE).unwrap_or(0) + 1];
-        let error = Bundle::single("view.wasm", big).expect_err("over the limit");
+        let error = Bundle::single("view.lua", big).expect_err("over the limit");
         assert!(error.to_string().contains("at most"), "{error}");
     }
 

@@ -1,15 +1,15 @@
 /**
  * The program side of pencere: a program running in a terminal asks the terminal
  * whether it hosts pencere views and, if it does, shows a view of its own in the
- * program's pane, over the terminal's own stream. The view is a WebAssembly
- * component (`wasm`), a Lua script (`lua`) or a web page (`web`); whichever it is, it
+ * program's pane, over the terminal's own stream. The view is a Lua script
+ * (`lua`) or a web page (`web`); whichever it is, it
  * and the program talk in six small messages: the view calls the program and
  * subscribes to its topics, and the program answers and pushes.
  *
  * ```ts
  * const result = await serve({
  *   views: [
- *     { kind: "wasm", versions: ["0.5", "0.4"], bundle: (version) => wasmBundle(version) },
+ *     { kind: "lua", versions: ["2.1"], bundle: await bundleFromDirectory(new URL("./page/", import.meta.url)) },
  *     { kind: "web", bundle: await bundleFromDirectory(new URL("./view/", import.meta.url)) },
  *   ],
  *   program: "containers",

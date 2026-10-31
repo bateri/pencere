@@ -5,9 +5,9 @@ a pty and plays the host of the views that program opens, with the
 [`pencere-host` crate](../rust) holding every rule of the conversation: who may open a
 view, what is refused, which files of a bundle are missing, what the page is told,
 what ends it. The page is a script, not a web view, so a program can be tried, and the
-libraries tested, without a terminal that hosts pencere. It opens the three kinds of view the
-protocol has: a page (`web`) and a component or a Lua script that a terminal draws itself (`wasm`
-and `lua`, at 1.0); it draws neither, and plays all three the same way.
+libraries tested, without a terminal that hosts pencere. It opens the two kinds of view the
+protocol has: a page (`web`) and a Lua script that a terminal draws itself (`lua`, at 2.1); it
+draws neither, and plays both the same way.
 
 ```sh
 cargo run -p pencere-fake-host -- [options] -- <program> [args...]
@@ -79,13 +79,13 @@ written against the TypeScript SDK, and the example written against the Rust lib
 
 The stand-in is a library too (`pencere_fake_host`): its pty, how it reads a pane, its store and
 its record are what the command is made of. With it, `program::open` starts a program on a pty as a
-terminal does, waits for the view of the kit it opens (a Lua script or a WebAssembly component),
+terminal does, waits for the view of the kit it opens (a Lua script),
 and runs that view for real in the kit's sandbox under `pencere-drive`'s host with no screen, the
 program its peer, the session between the two as a terminal has it. A test of a program and its
 page together:
 
 ```rust
-let mut page = pencere_fake_host::program::open(&["target/debug/containers-rust", "--lua"])?
+let mut page = pencere_fake_host::program::open(&["target/debug/containers-rust"])?
     .size(1000.0, 600.0)
     .open()?;
 page.wait_for(Duration::from_secs(30), |page| page.says("Containers"))?; // the program's own time

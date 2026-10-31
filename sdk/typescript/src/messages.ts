@@ -20,15 +20,14 @@ export const FEATURE_DISMISS = "dismiss";
 export const FEATURE_STAGE = "stage";
 
 /** The kinds of view of the table of §5.5. */
-export type ViewKind = "lua" | "wasm" | "web";
+export type ViewKind = "lua" | "web";
 
 /** The kinds of view of the table of §5.5. */
-export const VIEW_KINDS: readonly ViewKind[] = ["lua", "wasm", "web"];
+export const VIEW_KINDS: readonly ViewKind[] = ["lua", "web"];
 
 /** The media type the entry of a bundle has for each kind of view (§6.3). */
 export const ENTRY_TYPES: Readonly<Record<ViewKind, string>> = {
   lua: "text/x-lua",
-  wasm: "application/wasm",
   web: "text/html",
 };
 

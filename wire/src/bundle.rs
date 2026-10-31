@@ -148,9 +148,6 @@ pub enum Refusal {
     Limit,
 }
 
-/// The media type of the entry of a WebAssembly view (specification §6.3, §9.8): a component.
-pub const WASM_MEDIA_TYPE: &str = "application/wasm";
-
 /// The media type of the entry of a Lua view: the text of a script.
 pub const LUA_MEDIA_TYPE: &str = "text/x-lua";
 
@@ -212,6 +209,7 @@ pub fn media_type_of(path: &str) -> &'static str {
         ".woff2" => "font/woff2",
         ".ttf" => "font/ttf",
         ".otf" => "font/otf",
+        // A page may carry a WebAssembly module of its own.
         ".wasm" => "application/wasm",
         ".lua" | ".luau" => LUA_MEDIA_TYPE,
         ".mp3" => "audio/mpeg",

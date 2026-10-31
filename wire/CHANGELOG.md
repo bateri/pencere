@@ -33,6 +33,12 @@ All notable changes to the `pencere-wire` crate are recorded here. The format fo
 - `frame::Outgoing` has `file`, the keys of the messages of files; `FileParams::NONE` for any
   other message. `bundle::Received::Failed` says how the file failed (`Mismatch`).
 
+### Removed
+
+- `bundle::WASM_MEDIA_TYPE`: the `wasm` kind of view is gone (specification §5.5), so no entry has
+  that type. `media_type_of` still gives a `.wasm` file the type `application/wasm`, for a page that
+  carries a WebAssembly module of its own.
+
 ## [0.3.1] - 2026-10-26
 
 ### Fixed

@@ -39,6 +39,12 @@ length)` of a file the person gave and `write(handle, offset, bytes, end)` to th
   the file ended, `unstage()` to take it back. A `FileError` carries `at` with the `route` of a
   `fetch`. The bytes cross no message; what the program asks and what it is told stay messages.
 
+### Removed
+
+- **The `wasm` kind of view.** `ViewKind` is `"lua" | "web"`, `VIEW_KINDS` and `ENTRY_TYPES` lose
+  `wasm`, and `hasFiles` is true for `lua` at 2.1 and later only. A `ViewSpec` with `kind: "wasm"`
+  no longer type-checks.
+
 ## [0.2.0] - 2026-10-25
 
 ### Added

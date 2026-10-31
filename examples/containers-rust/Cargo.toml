@@ -1,6 +1,6 @@
 [package]
 name = "containers-rust"
-description = "A made-up Docker host, and the smallest program that shows a view of its own: the container list as a WebAssembly component or a Lua script, drawn by the terminal, written with the pencere library"
+description = "A made-up Docker host, and the smallest program that shows a view of its own: the container list as a Lua script, drawn by the terminal, written with the pencere library"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

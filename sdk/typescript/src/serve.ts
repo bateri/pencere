@@ -85,17 +85,17 @@ export type BundleSource = Bundle | ((version: string) => Bundle | Promise<Bundl
 
 /** A kind of view the program can show (specification §5.5). */
 export interface ViewSpec {
-  /** `web`, `wasm` or `lua`. */
+  /** `web` or `lua`. */
   kind: ViewKind;
   /**
    * The versions of the kind's interface the view is written against, in the order the program
-   * prefers them (§5.5). `["1.0"]` for a `web` view when left out; a `wasm` or `lua` view
+   * prefers them (§5.5). `["1.0"]` for a `web` view when left out; a `lua` view
    * has to say.
    */
   versions?: readonly string[];
   /**
    * The files of the view. The entry's type has to be that of the kind: `text/html` for `web`,
-   * `application/wasm` for `wasm`, `text/x-lua` for `lua` (§6.3). A function is asked for the
+   * `text/x-lua` for `lua` (§6.3). A function is asked for the
    * bundle of the version the host and the program agreed on, which suits a view that has a
    * build for each version of the kit.
    */

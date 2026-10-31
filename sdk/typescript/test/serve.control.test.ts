@@ -411,7 +411,7 @@ describe("a host that starts the view again (§10.7)", () => {
     const { rig, served } = await withControl();
     rig.say(
       "welcome",
-      welcomePayload(TOKEN_2, undefined, offers(["wasm", "0.5"]), { restart: true }),
+      welcomePayload(TOKEN_2, undefined, offers(["lua", "0.5"]), { restart: true }),
     );
     await rig.settle();
     expect(rig.messages().filter((m) => m.kind === "open")).toHaveLength(1);

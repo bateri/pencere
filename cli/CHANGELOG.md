@@ -13,6 +13,10 @@ All notable changes to the `pencere` command are recorded here. The format follo
   a minute (the page asks the app for where it was); `ended = "error"` now means that was given up
   on, because the failure came twice inside the minute or the terminal did not bring the view back.
 
+- **A Lua app is shown at `lua` `2.1` alone.** `pencere.serve` no longer offers `2.0`: the kit has
+  one version of the page API until its first general release. A terminal that opens only `2.0`
+  finds no version in common.
+
 ### Added
 
 - `pencere.files.receive` takes the `path` and the `size` the page was handed with a file, in its

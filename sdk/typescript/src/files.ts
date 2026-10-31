@@ -34,8 +34,8 @@ const ATTACHED = "sha256:";
 
 /**
  * Why a file could not be attached, read or saved. `code` is `unsupported` when no view that has
- * files runs (none is up, or it was opened at a version without them: `lua` before 2.1, `wasm`
- * before 3.0, a page), `ended` when the view ended before the host answered, or the host's own:
+ * files runs (none is up, or it was opened at a version without them: `lua` before 2.1,
+ * a page), `ended` when the view ended before the host answered, or the host's own:
  * for an attach `limit`, `view`, `size`, `digest`; for a read `handle`, `range`, `busy`, `gone`,
  * `io`; for a write `handle`, `order`, `size`, `space`, `io`; for a `stage` or a `fetch` `handle`,
  * `busy`, `gone`, `size`, `space`, `route`, `io`, `cancelled` (§8.11).
@@ -84,7 +84,6 @@ export function hasFiles(kind: string, version: string): boolean {
   const [major = Number.NaN, minor = 0] = version.split(".").map(Number);
   if (!Number.isInteger(major)) return false;
   if (kind === "lua") return major > 2 || (major === 2 && minor >= 1);
-  if (kind === "wasm") return major >= 3;
   return false;
 }
 

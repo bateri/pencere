@@ -104,9 +104,6 @@ export const EXAMPLE_DIGESTS = {
 export const TOKEN = "q7Vh2sB0xJm9kLw4TzN1cA";
 export const TOKEN_2 = "Zk3mP8rD5uYb1Xe6HqS0vg";
 
-/** The bytes of a wasm component that is no more than its header: what the examples' kit view is made of. */
-export const WASM_HEADER = Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
-
 /** What a test sees of the tty: the calls made on it, in order. */
 export class FakeTerminal implements Terminal {
   readonly calls: string[] = [];
@@ -340,11 +337,7 @@ export const exampleFiles = () =>
 /** The page of the examples of the specification. */
 export const webBundle = () => bundleFromFiles(exampleFiles());
 
-/** A component that is no more than its header, the bundle of the `wasm` examples. */
-export const wasmBundle = () =>
-  bundleFromFiles([{ path: "view.wasm", data: WASM_HEADER }], { entry: "view.wasm" });
-
-/** A script. */
+/** A script that is no more than a return: the bundle of the kit view of the examples. */
 export const luaBundle = () =>
   bundleFromFiles([{ path: "view.lua", data: Buffer.from("return {}\n") }], { entry: "view.lua" });
 

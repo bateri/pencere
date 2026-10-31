@@ -30,23 +30,19 @@ import {
   unstagePayload,
 } from "../src/messages.js";
 import type { OpenFields, WelcomeOffer } from "../src/messages.js";
-import { EXAMPLE_FILES, TOKEN, TOKEN_2, WASM_HEADER, offers, payloadOf } from "./support.js";
+import { EXAMPLE_FILES, TOKEN, TOKEN_2, luaBundle, offers, payloadOf } from "./support.js";
 
 const web = bundleFromFiles(
   Object.entries(EXAMPLE_FILES).map(([path, text]) => ({ path, data: Buffer.from(text) })),
 );
-
-const component = bundleFromFiles([{ path: "view.wasm", data: WASM_HEADER }], {
-  entry: "view.wasm",
-});
 
 describe("what the program writes", () => {
   it("is the hello of the fixtures: one kind with its versions", () => {
     expect(helloPayload(offers("web"))).toBe(payloadOf("to-host/hello.frame"));
   });
 
-  it("is the hello of three kinds, one of them in two versions, in the order given", () => {
-    expect(helloPayload(offers(["wasm", "0.5", "0.4"], "lua", "web"))).toBe(
+  it("is the hello of two kinds, one of them in two versions, in the order given", () => {
+    expect(helloPayload(offers(["lua", "0.5", "0.4"], "web"))).toBe(
       payloadOf("to-host/hello-views.frame"),
     );
   });
@@ -65,7 +61,7 @@ describe("what the program writes", () => {
   });
 
   it("is the open of a kit view: no access", () => {
-    const open = (view: "wasm" | "lua", bundle: BundleManifest): OpenFields => ({
+    const open = (view: "lua", bundle: BundleManifest): OpenFields => ({
       token: TOKEN,
       view,
       version: "0.5",
@@ -73,13 +69,9 @@ describe("what the program writes", () => {
       title: "Containers",
       bundle,
     });
-    expect(openPayload(open("wasm", component.manifest))).toBe(
-      payloadOf("to-host/open-wasm.frame"),
+    expect(openPayload(open("lua", luaBundle().manifest))).toBe(
+      payloadOf("to-host/open-lua.frame"),
     );
-    // The script of the fixture is not among the files here: its manifest is read from the fixture.
-    const lua = payloadOf("to-host/open-lua.frame");
-    const manifest = (JSON.parse(lua) as { bundle: BundleManifest }).bundle;
-    expect(openPayload(open("lua", manifest))).toBe(lua);
   });
 
   it("is the open with an icon: the icon's members in the order of Appendix A", () => {
@@ -87,20 +79,20 @@ describe("what the program writes", () => {
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
     const open: OpenFields = {
       token: TOKEN,
-      view: "wasm",
+      view: "lua",
       version: "0.5",
       program: "demopen",
       title: "Containers",
       // Written here in another order than the wire's.
       icons: [{ theme: "dark", sizes: ["1x1"], mimeType: "image/png", src }],
-      bundle: component.manifest,
+      bundle: luaBundle().manifest,
     };
     expect(openPayload(open)).toBe(payloadOf("to-host/open-icons.frame"));
   });
 
   it("writes the members of an open in the wire's order whatever order they were given in", () => {
     const text = openPayload({
-      bundle: component.manifest,
+      bundle: luaBundle().manifest,
       access: { permissions: ["camera"], connect: ["https://a.example"] },
       title: "t",
       program: "p",
@@ -379,12 +371,8 @@ describe("a welcome", () => {
   });
 
   it("lists the kinds in the order the host wrote them, each with its versions in its order", () => {
-    expect(offer("to-program/welcome-wasm.frame").views).toEqual([
-      { kind: "wasm", versions: ["0.5"] },
-      { kind: "web", versions: ["1.0"] },
-    ]);
     expect(offer("to-program/welcome-versions.frame").views).toEqual([
-      { kind: "wasm", versions: ["0.5", "0.4"] },
+      { kind: "lua", versions: ["0.5", "0.4"] },
       { kind: "web", versions: ["1.0"] },
     ]);
   });
@@ -429,10 +417,10 @@ describe("a welcome", () => {
       readViews([
         { kind: "web", versions: ["1.0", "nine", 2, "1.0.0"] },
         { kind: "web", versions: ["2.0"] },
-        { kind: "wasm" },
+        { kind: "lua" },
         { kind: "lua", versions: [] },
         { kind: 3, versions: ["0.5"] },
-        "wasm",
+        "lua",
         null,
         { kind: "lua", versions: ["0.5"] },
       ]),
@@ -446,40 +434,40 @@ describe("a welcome", () => {
 });
 
 describe("choosing the view", () => {
-  const mine = offers(["wasm", "0.6", "0.5", "0.4"], "lua", "web");
+  const mine = offers(["lua", "0.6", "0.5", "0.4"], "web");
 
   it("is the first kind of the program's list that the host lists, at the first version it lists", () => {
-    // session/several-versions: the host opens wasm at 0.5 and 0.4, and web.
+    // session/several-versions: the host opens lua at 0.5 and 0.4, and web.
     const welcome = parseWelcome(payloadOf("to-program/welcome-versions.frame"), VERSIONS);
     if (welcome?.kind !== "offer") throw new Error("no offer");
-    expect(chooseView(mine, welcome.views)).toEqual({ kind: "wasm", version: "0.5" });
+    expect(chooseView(mine, welcome.views)).toEqual({ kind: "lua", version: "0.5" });
   });
 
   it("follows the program's order of kinds and not the host's", () => {
-    expect(chooseView(offers("web", ["wasm", "0.5"]), offers(["wasm", "0.5"], "web"))).toEqual({
+    expect(chooseView(offers("web", ["lua", "0.5"]), offers(["lua", "0.5"], "web"))).toEqual({
       kind: "web",
       version: "1.0",
     });
   });
 
   it("follows the program's order of versions when the host lists its own order (§10.7)", () => {
-    expect(chooseView(offers(["wasm", "0.5", "0.4"]), offers(["wasm", "0.4", "0.5"]))).toEqual({
-      kind: "wasm",
+    expect(chooseView(offers(["lua", "0.5", "0.4"]), offers(["lua", "0.4", "0.5"]))).toEqual({
+      kind: "lua",
       version: "0.5",
     });
   });
 
   it("goes on to the next kind when a kind has no version in common (session/no-common-version)", () => {
-    expect(chooseView(offers(["wasm", "0.9"], "web"), offers("web"))).toEqual({
+    expect(chooseView(offers(["lua", "0.9"], "web"), offers("web"))).toEqual({
       kind: "web",
       version: "1.0",
     });
-    expect(chooseView(offers(["wasm", "0.9"]), offers(["wasm", "0.4", "0.5"]))).toBeUndefined();
+    expect(chooseView(offers(["lua", "0.9"]), offers(["lua", "0.4", "0.5"]))).toBeUndefined();
   });
 
   it("is nothing when the host lists nothing, or a kind the program did not list", () => {
     expect(chooseView(mine, [])).toBeUndefined();
-    expect(chooseView(offers("web"), offers(["wasm", "0.5"]))).toBeUndefined();
+    expect(chooseView(offers("web"), offers(["lua", "0.5"]))).toBeUndefined();
   });
 });
 

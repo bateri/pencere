@@ -15,9 +15,8 @@ pub enum Kind {
     /// A web page in a web view of the terminal's, that reaches the program only through the six
     /// messages.
     Web,
-    /// A WebAssembly component that the terminal runs in its own sandbox and draws itself.
-    Wasm,
-    /// A script in the Lua language that the terminal runs in the same sandbox and draws itself.
+    /// A script in the Lua language that the terminal runs in a sandbox of its own and draws
+    /// itself.
     Lua,
 }
 
@@ -27,7 +26,6 @@ impl Kind {
     pub fn name(self) -> &'static str {
         match self {
             Self::Web => "web",
-            Self::Wasm => "wasm",
             Self::Lua => "lua",
         }
     }
@@ -37,7 +35,6 @@ impl Kind {
     pub fn entry_type(self) -> &'static str {
         match self {
             Self::Web => "text/html",
-            Self::Wasm => pencere_wire::bundle::WASM_MEDIA_TYPE,
             Self::Lua => pencere_wire::bundle::LUA_MEDIA_TYPE,
         }
     }

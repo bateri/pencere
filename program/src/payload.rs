@@ -629,9 +629,9 @@ mod tests {
             hello(&[(Kind::Web, &web)]),
             payload_of("to-host/hello.frame")
         );
-        let (wasm, lua) = (versions(&["0.5", "0.4"]), versions(&["0.5"]));
+        let lua = versions(&["0.5", "0.4"]);
         assert_eq!(
-            hello(&[(Kind::Wasm, &wasm), (Kind::Lua, &lua), (Kind::Web, &web)]),
+            hello(&[(Kind::Lua, &lua), (Kind::Web, &web)]),
             payload_of("to-host/hello-views.frame")
         );
     }
@@ -691,9 +691,9 @@ mod tests {
         .expect("a bundle")
     }
 
-    /// A component that is no more than its header: the bundle of the fixtures' kit views.
-    fn component() -> Bundle {
-        Bundle::single("view.wasm", &b"\0asm\x01\0\0\0"[..]).expect("a bundle")
+    /// A script that is no more than a return: the bundle of the fixtures' kit views.
+    fn script() -> Bundle {
+        Bundle::single("view.lua", &b"return {}\n"[..]).expect("a bundle")
     }
 
     const TOKEN: &str = "q7Vh2sB0xJm9kLw4TzN1cA";
@@ -735,35 +735,9 @@ mod tests {
             access: None,
         };
         assert_eq!(
-            open(&fields(Kind::Wasm, &[]), &component()),
-            payload_of("to-host/open-wasm.frame")
+            open(&fields(Kind::Lua, &[]), &script()),
+            payload_of("to-host/open-lua.frame")
         );
-
-        // The script of the fixture is not among the files here: it is a file whose bytes this
-        // test does not have. Another script is the same `open` in everything but the digest and
-        // the size.
-        let script = Bundle::single("view.lua", b"return { name = 'a view' }\n\n\n".to_vec())
-            .expect("a bundle");
-        let written: Value =
-            serde_json::from_str(&open(&fields(Kind::Lua, &[]), &script)).expect("JSON");
-        let fixture: Value =
-            serde_json::from_str(&payload_of("to-host/open-lua.frame")).expect("JSON");
-        for pointer in [
-            "/token",
-            "/view",
-            "/version",
-            "/program",
-            "/title",
-            "/bundle/entry",
-            "/bundle/files/0/path",
-            "/bundle/files/0/type",
-        ] {
-            assert_eq!(
-                written.pointer(pointer),
-                fixture.pointer(pointer),
-                "{pointer}"
-            );
-        }
 
         let icon = Icon {
             src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==".into(),
@@ -773,7 +747,7 @@ mod tests {
             mime_type: Some("image/png".into()),
         };
         assert_eq!(
-            open(&fields(Kind::Wasm, &[icon]), &component()),
+            open(&fields(Kind::Lua, &[icon]), &script()),
             payload_of("to-host/open-icons.frame")
         );
     }
@@ -782,23 +756,21 @@ mod tests {
     fn the_versions_of_both_sides_are_said_in_words_for_the_kinds_the_terminal_named() {
         let mine = vec!["2.0".to_owned(), "3.0".to_owned()];
         let web = vec!["1.0".to_owned()];
-        let program: Vec<(Kind, &[String])> = vec![(Kind::Wasm, &mine), (Kind::Web, &web)];
+        let program: Vec<(Kind, &[String])> = vec![(Kind::Lua, &mine), (Kind::Web, &web)];
         let opens = [
             Listed {
-                kind: "wasm".into(),
+                kind: "lua".into(),
                 versions: vec!["1.0".into(), "1.1".into()],
             },
             Listed {
-                kind: "lua".into(),
+                kind: "gopher".into(),
                 versions: vec!["1.0".into()],
             },
         ];
-        // Only a kind that the program lists and the terminal named: `lua` is not the program's.
+        // Only a kind that the program lists and the terminal named: `gopher` is not the program's.
         assert_eq!(
             no_version_sentence(&program, &opens).as_deref(),
-            Some(
-                "this program is written for wasm 2.0 or 3.0; this terminal opens wasm 1.0 or 1.1"
-            )
+            Some("this program is written for lua 2.0 or 3.0; this terminal opens lua 1.0 or 1.1")
         );
         assert_eq!(no_version_sentence(&program, &[]), None);
     }
@@ -873,7 +845,7 @@ mod tests {
     #[test]
     fn a_welcome_is_read_as_the_fixtures_have_it() {
         let offer = welcome(
-            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"t","version":"0"},"features":["dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}"#,
+            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"t","version":"0"},"features":["dismiss"],"views":[{"kind":"lua","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}"#,
         );
         let Some(Welcome::Offer(offer)) = offer else {
             panic!("an offer");
@@ -908,13 +880,8 @@ mod tests {
 
     #[test]
     fn the_program_chooses_in_its_own_order() {
-        let (wasm, lua, web) = (
-            versions(&["1.0", "0.9"]),
-            versions(&["1.0"]),
-            versions(&["1.0"]),
-        );
-        let mine: Vec<(Kind, &[String])> =
-            vec![(Kind::Wasm, &wasm), (Kind::Lua, &lua), (Kind::Web, &web)];
+        let (lua, web) = (versions(&["1.0", "0.9"]), versions(&["1.0"]));
+        let mine: Vec<(Kind, &[String])> = vec![(Kind::Lua, &lua), (Kind::Web, &web)];
         let host = |list: &[(&str, &[&str])]| -> Vec<Listed> {
             list.iter()
                 .map(|(kind, v)| Listed {
@@ -926,15 +893,15 @@ mod tests {
         // The terminal's own order does not matter, the program's does.
         assert_eq!(
             choose(&mine, &host(&[("web", &["1.0"]), ("lua", &["1.0"])])),
-            Some((1, "1.0".into()))
+            Some((0, "1.0".into()))
         );
         // The first version of the program's that the terminal speaks.
         assert_eq!(
-            choose(&mine, &host(&[("wasm", &["0.9"])])),
+            choose(&mine, &host(&[("lua", &["0.9"])])),
             Some((0, "0.9".into()))
         );
         // A kind at no version in common is not a kind in common.
-        assert_eq!(choose(&mine, &host(&[("wasm", &["2.0"])])), None);
+        assert_eq!(choose(&mine, &host(&[("lua", &["2.0"])])), None);
         assert_eq!(choose(&mine, &[]), None);
     }
 
@@ -1051,7 +1018,7 @@ mod tests {
         };
         assert_eq!(offer.views.len(), 1);
         assert_eq!(offer.opens.len(), 1);
-        assert_eq!(offer.opens[0].kind, "wasm");
+        assert_eq!(offer.opens[0].kind, "lua");
         // A `closed` that answers something has `re`; one that ends a running view has none.
         let (_, _, re, payload) = &read_from_host("session/view-ends/06-out.frame")[0];
         assert_eq!(*re, None);

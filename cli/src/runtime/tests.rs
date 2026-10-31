@@ -460,7 +460,7 @@ fn serve_names_its_views_in_the_order_the_app_prefers_them() {
     );
     for (source, wanted) in [
         (r#"return { views = {} }"#, "empty"),
-        (r#"return { views = { { kind = "wasm" } } }"#, "lua"),
+        (r#"return { views = { { kind = "gopher" } } }"#, "lua"),
         (
             r#"return { views = { { kind = "web" } }, web = "web" }"#,
             "goes in its entries",

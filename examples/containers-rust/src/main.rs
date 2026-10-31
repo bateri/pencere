@@ -1,15 +1,13 @@
 //! `containers-rust`: a made-up Docker host, and the smallest program that shows a view of its own.
 //!
 //! In a terminal that speaks pencere it opens the container list as a view of the terminal's
-//! own (a WebAssembly module it carries, `containers.wasm`, or with `--lua` the same page as a
-//! script in the Lua language, `containers.lua`) and, once a second, tells it how much CPU and
-//! memory each running container uses — the view does not ask again. In a terminal that does not,
+//! own (a script in the Lua language it carries, `containers.lua`) and, once a second, tells it how
+//! much CPU and memory each running container uses — the view does not ask again. In a terminal that does not,
 //! and when asked for text, it prints the list. ⌃C ends it and the shell is where it was. A view
 //! that fails says why once the terminal is back: the error of a script, with its line.
 //!
 //! ```text
 //! containers-rust            the view if the terminal shows one, the list as text if not
-//! containers-rust --lua      the same, with the page as a Lua script
 //! containers-rust --script F the view is the Lua script in the file F (to try a script of one's own)
 //! containers-rust --flood    the view, with the readings pushed as fast as the terminal takes them
 //! containers-rust --stall N  the view, with the readings stopping after N seconds (a Docker that hangs)
@@ -38,17 +36,12 @@ use std::time::{Duration, Instant};
 use pencere::{Bundle, EndedBy, Kind, NoViewReason, Options, Outcome, Subscription, View};
 use serde_json::{Value, json};
 
-/// The view's module: built by `make guest`, which builds it before this program. Empty where the
-/// program was built without it (`build.rs`).
-static VIEW: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/containers.wasm"));
-
-/// The same page as a script.
+/// The page, a script in the Lua language.
 const SCRIPT: &[u8] = include_bytes!("../../../kit/luau/examples/containers.lua");
 
-/// The versions of the interface of the views the terminal draws itself that the page is written
-/// against: the Lua page API's, and the component interface's (`pencere:view@3.0.0`).
-const LUA_VERSION: &str = "2.0";
-const WASM_VERSION: &str = "3.0";
+/// The version of the interface of the views the terminal draws itself that the page is written
+/// against: the Lua page API's.
+const LUA_VERSION: &str = "2.1";
 
 /// How often the made-up host reports.
 const EVERY: Duration = Duration::from_secs(1);
@@ -56,7 +49,6 @@ const EVERY: Duration = Duration::from_secs(1);
 fn main() -> ExitCode {
     let mut flood = false;
     let mut stall = None;
-    let mut lua = false;
     let mut script = None;
     let mut text = false;
     let mut json = false;
@@ -74,7 +66,6 @@ fn main() -> ExitCode {
                     return ExitCode::from(64);
                 }
             },
-            "--lua" => lua = true,
             "--script" => match args.next().map(std::fs::read) {
                 Some(Ok(bytes)) => script = Some(bytes),
                 Some(Err(why)) => {
@@ -111,28 +102,15 @@ fn main() -> ExitCode {
             print!("{}", table::json());
             ExitCode::SUCCESS
         }
-        (false, false) => match (script, lua) {
-            (Some(bytes), _) => shown(Kind::Lua, "containers.lua", bytes.into(), flood, stall),
-            (None, true) => shown(Kind::Lua, "containers.lua", SCRIPT.into(), flood, stall),
-            (None, false) if VIEW.is_empty() => {
-                eprintln!(
-                    "containers-rust: this build carries no WebAssembly module (`make guest` builds it first); --lua shows the same page as a script"
-                );
-                ExitCode::from(69)
-            }
-            (None, false) => shown(Kind::Wasm, "containers.wasm", VIEW.into(), flood, stall),
+        (false, false) => match script {
+            Some(bytes) => shown("containers.lua", bytes.into(), flood, stall),
+            None => shown("containers.lua", SCRIPT.into(), flood, stall),
         },
     }
 }
 
 /// The view if the terminal shows one, and the list as text if not.
-fn shown(
-    kind: Kind,
-    name: &str,
-    file: Cow<'static, [u8]>,
-    flood: bool,
-    stall: Option<Duration>,
-) -> ExitCode {
+fn shown(name: &str, file: Cow<'static, [u8]>, flood: bool, stall: Option<Duration>) -> ExitCode {
     let bundle = match Bundle::single(name, file) {
         Ok(bundle) => bundle,
         Err(why) => {
@@ -142,15 +120,7 @@ fn shown(
     };
     let upload = Arc::new(Upload::default());
     let options = handlers(flood, stall, &upload)
-        .view(View::new(
-            kind,
-            &[if kind == Kind::Wasm {
-                WASM_VERSION
-            } else {
-                LUA_VERSION
-            }],
-            bundle,
-        ))
+        .view(View::new(Kind::Lua, &[LUA_VERSION], bundle))
         .program("containers-rust")
         .title("Containers")
         // The terminal shows no view: the list as text. A refusal or a failure has its words.
@@ -296,9 +266,8 @@ fn printable(words: &str) -> String {
     words.chars().filter(|c| !c.is_control()).collect()
 }
 
-const USAGE: &str = "usage: containers-rust [--lua | --script FILE] [--flood] [--stall N] | --text | --json\n\n  \
+const USAGE: &str = "usage: containers-rust [--script FILE] [--flood] [--stall N] | --text | --json\n\n  \
     (no option)  a view in a terminal that shows one, the list as text in one that does not\n  \
-    --lua        the view as a Lua script, not a WebAssembly component\n  \
     --script F   the view as the Lua script in the file F\n  \
     --flood      the view, with the readings pushed as fast as the terminal takes them\n  \
     --stall N    the view, with the readings stopping after N seconds\n  \

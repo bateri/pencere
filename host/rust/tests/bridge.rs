@@ -263,17 +263,17 @@ fn a_context_is_for_a_page_and_for_a_page_that_runs() {
     assert!(rig.viewed().is_empty());
     assert_eq!(rig.host.page_context(), None);
     // A view the terminal draws itself is told by the kit, not by the host.
-    let mut rig = Rig::with(kit_config(&[(ViewKind::Wasm, &["0.5"])]));
-    let token = rig.hello_with(&json!([{"kind": "wasm", "versions": ["0.5"]}]))["token"]
+    let mut rig = Rig::with(kit_config(&[(ViewKind::Lua, &["0.5"])]));
+    let token = rig.hello_with(&json!([{"kind": "lua", "versions": ["0.5"]}]))["token"]
         .as_str()
         .unwrap()
         .to_owned();
-    let body = b"\0asm\x01\0\0\0";
+    let body = b"return {}\n";
     let digest = pencere_host::bundle::Digest::of(body).to_string();
     rig.json(
         "open",
-        &json!({"token": token, "view": "wasm", "version": "0.5", "bundle": {"entry": "v.wasm",
-            "files": [{"path": "v.wasm", "sha256": digest, "size": body.len(), "type": "application/wasm"}]}}),
+        &json!({"token": token, "view": "lua", "version": "0.5", "bundle": {"entry": "v.lua",
+            "files": [{"path": "v.lua", "sha256": digest, "size": body.len(), "type": "text/x-lua"}]}}),
     );
     rig.send(
         "file",

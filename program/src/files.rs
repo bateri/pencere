@@ -4,7 +4,7 @@
 //!
 //! The helpers are methods of [`ViewControl`] and are called from any thread but the loop's (a
 //! handler's, typically, once the view has passed it a handle): each hands the loop what to write
-//! and waits for the terminal's answer. They need a view opened at `lua` `2.1` or `wasm` `3.0`
+//! and waits for the terminal's answer. They need a view opened at `lua` `2.1`
 //! and later; with any other they answer [`FileError::Unsupported`] and nothing is sent.
 //!
 //! A file being received is written beside its place under a name the person recognises
@@ -47,7 +47,7 @@ const ATTACHED: &str = "sha256:";
 #[non_exhaustive]
 pub enum FileError {
     /// No view runs that has files beside its bundle: none is up, or the one that is was opened at
-    /// a version that has none (`lua` before `2.1`, `wasm` before `3.0`, a page). Nothing was
+    /// a version that has none (`lua` before `2.1`, a page). Nothing was
     /// sent.
     Unsupported,
     /// The terminal said no, with its code: for an attach `limit`, `view`, `size` or `digest`
@@ -88,7 +88,7 @@ impl From<io::Error> for FileError {
 }
 
 /// Whether a view of `kind` opened at `version` has files beside its bundle (§5.5): `lua` from
-/// `2.1` on and `wasm` from `3.0` on.
+/// `2.1` on.
 pub(crate) fn has_files(kind: Kind, version: &str) -> bool {
     let mut parts = version.split('.').map(str::parse::<u64>);
     let (Some(Ok(major)), minor) = (parts.next(), parts.next()) else {
@@ -97,7 +97,6 @@ pub(crate) fn has_files(kind: Kind, version: &str) -> bool {
     let minor = minor.and_then(Result::ok).unwrap_or(0);
     match kind {
         Kind::Lua => (major, minor) >= (2, 1),
-        Kind::Wasm => major >= 3,
         Kind::Web => false,
     }
 }
@@ -1266,13 +1265,11 @@ mod tests {
     }
 
     #[test]
-    fn the_versions_that_have_files_are_lua_2_1_and_wasm_3_and_later() {
+    fn the_versions_that_have_files_are_lua_2_1_and_later() {
         assert!(has_files(Kind::Lua, "2.1"));
         assert!(has_files(Kind::Lua, "2.10"));
         assert!(has_files(Kind::Lua, "3.0"));
         assert!(!has_files(Kind::Lua, "2.0"));
-        assert!(has_files(Kind::Wasm, "3.0.0"));
-        assert!(!has_files(Kind::Wasm, "2.9.9"));
         assert!(!has_files(Kind::Web, "9.0"));
         assert!(!has_files(Kind::Lua, "x"));
     }

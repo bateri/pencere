@@ -56,7 +56,7 @@
 //! shows another with a [`ViewControl`] (§10.8); one that runs a shell or an editor in its pane
 //! lends it the terminal with [`ViewControl::hand_off`], and its view comes back when that ends.
 //!
-//! A view opened at `lua` `2.1` or `wasm` `3.0` and later has files beside its bundle: the program
+//! A view opened at `lua` `2.1` and later has files beside its bundle: the program
 //! attaches files for it to draw ([`ViewControl::attach`]), receives a file the person gave the
 //! view ([`ViewControl::receive`]) and writes to the place the person chose in the Save panel
 //! ([`ViewControl::send`]).

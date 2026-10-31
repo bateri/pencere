@@ -803,7 +803,7 @@ local pencere = require("pencere")
 
 test("the Rust example's page, with its program on a pty", function()
 	local page = test.open({
-		command = { pencere.env.get("CONTAINERS_RUST"), "--lua" },
+		command = { pencere.env.get("CONTAINERS_RUST") },
 		size = { 900, 500 },
 	})
 	expect(page):to_say("Containers")

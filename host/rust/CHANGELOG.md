@@ -49,6 +49,13 @@ under this name) are recorded here. The format follows
 - `sandbox::is_openable_link` is `pencere_wire::link::is_openable`, the one copy of the rule the
   kit's sandbox holds a kit view's links to as well.
 
+### Removed
+
+- **The `wasm` kind of view.** `ViewKind::Wasm` is gone, `bundle::WASM_MEDIA_TYPE` with it, and a
+  `hello` that lists `wasm` finds the kind unknown, as it does any name that is not in the table
+  (specification §5.5). `has_files` is true for `lua` at 2.1 and later only. The kit has one kind of
+  view of its own, a Lua script.
+
 ## [0.3.1] - 2026-10-26
 
 ### Fixed

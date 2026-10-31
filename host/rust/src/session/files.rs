@@ -14,7 +14,7 @@
 //!
 //! A view's files are its own and die with it: a handle, an attached digest and a panel are
 //! nothing once the view has ended, whatever ended it (§10.2). Only a view the terminal draws
-//! itself, opened at a version of its interface that has them (`lua` 2.1, `wasm` 3.0), has them at
+//! itself, opened at a version of its interface that has them (`lua` 2.1), has them at
 //! all (§5.5); every other view, a page among them, is answered as if it had none.
 
 use std::collections::HashMap;
@@ -265,7 +265,7 @@ impl Files {
 }
 
 /// Whether a view of `kind` at `version` has files beside its bundle: a view the terminal draws
-/// itself at `lua` 2.1 and later, or `wasm` 3.0 and later (specification §5.5).
+/// itself at `lua` 2.1 and later (specification §5.5).
 pub fn has_files(kind: ViewKind, version: &str) -> bool {
     let Some((major, minor)) = version.split_once('.') else {
         return false;
@@ -275,7 +275,6 @@ pub fn has_files(kind: ViewKind, version: &str) -> bool {
     };
     match kind {
         ViewKind::Lua => (major, minor) >= (2, 1),
-        ViewKind::Wasm => major >= 3,
         ViewKind::Web => false,
     }
 }

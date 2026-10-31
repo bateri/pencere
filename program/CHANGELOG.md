@@ -18,6 +18,9 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   with another `code`, and a failure while a reopening, a closing or a hand-off is under way, are as
   they were. A Lua app, which runs on this library, gets it with no change.
 
+- **`pencere::serve` offers a Lua app at `lua` `2.1` alone.** The kit has one version of the page
+  API until its first general release, so `2.0` is no longer in the list.
+
 ### Added
 
 - `Options::retry_window`: how long a view that fell is left alone before it is shown again.
@@ -121,6 +124,10 @@ handler)` and `Options::topic_deferred(topic, handler)` give a program with a lo
   page). `App::dir` reads them from a directory instead. Under `pencere dev`, which sets
   `PENCERE_DEV_APP`, the app is read from the project and the view is shown again whenever one of
   its files changes, without ending the program.
+
+### Removed
+
+- **The `wasm` kind of view.** `Kind::Wasm` is gone: a program shows a page or a Lua script.
 
 ## [0.3.1] - 2026-10-26
 
