@@ -67,13 +67,6 @@ export const LINES = {
         ],
       },
       {
-        dir: "kit/guest/sdk",
-        name: "pencere-page",
-        // The page modules have a workspace of their own, built for another target.
-        manifest: "kit/guest/Cargo.toml",
-        entries: ["src/lib.rs", "wit/view.wit"],
-      },
-      {
         dir: "program",
         name: "pencere",
         entries: ["src/lib.rs"],

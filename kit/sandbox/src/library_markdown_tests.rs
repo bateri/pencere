@@ -11,8 +11,8 @@ use std::time::Duration;
 use pencere_view::Element;
 use pencere_view::wire::Kind;
 
-use crate::guests_tests::SIZE;
 use crate::luau_tests::{failed, first, open_script, words};
+use crate::test_support::SIZE;
 use crate::{ModuleLimits, Update};
 
 /// What a page that reads Markdown says of a tree, as one line: a block as its kind and what is in

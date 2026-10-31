@@ -1,5 +1,10 @@
 /// A page of the UI kit that lives in a sandbox.
 ///
+/// This interface is the link between the kit's interpreter (a component built from `kit/luau`
+/// against it) and the sandbox that runs that interpreter. It is internal to the kit: no view is
+/// written against it, and its version is no promise to anyone. What a view is written against is
+/// the Lua page API (`kit/SPEC.md`).
+///
 /// The page's logic runs in a module that can reach nothing but this interface: it has no
 /// file, no network, no clock and no environment unless the application hands one over as an
 /// import. What it shows is a tree of boxes and lines of text that it hands out for every frame

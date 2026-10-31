@@ -90,7 +90,7 @@ end }}
 "#
     );
     let mut page = open_script_for(&script, ModuleLimits::default(), Arc::new(Keyed(keyboard)));
-    page.module.render(crate::guests_tests::SIZE, 0.0, false);
+    page.module.render(crate::test_support::SIZE, 0.0, false);
     let update = page.until(Duration::from_secs(20), |u| {
         u.frame.is_some() || u.closed.is_some()
     });
@@ -101,7 +101,7 @@ end }}
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn keys_are_read_as_a_command_reads_them_and_named_as_a_key_event_names_them() {
     let shown = checked(
         r#"
@@ -131,7 +131,7 @@ fn keys_are_read_as_a_command_reads_them_and_named_as_a_key_event_names_them() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_platform_of_the_labels_is_the_keyboard_the_host_says_until_the_page_says_another() {
     for (keyboard, platform, label) in [
         (KeyConvention::Mac, "mac", "⇧⌘K"),
@@ -159,7 +159,7 @@ fn the_platform_of_the_labels_is_the_keyboard_the_host_says_until_the_page_says_
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_mac_writes_the_modifiers_in_apples_order_and_the_keys_as_words_unless_it_is_asked_for_glyphs()
 {
     let shown = checked(
@@ -205,7 +205,7 @@ fn a_mac_writes_the_modifiers_in_apples_order_and_the_keys_as_words_unless_it_is
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn elsewhere_the_keys_are_named_and_joined_and_the_command_key_is_super() {
     let shown = checked(
         r#"
@@ -234,7 +234,7 @@ fn elsewhere_the_keys_are_named_and_joined_and_the_command_key_is_super() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_key_event_is_the_shortcut_with_the_same_modifiers_and_the_key_in_either_case() {
     let shown = checked(
         r#"
@@ -261,7 +261,7 @@ fn a_key_event_is_the_shortcut_with_the_same_modifiers_and_the_key_in_either_cas
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn keys_given_wrong_are_an_error_at_the_callers_line() {
     let cases = [
         (

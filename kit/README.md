@@ -1,21 +1,22 @@
 # The pencere kit
 
-What a terminal needs to show the views of kind `wasm` and `lua` of
-[pencere](../spec/draft/pencere.md) in its own font and theme, and what a page is written with.
-A view of these kinds is a WebAssembly component or a Lua script in a sandbox that reaches nothing
-but the interface here; the terminal lays out what it hands out and draws it.
+What a terminal needs to show the views of kind `lua` of [pencere](../spec/draft/pencere.md) in its
+own font and theme, and what a page is written with. A view of this kind is a Lua script that the
+kit's interpreter runs in a sandbox that reaches nothing but what the page API gives it; the
+terminal lays out what it hands out and draws it. The one contract outside the kit is
+[`SPEC.md`](SPEC.md).
 
-| Directory                            | Crate                             | What it is                                                                                                       |
-| ------------------------------------ | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| [`view`](view)                       | `pencere-view`                    | The page engine: elements, style, layout (flexbox and grid), the draw list. Depends on the layout crate only     |
-| [`editor`](editor)                   | `pencere-editor`                  | The editor of text a host puts in an editor's room: document, carets, undo, input method, layout and drawing     |
-| [`sandbox`](sandbox)                 | `pencere-sandbox`                 | Runs a component or a script under limits and hands out pages. The one door to the WebAssembly runtime           |
-| [`drive`](drive)                     | `pencere-drive`                   | Drives a page as every host does: what the person does in, its frames, editors, scrolling, replies and wakes out |
-| [`wit`](wit)                         |                                   | The interface a component speaks: `pencere:view`                                                                 |
-| [`SPEC.md`](SPEC.md)                 |                                   | What the kit's views are written against: the Lua page API, the colours and the sandbox floors                   |
-| [`luau`](luau)                       |                                   | The sources of the interpreter for scripts: Luau, the bridge to the interface and the Lua page API               |
-| [`sandbox/library`](sandbox/library) |                                   | The kit's library: modules of Luau a page requires as `@pencere/<name>`                                          |
-| [`guest`](guest)                     | `pencere-page` and the test pages | Another workspace, built for `wasm32`: the SDK a page module is written with, and modules to try it on           |
+| Directory                            | Crate             | What it is                                                                                                       |
+| ------------------------------------ | ----------------- | ---------------------------------------------------------------------------------------------------------------- |
+| [`view`](view)                       | `pencere-view`    | The page engine: elements, style, layout (flexbox and grid), the draw list. Depends on the layout crate only     |
+| [`editor`](editor)                   | `pencere-editor`  | The editor of text a host puts in an editor's room: document, carets, undo, input method, layout and drawing     |
+| [`sandbox`](sandbox)                 | `pencere-sandbox` | Runs a script under limits and hands out pages. The one door to the WebAssembly runtime the interpreter runs on  |
+| [`drive`](drive)                     | `pencere-drive`   | Drives a page as every host does: what the person does in, its frames, editors, scrolling, replies and wakes out |
+| [`wit`](wit)                         |                   | The interface between the interpreter and the sandbox that runs it: `pencere:view`, internal to the kit          |
+| [`SPEC.md`](SPEC.md)                 |                   | What the kit's views are written against: the Lua page API, the colours, the sandbox floors and the versions     |
+| [`luau`](luau)                       |                   | The sources of the interpreter for scripts: Luau, the bridge to the interface and the Lua page API               |
+| [`sandbox/library`](sandbox/library) |                   | The kit's library: modules of Luau a page requires as `@pencere/<name>`                                          |
+| [`guest`](guest)                     |                   | Another workspace: the tools that make the interpreter's component (`cbindgen`, `componentize`)                  |
 
 The page language, the sandbox and the drive know nothing of a window, a font or a renderer. The
 drive does what the specification (Section 4) asks of every host but what only a host can do; a
@@ -28,12 +29,12 @@ against the grounds the draw list names under it, and turns the draw list into w
 The kit is made of four layers. Every part of it, and every part added to it later, takes its place
 by the rule of a layer, not by where its first user would like it to be.
 
-| Layer                                         | What it is                                                                                                                                                                          | What goes there                                                                                                                   |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| 0. The host                                   | Rust: the wire, the engine (the layout and the draw list), the editor of text (`pencere-editor`), the sandbox, the drive (`pencere-drive`)                                          | What only a host can do. A change to it is a change to the interface ([`wit/view.wit`](wit/view.wit)) and to [`SPEC.md`](SPEC.md) |
-| 1. The prelude (`pencere.*`, in every page)   | The thin binding of what the host can do, and the loop of a page: the elements, `Element:editor`, the events and the replies, `pencere.time`, `pencere.json`, what a page remembers | Only what needs the bridge's inner places (`pencere._*`), or must be there before the page starts                                 |
-| 2. The library (`require("@pencere/<name>")`) | Pure Luau, written on the public API of the prelude alone, and loaded when a page asks for it ([`sandbox/library`](sandbox/library))                                                | What an app could have written itself on the page API. It comes with the kit, at the kit's version, with tests of its own         |
-| 3. The app (`require("./…")`)                 | The app's own scripts                                                                                                                                                               | The app's policy                                                                                                                  |
+| Layer                                         | What it is                                                                                                                                                                          | What goes there                                                                                                                                                                                                          |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0. The host                                   | Rust: the wire, the engine (the layout and the draw list), the editor of text (`pencere-editor`), the sandbox, the drive (`pencere-drive`)                                          | What only a host can do. A change to it is a change to [`SPEC.md`](SPEC.md), the one contract outside the kit; the interface between the host and the interpreter ([`wit/view.wit`](wit/view.wit)) is the kit's own link |
+| 1. The prelude (`pencere.*`, in every page)   | The thin binding of what the host can do, and the loop of a page: the elements, `Element:editor`, the events and the replies, `pencere.time`, `pencere.json`, what a page remembers | Only what needs the bridge's inner places (`pencere._*`), or must be there before the page starts                                                                                                                        |
+| 2. The library (`require("@pencere/<name>")`) | Pure Luau, written on the public API of the prelude alone, and loaded when a page asks for it ([`sandbox/library`](sandbox/library))                                                | What an app could have written itself on the page API. It comes with the kit, at the kit's version, with tests of its own                                                                                                |
+| 3. The app (`require("./…")`)                 | The app's own scripts                                                                                                                                                               | The app's policy                                                                                                                                                                                                         |
 
 - **What a layer uses is below it, never above.** A module of the library may require another (a
   part that stands by an editor requires `@pencere/keys`), and never an app's script. The prelude
@@ -102,7 +103,7 @@ one `Images` for a view, and uses three of its calls:
   `redraw` that pixels are there, and `diagnostics` why an image was refused. Nothing is polled
   and nothing woken at rest.
 
-A terminal that hosts files beside the bundle (`lua` `2.1`, `wasm` `3.0`) answers `Assets::read` for
+A terminal that hosts files beside the bundle (`lua` `2.1`) answers `Assets::read` for
 a `sha256:` name from the files the program attached to the view (`Session::attached` of the host
 crate, or `AttachedFiles::get` from a thread that has no session: `Session::attached_files` gives
 one table for the life of the session, which the view's end empties) and for a `file:` name from its own table of the handles it made, never from a path, and
@@ -112,20 +113,24 @@ page asks for are the drive's `Host::panel`, which the terminal hands the sessio
 
 ## Versions
 
-The kit's version is the one a view names in its `open` (specification Sections 5.4 and 5.5):
-`wasm` `3.0` is the interface `pencere:view@3.0.0`, `lua` `2.1` (and `2.0`) is the page API whose
-`pencere.version` is `2`. (What `2.0` added to `1.0`, from overlays to editors of text, their
-languages and a page's timers, and what `2.1` and `3.0` add, the files beside the bundle, are listed
-in [`SPEC.md`](SPEC.md), Section 1. The sandbox here opens `wasm` `3.0` alone.)
+The kit's version is the one a view names in its `open` (specification Sections 5.4 and 5.5): `lua`
+`2.1`, the page API whose `pencere.version` is `2`. Until the first general release it is the one
+version, and a change of the kit in the meantime does not number a new one. (What `2.0` added to
+`1.0`, from overlays to editors of text, their languages and a page's timers, and what `2.1` adds,
+the files beside the bundle, are listed in [`SPEC.md`](SPEC.md), Section 1, which also has the
+rules the versions follow from the first general release on.) The interface `pencere:view` has no
+version of the kit's: it is the link between the interpreter and the sandbox, and a change of it is
+a new build of the interpreter (`make luau`).
 
-- An **addition** that no existing view can notice is a new minor version (`1.1`): a new function in
-  the component interface, a new element or a new colour role in the page API.
-- A **change to something a view already uses** is a new major version (`2.0`): a new kind of element
-  (`variant content` of the interface), a new role, a new field of a record, a function that means
-  something else. A terminal that adopts it opens the previous major version as well; an older view
-  is refused in words that name both sides.
-- For `lua` the interpreter is the terminal's, so a new element or a new role is an addition for a
-  script. What breaks a script is a function of the page API that means something else.
+From the first general release on:
+
+- An **addition** that no existing view can notice is a new minor version (`2.2`): a new element or
+  a new colour role in the page API. A host opens every published minor version of a major.
+- A **change to something a view already uses** is a new major version (`3.0`), and comes only when
+  a function has to mean something else and a new name cannot do it. A host opens the newest major
+  and the one before it; an older view is refused in words that name both sides.
+- The interpreter is the terminal's, so a new element or a new role is an addition for a script.
+  What breaks a script is a function of the page API that means something else.
 - The library is a part of the page API. A new module, or a new function of a module, is an
   addition; a function of a module that means something else is a change.
 
@@ -133,10 +138,9 @@ in [`SPEC.md`](SPEC.md), Section 1. The sandbox here opens `wasm` `3.0` alone.)
 
 ```sh
 make check        # the gate: needs no toolchain for WebAssembly
-make guest        # the page modules (containers, broken, chatty, tints) and the example program
-make check-heavy  # what runs a real module and the interpreter; builds `guest` first
+make check-heavy  # what runs the interpreter against the sandbox, the drive and the examples
 make luau         # rebuilds the interpreter in Docker (pinned wasi-sdk and Luau); `make check` fails when it is due
 ```
 
-`make guest` and `make check-heavy` build with rustup's `stable` toolchain and its
-`wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown --toolchain stable`).
+`make luau` builds the tools that make the component (`kit/guest`) with rustup's `stable`
+toolchain.

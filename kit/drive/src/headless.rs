@@ -292,7 +292,6 @@ pub enum Focus {
 /// What the page is made of.
 enum Source {
     Script(Script),
-    Component(Vec<u8>),
     /// The script at `entry` of a bundle.
     Bundle {
         files: Arc<dyn Assets>,
@@ -540,11 +539,6 @@ impl Headless<Calls> {
         Self::bundle(Files::app(dir), "page.lua")
     }
 
-    /// A page that is the WebAssembly component in `bytes`.
-    pub fn component(bytes: Vec<u8>) -> Opening<Calls> {
-        Opening::new(Source::Component(bytes))
-    }
-
     /// A page that is a module the test makes (`make` runs on the module's thread): a page written
     /// in Rust, run as a module is ([`Page::spawn`]).
     pub fn spawn<R: Runner>(
@@ -712,7 +706,7 @@ impl<P: Peer> Opening<P> {
         let bundle = self.assets.or_else(|| match &self.source {
             Source::Script(script) => script.bundle.clone(),
             Source::Bundle { files, .. } => Some(Arc::clone(files)),
-            Source::Component(_) | Source::Spawn(_) => None,
+            Source::Spawn(_) => None,
         });
         let setup = Setup {
             limits: self.limits,
@@ -731,7 +725,6 @@ impl<P: Peer> Opening<P> {
         };
         let mut page = match self.source {
             Source::Script(script) => Page::script(script, setup, wake),
-            Source::Component(bytes) => Page::component(bytes, setup, wake),
             Source::Spawn(start) => start(setup, Box::new(wake)),
             Source::Bundle { files, entry } => {
                 let source = files

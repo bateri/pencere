@@ -1,4 +1,4 @@
-.PHONY: setup fmt check check-heavy check-timing audit guest luau dist dist-linux dist-macos dist-sums runner release-prepare rehearse
+.PHONY: setup fmt check check-heavy check-timing audit luau dist dist-linux dist-macos dist-sums runner release-prepare rehearse
 
 # Installs the TypeScript half's dependencies from the lockfile. The only
 # target that reaches the network.
@@ -15,12 +15,12 @@ fmt:
 # built before the Rust tests run, because the stand-in host's tests start programs
 # that import `@pencere/sdk`, which they run from its build. It does not install
 # anything, so it never reaches the network, and it needs no toolchain for WebAssembly:
-# the sandbox's tests that run a real module or the interpreter are `check-heavy`'s.
+# the sandbox's tests that run the interpreter are `check-heavy`'s.
 check:
 	@test -d node_modules || { echo "check: node_modules is missing, run 'make setup' first"; exit 1; }
 	node tools/check-spec.mjs
-	@for name in LICENSE NOTICE; do for dir in sdk/typescript host/rust wire program kit/view kit/editor kit/sandbox kit/drive kit/guest/sdk cli; do cmp -s $$name $$dir/$$name || { echo "check: $$dir/$$name is not the repository's $$name"; exit 1; }; done; done
-	@for dir in kit/sandbox kit/guest/sdk; do cmp -s kit/wit/view.wit $$dir/wit/view.wit || { echo "check: $$dir/wit/view.wit is not the interface in kit/wit/view.wit (a published crate cannot read outside itself, so it carries a copy: cp kit/wit/view.wit $$dir/wit/view.wit)"; exit 1; }; done
+	@for name in LICENSE NOTICE; do for dir in sdk/typescript host/rust wire program kit/view kit/editor kit/sandbox kit/drive cli; do cmp -s $$name $$dir/$$name || { echo "check: $$dir/$$name is not the repository's $$name"; exit 1; }; done; done
+	@for dir in kit/sandbox; do cmp -s kit/wit/view.wit $$dir/wit/view.wit || { echo "check: $$dir/wit/view.wit is not the interface in kit/wit/view.wit (a published crate cannot read outside itself, so it carries a copy: cp kit/wit/view.wit $$dir/wit/view.wit)"; exit 1; }; done
 	@diff -r kit/luau/licenses kit/sandbox/licenses >/dev/null || { echo "check: kit/sandbox/licenses is not a copy of kit/luau/licenses (the crate carries the licences of what is built into its interpreter)"; exit 1; }
 	$(MAKE) --no-print-directory audit
 	npx tsc -b
@@ -55,7 +55,7 @@ check:
 # the page). It is not part of the gate: it measures the machine as much as the page, so run it on
 # one at rest.
 CALL_MS ?= 250
-check-timing: guest
+check-timing:
 	cargo build --quiet -p containers-rust
 	cargo build --quiet -p pencere-cli
 	PENCERE_CALL_MS=$(CALL_MS) node tools/cargo-test.mjs -p pencere-drive -p pencere-test --all-features --all-targets -- --ignored
@@ -67,7 +67,7 @@ check-timing: guest
 # and regular expressions (for the rules of an editor's indent), the drive knows the engine, the
 # editor, the sandbox and the messages of a program and its view (for the program of a page under its
 # host with no screen; the program library itself only when a test asks for it, `program`) and
-# nothing of a platform or a font, and the page modules know the SDK and the engine. The command,
+# nothing of a platform or a font. The command,
 # which is the runner copied into every app, hosts nothing; its library (the Lua runtime with the
 # rest of the command) is shared with the runner of an app's tests alone.
 audit:
@@ -93,47 +93,24 @@ audit:
 	if cargo tree --workspace -e normal -i pencere-cli --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-test "; then echo "audit: a crate other than pencere-test depends on the library of the pencere command — it is the command's insides, which only the runner of an app's tests shares (the two are released together)"; fail=1; fi; \
 	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(fontdb|rustybuzz|ttf-parser|harfrust|skrifa|read-fonts|swash|fontconfig|freetype|font-types)"; then echo "audit: pencere-sandbox links to a font or text-shaping library — an SVG draws shapes and no words, and no font is loaded for it"; fail=1; fi; \
 	if grep -rnE "std::(fs|net|process)\b|File::open|TcpStream" kit/sandbox/src --exclude="*_tests.rs" | grep -v ":[[:space:]]*//"; then echo "audit: the sandbox reads a file, opens a connection or runs a program — the only door it has to the bundle is Assets, which the host gives"; fail=1; fi; \
-	if grep -nE "^pencere-(host|sandbox|editor) *=" kit/guest/*/Cargo.toml kit/guest/Cargo.toml; then echo "audit: a page module depends on a crate of the terminal side — a module is written with the SDK, the engine and the wire alone"; fail=1; fi; \
 	if [ "$$(sh kit/luau/inputs.sh)" != "$$(cat kit/sandbox/luau/inputs.sha256 2>/dev/null)" ]; then echo "audit: kit/sandbox/luau/luau.wasm is not built from the sources of kit/luau and the interface in kit/wit/view.wit as they are now — make luau rebuilds it"; fail=1; fi; \
 	test $$fail = 0
 
-# The page modules and the example program, with the toolchain that has a WebAssembly standard
-# library: Homebrew's rustc has none, so the modules are built with rustup's `stable`
-# (`rustup target add wasm32-unknown-unknown --toolchain stable`). Its linker finds its LLVM
-# through the toolchain's library directory, which rustup's own proxies put in the environment
-# and a PATH that Homebrew's rustc comes first in does not: it is put there here.
-GUEST_MODULES = containers broken chatty tints
+# The tools that build the interpreter's component (`kit/guest`: `cbindgen` and `componentize`),
+# with rustup's `stable` toolchain. Its linker finds its LLVM through the toolchain's library
+# directory, which rustup's own proxies put in the environment and a PATH that Homebrew's rustc
+# comes first in does not: it is put there here.
 GUEST_BIN = $(shell dirname "$$(rustup which --toolchain stable cargo 2>/dev/null)" 2>/dev/null)
 GUEST_CARGO = PATH="$(GUEST_BIN):$$PATH" DYLD_FALLBACK_LIBRARY_PATH="$(dir $(GUEST_BIN))lib" $(GUEST_BIN)/cargo
-guest:
-	@command -v rustup >/dev/null 2>&1 || { echo "guest: rustup is missing (the modules are built with its stable toolchain)"; exit 1; }
-	@rustup target list --installed --toolchain stable 2>/dev/null | grep -qx wasm32-unknown-unknown || { echo "guest: rustup's stable toolchain has no wasm32-unknown-unknown target — rustup target add wasm32-unknown-unknown --toolchain stable"; exit 1; }
-	$(GUEST_CARGO) build --manifest-path kit/guest/Cargo.toml --release --target wasm32-unknown-unknown $(addprefix -p ,$(GUEST_MODULES))
-	mkdir -p kit/guest/dist
-	@for m in $(GUEST_MODULES); do \
-		$(GUEST_CARGO) run -q --manifest-path kit/guest/Cargo.toml -p componentize -- kit/guest/target/wasm32-unknown-unknown/release/$$m.wasm kit/guest/dist/$$m.wasm || exit 1; \
-	done
-	@ls -l $(addprefix kit/guest/dist/,$(addsuffix .wasm,$(GUEST_MODULES)))
-	# The program carries the container list's module (`containers.wasm`, built just above) in its
-	# own file, so it is built after it.
-	cargo build --release -p containers-rust
-	# A new file, not the old one written over: macOS kills a signed binary whose file changed
-	# under its cached signature (a containers-rust still running in a pane, the next test's exec).
-	rm -f kit/guest/dist/containers-rust
-	cp target/release/containers-rust kit/guest/dist/containers-rust
-	@ls -l kit/guest/dist/containers-rust
 
-# The slow half of the gate: what runs a real module, the interpreter or a toolchain for
-# WebAssembly. It builds the modules first (`guest`), then runs every test `make check` leaves
-# out (`#[ignore = "heavy: ..."]`: the sandbox against the real page modules and against the
-# interpreter, with the scripts of the example), and lints the page modules for the target they
-# run on. Needs rustup with the wasm32 target (see `guest`); `luau` (Docker) is not part of it.
-check-heavy: guest
+# The slow half of the gate: what runs the interpreter. It runs every test `make check` leaves out
+# (`#[ignore = "heavy: ..."]`: the sandbox against the interpreter, with the scripts of the
+# examples). `luau` (Docker) is not part of it.
+check-heavy:
 	cargo build --quiet -p containers-rust
 	cargo build --quiet -p pencere-cli
 	node tools/cargo-test.mjs --workspace --all-targets -- --ignored
 	node tools/cargo-test.mjs -p pencere-drive --all-features --lib -- --ignored shot_tests in_process_tests
-	$(GUEST_CARGO) clippy --manifest-path kit/guest/Cargo.toml --all-targets --target wasm32-unknown-unknown -- -D warnings
 
 # The interpreter of the scripting language (`kit/sandbox/luau/luau.wasm`): Luau, the bridge that
 # gives a script the page interface, and the preludes that are the language's side of it

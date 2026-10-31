@@ -1,18 +1,15 @@
 //! `pencere-sandbox`: a page of the UI kit that lives in a sandbox.
 //!
-//! A page's logic can be a module — a WebAssembly component of the interface in `wit/view.wit`
-//! — that the application runs on a thread of its own and drives with what the person does,
-//! and that answers with the page to draw: a tree the engine ([`pencere_view`]) lays out and paints
-//! in the terminal's own font and theme. The module reaches nothing but that interface:
-//! no file, no network, no clock, no environment. It is held to a memory limit and a time for
-//! every call, and a module that goes past either, traps or hands out something that is not a
-//! page is closed — the application is told why and goes on.
-//!
-//! A page can also be a **script**: the logic is then text in the Lua language (Luau) that an
-//! interpreter, itself such a module (`LUAU_COMPONENT`), runs under the same terms and hands the
-//! same kind of page out of. A script may `require` the other scripts of its bundle and the modules
-//! of the kit's library ([`library`]), and nothing else ([`Script`]). A module or a script that stops says why — a script's error comes with its
-//! file and its line — and that is what the page's program is told.
+//! A page's logic is a **script**: text in the Lua language (Luau) that an interpreter — a
+//! WebAssembly component of the interface in `wit/view.wit` (`LUAU_COMPONENT`) — runs on a thread
+//! of its own, drives with what the person does, and gets the page to draw out of: a tree the
+//! engine ([`pencere_view`]) lays out and paints in the terminal's own font and theme. The script
+//! reaches nothing but that interface: no file, no network, no clock, no environment. It is held to
+//! a memory limit and a time for every call, and a script that goes past either, traps or hands out
+//! something that is not a page is closed — the application is told why and goes on. A script may
+//! `require` the other scripts of its bundle and the modules of the kit's library ([`library`]), and
+//! nothing else ([`Script`]). A script that stops says why — its error comes with its file and its
+//! line — and that is what the page's program is told.
 //!
 //! This crate knows no window, no renderer and no terminal: it depends on the engine and on the
 //! runtime, and moves out of the workspace with the engine.
@@ -27,8 +24,6 @@ mod sandbox;
 mod watchdog;
 mod world;
 
-#[cfg(test)]
-mod guests_tests;
 #[cfg(test)]
 mod images_tests;
 #[cfg(test)]
@@ -51,6 +46,8 @@ mod luau_editor_tests;
 mod luau_require_tests;
 #[cfg(test)]
 mod luau_tests;
+#[cfg(test)]
+mod test_support;
 
 pub use figure::draw_figure;
 pub use images::{Arrival, Assets, Bitmap, Diagnostic, ImageLimits, Images};

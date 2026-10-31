@@ -610,7 +610,6 @@ fn built(root: &Path) -> Result<PathBuf, String> {
 struct Spec {
     entry: String,
     script: Option<String>,
-    component: Option<PathBuf>,
     size: (f32, f32),
     scale: f64,
     reduce_motion: bool,
@@ -667,9 +666,6 @@ fn spec_of(session: &Shared, options: &Table) -> mlua::Result<Spec> {
             }
         }),
         script: options.get::<Option<String>>("script")?,
-        component: options
-            .get::<Option<String>>("component")?
-            .map(|path| root.join(path)),
         size,
         scale: number(options, "scale")?.unwrap_or(1.0),
         reduce_motion: options
@@ -694,10 +690,6 @@ impl Spec {
     fn opening(&self) -> Result<Opening<Calls>, String> {
         let opening = if let Some(source) = &self.script {
             Headless::script(source.clone())
-        } else if let Some(path) = &self.component {
-            let bytes =
-                std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
-            Headless::component(bytes)
         } else {
             match self.place.page {
                 Page::Laid => Headless::bundle(

@@ -1,6 +1,6 @@
 [package]
 name = "containers-page"
-description = "The container list the examples show: a page written with pencere-view, once, for the module that runs in a terminal's sandbox and for the program that makes up the containers it lists"
+description = "The container list the examples show: a page written with pencere-view, once, that the Lua script of the list is held to and the program that makes up the containers it lists draws its numbers from"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

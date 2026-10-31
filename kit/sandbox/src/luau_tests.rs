@@ -15,7 +15,7 @@ use pencere_view::{
 };
 use wasmtime::component::Component;
 
-use crate::guests_tests::{Open, Rough, SIZE};
+use crate::test_support::{Open, Rough, SIZE};
 use crate::{Fault, Module, ModuleLimits, Program, Script, TimeLimit, Unbounded, Update};
 
 /// Where the scripts of the tests that are given no bundle are, in their bundle.
@@ -83,7 +83,7 @@ pub(crate) fn failed(update: &Update) -> String {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_interpreter_asks_for_nothing_the_page_interface_does_not_give() {
     let engine = crate::sandbox::engine().expect("an engine");
     let component = Component::new(&engine, crate::LUAU_COMPONENT).expect("a component");
@@ -107,7 +107,7 @@ fn the_interpreter_asks_for_nothing_the_page_interface_does_not_give() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_that_returns_a_page_is_drawn_with_what_it_made_of_the_viewport() {
     let update = first(
         r#"
@@ -127,7 +127,7 @@ fn a_script_that_returns_a_page_is_drawn_with_what_it_made_of_the_viewport() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_page_that_asks_to_animate_is_asked_for_again() {
     let update = first(
         "return { render = function() return pencere.div(), true end }",
@@ -137,7 +137,7 @@ fn a_page_that_asks_to_animate_is_asked_for_again() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_syntax_error_closes_the_page_and_says_the_line() {
     let update = first(
         "local ok = 1\nlocal oops = = 3\nreturn {}",
@@ -149,7 +149,7 @@ fn a_syntax_error_closes_the_page_and_says_the_line() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn an_error_while_the_script_starts_says_the_line() {
     let update = first("local t = nil\n\nreturn t.page", ModuleLimits::default());
     let why = failed(&update);
@@ -157,7 +157,7 @@ fn an_error_while_the_script_starts_says_the_line() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_helper_given_the_wrong_argument_says_the_line_of_the_script_that_called_it() {
     // The error is the helper's, raised in the prelude; the line is the script's.
     for (call, says) in [
@@ -201,7 +201,7 @@ fn a_helper_given_the_wrong_argument_says_the_line_of_the_script_that_called_it(
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn an_error_in_render_says_the_line_and_the_frame_is_not_read() {
     let update = first(
         "return { render = function()\n  local x = nil\n  return pencere.div():child(x.y)\nend }",
@@ -216,7 +216,7 @@ fn an_error_in_render_says_the_line_and_the_frame_is_not_read() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn an_error_in_a_handler_closes_the_page_with_its_line() {
     let mut page = open_script(
         "return {\n render = function() return pencere.div() end,\n handle = function(e)\n  error('no ' .. e.type)\n end,\n}",
@@ -232,7 +232,7 @@ fn an_error_in_a_handler_closes_the_page_with_its_line() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn an_error_the_script_catches_is_not_an_error() {
     let update = first(
         r#"
@@ -250,7 +250,7 @@ fn an_error_the_script_catches_is_not_an_error() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_that_does_not_return_a_page_is_closed_and_told_so() {
     for script in ["return 3", "return {}", "return { render = 4 }", ""] {
         let update = first(script, ModuleLimits::default());
@@ -265,7 +265,7 @@ fn a_script_that_does_not_return_a_page_is_closed_and_told_so() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_tree_that_is_not_a_page_is_closed_with_what_is_wrong_in_it() {
     let update = first(
         "return { render = function() return pencere.div():bg('puce') end }",
@@ -300,7 +300,7 @@ fn text_colours(script: &str) -> Vec<Option<Color>> {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_names_every_role_of_the_theme_and_the_roles_are_the_engines() {
     // Every name the page API takes, and the role it is.
     let names: [(&str, Role); 17] = [
@@ -347,7 +347,7 @@ fn a_script_names_every_role_of_the_theme_and_the_roles_are_the_engines() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_gives_a_value_with_a_form_for_a_dark_theme_and_an_opacity_on_any_colour() {
     let colours = text_colours(
         r##"return { render = function()
@@ -383,7 +383,7 @@ fn a_script_gives_a_value_with_a_form_for_a_dark_theme_and_an_opacity_on_any_col
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_says_an_image_and_the_engine_reads_what_it_said() {
     let update = first(
         r##"return { render = function()
@@ -442,7 +442,7 @@ fn a_script_says_an_image_and_the_engine_reads_what_it_said() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_colour_that_is_not_one_is_refused_in_words_that_say_what_one_is() {
     let refused = |colour: &str| {
         let update = first(
@@ -474,7 +474,7 @@ fn a_colour_that_is_not_one_is_refused_in_words_that_say_what_one_is() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_that_never_returns_is_cut_off() {
     let limits = ModuleLimits {
         call: Duration::from_millis(200),
@@ -516,7 +516,7 @@ fn a_script_that_never_returns_is_cut_off() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_that_takes_memory_without_end_is_refused_it() {
     // The time of a call is long enough here that only the memory can stop it: how long 24 MiB take
     // to fill is the machine's, and on a busy one a short time would end the script first.
@@ -533,7 +533,30 @@ fn a_script_that_takes_memory_without_end_is_refused_it() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_script_that_recurses_without_end_is_closed_with_the_error_of_its_stack() {
+    // The stack of the script runs out before the runtime's does: the page is closed with the
+    // script's failure, whose words say so, and neither hangs nor takes the sandbox with it.
+    let began = Instant::now();
+    let update = first(
+        "local function down(n) return 1 + down(n + 1) end\n\
+         return { render = function() return pencere.div { pencere.text(tostring(down(1))) } end }",
+        ModuleLimits::default(),
+    );
+    let why = failed(&update);
+    assert!(why.contains("stack overflow"), "{why}");
+    assert!(began.elapsed() < Duration::from_secs(20));
+    // Also while the script starts.
+    let update = first(
+        "local function down(n) return 1 + down(n + 1) end\nlocal _ = down(1)",
+        ModuleLimits::default(),
+    );
+    let why = failed(&update);
+    assert!(why.contains("stack overflow"), "{why}");
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_can_reach_nothing_of_the_system() {
     let update = first(
         r#"
@@ -566,7 +589,7 @@ fn a_script_can_reach_nothing_of_the_system() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_cannot_change_what_every_script_shares() {
     let update = first(
         r#"
@@ -588,7 +611,7 @@ fn a_script_cannot_change_what_every_script_shares() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn json_is_written_and_read_the_same_way_in_both_directions() {
     let update = first(
         r#"
@@ -616,7 +639,7 @@ fn json_is_written_and_read_the_same_way_in_both_directions() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn json_nested_128_levels_deep_is_neither_read_nor_written() {
     // The protocol's rule (§4.5): 127 levels, the outermost counting as the first, and no more.
     let update = first(
@@ -672,7 +695,7 @@ impl Program for Room {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_page_that_asks_its_program_things_is_answered_and_pushed_to() {
     let mut page = open_script(
         r#"
@@ -722,7 +745,7 @@ fn a_page_that_asks_its_program_things_is_answered_and_pushed_to() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_page_told_full_keeps_what_it_meant_to_say_until_it_is_called_with_room() {
     let program = Arc::new(Room {
         left: AtomicUsize::new(1),
@@ -759,7 +782,7 @@ fn a_page_told_full_keeps_what_it_meant_to_say_until_it_is_called_with_room() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_page_that_says_a_great_deal_is_not_closed_for_it() {
     // More than a call may say is said over several calls; the page asks to be drawn again
     // until it is all said.
@@ -784,7 +807,7 @@ fn a_page_that_says_a_great_deal_is_not_closed_for_it() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn what_a_script_hands_out_that_is_not_text_is_made_into_text() {
     // A string in Lua is any bytes; the application is only handed text.
     let update = first(
@@ -799,7 +822,7 @@ fn what_a_script_hands_out_that_is_not_text_is_made_into_text() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_compiled_interpreter_is_kept_and_the_next_page_starts_from_it() {
     // The first page of a process compiles the interpreter; the next reads what was left.
     let began = Instant::now();
@@ -822,7 +845,7 @@ fn the_compiled_interpreter_is_kept_and_the_next_page_starts_from_it() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn errors_a_script_catches_are_not_kept() {
     // An error is an exception in the interpreter, an object on the runtime's collected heap:
     // a script that catches them by the hundred thousand does not run the heap out.
@@ -846,7 +869,7 @@ fn errors_a_script_catches_are_not_kept() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_example_page_counts_clicks() {
     let mut page = open_script(
         include_str!("../../luau/examples/hello.lua"),
@@ -901,7 +924,7 @@ fn the_example_page_counts_clicks() {
 /// with nothing else asking than the host's own frames: twenty calls, eight a call, and all of
 /// them said, in order.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn what_an_event_asks_past_a_calls_share_goes_out_in_the_frames_after_it() {
     let mut page = open_script(
         "return {\n\
@@ -957,7 +980,7 @@ fn what_an_event_asks_past_a_calls_share_goes_out_in_the_frames_after_it() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_says_how_an_element_moves_and_what_its_tip_says() {
     let update = first(
         r##"return { render = function()
@@ -999,7 +1022,7 @@ fn a_script_says_how_an_element_moves_and_what_its_tip_says() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_mixes_colours_fades_elements_names_fields_and_sets_its_words_apart() {
     let update = first(
         r##"return { render = function()
@@ -1076,7 +1099,7 @@ fn a_script_mixes_colours_fades_elements_names_fields_and_sets_its_words_apart()
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
     let mut page = open_script(
         r##"
@@ -1193,7 +1216,7 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
 /// A menu's entry has keys written as a command's (`keys`); one a page wrote as `key` before is
 /// read as keys where it is some, and as its first character where it is not, as it was.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_gives_a_menus_entries_their_keys_and_reads_an_old_key_as_it_was() {
     use pencere_view::{MenuEntry, Shortcut};
     let mut page = open_script(
@@ -1255,7 +1278,7 @@ fn a_script_gives_a_menus_entries_their_keys_and_reads_an_old_key_as_it_was() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_asks_to_open_a_link_and_only_one_the_host_may_open_reaches_it() {
     let mut page = open_script(
         r##"
@@ -1331,7 +1354,7 @@ fn a_script_asks_to_open_a_link_and_only_one_the_host_may_open_reaches_it() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the_engine_does() {
     use pencere_view::{
         AccessibleRole, Align, Command, Family, Shortcut, Side, rich, span, wire::Length,
@@ -1442,7 +1465,7 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_drags_and_is_told_commands_keys_that_go_up_modifiers_and_dropped_files() {
     let mut page = open_script(
         r##"
@@ -1587,7 +1610,7 @@ fn a_script_drags_and_is_told_commands_keys_that_go_up_modifiers_and_dropped_fil
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_asks_the_application_to_scroll_and_is_told_where_its_boxes_went() {
     let mut page = open_script(
         r##"
@@ -1661,7 +1684,7 @@ fn a_script_asks_the_application_to_scroll_and_is_told_where_its_boxes_went() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_builds_a_long_list_where_the_engine_would() {
     // The same lists, the same way down and back up, in the script and in the engine: where the
     // rows stand, and which the page builds and when.
@@ -1760,7 +1783,7 @@ fn a_script_builds_a_long_list_where_the_engine_would() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_long_list_is_built_near_what_is_in_view_and_again_only_when_it_is_scrolled_near_its_end() {
     let mut page = open_script(
         r##"
@@ -1890,7 +1913,7 @@ fn a_long_list_is_built_near_what_is_in_view_and_again_only_when_it_is_scrolled_
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_long_list_in_a_box_that_cannot_hold_one_says_what_is_wrong() {
     let make = r#"function(i) return pencere.div():h(20) end"#;
     for (script, says) in [
@@ -1928,7 +1951,7 @@ fn a_long_list_in_a_box_that_cannot_hold_one_says_what_is_wrong() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_long_list_asked_to_its_end_is_built_at_the_end_it_has_now() {
     // A followed log: asked to its end every frame, and grown by more than the rows made ahead.
     let mut page = open_script(
@@ -1980,7 +2003,7 @@ fn a_long_list_asked_to_its_end_is_built_at_the_end_it_has_now() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn replies_put_together_ask_all_they_ask_in_order_and_the_earliest_wake() {
     let update = first(
         r#"

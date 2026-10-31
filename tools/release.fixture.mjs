@@ -75,10 +75,9 @@ export const RELEASED = `# Changelog
 `;
 
 /**
- * A copy of the repository's shape: the SDK, the eight crates and the command at `0.1.0` (the
+ * A copy of the repository's shape: the SDK, the seven crates and the command at `0.1.0` (the
  * program library at `programVersion`, as it is on crates.io's side of the story) with something
- * unreleased in every changelog, the crates asking for each other by path and version, and the
- * workspace of the page modules of its own beside them.
+ * unreleased in every changelog, and the crates asking for each other by path and version.
  */
 export function fixture({ programVersion = "0.2.0" } = {}) {
   const root = scratch();
@@ -127,19 +126,6 @@ export function fixture({ programVersion = "0.2.0" } = {}) {
   });
   crate("program", "pencere", programVersion, { "pencere-wire": "../wire" });
   crate("cli", "pencere-cli", "0.1.0", { pencere: "../program", "pencere-wire": "../wire" });
-  // The page modules: the SDK asks for the engine and the wire by path and version too.
-  write(
-    root,
-    "kit/guest/Cargo.toml",
-    `[workspace]\nresolver = "3"\nmembers = ["sdk"]\n\n[workspace.package]\nversion = "0.1.0"\nedition = "2024"\n\n[workspace.dependencies]\npencere-view = { path = "../view", version = "0.1.0" }\npencere-wire = { path = "../../wire", version = "0.1.0" }\n`,
-  );
-  write(
-    root,
-    "kit/guest/sdk/Cargo.toml",
-    `[package]\nname = "pencere-page"\nversion = "0.1.0"\nedition.workspace = true\n\n[dependencies]\npencere-view = { workspace = true }\npencere-wire = { workspace = true }\n`,
-  );
-  write(root, "kit/guest/sdk/src/lib.rs", "");
-  write(root, "kit/guest/sdk/CHANGELOG.md", CHANGELOG("a change of the page SDK"));
   return root;
 }
 
@@ -333,7 +319,6 @@ const ASKS = {
   "pencere-editor": ["pencere-view"],
   "pencere-sandbox": ["pencere-view"],
   "pencere-drive": ["pencere-view", "pencere-editor", "pencere-sandbox", "pencere-wire", "pencere"],
-  "pencere-page": ["pencere-view", "pencere-wire"],
   pencere: ["pencere-wire"],
 };
 

@@ -1631,7 +1631,6 @@ give it more:
 | Memory of the module (and its tables)                                                | 64 MiB                 |
 | One call (a frame, a settle, an event) before it is cut off                          | 250 ms                 |
 | The start of the module (its first code to run)                                      | 2 s                    |
-| Compiling the interpreter                                                            | 20 s                   |
 | The scripts of a view together (the entry and what it requires)                      | 4 MiB                  |
 | Elements in one frame                                                                | 20 000                 |
 | Depth of the tree of one frame (the root is 1)                                       | 128                    |

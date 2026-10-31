@@ -1,7 +1,7 @@
 //! A page driven as a host drives it, frame by frame: what it is before it arrives, what its editors
 //! do with what the person does and what the page asks, its wakes, its files and its images, and
-//! that a page at rest asks for nothing and wakes nobody. Most of these run the interpreter or a
-//! module of `make guest` and are heavy (`make check-heavy`).
+//! that a page at rest asks for nothing and wakes nobody. Most of these run the interpreter and are
+//! heavy (`make check-heavy`).
 
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::mpsc::{Receiver, channel};
@@ -74,30 +74,6 @@ fn script_rig(source: &str) -> Rig {
         page: Page::script(script(source, None), setup(None), wake),
         woken,
     }
-}
-
-/// The page of the component `bytes`, started.
-fn module_rig(bytes: Vec<u8>) -> Rig {
-    let (wake, woken) = woken();
-    Rig {
-        page: Page::component(bytes, setup(None), wake),
-        woken,
-    }
-}
-
-/// A file `make guest` leaves in `kit/guest/dist`. **A test that needs one fails where it is not
-/// there**: it is a heavy test, `make check-heavy` builds them first, and a test that went green by
-/// returning early would be a guard that guards nothing.
-fn guest_file(name: &str) -> Vec<u8> {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../guest/dist")
-        .join(name);
-    std::fs::read(&path).unwrap_or_else(|why| {
-        panic!(
-            "{} is not there ({why}): `make guest` builds the page modules",
-            path.display()
-        )
-    })
 }
 
 /// A frame of 1000 × 600 points at two pixels to a point, at `now`: the size the container list is
@@ -246,15 +222,6 @@ fn boxes(list: &DrawList) -> usize {
 
 // --- A page that goes wrong ---------------------------------------------------------------------
 
-/// A module that is not a page is closed with why, and the host is told once.
-#[test]
-fn a_module_that_is_not_a_page_ends_with_a_reason_told_once() {
-    let mut rig = module_rig(b"not a component".to_vec());
-    let why = rig.first().ended.expect("a reason").to_string();
-    assert!(why.contains("loaded"), "{why}");
-    assert_eq!(rig.page.drain().ended, None);
-}
-
 /// The program's clock and the frames' are one: a host whose program reads another clock (one from
 /// nought, while its frames are stamped with the system's) would have time stand still between
 /// frames, and a debug build stops on it. A reading a little behind a frame (a frame stamped with
@@ -262,6 +229,9 @@ fn a_module_that_is_not_a_page_ends_with_a_reason_told_once() {
 #[cfg(debug_assertions)]
 #[test]
 fn a_program_clock_behind_the_frames_is_a_mistake_a_debug_build_stops_on() {
+    use pencere_sandbox::{Fault, Frame, Runner};
+    use pencere_view::{Event, Laid, Reply, Size};
+
     struct FromNought;
     impl Program for FromNought {
         fn may_say(&self, _bytes: usize) -> bool {
@@ -272,10 +242,24 @@ fn a_program_clock_behind_the_frames_is_a_mistake_a_debug_build_stops_on() {
             Some(0.5)
         }
     }
+    /// A page that never comes: its module fails to start.
+    struct Never;
+    impl Runner for Never {
+        fn render(&mut self, _size: Size, _now: f64, _reduce: bool) -> Result<Frame, Fault> {
+            Err(Fault::Load("no page".to_owned()))
+        }
+        fn settle(&mut self) -> Result<bool, Fault> {
+            Ok(false)
+        }
+        fn handle(&mut self, _event: Event) -> Result<Reply, Fault> {
+            Ok(Reply::none())
+        }
+        fn lay_out(&mut self, _laid: Arc<Laid>) {}
+    }
     let (wake, _woken) = woken();
     let program = Arc::new(FromNought);
-    let mut page = Page::component(
-        b"not a component".to_vec(),
+    let mut page = Page::spawn::<Never>(
+        || Err(Fault::Load("no page".to_owned())),
         Setup {
             program,
             ..setup(None)
@@ -298,33 +282,10 @@ fn a_program_clock_behind_the_frames_is_a_mistake_a_debug_build_stops_on() {
     assert!(why.contains("must be one clock"), "{why}");
 }
 
-/// Specification §5.4: a component written against another version of the interface than the one
-/// the host opens cannot run, and its page ends in words that name both versions — those words are
-/// what the host hands to its session for the program to read.
-#[test]
-fn a_component_of_another_interface_ends_in_words_that_name_both_versions() {
-    // `(component (instance $page) (export "pencere:view/page@0.5.0" (instance $page)))`, in the
-    // binary form: an empty instance, exported under the name the interface had.
-    let name = b"pencere:view/page@0.5.0";
-    let mut old = vec![0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00];
-    old.extend_from_slice(&[0x05, 0x03, 0x01, 0x01, 0x00]);
-    old.extend_from_slice(&[0x0b, 6 + u8::try_from(name.len()).unwrap(), 0x01, 0x00]);
-    old.push(u8::try_from(name.len()).unwrap());
-    old.extend_from_slice(name);
-    old.extend_from_slice(&[0x05, 0x00, 0x00]);
-    let mut rig = module_rig(old);
-    let why = rig.first().ended.expect("a reason").to_string();
-    assert!(
-        why.contains("written against `pencere:view@0.5.0`"),
-        "{why}"
-    );
-    assert!(why.contains("opens `pencere:view@3.0.0`"), "{why}");
-}
-
 /// A script that makes an error ends its page with the error and the line it is on, which is what
 /// the program is told, once.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_script_that_makes_an_error_ends_with_its_line_told_once() {
     let mut rig = script_rig("local ok = 1\nerror('no page for you', 0)");
     assert_eq!(
@@ -342,7 +303,7 @@ fn a_script_that_makes_an_error_ends_with_its_line_told_once() {
 
 /// A script's page: a line in its place until the interpreter has made it, then the page.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_scripts_page_is_a_line_until_it_comes_and_then_drawn() {
     let mut rig = script_rig(
         r#"return { render = function()
@@ -360,15 +321,15 @@ fn a_scripts_page_is_a_line_until_it_comes_and_then_drawn() {
     assert_eq!(drawn(&list), ["hello"]);
 }
 
-/// The container list's module, as the host shows it: the line that stands for the page until it
-/// arrives (told to a screen reader, with no field), then the list, its field below the strip; a
-/// page at rest asks nothing of the module and wakes nobody; the pointer over a row changes it.
+/// The container list, as the host shows it: the line that stands for the page until it arrives
+/// (told to a screen reader, with no field), then the list, its field below the strip; a page at
+/// rest asks nothing of the module and wakes nobody; the pointer over a row changes it.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
-fn a_modules_page_is_empty_until_it_arrives_then_drawn_and_then_at_rest() {
-    let mut rig = module_rig(guest_file("containers.wasm"));
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
+fn a_scripts_container_list_is_drawn_then_at_rest_and_answers_the_pointer() {
+    let mut rig = script_rig(include_str!("../../luau/examples/containers.lua"));
     let mut told: Vec<Outline> = Vec::new();
-    // A line instead of a page yet, and the first frame does not wait for the module.
+    // A line instead of a page yet, and the first frame does not wait for the interpreter.
     let began = Instant::now();
     let first = rig.page.frame(wide_at(0.0));
     assert_eq!(boxes(&first.list), 0);
@@ -410,58 +371,25 @@ fn a_modules_page_is_empty_until_it_arrives_then_drawn_and_then_at_rest() {
         "the line that stands for the page is told to a screen reader: {told:?}"
     );
 
-    // The pointer over a row: the module answers, the page changes, the host is told.
+    // The pointer over a row: the page answers, changes, and the host is told.
     rig.page.input(Input::Move(Point::new(300.0, 32.0 + 150.0)));
     assert!(rig.page.module().flush(Duration::from_secs(30)));
     let drained = rig.page.drain();
     assert!(drained.redraw);
     assert_eq!(drained.replies.len(), 1);
     assert!(
-        drained.replies[0].pointer,
+        drained.replies[0].pointer && drained.replies[0].reply.redraw,
         "a pointer move is the pointer's"
     );
-    assert!(drained.replies[0].reply.redraw);
 }
 
-/// The container list as a script: the same as the module's.
-#[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
-fn a_scripts_container_list_is_drawn_then_at_rest_and_answers_the_pointer() {
-    let mut rig = script_rig(include_str!("../../luau/examples/containers.lua"));
-    assert_eq!(boxes(&rig.page.frame(wide_at(0.0)).list), 0);
-    let drained = rig.first();
-    assert!(drained.redraw, "{drained:?}");
-    assert_eq!(drained.ended, None);
-    let list = rig.page.frame(wide_at(0.1)).list;
-    assert!(boxes(&list) > 100, "the rows and dots of the list");
-    let field = rig
-        .page
-        .fields()
-        .first()
-        .expect("room for the filter's field")
-        .rect;
-    assert!(field.y >= 32.0, "below the strip: {field:?}");
-    rig.settle_at(wide_at(0.2));
-    assert!(!rig.page.animating());
-    for step in 0..3 {
-        rig.page.frame(wide_at(1.0 + f64::from(step)));
-    }
-    assert!(rig.quiet(), "a page at rest woke the host");
-    rig.page.input(Input::Move(Point::new(300.0, 32.0 + 150.0)));
-    assert!(rig.page.module().flush(Duration::from_secs(30)));
-    let drained = rig.page.drain();
-    assert!(drained.redraw);
-    assert_eq!(drained.replies.len(), 1);
-    assert!(drained.replies[0].pointer && drained.replies[0].reply.redraw);
-}
-
-/// The page of a module a program opened: it asks the program for what it shows, takes what the
+/// The page of a script a program opened: it asks the program for what it shows, takes what the
 /// program pushes, redraws once for it, and a page at rest after that wakes nobody; what is not one
 /// of the program's messages changes nothing.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_page_asks_its_program_for_readings_takes_them_and_is_at_rest_after() {
-    let mut rig = module_rig(guest_file("containers.wasm"));
+    let mut rig = script_rig(include_str!("../../luau/examples/containers.lua"));
     rig.page.frame(wide_at(0.0));
     let drained = rig.first();
     // Said at its start, to a program that may be there: one message, a subscription.
@@ -501,7 +429,7 @@ fn a_page_asks_its_program_for_readings_takes_them_and_is_at_rest_after() {
 /// from the host's list; the page's commands are in its outline, and a figure it draws is in the
 /// list as one.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_key_that_does_a_command_is_the_command_and_a_canvas_is_a_figure() {
     let mut rig = script_rig(
         r#"local said = "nothing"
@@ -600,7 +528,7 @@ fn loaded(source: &str) -> Rig {
 /// room; the host's keys and text reach it, the page reads the edit from the text posted before it
 /// is told; the page's command comes first.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_pages_editor_is_loaded_by_its_reply_drawn_and_typed_into() {
     let mut rig = script_rig(EDITOR_PAGE);
     rig.page.frame(frame_at(0.0));
@@ -673,7 +601,7 @@ fn a_pages_editor_is_loaded_by_its_reply_drawn_and_typed_into() {
 /// What an input method composes is in the document until it is done, and it asks where the caret
 /// is in the host's points and what is around it, in units of UTF-16; a press ends what it composes.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn an_input_method_composes_in_the_editor_and_is_answered_in_units_of_utf16() {
     let mut rig = loaded(EDITOR_PAGE);
     let mut editors = rig.page.editors();
@@ -722,7 +650,7 @@ fn editors_line_height(page: &Page) -> f32 {
 /// hears it with the place under it; a press elsewhere on the page gives the keyboard back to the
 /// page.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_press_in_an_editor_puts_its_caret_and_one_elsewhere_takes_the_keyboard_back() {
     let mut rig = loaded(EDITOR_PAGE);
     rig.press_key('l');
@@ -748,7 +676,7 @@ fn a_press_in_an_editor_puts_its_caret_and_one_elsewhere_takes_the_keyboard_back
 /// page is told the lines in view; the caret blinks on the frames' clock, which is all a page at
 /// rest with an editor that has the keyboard wants a frame for.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn the_caret_is_kept_in_view_by_the_rooms_scrolling_and_blinks_at_rest() {
     let long: String = (0..60).map(|n| format!("line {n}\n")).collect();
     let source = EDITOR_PAGE
@@ -789,7 +717,7 @@ fn the_caret_is_kept_in_view_by_the_rooms_scrolling_and_blinks_at_rest() {
 /// `blink_for`) on the frames' clock, and while the window does not have the keyboard it is what
 /// `unfocused` says and does not blink.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn the_caret_blinks_as_the_editors_options_say_and_is_what_they_say_away_from_the_keyboard() {
     let with = |caret: &str| {
         EDITOR_PAGE.replace(
@@ -877,7 +805,7 @@ fn the_caret_blinks_as_the_editors_options_say_and_is_what_they_say_away_from_th
 /// (`snap`), over 0.18 seconds (`ease`) or as a spring with no overshoot; the page is not asked for a
 /// frame of its own while it does, the caret is lit, and with Reduce Motion it is at its place at once.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_caret_glides_as_the_options_say_without_asking_the_page_for_a_frame() {
     let with = |motion: &str| {
         EDITOR_PAGE
@@ -998,7 +926,7 @@ fn a_caret_glides_as_the_options_say_without_asking_the_page_for_a_frame() {
 /// terminal's block cursor does: every row the moving box reaches has its text drawn on it, cut at
 /// the box, in the caret's text colour. At rest the one character under it is drawn as ever.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_block_caret_that_glides_shows_the_text_it_covers_from_the_first_frame() {
     let page = EDITOR_PAGE
         .replace(
@@ -1082,7 +1010,7 @@ fn a_block_caret_that_glides_shows_the_text_it_covers_from_the_first_frame() {
 /// caret's box an input method is told and the place under a point are each other's, a press there
 /// puts the caret there, and a press below the room gives the keyboard back.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn an_editor_answers_in_the_hosts_points_at_any_scale_and_zoom() {
     let mut rig = script_rig(EDITOR_PAGE);
     rig.page.set_zoom(1.5);
@@ -1125,7 +1053,7 @@ fn an_editor_answers_in_the_hosts_points_at_any_scale_and_zoom() {
 /// An editor whose long lines wrap comes to rest like any page: its room's width is what its rows
 /// are, and nothing is laid out again for ever.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn an_editor_of_wrapped_lines_comes_to_rest() {
     let long: String = (0..40)
         .map(|n| format!("{n} {}\n", "word ".repeat(60)))
@@ -1200,7 +1128,7 @@ fn wake_rig() -> Rig {
 /// counts the seconds from its own clock (the frame's time and what passed since), so the times the
 /// frames are given are well before and well after the one asked.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_wake_a_reply_asks_is_given_at_the_first_frame_at_its_time_and_a_page_at_rest_asks_none() {
     let mut rig = wake_rig();
     assert_eq!(rig.page.wake_at(), None, "a page at rest asks for no frame");
@@ -1235,7 +1163,7 @@ fn a_wake_a_reply_asks_is_given_at_the_first_frame_at_its_time_and_a_page_at_res
 /// Of the time the page asks to be drawn at and the one it asks to be woken at, the earliest is the
 /// one its frame is asked at, whichever of the two it is.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn of_the_time_a_page_is_drawn_at_and_the_one_it_is_woken_at_the_earliest_is_asked() {
     let mut rig = wake_rig();
     rig.press_key('d');
@@ -1269,7 +1197,7 @@ fn of_the_time_a_page_is_drawn_at_and_the_one_it_is_woken_at_the_earliest_is_ask
 /// answer asks for the time of the wake itself, which the next frame is after; the same frame built
 /// again does not wake it again.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_page_that_asks_again_at_once_is_woken_once_a_frame() {
     let mut rig = wake_rig();
     rig.press_key('a');
@@ -1292,7 +1220,7 @@ fn a_page_that_asks_again_at_once_is_woken_once_a_frame() {
 /// its last wake at the soonest, and the wake held back is given, not lost; seen again, the frames
 /// wake it. A page that waits for no wake gives the host's clock nothing to do.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_page_whose_view_is_not_seen_is_woken_a_second_apart_and_loses_no_wake() {
     let mut rig = wake_rig();
     assert_eq!(
@@ -1363,7 +1291,7 @@ fn several_files(files: Vec<(&'static str, &'static str, &'static str)>) -> Rig 
 /// A script of several files, like one of a single file: the script it requires is read from the
 /// bundle, and what it makes is drawn.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_scripts_page_of_several_files_is_drawn() {
     let mut rig = several_files(vec![
         (
@@ -1387,7 +1315,7 @@ fn a_scripts_page_of_several_files_is_drawn() {
 /// What the page requires that the bundle does not have ends the page, with the path the page
 /// wrote and the line it wrote it on.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_script_that_requires_what_the_bundle_lacks_ends_with_the_path_and_the_line() {
     let mut rig = several_files(vec![(
         "page.lua",
@@ -1402,7 +1330,7 @@ fn a_script_that_requires_what_the_bundle_lacks_ends_with_the_path_and_the_line(
 /// An error in the script that is required says that script's file and line, and a file the bundle
 /// holds that its manifest does not call a script is not one to require.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_required_scripts_error_says_its_file_and_a_file_that_is_not_a_script_is_not_one() {
     let mut rig = several_files(vec![
         ("page.lua", LUA, "require('./parts/box')\nreturn {}"),
@@ -1541,7 +1469,7 @@ fn wait(woken: &Receiver<()>) -> bool {
 /// A decoded PNG wakes the host once, the drain says the page is to be drawn again, that frame has
 /// the picture, and after it the page at rest asks for and wakes nothing.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_decoded_image_wakes_the_page_once_and_a_page_at_rest_not_at_all() {
     // The page is up and the file is asked for (the decoder is at its gate): a box with nothing in
     // it, and nothing more to come until the file does.
@@ -1585,7 +1513,7 @@ fn a_decoded_image_wakes_the_page_once_and_a_page_at_rest_not_at_all() {
 /// A frame that is built between the file's arrival and the drain of the wake that came with it is
 /// the frame that shows the picture; the drain after it has no other frame to ask for.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_frame_built_before_the_drain_shows_the_arrived_image_and_no_other_is_asked_for() {
     let (ImageRig { mut rig, open, .. }, _) = image_rig("dot.png", PNG.to_vec());
     open.send(()).unwrap();
@@ -1604,7 +1532,7 @@ fn a_frame_built_before_the_drain_shows_the_arrived_image_and_no_other_is_asked_
 /// An SVG is two arrivals — its size, which lays the page out again, then its pixels at that size —
 /// and a page at rest after them wakes nobody.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn a_vector_image_wakes_the_page_for_its_size_then_for_its_pixels() {
     let (ImageRig { mut rig, open, .. }, list) = image_rig("dot.svg", SVG.as_bytes().to_vec());
     assert_eq!(pictures(&rig.page, &list), 0);
@@ -1627,7 +1555,7 @@ fn a_vector_image_wakes_the_page_for_its_size_then_for_its_pixels() {
 /// A file the decoder refuses is a box with nothing in it and a word for the page's author, told
 /// once; the page goes on.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn an_image_that_is_not_one_is_left_out_with_a_word_for_the_author() {
     let (ImageRig { mut rig, open, .. }, list) = image_rig("dot.png", b"not an image".to_vec());
     assert_eq!(pictures(&rig.page, &list), 0);
@@ -1647,7 +1575,7 @@ fn an_image_that_is_not_one_is_left_out_with_a_word_for_the_author() {
 /// A list longer than its box: the host scrolls the box under the wheel itself, on the page as it
 /// was laid out, tells the page where it went, and a turn no box takes is the page's.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn the_host_scrolls_the_box_under_the_wheel_and_a_turn_no_box_takes_is_the_pages() {
     let mut rig = script_rig(
         r#"local said = {}
@@ -1779,7 +1707,7 @@ return {
 /// The pointer coming to a word of an editor that hears of its rest says no frame is wanted, and the
 /// time it is told at is the host's clock to arm: the drain says so (`wake`), and `wake_at` has it.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
 fn the_pointer_coming_to_a_word_an_editor_hears_of_tells_the_host_to_arm_its_clock() {
     let mut rig = script_rig(REST_PAGE);
     rig.page.frame(frame_at(0.0));

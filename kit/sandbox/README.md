@@ -1,9 +1,9 @@
 # pencere-sandbox
 
-The sandbox of [pencere](https://github.com/bateri/pencere)'s native views: a WebAssembly component
-(the interface `pencere:view`) or a Lua script that runs on a thread of its own with no file, no
-network, no clock and no environment, held to a memory limit and a time for every call, and that
-answers with the page to draw — a tree `pencere-view` lays out and paints in the terminal's own
+The sandbox of [pencere](https://github.com/bateri/pencere)'s native views: a Lua script that runs on
+a thread of its own, under an interpreter that is a WebAssembly component (the interface
+`pencere:view`), with no file, no network, no clock and no environment, held to a memory limit and
+a time for every call, and that answers with the page to draw — a tree `pencere-view` lays out and paints in the terminal's own
 font and theme.
 
 A script may `require` the other scripts of its bundle (Luau's require-by-string, from the path of
@@ -14,9 +14,9 @@ library is Luau written on the page API alone, kept in this crate (`library/`, `
 and given to every script at the kit's version; it does not count toward what a page's own scripts
 may come to, and mending a module of it needs no new interpreter.
 
-A module or a script that traps, goes past a limit or hands out something that is not a page is
-closed, and the terminal is told why. The interpreter for scripts (Luau, with the bridge to the
-page interface) is a component of its own, kept in this crate as `luau/luau.wasm`; `make luau`
+A script that traps, goes past a limit or hands out something that is not a page is closed, and
+the terminal is told why. The interpreter for scripts (Luau, with the bridge to the page
+interface) is a component of its own, kept in this crate as `luau/luau.wasm`; `make luau`
 rebuilds it from the sources in `kit/luau` and `make check` fails while it is not.
 
 It also decodes the images of a page (`Images`): the PNG, JPEG and SVG files of the view's bundle, off

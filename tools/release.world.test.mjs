@@ -77,7 +77,7 @@ const published = (w) =>
 const edits = (w) => w.calls().filter((c) => c.tool === "gh" && c.args[1] === "edit");
 
 describe("release.mjs rehearse of the crates", () => {
-  it("dry-runs the publication of all eight, each with the crates it asks for taken from the repository", () => {
+  it("dry-runs the publication of all seven, each with the crates it asks for taken from the repository", () => {
     const w = world();
     const done = w.run("rehearse", "crates");
     expect(done.err).toBe("");
@@ -90,22 +90,10 @@ describe("release.mjs rehearse of the crates", () => {
       "publish --dry-run -p pencere-view",
       `publish --dry-run -p pencere-editor ${patch("pencere-view", "kit/view")}`,
       `publish --dry-run -p pencere-sandbox ${patch("pencere-view", "kit/view")}`,
-      `publish --dry-run -p pencere-page --manifest-path kit/guest/Cargo.toml ${patch("pencere-view", "kit/view")} ${patch("pencere-wire", "wire")}`,
       `publish --dry-run -p pencere ${patch("pencere-wire", "wire")}`,
       `publish --dry-run -p pencere-drive ${patch("pencere-view", "kit/view")} ${patch("pencere-editor", "kit/editor")} ${patch("pencere-sandbox", "kit/sandbox")} ${patch("pencere-wire", "wire")} ${patch("pencere", "program")}`,
     ]);
     expect(done.out).toContain("the pencere crates 0.1.0 is ready to be released as crates-v0.1.0");
-  });
-
-  it("runs the cargo commands of the page SDK against the page modules' workspace", () => {
-    const w = world();
-    w.run("rehearse", "crates");
-    const mentions = w.said("cargo").filter((said) => said.includes("kit/guest"));
-    // Its file list, its manifest and its dry run; the other crates' commands name no other workspace.
-    expect(mentions.length).toBe(3);
-    for (const said of w.said("cargo").filter((said) => said.includes("-p pencere-page"))) {
-      expect(said).toContain("--manifest-path kit/guest/Cargo.toml");
-    }
   });
 
   it("asks crates.io from outside the repository, where cargo does not answer from the workspace", () => {
@@ -200,10 +188,10 @@ describe("release.mjs rehearse of the crates", () => {
 
   it("says why a dry run that failed did", () => {
     const w = world();
-    w.state.failDryRun = ["pencere-page"];
+    w.state.failDryRun = ["pencere-sandbox"];
     const done = w.run("rehearse", "crates");
     expect(done.status).toBe(1);
-    expect(done.err).toContain("failed to verify package pencere-page");
+    expect(done.err).toContain("failed to verify package pencere-sandbox");
   });
 });
 
@@ -246,7 +234,7 @@ describe("release.mjs rehearse", () => {
     const done = w.run("rehearse", "crates");
     expect(done.err).toBe("");
     expect(done.status).toBe(0);
-    expect(dryRuns(w).length).toBe(8);
+    expect(dryRuns(w).length).toBe(7);
     expect(w.git("tag", "--list")).toBe("");
   });
 
@@ -500,7 +488,7 @@ describe("release.mjs publish", () => {
   });
 
   describe("of the crates", () => {
-    it("publishes the eight in order from a checkout of the tag, and then makes the draft public but not the Latest", () => {
+    it("publishes the seven in order from a checkout of the tag, and then makes the draft public but not the Latest", () => {
       const w = world();
       ready(w, "crates");
       const done = w.run("publish", "crates");
@@ -513,7 +501,6 @@ describe("release.mjs publish", () => {
         ["publish", "-p", "pencere-view"],
         ["publish", "-p", "pencere-editor"],
         ["publish", "-p", "pencere-sandbox"],
-        ["publish", "-p", "pencere-page", "--manifest-path", "kit/guest/Cargo.toml"],
         ["publish", "-p", "pencere"],
         ["publish", "-p", "pencere-drive"],
       ]);
@@ -541,7 +528,6 @@ describe("release.mjs publish", () => {
         "pencere-view",
         "pencere-editor",
         "pencere-sandbox",
-        "pencere-page",
         "pencere",
         "pencere-drive",
       ]);
@@ -570,7 +556,6 @@ describe("release.mjs publish", () => {
       expect(w.run("publish", "crates").status).toBe(0);
       expect(published(w).map((call) => call.args[2])).toEqual([
         "pencere-sandbox",
-        "pencere-page",
         "pencere",
         "pencere-drive",
       ]);
@@ -584,7 +569,7 @@ describe("release.mjs publish", () => {
       const done = w.run("package", "crates");
       expect(done.err).toBe("");
       expect(done.status).toBe(0);
-      expect(dryRuns(w).length).toBe(7);
+      expect(dryRuns(w).length).toBe(6);
     });
   });
 
@@ -808,7 +793,7 @@ describe("release.mjs package", () => {
     const done = w.run("package", "crates");
     expect(done.err).toBe("");
     expect(done.status).toBe(0);
-    expect(dryRuns(w).length).toBe(8);
+    expect(dryRuns(w).length).toBe(7);
     for (const pkg of members) {
       expect(done.out).toContain(`${pkg.name} 0.1.0: its package is what a release of it carries`);
     }

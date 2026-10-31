@@ -215,18 +215,7 @@ impl Module {
         }
     }
 
-    /// Starts the component in `bytes` (binary or text) under `limits`, for `program`.
-    pub fn from_component(
-        bytes: Vec<u8>,
-        limits: ModuleLimits,
-        program: Arc<dyn Program>,
-        wake: impl Fn() + Send + Sync + 'static,
-    ) -> Self {
-        let held = Arc::clone(&program);
-        Self::spawn(move || World::load(&bytes, limits, held), program, wake)
-    }
-
-    /// Starts the interpreter on `script` (a page that is a script, not a component) under
+    /// Starts the interpreter on `script` under
     /// `limits`, for `program`: the same sandbox, the same terms.
     pub fn from_script(
         script: Script,
@@ -1666,7 +1655,7 @@ mod tests {
         let (told, woken) = mpsc::channel();
         let told = Mutex::new(told);
         let module = Module::spawn(
-            || Err::<Never, _>(Fault::Load("not a component".into())),
+            || Err::<Never, _>(Fault::Load("no interpreter".into())),
             Arc::new(Unbounded),
             move || {
                 let _ = told.lock().unwrap().send(());
@@ -1675,7 +1664,7 @@ mod tests {
         woken.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
             module.poll().closed,
-            Some(Fault::Load("not a component".into()))
+            Some(Fault::Load("no interpreter".into()))
         );
     }
 

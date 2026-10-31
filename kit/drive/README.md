@@ -1,7 +1,7 @@
 # pencere-drive
 
 The drive of a page of [pencere](https://github.com/bateri/pencere)'s native views. A page of the kit
-is a WebAssembly component or a Lua script in a sandbox (`pencere-sandbox`) that hands out a tree of
+is a Lua script in a sandbox (`pencere-sandbox`) that hands out a tree of
 boxes and lines of text (`pencere-view`) and answers what the person does. Between the two stands
 what the kit's specification (`kit/SPEC.md`, Section 4) asks of every host: the page laid out with
 its editors (`pencere-editor`) in their rooms, its boxes scrolled, a key sent to the page's command
@@ -46,7 +46,7 @@ Every part of what bateri's pane did to drive a page is in one column of this ta
 
 | What                                                                                                                                                           | Where                                                                    |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| The module started, its first page waited for with a line in its place, its end told once                                                                      | `Page::component`, `script`, `spawn`; `Drained::ended`                   |
+| The module started, its first page waited for with a line in its place, its end told once                                                                      | `Page::script`, `spawn`; `Drained::ended`                                |
 | Taking what the module put out: pages, replies, what it said to its program, scrolls it asked, wakes                                                           | `Page::drain`, `Page::frame`                                             |
 | Laying the page out at a size and scale, laid out again only when it or its images changed                                                                     | `Page::frame`                                                            |
 | Asking the module for a page: a new size (waiting a little for it), the next step of a moving one, its time                                                    | `Page::frame`                                                            |
@@ -108,7 +108,7 @@ is what an editor undoes together: what is typed with no `advance` between is on
 its own.
 
 - **Opening:** `Headless::script(source)`, `bundle(files, entry)`, `app(dir)` (`Files::app`: a pencere
-  app's `src/view/` with `src/assets/` under `assets/`), `component(bytes)`; then `size`, `scale`,
+  app's `src/view/` with `src/assets/` under `assets/`); then `size`, `scale`,
   `measure` (`Fixed`, 7 × 16 pixels a character, unless said), `peer`, `limits`, `assets`,
   `at`, `patience`, `reduce_motion`, and `open`.
   What a page may take for one call is the floor's 250 ms (the least a host gives a page); `limits` says

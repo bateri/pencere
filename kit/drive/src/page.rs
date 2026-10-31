@@ -319,29 +319,15 @@ impl Measure for Measured<'_> {
 }
 
 impl Page {
-    /// The page of the component in `bytes` (binary or text). `woken` is called from the module's
-    /// thread, and from the images', when something is waiting to be taken: it hops to wherever the
-    /// host listens and has the host drain the page, **and never lays out or draws itself** (the
-    /// images may call it from inside a frame). Returns at once: the module is compiled and started
-    /// on its thread.
-    pub fn component(
-        bytes: Vec<u8>,
-        setup: Setup,
-        woken: impl Fn() + Send + Sync + 'static,
-    ) -> Self {
-        let limits = setup.limits.clone();
-        Self::start(
-            |program, wake| Module::from_component(bytes, limits, program, wake),
-            setup,
-            woken,
-        )
-    }
-
     /// The page of a script: the interpreter of the script's language as the module, and `script`
     /// as what it runs (its text, its path in its bundle — what its errors name and what a
     /// `require` of it is relative to — and the bundle). The other scripts of the bundle it can load
     /// are the ones that say they are of the type `text/x-lua`; the bundle is where its images come
-    /// from too, unless the setup names other files. Otherwise as [`Page::component`].
+    /// from too, unless the setup names other files. `woken` is called from the module's thread,
+    /// and from the images', when something is waiting to be taken: it hops to wherever the host
+    /// listens and has the host drain the page, **and never lays out or draws itself** (the images
+    /// may call it from inside a frame). Returns at once: the interpreter is compiled and started
+    /// on its thread.
     pub fn script(
         script: Script,
         mut setup: Setup,
@@ -359,7 +345,7 @@ impl Page {
     }
 
     /// The page of a module the host makes itself (`make` runs on the module's thread): a page
-    /// written in Rust, run as a module is. Otherwise as [`Page::component`].
+    /// written in Rust, run as a module is. Otherwise as [`Page::script`].
     pub fn spawn<R: Runner>(
         make: impl FnOnce() -> Result<R, Fault> + Send + 'static,
         setup: Setup,

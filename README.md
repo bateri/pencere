@@ -12,9 +12,8 @@ protocol, and it is the same for every kind of view.
 
 There are two families of views:
 
-- **views the terminal draws itself**, with the pencere kit, in its own font and theme: a
-  WebAssembly component (`wasm`) or a Lua script (`lua`), which may `require` the other scripts of
-  its bundle;
+- **views the terminal draws itself**, with the pencere kit, in its own font and theme: a Lua
+  script (`lua`), which may `require` the other scripts of its bundle;
 - **a web page** (`web`): HTML and JavaScript, built with whatever builds to the web, in the
   terminal's web view. It takes the terminal's colours and font from a message the terminal sends
   it.
@@ -24,8 +23,8 @@ the server. The view opens in the program's own pane and closes when the program
 the terminal's own shortcuts alone, loads its files once and keeps them by content, and a program
 in a terminal that does not support pencere is told so and can fall back to text.
 
-The view runs on the machine of the person looking at it, so it is kept in a sandbox. A component
-or a script gets nothing it was not handed; a web page reaches nothing but its own program unless
+The view runs on the machine of the person looking at it, so it is kept in a sandbox. A script
+gets nothing it was not handed; a web page reaches nothing but its own program unless
 the program names a domain and the person allows it.
 
 ## A first app, in three languages
@@ -111,13 +110,13 @@ Early: everything is `0.x`, and a minor release may still break. The repository 
 - a Rust library for terminals that host views, doing no I/O (crate `pencere-host`,
   [`host/rust`](host/rust)), and the part of the wire it shares with programs (crate
   `pencere-wire`, [`wire`](wire));
-- the kit a terminal draws native views with: the page engine, the sandbox that runs a component
-  or a Lua script, the drive that does to a page what every host does, the interpreter and the SDK a
-  page is written with ([`kit`](kit));
+- the kit a terminal draws native views with: the page engine, the sandbox that runs a Lua script,
+  the drive that does to a page what every host does, and the interpreter and the page API a page
+  is written with ([`kit`](kit));
 - a stand-in terminal that plays the host, for trying a program and for tests
   ([`host/fake`](host/fake));
 - an example program with a web view to try it all with ([`examples/containers`](examples/containers)),
-  and the same list as a native view of the terminal, as a WebAssembly component or a Lua script
+  and the same list as a native view of the terminal, as a Lua script
   ([`examples/containers-rust`](examples/containers-rust), written with the program library), and
   the same as a Lua app of one script and a page ([`examples/containers-lua`](examples/containers-lua)).
 

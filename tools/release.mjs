@@ -183,7 +183,7 @@ function cargoManifests(dir = root) {
  * A crate that another asks for by path and version (`name = { path = "…", version = "0.1.0" }`)
  * is not found by that other once its version has gone past what the requirement allows, and cargo
  * then fails to resolve the workspace. The crates move together, so every requirement of a crate of
- * the line, in any manifest of the repository (the command's, the page modules' workspace's),
+ * the line, in any manifest of the repository (the command's too),
  * moves to the new version. Returns the files that changed.
  */
 function moveRequirements(line, version) {
@@ -206,13 +206,9 @@ function moveRequirements(line, version) {
   return moved;
 }
 
-/** The lockfile of each cargo workspace records its crates' versions (the page modules' too). */
+/** The lockfile of the cargo workspace records its crates' versions. */
 function updateLockfiles() {
-  for (const manifest of ["Cargo.toml", "kit/guest/Cargo.toml"]) {
-    if (existsSync(join(root, manifest))) {
-      run("cargo", ["update", "--workspace", "--offline", "--manifest-path", manifest]);
-    }
-  }
+  run("cargo", ["update", "--workspace", "--offline", "--manifest-path", "Cargo.toml"]);
 }
 
 // ---- the changelog ---------------------------------------------------------

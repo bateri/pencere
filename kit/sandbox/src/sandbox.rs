@@ -131,10 +131,6 @@ pub struct ModuleLimits {
     pub call: Duration,
     /// How long the module may take to start (its first code to run): 2 s at the floor.
     pub start: Duration,
-    /// How long compiling the module may take. A component is code from a program, and what it
-    /// takes to compile is the author's to make long; past this the module is refused (the
-    /// compiling goes on, on a thread of its own, until it is done, and its result is dropped).
-    pub compile: Duration,
     /// Elements in one frame.
     pub nodes: usize,
     /// Bytes in all that one frame (or one menu) says apart from its elements' fixed fields: the
@@ -154,8 +150,7 @@ pub struct ModuleLimits {
     pub parts: usize,
     /// Entries of a menu.
     pub menu: usize,
-    /// Bytes of the component itself: a larger one is not compiled. For a script, bytes of the
-    /// scripts together: the entry, and every script it requires, once each.
+    /// Bytes of the scripts together: the entry, and every script it requires, once each.
     pub component: usize,
     /// Messages to the program one call may send: a work limit, as the bytes of one are. How
     /// many the program can take is not this (see [`Program`]).
@@ -181,7 +176,6 @@ impl ModuleLimits {
             memory: 64 << 20,
             call: Duration::from_millis(250),
             start: Duration::from_secs(2),
-            compile: Duration::from_secs(20),
             nodes: 20_000,
             frame_bytes: 4 << 20,
             depth: 128,
@@ -244,7 +238,7 @@ fn said(time: Duration) -> String {
 /// told, and what the person who started the program may be shown.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Fault {
-    /// The bytes are not a component, or it needs more than the page's interface.
+    /// The interpreter could not be loaded, or a script is larger than a page may be.
     Load(String),
     /// A call, or the start, did not come back in `within`: the time `limit` allows.
     Timeout { limit: TimeLimit, within: Duration },
@@ -672,7 +666,6 @@ mod tests {
             memory,
             call,
             start,
-            compile,
             nodes,
             frame_bytes,
             depth,
@@ -691,7 +684,6 @@ mod tests {
         assert!(memory >= floor.memory);
         assert!(call >= floor.call);
         assert!(start >= floor.start);
-        assert!(compile >= floor.compile);
         assert!(nodes >= floor.nodes);
         assert!(frame_bytes >= floor.frame_bytes);
         assert!(depth >= floor.depth);

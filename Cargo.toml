@@ -2,8 +2,8 @@
 resolver = "3"
 members = ["wire", "kit/view", "kit/editor", "kit/sandbox", "kit/drive", "examples/containers-page", "examples/containers-rust", "program", "host/rust", "host/fake", "host/test", "cli"]
 
-# The page modules (`kit/guest/`) are built for another target with another toolchain and have
-# their own workspace and lockfile; this workspace never builds them.
+# The tools that build the interpreter's component (`kit/guest/`) are built with another toolchain
+# and have their own workspace and lockfile; this workspace never builds them.
 exclude = ["kit/guest"]
 
 [workspace.package]
@@ -23,7 +23,7 @@ expect_used = "deny"
 panic = "deny"
 indexing_slicing = "deny"
 
-# A page module is compiled to machine code when its page opens, by the sandbox's code
+# The interpreter is compiled to machine code when the first page opens, by the sandbox's code
 # generator; built without optimization (a debug build) that takes seconds and the page is
 # not there while it does, and the sandbox's tests open a page for each of their cases. The
 # generator and what feeds it are optimized in the development profile too — compiled once,

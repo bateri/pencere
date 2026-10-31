@@ -9,9 +9,9 @@ use std::time::Duration;
 
 use pencere_view::{Button, Event, Id, Input, Mods, Point};
 
-use crate::guests_tests::{Open, Rough, SIZE};
 use crate::luau_tests::{failed, until_seen, words};
 use crate::sandbox::Host;
+use crate::test_support::{Open, Rough, SIZE};
 use crate::world::pencere::view::script::Host as ScriptHost;
 use crate::{Assets, Fault, Module, ModuleLimits, Script, Unbounded, Update};
 
@@ -173,7 +173,7 @@ fn counter_files() -> Vec<File<'static>> {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_page_split_into_three_files_loads_draws_and_answers_input() {
     let (mut page, bundle) = open_bundle("page.lua", &counter_files(), ModuleLimits::default());
     page.module.render(SIZE, 0.0, false);
@@ -222,7 +222,7 @@ fn a_page_split_into_three_files_loads_draws_and_answers_input() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn paths_are_relative_to_the_requiring_file_and_directories_have_an_init() {
     // `screens/logs.lua` reaches `parts/table.luau` by `../`; `parts` is a directory with an
     // `init.luau`, which is the module `parts`, whose own children are `@self/...`.
@@ -254,7 +254,7 @@ fn paths_are_relative_to_the_requiring_file_and_directories_have_an_init() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_runs_once_whoever_asks_for_it() {
     // `once` writes in the shared `log` when its first line runs; the entry and two other scripts
     // all ask for it, by different paths, and `require` gives all of them one value.
@@ -284,7 +284,7 @@ fn a_script_runs_once_whoever_asks_for_it() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_has_globals_of_its_own() {
     let update = first_of(
         "page.lua",
@@ -302,7 +302,7 @@ fn a_script_has_globals_of_its_own() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_cycle_is_an_error_that_names_the_chain() {
     let update = first_of(
         "page.lua",
@@ -327,7 +327,7 @@ fn a_cycle_is_an_error_that_names_the_chain() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_entry_is_in_the_chain_of_a_cycle_and_is_no_module_afterwards() {
     let files = [
         (
@@ -361,7 +361,7 @@ fn the_entry_is_in_the_chain_of_a_cycle_and_is_no_module_afterwards() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_that_is_not_in_the_bundle_is_an_error_that_names_the_path() {
     let update = first_of(
         "page.lua",
@@ -382,7 +382,7 @@ fn a_script_that_is_not_in_the_bundle_is_an_error_that_names_the_path() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_reaches_nothing_but_the_scripts_of_its_bundle() {
     let paths = [
         // Out of the root of the bundle.
@@ -478,7 +478,7 @@ fn a_script_reaches_nothing_but_the_scripts_of_its_bundle() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_name_two_files_answer_to_is_ambiguous() {
     let update = first_of(
         "page.lua",
@@ -497,7 +497,7 @@ fn a_name_two_files_answer_to_is_ambiguous() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_page_with_no_bundle_finds_nothing_to_require() {
     let mut page = crate::luau_tests::open_script(
         "return { render = function() local ok, why = pcall(require, './x')\n return pencere.div():child(pencere.text(tostring(ok) .. '|' .. why)) end }",
@@ -516,7 +516,7 @@ fn a_page_with_no_bundle_finds_nothing_to_require() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn an_error_in_a_required_script_says_its_file_and_its_line() {
     let page = "local logs = require('./screens/logs')\nreturn {}";
     // While the page starts.
@@ -600,7 +600,7 @@ fn an_error_in_a_required_script_says_its_file_and_its_line() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn an_error_the_require_is_given_says_the_line_of_the_page_that_asked() {
     let why = failed(&first_of(
         "page.lua",
@@ -626,7 +626,7 @@ fn an_error_the_require_is_given_says_the_line_of_the_page_that_asked() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_scripts_a_page_loads_are_held_to_the_size_of_a_script_together() {
     // The entry is 100 bytes or so, and each of the others a little more than 300: with room for
     // 1000 the first two come, the third is refused in words.
@@ -694,7 +694,7 @@ fn the_scripts_a_page_loads_are_held_to_the_size_of_a_script_together() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_chain_of_scripts_that_requires_deeper_than_the_interpreter_goes_is_an_error() {
     // Each script requires the next, and every one of them runs inside the one before it.
     let depth = 400;
@@ -729,7 +729,7 @@ fn a_chain_of_scripts_that_requires_deeper_than_the_interpreter_goes_is_an_error
 // --- The kit's library: `@pencere/<name>` ----------------------------------------------------------
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_kits_library_is_one_module_for_every_script_that_asks_by_its_alias() {
     let page = r#"
         local syntax = require("@pencere/syntax")
@@ -756,7 +756,7 @@ fn the_kits_library_is_one_module_for_every_script_that_asks_by_its_alias() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_name_the_library_has_nothing_at_and_a_path_out_of_it_are_errors_that_say_so() {
     let paths = [
         "@pencere/nothing",
@@ -812,7 +812,7 @@ fn a_name_the_library_has_nothing_at_and_a_path_out_of_it_are_errors_that_say_so
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn an_error_at_a_line_of_the_library_says_the_module_and_its_line() {
     // `reply` of what is no syntax reads what it does not have, at a line of the module's own.
     let why = failed(&first_of(
@@ -846,7 +846,7 @@ fn an_error_at_a_line_of_the_library_says_the_module_and_its_line() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_library_is_not_counted_with_the_scripts_of_the_page() {
     // Room for the entry and a few bytes: the library's module, many times that, comes; a script
     // of the bundle past the room does not.

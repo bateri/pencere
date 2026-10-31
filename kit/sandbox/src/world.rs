@@ -2358,76 +2358,6 @@ fn command_out(command: wit::EditorCommand) -> EditCommand {
     }
 }
 
-// --- Compiling and the version of the interface -------------------------------------------
-
-/// The interface this crate speaks: the package of `wit/view.wit`.
-const INTERFACE: &str = "pencere:view@3.0.0";
-
-/// Compiles `bytes`, if that is done within `within`.
-///
-/// What a program sends can take as long as its author likes to compile, and the compiler cannot
-/// be interrupted. So it runs on a thread of its own and is waited for this long: a component
-/// that takes longer is refused, and the thread ends when the compiler does (its result is
-/// dropped), which a component of the size that is run bounds.
-fn compile(
-    engine: &wasmtime::Engine,
-    bytes: &[u8],
-    within: std::time::Duration,
-) -> Result<Component, Fault> {
-    let (engine, bytes) = (engine.clone(), bytes.to_vec());
-    let compiled = waited_for(within, move || {
-        Component::new(&engine, &bytes).map_err(|why| format!("{why:#}"))
-    })?;
-    match compiled {
-        Some(Ok(component)) => Ok(component),
-        Some(Err(why)) => Err(Fault::Load(why)),
-        None => Err(Fault::Load(format!(
-            "compiling the component took longer than the {} seconds it is given",
-            within.as_secs_f64()
-        ))),
-    }
-}
-
-/// What `work` gives, on a thread of its own, if it gives it within `within`; nothing if it does
-/// not.
-fn waited_for<T: Send + 'static>(
-    within: std::time::Duration,
-    work: impl FnOnce() -> T + Send + 'static,
-) -> Result<Option<T>, Fault> {
-    let (done, result) = std::sync::mpsc::channel();
-    std::thread::Builder::new()
-        .name("view-compile".into())
-        .spawn(move || {
-            let _ = done.send(work());
-        })
-        .map_err(|_| Fault::Load("could not start a thread to compile the component".into()))?;
-    match result.recv_timeout(within) {
-        Ok(given) => Ok(Some(given)),
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Ok(None),
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            Err(Fault::Load("the compiler gave up on the component".into()))
-        }
-    }
-}
-
-/// The sentence for a component that is written against another version of the interface than
-/// the one this terminal opens, if that is what it is: it names both (the specification asks for
-/// as much). `None` for a component that names no version of the interface, or this one.
-fn other_interface(engine: &wasmtime::Engine, component: &Component) -> Option<String> {
-    let ty = component.component_type();
-    let names = ty
-        .imports(engine)
-        .map(|(name, _)| name)
-        .chain(ty.exports(engine).map(|(name, _)| name));
-    let version = names
-        .filter_map(|name| name.strip_prefix("pencere:view/"))
-        .filter_map(|name| name.split_once('@').map(|(_, version)| version))
-        .find(|version| Some(*version) != INTERFACE.strip_prefix("pencere:view@"))?;
-    Some(format!(
-        "this view is written against `pencere:view@{version}`; this terminal opens `{INTERFACE}`"
-    ))
-}
-
 // --- The module --------------------------------------------------------------------------
 
 /// A module of the page interface that is running: its store, and the budget its calls have.
@@ -2439,34 +2369,6 @@ pub(crate) struct World {
 }
 
 impl World {
-    /// Compiles `bytes` (a component, binary or text) and starts it. The compiling is slow —
-    /// the caller is on a thread of its own — and is held to [`ModuleLimits::compile`].
-    pub(crate) fn load(
-        bytes: &[u8],
-        limits: ModuleLimits,
-        program: Arc<dyn Program>,
-    ) -> Result<Self, Fault> {
-        if bytes.len() > limits.component {
-            return Err(Fault::Load(format!(
-                "the component is {} bytes; the most that is run is {}",
-                bytes.len(),
-                limits.component
-            )));
-        }
-        let engine = sandbox::engine()?;
-        let component = compile(&engine, bytes, limits.compile)?;
-        Self::start(engine.clone(), &component, limits, program, None).map_err(
-            |fault| match fault {
-                // A component that does not start because it speaks another version of the
-                // interface is told so, in words, and not in the runtime's.
-                Fault::Load(raw) => {
-                    Fault::Load(other_interface(&engine, &component).unwrap_or(raw))
-                }
-                other => other,
-            },
-        )
-    }
-
     /// Starts the interpreter on `script`: the component of [`crate::luau`] (compiled once for
     /// the process, so that the next page of a script starts at once) and the script it runs.
     pub(crate) fn load_script(
@@ -4173,50 +4075,6 @@ mod tests {
         let mut lists = Lists::default();
         lists.values(&[0.0; 26]);
         assert!(frame_out(lists.frame(vec![container(0)]), &small).is_err());
-    }
-
-    #[test]
-    fn compiling_is_held_to_the_time_it_is_given() {
-        // A compiler that is still at work when the time is up is not waited for; one that is
-        // done within it is. (The real compiler of a small component can be done before a wait of
-        // no time at all has begun, so the time is told apart with work that takes its own.)
-        let slow = waited_for(std::time::Duration::from_millis(10), || {
-            std::thread::sleep(std::time::Duration::from_secs(5));
-        });
-        assert!(matches!(slow, Ok(None)), "{slow:?}");
-        let quick = waited_for(std::time::Duration::from_secs(5), || 7);
-        assert!(matches!(quick, Ok(Some(7))), "{quick:?}");
-    }
-
-    #[test]
-    fn a_module_of_another_version_of_the_interface_is_refused_in_words_that_name_both() {
-        // A component that has an instance by the name the page interface had before.
-        for version in ["0.5.0", "1.0.0"] {
-            let old = format!(
-                "(component (instance $page) (export \"pencere:view/page@{version}\" (instance $page)))"
-            );
-            let refused = World::load(old.as_bytes(), ModuleLimits::default(), Arc::new(Unbounded));
-            match refused.err() {
-                Some(Fault::Load(why)) => {
-                    assert!(
-                        why.contains(&format!("written against `pencere:view@{version}`")),
-                        "{why}"
-                    );
-                    assert!(why.contains("opens `pencere:view@3.0.0`"), "{why}");
-                }
-                other => panic!("{other:?}"),
-            }
-        }
-        // The interface this crate speaks is the package of its own `wit/view.wit`.
-        let wit = include_str!("../wit/view.wit");
-        assert!(
-            wit.lines()
-                .any(|line| line.trim() == format!("package {INTERFACE};")),
-            "{INTERFACE}"
-        );
-        // A component that names none is not the one this is about: the runtime's words stand.
-        let other = World::load(b"(component)", ModuleLimits::default(), Arc::new(Unbounded));
-        assert!(matches!(other.err(), Some(Fault::Load(why)) if !why.contains("written against")));
     }
 
     /// A program that has room for so many bytes in all.

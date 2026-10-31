@@ -91,7 +91,7 @@ end }}
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_match_at_the_start_of_a_word_scores_above_one_in_the_middle_of_a_word() {
     let shown = checked(
         r#"
@@ -111,7 +111,7 @@ fn a_match_at_the_start_of_a_word_scores_above_one_in_the_middle_of_a_word() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_run_of_characters_scores_above_the_same_characters_apart_and_a_longer_gap_costs_more() {
     let shown = checked(
         r#"
@@ -127,7 +127,7 @@ fn a_run_of_characters_scores_above_the_same_characters_apart_and_a_longer_gap_c
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_capital_after_a_small_letter_and_a_digit_after_a_letter_start_a_word() {
     let shown = checked(
         r#"
@@ -143,7 +143,7 @@ fn a_capital_after_a_small_letter_and_a_digit_after_a_letter_start_a_word() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn in_a_path_a_match_in_the_files_name_scores_above_any_over_its_directories() {
     let shown = checked(
         r#"
@@ -169,7 +169,7 @@ fn in_a_path_a_match_in_the_files_name_scores_above_any_over_its_directories() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn smart_case_tells_a_capital_apart_only_where_the_pattern_has_one_in_any_script() {
     let shown = checked(
         r#"
@@ -195,7 +195,7 @@ fn smart_case_tells_a_capital_apart_only_where_the_pattern_has_one_in_any_script
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn places_are_characters_from_one_in_a_text_of_any_script() {
     let shown = checked(
         r#"
@@ -222,7 +222,7 @@ fn places_are_characters_from_one_in_a_text_of_any_script() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_first_found_highlight_is_where_the_pattern_is_first_all_there_from_its_latest_start() {
     let shown = checked(
         r#"
@@ -241,7 +241,7 @@ fn the_first_found_highlight_is_where_the_pattern_is_first_all_there_from_its_la
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_list_is_sorted_by_score_then_by_the_order_of_its_items_and_kept_to_its_limit() {
     let shown = checked(
         r#"
@@ -274,7 +274,7 @@ fn a_list_is_sorted_by_score_then_by_the_order_of_its_items_and_kept_to_its_limi
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_search_goes_a_step_at_a_time_and_finds_what_a_filter_finds() {
     let shown = checked(
         r#"
@@ -326,7 +326,7 @@ fn a_search_goes_a_step_at_a_time_and_finds_what_a_filter_finds() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_parts_of_a_text_mark_the_characters_at_the_places_in_the_look_given() {
     let update = first(
         r#"
@@ -382,7 +382,7 @@ fn the_parts_of_a_text_mark_the_characters_at_the_places_in_the_look_given() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_text_of_more_parts_than_a_text_may_have_ends_in_one_plain_part() {
     let shown = checked(
         r#"
@@ -414,7 +414,7 @@ fn a_text_of_more_parts_than_a_text_may_have_ends_in_one_plain_part() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn what_the_caller_gives_wrong_is_an_error_at_the_callers_line() {
     let cases = [
         (

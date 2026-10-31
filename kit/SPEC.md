@@ -1,28 +1,47 @@
 # The pencere kit: the page API, colours and sandbox floors
 
-Version `2.0` of the kinds `lua` and `wasm` ([the protocol](../spec/draft/pencere.md), Sections 5.5
-and 9.8). This document is normative for what the protocol leaves to the kit: with the interface
-[`wit/view.wit`](wit/view.wit) for `wasm` views, and with the prelude [`luau/prelude`](luau/prelude)
-for `lua` views. The key words are those of Section 2 of the protocol. A statement here that the
-interface or the prelude contradicts is a mistake in this document.
+Version `2.1` of the kind `lua` ([the protocol](../spec/draft/pencere.md), Sections 5.5 and 9.8).
+This document is normative for what the protocol leaves to the kit: with the prelude
+[`luau/prelude`](luau/prelude) for the page API of `lua` views. The key words are those of Section 2
+of the protocol. A statement here that the prelude contradicts is a mistake in this document.
 
-The kit is what a view of the kinds `wasm` and `lua` is written against. It does not draw: the
-view says what the page is, and the host lays it out, resolves its colours in the theme of the pane
-and draws it. A host that keeps the rules of this document and the sandbox floors shows the same
-page as any other.
+The kit is what a view of the kind `lua` is written against. It does not draw: the view says what
+the page is, and the host lays it out, resolves its colours in the theme of the pane and draws it. A
+host that keeps the rules of this document and the sandbox floors shows the same page as any other.
 
 ## 1. Versions
 
-| Kind   | The version is                                                                                    | Source of truth               |
-| ------ | ------------------------------------------------------------------------------------------------- | ----------------------------- |
-| `wasm` | `3.0`: the component interface `pencere:view@3.0.0`                                               | `wit/view.wit`                |
-| `lua`  | `2.1` (and `2.0`): the page API whose `pencere.version` is `2`, in Luau `0.740` (`kit/luau/pins`) | `luau/prelude`, this document |
+| Kind  | The version is                                                                        | Source of truth               |
+| ----- | ------------------------------------------------------------------------------------- | ----------------------------- |
+| `lua` | `2.1`: the page API whose `pencere.version` is `2`, in Luau `0.740` (`kit/luau/pins`) | `luau/prelude`, this document |
 
-The two kinds are numbered apart (protocol, Section 5.4). `lua` `2.x` is bound to the release of
-Luau that the kit pins: a script that needs syntax or a library function a later Luau added is not a
-`lua` `2.x` script, and such a Luau arrives with a new minor version of `lua`. A host SHOULD run the
-kit's own interpreter, the component `kit/sandbox/luau/luau.wasm`, so that a script means one thing
-on every host.
+`lua` is the one kind of the kit (protocol, Section 5.4), and `2.1` the one version a host opens
+until the first general release of the protocol: the kit changes in the meantime without a new
+number. `lua` `2.x` is bound to the release of Luau that the kit pins: a script that needs syntax or
+a library function a later Luau added is not a `lua` `2.x` script, and such a Luau arrives with a
+new minor version of `lua`. A host MUST run the kit's own interpreter, the component
+`kit/sandbox/luau/luau.wasm`, so that a script means one thing on every host. The interface
+[`wit/view.wit`](wit/view.wit) is the link between that interpreter and the sandbox that runs it:
+an internal one, which no view is written against and whose version is no promise to anyone.
+
+From the first general release on, the versions follow the rules of the protocol (Section 5.4):
+
+- A change that no existing view can notice is a new minor version (`2.2`): a new function, a new
+  element, a new colour role. A minor version only adds.
+- A host opens every published minor version of a major, and the newest major together with the
+  one before it.
+- A new major version (`3.0`) comes only when a function of the page API has to mean something else
+  and a new name cannot do it.
+- Every change is one of two sorts: one that applies to every view (a fix of security, of a limit
+  or of a bug), or one that applies only to a view opened at the version that carries it (a
+  behaviour). The `CHANGELOG` of the package that carries the change says which.
+- A new kind of event reaches only a view opened at the version that adds it.
+- A script that uses something a later version added asks first whether it exists
+  (`if pencere.x then`).
+- The kit's library (`@pencere/*`, Section 2.6) is a part of the page API: it comes with the host
+  and follows the same rules.
+
+What the number has meant so far is below. No host opens a version before `2.1`.
 
 `2.0` is `1.0` and these, each a change to what a view or a host already used (so a major version):
 overlays and anchors, texts of many looks, canvases, commands and their keys, dragging and dropping,
@@ -40,24 +59,21 @@ the commands of whole lines (Sections 2.1 and 2.3); the time of day and the host
 `mod` (Sections 2.1 and 2.2, and the interface's `system`), what spins, and the `null` members of
 what a page decodes (Sections 2.1 and 2.4); and the pointer's rest over a word of an editor, the names
 of ranges of its text that an overlay stands by, and the names of its styles; widgets in lines; the presses a page maps and the keys it changes, with chords; and looks
-drawn by the modifiers held (Sections 2.1, 2.3 and 2.6); and how an editor's selection looks, with the corners of its lines rounded as a terminal's are, and its caret (its corners, light, blinking, motion and look away from the keyboard) (Section 2.1); and what the host says of how its terminal draws its cursor and its selection and of what it draws, which a page reads and decides on (Sections 2.2, 2.3, 2.6 and 4). The kit's own sandbox opens `2.0` and no longer `1.0`.
+drawn by the modifiers held (Sections 2.1, 2.3 and 2.6); and how an editor's selection looks, with the corners of its lines rounded as a terminal's are, and its caret (its corners, light, blinking, motion and look away from the keyboard) (Section 2.1); and what the host says of how its terminal draws its cursor and its selection and of what it draws, which a page reads and decides on (Sections 2.2, 2.3, 2.6 and 4).
 
 `2.1` is `2.0` and the files beside the bundle (protocol, Sections 8.8 to 8.10), each an addition a
-`2.0` script does not notice (so a minor version of `lua`, and a major one of `wasm`, whose records
-change): the `files` a page is told carry how the person gave them (`source`) and each file's handle,
+`2.0` script does not notice (so a minor version of `lua`): the `files` a page is told carry how the person gave them (`source`) and each file's handle,
 name, size, type and, on the person's machine, its path; `files_over` and `files_left` while files
 are dragged over the page; `saving` when the person chose a place in the Save panel; a reply's `pick`
 and `save`, the Open and the Save panel, shown only for a reply to something the person did; and an
 image named `sha256:` and a digest (a file the program attached) or `file:` and a handle (one the
-person gave) (Sections 2.1, 2.3 and 5). A host that opens `lua` `2.1` opens `2.0` too; the kit's own
-sandbox opens `wasm` `3.0` and no longer `2.0`.
+person gave) (Sections 2.1, 2.3 and 5).
 
 The regular expressions of a view (an editor's search, the rules of its indent) are in the syntax of
 Rust's `regex` crate, `1.x` at the release the kit pins (its `Cargo.lock`), and one may take at most
 4 MiB compiled (`pencere_view::edit::limits::PATTERN_SIZE`): a pattern that would take more is none.
 A release of `regex` whose syntax a view could notice (a pattern it reads otherwise, or one it takes
-that an earlier refused) arrives with a new minor version of both kinds, as a later Luau does for
-`lua`.
+that an earlier refused) arrives with a new minor version of `lua`, as a later Luau does.
 
 ## 2. The Lua page API
 
@@ -781,10 +797,9 @@ the person's machine, and never tells the page what came of it. Any other addres
 page's is: the page is not closed for it and not told, and the rest of the reply stands. A `link` that
 is not a string is an error of the script. The link is the host's, not a message to the program. It
 is not a span's `link(id)` either, which names a part of a text for the pointer: a page opens what
-such a part stands for by answering its press with `{ link = url }`. (`wasm`: the `link` of `reply`
-in the interface, `Reply::with_link` in the Rust SDK.)
+such a part stands for by answering its press with `{ link = url }`.
 
-The **files the person gives** a page (`lua` `2.1`, `wasm` `3.0`; protocol, Section 8.9) come as
+The **files the person gives** a page (`lua` `2.1`; protocol, Section 8.9) come as
 `files`, each with the `handle` the host made of it (32 lowercase hex digits; none for a `kind` of
 `"folder"`, which is not read), its `name`, its `size` in bytes, its media `type` (the host's guess)
 and, only where the host knows the program reads the same files as the person, its `path`. The name
@@ -800,9 +815,7 @@ something the person did**: a press or its release (a button acts on the release
 in a menu, a command. Asked for in a reply to
 anything else (the pointer moving, a wake, a message of the program, the room to send), it is passed
 over, so that a page cannot open panel after panel by itself; and the host shows one panel at a time,
-dropping one asked for while another is up. (`wasm`: the `panel` of `reply` and the events `files`,
-`files-over`, `files-left` and `saving` in the interface; `Reply::panel`, `Panel` and `FileEntry` in
-the Rust SDK.)
+dropping one asked for while another is up.
 
 A reply's **`wake`** asks the host to wake the page that many seconds from now (0 or more; 0 for the
 next frame). Once the time has come the host tells `handle` `{ type = "wake", now = }`, `now` the
@@ -816,10 +829,7 @@ that wants another asks again. The host wakes a page at most once a frame: a pag
 `wake = 0` each time it is woken is woken once a frame, as one that is `animating` is drawn. A
 `wake` that is not a number of seconds, 0 or more, is an error of the script. It is not `render`'s
 `wake_at`, which draws a page at rest again at a time: a wake calls `handle`, and its reply can ask
-what a frame cannot. In Lua the kit's timers ask it for the page (Section 2.2). (`wasm`: the `wake`
-of `reply` and of `frame` and the event `wake` in the interface, a value that is not a number of
-seconds a reply or a frame that is not one; `Reply::with_wake`, `Frame::wake` and `Event::Wake` in
-the Rust SDK.)
+what a frame cannot. In Lua the kit's timers ask it for the page (Section 2.2).
 
 **Replies put together.** A page made of parts that answer apart (its timers, a module of the
 library, its own `handle`) answers with one reply: `pencere.merge(first, second, …)` is that reply,
@@ -1286,8 +1296,8 @@ The roles are those of the theme and three tones derived from them:
   and 11.2);
 - the sixteen colours of the ANSI palette by xterm's names: `black`, `red`, `green`, `yellow`,
   `blue`, `magenta`, `cyan`, `white`, and the same eight prefixed `bright-`;
-- the kit's three derived tones, below: `raised<n>` (`pencere.raised(n)`, in the interface
-  `raised(n)`), `quiet` and `shadow`.
+- the kit's three derived tones, below: `raised<n>` (`pencere.raised(n)`), `quiet` and
+  `shadow`.
 
 A name that is none of these is an error at the line of the script that wrote it.
 
@@ -1316,8 +1326,8 @@ page's `context`. Where the theme gives none, the host makes it up as the protoc
 ## 4. What a host gives a view at least
 
 The sandbox floors are those of the protocol, Section 9.8 (memory 64 MiB, a call 250 ms, the start 2 s,
-20 000 elements to a frame, a tree 128 deep, a line of text 64 KiB, a component 4 MiB (or the entry of
-a script and the scripts it requires, together), 32 messages to the program to a call, a message
+20 000 elements to a frame, a tree 128 deep, a line of text 64 KiB, the scripts of a view 4 MiB together (the
+entry and the scripts it requires), 32 messages to the program to a call, a message
 1 MiB, 4096 values to a sparkline or steps to a path, 1024 parts to a text, paths to a canvas or
 commands to an element, and the limits on pictures). A view that stays within them
 opens on every host. The values of this repository's implementation are `ModuleLimits::floor()` in
@@ -1438,7 +1448,7 @@ A host:
 [`README.md`](README.md) describes how a page names a picture and how the host draws it; the limits
 and the formats are those of the protocol, Section 9.8.
 
-Besides a file of the bundle, a page of `lua` `2.1` or `wasm` `3.0` names a file beside it: `sha256:`
+Besides a file of the bundle, a page of `lua` `2.1` names a file beside it: `sha256:`
 and the digest of a file its program attached (protocol, Section 8.8) and `file:` and the handle of
 one the person gave it (Section 8.9). A manifest path has no `:`, so the names never meet; the host
 answers them from its own tables (the program's attached files, its handles), and a name that is in

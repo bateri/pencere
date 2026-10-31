@@ -42,6 +42,16 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   page that does not come back running for seconds after its view was gone: dropping a `Module` now
   interrupts the call it is in (`Runner::interrupter`, which a runner with a call to cut gives).
 
+### Removed
+
+- **WebAssembly component pages.** `Module::from_component`, the `compile` time of `ModuleLimits`
+  (nothing is compiled for a page any more but the interpreter, once) and the guest SDK
+  (`pencere-page`, `kit/guest/sdk`) are gone: a page is a Lua script. The interface `view.wit` is
+  now the link between the interpreter and the sandbox and no page is written against it. The
+  tests that ran modules built with the SDK (`guests_tests`) run scripts: the limits of time,
+  memory and stack, a full mailbox, a flood of messages, and the drawing and the readings of the
+  container list.
+
 ### Fixed
 
 - **A page of large pictures no longer loses them as it is scrolled.** `Images` kept a PNG or a JPEG

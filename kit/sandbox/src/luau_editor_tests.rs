@@ -8,12 +8,12 @@ use std::time::Duration;
 
 use pencere_view::{Event, Id};
 
-use crate::guests_tests::SIZE;
 use crate::luau_tests::{failed, open_script};
+use crate::test_support::SIZE;
 use crate::{Fault, ModuleLimits};
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_reply_that_hands_an_editor_more_than_a_reply_may_is_not_a_reply() {
     let mut page = open_script(
         r#"
@@ -38,7 +38,7 @@ fn a_reply_that_hands_an_editor_more_than_a_reply_may_is_not_a_reply() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn an_option_an_editor_has_no_such_name_for_is_a_mistake_said_where_it_is_made() {
     for (options, said) in [
         ("{ colours = {} }", "an editor has no option colours"),
@@ -84,7 +84,7 @@ fn an_option_an_editor_has_no_such_name_for_is_a_mistake_said_where_it_is_made()
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_rule_of_an_editors_indent_that_is_no_pattern_fails_the_page_by_the_options_name() {
     let mut page = open_script(
         r#"return { render = function()

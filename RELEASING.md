@@ -6,7 +6,7 @@ of one line does not release another.
 | Line             | What                                                                        | Channel        | Tag                       |
 | ---------------- | --------------------------------------------------------------------------- | -------------- | ------------------------- |
 | `sdk-typescript` | `@pencere/sdk` (`sdk/typescript`)                                           | npm            | `sdk-typescript-v<x.y.z>` |
-| `crates`         | eight crates, one version for all                                           | crates.io      | `crates-v<x.y.z>`         |
+| `crates`         | seven crates, one version for all                                           | crates.io      | `crates-v<x.y.z>`         |
 | `cli`            | the `pencere` command, four executables, and the runner of tests, four more | GitHub release | `cli-v<x.y.z>`            |
 
 The specification is dated by hand (see [The specification](#the-specification)).
@@ -66,14 +66,14 @@ branch and publishes nothing.
 
 They share one version because they ask for each other by version. They are published in this
 order, each after the ones it depends on: `pencere-wire`, `pencere-host`, `pencere-view`,
-`pencere-editor`, `pencere-sandbox`, `pencere-page`, `pencere`, `pencere-drive` (`tools/lines.mjs`;
+`pencere-editor`, `pencere-sandbox`, `pencere`, `pencere-drive` (`tools/lines.mjs`;
 the drive comes after the program library, which serves a page's program in the same process). A
 crate with no change of its own gets "Released with the other crates; no change of its own." in its
 changelog.
 
 Each crate is dry-run on its own, with its dependencies patched to the repository, because none of
-them is on crates.io at the new version yet. The sandbox and the page SDK carry a copy of
-`kit/wit/view.wit`; `make check` keeps the copies equal.
+them is on crates.io at the new version yet. The sandbox carries a copy of `kit/wit/view.wit`;
+`make check` keeps the copy equal.
 
 A crate that is new to crates.io is published the first time by hand (`cargo publish -p <crate>`
 from the tag), since a trusted publisher can only be set on an existing crate.
@@ -111,8 +111,8 @@ None of these is a secret.
   would otherwise create it empty and publish without asking.
 - **npm**, `@pencere/sdk`: trusted publisher GitHub Actions, `bateri/pencere`, `release.yml`,
   environment `release`; tokens disallowed.
-- **crates.io**, each of the eight crates (`pencere-wire`, `pencere-host`, `pencere-view`,
-  `pencere-editor`, `pencere-sandbox`, `pencere-page`, `pencere`, `pencere-drive`): trusted
+- **crates.io**, each of the seven crates (`pencere-wire`, `pencere-host`, `pencere-view`,
+  `pencere-editor`, `pencere-sandbox`, `pencere`, `pencere-drive`): trusted
   publisher GitHub, `bateri/pencere`, `release.yml`, environment `release`. A crate without it is
   refused with `403 … The provided access token is not valid for crate …` when its turn comes,
   after the ones before it went out; run the workflow again for the line once it is set.

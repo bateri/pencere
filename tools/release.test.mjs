@@ -29,11 +29,8 @@ import {
 // more than the default five seconds.
 vi.setConfig({ testTimeout: 30_000 });
 
-const lockOf = (pkg) =>
-  text(repo, pkg.manifest === undefined ? "Cargo.lock" : "kit/guest/Cargo.lock");
-
 describe("the repository's lines", () => {
-  it("are the three, and the crates are the eight in the order they are published", () => {
+  it("are the three, and the crates are the seven in the order they are published", () => {
     expect(Object.keys(LINES)).toEqual(["sdk-typescript", "crates", "cli"]);
     expect(members.map((pkg) => pkg.name)).toEqual([
       "pencere-wire",
@@ -41,7 +38,6 @@ describe("the repository's lines", () => {
       "pencere-view",
       "pencere-editor",
       "pencere-sandbox",
-      "pencere-page",
       "pencere",
       "pencere-drive",
     ]);
@@ -67,10 +63,10 @@ describe("the repository's lines", () => {
     );
   });
 
-  it("have the lockfile of their workspace record each crate at the version of its manifest", () => {
+  it("have the lockfile record each crate at the version of its manifest", () => {
     for (const pkg of cargoPackages) {
       const entry = new RegExp(`^name = "${pkg.name}"\\nversion = "([^"]+)"$`, "m").exec(
-        lockOf(pkg),
+        text(repo, "Cargo.lock"),
       );
       expect(entry?.[1], `${pkg.name} in the lockfile`).toBe(crateVersion(repo, pkg.dir));
     }
@@ -125,12 +121,10 @@ describe("the repository's lines", () => {
   });
 
   it("have the crates that read the interface read their own copy of it", () => {
-    for (const dir of ["kit/sandbox", "kit/guest/sdk"]) {
-      expect(text(repo, dir, "wit/view.wit"), dir).toBe(text(repo, "kit/wit/view.wit"));
-      expect(text(repo, dir, "Cargo.toml"), dir).toMatch(/"wit\/\*\*"/);
-    }
+    const dir = "kit/sandbox";
+    expect(text(repo, dir, "wit/view.wit"), dir).toBe(text(repo, "kit/wit/view.wit"));
+    expect(text(repo, dir, "Cargo.toml"), dir).toMatch(/"wit\/\*\*"/);
     expect(text(repo, "kit/sandbox/src/world.rs")).toContain('path: "wit"');
-    expect(text(repo, "kit/guest/sdk/src/lib.rs")).toContain('path: "wit"');
   });
 
   it("are the lines the release workflow can be started for, and the verbs the Makefile has", () => {
@@ -196,7 +190,7 @@ describe("release.mjs prepare", () => {
   });
 
   describe("of the crates", () => {
-    it("moves all eight to one version, though one of them is there already, and nothing else", () => {
+    it("moves all seven to one version, though one of them is there already, and nothing else", () => {
       const root = fixture();
       const done = release(root, "prepare", "crates", "0.2.0");
       expect(done.err).toBe("");
@@ -224,14 +218,12 @@ describe("release.mjs prepare", () => {
       expect(text(root, "kit/sandbox/Cargo.toml")).toContain(asks("pencere-view", "../view"));
       expect(text(root, "kit/editor/Cargo.toml")).toContain(asks("pencere-view", "../view"));
       expect(text(root, "kit/drive/Cargo.toml")).toContain(asks("pencere-sandbox", "../sandbox"));
-      // The command's, which is not one of the crates, and the page modules' workspace.
+      // The command's, which is not one of the crates.
       expect(text(root, "cli/Cargo.toml")).toContain(asks("pencere-wire", "../wire"));
       expect(text(root, "cli/Cargo.toml")).toContain(asks("pencere", "../program"));
-      expect(text(root, "kit/guest/Cargo.toml")).toContain(asks("pencere-view", "../view"));
-      expect(text(root, "kit/guest/Cargo.toml")).toContain(asks("pencere-wire", "../../wire"));
     });
 
-    it("moves the lockfile of each workspace, the page modules' too", () => {
+    it("moves the lockfile of the workspace", () => {
       const root = fixture();
       release(root, "prepare", "crates", "0.2.0");
       for (const name of [
@@ -245,13 +237,6 @@ describe("release.mjs prepare", () => {
         expect(text(root, "Cargo.lock"), name).toContain(`name = "${name}"\nversion = "0.2.0"`);
       }
       expect(text(root, "Cargo.lock")).toContain('name = "pencere-cli"\nversion = "0.1.0"');
-      for (const name of ["pencere-page", "pencere-view", "pencere-wire"]) {
-        expect(text(root, "kit/guest/Cargo.lock"), name).toContain(
-          `name = "${name}"\nversion = "0.2.0"`,
-        );
-      }
-      // The root workspace does not hold the page SDK.
-      expect(text(root, "Cargo.lock")).not.toContain("pencere-page");
     });
 
     it("gives a crate with nothing of its own the line that says so, and asks for nothing more", () => {

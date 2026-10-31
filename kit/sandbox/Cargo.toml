@@ -1,6 +1,6 @@
 [package]
 name = "pencere-sandbox"
-description = "The sandbox of pencere's native views: a WebAssembly component or a Lua script that runs with no file, network or clock, and is asked for a page to lay out and draw"
+description = "The sandbox of pencere's native views: a Lua script, run by an interpreter that is a WebAssembly component, with no file, network or clock, and is asked for a page to lay out and draw"
 version = "0.3.1"
 edition.workspace = true
 rust-version.workspace = true
@@ -9,8 +9,8 @@ repository.workspace = true
 readme = "README.md"
 keywords = ["terminal", "pencere", "wasm", "sandbox"]
 categories = ["wasm", "gui"]
-# The tests of `src/` read the scripts of `kit/luau`, the page modules of `kit/guest` and the
-# containers example, none of which a crate carries; `wit/` is the crate's own copy of the
+# The tests of `src/` read the scripts of `kit/luau` and the containers example, none of which a
+# crate carries; `wit/` is the crate's own copy of the
 # interface (`make check` keeps it equal to `kit/wit/view.wit`), and `library/` the kit's library
 # of Luau, which the crate gives scripts.
 include = [
@@ -57,8 +57,8 @@ regex = { version = "1", default-features = false, features = ["std", "unicode",
 wasmtime = { version = "38", default-features = false, features = [
     "runtime", "cranelift", "component-model", "std", "gc", "gc-drc", "wat",
 ] }
-# The page the tests compare a module's with: the container list, written once and run natively
-# here as the module runs in the sandbox.
+# The page the tests compare a script's with: the container list, written once and run natively
+# here as the script runs in the sandbox.
 containers-page = { path = "../../examples/containers-page" }
 # The host's editors, whose rules of indent a test holds the sandbox's to (the two compile them
 # alike); the sandbox itself never links them (`make check`). A page driven with its editors is

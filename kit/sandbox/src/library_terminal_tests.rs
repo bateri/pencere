@@ -100,7 +100,7 @@ end }}
         ModuleLimits::default(),
         Arc::new(Terminal { look, draws }),
     );
-    page.module.render(crate::guests_tests::SIZE, 0.0, false);
+    page.module.render(crate::test_support::SIZE, 0.0, false);
     let update = page.until(Duration::from_secs(20), |u| {
         u.frame.is_some() || u.closed.is_some()
     });
@@ -111,7 +111,7 @@ end }}
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_host_that_says_nothing_gives_no_look_and_no_drawing_and_the_options_back_as_they_were() {
     let shown = checked(
         TerminalLook::default(),
@@ -129,7 +129,7 @@ fn a_host_that_says_nothing_gives_no_look_and_no_drawing_and_the_options_back_as
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_host_that_says_some_gives_what_it_says_and_what_it_draws() {
     let shown = checked(
         bateri(),
@@ -166,7 +166,7 @@ fn a_host_that_says_some_gives_what_it_says_and_what_it_draws() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_helper_puts_the_terminals_look_where_the_page_said_nothing_a_field_at_a_time() {
     let shown = checked(
         bateri(),
@@ -202,7 +202,7 @@ fn the_helper_puts_the_terminals_look_where_the_page_said_nothing_a_field_at_a_t
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_helper_is_a_mistake_for_what_is_not_options_or_a_look() {
     let shown = checked(
         TerminalLook::default(),

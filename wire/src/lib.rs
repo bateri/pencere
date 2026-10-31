@@ -1,7 +1,7 @@
 //! The wire of pencere that the two ends of it share: what a program writes into its terminal
 //! and what a terminal writes back, as bytes and as the types they are read into. A terminal
 //! reads it with the host crate (`pencere-host`), a program writes it with the program library
-//! (`pencere`), and a page module in the terminal's sandbox speaks its six view messages; none
+//! (`pencere`), and a page script in the terminal's sandbox speaks its six view messages; none
 //! of them has a second copy.
 //!
 //! The crate does no I/O and knows nothing of a session, of where files are kept or of what is

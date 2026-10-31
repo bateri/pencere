@@ -8,8 +8,8 @@
 
 use std::time::{Duration, Instant};
 
-use crate::guests_tests::SIZE;
 use crate::luau_tests::{failed, first, open_script, words};
+use crate::test_support::SIZE;
 use crate::{ModuleLimits, library};
 
 /// What the checks of a page share: `colours(name, sample, expected)` reads `sample` (its lines
@@ -131,7 +131,7 @@ fn all_ok(said: &[String], names: &[&str]) {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn every_language_of_braces_colours_its_words_strings_comments_numbers_and_its_own_forms() {
     let said = said(
         r##"
@@ -273,7 +273,7 @@ $x = new Foo();
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn every_scripting_language_colours_its_words_strings_comments_and_its_blocks_over_lines() {
     let said = said(
         r##"
@@ -339,7 +339,7 @@ print(t.field, self, 0x10)]===], {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn markup_colours_its_tags_and_reads_what_it_holds_in_the_language_it_is_in() {
     let said = said(
         r##"
@@ -399,7 +399,7 @@ plain
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn every_language_of_data_colours_its_keys_as_properties_and_its_values_as_what_they_are() {
     let said = said(
         r##"
@@ -453,7 +453,7 @@ port: 8080]==], {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn every_style_sheet_colours_its_selectors_properties_and_values() {
     let said = said(
         r##"
@@ -491,7 +491,7 @@ colours("Less", [==[@color: red;
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_tools_languages_colour_their_instructions_targets_and_changes() {
     let said = said(
         r##"
@@ -525,7 +525,7 @@ colours("Diff", [==[diff --git a/x b/x
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn sql_reads_the_forms_of_postgresql_and_sqlite_and_each_of_the_two_reads_its_own() {
     let said = said(
         r##"
@@ -574,7 +574,7 @@ INSERT INTO t VALUES (X'AB', 'x') /* not /* nested */;]==], {
 /// opens its strings and comments, a language a frame (each call of the page has its time): it
 /// bounds its work on a line, and reads at least a character each token.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn every_reader_reads_a_line_of_ten_thousand_characters_of_its_hard_cases_in_a_call() {
     let script = r##"
 local languages = require("@pencere/languages")
@@ -633,7 +633,7 @@ return {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_file_is_told_by_its_whole_name_its_extension_and_its_first_line_and_none_is_plain_text() {
     let said = said(
         r##"
@@ -717,7 +717,7 @@ named("main.py", "#!/bin/sh")
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_language_is_found_by_its_name_or_any_alias_in_any_case_and_the_list_is_every_one_by_name() {
     let said = said(
         r##"
@@ -804,7 +804,7 @@ say(tostring(languages.find("Rust").family) .. " " .. tostring(languages.find("S
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn what_each_language_tells_an_editor_is_its_comments_indent_folds_brackets_and_tabs() {
     let said = said(
         r##"
@@ -877,7 +877,7 @@ end
 /// `config` on it is drawn, its rules of indent compiled as the editor compiles them (one that is
 /// no pattern fails the page that says it).
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn an_editor_takes_what_every_language_tells_it() {
     let update = first(
         r#"
@@ -902,7 +902,7 @@ fn an_editor_takes_what_every_language_tells_it() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn requiring_the_module_builds_no_language_and_a_load_builds_the_one_asked_for_once() {
     let said = said(
         r##"
@@ -948,7 +948,7 @@ say(mine.hint .. " " .. tostring(rust.config.hint))
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_name_that_is_no_name_is_a_mistake_said_at_the_callers_line() {
     for (call, says) in [
         (
@@ -987,7 +987,7 @@ fn a_name_that_is_no_name_is_a_mistake_said_at_the_callers_line() {
 }
 
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_looks_are_the_themes_roles_and_a_name_falls_back_as_an_editors_does() {
     let said = said(
         r##"
@@ -1034,7 +1034,7 @@ say(tostring(pcall(function() languages.look("invalid").underline.wavy = "accent
 /// either). What the test holds is what the cost follows from: requiring runs the module's own
 /// script, the descriptions, and none of the families', which are the most of its text.
 #[test]
-#[ignore = "heavy: compiles the interpreter or a module and drives it for seconds; make check-heavy"]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn requiring_the_module_runs_its_descriptions_alone_which_are_the_least_of_it() {
     let page = |body: &str| {
         format!("{body}\nreturn {{ render = function() return pencere.text(\"ready\") end }}")
