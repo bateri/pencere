@@ -29,6 +29,11 @@ The engine of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.1` and `2
 
 ### Fixed
 
+- **A pick is of the menu the host showed.** A host shows one menu at a time and does not show one
+  asked for while another is up, so the page's latest menu is not always the one the person picked
+  from. `Menu` has a `serial` (the page's number for it) and `Event::MenuPick` is
+  `MenuPick { serial, index }`: the host hands back the number of the menu it showed. **Breaking:**
+  a `Menu` literal says its `serial`, and a match on `Event::MenuPick(index)` names both fields.
 - An inline widget keeps room outside its box, between it and the characters beside it
   (`WidgetGroup::margin`, 3 points; `Widget::margin_left`/`margin_right` say another): the box of a
   hint stood against the character after it.

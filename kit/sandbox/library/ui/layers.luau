@@ -312,7 +312,9 @@ local Toasts = core.component("toasts", {
 
 -- The host's menu, at the element `options.near` (below its left edge), or at `options.at` (`{ x, y }`):
 -- the reply that asks for it, to be returned from `handle`. `entries` are `{ key, title, keys, enabled }`
--- and `"-"` for a rule. What the person picks comes back as `{ from = id, kind = "menu", entry = key }`.
+-- and `"-"` for a rule. What the person picks comes back as `{ from = id, kind = "menu", entry = key }`, with
+-- `editor = options.editor` where the menu is of an editor (`u:editor_menu`): the pick is of the menu the person
+-- was shown, which may not be the last the page asked for, so what it is of is told with the pick and not kept.
 function core.Ctx:menu(id, entries, options)
 	options = options or {}
 	local at = options.at
@@ -325,16 +327,22 @@ function core.Ctx:menu(id, entries, options)
 	if at == nil then
 		error("a menu is at an element (near =) or a place (at = { x =, y = })", 2)
 	end
-	local asked, keys = {}, {}
+	-- Each line carries what a pick of it is, for the host to hand back with the pick (`event.entry`): the
+	-- menu shown is not always the one asked for last.
+	local asked = {}
 	for index, entry in entries do
 		if entry == "-" then
 			asked[index] = "-"
 		else
-			asked[index] = { title = entry.title, keys = entry.keys, enabled = entry.enabled, paste = entry.paste }
-			keys[index] = entry.key
+			asked[index] = {
+				title = entry.title,
+				keys = entry.keys,
+				enabled = entry.enabled,
+				paste = entry.paste,
+				ui = { menu = id, key = entry.key, editor = options.editor },
+			}
 		end
 	end
-	self.asked = { id = id, keys = keys }
 	return { redraw = true, menu = { at = at, entries = asked } }
 end
 

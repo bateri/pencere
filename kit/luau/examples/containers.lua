@@ -457,8 +457,6 @@ function Containers.fixture()
 		-- Where the pointer last was over the page: the hover is asked again where it stands when
 		-- the page moves under it.
 		pointer = nil,
-		-- What the entries of the menu that is up do, by entry; and the containers they do it to.
-		menu = { acts = {}, targets = {} },
 		-- The modifiers held when the last button went down.
 		press_mods = {},
 		-- Reduce Motion, as of the last frame: a change snaps.
@@ -1506,11 +1504,11 @@ function Containers:open_menu(at)
 		any_down = any_down or not is_up(c)
 		any_paused = any_paused or c.state.kind == "paused"
 	end
-	local entries, acts = {}, {}
+	-- Each entry carries what a pick of it does and to whom (`act`, `targets`), as of the moment the menu
+	-- was opened: the pick is told with the entry of the menu shown, which may not be the last asked for.
+	local entries = {}
 	local function item(title, key, act)
-		entries[#entries + 1] = { title = title, key = key, enabled = act ~= nil }
-		-- An entry that does nothing is false, so that the list of what they do has no holes.
-		acts[#acts + 1] = act or false
+		entries[#entries + 1] = { title = title, key = key, enabled = act ~= nil, act = act, targets = targets }
 	end
 	if any_down then
 		item("Start", "s", "start")
@@ -1527,7 +1525,6 @@ function Containers:open_menu(at)
 	local function divide()
 		if #entries > 0 and entries[#entries] ~= "-" then
 			entries[#entries + 1] = "-"
-			acts[#acts + 1] = false
 		end
 	end
 	-- Without a program behind the list these have nothing to show: grey, but there, as in the
@@ -1536,7 +1533,6 @@ function Containers:open_menu(at)
 	if single then
 		for _, grey in ipairs({ { "Open a shell", "e" }, { "Logs", "l" }, { "Inspect", "i" } }) do
 			entries[#entries + 1] = { title = grey[1], key = grey[2], enabled = false }
-			acts[#acts + 1] = false
 		end
 		item("Copy id", "y", "copy_id")
 	end
@@ -1545,20 +1541,17 @@ function Containers:open_menu(at)
 		item("Kill", "K", "kill")
 	end
 	item("Remove", "d", "remove")
-	self.menu = { acts = acts, targets = targets }
 	return { at = at, entries = entries }
 end
 
--- The person picked entry `index` (from 1) of the menu that was opened.
-function Containers:pick(index)
-	local menu = self.menu
-	self.menu = { acts = {}, targets = {} }
-	local act = menu.acts[index]
+-- The person picked `entry`, a line of the menu that was shown.
+function Containers:pick(entry)
+	local act = entry.act
 	if not act then
 		return self:reply(false)
 	end
 	local rows = self:rows()
-	return self:apply(act, menu.targets, self:cursor_at(rows))
+	return self:apply(act, entry.targets, self:cursor_at(rows))
 end
 
 -- --- What a program tells the page --------------------------------------------------------------
@@ -1810,7 +1803,7 @@ return {
 		elseif kind == "text" then
 			return list:set_query(event.text)
 		elseif kind == "menu" then
-			return list:pick(event.index)
+			return list:pick(event.entry)
 		end
 		return list:input(event, pencere.layout)
 	end,

@@ -435,7 +435,10 @@ fn event_in(event: Event) -> wit::Event {
         }),
         Event::Input(Input::Mods(mods)) => wit::Event::Mods(mods_in(mods)),
         Event::Focus(field) => wit::Event::Focus(field.map(id_out)),
-        Event::MenuPick(index) => wit::Event::MenuPick(u32::try_from(index).unwrap_or(u32::MAX)),
+        Event::MenuPick { serial, index } => wit::Event::MenuPick(wit::MenuPick {
+            serial,
+            index: u32::try_from(index).unwrap_or(u32::MAX),
+        }),
         Event::Command(id) => wit::Event::Command(id_out(id)),
         Event::Files {
             at,
@@ -1516,6 +1519,7 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
             Some(Menu {
                 at: Point::new(pt(menu.at.x), pt(menu.at.y)),
                 entries,
+                serial: menu.serial,
             })
         }
     };
@@ -3350,6 +3354,7 @@ mod tests {
                 },
                 entries,
                 titles,
+                serial: 9,
             }
         };
         let read = reply_out(
@@ -3623,8 +3628,14 @@ mod tests {
             })
         ));
         assert!(matches!(
-            event_in(Event::MenuPick(usize::MAX)),
-            wit::Event::MenuPick(u32::MAX)
+            event_in(Event::MenuPick {
+                serial: 4,
+                index: usize::MAX
+            }),
+            wit::Event::MenuPick(wit::MenuPick {
+                serial: 4,
+                index: u32::MAX
+            })
         ));
         assert!(matches!(
             event_in(Event::Input(Input::Release {

@@ -494,7 +494,11 @@ impl<P: Peer> Host for Deliver<'_, P> {
     }
 
     fn menu(&mut self, menu: Menu) {
-        self.seen.menu = Some(menu);
+        // One menu is up at a time, as a pane's pop-up is one: a menu asked for while another is
+        // open is not shown, and the page is not told (what the person picks is what they saw).
+        if self.seen.menu.is_none() {
+            self.seen.menu = Some(menu);
+        }
     }
 
     fn panel(&mut self, panel: Panel) {
@@ -1676,6 +1680,7 @@ impl<P: Peer> Headless<P> {
     /// [`Headless::settle`].
     pub fn pick(&mut self, index: usize) -> Result<(), Error> {
         let menu = self.seen.menu.as_ref().ok_or(Error::NoMenu)?;
+        let serial = menu.serial;
         if !matches!(
             menu.entries.get(index),
             Some(MenuEntry::Item { enabled: true, .. } | MenuEntry::Paste { enabled: true, .. })
@@ -1684,8 +1689,11 @@ impl<P: Peer> Headless<P> {
         }
         self.seen.menu = None;
         // The host's part of an entry it performs itself is its pasteboard, read here.
-        self.page
-            .pick(index, &mut ReadPasteboard(self.seen.pasteboard.as_deref()));
+        self.page.pick(
+            serial,
+            index,
+            &mut ReadPasteboard(self.seen.pasteboard.as_deref()),
+        );
         self.settle()
     }
 

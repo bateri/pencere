@@ -130,16 +130,16 @@ function editor_menu.editor_menu(u, id, props)
 	end
 	add(own)
 	add(props.after or {})
-	u.editor_menus = u.editor_menus or {}
-	u.editor_menus[id] = props.editor
-	return u:menu(id, entries, { at = props.at or at_caret(props.editor) })
+	return u:menu(id, entries, { at = props.at or at_caret(props.editor), editor = props.editor })
 end
 
--- The reply to the pick of one of the menu's own lines (`act`: `{ from = id, kind = "menu", entry = key }`):
+-- The reply to the pick of one of the menu's own lines (`act`: `{ from = id, kind = "menu", entry = key, editor = editor }`):
 -- the ask of the editor; nil for the page's lines, for Paste (the host did it) and for what is no pick
 -- of an editor's menu.
-function editor_menu.editor_menu_pick(u, act)
-	local editor = u.editor_menus and u.editor_menus[act.from]
+function editor_menu.editor_menu_pick(_, act)
+	-- The editor is the one the menu shown was of, told with the pick (the page may have asked for the menu of
+	-- another editor since, under the same id).
+	local editor = act.editor
 	if editor == nil or act.kind ~= "menu" then
 		return nil
 	end

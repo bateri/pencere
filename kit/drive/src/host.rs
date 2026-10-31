@@ -107,8 +107,11 @@ pub trait Host {
     /// `http` or `https` address, the person asked first).
     fn link(&mut self, _url: String) {}
     /// A menu to show, at its place in the host's points; the entry the person picks is told the
-    /// page with [`crate::Page::pick`]. Told last of a reply: a menu may hold the host until it is
-    /// picked from.
+    /// page with [`crate::Page::pick`], with the menu's `serial` ([`Menu::serial`]) that the host
+    /// keeps from showing it. Told last of a reply: a menu may hold the host until it is picked
+    /// from. A host shows one menu at a time and does not show one asked for while another is up
+    /// (the page is not told): what the person picks is then of the menu they saw, whichever the
+    /// page asked for last, and the host must hand back the serial of the one it showed.
     fn menu(&mut self, _menu: Menu) {}
     /// A panel for the person to give the page files or a place to save in: asked for in a reply to
     /// something the person did (the sandbox passes over one asked for in another). What the person
@@ -251,6 +254,7 @@ mod tests {
                     enabled: true,
                     keys: None,
                 }],
+                serial: 1,
             }),
             keyboard: Some(Keyboard::Page),
             fill: vec![(Id::named("f"), Fill::text("text"))],

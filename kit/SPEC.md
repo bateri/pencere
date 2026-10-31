@@ -531,7 +531,7 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 | `key`              | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"delete"`, `"f1"` to `"f20"`, or the character), `mods`                                                                                                                                                                                                                                                                                                                                   |
 | `text`             | `field` (its name) and `text`: what a field holds now, after the person changed it (not after the page's own `fill`)                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `focus`            | `field`: the field the person clicked into, or nil when the keyboard went back to the page of itself (not said when it went where the page sent it)                                                                                                                                                                                                                                                                                                                                                                                    |
-| `menu`             | `index` (from 1) of the entry picked from the menu the page asked for                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `menu`             | `index` (from 1) of the entry picked from the menu shown, and its `entry`: the table the page wrote for that line, as it wrote it                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `key_up`           | `key` and `mods`, as `key`: a key the page was told of went up                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `mods`             | `mods`: the modifiers held changed, with no other key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `command`          | `id`: the command asked for, from the host's list or by its keys (the key is not told as well)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -568,8 +568,9 @@ given no `select` has its caret where its system puts it after a text, at the en
 not a field of the page is passed over, below), `menu = { at = { x =, y = }, entries = { { title =, keys =,
 enabled = }, "-", { title =, keys =, enabled =, paste = editor } } }` (an entry's `keys` are written as a
 command's, `"ctrl+w"` or `"f2"`, and shown at the end of its line; `key`, the name it had, is read the
-same; an entry with `paste` is one the host performs itself when it is picked, below),
-`link` (an address to open in the person's browser, below), `wake` (in how many seconds to wake the
+same; an entry with `paste` is one the host performs itself when it is picked, below; the table of an
+entry is told back with its pick, so a function or a field the page put in it is there when it is picked:
+`menu` below), `link` (an address to open in the person's browser, below), `wake` (in how many seconds to wake the
 page, below), and `editor = { [name] = ask, or { ask, ... } }`, what the page asks of its editors,
 each ask one of:
 
@@ -773,13 +774,25 @@ copies and does not cut). **There is no command that pastes**: a page can write 
 never read it, so text reaches an editor from the pasteboard only on the person's key or the person's pick of a
 menu entry the host performs itself (`paste = editor` in a menu's entry): the host reads its pasteboard and the
 text goes in as the paste key's does, in a `read_only` editor not at all and at several carets a line each
-where the text has as many lines; the page is told the pick (`menu`, the `index`) as any and never the text
+where the text has as many lines; the page is told the pick (`menu`, the `index` and the `entry`) as any and never the text
 (an `edit` that tells what went in is told, as for the person's own key). The line's words are the kit's
 ("Paste"), whatever the page wrote, and it pastes only into the editor that had the keyboard when the page
 asked for the menu, and only a line that is on: a page cannot send what is on the pasteboard to an editor
 the person is not in, nor give the pick another name.
 A page asks for a paste by a command, `{ command = "paste" }`, and is failed where it writes it, as for any
 word that is no command.
+
+**A pick is of the menu that was shown.** A host shows one menu at a time: a menu a reply asks for while
+another is up is not shown, and the page is not told. So that a pick is never read against a menu the
+person did not see, the kit gives each menu a reply asks for a number (`serial`, not the page's to
+choose) and keeps the tables of its entries for the last sixteen; the host hands the number of the menu
+it showed back with the pick (`pencere:view` `menu-pick`: the `serial` and the `index`), and the page is
+told the pick with that menu's `entry`, the table the page wrote for the line, with its fields and
+functions. `index` stays the line's place in that menu. A pick of a number that is not kept (a menu
+asked for long ago, a menu picked from already, a number the page never had), or of a line that is
+no entry (a rule, a place past the end), is not told the page: the entry of a menu the person was not
+shown is not reachable by any pick. A page does not map `index` to its entries itself: `entry` is the
+entry.
 
 **A press that opens a menu.** `gestures` with `"context"` (`["right+press"] = "context"`) puts the caret
 where a text view puts it for a press that opens a menu (VS Code's rule) and has the editor take the

@@ -282,6 +282,9 @@ struct Pair {
     /// What the page asked the application to scroll, not yet held against what the script
     /// asked.
     asked: Vec<ScrollTo>,
+    /// The number of the last menu the script asked for: what the application hands back with a
+    /// pick.
+    menu: u64,
 }
 
 impl Pair {
@@ -307,6 +310,7 @@ impl Pair {
             last_reading: None,
             scrolls: Scrolls::new(),
             asked: Vec::new(),
+            menu: 0,
         };
         // (The first frame waits for the interpreter to be compiled.)
         pair.wait_for_frame();
@@ -485,6 +489,9 @@ impl Pair {
     fn event(&mut self, what: &str, event: Event) -> Reply {
         self.lua.module.event(event.clone());
         let lua = self.answer();
+        if let Some(menu) = &lua.menu {
+            self.menu = menu.serial;
+        }
         let native = match event {
             Event::Input(Input::Key {
                 key: Key::Character('U'),
@@ -517,7 +524,7 @@ impl Pair {
             | Event::Found { .. }
             | Event::Wake { .. }
             | Event::TerminalLook => Reply::none(),
-            Event::MenuPick(index) => self.native.pick(index),
+            Event::MenuPick { serial, index } => self.native.pick(serial, index),
             Event::Scrolled(boxes) => self.native.scrolled(&boxes),
         };
         assert_same_reply(what, &lua, &native);
@@ -527,6 +534,12 @@ impl Pair {
         }
         self.check(what);
         native
+    }
+
+    /// The person picks entry `index` of the menu the script asked for last.
+    fn pick(&mut self, what: &str, index: usize) -> Reply {
+        let serial = self.menu;
+        self.event(what, Event::MenuPick { serial, index })
     }
 
     fn input(&mut self, what: &str, input: Input) -> Reply {
@@ -1179,15 +1192,19 @@ fn a_right_click_opens_the_menu_of_the_row_and_what_is_picked_is_done() {
     );
     pair.input("the right release", release(at));
     // A disabled entry, a line, and then one that works (the menu is spent after the pick).
-    pair.event("a disabled entry", Event::MenuPick(4));
+    pair.pick("a disabled entry", 4);
     let reply = pair.input("the right press", press(at));
     assert!(reply.menu.is_some());
-    pair.event("a line", Event::MenuPick(3));
+    pair.pick("a line", 3);
     let reply = pair.input("the right press", press(at));
     assert!(reply.menu.is_some());
-    let reply = pair.event("copy id", Event::MenuPick(7));
+    let reply = pair.pick("copy id", 7);
     assert!(reply.copy.is_some());
-    pair.event("a pick with no menu", Event::MenuPick(0));
+    // The menu is spent: a second pick of it is not told the script (the page, which keeps no menu
+    // of its own once it is picked from, answers for the pointer where it stands).
+    let serial = pair.menu;
+    pair.lua.module.event(Event::MenuPick { serial, index: 0 });
+    assert_eq!(pair.answer(), Reply::none());
     pair.rest(30);
     // An entry of the menus of a running, a stopped, a paused and an unhealthy container.
     for (name, pick) in [
@@ -1202,20 +1219,20 @@ fn a_right_click_opens_the_menu_of_the_row_and_what_is_picked_is_done() {
         let at = pair.middle(name);
         let reply = pair.input("the right press", press(at));
         assert!(reply.menu.is_some(), "{name}");
-        pair.event(&format!("{name} pick {pick}"), Event::MenuPick(pick));
+        pair.pick(&format!("{name} pick {pick}"), pick);
         pair.at(pair.now + 0.05);
     }
     // The menu of a project's row is that of its containers; of marked ones, theirs.
     let at = pair.middle("containers group blog");
     let reply = pair.input("a project's menu", press(at));
     assert!(reply.menu.is_some());
-    pair.event("start them", Event::MenuPick(0));
+    pair.pick("start them", 0);
     pair.key(Key::Home);
     pair.key(Key::Character('a'));
     let reply = pair.key(Key::Character('.'));
     let menu = reply.menu.expect("the menu of the key");
     assert!(!menu.entries.is_empty());
-    pair.event("kill them", Event::MenuPick(menu.entries.len() - 2));
+    pair.pick("kill them", menu.entries.len() - 2);
     pair.rest(30);
     // The key that opens the menu, with nothing marked and the cursor on no row, and a press on
     // the filter.

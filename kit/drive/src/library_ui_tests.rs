@@ -976,6 +976,41 @@ end
     Ok(())
 }
 
+/// The host shows one menu at a time and does not show one asked for while another is up: what is
+/// picked is a line of the menu shown, whichever menu the page asked for last.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_pick_of_a_menu_is_a_line_of_that_menu_when_the_page_asked_for_another_since()
+-> Result<(), Error> {
+    let mut page = open(
+        r#"
+view = function(u)
+    return u:button("more", { title = "More" })
+end
+on_action = function(act, u)
+    if act.from == "more" then
+        pencere.time.after(1, function()
+            return u:menu("late-menu", { { key = "wipe", title = "Wipe" }, "-", { key = "rename", title = "Rename" },
+                { key = "burn", title = "Burn" }, { key = "bury", title = "Bury" } }, { at = { x = 1, y = 1 } })
+        end)
+        return u:menu("more-menu", { { key = "copy", title = "Copy" }, "-", { key = "paste", title = "Paste" },
+            { key = "delete", title = "Delete" } }, { near = "more" })
+    end
+end
+"#,
+    )?;
+    page.click("more")?;
+    page.advance(2.0)?;
+    let shown = page.menu().expect("the first menu is up");
+    assert_eq!(shown.entries.len(), 4, "the second was not shown");
+    page.pick_titled("Delete")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("more-menu menu entry=delete")
+    );
+    Ok(())
+}
+
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_popover_stands_by_its_anchor_and_a_press_outside_it_closes_it() -> Result<(), Error> {
@@ -2066,7 +2101,7 @@ fn an_editors_menu_has_the_standard_lines_with_the_editors_keys_and_the_pages_ow
     ));
     // The page's own line comes back to the page, and the helper has nothing to ask for it.
     page.pick_titled("Go to Definition")?;
-    assert_eq!(log(&page), ["code-menu menu entry=definition"]);
+    assert_eq!(log(&page), ["code-menu menu editor=code entry=definition"]);
     Ok(())
 }
 
@@ -2100,6 +2135,44 @@ fn a_line_of_the_menu_asks_the_editor_and_paste_is_the_hosts_with_its_pasteboard
     );
     right_press_in(&mut page, "code")?;
     page.pick_titled("Toggle Line Comment")?;
+    Ok(())
+}
+
+/// The editor a line of the menu asks is the editor of the menu the person was shown, not of the last
+/// menu the page asked for under the same name.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_line_of_an_editors_menu_asks_the_editor_it_was_shown_for_when_another_was_asked_under_its_name()
+-> Result<(), Error> {
+    let mut page = open(
+        r#"
+view = function(u)
+    return pencere.div():row():size_full()
+        :child(pencere.editor("one", { gutter = false, gestures = { ["right+press"] = "context" } }):grow(1))
+        :child(pencere.editor("two", { gutter = false, gestures = { ["right+press"] = "context" } }):grow(1))
+end
+on_event = function(event, u)
+    if event.type == "editor_ready" then
+        return { editor = { [event.editor] = { { load = event.editor == "one" and "alpha" or "beta" } } } }
+    elseif event.type == "press" and event.button == "right" and event.place then
+        pencere.time.after(1, function()
+            return u:editor_menu("shared", { editor = "two", at = { x = 5, y = 5 } })
+        end)
+        return u:editor_menu("shared", { editor = event.place.editor, at = { x = event.x, y = event.y } })
+    end
+end
+on_action = function(act, u)
+    if act.from == "shared" then
+        return u:editor_menu_pick(act)
+    end
+end
+"#,
+    )?;
+    page.select("one", 0, 5)?;
+    right_press_in(&mut page, "one")?;
+    page.advance(2.0)?;
+    page.pick_titled("Copy")?;
+    assert_eq!(page.pasteboard(), Some("alpha"));
     Ok(())
 }
 

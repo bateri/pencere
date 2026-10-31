@@ -41,6 +41,11 @@ The drive of a page of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.
 
 ### Fixed
 
+- **A pick is of the menu the host showed, not of the last the page asked for.** `Page::pick` takes the
+  `serial` of the menu the host showed (`Menu::serial`), and the drive keeps what the last sixteen menus
+  would paste, so a Paste line of a menu the host did not show is not done. The headless host shows
+  one menu at a time, as a pane does: a menu asked for while another is up is not shown.
+  **Breaking:** `pick(serial, index, &mut host)`.
 - **A reply that opens a field can fill it and send the keyboard to it.** A host has a field only
   once the frame that lays it out is drawn, and a reply's `fill` and `keyboard` were told to the
   host before that frame: a find bar or a palette that opened with its text and the keyboard lost

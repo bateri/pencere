@@ -129,8 +129,14 @@ pub enum Event {
     /// The keyboard went to the field the person clicked into, or back to the page (`None`)
     /// when the field let it go of itself; not said when it went where the page sent it.
     Focus(Option<Id>),
-    /// The person picked the entry with this index of the menu the page asked for.
-    MenuPick(usize),
+    /// The person picked the entry with this `index` (from 0, separators counted) of the menu the
+    /// host showed, the one that had this `serial` ([`Menu::serial`]): the host gives the number
+    /// back with the pick, so that the page is told the entry of the menu the person saw even when
+    /// it has asked for another since, one the host did not show because this one was up.
+    MenuPick {
+        serial: u64,
+        index: usize,
+    },
     /// The person asked for the command named this, from the host's list of the page's commands
     /// or by its keys ([`crate::Command`]): the key is not told as well.
     Command(Id),
@@ -287,11 +293,16 @@ pub enum MenuEntry {
 }
 
 /// A menu to pop up at `at` (the page's points); the host answers with the index of the entry
-/// picked ([`MenuEntry`]s in order, separators counted).
+/// picked ([`MenuEntry`]s in order, separators counted) and the `serial` of the menu it showed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Menu {
     pub at: Point,
     pub entries: Vec<MenuEntry>,
+    /// The page's number for this menu. The host keeps it with the menu it shows and gives it back
+    /// with the pick ([`Event::MenuPick`]); it is the page's to make, and a host reads nothing
+    /// else into it. A page that does not tell its menus apart gives them all the same (0), and
+    /// a pick is then of whichever of them it is given to.
+    pub serial: u64,
 }
 
 /// How the person gave the page files ([`Event::Files`]).
@@ -354,7 +365,7 @@ impl Panel {
         matches!(
             event,
             Event::Input(Input::Press { .. } | Input::Release { .. } | Input::Key { .. })
-                | Event::MenuPick(_)
+                | Event::MenuPick { .. }
                 | Event::Command(_)
         )
     }
@@ -463,7 +474,10 @@ mod tests {
                 at,
                 button: Button::Left,
             }),
-            Event::MenuPick(0),
+            Event::MenuPick {
+                serial: 1,
+                index: 0,
+            },
             Event::Command(crate::Id::named("upload")),
         ] {
             assert!(Panel::follows(&gesture), "{gesture:?}");

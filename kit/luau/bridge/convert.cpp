@@ -1988,7 +1988,10 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
         case PENCERE_VIEW_TYPES_EVENT_MENU_PICK:
             set_word(L, "type", "menu");
             // The script counts from 1, as a table does.
-            set_number(L, "index", (double)event.val.menu_pick + 1);
+            set_number(L, "index", (double)event.val.menu_pick.index + 1);
+            // The number the prelude gave the menu (the application hands it back with the pick):
+            // the prelude takes it out again for the entry of that menu, and the page never sees it.
+            set_number(L, "serial", (double)event.val.menu_pick.serial);
             break;
         case PENCERE_VIEW_TYPES_EVENT_SCROLLED: {
             // { boxes = { { id =, x =, y = }, ... } }: each box and how far it is scrolled.
@@ -3162,6 +3165,14 @@ int reply_call(lua_State* L) {
     if (lua_type(L, -1) == LUA_TTABLE) {
         int menu = lua_gettop(L);
         out.menu.is_some = true;
+        // The number the prelude gave the menu, to be handed back with its pick (the prelude makes
+        // it; a page's own is not read, the prelude puts its own in place of it).
+        get(L, menu, "serial");
+        if (lua_type(L, -1) == LUA_TNUMBER) {
+            double serial = lua_tonumber(L, -1);
+            if (serial >= 0 && serial < 9007199254740992.0) out.menu.val.serial = (uint64_t)serial;
+        }
+        lua_pop(L, 1);
         get(L, menu, "at");
         if (lua_type(L, -1) == LUA_TTABLE) {
             out.menu.val.at.x = number(L, lua_gettop(L), "x", 0.0f);

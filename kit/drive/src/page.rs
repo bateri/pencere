@@ -160,6 +160,12 @@ const RESIZE_WAIT: Duration = Duration::from_millis(32);
 /// the last is the next frame's.
 const RELAYOUTS: usize = 2;
 
+/// How many of the menus a page asked for the drive keeps what they would paste for: a host shows
+/// one at a time and may show an earlier than the last, but a page that asks for more than this
+/// while one is up has the first of them picked without the paste. The script's prelude keeps as
+/// many menus (the entries it tells a pick with), so that a pick it tells has its paste.
+const MENUS_KEPT: usize = 16;
+
 /// A page of the kit, driven. See the module's documentation for how; every point it is told and
 /// tells is the host's ([`Placement`]).
 pub struct Page {
@@ -212,10 +218,12 @@ struct State {
     redraw: bool,
     /// What the module said that the host has not taken.
     replies: Vec<Answer>,
-    /// The editor each entry of the menu last asked for pastes into where the host performs the
-    /// pick ([`MenuEntry::Paste`]), by the entry's place; `None` for the rest and for a line that is
-    /// off, or that names an editor but the one that had the keyboard when the page asked.
-    menu_pastes: Vec<Option<Id>>,
+    /// The editor each entry of the menus last asked for pastes into where the host performs the
+    /// pick ([`MenuEntry::Paste`]), by the menu's serial and then the entry's place; `None` for the
+    /// rest and for a line that is off, or that names an editor but the one that had the keyboard
+    /// when the page asked. The last [`MENUS_KEPT`] menus are kept, not one: the host may show an
+    /// earlier menu than the last the page asked for, and the pick is read against what it showed.
+    menu_pastes: Vec<(u64, Vec<Option<Id>>)>,
     /// Text the page had an editor copy or cut that the host has not put on its pasteboard.
     copied: Vec<String>,
     /// A press of the main button with ⌃ was taken as the right button's (a Mac's): its release is
@@ -589,14 +597,23 @@ impl Page {
         state.event(Event::Focus(field));
     }
 
-    /// The person picked the `index`th entry of the menu the last reply asked for. An entry the host
-    /// performs itself ([`MenuEntry::Paste`]) is done first: the pasteboard's text is asked of
-    /// `host` ([`Host::paste`]) and pasted in the editor as its paste key would, so that the page,
-    /// which is told the pick as any, never reads it.
-    pub fn pick(&mut self, index: usize, host: &mut dyn Host) {
+    /// The person picked the `index`th entry of the menu the host showed, the one with this `serial`
+    /// ([`pencere_view::Menu::serial`]): the page asked for it, though not necessarily last, since a host shows
+    /// one at a time and not the ones asked for while it is up. An entry the host performs itself
+    /// ([`MenuEntry::Paste`]) is done first: the pasteboard's text is asked of `host`
+    /// ([`Host::paste`]) and pasted in the editor as its paste key would, so that the page, which is
+    /// told the pick as any, never reads it.
+    pub fn pick(&mut self, serial: u64, index: usize, host: &mut dyn Host) {
         // The menu is picked from once: what it held is not asked of again.
-        let pastes = std::mem::take(&mut self.state.menu_pastes);
-        let paste = pastes.get(index).copied().flatten();
+        let at = self
+            .state
+            .menu_pastes
+            .iter()
+            .position(|(held, _)| *held == serial);
+        let pastes = at.map(|at| self.state.menu_pastes.remove(at).1);
+        let paste = pastes
+            .and_then(|pastes| pastes.get(index).copied())
+            .flatten();
         if let Some(editor) = paste
             && self.state.editing.editors.focused() == Some(editor)
             && let Some(text) = host.paste()
@@ -605,7 +622,7 @@ impl Page {
                 editors.paste(laid, &text, measure, now);
             });
         }
-        self.state.event(Event::MenuPick(index));
+        self.state.event(Event::MenuPick { serial, index });
     }
 
     /// The person asked for the command named `id`, from the host's list of what the page can be
@@ -1187,7 +1204,7 @@ impl State {
                 // asked for it (before its reply moved the keyboard), and only a line that is on:
                 // the page cannot send a paste, whose text it would read as an edit, to an editor
                 // the person is not in.
-                self.menu_pastes = menu
+                let pastes = menu
                     .entries
                     .iter()
                     .map(|entry| match entry {
@@ -1199,6 +1216,12 @@ impl State {
                         _ => None,
                     })
                     .collect();
+                self.menu_pastes
+                    .retain(|(serial, _)| *serial != menu.serial);
+                self.menu_pastes.push((menu.serial, pastes));
+                if self.menu_pastes.len() > MENUS_KEPT {
+                    self.menu_pastes.remove(0);
+                }
             }
             answer.reply = to_host(answer.reply, place);
             self.replies.push(answer);

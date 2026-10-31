@@ -75,6 +75,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Fixed
 
+- **A pick is told the page with the entry of the menu the person was shown.** A host shows one menu
+  at a time, so a script that mapped the pick's `index` to the menu it asked for last could run a line
+  of a menu the person never saw. The prelude numbers each menu a reply asks for, keeps the entries of
+  the last sixteen and tells the pick with `event.entry`, the table the script wrote for the line; a
+  pick of a menu it does not know, one picked from already, or a line that is no entry is not told.
+  `menu` in the interface has a `serial` and `menu-pick` is a record of it and the `index`. `@pencere/ui`
+  (`u:menu`, `u:editor_menu`) reads the pick from `event.entry`. The interpreter is rebuilt.
 - **A page of large pictures no longer loses them as it is scrolled.** `Images` kept a PNG or a JPEG
   at the file's own size, so six screenshots of 2560 by 1600 pixels (98 MB) went past the 64 MiB
   a view holds: the ones nothing had asked for in two seconds were let go, and scrolling back

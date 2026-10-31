@@ -27,7 +27,10 @@
 --       "enter", "escape", "tab", "backspace", "delete", "f1" to "f20", or the character), text
 --       has the `field` (its name) and the `text` it holds, focus the `field` the person clicked
 --       into (nil: the keyboard is the page's again), menu has the `index` (from 1) picked of
---       the menu the page asked for, command the `id` of the command asked for (its keys are
+--       the menu shown and the `entry` of it, the table the page wrote for that line (the menu
+--       shown is not always the one the page asked for last: the application shows one at a time
+--       and does not show one asked for while another is up; a pick of a menu that is no longer
+--       known is not told), command the `id` of the command asked for (its keys are
 --       not told as a key). "files": the person gave the page files — `source` "drop" (on the
 --       page, at x and y), "paste" (at the caret) or "pick" (in the Open panel the page asked for;
 --       none when the person turned it away) — and `files` lists them, each { handle =, name =,
@@ -93,7 +96,8 @@
 --     { title =, keys =, enabled =, paste = editor } (a line the application performs itself: the
 --     pasteboard's text pasted in that editor as its paste key would, honouring a read-only editor
 --     and several carets; the page is told the pick as any and never reads the pasteboard, nor can
---     it ask an editor to paste), ... } }, editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds,
+--     it ask an editor to paste), ... } (a line's table is told back with its pick, as `entry`, with
+--     whatever else the page put in it) }, editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds,
 --     pick = true or { multiple = true } (the Open panel), save = "name" or { name =, type = } (the
 --     Save panel) }
 -- A panel is shown only for a reply to something the person did (a press or its release, a key, a
@@ -256,6 +260,69 @@ function pencere.cancel(id)
 	enqueue({ cancel = { id = id } })
 end
 
+-- --- The menus the page asked for ---------------------------------------------------------------
+
+-- The application shows one menu at a time: one a reply asks for while another is up is not shown,
+-- and the page is not told. A pick comes back as the index of the menu the person saw, which is not
+-- always the menu the page asked for last, so the page must not read it against its latest. Each menu
+-- that goes out in a reply is given a number, and the entries it asked for are kept by it, the last
+-- MENUS_KEPT menus; the application hands the number back with the pick, and the page is told the
+-- pick with the entry of that menu (`event.entry`), the table it wrote with its fields and its
+-- functions. A pick of a number not kept, of a menu already picked from, or of a line that is no
+-- entry is not told the page.
+local MENUS_KEPT = 16
+local menus = {}
+local menus_asked = 0
+
+-- The reply as it goes to the host, its menu (if it asks for one) with its number. The page's own
+-- tables are not changed: the reply and the menu are copies, and so is the list of entries kept.
+local function numbered(reply)
+	if type(reply) ~= "table" or type(reply.menu) ~= "table" then
+		return reply
+	end
+	menus_asked = menus_asked + 1
+	local entries = reply.menu.entries
+	local kept = {}
+	if type(entries) == "table" then
+		table.move(entries, 1, #entries, 1, kept)
+	end
+	menus[(menus_asked - 1) % MENUS_KEPT + 1] = { serial = menus_asked, entries = kept }
+	local menu = table.clone(reply.menu)
+	menu.serial = menus_asked
+	local out = table.clone(reply)
+	out.menu = menu
+	return out
+end
+
+-- The pick `event` (`serial` and `index` as the application gave them) as the page is told it: with
+-- the `entry` of the menu it was a pick of, and without the number. False where there is no such
+-- entry: a menu is picked from once.
+local function picked(event)
+	local serial = event.serial
+	event.serial = nil
+	if type(serial) ~= "number" then
+		return false
+	end
+	local at = (serial - 1) % MENUS_KEPT + 1
+	local menu = menus[at]
+	if not menu or menu.serial ~= serial then
+		return false
+	end
+	local entry = menu.entries[event.index]
+	if type(entry) ~= "table" then
+		return false
+	end
+	menus[at] = false
+	event.entry = entry
+	return true
+end
+
+-- The end of a call of the application's: what the page's reply comes to (`time.finish`), with the
+-- number of its menu.
+local function finish(reply)
+	return numbered(time.finish(reply))
+end
+
 -- --- What the application calls ----------------------------------------------------------------
 
 -- The functions below are the application's entry points, called by the interpreter's bridge,
@@ -309,6 +376,9 @@ end
 function entry.handle(event)
 	local reply = nil
 	local long = false
+	if event.type == "menu" and not picked(event) then
+		return finish(nil)
+	end
 	if event.type == "wake" then
 		-- The timers that are due, then the page where it asked a wake itself.
 		reply = time.woken(event.now, page.handle)
@@ -325,7 +395,7 @@ function entry.handle(event)
 	if flush() or long then
 		reply = with_frame(reply)
 	end
-	return time.finish(reply)
+	return finish(reply)
 end
 
 -- A message of the program: the answer to what the page asked is for the one who asked, the rest
@@ -334,7 +404,7 @@ function entry.message(text)
 	heard = true
 	local message = json.decode(text)
 	if type(message) ~= "table" then
-		return time.finish(nil)
+		return finish(nil)
 	end
 	local reply = nil
 	local taken = false
@@ -379,7 +449,7 @@ function entry.message(text)
 	if flush() then
 		reply = with_frame(reply)
 	end
-	return time.finish(reply)
+	return finish(reply)
 end
 
 function entry.room()
@@ -392,7 +462,7 @@ function entry.room()
 	if flush() then
 		reply = with_frame(reply)
 	end
-	return time.finish(reply)
+	return finish(reply)
 end
 
 -- --- What the script is given is not changed under it --------------------------------------------

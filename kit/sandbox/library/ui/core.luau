@@ -78,8 +78,6 @@ function core.new(options)
 		-- on the page's outermost box, for `finish` to write.
 		commands = {},
 		queued = {},
-		-- The menu the page last asked the host for: { id =, entries = }.
-		asked = nil,
 		-- Where the keyboard is: "page", or the name of a field or an editor that has it.
 		holder = "page",
 		-- The last of what the person did was a key: the ring of what has the keyboard is drawn.
@@ -930,13 +928,13 @@ function Ctx:handle(event)
 			table.insert(out.actions, { from = "commands", kind = "command", id = event.id })
 		end
 	elseif kind == "menu" then
-		local asked = self.asked
-		self.asked = nil
-		local entry = asked and asked.keys[event.index]
-		if entry ~= nil then
+		-- The line picked is the one of the menu the person was shown, which the page may have asked for
+		-- others since: it says which menu it is of and what its pick is (`Ctx:menu`).
+		local made = event.entry and event.entry.ui
+		if made ~= nil and made.key ~= nil then
 			out.taken = true
 			out.reply = merge(out.reply, true)
-			table.insert(out.actions, { from = asked.id, kind = "menu", entry = entry })
+			table.insert(out.actions, { from = made.menu, kind = "menu", entry = made.key, editor = made.editor })
 		end
 	elseif kind == "scrolled" then
 		for _, box in event.boxes do

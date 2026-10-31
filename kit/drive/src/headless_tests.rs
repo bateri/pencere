@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use pencere_editor::UNDO_PAUSE;
 use pencere_sandbox::Fault;
 use pencere_view::edit::EditCommand;
-use pencere_view::{Cursor, Event, Id, Paint, Point};
+use pencere_view::{Cursor, Event, Id, MenuEntry, Paint, Point};
 use serde_json::json;
 
 use crate::headless::{Calls, Error, Failure, Files, Focus, Headless};
@@ -277,6 +277,96 @@ return {
     page.click_at(Point::new(400.0, 300.0))?;
     assert!(page.menu().is_none());
     assert_eq!(page.told().len(), told, "{:?}", &page.told()[told..]);
+    Ok(())
+}
+
+/// A menu asked for while another is open is not shown (a pane's pop-up is one at a time), and the
+/// page is not told: what the person picks is what they saw, so the page is handed the entry of
+/// the menu shown, not the line the same place holds in the one it asked for last.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_pick_from_the_menu_shown_is_the_entry_of_that_menu_when_a_second_was_refused()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local said = "nothing"
+return {
+    render = function()
+        return pencere.div():size_full()
+            :child(pencere.div():id("item"):press("item"):size(100, 30):child(pencere.text("an item")))
+            :child(pencere.text(said))
+    end,
+    handle = function(event)
+        if event.type == "press" and event.button == "right" then
+            return { menu = { at = { x = event.x, y = event.y }, entries = {
+                { title = "Copy", run = "copy" }, "-", { title = "Delete", run = "delete" },
+            } } }
+        elseif event.type == "menu" then
+            said = "ran " .. tostring(event.entry and event.entry.run) .. " at " .. event.index
+            return true
+        end
+    end,
+    message = function()
+        return { menu = { at = { x = 1, y = 1 }, entries = {
+            { title = "Rename", run = "rename" }, "-", { title = "Wipe everything", run = "wipe" },
+        } } }
+    end,
+}
+"#,
+    )
+    .open()?;
+    page.right_click("item")?;
+    // The page asks for a second menu while the first is open: the host does not show it.
+    page.tell(r#"{"ask":true}"#)?;
+    let shown = page.menu().expect("the first menu is still up");
+    assert!(
+        matches!(&shown.entries[2], MenuEntry::Item { title, .. } if title == "Delete"),
+        "{shown:?}"
+    );
+    page.pick_titled("Delete")?;
+    assert_eq!(
+        page.tree_words().last().map(String::as_str),
+        Some("ran delete at 3")
+    );
+    Ok(())
+}
+
+/// Where replies put together (`pencere.merge`) both ask for a menu, the second's stands, and it is
+/// the one numbered and kept: a pick of it is told with its entry.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn of_two_menus_put_together_the_seconds_is_shown_and_its_entries_are_what_a_pick_is_told()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local said = "nothing"
+return {
+    render = function()
+        return pencere.div():size_full()
+            :child(pencere.div():id("item"):press("item"):size(100, 30):child(pencere.text("an item")))
+            :child(pencere.text(said))
+    end,
+    handle = function(event)
+        if event.type == "press" and event.button == "right" then
+            return pencere.merge(
+                { menu = { at = { x = 1, y = 1 }, entries = { { title = "First", run = "first" } } } },
+                { menu = { at = { x = 2, y = 2 }, entries = { { title = "Second", run = "second" } } } }
+            )
+        elseif event.type == "menu" then
+            said = "ran " .. tostring(event.entry and event.entry.run)
+            return true
+        end
+    end,
+}
+"#,
+    )
+    .open()?;
+    page.right_click("item")?;
+    page.pick_titled("Second")?;
+    assert_eq!(
+        page.tree_words().last().map(String::as_str),
+        Some("ran second")
+    );
     Ok(())
 }
 

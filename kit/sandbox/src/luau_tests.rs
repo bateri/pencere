@@ -1327,6 +1327,75 @@ fn a_script_gives_a_menus_entries_their_keys_and_reads_an_old_key_as_it_was() {
     );
 }
 
+/// A pick is told the script with the entry of the menu it was a pick of, once: one of a menu the
+/// script did not ask for, of one picked from already, or of a line that is no entry is not told,
+/// and the script never sees the number the menu was given.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_pick_is_told_the_script_with_the_entry_of_its_menu_and_only_once() {
+    let mut page = open_script(
+        r##"
+        return {
+            render = function() return pencere.div() end,
+            handle = function(e)
+                if e.type == "press" then
+                    return { menu = { at = { x = 1, y = 1 }, entries = {
+                        { title = "Copy", says = "copy" }, "-", { title = "Cut", says = "cut" },
+                    } } }
+                elseif e.type == "menu" then
+                    return { copy = e.entry.says .. " " .. e.index .. " " .. tostring(e.serial) }
+                end
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    let told = |page: &mut Open, event: Event| {
+        let before = page.seen.replies.len();
+        page.module.event(event);
+        until_seen(page, Duration::from_secs(10), |seen| {
+            seen.replies.len() > before
+        });
+        page.seen.replies[before..]
+            .iter()
+            .filter_map(|answer| answer.reply.copy.clone())
+            .collect::<Vec<_>>()
+    };
+    let asked = told(
+        &mut page,
+        Event::Input(Input::Press {
+            at: Point::new(1.0, 1.0),
+            button: Button::Left,
+            mods: Mods::default(),
+            count: 1,
+        }),
+    );
+    assert!(asked.is_empty());
+    let menu = page
+        .seen
+        .replies
+        .iter()
+        .find_map(|answer| answer.reply.menu.clone())
+        .expect("a menu");
+    let pick = |serial, index| Event::MenuPick { serial, index };
+    // A menu the script did not ask for, a line that is no entry, and an entry past the end.
+    assert!(told(&mut page, pick(menu.serial + 1, 0)).is_empty());
+    assert!(told(&mut page, pick(0, 0)).is_empty());
+    assert!(told(&mut page, pick(menu.serial, 1)).is_empty());
+    assert!(told(&mut page, pick(menu.serial, 3)).is_empty());
+    // The entry of the menu, with its place from 1 and no number.
+    assert_eq!(
+        told(&mut page, pick(menu.serial, 2)),
+        ["cut 3 nil".to_owned()]
+    );
+    // A menu is picked from once.
+    assert!(told(&mut page, pick(menu.serial, 0)).is_empty());
+}
+
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_asks_to_open_a_link_and_only_one_the_host_may_open_reaches_it() {

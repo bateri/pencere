@@ -1370,8 +1370,8 @@ interface types {
         /// (none) when the field let it go of itself. Not said when it moved where the page's
         /// own reply sent it.
         focus(option<id>),
-        /// The person picked the entry with this index of the menu the page asked for.
-        menu-pick(u32),
+        /// The person picked an entry of a menu the page asked for.
+        menu-pick(menu-pick),
         /// A key the page was told of went up.
         key-up(key-press),
         /// The modifiers held changed, with no other key.
@@ -1973,6 +1973,17 @@ interface types {
         at: point,
         entries: list<menu-entry>,
         titles: string,
+        /// The number the page gave this menu. The application hands it back with the pick of the
+        /// menu it showed, so that a pick is the entry of that menu even when the page has asked
+        /// for others since (one the application did not show, because another was up).
+        serial: u64,
+    }
+
+    /// The pick of the entry at `index` (from 0, separators counted) of the menu whose `serial` the
+    /// application showed.
+    record menu-pick {
+        serial: u64,
+        index: u32,
     }
 
     /// The Open panel: the files the person chooses come as `files`, with `source` `pick`.
