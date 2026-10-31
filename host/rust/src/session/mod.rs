@@ -31,14 +31,16 @@
 mod files;
 mod native;
 mod page;
+mod staging;
 
 use std::mem;
 use std::sync::Arc;
 
 pub use files::{
     ATTACHED_SCHEME, AttachedFiles, FileError, FileGrant, MAX_FILE_PIECE, MAX_OPEN_READS,
-    attached_digest, has_files,
+    MAX_OPEN_TRANSFERS, attached_digest, has_files,
 };
+pub use staging::{FetchError, StageDir, StageError};
 
 use crate::bundle::{BundleLimits, Digest, Manifest, Received, Receiving, Store};
 use crate::frame::{
@@ -47,8 +49,8 @@ use crate::frame::{
 };
 use crate::icon::{self, Icon};
 use crate::message::{
-    self, Bye, Dismiss, FEATURE_DISMISS, Hello, HostInfo, OpenBody, Reason, SUPPORTED_VERSIONS,
-    TokenProbe, ViewOffer,
+    self, Bye, Dismiss, FEATURE_DISMISS, FEATURE_STAGE, Features, Hello, HostInfo, OpenBody,
+    Reason, SUPPORTED_VERSIONS, TokenProbe, ViewOffer,
 };
 use crate::sandbox::{self, Access, AccessError, Consent, Grant};
 use crate::text;
@@ -400,6 +402,51 @@ pub enum Action {
         /// The handle.
         handle: String,
     },
+    /// Make a pipe named `pipe` in the host's folder (§8.11, [`Session::offer_stage`]), call
+    /// [`Session::pipe_ready`] with `stage` once it exists, then open it for writing (which waits
+    /// for the program to open it for reading) and write into it the file of the handle the person
+    /// gave, from `offset` to its end. The terminal checks that the file is still what it was when
+    /// the person gave it (its size and the time it changed), as for [`Action::ReadFile`], and
+    /// answers with [`Session::staged`]: how many bytes into the file the end was, or why it did
+    /// not get there. Whatever the answer, the terminal closes the pipe and deletes it.
+    StageFile {
+        /// Identifies the transfer in the answers: the id of the program's `stage`.
+        stage: u32,
+        /// The handle, 32 lowercase hex digits.
+        handle: String,
+        /// Where in the file the bytes start.
+        offset: u64,
+        /// The name of the pipe: 32 lowercase hex digits, the host's own.
+        pipe: String,
+    },
+    /// Make a pipe named `pipe` in the host's folder (§8.11, [`Session::offer_stage`]), call
+    /// [`Session::pipe_ready`] with `fetch` once it exists, then open it for reading (which waits
+    /// for the program to open it for writing) and write what comes, from `offset`, to the part
+    /// beside the place of the handle the person chose, as [`Action::WriteFile`] does, until `size`
+    /// bytes of the file are there; the part then takes the person's name. It answers with
+    /// [`Session::fetched`]: how long the file is, or why it did not come. Whatever the answer, the
+    /// terminal closes the pipe and deletes it. A part that holds `offset` bytes is the one the
+    /// bytes are added to; for `offset` 0 the terminal makes it anew.
+    FetchFile {
+        /// Identifies the transfer in the answers: the id of the program's `fetch`.
+        fetch: u32,
+        /// The handle, 32 lowercase hex digits.
+        handle: String,
+        /// Where in the file the bytes sent start.
+        offset: u64,
+        /// The length of the whole file.
+        size: u64,
+        /// The name of the pipe: 32 lowercase hex digits, the host's own.
+        pipe: String,
+    },
+    /// Stop the transfer whose [`Action::StageFile`] or [`Action::FetchFile`] had this id: close its
+    /// pipe and delete it, and give up the bytes in flight. The program took it back, or its view
+    /// ended (specification §8.11, §10.2). A part that a fetch had written is thrown away by the
+    /// [`Action::AbortWrite`] that follows. No answer to the transfer is wanted after this.
+    Unstage {
+        /// The id the transfer began with.
+        transfer: u32,
+    },
     /// The view is to forget the files of these names (`sha256:` and a digest), which the program
     /// let go of: a view the terminal draws itself drops what it decoded of them (§8.8).
     ForgetFiles(Vec<String>),
@@ -558,6 +605,8 @@ pub struct Session<S: Store, E: Entropy> {
     allow_opens: bool,
     /// Whether the host closes a view at the program's request (`dismiss`, §10.8).
     dismiss: bool,
+    /// The host's folder on the program's machine, if it has one to offer (§8.11).
+    stage: Option<StageDir>,
     phase: Phase,
     /// What the view that runs has attached, which a thread other than the session's can read
     /// (`attached_files`). Every view's files are put in it and emptied from it.
@@ -590,6 +639,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             observed: Observed::default(),
             allow_opens: true,
             dismiss: true,
+            stage: None,
             phase: Phase::Idle,
             attached: AttachedFiles::default(),
             stream: StreamDecoder::new(Direction::ToHost),
@@ -652,6 +702,9 @@ impl<S: Store, E: Entropy> Session<S, E> {
             "detach" => self.on_detach(&message),
             "read" => self.on_read(&message),
             "write" => self.on_write(&message),
+            "stage" => self.on_stage(&message),
+            "fetch" => self.on_fetch(&message),
+            "unstage" => self.on_unstage(&message),
             "msg" => self.on_msg(&message),
             "bye" => self.on_bye(&message),
             "dismiss" => self.on_dismiss(&message),
@@ -887,12 +940,18 @@ impl<S: Store, E: Entropy> Session<S, E> {
     }
 
     /// What the `welcome` says the host supports: closing a view at the program's request, unless
-    /// the host was told not to ([`Session::offer_dismiss`]).
-    fn features(&self) -> &'static [&'static str] {
-        if self.dismiss {
-            &[FEATURE_DISMISS]
-        } else {
-            &[]
+    /// the host was told not to ([`Session::offer_dismiss`]), and a folder on the program's machine
+    /// if it was told where ([`Session::offer_stage`]).
+    fn features(&self) -> Features<'_> {
+        let names: &'static [&'static str] = match (self.dismiss, self.stage.is_some()) {
+            (true, true) => &[FEATURE_DISMISS, FEATURE_STAGE],
+            (true, false) => &[FEATURE_DISMISS],
+            (false, true) => &[FEATURE_STAGE],
+            (false, false) => &[],
+        };
+        Features {
+            names,
+            stage: self.stage.as_ref(),
         }
     }
 
@@ -977,7 +1036,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
                     version,
                     token.as_str(),
                     &self.config.host,
-                    self.features(),
+                    &self.features(),
                     &offered,
                     &opens,
                     false,
@@ -1013,7 +1072,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             version,
             token.as_str(),
             &self.config.host,
-            self.features(),
+            &self.features(),
             &offered,
             &[],
             true,
@@ -1520,6 +1579,10 @@ impl<S: Store, E: Entropy> Session<S, E> {
                 self.finish(cause, re, false);
             }
             Phase::Live(live) => {
+                // The pipes of the folder close with the view (§8.11).
+                for transfer in live.files.open_transfers() {
+                    self.actions.push(Action::Unstage { transfer });
+                }
                 // What was written for a place to save that the program did not finish is the
                 // person's to lose, not to find half-written (§8.10).
                 for handle in live.files.unfinished_saves() {

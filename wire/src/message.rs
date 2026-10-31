@@ -29,6 +29,55 @@ pub struct HostInfo {
 /// sends `dismiss` (specification §10.8).
 pub const FEATURE_DISMISS: &str = "dismiss";
 
+/// A feature a host may list in its `welcome`: it keeps a folder on the program's machine through
+/// which the bytes of a file can travel, and says where in `stage` (specification §8.11).
+pub const FEATURE_STAGE: &str = "stage";
+
+/// The folder a host keeps on the program's machine, as the `welcome` offers it
+/// (`stage`, specification §5.2 and §8.11).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StageDir {
+    dir: String,
+    token: String,
+}
+
+impl StageDir {
+    /// The folder at `dir`, whose `marker` file holds `token`. `None` when `dir` is not an
+    /// absolute path (it starts with `/`, has no NUL and is under 4096 bytes) or `token` is not
+    /// 32 lowercase hex digits: a program checks both, so a host does not offer what it would
+    /// refuse.
+    #[must_use]
+    pub fn new(dir: &str, token: &str) -> Option<Self> {
+        let ok = dir.starts_with('/') && dir.len() < 4096 && !dir.contains('\0');
+        (ok && crate::frame::is_handle(token)).then(|| Self {
+            dir: dir.to_owned(),
+            token: token.to_owned(),
+        })
+    }
+
+    /// The folder's path.
+    #[must_use]
+    pub fn dir(&self) -> &str {
+        &self.dir
+    }
+
+    /// What the folder's `marker` file holds.
+    #[must_use]
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+}
+
+/// What a `welcome` says the host supports beyond the kinds of view (`features`, and the `stage` that
+/// goes with the feature of that name; specification §5.2).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Features<'a> {
+    /// The names of the optional parts the host supports.
+    pub names: &'a [&'static str],
+    /// Where the host's folder is, when [`FEATURE_STAGE`] is among the names.
+    pub stage: Option<&'a StageDir>,
+}
+
 /// A kind of view and the versions of its interface, in the order of whoever wrote the list: an
 /// entry of `views` in a `hello` and in a `welcome` (specification §5.1, §5.2, Appendix A).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -71,6 +120,8 @@ struct Offer<'a> {
     host: &'a HostInfo,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     features: &'a [&'static str],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stage: Option<&'a StageDir>,
     views: &'a [ViewOffer],
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     opens: &'a [ViewOffer],
@@ -93,7 +144,7 @@ pub fn welcome_offer(
     version: u32,
     token: &str,
     host: &HostInfo,
-    features: &[&'static str],
+    features: &Features<'_>,
     views: &[ViewOffer],
     opens: &[ViewOffer],
     restart: bool,
@@ -102,7 +153,8 @@ pub fn welcome_offer(
         version,
         token,
         host,
-        features,
+        features: features.names,
+        stage: features.stage,
         views,
         opens,
         restart,
@@ -141,6 +193,64 @@ pub fn need_refusing(missing: &[String], refused: &[Refusal]) -> String {
         refused: &'a [Refusal],
     }
     wire(&Need { missing, refused })
+}
+
+/// What the host says of a `stage` or a `fetch`: the `staged` or `fetched` payloads of specification
+/// §8.11. Each of the four answers has one member, and `at` goes with a `route` of a `fetch`.
+#[derive(Serialize)]
+struct Transfer<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pipe: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sent: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    saved: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    at: Option<u64>,
+}
+
+const NO_TRANSFER: Transfer<'static> = Transfer {
+    pipe: None,
+    sent: None,
+    saved: None,
+    code: None,
+    at: None,
+};
+
+/// The first answer to a `stage` or a `fetch`: the pipe the program opens (specification §8.11).
+pub fn transfer_pipe(pipe: &str) -> String {
+    wire(&Transfer {
+        pipe: Some(pipe),
+        ..NO_TRANSFER
+    })
+}
+
+/// The last answer to a `stage`: the file went through the pipe, and ended at `sent`.
+pub fn transfer_sent(sent: u64) -> String {
+    wire(&Transfer {
+        sent: Some(sent),
+        ..NO_TRANSFER
+    })
+}
+
+/// The last answer to a `fetch`: the file is saved, and `saved` bytes long.
+pub fn transfer_saved(saved: u64) -> String {
+    wire(&Transfer {
+        saved: Some(saved),
+        ..NO_TRANSFER
+    })
+}
+
+/// The last answer to a `stage` or a `fetch` that failed, by `code`; `at` is the length the host
+/// holds of a file, in the `route` of a `fetch`.
+pub fn transfer_failed(code: &str, at: Option<u64>) -> String {
+    wire(&Transfer {
+        code: Some(code),
+        at,
+        ..NO_TRANSFER
+    })
 }
 
 /// The host's `wrote`: the end of what a program wrote to a file the person chose to save, or
@@ -237,6 +347,35 @@ pub struct Attach {
 pub struct Detach {
     /// The digests.
     pub files: Vec<String>,
+}
+
+/// The program's `stage`: the file of a handle, from `offset`, through the host's folder
+/// (specification §8.11).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Stage {
+    /// The handle of a file the person gave.
+    pub handle: String,
+    /// Where in the file the bytes start.
+    pub offset: u64,
+}
+
+/// The program's `fetch`: the file the program sends through the host's folder, to be saved in the
+/// place of a handle (specification §8.11).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Fetch {
+    /// The handle of a place the person chose to save in.
+    pub handle: String,
+    /// The length of the whole file.
+    pub size: u64,
+    /// Where in the file the bytes sent start.
+    pub offset: u64,
+}
+
+/// The program's `unstage`: it takes back a `stage` or a `fetch` (specification §8.11).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Unstage {
+    /// The id of the `stage` or `fetch` message.
+    pub id: u32,
 }
 
 /// The program's `read`: bytes of a file the person gave (specification §8.9).
@@ -418,6 +557,10 @@ mod tests {
         }
     }
 
+    fn names<'a>(names: &'a [&'static str]) -> Features<'a> {
+        Features { names, stage: None }
+    }
+
     fn offer(kind: &str, versions: &[&str]) -> ViewOffer {
         ViewOffer {
             kind: kind.into(),
@@ -432,7 +575,7 @@ mod tests {
                 1,
                 "q7Vh2sB0xJm9kLw4TzN1cA",
                 &host(),
-                &["dismiss"],
+                &names(&["dismiss"]),
                 &[offer("web", &["1.0"])],
                 &[],
                 false
@@ -444,7 +587,7 @@ mod tests {
                 1,
                 "Zk3mP8rD5uYb1Xe6HqS0vg",
                 &host(),
-                &["dismiss"],
+                &names(&["dismiss"]),
                 &[offer("wasm", &["0.5", "0.4"]), offer("web", &["1.0"])],
                 &[],
                 true
@@ -452,7 +595,7 @@ mod tests {
             r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}],"restart":true}"#
         );
         assert_eq!(
-            welcome_offer(1, "t", &host(), &[], &[], &[], false),
+            welcome_offer(1, "t", &host(), &Features::default(), &[], &[], false),
             r#"{"version":1,"token":"t","host":{"name":"pencere-test","version":"0.0.0"},"views":[]}"#
         );
         // The kinds the host opens at no version the program speaks, after `views`.
@@ -461,7 +604,7 @@ mod tests {
                 1,
                 "t",
                 &host(),
-                &[],
+                &Features::default(),
                 &[offer("web", &["1.0"])],
                 &[offer("wasm", &["0.5", "0.4"])],
                 false
@@ -485,6 +628,53 @@ mod tests {
         assert_eq!(
             closed(Reason::Program, None, None),
             r#"{"reason":"program"}"#
+        );
+    }
+
+    #[test]
+    fn a_welcome_names_the_folder_after_the_features() {
+        let dir = StageDir::new("/home/u/.pencere/a1", "0123456789abcdef0123456789abcdef").unwrap();
+        assert_eq!(
+            welcome_offer(
+                1,
+                "t",
+                &host(),
+                &Features {
+                    names: &["dismiss", "stage"],
+                    stage: Some(&dir)
+                },
+                &[],
+                &[],
+                false
+            ),
+            r#"{"version":1,"token":"t","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss","stage"],"stage":{"dir":"/home/u/.pencere/a1","token":"0123456789abcdef0123456789abcdef"},"views":[]}"#
+        );
+    }
+
+    #[test]
+    fn a_folder_is_offered_only_as_an_absolute_path_with_a_token_of_32_hex_digits() {
+        let token = "0123456789abcdef0123456789abcdef";
+        assert!(StageDir::new("/a", token).is_some());
+        assert!(StageDir::new("a/b", token).is_none());
+        assert!(StageDir::new("", token).is_none());
+        assert!(StageDir::new("/a\0b", token).is_none());
+        assert!(StageDir::new(&format!("/{}", "a".repeat(4096)), token).is_none());
+        assert!(StageDir::new("/a", "0123456789ABCDEF0123456789ABCDEF").is_none());
+        assert!(StageDir::new("/a", "0123").is_none());
+    }
+
+    #[test]
+    fn the_answers_to_a_stage_and_a_fetch_have_one_member_and_a_route_has_two() {
+        assert_eq!(
+            transfer_pipe("0123456789abcdef0123456789abcdef"),
+            r#"{"pipe":"0123456789abcdef0123456789abcdef"}"#
+        );
+        assert_eq!(transfer_sent(11), r#"{"sent":11}"#);
+        assert_eq!(transfer_saved(11), r#"{"saved":11}"#);
+        assert_eq!(transfer_failed("busy", None), r#"{"code":"busy"}"#);
+        assert_eq!(
+            transfer_failed("route", Some(4)),
+            r#"{"code":"route","at":4}"#
         );
     }
 

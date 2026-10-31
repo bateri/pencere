@@ -9,6 +9,15 @@ under this name) are recorded here. The format follows
 
 ### Added
 
+- **The host's folder on the program's machine** (specification §8.11): the bytes of a file may cross
+  through a pipe in a folder the terminal keeps there, instead of in `data` and `write` messages.
+  `Session::offer_stage` says where the folder is and the token of its `marker` file, and lists
+  `stage` in the `features` of the `welcome`s (`StageDir`). The program's `stage` and `fetch` are
+  `Action::StageFile` and `Action::FetchFile` (the session names the pipe, from the terminal's
+  randomness), answered by `Session::pipe_ready` and then `Session::staged` or `Session::fetched`
+  (`StageError`, `FetchError`); `unstage` and the end of the view are `Action::Unstage`, with
+  `Action::AbortWrite` for the place a `fetch` had begun to write. At most `MAX_OPEN_TRANSFERS` (2)
+  are out at once, and the third is `busy`.
 - **Files beside the bundle** (specification §8.8 to §8.10), for a view opened at `lua` `2.1` or
   `wasm` `3.0` and later (`has_files`). A program's `attach` adds files to its view, verified as
   the files of a bundle are and held to 8 MiB a file and 1024 files or 64 MiB a view; it is

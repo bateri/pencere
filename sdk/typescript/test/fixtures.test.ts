@@ -20,12 +20,15 @@ import {
   chooseView,
   dismissPayload,
   failurePayload,
+  fetchPayload,
   helloPayload,
   noVersionSentence,
   openPayload,
   parseClosed,
+  parseFetched,
   parseNeed,
   parseRefused,
+  parseStaged,
   parseViewRequest,
   parseWelcome,
   parseWrote,
@@ -33,7 +36,9 @@ import {
   pushPayload,
   readViews,
   responsePayload,
+  stagePayload,
   subscribePayload,
+  unstagePayload,
 } from "../src/messages.js";
 import type { OpenFields, ViewOffer } from "../src/messages.js";
 import { fixture, manifest, payloadOf } from "./support.js";
@@ -228,6 +233,12 @@ function rewritten(message: Message): string | undefined {
       return byePayload(body.token as string, body.reason as "exit" | "signal" | "error");
     case "dismiss":
       return dismissPayload(body.token as string);
+    case "stage":
+      return stagePayload(body.handle as string, body.offset as number);
+    case "fetch":
+      return fetchPayload(body.handle as string, body.size as number, body.offset as number);
+    case "unstage":
+      return unstagePayload(body.id as number);
     case "msg": {
       const [name] = Object.keys(body);
       const inner = body[name ?? ""] as Record<string, unknown>;
@@ -371,6 +382,12 @@ describe("every session of the manifest", () => {
                 break;
               case "wrote":
                 expect(parseWrote(payload), label).toBeDefined();
+                break;
+              case "staged":
+                expect(parseStaged(payload), label).toBeDefined();
+                break;
+              case "fetched":
+                expect(parseFetched(payload), label).toBeDefined();
                 break;
               case "closed":
                 expect(parseClosed(payload), label).toBeDefined();

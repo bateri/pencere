@@ -785,6 +785,10 @@ mod tests {
                             assert!(refused(&payload).is_some(), "{label}");
                         }
                         "wrote" => assert!(wrote(&payload).is_some(), "{label}"),
+                        // The answers to a `stage` and a `fetch` (§8.11) are JSON objects.
+                        "staged" | "fetched" => {
+                            assert!(pencere_wire::json::is_object(&payload), "{label}");
+                        }
                         // The bytes of a file the person gave, in base64 (§8.9).
                         "data" => assert!(
                             pencere_wire::base64::decode(payload.as_bytes()).is_some(),

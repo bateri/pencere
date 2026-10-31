@@ -8,6 +8,11 @@ All notable changes to the `pencere-wire` crate are recorded here. The format fo
 
 ### Added
 
+- The host's folder on the program's machine (specification §8.11): the feature `FEATURE_STAGE`
+  and `message::StageDir` (the `stage` of a `welcome`, which checks that a path is absolute and a
+  token 32 hex digits), the program's messages `Stage`, `Fetch` and `Unstage`, and the host's answers
+  `transfer_pipe`, `transfer_sent`, `transfer_saved` and `transfer_failed` for `staged` and `fetched`.
+  The kinds are JSON and the control keys are the same.
 - `bundle::media_type_of`: the media type a file of a bundle is given by its extension where its
   program says none (a script of a page of the kit is `LUA_MEDIA_TYPE`). It was the program
   library's; it is here so that a host that reads a view's files from a directory (a test's) gives
@@ -23,6 +28,8 @@ All notable changes to the `pencere-wire` crate are recorded here. The format fo
 
 ### Changed
 
+- **`message::welcome_offer` takes `Features`** (the names, and the `stage` that goes with the
+  feature of that name) where it took the list of names.
 - `frame::Outgoing` has `file`, the keys of the messages of files; `FileParams::NONE` for any
   other message. `bundle::Received::Failed` says how the file failed (`Mismatch`).
 

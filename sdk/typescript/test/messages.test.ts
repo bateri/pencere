@@ -12,17 +12,22 @@ import {
   chooseView,
   dismissPayload,
   failurePayload,
+  fetchPayload,
   helloPayload,
   openPayload,
   parseClosed,
+  parseFetched,
   parseNeed,
+  parseStaged,
   parseViewRequest,
   parseWelcome,
   progressPayload,
   pushPayload,
   readViews,
   responsePayload,
+  stagePayload,
   subscribePayload,
+  unstagePayload,
 } from "../src/messages.js";
 import type { OpenFields, WelcomeOffer } from "../src/messages.js";
 import { EXAMPLE_FILES, TOKEN, TOKEN_2, WASM_HEADER, offers, payloadOf } from "./support.js";
@@ -121,6 +126,52 @@ describe("what the program writes", () => {
 
   it("is the dismiss of the fixtures: the token of the view, and nothing else", () => {
     expect(dismissPayload(TOKEN)).toBe(payloadOf("to-host/dismiss.frame"));
+  });
+
+  it("are the stage, the fetch and the unstage of the fixtures", () => {
+    const handle = "664de63fcac3e6e61bd577ba1ea4b4be";
+    expect(stagePayload(handle, 0)).toBe(payloadOf("to-host/stage.frame"));
+    expect(fetchPayload(handle, 11, 0)).toBe(payloadOf("to-host/fetch.frame"));
+    expect(unstagePayload(4)).toBe(payloadOf("to-host/unstage.frame"));
+  });
+});
+
+describe("what a host says of a stage and of a fetch", () => {
+  const pipe = "0b5d7c1e9a3f4682d0e1c7a95b3f8d24";
+
+  it("is read from the fixtures: the pipe, then the end or the reason", () => {
+    expect(parseStaged(payloadOf("to-program/staged-pipe.frame"))).toEqual({ kind: "pipe", pipe });
+    expect(parseStaged(payloadOf("to-program/staged-sent.frame"))).toEqual({
+      kind: "sent",
+      sent: 11,
+    });
+    expect(parseStaged(payloadOf("to-program/staged-error.frame"))).toEqual({
+      kind: "failed",
+      code: "gone",
+    });
+    expect(parseFetched(payloadOf("to-program/fetched-pipe.frame"))).toEqual({
+      kind: "pipe",
+      pipe,
+    });
+    expect(parseFetched(payloadOf("to-program/fetched-saved.frame"))).toEqual({
+      kind: "saved",
+      saved: 11,
+    });
+    expect(parseFetched(payloadOf("to-program/fetched-route.frame"))).toEqual({
+      kind: "failed",
+      code: "route",
+      at: 4,
+    });
+  });
+
+  it("is nothing when it is none of those, and a pipe that is not 32 hex digits is not one", () => {
+    for (const parse of [parseStaged, parseFetched]) {
+      expect(parse("{}")).toBeUndefined();
+      expect(parse("[]")).toBeUndefined();
+      expect(parse('{"pipe":"../x"}')).toBeUndefined();
+      expect(parse('{"pipe":"0B5D7C1E9A3F4682D0E1C7A95B3F8D24"}')).toBeUndefined();
+      expect(parse('{"sent":-1,"saved":1.5}')).toBeUndefined();
+    }
   });
 });
 

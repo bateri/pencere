@@ -14,7 +14,9 @@ mod common;
 
 use pencere_host::bundle::Store;
 use pencere_host::sandbox::{Consent, Grant};
-use pencere_host::session::{Action, FileError, FileGrant, Observed, Session, Size, State};
+use pencere_host::session::{
+    Action, FetchError, FileError, FileGrant, Observed, Session, Size, StageError, State,
+};
 use pencere_host::token::Entropy;
 use serde_json::Value;
 
@@ -95,6 +97,9 @@ fn name_of(action: &Action) -> Option<&'static str> {
         Action::ReadFile { .. } => Some("read-file"),
         Action::WriteFile { .. } => Some("write-file"),
         Action::AbortWrite { .. } => Some("abort-write"),
+        Action::StageFile { .. } => Some("stage-file"),
+        Action::FetchFile { .. } => Some("fetch-file"),
+        Action::Unstage { .. } => Some("unstage"),
         Action::ForgetFiles(_) => Some("forget-files"),
         Action::Pick { .. } => Some("pick"),
         Action::Save { .. } => Some("save"),
@@ -160,6 +165,25 @@ fn happen<S: Store, E: Entropy>(
         "grant-save" => {
             let _ = host.grant_save();
         }
+        // What the terminal did for a transfer through the host's folder, by the id of the
+        // program's `stage` or `fetch`: the pipe exists, and how the file went.
+        "pipe-ready" => host.pipe_ready(event["transfer"].as_u64().unwrap() as u32),
+        "staged" => {
+            let transfer = event["transfer"].as_u64().unwrap() as u32;
+            let result = match event["error"].as_str() {
+                Some(code) => Err(stage_error(code)),
+                None => Ok(event["sent"].as_u64().unwrap()),
+            };
+            host.staged(transfer, result);
+        }
+        "fetched" => {
+            let transfer = event["transfer"].as_u64().unwrap() as u32;
+            let result = match event["error"].as_str() {
+                Some(code) => Err(fetch_error(code, event["at"].as_u64())),
+                None => Ok(event["saved"].as_u64().unwrap()),
+            };
+            host.fetched(transfer, result);
+        }
         // What came of a read or a write the host asked the terminal for, by the id of the
         // program's message.
         "file-read" => {
@@ -183,6 +207,26 @@ fn happen<S: Store, E: Entropy>(
         "module-save" => host.module_save(event["name"].as_str().unwrap(), event["type"].as_str()),
         "panel-closed" => host.panel_closed(event["panel"].as_u64().unwrap() as u32),
         other => panic!("an event called {other}"),
+    }
+}
+
+fn stage_error(code: &str) -> StageError {
+    match code {
+        "gone" => StageError::Gone,
+        "size" => StageError::Size,
+        "route" => StageError::Route,
+        "io" => StageError::Io,
+        other => panic!("a stage error called {other}"),
+    }
+}
+
+fn fetch_error(code: &str, at: Option<u64>) -> FetchError {
+    match code {
+        "size" => FetchError::Size,
+        "space" => FetchError::Space,
+        "route" => FetchError::Route { at: at.unwrap() },
+        "io" => FetchError::Io,
+        other => panic!("a fetch error called {other}"),
     }
 }
 
@@ -268,7 +312,7 @@ fn run(session: &Value, how: impl Fn(usize) -> Feed) {
 fn every_session_gives_the_bytes_the_fixtures_name() {
     let manifest = common::manifest();
     let sessions = manifest["session"].as_array().unwrap();
-    assert_eq!(sessions.len(), 39);
+    assert_eq!(sessions.len(), 44);
     for session in sessions {
         run(session, |_| Feed::Whole);
         run(session, |_| Feed::OneByOne);
@@ -324,4 +368,59 @@ fn the_handshake_leaves_a_token_outstanding_and_the_version_mismatch_does_not() 
         host.feed(input);
         assert_eq!(host.state(), state, "{name}");
     }
+}
+
+/// The first action of a session that `wanted` takes, with the bytes fed and the events happened
+/// up to it.
+fn first_action(session: &Value, wanted: impl Fn(&Action) -> bool) -> Action {
+    let mut host = common::session_of(&session["config"], &session["config"]["tokens"]);
+    for step in steps(session) {
+        match &step.stimulus {
+            Stimulus::Event(event) => happen(&mut host, event, &None),
+            Stimulus::In(input) => host.feed(input),
+        }
+        if let Some(action) = host.take_actions().into_iter().find(&wanted) {
+            return action;
+        }
+    }
+    panic!("a session that never takes the action");
+}
+
+fn hex_of(token: &Value) -> String {
+    common::token_bytes(token.as_str().unwrap())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+#[test]
+fn a_stage_and_a_fetch_ask_the_terminal_for_a_pipe_the_host_named() {
+    let manifest = common::manifest();
+    let sessions = manifest["session"].as_array().unwrap();
+    let named = |name: &str| sessions.iter().find(|s| s["name"] == name).unwrap();
+
+    // The tokens a session issues are drawn in order: the welcome's, the handle, then the pipe.
+    let stage = named("stage-files");
+    let tokens = &stage["config"]["tokens"];
+    assert_eq!(
+        first_action(stage, |a| matches!(a, Action::StageFile { .. })),
+        Action::StageFile {
+            stage: 3,
+            handle: hex_of(&tokens[1]),
+            offset: 0,
+            pipe: hex_of(&tokens[2]),
+        }
+    );
+    let fetch = named("fetch-files");
+    let tokens = &fetch["config"]["tokens"];
+    assert_eq!(
+        first_action(fetch, |a| matches!(a, Action::FetchFile { .. })),
+        Action::FetchFile {
+            fetch: 3,
+            handle: hex_of(&tokens[1]),
+            offset: 0,
+            size: 11,
+            pipe: hex_of(&tokens[2]),
+        }
+    );
 }

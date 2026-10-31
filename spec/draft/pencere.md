@@ -125,7 +125,9 @@ are what a program and its view say to each other while the view runs:
 ## 4. Transport
 
 Messages travel in the terminal's own stream: from the program in its output, to
-the program in its input. There is no port and no second channel.
+the program in its input. There is no port and no second channel. The one thing a host may
+carry another way is the bytes of a file, through a folder of its own on the program's machine
+(Section 8.11), and the program learns of that only from the messages.
 
 ### 4.1 Frames
 
@@ -244,6 +246,11 @@ the frame as written: `ESC _ pencere;`, kind, `;`, control, `;`, payload,
 | `data`    | `to-program` | base64 of bytes of a file the person gave       | `re`: the read answered; `e` when there are none  | 8.9      |
 | `write`   | `to-host`    | base64 of bytes for a place to save in          | `h`: the handle; `o`: the offset; `end`           | 8.10     |
 | `wrote`   | `to-program` | JSON `Wrote`                                    | `re`: the write answered                          | 8.10     |
+| `stage`   | `to-host`    | JSON `Stage`                                    | none (answered by two `staged`)                   | 8.11     |
+| `staged`  | `to-program` | JSON `Staged`                                   | `re`: the stage answered                          | 8.11     |
+| `fetch`   | `to-host`    | JSON `Fetch`                                    | none (answered by two `fetched`)                  | 8.11     |
+| `fetched` | `to-program` | JSON `Fetched`                                  | `re`: the fetch answered                          | 8.11     |
+| `unstage` | `to-host`    | JSON `Unstage`                                  | none (answered by a `staged` or a `fetched`)      | 8.11     |
 | `msg`     | both         | one JSON object: a view message (9.2)           | none                                              | 9        |
 | `closed`  | `to-program` | JSON `Closed`                                   | `re`: the open, dismiss or bye it answers, if any | 6.4, 10  |
 | `bye`     | `to-host`    | JSON `Bye`                                      | none (answered by a `closed`, 10.3)               | 10.3     |
@@ -455,8 +462,15 @@ there is something to say in it, `opens`, and `re` set to the hello's id. If the
 and `host` only.
 
 `features` lists the optional parts of this document the host supports: `dismiss`
-(Section 10.8) is the one there is. A program uses only what is listed and ignores a
-name it does not know. (Every view arrives as a bundle, Section 8, so that is no feature.)
+(Section 10.8) and `stage` (Section 8.11). A program uses only what is listed and ignores a
+name it does not know. (Every view arrives as a bundle, Section 8, so that is no feature.) A host
+that lists `stage` says where its folder on the program's machine is in `stage`, a member next to
+`features` with the `dir` of the folder and the `token` its `marker` file holds; a `stage` without
+the feature, or the feature without a `stage` that is well formed, is no offer.
+
+```frame fixtures/to-program/welcome-stage.frame
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss","stage"],"stage":{"dir":"/home/alice/.pencere/stage/6d0f9f1c","token":"3f9c2a7be1d84056a9c4e7b1d2f80a65"},"views":[{"kind":"lua","versions":["2.1"]}]}<ESC>\
+```
 
 `views` lists what the host will open: the kinds of the `hello` and, for each, the versions of its
 interface that the program and the host both speak. For each entry of the `hello`'s `views`, in
@@ -631,7 +645,9 @@ The interfaces from `lua` `2.1` and `wasm` `3.0` on have **files beside the bund
 learns that it may send them from the version it opened, not from a feature of the `welcome`. (This
 is what those versions mean, not an order of versions: a host still lists each version it opens.)
 Every other view, a page and a kit view at an earlier version, has none, and the host answers those
-messages as Sections 8.8 to 8.10 say it does when no view runs.
+messages as Sections 8.8 to 8.10 say it does when no view runs. The host's folder (Section 8.11) is
+a feature, not a version: whether a host can reach the program's machine does not depend on the
+interface of a view. A program uses it for the files of the views that have files.
 
 ## 6. Opening a view
 
@@ -1018,7 +1034,9 @@ them: the view passes on what it wants the program to have, in its own messages 
 name is the person's and the type is the host's guess; a program reads neither as anything but
 words, and never joins a name to a path of its own as it came. A host MAY also hand the view the
 file's path, and only when it knows that the program reads the same file system as the person (a
-program on the person's machine, with no remote shell between).
+program on the person's machine, with no remote shell between). A program that was offered a
+folder (Section 8.11) and finds that the folder is not where it runs does not read the path
+either: the host was wrong about where the program is.
 
 The program reads the file by its handle, a piece at a time: it sends a `read` with the handle, an
 `offset` and a `length` of at most 1 MiB (1 048 576 bytes). The host answers each `read` with one
@@ -1052,7 +1070,8 @@ A piece is 1 MiB at most so that a `data`, whose chunks go out with nothing betw
 does not hold up for long what the view says to the program behind it. A `data` is held and dropped as
 what the view says is (Section 4.8): a signal character drops a `data` that was waiting, and a `read` may
 be sent again for the same bytes. The host reads only the file of the handle, and only what was asked
-for; it never reads a path that a view or a program wrote.
+for; it never reads a path that a view or a program wrote, and on the program's machine it touches
+nothing but its own folder (Section 8.11).
 
 ### 8.10 Saving
 
@@ -1100,7 +1119,156 @@ The codes of `wrote`:
 A process that is killed outright, or a machine that stops, may leave the host's file beside the place
 the person chose: that is the price of never leaving a half-written file under the person's name, and
 the file's name says what it is. The host writes only to the place of the handle; it never writes a path
-that a view or a program wrote.
+that a view or a program wrote, and on the program's machine it touches nothing but its own folder
+(Section 8.11).
+
+### 8.11 The host's folder
+
+The bytes of a file cross as `data` and `write` messages (Sections 8.9 and 8.10): base64, a piece of 1 MiB
+at a time, through the terminal's stream and, at the program, through the tty. When the program runs on
+another machine, behind a remote shell, that stream is the slow way: every piece waits for the terminal,
+for the tty's input queue and for the program to read it. A host that has a way of its own to the
+program's machine MAY keep a **folder** there, and let the bytes of a file cross through a pipe in it.
+Nothing but the bytes goes that way: what the program asks and what it is told stay messages, and a
+program learns that the folder is there, and which pipe to open, from the messages alone (Section 4). The
+program does not ask where it runs, and uses the one mechanism wherever it is.
+
+**The folder.** It is the host's own: a directory on the program's machine under the account's home
+directory, one for each instance of the host, with no permission for the group and for others (mode
+`0700`). A file in it called `marker` holds the `token` of the `welcome` (Section 5.2), 32 lowercase hex
+digits of the host's randomness. The host makes the folder, its `marker` and the pipes this section
+names, removes them, and reads and writes nothing else on the program's machine. How it reaches the machine is its own
+business, and this document does not say.
+
+**What the program checks.** A `stage` in a `welcome` is an offer, and a path alone proves nothing: a
+remote shell inside a remote shell, or a container, may show another folder, of another account, at the
+same path. The program uses the offer only if all of this holds, and checks it again for every `welcome`:
+
+- `dir` is an absolute path;
+- `dir`, opened, is a directory that belongs to the effective user of the program, and the group and
+  others cannot use it;
+- `marker` in it, opened without following a link, is a regular file whose content is exactly `token`.
+
+When anything fails the program uses messages, as it did before. The same care goes for a pipe: the
+program joins `dir` and the name it was told, which must be 32 lowercase hex digits, opens the result
+without following a link, and reads or writes only when it is a pipe (a FIFO) that belongs to its own
+user. The host names its pipes from its randomness, so that no name that a person or a program wrote
+is ever part of a command of the host.
+
+**Taking a file: `stage`.** For the file of a handle (Section 8.9) the program sends a `stage`, with the
+`handle` and the `offset` it wants the bytes to start at. The host answers it twice, as it answers an
+`attach` (Section 8.8):
+
+- first, once the pipe is there, with a `staged` whose `re` is the id of the `stage` and whose `pipe` is
+  the name of the pipe in the folder;
+- then, when it has ended, with another `staged` that says how: `sent`, the offset of the end of the file
+  (the length of the file as the host read it), or a `code`.
+
+```frame fixtures/to-host/stage.frame
+<ESC>_pencere;stage;id=4;{"handle":"664de63fcac3e6e61bd577ba1ea4b4be","offset":0}<ESC>\
+```
+
+```frame fixtures/to-program/staged-pipe.frame
+<ESC>_pencere;staged;id=3,re=4;{"pipe":"0b5d7c1e9a3f4682d0e1c7a95b3f8d24"}<ESC>\
+```
+
+```frame fixtures/to-program/staged-sent.frame
+<ESC>_pencere;staged;id=4,re=4;{"sent":11}<ESC>\
+```
+
+The program opens the pipe for reading and reads to its end. It writes what it reads to a file of its own
+beside the place where it keeps the file, as it does for a file that comes in `data` (a name made anew,
+never written through a link), with the rights its own user has, and it counts the progress itself:
+the host does not tell it how far the file has gone. The file is complete when the program has read to
+the end of the pipe and its part, the bytes of earlier tries included, is `sent` bytes long; if it is
+not, the file did not come, whatever the host said. The pipe is the host's, and the program does not
+remove it.
+
+**Sending a file: `fetch`.** For a place the person chose (Section 8.10) the program sends a `fetch`, with
+the `handle`, the `size` of the whole file and the `offset` at which the bytes it sends start. The host
+answers it twice, with a `fetched`: the `pipe` first, then `saved`, the length of the file it has saved,
+or a `code`. The program opens the pipe for writing, writes its file from `offset` to its end, and closes
+the pipe. The host writes what it reads to a file of its own beside the place the person chose, as it
+does for the `write`s of Section 8.10 (the same name, made anew, not written through a link), and when
+`size` bytes are in it, gives it the person's name and answers `saved`. A pipe that ends before `size`
+bytes have come, or from which more would come, is `size`. The file is read once and in order, and is
+no more seekable than the `write`s of a handle are.
+
+```frame fixtures/to-host/fetch.frame
+<ESC>_pencere;fetch;id=5;{"handle":"664de63fcac3e6e61bd577ba1ea4b4be","size":11,"offset":0}<ESC>\
+```
+
+```frame fixtures/to-program/fetched-pipe.frame
+<ESC>_pencere;fetched;id=5,re=5;{"pipe":"0b5d7c1e9a3f4682d0e1c7a95b3f8d24"}<ESC>\
+```
+
+```frame fixtures/to-program/fetched-saved.frame
+<ESC>_pencere;fetched;id=6,re=5;{"saved":11}<ESC>\
+```
+
+**The codes** of `staged` and `fetched` are the same set. An answer that carries one is the last
+answer to its message: there is no `pipe` before it if the host could not begin.
+
+- `handle`: the handle is not one of the view that runs; for a `stage`, it is not a file the person gave;
+  for a `fetch`, it is not a place to save in, or its file has had its last bytes, or has failed, or a
+  `fetch` of it is out. A view that has no files (Section 5.5), and no view at all, has no handle;
+- `busy`: two transfers of the view are out already (a `stage` and a `fetch`, or two of one), and one
+  more is answered so: the program asks again when one of the two has been answered;
+- `gone`: the file is not what it was when the person gave it (its size, or the time it changed), or it
+  can no longer be read;
+- `size`: for a `stage`, the `offset` is past the end of the file. For a `fetch`, the `offset` is not
+  where the file stands (the first, 0, or after a `route` the `at`; a `fetch` is in order and leaves no
+  gap, as a `write` is), or it is past the `size`, or the bytes that came are not as many as the `size`;
+- `space`: the place the person chose has no room;
+- `route`: the way of the host to the program's machine has gone, for the time being (a lost
+  connection, a remote shell that was restarted). The host closes and removes its pipe, and keeps what it
+  has written;
+- `io`: reading or writing failed otherwise;
+- `cancelled`: the program took the transfer back with an `unstage`.
+
+```frame fixtures/to-program/staged-error.frame
+<ESC>_pencere;staged;id=4,re=4;{"code":"gone"}<ESC>\
+```
+
+**Going on after a `route`.** The way back to the program's machine may come again, and the file need
+not start over. For a `stage` the program knows how long its part is: it sends a new `stage` whose
+`offset` is that length, and the host reads the file from there. For a `fetch` it is the host that knows
+what it holds, so a `fetched` with the code `route` also has `at`, the length of the file the host has
+written: the program sends a new `fetch` whose `offset` is `at`, and the bytes after it. A program that
+does not want to go on, or is not sure of its part, starts again at 0.
+
+```frame fixtures/to-program/fetched-route.frame
+<ESC>_pencere;fetched;id=6,re=5;{"code":"route","at":4}<ESC>\
+```
+
+**A pipe that stays silent.** The host's way to the program's machine may be one that does not carry
+the pipe (a home directory that the two machines share over a network is the usual case): the program
+opens it and no byte ever comes, and neither side learns why. The program therefore waits a bounded time
+(Section 4.7) for the first byte after it was told the `pipe`. When none comes it takes the transfer
+back with an `unstage` and goes on with messages (`read` and `write`, Sections 8.9 and 8.10). The same
+bound holds the host: a program that is told a `pipe` and never opens it is waited for a bounded time,
+and then answered `io`.
+
+**Taking one back: `unstage`.** The program sends an `unstage` with the `id` of the `stage` or the
+`fetch` it takes back, and is answered, as if it had gone wrong, with the last answer of that message:
+`cancelled`. The host closes the pipe and removes it, and a place that a `fetch` had begun to write is
+thrown away, as one whose write failed is (Section 8.10). An `unstage` for a transfer that is not out is
+ignored.
+
+```frame fixtures/to-host/unstage.frame
+<ESC>_pencere;unstage;id=6;{"id":4}<ESC>\
+```
+
+**How many, and how it ends.** A view has at most two transfers out at once, `stage`s and `fetch`es
+together; a third is `busy`. While a `fetch` of a place is out, a `write` to it is answered `handle`
+(Section 8.10). A transfer ends with its view, whatever ends the view (Section 10.2): the host closes its
+pipes and removes them, and throws away the part of a `fetch`. A program that ends, or gives the
+terminal back (Section 10.3), with a transfer out closes the pipe it has open and throws away its part of
+a `stage`. A process that is killed outright may leave a part or a pipe behind, and the name of each says
+what it is.
+
+A host that lists `stage` answers a `stage`, a `fetch` and an `unstage` as this section says. One that does
+not list it ignores them (Section 4.5): they are no kinds it knows.
 
 ## 9. Messages and the bridge of a page
 
@@ -1972,8 +2140,8 @@ the same rule (Section 9.8).
 A file moves between the person's machine and a program only by the person's own act: a drop, a paste,
 a choice in an Open or a Save panel. A view asks for a panel only in what it answers something the
 person did (Section 9.8), and one panel is open at a time. The host reads and writes only the files of
-the handles it made, never a path that a view or a program wrote, and a handle is nothing once its view
-has ended. A **page** is given files the web platform's way (a drop, an `<input type="file">`), which is
+the handles it made, never a path that a view or a program wrote, and on the program's machine only its
+own folder (Section 8.11); a handle is nothing once its view has ended. A **page** is given files the web platform's way (a drop, an `<input type="file">`), which is
 the person's act too, and reaches their bytes in its own script, which may pass them on to its program
 in its messages; the messages of Sections 8.8 to 8.10 are not a page's.
 
@@ -2136,7 +2304,8 @@ interface Welcome {
   version?: number; // present with token, absent with supported
   token?: string;
   host: { name: string; version: string };
-  features?: string[]; // "dismiss" (Section 10.8)
+  features?: string[]; // "dismiss" (Section 10.8), "stage" (Section 8.11)
+  stage?: { dir: string; token: string }; // with "stage" in features: the host's folder and what its marker file holds (Section 8.11)
   views?: ViewOffer[]; // with token (always present then): the program's list cut down to what the host opens, in the program's order; may be empty (Section 5.2)
   opens?: ViewOffer[]; // the kinds of the program's list that the host opens at none of its versions, with the versions it does open (Section 5.2); left out when none
   restart?: boolean; // true on an unsolicited welcome
@@ -2195,6 +2364,35 @@ interface Read {
 
 interface Wrote {
   code?: string; // absent when the file was written (Section 8.10)
+}
+
+interface Stage {
+  handle: string; // 32 lowercase hex digits (Section 8.9)
+  offset: number; // 0 to 2^53 - 1: where in the file the bytes start (Section 8.11)
+}
+
+interface Fetch {
+  handle: string; // 32 lowercase hex digits (Section 8.10)
+  size: number; // the length of the whole file
+  offset: number; // where in the file the bytes sent start
+}
+
+interface Unstage {
+  id: number; // the id of the stage or the fetch taken back (Section 8.11)
+}
+
+// A staged has one of pipe, sent and code; a fetched, one of pipe, saved and code (Section 8.11).
+interface Staged {
+  pipe?: string; // 32 lowercase hex digits: the name of the pipe in the host's folder
+  sent?: number; // the file went through the pipe and ended at this offset
+  code?: string; // why not
+}
+
+interface Fetched {
+  pipe?: string;
+  saved?: number; // the file is saved, and this long
+  code?: string;
+  at?: number; // with code "route": the length of the file the host holds
 }
 
 interface Closed {
@@ -2265,7 +2463,8 @@ type PageToHost =
 
 Codes of `Need.refused`: `limit`, `view`, `size`, `digest` (Section 8.8). Codes of the `e` of a `data`:
 `handle`, `range`, `busy`, `gone`, `io` (Section 8.9). Codes of `Wrote`: `handle`, `order`, `size`,
-`space`, `io` (Section 8.10).
+`space`, `io` (Section 8.10). Codes of `Staged` and `Fetched`: `handle`, `busy`, `gone`, `size`, `space`,
+`route`, `io`, `cancelled` (Section 8.11).
 
 Codes of `Closed`: for `refused`, those of Section 6.4; for `error`, `bundle` (Section 8.4), `view`
 (Section 9.8) and `timeout` (Sections 8.4 and 12.2). A receiver treats a code it does not know as the

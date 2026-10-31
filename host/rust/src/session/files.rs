@@ -8,7 +8,9 @@
 //! terminal reads and writes the person's files when the session asks it to
 //! ([`Action::ReadFile`], [`Action::WriteFile`], [`Action::AbortWrite`]), shows the panels
 //! ([`Action::Pick`], [`Action::Save`]) and hands back what came of it
-//! ([`Session::file_read`], [`Session::file_written`], [`Session::panel_closed`]).
+//! ([`Session::file_read`], [`Session::file_written`], [`Session::panel_closed`]). A file may also
+//! cross through the terminal's folder on the program's machine instead of in `data` and `write`
+//! messages (§8.11); that is `staging.rs`, and it uses the handles kept here.
 //!
 //! A view's files are its own and die with it: a handle, an attached digest and a panel are
 //! nothing once the view has ended, whatever ended it (§10.2). Only a view the terminal draws
@@ -18,6 +20,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use super::staging::Transfer;
 use super::{Action, Phase, Session, ViewKind};
 use crate::base64;
 use crate::bundle::{Digest, MAX_FILE_SIZE, MAX_FILES, MAX_TOTAL_SIZE, Received, Receiving, Store};
@@ -34,6 +37,10 @@ pub const MAX_FILE_PIECE: u64 = 1024 * 1024;
 /// The most `read`s of a program that may be out at once (specification §8.9); one more is
 /// answered `busy`.
 pub const MAX_OPEN_READS: usize = 2;
+
+/// The most `stage`s and `fetch`es of a program that may be out at once (specification §8.11);
+/// one more is answered `busy`.
+pub const MAX_OPEN_TRANSFERS: usize = 2;
 
 /// The most characters of the name a view proposes for a file it saves (§8.10).
 const MAX_SAVE_NAME_CHARS: usize = 255;
@@ -148,7 +155,7 @@ pub struct FileGrant {
 
 /// What a handle is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Use {
+pub(super) enum Use {
     /// A file the person gave, which the program reads.
     Read { size: u64 },
     /// A place the person chose to save in, which the program writes to.
@@ -157,18 +164,21 @@ enum Use {
 
 /// Where a place to save stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Saving {
+pub(super) enum Saving {
     /// Nothing has been written, or the writes so far went well; the next goes at `next`.
     Open { next: u64, written: bool },
+    /// A `fetch` is out: the file is on its way through the pipe (§8.11), and a `write` for the
+    /// handle is told it is no place to save in.
+    Fetching,
     /// The last write came with `end`; its result is awaited or has come.
     Ended,
     /// A write failed and the program has been told; the rest are ignored.
     Failed,
 }
 
-struct Handle {
-    usage: Use,
-    saving: Saving,
+pub(super) struct Handle {
+    pub(super) usage: Use,
+    pub(super) saving: Saving,
 }
 
 /// An `attach` whose files are on their way.
@@ -184,11 +194,13 @@ struct Pending {
 /// A view's files. Empty, and refusing everything, for a view that has none.
 pub(super) struct Files {
     /// Whether the view was opened at a version that has them.
-    capable: bool,
+    pub(super) capable: bool,
     /// What is attached: the session's own table, which this view empties when it ends.
     attached: AttachedFiles,
     pending: Vec<Pending>,
-    handles: HashMap<String, Handle>,
+    pub(super) handles: HashMap<String, Handle>,
+    /// The `stage`s and `fetch`es out (§8.11), at most [`MAX_OPEN_TRANSFERS`].
+    pub(super) transfers: Vec<Transfer>,
     /// The `read`s out, by id, with the length each asked for.
     reads: Vec<(u32, u64)>,
     /// The `write`s whose result the terminal has not given, by id, with their handle and
@@ -208,6 +220,7 @@ impl Files {
             attached,
             pending: Vec::new(),
             handles: HashMap::new(),
+            transfers: Vec::new(),
             reads: Vec::new(),
             writes: Vec::new(),
             panel: None,
@@ -228,12 +241,22 @@ impl Files {
     }
 
     /// The places to save that were left unfinished, which the terminal is to throw away.
+    /// The ids of the transfers that are out, which the terminal is to stop.
+    pub(super) fn open_transfers(&self) -> Vec<u32> {
+        self.transfers.iter().map(|t| t.id).collect()
+    }
+
     pub(super) fn unfinished_saves(&self) -> Vec<String> {
         let mut out: Vec<String> = self
             .handles
             .iter()
-            .filter(|(_, h)| h.usage == Use::Save && h.saving != Saving::Ended)
-            .filter(|(_, h)| matches!(h.saving, Saving::Open { written: true, .. }))
+            .filter(|(_, h)| h.usage == Use::Save)
+            .filter(|(_, h)| {
+                matches!(
+                    h.saving,
+                    Saving::Open { written: true, .. } | Saving::Fetching
+                )
+            })
             .map(|(name, _)| name.clone())
             .collect();
         out.sort();
@@ -272,14 +295,14 @@ impl Drop for Files {
 }
 
 impl<S: Store, E: Entropy> Session<S, E> {
-    fn files(&self) -> Option<&Files> {
+    pub(super) fn files(&self) -> Option<&Files> {
         match &self.phase {
             Phase::Live(live) if live.files.capable => Some(&live.files),
             _ => None,
         }
     }
 
-    fn files_mut(&mut self) -> Option<&mut Files> {
+    pub(super) fn files_mut(&mut self) -> Option<&mut Files> {
         match &mut self.phase {
             Phase::Live(live) if live.files.capable => Some(&mut live.files),
             _ => None,
@@ -629,7 +652,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
             // The program has been told; it stops, and what it sent meanwhile is nothing.
             Some(Saving::Failed) => return self.ignored(),
             // The file has had its last write: there is nothing more to write to it.
-            Some(Saving::Ended) => return self.wrote(id, Some("handle")),
+            Some(Saving::Ended | Saving::Fetching) => return self.wrote(id, Some("handle")),
             Some(Saving::Open { next, .. }) => next,
         };
         let bytes = if message.payload.len() > max_base64(MAX_FILE_PIECE) {
@@ -697,7 +720,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         }
     }
 
-    fn save_failed(&mut self, handle: &str) {
+    pub(super) fn save_failed(&mut self, handle: &str) {
         if let Some(h) = self.files_mut().and_then(|f| f.handles.get_mut(handle)) {
             h.saving = Saving::Failed;
         }
@@ -768,6 +791,6 @@ fn max_base64(bytes: u64) -> usize {
     usize::try_from(bytes.div_ceil(3).saturating_mul(4)).unwrap_or(usize::MAX)
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(super) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

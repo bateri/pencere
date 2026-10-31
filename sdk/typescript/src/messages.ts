@@ -16,6 +16,9 @@ export const VERSIONS: readonly number[] = [1];
 /** A feature a host lists in its `welcome`: it closes a view when the program sends `dismiss` (§10.8). */
 export const FEATURE_DISMISS = "dismiss";
 
+/** A feature a host lists in its `welcome`: it keeps a folder on the program's machine for a file's bytes to cross through (§8.11). */
+export const FEATURE_STAGE = "stage";
+
 /** The kinds of view of the table of §5.5. */
 export type ViewKind = "lua" | "wasm" | "web";
 
@@ -170,6 +173,21 @@ export function detachPayload(digests: readonly string[]): string {
 /** The payload of `read`: bytes of a file the person gave the view, by its handle (§8.9). */
 export function readPayload(handle: string, offset: number, length: number): string {
   return toWire({ handle, offset, length });
+}
+
+/** The payload of `stage`: the file of a handle the person gave, from `offset`, through the host's folder (§8.11). */
+export function stagePayload(handle: string, offset: number): string {
+  return toWire({ handle, offset });
+}
+
+/** The payload of `fetch`: the file of `size` bytes the program sends for the place of a handle, from `offset` (§8.11). */
+export function fetchPayload(handle: string, size: number, offset: number): string {
+  return toWire({ handle, size, offset });
+}
+
+/** The payload of `unstage`: the id of the `stage` or the `fetch` the program takes back (§8.11). */
+export function unstagePayload(id: number): string {
+  return toWire({ id });
 }
 
 // ---- what the host says ------------------------------------------------------
@@ -358,6 +376,57 @@ export function parseWrote(payload: string): Wrote | undefined {
   const body = parseObject(payload);
   if (body === undefined) return undefined;
   return typeof body.code === "string" ? { code: body.code } : {};
+}
+
+const PIPE = /^[0-9a-f]{32}$/;
+
+/** A byte count of a `staged` or `fetched`. */
+function count(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+/** What a host says of a `stage` (§8.11): the pipe to open, then how the file went. */
+export type Staged =
+  | { readonly kind: "pipe"; readonly pipe: string }
+  /** The file went through the pipe and ended `sent` bytes into it. */
+  | { readonly kind: "sent"; readonly sent: number }
+  /** `handle`, `busy`, `gone`, `size`, `route`, `io` or `cancelled`. */
+  | { readonly kind: "failed"; readonly code: string };
+
+/** Reads a `staged`; `undefined` when it is none of the three. */
+export function parseStaged(payload: string): Staged | undefined {
+  const body = parseObject(payload);
+  if (body === undefined) return undefined;
+  if (typeof body.pipe === "string") {
+    return PIPE.test(body.pipe) ? { kind: "pipe", pipe: body.pipe } : undefined;
+  }
+  const sent = count(body.sent);
+  if (sent !== undefined) return { kind: "sent", sent };
+  return typeof body.code === "string" ? { kind: "failed", code: body.code } : undefined;
+}
+
+/** What a host says of a `fetch` (§8.11): the pipe to open, then whether the file is saved. */
+export type Fetched =
+  | { readonly kind: "pipe"; readonly pipe: string }
+  /** The file is in the place the person chose, `saved` bytes long. */
+  | { readonly kind: "saved"; readonly saved: number }
+  /** `handle`, `busy`, `size`, `space`, `route`, `io` or `cancelled`; `at` goes with `route`: the length the host holds. */
+  | { readonly kind: "failed"; readonly code: string; readonly at?: number };
+
+/** Reads a `fetched`; `undefined` when it is none of the three. */
+export function parseFetched(payload: string): Fetched | undefined {
+  const body = parseObject(payload);
+  if (body === undefined) return undefined;
+  if (typeof body.pipe === "string") {
+    return PIPE.test(body.pipe) ? { kind: "pipe", pipe: body.pipe } : undefined;
+  }
+  const saved = count(body.saved);
+  if (saved !== undefined) return { kind: "saved", saved };
+  if (typeof body.code !== "string") return undefined;
+  const at = count(body.at);
+  return at === undefined
+    ? { kind: "failed", code: body.code }
+    : { kind: "failed", code: body.code, at };
 }
 
 /** Why a host ended or refused a view (`Closed.reason`). */

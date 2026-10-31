@@ -567,6 +567,24 @@
       "errors": []
     },
     {
+      "file": "to-program/welcome-stage.frame",
+      "direction": "to-program",
+      "note": "a welcome of a host that has a folder on the program's machine: the feature, and where it is and the token of its marker file",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "welcome",
+          "id": 1,
+          "control": {
+            "re": "1"
+          },
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\",\"stage\"],\"stage\":{\"dir\":\"/home/alice/.pencere/stage/6d0f9f1c\",\"token\":\"3f9c2a7be1d84056a9c4e7b1d2f80a65\"},\"views\":[{\"kind\":\"lua\",\"versions\":[\"2.1\"]}]}"
+        }
+      ],
+      "errors": []
+    },
+    {
       "file": "to-program/welcome-unsupported.frame",
       "direction": "to-program",
       "note": "the answer to a hello that shares no version with the host",
@@ -1170,6 +1188,114 @@
       "errors": []
     },
     {
+      "file": "to-program/staged-pipe.frame",
+      "direction": "to-program",
+      "note": "staged: the first answer to a stage, the name of the pipe in the host's folder",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "staged",
+          "id": 3,
+          "control": {
+            "re": "4"
+          },
+          "payload": "{\"pipe\":\"0b5d7c1e9a3f4682d0e1c7a95b3f8d24\"}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/staged-sent.frame",
+      "direction": "to-program",
+      "note": "staged: the second answer to a stage, the file went through the pipe and ended 11 bytes into it",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "staged",
+          "id": 4,
+          "control": {
+            "re": "4"
+          },
+          "payload": "{\"sent\":11}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/staged-error.frame",
+      "direction": "to-program",
+      "note": "staged: the second answer to a stage that did not get there, and why",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "staged",
+          "id": 4,
+          "control": {
+            "re": "4"
+          },
+          "payload": "{\"code\":\"gone\"}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/fetched-pipe.frame",
+      "direction": "to-program",
+      "note": "fetched: the first answer to a fetch, the name of the pipe in the host's folder",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "fetched",
+          "id": 5,
+          "control": {
+            "re": "5"
+          },
+          "payload": "{\"pipe\":\"0b5d7c1e9a3f4682d0e1c7a95b3f8d24\"}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/fetched-saved.frame",
+      "direction": "to-program",
+      "note": "fetched: the second answer to a fetch, the file is saved and 11 bytes long",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "fetched",
+          "id": 6,
+          "control": {
+            "re": "5"
+          },
+          "payload": "{\"saved\":11}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-program/fetched-route.frame",
+      "direction": "to-program",
+      "note": "fetched: the way to the program's machine is gone, and the host holds 4 bytes of the file",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "fetched",
+          "id": 6,
+          "control": {
+            "re": "5"
+          },
+          "payload": "{\"code\":\"route\",\"at\":4}"
+        }
+      ],
+      "errors": []
+    },
+    {
       "file": "to-host/file-image.frame",
       "direction": "to-host",
       "note": "the picture of to-host/open-wasm-image.frame as a file message",
@@ -1289,6 +1415,54 @@
             "o": "4096"
           },
           "payload": "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"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/stage.frame",
+      "direction": "to-host",
+      "note": "stage: the file of a handle the person gave, from an offset, through the host's folder",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "stage",
+          "id": 4,
+          "control": {},
+          "payload": "{\"handle\":\"664de63fcac3e6e61bd577ba1ea4b4be\",\"offset\":0}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/fetch.frame",
+      "direction": "to-host",
+      "note": "fetch: the file the program sends, through the host's folder, for the place of a handle; its length and where the bytes sent start",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "fetch",
+          "id": 5,
+          "control": {},
+          "payload": "{\"handle\":\"664de63fcac3e6e61bd577ba1ea4b4be\",\"size\":11,\"offset\":0}"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "to-host/unstage.frame",
+      "direction": "to-host",
+      "note": "unstage: the program takes back the stage or the fetch with this id",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "unstage",
+          "id": 6,
+          "control": {},
+          "payload": "{\"id\":4}"
         }
       ],
       "errors": []
@@ -3277,6 +3451,740 @@
         },
         {
           "out": "session/save-files/34-out.frame",
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "stage-files",
+      "note": "the program takes the file the person gave through the host's folder: the host makes a pipe, names it, and says how far the file went; a stage the host cannot do is answered at once with why (a handle nobody gave, an offset past the end, a file that changed); a way that is gone is answered route and the program asks again from where it was; the program takes a stage back and is told cancelled; a third stage while two are out is busy, and what comes late is ignored",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "LuBX5P5O_bQ8vrFCtYrTXQ",
+          "9wy0eDvRJORPB3lSd1CEsQ",
+          "yuEv9iSA8VxJz2yV-L3hkQ",
+          "_cqyW0styaAGRN-Sq3h1lg",
+          "nwbKv2jcAq1nneOilvK0HA",
+          "XBzeOL8JCTgtvDsNs64n_A",
+          "o6956Ymjg5QOv76kDjneVQ"
+        ],
+        "stage": {
+          "dir": "/home/alice/.pencere/stage/6d0f9f1c",
+          "token": "3f9c2a7be1d84056a9c4e7b1d2f80a65"
+        },
+        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
+        "views": [
+          {
+            "kind": "lua",
+            "versions": ["2.1"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/stage-files/01-in.frame"
+        },
+        {
+          "out": "session/stage-files/02-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/03-in.frame"
+        },
+        {
+          "out": "session/stage-files/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "grant-file",
+          "size": 11
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/07-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["stage-file"]
+        },
+        {
+          "event": "pipe-ready",
+          "transfer": 3
+        },
+        {
+          "out": "session/stage-files/10-out.frame",
+          "acted": []
+        },
+        {
+          "event": "staged",
+          "transfer": 3,
+          "sent": 11
+        },
+        {
+          "out": "session/stage-files/12-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/13-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["stage-file"]
+        },
+        {
+          "event": "pipe-ready",
+          "transfer": 4
+        },
+        {
+          "out": "session/stage-files/16-out.frame",
+          "acted": []
+        },
+        {
+          "event": "staged",
+          "transfer": 4,
+          "error": "route"
+        },
+        {
+          "out": "session/stage-files/18-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/19-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["stage-file"]
+        },
+        {
+          "event": "pipe-ready",
+          "transfer": 5
+        },
+        {
+          "out": "session/stage-files/22-out.frame",
+          "acted": []
+        },
+        {
+          "event": "staged",
+          "transfer": 5,
+          "sent": 11
+        },
+        {
+          "out": "session/stage-files/24-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/25-in.frame"
+        },
+        {
+          "out": "session/stage-files/26-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/27-in.frame"
+        },
+        {
+          "out": "session/stage-files/28-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/29-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "pipe-ready",
+          "transfer": 7
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "staged",
+          "transfer": 7,
+          "sent": 11
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/35-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["stage-file"]
+        },
+        {
+          "event": "staged",
+          "transfer": 9,
+          "error": "gone"
+        },
+        {
+          "out": "session/stage-files/38-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/39-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["stage-file"]
+        },
+        {
+          "event": "pipe-ready",
+          "transfer": 10
+        },
+        {
+          "out": "session/stage-files/42-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/43-in.frame"
+        },
+        {
+          "out": "session/stage-files/44-out.frame",
+          "acted": ["unstage"]
+        },
+        {
+          "event": "staged",
+          "transfer": 10,
+          "sent": 11
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/47-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/49-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["stage-file"]
+        },
+        {
+          "in": "session/stage-files/51-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["stage-file"]
+        },
+        {
+          "in": "session/stage-files/53-in.frame"
+        },
+        {
+          "out": "session/stage-files/54-out.frame",
+          "acted": []
+        },
+        {
+          "event": "staged",
+          "transfer": 13,
+          "sent": 11
+        },
+        {
+          "out": "session/stage-files/56-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-files/57-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["stage-file"]
+        },
+        {
+          "event": "staged",
+          "transfer": 14,
+          "sent": 11
+        },
+        {
+          "out": "session/stage-files/60-out.frame",
+          "acted": []
+        },
+        {
+          "event": "staged",
+          "transfer": 16,
+          "sent": 11
+        },
+        {
+          "out": "session/stage-files/62-out.frame",
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "fetch-files",
+      "note": "the program sends a file to the place the person chose through the host's folder: the host makes a pipe, names it and says when the file is saved; a way that is gone is answered route with the length the host holds, and the program sends the rest from there; a failure or a fetch the program takes back throws away what was written; a fetch at an offset that is not where the file stands, a place with its file done or failed, and a write to a place whose fetch is out are refused",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "LuBX5P5O_bQ8vrFCtYrTXQ",
+          "9wy0eDvRJORPB3lSd1CEsQ",
+          "yuEv9iSA8VxJz2yV-L3hkQ",
+          "_cqyW0styaAGRN-Sq3h1lg",
+          "nwbKv2jcAq1nneOilvK0HA",
+          "XBzeOL8JCTgtvDsNs64n_A",
+          "o6956Ymjg5QOv76kDjneVQ"
+        ],
+        "stage": {
+          "dir": "/home/alice/.pencere/stage/6d0f9f1c",
+          "token": "3f9c2a7be1d84056a9c4e7b1d2f80a65"
+        },
+        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
+        "views": [
+          {
+            "kind": "lua",
+            "versions": ["2.1"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/fetch-files/01-in.frame"
+        },
+        {
+          "out": "session/fetch-files/02-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/fetch-files/03-in.frame"
+        },
+        {
+          "out": "session/fetch-files/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "grant-save"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/fetch-files/07-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["fetch-file"]
+        },
+        {
+          "event": "pipe-ready",
+          "transfer": 3
+        },
+        {
+          "out": "session/fetch-files/10-out.frame",
+          "acted": []
+        },
+        {
+          "event": "fetched",
+          "transfer": 3,
+          "saved": 11
+        },
+        {
+          "out": "session/fetch-files/12-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/fetch-files/13-in.frame"
+        },
+        {
+          "out": "session/fetch-files/14-out.frame",
+          "acted": []
+        },
+        {
+          "event": "grant-save"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/fetch-files/17-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["fetch-file"]
+        },
+        {
+          "event": "pipe-ready",
+          "transfer": 5
+        },
+        {
+          "out": "session/fetch-files/20-out.frame",
+          "acted": []
+        },
+        {
+          "event": "fetched",
+          "transfer": 5,
+          "error": "route",
+          "at": 4
+        },
+        {
+          "out": "session/fetch-files/22-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/fetch-files/23-in.frame"
+        },
+        {
+          "out": "session/fetch-files/24-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/fetch-files/25-in.frame"
+        },
+        {
+          "out": "session/fetch-files/26-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/fetch-files/27-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["fetch-file"]
+        },
+        {
+          "event": "pipe-ready",
+          "transfer": 8
+        },
+        {
+          "out": "session/fetch-files/30-out.frame",
+          "acted": []
+        },
+        {
+          "event": "fetched",
+          "transfer": 8,
+          "error": "space"
+        },
+        {
+          "out": "session/fetch-files/32-out.frame",
+          "acted": ["abort-write"]
+        },
+        {
+          "in": "session/fetch-files/33-in.frame"
+        },
+        {
+          "out": "session/fetch-files/34-out.frame",
+          "acted": []
+        },
+        {
+          "event": "grant-save"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/fetch-files/37-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["fetch-file"]
+        },
+        {
+          "event": "pipe-ready",
+          "transfer": 10
+        },
+        {
+          "out": "session/fetch-files/40-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/fetch-files/41-in.frame"
+        },
+        {
+          "out": "session/fetch-files/42-out.frame",
+          "acted": ["unstage", "abort-write"]
+        },
+        {
+          "event": "fetched",
+          "transfer": 10,
+          "saved": 11
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "grant-save"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/fetch-files/47-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["fetch-file"]
+        },
+        {
+          "in": "session/fetch-files/49-in.frame"
+        },
+        {
+          "out": "session/fetch-files/50-out.frame",
+          "acted": []
+        },
+        {
+          "event": "fetched",
+          "transfer": 12,
+          "error": "size"
+        },
+        {
+          "out": "session/fetch-files/52-out.frame",
+          "acted": ["abort-write"]
+        }
+      ]
+    },
+    {
+      "name": "stage-view-ends",
+      "note": "a view that ends with a stage and a fetch out stops both, and throws away what the fetch wrote; what the terminal tells of them afterwards is ignored; the welcome that offers the view again has the folder too",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": [
+          "q7Vh2sB0xJm9kLw4TzN1cA",
+          "Zk3mP8rD5uYb1Xe6HqS0vg",
+          "Hn5xQ2wTj8Vb0YcLrE4aMg",
+          "LuBX5P5O_bQ8vrFCtYrTXQ",
+          "9wy0eDvRJORPB3lSd1CEsQ",
+          "yuEv9iSA8VxJz2yV-L3hkQ"
+        ],
+        "stage": {
+          "dir": "/home/alice/.pencere/stage/6d0f9f1c",
+          "token": "3f9c2a7be1d84056a9c4e7b1d2f80a65"
+        },
+        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
+        "views": [
+          {
+            "kind": "lua",
+            "versions": ["2.1"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/stage-view-ends/01-in.frame"
+        },
+        {
+          "out": "session/stage-view-ends/02-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-view-ends/03-in.frame"
+        },
+        {
+          "out": "session/stage-view-ends/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "grant-file",
+          "size": 11
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "grant-save"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/stage-view-ends/09-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["stage-file"]
+        },
+        {
+          "in": "session/stage-view-ends/11-in.frame"
+        },
+        {
+          "out": null,
+          "acted": ["fetch-file"]
+        },
+        {
+          "event": "close-view"
+        },
+        {
+          "out": "session/stage-view-ends/14-out.frame",
+          "acted": ["unstage", "unstage", "abort-write", "destroy-view"]
+        },
+        {
+          "event": "pipe-ready",
+          "transfer": 3
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "staged",
+          "transfer": 3,
+          "sent": 11
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "fetched",
+          "transfer": 4,
+          "saved": 11
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "event": "restart"
+        },
+        {
+          "out": "session/stage-view-ends/22-out.frame",
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "stage-not-offered",
+      "note": "a host that has no folder on the program's machine leaves stage out of its features, and a stage, a fetch or an unstage that comes all the same is ignored",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA", "Zk3mP8rD5uYb1Xe6HqS0vg"],
+        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
+        "views": [
+          {
+            "kind": "lua",
+            "versions": ["2.1"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/stage-not-offered/01-in.frame"
+        },
+        {
+          "out": "session/stage-not-offered/02-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-not-offered/03-in.frame"
+        },
+        {
+          "out": "session/stage-not-offered/04-out.frame",
+          "acted": ["start-view"]
+        },
+        {
+          "event": "grant-file",
+          "size": 11
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/stage-not-offered/07-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/stage-not-offered/09-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        },
+        {
+          "in": "session/stage-not-offered/11-in.frame"
+        },
+        {
+          "out": null,
+          "acted": []
+        }
+      ]
+    },
+    {
+      "name": "stage-without-files",
+      "note": "while no view runs there is no handle for a stage or a fetch to name: both are answered handle",
+      "config": {
+        "host": {
+          "name": "pencere-test",
+          "version": "0.0.0"
+        },
+        "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA"],
+        "stage": {
+          "dir": "/home/alice/.pencere/stage/6d0f9f1c",
+          "token": "3f9c2a7be1d84056a9c4e7b1d2f80a65"
+        },
+        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
+        "views": [
+          {
+            "kind": "web",
+            "versions": ["1.0"]
+          },
+          {
+            "kind": "lua",
+            "versions": ["2.1"]
+          }
+        ]
+      },
+      "steps": [
+        {
+          "in": "session/stage-without-files/01-in.frame"
+        },
+        {
+          "out": "session/stage-without-files/02-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-without-files/03-in.frame"
+        },
+        {
+          "out": "session/stage-without-files/04-out.frame",
+          "acted": []
+        },
+        {
+          "in": "session/stage-without-files/05-in.frame"
+        },
+        {
+          "out": "session/stage-without-files/06-out.frame",
           "acted": []
         }
       ]

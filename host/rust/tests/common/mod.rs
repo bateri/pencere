@@ -11,7 +11,7 @@ use pencere_host::base64;
 use pencere_host::bundle::{Digest, MemoryStore, Store, Verified};
 use pencere_host::frame::{Direction, Event, Ids, Message, Outgoing, Split, StreamDecoder, encode};
 use pencere_host::message::HostInfo;
-use pencere_host::session::{Action, Config, Offer, Session, Size, ViewKind, ViewStart};
+use pencere_host::session::{Action, Config, Offer, Session, Size, StageDir, ViewKind, ViewStart};
 use pencere_host::theme::{Rgb, Theme};
 use serde_json::{Value, json};
 
@@ -132,7 +132,14 @@ pub fn session_of(
     if let Some(views) = config["views"].as_array() {
         host.views = views.iter().map(offer).collect();
     }
-    Session::new(host, Held(held, HashMap::new()), issuing(issued))
+    let mut session = Session::new(host, Held(held, HashMap::new()), issuing(issued));
+    // A host that keeps a folder on the program's machine says where, and with what token.
+    if let Some(stage) = config["stage"].as_object() {
+        let dir = stage["dir"].as_str().unwrap();
+        let token = stage["token"].as_str().unwrap();
+        session.offer_stage(Some(StageDir::new(dir, token).unwrap()));
+    }
+    session
 }
 
 /// The bodies of the frames of a stream, as a terminal's parser would hand them
