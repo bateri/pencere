@@ -16,7 +16,7 @@ use pencere_view::{
 use wasmtime::component::Component;
 
 use crate::guests_tests::{Open, Rough, SIZE};
-use crate::{Fault, Module, ModuleLimits, Program, Script, Unbounded, Update};
+use crate::{Fault, Module, ModuleLimits, Program, Script, TimeLimit, Unbounded, Update};
 
 /// Where the scripts of the tests that are given no bundle are, in their bundle.
 pub(crate) const ENTRY: &str = "script.lua";
@@ -478,18 +478,29 @@ fn a_colour_that_is_not_one_is_refused_in_words_that_say_what_one_is() {
 fn a_script_that_never_returns_is_cut_off() {
     let limits = ModuleLimits {
         call: Duration::from_millis(200),
-        ..ModuleLimits::default()
+        ..ModuleLimits::floor()
     };
+    let call_cut_off = Some(Fault::Timeout {
+        limit: TimeLimit::Call,
+        within: Duration::from_millis(200),
+    });
     let began = Instant::now();
     let update = first(
         "return { render = function() while true do end end }",
         limits.clone(),
     );
-    assert_eq!(update.closed, Some(Fault::Timeout));
+    assert_eq!(update.closed, call_cut_off);
     assert!(began.elapsed() < Duration::from_secs(10));
-    // Also while it starts, and while it handles.
+    // Also while it starts (under the time to start, which is the floor's 2 s), and while it
+    // handles.
     let update = first("while true do end", limits.clone());
-    assert_eq!(update.closed, Some(Fault::Timeout));
+    assert_eq!(
+        update.closed,
+        Some(Fault::Timeout {
+            limit: TimeLimit::Start,
+            within: Duration::from_secs(2),
+        })
+    );
     let mut page = open_script(
         "return { render = function() return pencere.div() end, handle = function() local n = 0 repeat n += 1 until false end }",
         limits,
@@ -501,7 +512,7 @@ fn a_script_that_never_returns_is_cut_off() {
         mods: Mods::default(),
     }));
     let update = page.until(Duration::from_secs(10), |u| u.closed.is_some());
-    assert_eq!(update.closed, Some(Fault::Timeout));
+    assert_eq!(update.closed, call_cut_off);
 }
 
 #[test]

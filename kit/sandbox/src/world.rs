@@ -33,7 +33,7 @@ use crate::images::Assets;
 use crate::library;
 use crate::luau::Script;
 use crate::module::{Frame, Runner};
-use crate::sandbox::{self, Fault, Host, ModuleLimits, Program};
+use crate::sandbox::{self, Fault, Host, ModuleLimits, Program, TimeLimit};
 
 // The interface is read from the crate's own copy, `wit/view.wit`: a published crate cannot read
 // outside itself. `kit/wit/view.wit` is the source; `make check` fails while they differ.
@@ -2488,7 +2488,7 @@ impl World {
         // a module has to start in: a script that does not start (it has an error, or it never
         // finishes) is found out here, and its first page is not charged for its start.
         let page = world.view.pencere_view_page();
-        sandbox::call(&mut world.store, world.limits.start, |store| {
+        sandbox::call(&mut world.store, &world.limits, TimeLimit::Start, |store| {
             page.call_settle(store)
         })?;
         Ok(world)
@@ -2507,7 +2507,7 @@ impl World {
         let mut store = sandbox::store(&engine, &limits, program, script);
         // The module's own start runs under the start budget; what it does not offer to the
         // page is found out here (an import nobody gave).
-        let view = sandbox::call(&mut store, limits.start, |store| {
+        let view = sandbox::call(&mut store, &limits, TimeLimit::Start, |store| {
             View::instantiate(store, component, &linker)
         })
         .map_err(|fault| match fault {
@@ -2545,7 +2545,7 @@ impl Runner for World {
             w: size.w,
             h: size.h,
         };
-        let frame = sandbox::call(&mut self.store, self.limits.call, |store| {
+        let frame = sandbox::call(&mut self.store, &self.limits, TimeLimit::Call, |store| {
             page.call_render(store, size, now, reduce_motion)
         })?;
         self.within_what_a_call_may_send()?;
@@ -2554,7 +2554,7 @@ impl Runner for World {
 
     fn settle(&mut self) -> Result<bool, Fault> {
         let page = self.view.pencere_view_page();
-        let changed = sandbox::call(&mut self.store, self.limits.call, |store| {
+        let changed = sandbox::call(&mut self.store, &self.limits, TimeLimit::Call, |store| {
             page.call_settle(store)
         })?;
         self.within_what_a_call_may_send()?;
@@ -2564,7 +2564,7 @@ impl Runner for World {
     fn handle(&mut self, event: Event) -> Result<Reply, Fault> {
         let page = self.view.pencere_view_page();
         let event = event_in(event);
-        let reply = sandbox::call(&mut self.store, self.limits.call, |store| {
+        let reply = sandbox::call(&mut self.store, &self.limits, TimeLimit::Call, |store| {
             page.call_handle(store, &event)
         })?;
         self.within_what_a_call_may_send()?;
@@ -2573,7 +2573,7 @@ impl Runner for World {
 
     fn message(&mut self, text: String) -> Result<Reply, Fault> {
         let page = self.view.pencere_view_page();
-        let reply = sandbox::call(&mut self.store, self.limits.call, |store| {
+        let reply = sandbox::call(&mut self.store, &self.limits, TimeLimit::Call, |store| {
             page.call_message(store, &text)
         })?;
         self.within_what_a_call_may_send()?;
@@ -2582,7 +2582,7 @@ impl Runner for World {
 
     fn room(&mut self) -> Result<Reply, Fault> {
         let page = self.view.pencere_view_page();
-        let reply = sandbox::call(&mut self.store, self.limits.call, |store| {
+        let reply = sandbox::call(&mut self.store, &self.limits, TimeLimit::Call, |store| {
             page.call_room(store)
         })?;
         self.within_what_a_call_may_send()?;

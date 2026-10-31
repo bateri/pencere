@@ -26,6 +26,13 @@ The drive of a page of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.
 - A press that is the right button's (and, on a Mac, ⌃ with the main button, told the page as the right
   button's) reaches the editors as the page's `gestures` say; the `Place` of a pointer event says `inside` and the editor's `version`.
 
+### Changed
+
+- **The headless host holds a page to the floor.** Where a test does not say (`Opening::limits`),
+  a page is held to `ModuleLimits::floor()` (a call 250 ms, unless `PENCERE_CALL_MS` says), the
+  least a host gives; `ModuleLimits::default()`, which a terminal gives, is now more
+  (see `pencere-sandbox`). `Setup::default()` keeps the terminal's.
+
 ### Fixed
 
 - **A reply that opens a field can fill it and send the keyboard to it.** A host has a field only
@@ -75,10 +82,10 @@ The drive of a page of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.
 
 - **How long a call of a page may take, from the environment.** `headless::CALL_MS`
   (`PENCERE_CALL_MS`, in milliseconds) is the time a call of the page may take where a test does not
-  say (`Opening::limits`): the kit's 250 ms unless it is set. The limit is the wall clock's, and a
+  say (`Opening::limits`): the floor's 250 ms unless it is set. The limit is the wall clock's, and a
   test of what a page shows and does failed with `Ended(Timeout)` on a runner that was busy, for
   nothing the page did; a gate that runs on one sets it, and a run on a machine at rest holds the
-  page to the terminal's limit.
+  page to the floor.
 - **The system the host with no screen says it is.** `Opening::wall_clock(seconds, utc_offset)` is
   the time of day when its clock reads 0 (`WALL_ORIGIN` in UTC unless said), going on with its
   clock; `Opening::keyboard` says how its keys are written (a Mac's unless said), and

@@ -1090,9 +1090,9 @@ fn texts(root: &Element) -> Vec<String> {
 
 /// A page made of `script` driven a frame at a time, each frame after a wake of its timers, until
 /// it says "done": the words of each frame and how many elements it had. A call past the time a
-/// call has (250 ms) fails the page.
+/// call has at least (the floor's 250 ms) fails the page.
 fn frames_until_done(script: &str) -> Vec<(Vec<String>, usize)> {
-    let mut page = open_script(script, ModuleLimits::default());
+    let mut page = open_script(script, ModuleLimits::floor());
     let mut frames = Vec::new();
     let mut now = 0.0;
     for _ in 0..500 {

@@ -114,13 +114,22 @@ impl Program for Unbounded {
 }
 
 /// What a module is held to.
+///
+/// There are two sets of them. [`ModuleLimits::floor`] is what the protocol says every host gives
+/// at least, and so what an author's page is written to and tested against (`pencere test`, the
+/// headless host). [`ModuleLimits::default`] is what a terminal gives: the floor, with more time
+/// to a call and to the start. Time is the wall clock's, and the wall clock of a busy machine is no
+/// measure of a page — one that is compiling, or whose other windows are drawing, takes several
+/// times as long to do the same — while the page runs on a thread of its own and the drawing never
+/// waits for it, so a short time protects nobody's smoothness: it is there to stop a page that
+/// does not come back at all.
 #[derive(Clone, Debug)]
 pub struct ModuleLimits {
     /// Bytes of memory and of tables the module may hold in all.
     pub memory: usize,
-    /// How long one call (a frame, a settle, an event) may take.
+    /// How long one call (a frame, a settle, an event) may take: 250 ms at the floor.
     pub call: Duration,
-    /// How long the module may take to start (its first code to run).
+    /// How long the module may take to start (its first code to run): 2 s at the floor.
     pub start: Duration,
     /// How long compiling the module may take. A component is code from a program, and what it
     /// takes to compile is the author's to make long; past this the module is refused (the
@@ -164,8 +173,10 @@ pub struct ModuleLimits {
     pub editor_asks: usize,
 }
 
-impl Default for ModuleLimits {
-    fn default() -> Self {
+impl ModuleLimits {
+    /// What every host gives a page at least (the protocol's floors, Section 9.8): the limits an
+    /// author's page is held to wherever it is tried, and the ones a test of it should use.
+    pub fn floor() -> Self {
         Self {
             memory: 64 << 20,
             call: Duration::from_millis(250),
@@ -187,6 +198,44 @@ impl Default for ModuleLimits {
             editor_asks: 4096,
         }
     }
+
+    /// How long a call held to `limit` may take.
+    pub(crate) fn time(&self, limit: TimeLimit) -> Duration {
+        match limit {
+            TimeLimit::Call => self.call,
+            TimeLimit::Start => self.start,
+        }
+    }
+}
+
+/// What a terminal gives a page: the floor, with the time a busy machine may need — 5 s to a call
+/// and 10 s to the start. A page cut off at this is not slow, it has not come back.
+impl Default for ModuleLimits {
+    fn default() -> Self {
+        Self {
+            call: Duration::from_secs(5),
+            start: Duration::from_secs(10),
+            ..Self::floor()
+        }
+    }
+}
+
+/// Which of the times of [`ModuleLimits`] a call is held to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimeLimit {
+    /// One call: a frame, a settle, an event ([`ModuleLimits::call`]).
+    Call,
+    /// The start of the module ([`ModuleLimits::start`]).
+    Start,
+}
+
+/// A time as a person reads it: `5 s`, `250 ms`.
+fn said(time: Duration) -> String {
+    if time.subsec_nanos() == 0 {
+        format!("{} s", time.as_secs())
+    } else {
+        format!("{} ms", time.as_millis())
+    }
 }
 
 /// Why a module is gone. Each reads as a sentence on its own: it is what the program of the page is
@@ -195,8 +244,8 @@ impl Default for ModuleLimits {
 pub enum Fault {
     /// The bytes are not a component, or it needs more than the page's interface.
     Load(String),
-    /// A call did not come back in time.
-    Timeout,
+    /// A call, or the start, did not come back in `within`: the time `limit` allows.
+    Timeout { limit: TimeLimit, within: Duration },
     /// The module wanted more memory than it may have.
     Memory,
     /// The module trapped (an unreachable, a panic, a stack that ran out, a bad access).
@@ -214,7 +263,22 @@ impl std::fmt::Display for Fault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Load(why) => write!(f, "the page could not be loaded: {why}"),
-            Self::Timeout => f.write_str("the page did not come back in time"),
+            Self::Timeout {
+                limit: TimeLimit::Call,
+                within,
+            } => write!(
+                f,
+                "the page did not come back within {} (a call: a frame, a settle, an event)",
+                said(*within)
+            ),
+            Self::Timeout {
+                limit: TimeLimit::Start,
+                within,
+            } => write!(
+                f,
+                "the page did not finish starting within {}",
+                said(*within)
+            ),
             Self::Memory => f.write_str("the page asked for more memory than it may have"),
             Self::Trap(why) => write!(f, "the page trapped: {why}"),
             Self::Malformed(why) => {
@@ -377,13 +441,15 @@ pub(crate) fn store(
     store
 }
 
-/// Runs `body` on `store` with `within` to come back; what it returns is what the module
-/// said, and a failure is told for what it was.
+/// Runs `body` on `store` with the time `limit` of `limits` to come back; what it returns is what
+/// the module said, and a failure is told for what it was.
 pub(crate) fn call<R>(
     store: &mut Store<Host>,
-    within: Duration,
+    limits: &ModuleLimits,
+    limit: TimeLimit,
     body: impl FnOnce(&mut Store<Host>) -> wasmtime::Result<R>,
 ) -> Result<R, Fault> {
+    let within = limits.time(limit);
     // The epoch moves once, `within` from now, if the call is still running.
     store.set_epoch_deadline(1);
     let guard = watchdog::arm(store.engine(), within);
@@ -396,16 +462,21 @@ pub(crate) fn call<R>(
             Some(why) => Err(Fault::Failed(why)),
             None => Ok(value),
         },
-        Err(why) => Err(fault_of(store, &why)),
+        Err(why) => Err(fault_of(store, limit, within, &why)),
     }
 }
 
-fn fault_of(store: &Store<Host>, why: &wasmtime::Error) -> Fault {
+fn fault_of(
+    store: &Store<Host>,
+    limit: TimeLimit,
+    within: Duration,
+    why: &wasmtime::Error,
+) -> Fault {
     if store.data().limiter.exceeded {
         return Fault::Memory;
     }
     if matches!(why.downcast_ref::<Trap>(), Some(Trap::Interrupt)) {
-        return Fault::Timeout;
+        return Fault::Timeout { limit, within };
     }
     // What it said before it stopped is the reason, the trap only how.
     if let Some(said) = store.data().failed.clone() {
@@ -452,13 +523,15 @@ mod tests {
             Component::new(&engine, source).map_err(|why| Fault::Load(format!("{why:#}")))?;
         let mut store = store(&engine, limits, Arc::new(Unbounded), None);
         let linker = Linker::<Host>::new(&engine);
-        let instance = call(&mut store, limits.start, |store| {
+        let instance = call(&mut store, limits, TimeLimit::Start, |store| {
             linker.instantiate(store, &component)
         })?;
         let run = instance
             .get_typed_func::<(), ()>(&mut store, "run")
             .map_err(|why| Fault::Load(format!("{why:#}")))?;
-        call(&mut store, limits.call, |store| run.call(store, ()))
+        call(&mut store, limits, TimeLimit::Call, |store| {
+            run.call(store, ())
+        })
     }
 
     fn quick() -> ModuleLimits {
@@ -477,7 +550,13 @@ mod tests {
     #[test]
     fn a_module_that_never_returns_is_cut_off_after_its_time() {
         let began = std::time::Instant::now();
-        assert_eq!(run("(loop $l (br $l))", &quick()), Err(Fault::Timeout));
+        assert_eq!(
+            run("(loop $l (br $l))", &quick()),
+            Err(Fault::Timeout {
+                limit: TimeLimit::Call,
+                within: Duration::from_millis(50)
+            })
+        );
         assert!(
             began.elapsed() < Duration::from_secs(5),
             "cut off in {:?}",
@@ -522,5 +601,111 @@ mod tests {
             format!("{why:#}").contains("wasi:cli/environment"),
             "{why:#}"
         );
+    }
+
+    #[test]
+    fn a_module_that_never_starts_is_cut_off_after_the_time_to_start_and_is_told_so() {
+        let engine = engine().expect("an engine");
+        let component = Component::new(
+            &engine,
+            r#"(component
+                (core module $m
+                    (func $s (loop $l (br $l)))
+                    (start $s))
+                (core instance $i (instantiate $m)))"#,
+        )
+        .expect("a component");
+        let limits = ModuleLimits {
+            start: Duration::from_millis(50),
+            call: Duration::from_secs(60),
+            ..ModuleLimits::default()
+        };
+        let mut store = store(&engine, &limits, Arc::new(Unbounded), None);
+        let linker = Linker::<Host>::new(&engine);
+        let fault = call(&mut store, &limits, TimeLimit::Start, |store| {
+            linker.instantiate(store, &component)
+        })
+        .err();
+        assert_eq!(
+            fault,
+            Some(Fault::Timeout {
+                limit: TimeLimit::Start,
+                within: Duration::from_millis(50)
+            })
+        );
+    }
+
+    #[test]
+    fn a_timeout_says_which_time_it_was_and_how_long() {
+        let said = |limit, within| Fault::Timeout { limit, within }.to_string();
+        assert_eq!(
+            said(TimeLimit::Call, Duration::from_secs(5)),
+            "the page did not come back within 5 s (a call: a frame, a settle, an event)"
+        );
+        assert_eq!(
+            said(TimeLimit::Call, Duration::from_millis(250)),
+            "the page did not come back within 250 ms (a call: a frame, a settle, an event)"
+        );
+        assert_eq!(
+            said(TimeLimit::Start, Duration::from_secs(10)),
+            "the page did not finish starting within 10 s"
+        );
+    }
+
+    #[test]
+    fn the_floor_is_the_protocols_and_what_a_terminal_gives_is_at_least_that() {
+        let floor = ModuleLimits::floor();
+        assert_eq!(floor.memory, 64 << 20);
+        assert_eq!(floor.call, Duration::from_millis(250));
+        assert_eq!(floor.start, Duration::from_secs(2));
+        assert_eq!(floor.nodes, 20_000);
+        assert_eq!(floor.depth, 128);
+        assert_eq!(floor.text, 64 << 10);
+        assert_eq!(floor.component, 4 << 20);
+        assert_eq!(floor.messages, 32);
+        assert_eq!(floor.message, 1 << 20);
+        // A field added to the limits is a field to compare: the destructuring does not compile
+        // without it.
+        let ModuleLimits {
+            memory,
+            call,
+            start,
+            compile,
+            nodes,
+            frame_bytes,
+            depth,
+            text,
+            tracks,
+            values,
+            parts,
+            menu,
+            component,
+            messages,
+            message,
+            editor_text,
+            editor_decorations,
+            editor_asks,
+        } = ModuleLimits::default();
+        assert!(memory >= floor.memory);
+        assert!(call >= floor.call);
+        assert!(start >= floor.start);
+        assert!(compile >= floor.compile);
+        assert!(nodes >= floor.nodes);
+        assert!(frame_bytes >= floor.frame_bytes);
+        assert!(depth >= floor.depth);
+        assert!(text >= floor.text);
+        assert!(tracks >= floor.tracks);
+        assert!(values >= floor.values);
+        assert!(parts >= floor.parts);
+        assert!(menu >= floor.menu);
+        assert!(component >= floor.component);
+        assert!(messages >= floor.messages);
+        assert!(message >= floor.message);
+        assert!(editor_text >= floor.editor_text);
+        assert!(editor_decorations >= floor.editor_decorations);
+        assert!(editor_asks >= floor.editor_asks);
+        // What a terminal gives beyond the floor is time.
+        assert_eq!(call, Duration::from_secs(5));
+        assert_eq!(start, Duration::from_secs(10));
     }
 }

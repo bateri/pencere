@@ -106,21 +106,22 @@ impl Measure for Fixed {
 }
 
 /// The environment variable that says, in milliseconds, how long one call of a page may take where
-/// the test does not say ([`Opening::limits`]): the kit's own 250 ms unless it is set, as a terminal
-/// holds a page to it.
+/// the test does not say ([`Opening::limits`]): the floor's 250 ms ([`ModuleLimits::floor`], the
+/// least a host gives a page, and so what an author writes a page to) unless it is set.
 ///
 /// That limit is the wall clock's, so a test of what a page shows and does fails for the machine,
 /// not for the page, when it runs on one that is busy or slow: a runner that is compiling the
 /// interpreter for other tests at the same time takes several times what one at rest does. A gate
 /// that runs there sets this to a time the page never takes (`PENCERE_CALL_MS=5000`); a run on a
-/// machine at rest leaves it unset and holds the page to the terminal's 250 ms. A value that is not
-/// a whole number of milliseconds above zero is not read.
+/// machine at rest leaves it unset and holds the page to the floor. A terminal gives a page more
+/// ([`ModuleLimits::default`]), so a page that passes here is within what it will be held to. A
+/// value that is not a whole number of milliseconds above zero is not read.
 pub const CALL_MS: &str = "PENCERE_CALL_MS";
 
-/// What a page is held to where a test does not say: the kit's limits, with the time a call may
-/// take from the environment ([`CALL_MS`]).
+/// What a page is held to where a test does not say: the floor, with the time a call may take from
+/// the environment ([`CALL_MS`]).
 fn default_limits() -> ModuleLimits {
-    let mut limits = ModuleLimits::default();
+    let mut limits = ModuleLimits::floor();
     let said = std::env::var(CALL_MS)
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())

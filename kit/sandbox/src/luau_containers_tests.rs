@@ -31,8 +31,8 @@ const STALE_NOTE: &str = "No new readings from containers-rust";
 const PATIENCE: Duration = Duration::from_secs(60);
 
 /// What these tests are about is the page and what it does, not how fast: a call may take as long
-/// as a machine running many tests at once makes it (the quarter of a second a module is held to
-/// is the sandbox tests' business).
+/// as a machine running many tests at once makes it (the quarter of a second of the floor, which
+/// an author's page is tested against, is the sandbox tests' business).
 fn roomy() -> ModuleLimits {
     ModuleLimits {
         call: Duration::from_secs(20),

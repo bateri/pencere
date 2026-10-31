@@ -37,7 +37,7 @@ jobs:
     timeout-minutes: 90
     env:
       # How long a call of a page may take in the tests that drive one under the host with no screen
-      # (`pencere_drive::headless::CALL_MS`): the kit's 250 ms is the wall clock's, and a runner that
+      # (`pencere_drive::headless::CALL_MS`): the floor's 250 ms is the wall clock's, and a runner that
       # is compiling the interpreter for other tests at the same time takes several times what a
       # machine at rest does. What the tests check is what a page shows and does; the strict run
       # is `make check-timing`, on a machine at rest.

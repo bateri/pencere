@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use pencere_view::{Event, Font, Input, Key, Measure, Metrics, Mods, Point, Size};
 use wasmtime::component::Component;
 
-use crate::{Fault, Module, ModuleLimits, Program, Unbounded, Update};
+use crate::{Fault, Module, ModuleLimits, Program, TimeLimit, Unbounded, Update};
 
 fn component(name: &str) -> Option<Vec<u8>> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -268,12 +268,18 @@ fn broken(letter: char, limits: ModuleLimits) -> Option<(Fault, Duration)> {
 fn a_page_that_never_returns_is_cut_off_and_the_application_hears_why() {
     let limits = ModuleLimits {
         call: Duration::from_millis(200),
-        ..ModuleLimits::default()
+        ..ModuleLimits::floor()
     };
     let Some((fault, took)) = broken('l', limits) else {
         return;
     };
-    assert_eq!(fault, Fault::Timeout);
+    assert_eq!(
+        fault,
+        Fault::Timeout {
+            limit: TimeLimit::Call,
+            within: Duration::from_millis(200)
+        }
+    );
     assert!(took < Duration::from_secs(5), "{took:?}");
 }
 

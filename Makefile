@@ -49,10 +49,11 @@ check:
 	npx vitest run --passWithNoTests
 
 # check-timing runs the tests that drive a page under the host with no screen with every call of
-# the page held to the kit's 250 ms (CALL_MS=125 for half of it), as a terminal holds it, and the
-# gate of a runner does not (.github/workflows/check.yml sets PENCERE_CALL_MS: the wall clock of a
-# busy runner is no measure of the page). It is not part of the gate: it measures the machine as much
-# as the page, so run it on one at rest.
+# the page held to the floor's 250 ms (CALL_MS=125 for half of it), the least a host gives a page and
+# so what an author writes it to (a terminal gives more), and the gate of a runner does not
+# (.github/workflows/check.yml sets PENCERE_CALL_MS: the wall clock of a busy runner is no measure of
+# the page). It is not part of the gate: it measures the machine as much as the page, so run it on
+# one at rest.
 CALL_MS ?= 250
 check-timing: guest
 	cargo build --quiet -p containers-rust

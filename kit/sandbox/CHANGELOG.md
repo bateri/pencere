@@ -26,6 +26,17 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   All, Toggle Line Comment, Select All Occurrences, with the editor's keys, the page's lines around them),
   and `ui.EDITOR_MENU_COMMAND` (Shift F10) to open it at the caret; `u:menu` passes a line's `paste`.
 
+### Changed
+
+- **A terminal gives a page time for a busy machine.** `ModuleLimits::default()` is now a call of
+  5 s and a start of 10 s (it was 250 ms and 2 s), and the protocol's floors are
+  `ModuleLimits::floor()` (the old values): what an author's page is tested against, since a page
+  that stays within them opens on every host. The limit is the wall clock's and the page runs on a
+  thread of its own, so 250 ms protected no one's smoothness and ended a page when the machine
+  was busy. `Fault::Timeout` is now `Fault::Timeout { limit, within }` (`TimeLimit::Call` or
+  `TimeLimit::Start`, and how long it was), and says so: "the page did not come back within 5 s (a
+  call: a frame, a settle, an event)". **Breaking** for a host that matches `Fault::Timeout`.
+
 ### Fixed
 
 - **A page of large pictures no longer loses them as it is scrolled.** `Images` kept a PNG or a JPEG

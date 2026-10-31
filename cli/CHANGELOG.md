@@ -51,7 +51,7 @@ All notable changes to the `pencere` command are recorded here. The format follo
 - `pencere test` can `dwell(id, x, y)` (the pointer rests over a word of an editor that hears of it,
   as long as it takes to be told), `hold("cmd")`, `release()` and `click_holding(x, y, "cmd")` (the modifiers a person holds) and say where a range the page named is (`anchor_rect(editor, name)`).
 - **`PENCERE_CALL_MS` for `pencere test`.** The time, in milliseconds, a call of the page may take
-  in a test: the kit's 250 ms (as a terminal holds a page) unless it is set. The limit is the wall
+  in a test: the floor's 250 ms (the least a host gives a page) unless it is set. The limit is the wall
   clock's, and a test of what a page shows and does should not fail for how quick a busy runner is;
   a value that is not a whole number above zero is not read.
 - **`pencere test`.** Runs the tests of an app, written in Lua (`test/**/*_test.lua`,

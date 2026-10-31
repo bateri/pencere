@@ -56,4 +56,4 @@ pub use figure::draw_figure;
 pub use images::{Arrival, Assets, Bitmap, Diagnostic, ImageLimits, Images};
 pub use luau::{COMPONENT as LUAU_COMPONENT, Script};
 pub use module::{Answer, Frame, Module, Runner, Update};
-pub use sandbox::{Fault, ModuleLimits, Program, Unbounded};
+pub use sandbox::{Fault, ModuleLimits, Program, TimeLimit, Unbounded};

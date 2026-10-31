@@ -1320,8 +1320,12 @@ The sandbox floors are those of the protocol, Section 9.8 (memory 64 MiB, a call
 a script and the scripts it requires, together), 32 messages to the program to a call, a message
 1 MiB, 4096 values to a sparkline or steps to a path, 1024 parts to a text, paths to a canvas or
 commands to an element, and the limits on pictures). A view that stays within them
-opens on every host. The values of this repository's implementation are the defaults of
-`ModuleLimits` in `kit/sandbox/src/sandbox.rs`.
+opens on every host. The values of this repository's implementation are `ModuleLimits::floor()` in
+`kit/sandbox/src/sandbox.rs`: what an author's page is written and tested against (`pencere test`
+holds a page to them). A terminal gives more time: `ModuleLimits::default()` is the floors with a call
+5 s and the start 10 s. Time is the wall clock's and the wall clock of a busy machine is no measure of a
+page, which runs on a thread of its own that the drawing never waits for; the limit is there to stop a
+page that does not come back, not one that is slow.
 
 Besides drawing what the engine lays out, a host does what follows. This repository's drive
 (`pencere-drive`, `kit/drive`) does it for a host, all but what only the host can do: measure and

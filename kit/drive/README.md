@@ -111,7 +111,7 @@ its own.
   app's `src/view/` with `src/assets/` under `assets/`), `component(bytes)`; then `size`, `scale`,
   `measure` (`Fixed`, 7 × 16 pixels a character, unless said), `peer`, `limits`, `assets`,
   `at`, `patience`, `reduce_motion`, and `open`.
-  What a page may take for one call is the kit's 250 ms, as a terminal holds it; `limits` says
+  What a page may take for one call is the floor's 250 ms (the least a host gives a page); `limits` says
   otherwise, and so does the environment for a gate on a busy machine (`PENCERE_CALL_MS=5000`, in
   milliseconds: the limit is the wall clock's, and a test of what a page does should not fail for
   how quick the machine is).
