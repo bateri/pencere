@@ -234,7 +234,11 @@ local List = core.component("list", {
 	end,
 	hover = function(u, id, props, state, part, key)
 		if part == "row" and props.hover_selects and state.cursor ~= key then
+			-- The row is under the pointer, so it is in view: it is not scrolled to. Scrolling to a row
+			-- the edge cuts would bring the next row under the pointer, choose it and scroll again, and
+			-- the list would run away from a hand that only rests on it.
 			state.cursor = key
+			state.revealed = key
 			return true
 		end
 		return nil

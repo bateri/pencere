@@ -75,6 +75,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Fixed
 
+- A list whose cursor follows the pointer (a palette, completions) no longer scrolls to the row the
+  pointer comes to: that row is in view already, and scrolling to one its edge cut brought the next
+  row under the pointer, chose it and scrolled again, so the list ran away from a resting hand.
 - `keys.matches` takes a character that has no case (`?`, `/`, a digit) as its key whether shift
   typed it or not, as the host does a command's keys: on a Turkish keyboard `/` is shift and 7.
 

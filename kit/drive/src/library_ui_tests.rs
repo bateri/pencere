@@ -1382,6 +1382,55 @@ fn a_palette_finds_by_what_is_typed_moves_with_the_arrows_and_picks_with_enter()
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_palette_row_the_pointer_comes_to_is_chosen_where_it_is_and_the_list_does_not_scroll()
+-> Result<(), Error> {
+    let many = PALETTE.replace(
+        "S.state = { query = \"\", cursor = nil }",
+        "for index = 1, 40 do\n    table.insert(S.items, { key = \"k\" .. index, title = \"Command \" .. index })\nend\nS.state = { query = \"\", cursor = nil }",
+    );
+    let mut page = open(&many)?;
+    page.click("open")?;
+    page.step()?;
+    page.advance(0.3)?;
+    let list = page.bounds("palette/list").expect("the palette's list");
+    let first = page
+        .bounds("palette/list/row/save")
+        .expect("the first row")
+        .y;
+    // The pointer comes to the foot of the list, where the last row in view is cut by its edge, and
+    // goes a point at a time down it, as a hand does.
+    for step in 0..6 {
+        let at = pencere_view::Point::new(list.x + 40.0, list.y + list.h - 6.0 + step as f32);
+        page.move_to(at)?;
+        page.advance(0.05)?;
+    }
+    assert_eq!(
+        page.bounds("palette/list/row/save").map(|row| row.y),
+        Some(first),
+        "the list stays where it is under the pointer"
+    );
+    let chosen = page
+        .outline()
+        .accessible
+        .iter()
+        .filter(|item| item.state.selected)
+        .count();
+    assert_eq!(chosen, 1, "the row under the pointer is chosen");
+    // The keys still bring the row they choose into view.
+    for _ in 0..20 {
+        page.press("down")?;
+    }
+    page.advance(0.1)?;
+    assert_ne!(
+        page.bounds("palette/list/row/save").map(|row| row.y),
+        Some(first),
+        "the arrows scroll to the row they choose"
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_palette_picks_with_a_click_gives_up_with_escape_and_says_back_in_an_empty_field()
 -> Result<(), Error> {
     let mut page = open(PALETTE)?;
