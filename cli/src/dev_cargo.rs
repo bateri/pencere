@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use crate::dev::{Stamps, append, changed};
+use crate::leaving;
 
 /// How often the files are looked at.
 const EVERY: Duration = Duration::from_millis(250);
@@ -82,16 +83,6 @@ fn watch(root: PathBuf, tell: Sender<String>, stop: Arc<AtomicBool>) {
     }
 }
 
-/// Waits for a change to the program (the view's changes, which no program runs to show, count
-/// too: the person may be fixing the page of a program that did not build). `None` when the watch
-/// has ended.
-fn wait_for_change(changes: &Receiver<String>) -> Option<String> {
-    let first = changes.recv().ok()?;
-    std::thread::sleep(Duration::from_millis(120));
-    while changes.try_recv().is_ok() {}
-    Some(first)
-}
-
 /// Builds the package with Cargo (`cargo build` and `extra`), its messages on standard error, and
 /// returns the program it made: the binary named `name`, else the only one, else the first.
 pub fn build(root: &Path, name: &str, extra: &[&str]) -> Result<PathBuf, String> {
@@ -147,25 +138,6 @@ enum Ran {
     Done(i32),
 }
 
-/// What is done with ⌃C while the program runs: nothing, in this process. The terminal sends it to
-/// the program too, which ends its view and exits; `pencere dev` then ends with it. A handler, not
-/// `SIG_IGN`, so that the program, which is started with the handlers reset, takes ⌃C as it would.
-#[allow(unsafe_code)]
-fn hold_interrupts(hold: bool) {
-    extern "C" fn nothing(_signal: libc::c_int) {}
-    let handler: libc::sighandler_t = if hold {
-        nothing as extern "C" fn(libc::c_int) as libc::sighandler_t
-    } else {
-        libc::SIG_DFL
-    };
-    // SAFETY: setting the disposition of SIGINT and SIGQUIT to a function that does nothing (which
-    // is safe in a signal handler) or to the default one.
-    unsafe {
-        libc::signal(libc::SIGINT, handler);
-        libc::signal(libc::SIGQUIT, handler);
-    }
-}
-
 /// Runs the program until it ends, or until a file of the program changes and it is stopped.
 fn run(
     program: &Path,
@@ -178,7 +150,6 @@ fn run(
         .append(true)
         .open(log)
         .map_err(|why| format!("{}: {why}", log.display()))?;
-    hold_interrupts(true);
     let child = Command::new(program)
         .env(pencere::DEV_VARIABLE, src)
         .stdin(Stdio::inherit())
@@ -187,19 +158,13 @@ fn run(
         .spawn();
     let mut child: Child = match child {
         Ok(child) => child,
-        Err(why) => {
-            hold_interrupts(false);
-            return Err(format!("{} could not be run: {why}", program.display()));
-        }
+        Err(why) => return Err(format!("{} could not be run: {why}", program.display())),
     };
     let ran = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Ran::Done(status_of(status)),
             Ok(None) => {}
-            Err(why) => {
-                hold_interrupts(false);
-                return Err(format!("the program could not be waited for: {why}"));
-            }
+            Err(why) => return Err(format!("the program could not be waited for: {why}")),
         }
         let received = match changes.lock() {
             Ok(changes) => changes.recv_timeout(Duration::from_millis(100)),
@@ -222,7 +187,6 @@ fn run(
             }
         }
     };
-    hold_interrupts(false);
     Ok(ran)
 }
 
@@ -290,18 +254,22 @@ pub fn command(root: &Path, name: Option<String>, log: Option<PathBuf>) -> ExitC
         std::thread::spawn(move || watch(root, tell, stop_watch));
     }
     let changes = Mutex::new(changes);
+    // ⌃C, all along: it reaches Cargo or the program too, which end; the loop then ends with 0.
+    let _listening = leaving::listen();
     let status = loop {
         let program = match build(&root, &name, &[]) {
             Ok(program) => program,
+            Err(_) if leaving::asked() => break 130,
             Err(why) => {
                 eprintln!("pencere dev: {why}; waiting for a change, ⌃C to leave");
                 match changes.lock() {
-                    Ok(changes) if wait_for_change(&changes).is_some() => continue,
+                    Ok(changes) if leaving::wait_for_change(&changes).is_some() => continue,
                     _ => break 1,
                 }
             }
         };
         match run(&program, &src, &log, &changes) {
+            Ok(_) if leaving::asked() => break 130,
             Ok(Ran::Changed) => {
                 eprintln!("pencere dev: the program changed; building {name} again")
             }
@@ -315,21 +283,21 @@ pub fn command(root: &Path, name: Option<String>, log: Option<PathBuf>) -> ExitC
                     "pencere dev: {name} finished (status {status}); waiting for a change, ⌃C to leave"
                 );
                 match changes.lock() {
-                    Ok(changes) if wait_for_change(&changes).is_some() => {}
+                    Ok(changes) if leaving::wait_for_change(&changes).is_some() => {}
                     _ => break status,
                 }
             }
             Err(why) => {
                 eprintln!("pencere dev: {why}; waiting for a change, ⌃C to leave");
                 match changes.lock() {
-                    Ok(changes) if wait_for_change(&changes).is_some() => {}
+                    Ok(changes) if leaving::wait_for_change(&changes).is_some() => {}
                     _ => break 1,
                 }
             }
         }
     };
     stop_watch.store(true, Ordering::SeqCst);
-    ExitCode::from(u8::try_from(status & 0xff).unwrap_or(1))
+    leaving::ending(status)
 }
 
 #[cfg(test)]

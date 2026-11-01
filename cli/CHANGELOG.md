@@ -30,6 +30,9 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Fixed
 
+- `pencere dev` is left with ⌃C, as it says, and ends with 0: while the program runs, while Cargo
+  builds it and while a change is waited for. It ended with the program's 130, or was killed by the
+  signal while it waited, so `make dev` reported an error on every leaving.
 - The calls and the subscriptions of a view start in the order the view made them. Each came in on a
   thread of its own and raced the others to the app's loop, so that two edits the view sent one
   after the other could be begun the other way round; they are now handed to the loop as the view

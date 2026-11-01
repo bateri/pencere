@@ -14,6 +14,7 @@ mod build_cmd;
 mod dev;
 mod dev_cargo;
 mod files;
+mod leaving;
 mod macho;
 mod new;
 mod payload;

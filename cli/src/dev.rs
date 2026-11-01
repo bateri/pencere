@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use crate::files::{Files, Project};
+use crate::leaving;
 use crate::runtime::{Config, Exit, Reloaded, Remote, Runner};
 
 /// How often the files are looked at.
@@ -92,15 +93,6 @@ fn watch(project: Arc<Project>, tell: Sender<String>, stop: Arc<AtomicBool>) {
         }
         before = after;
     }
-}
-
-/// Waits for a change; the first one, and what came with it at the same time is let go.
-fn wait_for_change(changed: &Receiver<String>) -> Option<String> {
-    let first = changed.recv().ok()?;
-    // A save is often two or three writes.
-    std::thread::sleep(Duration::from_millis(120));
-    while changed.try_recv().is_ok() {}
-    Some(first)
 }
 
 /// Follows the changes while one run of the app goes on: reloads the view, or ends the run.
@@ -266,7 +258,7 @@ pub fn command(args: &[String]) -> ExitCode {
                     "pencere dev: {name} finished (status {status}); waiting for a change, ⌃C to leave"
                 );
                 if let Ok(changed) = changed.lock()
-                    && wait_for_change(&changed).is_none()
+                    && leaving::wait_for_change(&changed).is_none()
                 {
                     break status;
                 }
@@ -274,7 +266,7 @@ pub fn command(args: &[String]) -> ExitCode {
             Exit::Failed(why) => {
                 eprintln!("pencere dev: {why}\npencere dev: waiting for a change, ⌃C to leave");
                 if let Ok(changed) = changed.lock()
-                    && wait_for_change(&changed).is_none()
+                    && leaving::wait_for_change(&changed).is_none()
                 {
                     break 1;
                 }
@@ -282,7 +274,7 @@ pub fn command(args: &[String]) -> ExitCode {
         }
     };
     stop.store(true, Ordering::SeqCst);
-    ExitCode::from(u8::try_from(status & 0xff).unwrap_or(1))
+    leaving::ending(status)
 }
 
 #[cfg(test)]

@@ -2235,7 +2235,7 @@ fn pencere_dev_shows_the_view_again_and_not_the_app_when_a_script_the_page_requi
         "program: open id=* view=lua version=2.1",
         "view: kind=lua version=2.1",
         "host: the person presses ^C",
-        "program: exited with status 130",
+        "program: exited with status 0",
     ]);
     // The program was not started again: the screen was taken once.
     assert_eq!(run.count("program: open"), 2, "{}", run.text());
@@ -2400,7 +2400,7 @@ fn pencere_dev_shows_the_view_again_when_the_page_changes_and_runs_the_app_again
         "view: kind=lua version=2.1",
         "host: the person presses ^C",
         "program: bye id=* reason=signal",
-        "program: exited with status 130",
+        "program: exited with status 0",
     ]);
     // Two of the three views were not the first: the screen was taken once by the first and kept
     // by the second; the program that started again took it anew.
@@ -2484,6 +2484,8 @@ fn pencere_dev_shows_a_rust_programs_view_again_when_its_page_changes_and_builds
         "view: kind=lua version=2.1",
         "host: the person presses ^C",
         "program: bye id=* reason=signal",
+        // ⌃C is how `pencere dev` is left: it ends with nothing wrong.
+        "program: exited with status 0",
     ]);
 }
 
@@ -2625,7 +2627,7 @@ fn pencere_dev_shows_a_web_page_again_when_one_of_its_files_changes() {
         "host: need id=* re=* missing=1",
         "view: kind=web version=1.0",
         "host: the person presses ^C",
-        "program: exited with status 130",
+        "program: exited with status 0",
     ]);
     assert_eq!(run.count("program: open"), 2, "{}", run.text());
 }
