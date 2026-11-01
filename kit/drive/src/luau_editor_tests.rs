@@ -1028,6 +1028,25 @@ fn a_language_colours_a_line_of_letters_of_many_bytes_where_the_editor_holds_its
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_chunk_of_the_text_cut_inside_a_letter_is_read_up_to_where_the_letter_starts()
+-> Result<(), Error> {
+    // The first chunk is 32 768 bytes: the first line is "123" and 16 384 letters of two bytes, so
+    // that the cut falls between the two bytes of the 16 383rd letter. The lines after it are read
+    // from where the next chunk starts.
+    let mut page = open(&coloured(
+        r#"return "123" .. string.rep("é", 16384) .. "\n45\n67""#,
+        "{}",
+    ))?;
+    page.idle()?;
+    page.refresh()?;
+    assert_eq!(looks(&page, 0), vec![(0, 3, "number")]);
+    assert_eq!(looks(&page, 1), vec![(0, 2, "number")]);
+    assert_eq!(looks(&page, 2), vec![(0, 2, "number")]);
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn an_edit_reads_the_lines_again_only_until_their_state_is_what_it_was() -> Result<(), Error> {
     let mut page = open(&coloured(
         r#"local lines = {}
@@ -2641,7 +2660,7 @@ return {
     .map(drop);
     let _ = &mut page;
     assert!(
-        matches!(&page, Err(Error::Ended(Fault::Malformed(why))) if why.contains("bytes")),
+        matches!(&page, Err(Error::Ended(Fault::Malformed(why))) if why.contains("characters")),
         "{page:?}"
     );
     Ok(())

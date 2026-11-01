@@ -2098,7 +2098,9 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             push_id(L, event.val.editor_refused.editor);
             lua_setfield(L, -2, "editor");
             set_word(L, "reason",
-                     event.val.editor_refused.reason < 11 ? kRefusals[event.val.editor_refused.reason] : "unknown");
+                     event.val.editor_refused.reason < sizeof(kRefusals) / sizeof(kRefusals[0])
+                         ? kRefusals[event.val.editor_refused.reason]
+                         : "unknown");
             break;
         case PENCERE_VIEW_TYPES_EVENT_FOUND: {
             // { editor =, version =, count =, current = (from 1, nil for none), more = }

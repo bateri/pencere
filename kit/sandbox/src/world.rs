@@ -2061,11 +2061,15 @@ fn editor_asks_out(
                 for item in &decorate.decorations {
                     text = text.saturating_add(mark_text(&item.mark));
                     if let wit::Mark::Widget(widget) = &item.mark {
-                        let words: usize = widget.parts.iter().map(|part| part.text.len()).sum();
+                        let words: usize = widget
+                            .parts
+                            .iter()
+                            .map(|part| part.text.chars().count())
+                            .sum();
                         if widget.parts.len() > limits::WIDGET_PARTS || words > limits::WIDGET_TEXT
                         {
                             return Err(Fault::Malformed(format!(
-                                "a widget of {} parts and {words} bytes (at most {} and {})",
+                                "a widget of {} parts and {words} characters (at most {} and {})",
                                 widget.parts.len(),
                                 limits::WIDGET_PARTS,
                                 limits::WIDGET_TEXT

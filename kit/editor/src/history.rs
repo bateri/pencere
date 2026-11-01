@@ -187,3 +187,61 @@ impl Undo {
         self.redo.clear();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn step(len: usize) -> Vec<Step> {
+        vec![Step {
+            from: 0,
+            to: 0,
+            len,
+        }]
+    }
+
+    /// A log of more versions than it keeps: the three tables are cut together, and what is asked
+    /// of a version outside them is refused, by characters and by bytes alike.
+    #[test]
+    fn a_log_cut_to_its_last_versions_keeps_characters_and_bytes_in_step() {
+        let kept = limits::VERSIONS;
+        let mut log = Log::new(0);
+        for n in 0..kept + 5 {
+            // Every step is one letter of two bytes.
+            log.push(
+                step(1),
+                vec![Step {
+                    from: 0,
+                    to: 0,
+                    len: 2,
+                }],
+                (n * 2) as usize,
+            );
+        }
+        assert_eq!(log.current(), kept + 5);
+        let oldest = 5;
+        assert_eq!(log.since(oldest).map(|sets| sets.len()), Ok(kept as usize));
+        assert_eq!(
+            log.bytes_since(oldest).map(|sets| sets.len()),
+            Ok(kept as usize)
+        );
+        assert_eq!(
+            log.bytes_since(oldest - 1).err(),
+            Some(Refusal::StaleVersion)
+        );
+        assert_eq!(log.since(oldest - 1).err(), Some(Refusal::StaleVersion));
+        assert_eq!(
+            log.bytes_since(kept + 6).err(),
+            Some(Refusal::FutureVersion)
+        );
+        // The length at the oldest version kept is what the text had then; at the current, `now`.
+        assert_eq!(log.bytes_at(oldest, 0), Ok(10));
+        assert_eq!(log.bytes_at(log.current(), 777), Ok(777));
+        assert_eq!(log.bytes_at(oldest - 1, 0), Err(Refusal::StaleVersion));
+        assert_eq!(log.bytes_at(kept + 6, 0), Err(Refusal::FutureVersion));
+        // The bytes of the sets since a version are those of the steps pushed after it.
+        let sets = log.bytes_since(kept + 3).expect("recent");
+        assert_eq!(sets.len(), 2);
+        assert!(sets.iter().all(|set| set.iter().all(|step| step.len == 2)));
+    }
+}

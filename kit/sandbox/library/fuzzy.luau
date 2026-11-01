@@ -23,8 +23,11 @@
 --   search = fuzzy.search(pattern, files, { path = true, limit = 50 })
 --   return search:run(function(search) shown = search:results(); return true end)
 --
--- Places are characters (code points of UTF-8), counted from 1. A text that is not UTF-8 is read a
--- byte a character, and a text is matched in its first 64 KiB. Case: "smart" (the default) tells a
+-- A place is a byte of the text, counted from 1 as `string.find` counts (Section 2.7 of the kit's
+-- specification): the byte a matched character starts at, so that `string.find(text, character,
+-- place, true) == place` and, for a letter of one byte, `string.sub(text, place, place)` is the
+-- letter. A text that is not UTF-8 is read a byte a character, and a text is matched in its first
+-- 64 KiB. Case: "smart" (the default) tells a
 -- capital from a small letter only where the pattern has a capital; "ignore" never does, "respect"
 -- always. A letter is lowered by Unicode's
 -- simple mapping for ASCII, Latin-1, Latin Extended-A and the letters of Latin Extended-B and
@@ -246,11 +249,12 @@ local function class_of(code)
 end
 
 -- The characters of `text` as a list of code points, and how many: a text that is not UTF-8 a
--- byte a character.
+-- byte a character. Whether each is a byte of the text (a text of ASCII, or not in UTF-8), so that
+-- the place of a character is its place in the text.
 local function characters(text)
 	local length = #text
 	if length == 0 then
-		return {}, 0
+		return {}, 0, true
 	end
 	local ascii = string.find(text, "[\128-\255]") == nil
 	local count = ascii and length or utf8.len(text)
@@ -260,8 +264,9 @@ local function characters(text)
 	elseif not ascii then
 		count = length
 	end
+	local bytewise = read == string.byte
 	if length <= CHUNK then
-		return { read(text, 1, length) }, count
+		return { read(text, 1, length) }, count, bytewise
 	end
 	local out = table.create(count)
 	local from, made = 1, 0
@@ -282,7 +287,7 @@ local function characters(text)
 		made += #piece
 		from = to + 1
 	end
-	return out, count
+	return out, count, bytewise
 end
 
 -- --- Patterns ----------------------------------------------------------------------------------
@@ -418,6 +423,9 @@ local H, C, B, T, F = {}, {}, {}, {}, {}
 -- in, the window of the table and where the best score ended in it; or the places themselves where
 -- the text was too long for a table.
 local found_codes, found_from, found_first, found_width, found_at, found_places = nil, 0, 0, 0, 0, nil
+-- The text of what the last match found where its characters are not its bytes (nil where they
+-- are): the places are made bytes from it.
+local found_text = nil
 
 local function compared(code, respect, path)
 	if not respect then
@@ -624,9 +632,10 @@ local function best_in(query, codes, from, to)
 	return best
 end
 
--- The places of what the last match found: the characters that gave its score ("best"), or where
--- the pattern is first found, from as late a first character as that allows ("first").
-local function places(query, highlight)
+-- The places of what the last match found, as characters: the characters that gave its score
+-- ("best"), or where the pattern is first found, from as late a first character as that allows
+-- ("first").
+local function char_places(query, highlight)
 	if found_places ~= nil then
 		return table.clone(found_places)
 	end
@@ -644,6 +653,23 @@ local function places(query, highlight)
 			i -= 1
 		end
 		k -= 1
+	end
+	return out
+end
+
+-- The places of what the last match found, as the bytes the characters start at (from 1). They run
+-- up, so that each is found from the one before it.
+local function places(query, highlight)
+	local out = char_places(query, highlight)
+	local text = found_text
+	if text == nil then
+		return out
+	end
+	local char, byte = 1, 1
+	for k = 1, #out do
+		byte = utf8.offset(text, out[k] - char + 1, byte)
+		char = out[k]
+		out[k] = byte
 	end
 	return out
 end
@@ -672,7 +698,8 @@ local function score_of(query, text)
 	if not present(query, text) then
 		return nil
 	end
-	local codes, count = characters(text)
+	local codes, count, bytewise = characters(text)
+	found_text = (not bytewise) and text or nil
 	work += count
 	if query.path and not query.slash then
 		-- The name: the last part of the path, the separators at its end left out.
@@ -695,8 +722,8 @@ local function score_of(query, text)
 	return best_in(query, codes, 1, count)
 end
 
--- `pattern` in `text`: its score and the places (characters from 1, in order) of its characters in
--- the text, or nil where it is not there. An empty pattern is in every text, with a score of 0 and
+-- `pattern` in `text`: its score and the places (bytes from 1, in order, each the byte a character
+-- starts at) of its characters in the text, or nil where it is not there. An empty pattern is in every text, with a score of 0 and
 -- no places. `options` are:
 --   case       "smart" (the default: told apart where the pattern has a capital), "ignore" or
 --              "respect"
@@ -1144,11 +1171,13 @@ local function part(words, look)
 end
 
 -- `text` as the parts of a text of many looks (`pencere.rich`), the characters at `positions`
--- (characters from 1, as `fuzzy.match` gives them) in `look`: what a `pencere.span` says
--- (`color`, `weight`, `italic`, `underline`, `strike`, `family`, `bg`, `link`), by default
--- `{ color = "accent", weight = 700 }`; the rest in the element's own look. `from` and `to`
--- (characters, the whole text by default) take a part of the text, the positions still counted in
--- the whole: a path's name and its directories drawn apart. Places outside it are passed over.
+-- (bytes from 1, as `fuzzy.match` gives them: the byte a character starts at) in `look`: what a
+-- `pencere.span` says (`color`, `weight`, `italic`, `underline`, `strike`, `family`, `bg`,
+-- `link`), by default `{ color = "accent", weight = 700 }`; the rest in the element's own look.
+-- `from` and `to` (bytes, a range `[from, to)`, the whole text by default: 1 and `#text + 1`) take
+-- a part of the text, the positions still counted in the whole: a path's name and its directories
+-- drawn apart. Places outside it are passed over. A place, or an end of the part, that is inside
+-- a character of a text in UTF-8 is an error (Section 2.7 of the kit's specification).
 --
 --   pencere.rich(fuzzy.spans(row.item, row.positions, { color = "accent" })):truncate()
 function fuzzy.spans(text, positions, look, from, to)
@@ -1156,7 +1185,7 @@ function fuzzy.spans(text, positions, look, from, to)
 		error("fuzzy.spans takes a text (a string), then the positions, not a " .. type(text), 2)
 	end
 	if positions ~= nil and type(positions) ~= "table" then
-		error("fuzzy.spans takes the positions as a list of characters, not a " .. type(positions), 2)
+		error("fuzzy.spans takes the positions as a list of bytes, not a " .. type(positions), 2)
 	end
 	if look == nil then
 		look = { color = "accent", weight = 700 }
@@ -1176,40 +1205,47 @@ function fuzzy.spans(text, positions, look, from, to)
 	for _, name in ipairs({ "from", "to" }) do
 		local value = name == "from" and from or to
 		if value ~= nil and type(value) ~= "number" then
-			error("the " .. name .. " of fuzzy.spans is a character (a number), not a " .. type(value), 2)
+			error("the " .. name .. " of fuzzy.spans is a place (a number), not a " .. type(value), 2)
 		end
 	end
 	local length = #text
-	local ascii = string.find(text, "[\128-\255]") == nil
-	local count = ascii and length or utf8.len(text)
-	local valid = count ~= nil
-	if not valid then
-		count = length
+	-- Whether a byte can be inside a character: a text in UTF-8 that is not ASCII (a text that is
+	-- not UTF-8 is read a byte a character).
+	local inside = string.find(text, "[\128-\255]") ~= nil and utf8.len(text) ~= nil
+	local function check(at, what)
+		if inside and at <= length then
+			local byte = string.byte(text, at)
+			if byte >= 0x80 and byte < 0xC0 then
+				error(what .. " of fuzzy.spans is inside a character: a place is where one starts", 3)
+			end
+		end
+	end
+	-- Where the character at `at` ends: the byte after it.
+	local function after_character(at)
+		at += 1
+		while inside and at <= length do
+			local byte = string.byte(text, at)
+			if byte < 0x80 or byte >= 0xC0 then
+				break
+			end
+			at += 1
+		end
+		return at
 	end
 	from = math.max(math.ceil(from or 1), 1)
-	to = math.min(math.floor(to or count), count)
-	if from > to then
+	to = math.min(math.floor(to or length + 1), length + 1)
+	if from >= to then
 		return {}
 	end
-	-- The byte where character `at` starts, from a character and its byte known before it.
-	local known_char, known_byte = 1, 1
-	local function byte_of(at)
-		if ascii or not valid then
-			return at
-		end
-		if at == known_char then
-			return known_byte
-		end
-		local byte = utf8.offset(text, at - known_char + 1, known_byte) or (length + 1)
-		known_char, known_byte = at, byte
-		return byte
-	end
+	check(from, "the from")
+	check(to, "the to")
 	local marked = {}
 	for k, at in ipairs(positions or {}) do
 		if type(at) ~= "number" then
-			error("position " .. k .. " of fuzzy.spans is a character (a number), not a " .. type(at), 2)
+			error("position " .. k .. " of fuzzy.spans is a place (a number), not a " .. type(at), 2)
 		end
-		if at >= from and at <= to and at == math.floor(at) then
+		if at >= from and at < to and at == math.floor(at) then
+			check(at, "position " .. k)
 			marked[#marked + 1] = at
 		end
 	end
@@ -1217,7 +1253,7 @@ function fuzzy.spans(text, positions, look, from, to)
 	local parts = {}
 	local at = from
 	local k = 1
-	while at <= to do
+	while at < to do
 		-- The plain characters before the next mark, then the run of marks there.
 		while k <= #marked and marked[k] < at do
 			k += 1
@@ -1225,23 +1261,24 @@ function fuzzy.spans(text, positions, look, from, to)
 		local mark = marked[k]
 		if #parts >= MOST_PARTS - 2 then
 			-- Room for one more part (a turn of this loop makes two): the rest is one, plain.
-			parts[#parts + 1] = part(string.sub(text, byte_of(at), byte_of(to + 1) - 1), nil)
+			parts[#parts + 1] = part(string.sub(text, at, to - 1), nil)
 			break
 		end
-		if mark == nil or mark > to then
-			parts[#parts + 1] = part(string.sub(text, byte_of(at), byte_of(to + 1) - 1), nil)
+		if mark == nil then
+			parts[#parts + 1] = part(string.sub(text, at, to - 1), nil)
 			break
 		end
 		if mark > at then
-			parts[#parts + 1] = part(string.sub(text, byte_of(at), byte_of(mark) - 1), nil)
+			parts[#parts + 1] = part(string.sub(text, at, mark - 1), nil)
 		end
-		local finish = mark
-		while marked[k + 1] ~= nil and marked[k + 1] <= finish + 1 and marked[k + 1] <= to do
+		local finish = after_character(mark)
+		while marked[k + 1] ~= nil and marked[k + 1] <= finish do
 			k += 1
-			finish = math.max(finish, marked[k])
+			finish = math.max(finish, after_character(marked[k]))
 		end
-		parts[#parts + 1] = part(string.sub(text, byte_of(mark), byte_of(finish + 1) - 1), look)
-		at = finish + 1
+		finish = math.min(finish, to)
+		parts[#parts + 1] = part(string.sub(text, mark, finish - 1), look)
+		at = finish
 		k += 1
 	end
 	return parts

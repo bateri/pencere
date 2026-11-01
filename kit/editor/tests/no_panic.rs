@@ -73,11 +73,13 @@ fn nothing_a_page_sends_breaks_the_editor() {
         }
         let now = round as f64 * 0.05;
         let len = buffer.len_chars();
+        // A page's places are bytes: what it asks of the buffer is made against these.
+        let bytes = buffer.len_bytes();
         let version = buffer.version();
         let base = version.saturating_sub(dice.below(6) as u64) + dice.below(2) as u64;
         match dice.below(12) {
             0 => {
-                let (a, b) = (dice.place(len), dice.place(len));
+                let (a, b) = (dice.place(bytes), dice.place(bytes));
                 let _ = buffer.change(base, vec![Change::new(a, b, dice.text())], now);
             }
             1 => {
@@ -87,11 +89,11 @@ fn nothing_a_page_sends_breaks_the_editor() {
                 buffer.select(ranges, dice.below(4));
             }
             2 => {
-                let ranges = vec![Range::new(dice.place(len), dice.place(len))];
+                let ranges = vec![Range::new(dice.place(bytes), dice.place(bytes))];
                 let _ = buffer.select_at(base, ranges, 0);
             }
             3 => {
-                let (from, to) = (dice.place(len), dice.place(len));
+                let (from, to) = (dice.place(bytes), dice.place(bytes));
                 let decorations = (0..dice.below(5))
                     .map(|_| {
                         let mark = if dice.below(3) == 0 {
@@ -103,7 +105,7 @@ fn nothing_a_page_sends_breaks_the_editor() {
                                 pencere_view::Role::Red.into(),
                             ))
                         };
-                        Decoration::new(dice.place(len), dice.place(len), mark)
+                        Decoration::new(dice.place(bytes), dice.place(bytes), mark)
                     })
                     .collect();
                 let _ = buffer.decorate(Decorate {

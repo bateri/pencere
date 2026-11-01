@@ -2695,6 +2695,23 @@ impl Host {
 }
 
 #[test]
+fn the_places_of_a_rest_are_told_in_bytes_while_the_editor_counts_characters() {
+    let mut host = Host::new(page_with(hearing()));
+    host.load("ğüş beta");
+    host.editors.set_focus(None);
+    // Over the `e` of `beta`: the characters 4 to 8 of the line, the bytes 7 to 11, and the `e`
+    // the byte 8 (each of the three letters before it takes two).
+    host.rest(Some(Point::new(40.0, 10.0)));
+    assert!(host.wait(0.29).is_empty());
+    let told = host.wait(0.02);
+    assert_eq!(told.len(), 1);
+    assert_eq!(
+        (told[0].from, told[0].to, told[0].at, told[0].line),
+        (7, 11, 8, 0)
+    );
+}
+
+#[test]
 fn the_pointer_resting_on_a_word_is_told_once_after_the_delay_and_its_going_at_once() {
     let mut host = Host::new(page_with(hearing()));
     host.load("alpha beta\ngamma");

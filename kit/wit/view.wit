@@ -1739,7 +1739,7 @@ interface types {
         widget(widget),
     }
 
-    /// Text the page puts in a line; at most 8 parts and 200 bytes, 32 in a line.
+    /// Text the page puts in a line; at most 8 parts and 200 characters, 32 in a line.
     record widget {
         parts: list<widget-part>,
         side: widget-side,

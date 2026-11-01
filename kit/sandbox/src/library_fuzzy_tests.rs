@@ -180,12 +180,13 @@ fn smart_case_tells_a_capital_apart_only_where_the_pattern_has_one_in_any_script
         check("respect", score("fo", "Foo", { case = "respect" }), nil)
         check("respect found", places("fo", "Foo foo", { case = "respect" }), { 5, 6 })
         check("a capital outside ASCII", score("Çiz", "çizelge"), nil)
-        check("found outside ASCII", places("Çiz", "Çizelge"), { 1, 2, 3 })
-        check("Turkish", places("ölç", "ÖLÇÜM"), { 1, 2, 3 })
-        check("dotted I", places("istanbul", "İSTANBUL"), { 1, 2, 3, 4, 5, 6, 7, 8 })
-        check("Greek", places("ελ", "ΕΛΛΑΔΑ"), { 1, 2 })
-        check("Cyrillic", places("мир", "МИР"), { 1, 2, 3 })
-        check("Polish", places("łódź", "ŁÓDŹ"), { 1, 2, 3, 4 })
+        -- A place is the byte its character starts at: a capital of Latin-1 and the rest are two.
+        check("found outside ASCII", places("Çiz", "Çizelge"), { 1, 3, 4 })
+        check("Turkish", places("ölç", "ÖLÇÜM"), { 1, 3, 4 })
+        check("dotted I", places("istanbul", "İSTANBUL"), { 1, 3, 4, 5, 6, 7, 8, 9 })
+        check("Greek", places("ελ", "ΕΛΛΑΔΑ"), { 1, 3 })
+        check("Cyrillic", places("мир", "МИР"), { 1, 3, 5 })
+        check("Polish", places("łódź", "ŁÓDŹ"), { 1, 3, 5, 6 })
         -- A space in the pattern is not looked for.
         check("spaces", places("foo bar", "foobar"), { 1, 2, 3, 4, 5, 6 })
         check("only spaces", { fuzzy.match("  ", "abc") }, { 0, {} })
@@ -196,17 +197,17 @@ fn smart_case_tells_a_capital_apart_only_where_the_pattern_has_one_in_any_script
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
-fn places_are_characters_from_one_in_a_text_of_any_script() {
+fn places_are_the_bytes_from_one_the_characters_start_at_in_a_text_of_any_script() {
     let shown = checked(
         r#"
-        check("Turkish", places("çiz", "Ölçüm çizelgesi"), { 7, 8, 9 })
+        check("Turkish", places("çiz", "Ölçüm çizelgesi"), { 10, 12, 13 })
         check("a letter of two bytes", places("ğ", "dağ"), { 3 })
-        check("Greek", places("γ", "αβγ"), { 3 })
-        check("four bytes", places("😀b", "a😀b"), { 2, 3 })
+        check("Greek", places("γ", "αβγ"), { 5 })
+        check("four bytes", places("😀b", "a😀b"), { 2, 6 })
         check("not UTF-8", places("ab", "\255ab"), { 2, 3 })
         -- A text longer than is read at once.
         local long = string.rep("é", 3000) .. "xyz"
-        check("long", places("xyz", long), { 3001, 3002, 3003 })
+        check("long", places("xyz", long), { 6001, 6002, 6003 })
         -- Far apart, characters score as those near the end alone: a gap long enough is worth
         -- nothing.
         local apart = string.rep("a", 2000) .. string.rep("b", 2000) .. "c"
@@ -327,6 +328,34 @@ fn a_search_goes_a_step_at_a_time_and_finds_what_a_filter_finds() {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn the_places_give_back_the_characters_they_name_in_a_text_of_many_bytes() {
+    let shown = checked(
+        r#"
+        -- The text at a place, for a character of any length, is where `string.sub` and
+        -- `string.find` would put it: no `utf8` call between the place and the text.
+        local function at(pattern, text, options)
+            local _, found = fuzzy.match(pattern, text, options)
+            local got = {}
+            for k, place in ipairs(found) do
+                got[k] = string.match(text, "^" .. utf8.charpattern, place)
+            end
+            return table.concat(got)
+        end
+        check("letters after others of two bytes", at("bar", "ğüş_foo_bar"), "bar")
+        for k, place in ipairs(select(2, fuzzy.match("bar", "ğüş_foo_bar"))) do
+            check("sub " .. k, string.sub("ğüş_foo_bar", place, place), string.sub("bar", k, k))
+        end
+        check("letters of two bytes", at("çiz", "Ölçüm çizelgesi"), "çiz")
+        check("a sign of four bytes", at("😀b", "a😀b"), "😀b")
+        check("first", at("öb", "föö_bö", { highlight = "first" }), "öb")
+        check("a list", fuzzy.filter("çiz", { "Ölçüm çizelgesi" })[1].positions, { 10, 12, 13 })
+        "#,
+    );
+    assert_eq!(shown, ["ok"]);
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_parts_of_a_text_mark_the_characters_at_the_places_in_the_look_given() {
     let update = first(
         r#"
@@ -337,8 +366,8 @@ fn the_parts_of_a_text_mark_the_characters_at_the_places_in_the_look_given() {
             return pencere.div()
                 :child(pencere.rich(fuzzy.spans("CrashLoopBackOff", places, look)))
                 :child(pencere.rich(fuzzy.spans("foo_bar", { 1, 2, 5 })))
-                :child(pencere.rich(fuzzy.spans("Ölçüm çizelgesi", { 7, 8, 9 }, { bg = "raised2", italic = true })))
-                :child(pencere.rich(fuzzy.spans("src/lib/main.rs", { 1, 9, 10 }, { underline = true, family = "terminal" }, 9, 15)))
+                :child(pencere.rich(fuzzy.spans("Ölçüm çizelgesi", { 10, 12, 13 }, { bg = "raised2", italic = true })))
+                :child(pencere.rich(fuzzy.spans("src/lib/main.rs", { 1, 9, 10 }, { underline = true, family = "terminal" }, 9, 16)))
                 :child(pencere.rich(fuzzy.spans("plain", {}, look)))
                 :child(pencere.rich(fuzzy.spans("ab", { 0, 2, 9 }, look)))
         end }
@@ -471,7 +500,19 @@ fn what_the_caller_gives_wrong_is_an_error_at_the_callers_line() {
         ),
         (
             r#"fuzzy.spans("ab", { "1" })"#,
-            "position 1 of fuzzy.spans is a character (a number), not a string",
+            "position 1 of fuzzy.spans is a place (a number), not a string",
+        ),
+        (
+            r#"fuzzy.spans("aéb", { 3 })"#,
+            "position 1 of fuzzy.spans is inside a character: a place is where one starts",
+        ),
+        (
+            r#"fuzzy.spans("aéb", { 1 }, nil, 3)"#,
+            "the from of fuzzy.spans is inside a character: a place is where one starts",
+        ),
+        (
+            r#"fuzzy.spans("aéb", { 1 }, nil, 1, 3)"#,
+            "the to of fuzzy.spans is inside a character: a place is where one starts",
         ),
     ];
     for (call, why) in cases {

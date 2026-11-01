@@ -37,7 +37,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   and `line_of` are from 1. A place inside a character is an error at the script's line (the
   `layout` queries) or an `editor_refused` with `"mid-character"` (an ask). The interface
   (`pencere:view@3.0.0`) says it: `char-range` is `byte-range`, `refusal` has `mid-character`, and
-  `editor-text`, `line-of` and `word-at` are `result`s. A widget's words are 200 bytes at most.
+  `editor-text`, `line-of` and `word-at` are `result`s.
+  The library follows: `@pencere/syntax` `tokens` and the decorations it makes are bytes of the line
+  from 1, `@pencere/fuzzy` `positions` are the bytes the matched characters start at (from 1), and
+  `fuzzy.spans` takes them with a `from` and `to` that are a range `[from, to)` of bytes (a place or
+  an end inside a character is an error).
 
 - **The prelude's own is out of a script's reach, and what it makes public is frozen.** `pencere.host`
   (the raw functions of the host), `pencere._keymaps`, `pencere._lists`, `pencere._time` and

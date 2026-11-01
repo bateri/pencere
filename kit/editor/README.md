@@ -9,8 +9,9 @@ A page is told what changed and where the carets are, changes the text against t
 (carried over what the person typed since), colours it, marks it and says where it folds, by layers,
 and reads it through a copy the host posts it. What the words mean — the language, completions,
 errors, what a key does in an editor of modes — is the page's or its program's: the editor knows no
-language. Places are characters (code points); the units of UTF-16 an input method of macOS counts
-in are turned into places here.
+language. The editor holds places as characters (code points); a page's places are bytes of UTF-8,
+which are turned into characters (and back) where the page and the editor meet, and so are the units
+of UTF-16 an input method of macOS counts in.
 
 It depends on the page engine (`pencere-view`), the rope it keeps the text in (`ropey`), the
 boundaries of characters and words (`unicode-segmentation`) and regular expressions (`regex`), and

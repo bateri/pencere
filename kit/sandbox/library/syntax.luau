@@ -896,16 +896,18 @@ local function fill(self, line)
 	local id = self.editor
 	local from = start_of(id, line) or 1
 	local to = math.min(from + CHUNK_BYTES, self.length + 1)
-	-- A chunk is cut at a number of bytes: a cut inside a character goes back to where it starts.
+	-- A chunk is cut at a number of bytes: a cut inside a character goes back to where it starts
+	-- (at most 3 bytes). Any other failure is not the cut's, and is not hidden.
 	local text
 	for back = 0, 3 do
 		local ok, read = pcall(layout.editor_text, id, from, to - back)
 		if ok then
 			text, to = read or "", to - back
 			break
+		elseif back == 3 or not string.find(read, "inside a character", 1, true) then
+			error(read, 0)
 		end
 	end
-	text = text or ""
 	local starts, stops = {}, {}
 	local at = 1
 	while true do

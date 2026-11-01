@@ -689,7 +689,7 @@ not there. A widget's `label` is what a screen reader and the host's tips say of
 a part) with an `id` is the hand's, is what a rest is told of (`hover`, `over` =
 `"widget"`, `id`) and what a press is, whatever modifiers are held, in an editor that has `events = {
 "target" }` (`target`, `source = "widget"`, `id`, no caret moves); `anchor` names its box, as a range's.
-At most 8 parts, 200 bytes and 32 widgets to a line; a widget over them is a reply the host
+At most 8 parts, 200 characters and 32 widgets to a line; a widget over them is a reply the host
 refuses. Its measure is kept with the line's, and is made again only when what it says or how wide it
 is changes.
 
@@ -965,9 +965,10 @@ character matches, a function says yes or no), `eat_space()`, `skip_to_end()`, `
 `match(pattern, consume, case_insensitive)` (a Lua pattern read where the stream is: the text matched
 or its captures, taken unless `consume` is false) and `current()`. A `token` that takes nothing fails
 the page, as any error of the language's does, in words that say the language's name and the line
-(`sql: line 12: …`). `language:tokens(text, state, tab_width)` is a line's tokens in characters, for
-a text that is not in an editor (`state` the state before it, `start()`'s where nil; `tab_width` what
-a tab is to the stream's columns, 4), and `language:look(name)` the look its styles give a token's
+(`sql: line 12: …`). `language:tokens(text, state, tab_width)` is a line's tokens, `{ from =, to =,
+name = }` in bytes from 1 with the end not in the range (Section 2.7), so that
+`string.sub(text, from, to - 1)` is the token, for a text that is not in an editor (`state` the
+state before it, `start()`'s where nil; `tab_width` what a tab is to the stream's columns, 4), and `language:look(name)` the look its styles give a token's
 name (a copy; nil for none), found as the syntax finds it.
 
 `Syntax.new(language, id, { layer =, step =, margin =, tab_width = })` colours the editor `id` with
@@ -979,7 +980,7 @@ touched (from the checkpoint before it, where that line's state is not kept) unt
 state is kept ends in the state it ended in before, a `viewport` says what to colour, and for those
 two it does a call's work at once; any other event (the pointer moving, a key) costs it nothing, what is
 left being its timer's. It colours the lines in view and `margin` lines on each side (as many as
-are in view) in the layer `layer` (`"syntax"`), in characters, a line again only where it or the
+are in view) in the layer `layer` (`"syntax"`), a line again only where it or the
 state before it changed, and takes away what it coloured out of them. One call reads at most `step`
 bytes (20 000), the lines to colour first, and a line to its first 10 000 characters (the state
 after it is the state there), and it holds at most 10 000 decorations for the page, half of what a
@@ -1089,8 +1090,8 @@ what is not one), a run more than the same characters apart, a gap costs, and a 
 in the text costs a point for each character before it, at most five.
 
 - `fuzzy.match(pattern, text, options)` is the score and the places of the pattern's characters
-  (characters of UTF-8 from 1, in order; a text that is not UTF-8 a byte a character; a text matched
-  in its first 64 KiB), or nil where it is not there; an empty pattern is in every text, with a score
+  (bytes from 1, in order, the byte each character starts at, as in Section 2.7; a text that is not
+  UTF-8 a byte a character; a text matched in its first 64 KiB), or nil where it is not there; an empty pattern is in every text, with a score
   of 0 and no places. `options.case` is `"smart"` (the default: a capital is told from its small
   letter only where the pattern has a capital), `"ignore"` or `"respect"`; a letter is lowered by
   Unicode's simple mapping for ASCII, Latin-1, Latin Extended-A, the letters in pairs of Latin
@@ -1128,8 +1129,11 @@ in the text costs a point for each character before it, at most five.
   (`pencere.rich`): the characters at the places in `look`, what a `pencere.span` says (`color`,
   `weight`, `italic`, `underline`, `strike`, `family`, `bg`, `link`;
   `{ color = "accent", weight = 700 }` where none is given), the rest in the element's own look.
-  `from` and `to` (characters) take a part of the text, the places counted in the whole; places
-  outside it are passed over. It makes at most 1 024 parts, the rest plain in the last.
+  The places are bytes from 1, as `fuzzy.match` gives them; `from` and `to` (a range `[from, to)` of
+  bytes, `1` and `#text + 1` where left out) take a part of the text, the places counted in the
+  whole; places outside it are passed over, and one inside a character of a text in UTF-8, as an end
+  of the part is, an error at the caller's line. It makes at most 1 024 parts, the rest plain in the
+  last.
 
 #### `@pencere/keys`
 
@@ -1176,7 +1180,7 @@ reference to a character is the character HTML names (every name of WHATWG's lis
 
 `markdown.parse(text)` is the tree of the text, read at once:
 `{ type = "document", children = { block, ... } }`. Every block says the lines of the text it came
-from: `line` (from 1) and `lines`. A block is a `heading` (`level`, `children`), a `paragraph`
+from: `line` (from 1, Section 2.7) and `lines`. A block is a `heading` (`level`, `children`), a `paragraph`
 (`children`), a `quote` (`children`), a `list` (`ordered`, `start`, `tight`, `children`: its items),
 an `item` (`checked`: nil, or true or false for a task; `children`), `code` (`language`: the first word
 of its fence's info, or nil; `info`; `text`, its last line break left out), `html` (`text`), a `rule`
@@ -1318,8 +1322,10 @@ A page counts what it is told and what it says by one rule, wherever a number is
   a character starts (or the end): a place inside a character is an error at the line of the script
   where a call reads the text (`layout.editor_text`, `line_of`, `word_at`), and an ask that names one
   is refused (`editor_refused`, `"mid-character"`). It is never rounded to a character, which would
-  hide the mistake. The lengths the interface tells are bytes (`editor_length`, and the limits that
-  are of text: a widget's 200).
+  hide the mistake. A place of an older version (`base`, `version`) is carried over what was done
+  since as bytes and only then checked: where text deleted since swallowed it, it is carried to the
+  deletion and cannot be told from one that was a character's start. The lengths the interface tells
+  are bytes (`editor_length`).
 - **A range is two places**, `[from, to)`: the end is not in it, so that `string.sub(text, from, to - 1)`
   is what the range holds and an empty range (`from == to`) is a place text is put in. A match that
   `string.find` reports as `i, j` is the range `i, j + 1`.

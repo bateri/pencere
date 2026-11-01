@@ -244,7 +244,7 @@ DeleteToLineEnd}`; `EditorAsk::Change` has `history` and `tag` (told back in `Ed
   Luau string, so that a script need not turn characters into bytes. A place inside a character is
   refused, not rounded (`Refusal::MidCharacter`, `"mid-character"`). `TextSnapshot::len_chars` is
   `len_bytes`, its other queries answer in bytes, and `inside_character` tells a place that is
-  inside one. The most a widget's words may be is 200 bytes (`limits::WIDGET_TEXT`).
+  inside one.
 
 - How far a box is scrolled is no longer the page's: `Element::scroll()` makes a box that scrolls,
   in place of `scroll_y(offset)` and `scroll_x(offset)`, and `Ui` keeps no offsets (`scroll_offset`,

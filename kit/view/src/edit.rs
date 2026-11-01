@@ -1715,7 +1715,7 @@ pub mod limits {
     pub const BINDINGS: usize = 256;
     /// The most keys one chord has.
     pub const CHORD_KEYS: usize = 4;
-    /// The most bytes the words of a widget have, parts it has, and widgets standing in a line
+    /// The most characters the words of a widget have, parts it has, and widgets standing in a line
     /// inside it.
     pub const WIDGET_TEXT: usize = 200;
     pub const WIDGET_PARTS: usize = 8;
