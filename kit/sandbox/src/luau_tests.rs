@@ -2672,3 +2672,37 @@ fn a_call_the_page_api_passes_to_the_host_that_is_refused_names_the_script_too()
     ));
     assert_eq!(why, "script.lua:2: from is a whole number of bytes from 1");
 }
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_page_past_eight_thousand_elements_takes_the_room_of_its_own() {
+    // The bridge counts a frame's elements and takes the list of its nodes once, at that size.
+    // Grown by doubling, the list of a page past 8 192 elements held the room of 24 576 nodes while
+    // it moved (a node is large: its style and its options are in it), and the module's memory,
+    // which does not shrink, kept it: this page took near 60 MiB and is drawn in 48 now.
+    let script = "return { render = function(size, now)\n\
+        local root = pencere.div():col()\n\
+        for i = 1, 3000 do\n\
+            root:child(pencere.div():row():h(26):px(8):items_center():child(\n\
+                pencere.div():grow(1):min_w(0):child(pencere.text('row ' .. i .. ' ' .. now):color('dim'):truncate())))\n\
+        end\n\
+        return root\n\
+    end }";
+    let mut page = open_script(
+        script,
+        ModuleLimits {
+            memory: 48 << 20,
+            call: Duration::from_secs(60),
+            ..ModuleLimits::default()
+        },
+    );
+    // Twenty frames: what one frame leaves for the collector is there while the next is drawn.
+    for frame in 0..20 {
+        page.module.render(SIZE, f64::from(frame), false);
+        let update = page.until(Duration::from_secs(120), |u| {
+            u.frame.is_some() || u.closed.is_some()
+        });
+        assert_eq!(update.closed, None, "frame {frame}");
+        assert_eq!(update.frame.expect("a frame").root.fold().len(), 9_001);
+    }
+}

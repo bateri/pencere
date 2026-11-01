@@ -95,6 +95,10 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Fixed
 
+- A page of many elements no longer runs out of its memory as it is drawn: the interpreter counts a
+  frame's elements and takes the list of its nodes once, at that size. Grown by doubling, the list of
+  a page past 8 192 elements held the room of three times as many nodes while it moved, and a page
+  of a long table (a system monitor on a large screen) was closed for it.
 - A list whose cursor follows the pointer (a palette, completions) no longer scrolls to the row the
   pointer comes to: that row is in view already, and scrolling to one its edge cut brought the next
   row under the pointer, chose it and scrolled again, so the list ran away from a resting hand.

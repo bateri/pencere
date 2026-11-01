@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <cctype>
 #include <string>
 
@@ -1390,12 +1391,34 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
     return out;
 }
 
+// How many elements the tree at `element` has, itself and all under it, added to `counted`: the
+// walk `flatten` makes, by the same raw reads of `kids`, without reading anything else. It stops
+// past `kMaxNodes` or `kMaxDepth` and at what is not a table, where `flatten` refuses the page.
+size_t tally(lua_State* L, int element, int depth, size_t counted) {
+    counted += 1;
+    if (counted > kMaxNodes || depth > kMaxDepth || lua_type(L, element) != LUA_TTABLE) return counted;
+    luaL_checkstack(L, 4, "the page is nested too deep");
+    get(L, element, "kids");
+    if (lua_type(L, -1) == LUA_TTABLE) {
+        int list = lua_gettop(L);
+        int count = lua_objlen(L, list);
+        for (int child = 1; child <= count && counted <= kMaxNodes; child++) {
+            lua_rawgeti(L, list, child);
+            counted = tally(L, lua_gettop(L), depth + 1, counted);
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 1);
+    return counted;
+}
+
 void flatten(lua_State* L, int element, Flat& flat, int depth) {
     if (depth > kMaxDepth) luaL_error(L, "the page is nested more than %d boxes deep", kMaxDepth);
     luaL_checkstack(L, 32, "the page is nested too deep");
     if (lua_type(L, element) != LUA_TTABLE) luaL_error(L, "an element of the page is a table");
     auto& nodes = flat.frame->nodes;
     if (nodes.len >= kMaxNodes) luaL_error(L, "the page has more than %d elements", (int)kMaxNodes);
+    // The list was taken at the size `tally` counted; this grows it only if the walks ever part.
     if (nodes.len == flat.cap) {
         flat.cap = flat.cap ? flat.cap * 2 : 64;
         nodes.ptr = (pencere_view_types_node_t*)xrealloc(nodes.ptr, flat.cap * sizeof(pencere_view_types_node_t));
@@ -1731,6 +1754,13 @@ void forget_ids() { names().clear(); }
 int frame_call(lua_State* L) {
     auto* job = (FrameJob*)lua_touserdata(L, 2);
     Flat flat = {job->out, 0, {}};
+    // The nodes are counted first and their list taken once, at its size. A node is large (its
+    // style and its options are in it), and a list grown by doubling holds the old copy and the
+    // new while it moves: a frame of a few thousand elements took tens of MiB of the module's
+    // memory, which does not shrink again, for a moment of each frame.
+    size_t count = std::min(tally(L, 1, 1, 0), kMaxNodes);
+    job->out->nodes.ptr = (pencere_view_types_node_t*)xmalloc(count * sizeof(pencere_view_types_node_t));
+    flat.cap = count;
     flatten(L, 1, flat, 1);
     // The tree is read: the lists the nodes name the parts of go to the host with it.
     job->out->text = take_text(flat.arenas.text);
