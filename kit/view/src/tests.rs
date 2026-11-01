@@ -288,6 +288,34 @@ fn the_text_in_the_room_of_the_hosts_field_is_its_hint_and_the_page_does_not_dra
 }
 
 #[test]
+fn a_field_under_an_overlay_is_covered_and_one_beside_what_follows_it_is_not() {
+    let field = |id| {
+        div()
+            .text_field(Id::new(id))
+            .w(120.0)
+            .h(18.0)
+            .child(text("Filter"))
+    };
+    // What follows a field in the row is beside it, not over it.
+    let open = div().row().child(field(1)).child(text("12 processes"));
+    let laid = layout(open, Size::new(300.0, 100.0), 1.0, &mut Fixed);
+    assert!(!laid.fields()[0].covered);
+    // A card over the page, where the field stands.
+    let covered = div().child(field(1)).child(
+        div()
+            .overlay()
+            .inset(Some(0.0), None, None, Some(40.0))
+            .w(200.0)
+            .h(80.0)
+            .child(field(2)),
+    );
+    let laid = layout(covered, Size::new(300.0, 100.0), 1.0, &mut Fixed);
+    let fields = laid.fields();
+    assert!(fields[0].covered, "the page's field is under the card");
+    assert!(!fields[1].covered, "the card's own field is on top");
+}
+
+#[test]
 fn a_field_with_no_text_in_its_room_has_no_hint() {
     let root = div()
         .child(text("outside"))

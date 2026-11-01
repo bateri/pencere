@@ -64,9 +64,28 @@ impl Shortcut {
     }
 
     /// Whether a key pressed with `mods` is this one. A character is the same whatever its case
-    /// (shift says which).
+    /// (shift says which). A character that has no case is typed with shift on one keyboard and
+    /// without it on another (`?` on every one, `/` on a Turkish one): the shift that typed it is not
+    /// one of its modifiers, unless the keys name shift.
     pub fn matches(&self, key: Key, mods: Mods) -> bool {
-        mods == self.mods && same_key(self.key, key)
+        if !same_key(self.key, key) {
+            return false;
+        }
+        mods == self.mods
+            || (caseless(key)
+                && !self.mods.shift
+                && Mods {
+                    shift: false,
+                    ..mods
+                } == self.mods)
+    }
+}
+
+/// Whether `key` is a character that has no case and is no space: a digit, a sign, a mark.
+fn caseless(key: Key) -> bool {
+    match key {
+        Key::Character(c) => !c.is_whitespace() && c.to_lowercase().eq(c.to_uppercase()),
+        _ => false,
     }
 }
 
@@ -213,5 +232,55 @@ mod tests {
         assert!(k.matches(Key::Character('K'), held));
         assert!(!k.matches(Key::Character('K'), Mods::default()));
         assert!(!k.matches(Key::Character('j'), held));
+    }
+
+    #[test]
+    fn a_character_without_a_case_is_its_key_whether_shift_typed_it_or_not() {
+        let shift = Mods {
+            shift: true,
+            ..Mods::default()
+        };
+        let command_shift = Mods {
+            command: true,
+            ..shift
+        };
+        // `?` is shift and `/` on a US keyboard; `/` is shift and 7 on a Turkish one.
+        assert!(
+            Shortcut::parse("?")
+                .unwrap()
+                .matches(Key::Character('?'), shift)
+        );
+        assert!(
+            Shortcut::parse("/")
+                .unwrap()
+                .matches(Key::Character('/'), shift)
+        );
+        assert!(
+            Shortcut::parse("/")
+                .unwrap()
+                .matches(Key::Character('/'), Mods::default())
+        );
+        // Another modifier still counts, and keys that name shift still want it.
+        assert!(
+            !Shortcut::parse("/")
+                .unwrap()
+                .matches(Key::Character('/'), command_shift)
+        );
+        assert!(
+            !Shortcut::parse("shift+1")
+                .unwrap()
+                .matches(Key::Character('1'), Mods::default())
+        );
+        // A letter is not caseless, and a space is no character to type with shift.
+        assert!(
+            !Shortcut::parse("k")
+                .unwrap()
+                .matches(Key::Character('k'), shift)
+        );
+        assert!(
+            !Shortcut::parse("space")
+                .unwrap()
+                .matches(Key::Character(' '), shift)
+        );
     }
 }

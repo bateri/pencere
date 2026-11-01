@@ -29,6 +29,12 @@ The engine of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.1` and `2
 
 ### Fixed
 
+- A shortcut of a character that has no case (`?`, `/`, a digit) is done whether shift typed it or
+  not: `?` is shift and `/` on a US keyboard and `/` is shift and 7 on a Turkish one, and a command
+  bound to either was never done. Keys that name shift still want it, and a letter still tells its
+  case. `Field::covered` says that something the page draws after a field lies over it (a popover,
+  a dialog), so that a host, which draws its fields above the page, can leave it unshown.
+
 - **A pick is of the menu the host showed.** A host shows one menu at a time and does not show one
   asked for while another is up, so the page's latest menu is not always the one the person picked
   from. `Menu` has a `serial` (the page's number for it) and `Event::MenuPick` is

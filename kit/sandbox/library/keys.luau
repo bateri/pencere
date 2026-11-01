@@ -329,14 +329,25 @@ function keys.matches(event, words)
 	if type(mods) ~= "table" then
 		mods = {}
 	end
-	for _, name in ipairs(MODIFIER_NAMES) do
-		if (mods[name] == true) ~= (parsed.mods[name] == true) then
-			return false
-		end
-	end
 	local key = event.key
 	if type(key) ~= "string" then
 		return false
+	end
+	-- A character with no case is typed with shift on one keyboard and without it on another (`?` on
+	-- every one, `/` on a Turkish one): the shift that typed it is not one of its modifiers, unless
+	-- the keys name shift.
+	local caseless = utf8.len(key) == 1
+		and key ~= " "
+		and cased(key, SMALL) == key
+		and cased(key, CAPITAL) == key
+	for _, name in ipairs(MODIFIER_NAMES) do
+		local held = mods[name] == true
+		if name == "shift" and caseless and not parsed.mods.shift then
+			held = false
+		end
+		if held ~= (parsed.mods[name] == true) then
+			return false
+		end
 	end
 	if key == parsed.key then
 		return true

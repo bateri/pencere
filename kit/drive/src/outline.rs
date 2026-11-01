@@ -68,6 +68,8 @@ pub struct Field {
     pub rect: Rect,
     pub hint: Option<String>,
     pub label: Option<String>,
+    /// Something the page draws lies over it (a popover, a dialog): the host does not show it.
+    pub covered: bool,
 }
 
 /// What the host keeps of a page besides its pixels, in the host's points: the fields it puts
@@ -122,6 +124,7 @@ impl Outline {
                     rect: at.to_host(field.rect),
                     hint: field.hint,
                     label: field.label,
+                    covered: field.covered,
                 })
                 .collect(),
             accessible: laid

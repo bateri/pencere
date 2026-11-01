@@ -222,7 +222,9 @@ and tells the page `{ type = "command", id = id }` when it is asked for there or
 place of the key. The keys are written as a person writes them: modifiers (`cmd`, `ctrl`, `alt`,
 `shift`) and a key (one character, or the name of a key the page reads) joined by `+`
 (`"cmd+shift+k"`, `"ctrl+enter"`, `"f5"`, `"cmd++"` for the key `+`); `pencere.keys(words)` reads
-them. `mod` is the main modifier of the host's system (CodeMirror's `Mod`, Electron's `CmdOrCtrl`):
+them. A letter is the same key in either case, and a character that has no case (`?`, `/`, a digit)
+is its key whether shift typed it or not, since one keyboard types it with shift and another without
+(`/` is shift and 7 on a Turkish one); keys that name `shift` still want it. `mod` is the main modifier of the host's system (CodeMirror's `Mod`, Electron's `CmdOrCtrl`):
 `"mod+s"` is ⌘S on a Mac and Ctrl+S elsewhere. `pencere.keyboard()` says how the host's system makes
 and writes its shortcuts: `"mac"` (⌘ the main modifier, the keys written as signs, ⌘⇧K),
 `"windows"` (Ctrl the main one, the keys written as words, Ctrl+Shift+K) or `"linux"` (as Windows,

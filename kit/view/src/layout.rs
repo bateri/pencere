@@ -1580,6 +1580,7 @@ impl Laid {
                     ),
                     hint: self.hint_of(index).map(str::to_owned),
                     label: node.meta.label.clone(),
+                    covered: !self.covering(index).is_empty(),
                 })
             })
             .collect()
@@ -2055,6 +2056,10 @@ pub struct Field {
     pub hint: Option<String>,
     /// What it is to a screen reader, where the page said ([`crate::Element::label`]).
     pub label: Option<String>,
+    /// Whether something the page draws after it lies over it: a popover, a dialog, a menu. A host
+    /// draws its fields above the page, so it does not show one that is covered: its text would
+    /// stand over what covers it.
+    pub covered: bool,
 }
 
 /// An editor the host puts on the page ([`Laid::editors`]).

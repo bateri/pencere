@@ -75,6 +75,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Fixed
 
+- `keys.matches` takes a character that has no case (`?`, `/`, a digit) as its key whether shift
+  typed it or not, as the host does a command's keys: on a Turkish keyboard `/` is shift and 7.
+
 - **A pick is told the page with the entry of the menu the person was shown.** A host shows one menu
   at a time, so a script that mapped the pick's `index` to the menu it asked for last could run a line
   of a menu the person never saw. The prelude numbers each menu a reply asks for, keeps the entries of

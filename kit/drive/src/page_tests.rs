@@ -1674,6 +1674,7 @@ fn what_replies_ask_of_fields_not_yet_laid_is_held_in_order() {
         rect: Rect::new(0.0, 0.0, 10.0, 10.0),
         hint: None,
         label: None,
+        covered: false,
     }];
     let answer = |reply: Reply| Answer {
         reply,
