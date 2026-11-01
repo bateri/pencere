@@ -93,6 +93,10 @@ local function reveal(u, id, props, state, cell)
 			layout.scroll_to(body, { y = to })
 		end
 	end
+	if props.select == "row" then
+		-- A row is chosen, not a cell: the grid stays where it is across.
+		return
+	end
 	local widths = widths_of(props, state)
 	local number = number_width(props, props.count)
 	local left = number
@@ -119,6 +123,10 @@ local function moved(props, state, name, page)
 	if state.cursor == nil then
 		return { row = 1, column = 1 }
 	end
+	local rows_only = props.select == "row"
+	if rows_only and (name == "left" or name == "right") then
+		return nil
+	end
 	if name == "up" then
 		row -= 1
 	elseif name == "down" then
@@ -131,6 +139,10 @@ local function moved(props, state, name, page)
 		row -= page
 	elseif name == "page_down" then
 		row += page
+	elseif name == "home" and rows_only then
+		row = 1
+	elseif name == "end" and rows_only then
+		row = props.count
 	elseif name == "home" then
 		column = 1
 	elseif name == "end" then
@@ -156,7 +168,10 @@ end
 -- says it in `state.sort = { column = key, descending = }`, which the header draws). A press on a cell
 -- chooses it (`select { row, column }`), a second opens it (`open`), the right button asks for a menu
 -- (`menu { row, column, at }`); with the keyboard the arrow keys, page up and down, home and end (a row's
--- first and last column) go from cell to cell and enter opens. Rows it has no cell for are asked as
+-- first and last column) go from cell to cell and enter opens. With `select = "row"` the grid chooses
+-- rows, not cells: the whole row is drawn chosen, up and down and the page keys go from row to row,
+-- home and end go to the first and the last row, left and right are the page's, and the actions
+-- still say the column pressed. Rows it has no cell for are asked as
 -- `need { first, last }` when they come into view. The width of a column is a guess of its title's
 -- length until a page can measure text; give `width` or let the person size it.
 local Grid = core.component("grid", {
@@ -172,6 +187,9 @@ local Grid = core.component("grid", {
 		end
 		if type(props.cell) ~= "function" then
 			return "a grid asks for each cell: cell = function(row, column) → words, an element or nil"
+		end
+		if props.select ~= nil and props.select ~= "cell" and props.select ~= "row" then
+			return 'a grid chooses a "cell" or a "row", not ' .. tostring(props.select)
 		end
 		return nil
 	end,
@@ -263,7 +281,10 @@ local Grid = core.component("grid", {
 				:h(height)
 				:w(room)
 				:no_shrink()
-			if u:hovered(row_part) then
+			local rows_only = props.select == "row"
+			if rows_only and chosen ~= nil and chosen.row == place then
+				line:bg(keyboard and t.chosen or t.chosen_blurred)
+			elseif u:hovered(row_part) then
 				line:bg(t.hover)
 			elseif place % 2 == 0 then
 				line:bg(alpha("foreground", 0.025))
@@ -294,7 +315,7 @@ local Grid = core.component("grid", {
 				if column.align == "end" then
 					cell:justify_end()
 				end
-				if chosen ~= nil and chosen.row == place and chosen.column == index then
+				if not rows_only and chosen ~= nil and chosen.row == place and chosen.column == index then
 					cell:bg(alpha("accent", keyboard and 0.22 or 0.12)):border(1, alpha("accent", keyboard and 0.9 or 0.45))
 				end
 				line:child(cell)
@@ -391,7 +412,7 @@ local Grid = core.component("grid", {
 		end
 		local cell = moved(props, state, event.key, page)
 		if cell == nil then
-			if state.cursor == nil and props.count > 0 and (event.key == "down" or event.key == "right") then
+			if state.cursor == nil and props.count > 0 and (event.key == "down" or (event.key == "right" and props.select ~= "row")) then
 				cell = { row = 1, column = 1 }
 			else
 				return nil

@@ -1914,7 +1914,7 @@ view = function(u)
         table.insert(columns, { key = "c" .. index, title = "column " .. index })
     end
     return pencere.div():size_full():child(u:grid("g", { columns = columns, count = S.count or 300, state = S.state,
-        numbers = S.numbers,
+        numbers = S.numbers, select = S.select,
         cell = function(row, column)
             local values = S.rows[row]
             if values == nil then return nil end
@@ -1960,6 +1960,41 @@ fn a_grid_builds_the_rows_in_view_and_chooses_a_cell_with_the_pointer_and_the_ke
     page.settle()?;
     let after = log(&page).last().cloned().unwrap();
     assert!(after.starts_with("g select column=1 row="), "{after}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_grid_that_chooses_rows_goes_from_row_to_row_and_leaves_left_and_right_to_the_page()
+-> Result<(), Error> {
+    let mut page = open(&GRID.replace("S.rows = {}", "S.select = \"row\"\nS.rows = {}"))?;
+    page.click_in("g/row/3", 160.0, 5.0)?;
+    assert_eq!(log(&page), ["g select column=2 row=3"]);
+    page.press("right")?;
+    page.press("left")?;
+    assert_eq!(
+        log(&page).len(),
+        1,
+        "left and right choose nothing: {:?}",
+        log(&page)
+    );
+    page.press("down")?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("g select column=2 row=4")
+    );
+    page.press("end")?;
+    page.settle()?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("g select column=2 row=300")
+    );
+    page.press("home")?;
+    page.settle()?;
+    assert_eq!(
+        log(&page).last().map(String::as_str),
+        Some("g select column=2 row=1")
+    );
     Ok(())
 }
 

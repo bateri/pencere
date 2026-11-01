@@ -8,6 +8,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- `ui.grid` chooses rows with `select = "row"`: the whole row is drawn chosen, up and down and the page
+  keys go from row to row, home and end go to the first and the last row, and left and right are left
+  to the page. A table of things to act on (processes, containers) chooses a row; `"cell"`, the default,
+  stays for a table of values.
+
 - **`pencere:view@3.0.0`**, and the Lua page API `2.1`: the files beside the bundle (specification
   §8.8 to §8.10). The `files` event carries its `source` and each file's handle, name, size, type
   and path (Lua `event.files`, each `{ handle =, name =, size =, type =, path =, kind = }`); new
