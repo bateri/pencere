@@ -33,6 +33,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Changed
 
+- `pencere:view@3.0.0`: an element names the options of its editor by their place in the frame's
+  new `editors` list (`node.editor: option<u32>`), as it names its words and its commands, instead
+  of carrying room for them. A node is 736 bytes in the interpreter, not 1 728: a page of 8 300
+  elements is drawn in 28 MiB of its memory (36 before, 60 with the list grown by doubling), one of
+  16 000 in 54.
 - **Places of the Lua page API are bytes of the text, counted from 1, and so are lines.** A script
   gives `string.find`'s results to an editor as they are: the places of `layout.editor_text`,
   `line_start`, `line_of`, `word_at`, of the `edit`, `selection`, `hover`, `target` and `gutter`

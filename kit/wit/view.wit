@@ -1027,11 +1027,11 @@ interface types {
         role: option<accessible-role>,
         state: state,
         /// The box is the room of an editor of text the application puts there, named by the
-        /// element's `id` (one with no id is none), set up so. The application keeps its document,
-        /// lays out and draws its lines, and scrolls it as a box that scrolls; the box's fill and
-        /// border are the page's. Its document lives as long as an editor of its name is on the
-        /// page, hidden or not.
-        editor: option<editor-options>,
+        /// element's `id` (one with no id is none), set up as the options at this place of the
+        /// frame's `editors` say. The application keeps its document, lays out and draws its
+        /// lines, and scrolls it as a box that scrolls; the box's fill and border are the page's.
+        /// Its document lives as long as an editor of its name is on the page, hidden or not.
+        editor: option<u32>,
         /// What the page can be told to do while the keyboard is on this element or inside it:
         /// a part of the frame's `commands`. The commands of the outermost element can be done
         /// whatever has the keyboard; where two say the same keys, the nearer the keyboard is done.
@@ -1049,12 +1049,14 @@ interface types {
     /// A page ready to be laid out.
     ///
     /// What a frame says that is not of a fixed size (the words, the paths of pictures, the values
-    /// of sparklines, the tracks of grids) is in three lists, once for the whole frame, and an
-    /// element names the part it means. So the application copies each byte of a frame once, and
-    /// what it takes in is the size of the module's own memory: it is not the size of a buffer
-    /// times the number of elements that point at it. Parts may overlap (the same words twice cost
-    /// the module nothing), but each use counts toward what the application lets a frame say, and
-    /// a part that is not within its list, or does not end where a character does, is not a page.
+    /// of sparklines, the tracks of grids, the steps of paths, the commands) is in lists, once for
+    /// the whole frame, and an element names the part it means. So the application copies each
+    /// byte of a frame once, and what it takes in is the size of the module's own memory: it is
+    /// not the size of a buffer times the number of elements that point at it. What few elements
+    /// have is in a list too (the options of an editor), so that a node is not the room of it
+    /// for every element of a long table. Parts may overlap (the same words twice cost the module
+    /// nothing), but each use counts toward what the application lets a frame say, and a part
+    /// that is not within its list, or does not end where a character does, is not a page.
     record frame {
         nodes: list<node>,
         /// The words of every line of text and the path of every picture.
@@ -1071,6 +1073,8 @@ interface types {
         segments: list<segment>,
         /// The commands of every element.
         commands: list<command>,
+        /// The options of every editor (`node.editor`).
+        editors: list<editor-options>,
         /// The page is still moving: the application asks for the next frame itself until this
         /// says no, so a page at rest costs no frames.
         animating: bool,

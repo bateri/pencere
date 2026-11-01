@@ -825,6 +825,7 @@ struct Lists<'a> {
     paths: &'a [wit::Path],
     segments: &'a [wit::Segment],
     commands: &'a [wit::Command],
+    editors: &'a [wit::EditorOptions],
     /// Bytes of parts read so far.
     read: usize,
     /// The most bytes a frame may say.
@@ -842,6 +843,7 @@ impl<'a> Lists<'a> {
             paths: &frame.paths,
             segments: &frame.segments,
             commands: &frame.commands,
+            editors: &frame.editors,
             read: 0,
             most,
         };
@@ -853,7 +855,8 @@ impl<'a> Lists<'a> {
             .saturating_add(size_of_val(lists.spans))
             .saturating_add(size_of_val(lists.paths))
             .saturating_add(size_of_val(lists.segments))
-            .saturating_add(size_of_val(lists.commands));
+            .saturating_add(size_of_val(lists.commands))
+            .saturating_add(size_of_val(lists.editors));
         if held > most {
             return Err(Fault::Malformed(format!(
                 "a page that says {held} bytes (at most {most})"
@@ -878,6 +881,7 @@ impl<'a> Lists<'a> {
             paths: &[],
             segments: &[],
             commands: &[],
+            editors: &[],
             read: 0,
             most,
         })
@@ -900,6 +904,22 @@ impl<'a> Lists<'a> {
         }
         self.charge(range.len().saturating_mul(size_of::<T>()))?;
         Ok(list.get(range).unwrap_or_default())
+    }
+
+    /// The options of the editor at `index` of the frame's editors, counted at their size.
+    fn editor(&mut self, index: u32) -> Result<&'a wit::EditorOptions, Fault> {
+        let editors = self.editors;
+        let options = usize::try_from(index)
+            .ok()
+            .and_then(|at| editors.get(at))
+            .ok_or_else(|| {
+                Fault::Malformed(format!(
+                    "an editor's options: the {index}th of a list of {}",
+                    editors.len()
+                ))
+            })?;
+        self.charge(size_of::<wit::EditorOptions>())?;
+        Ok(options)
     }
 
     /// Where `part` stands in a list of `held` items, if it is within it.
@@ -1376,8 +1396,10 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
             }),
             editor: node
                 .editor
-                .as_ref()
-                .map(|options| editor_options_out(options, limits, lists))
+                .map(|index| {
+                    let options = lists.editor(index)?;
+                    editor_options_out(options, limits, lists)
+                })
                 .transpose()?,
             label: node
                 .label
@@ -2781,6 +2803,7 @@ mod tests {
         paths: Vec<wit::Path>,
         segments: Vec<wit::Segment>,
         commands: Vec<wit::Command>,
+        editors: Vec<wit::EditorOptions>,
     }
 
     impl Lists {
@@ -2821,6 +2844,7 @@ mod tests {
                 paths: self.paths,
                 segments: self.segments,
                 commands: self.commands,
+                editors: self.editors,
                 animating: false,
                 wake_at: None,
                 wake: None,
@@ -2834,6 +2858,20 @@ mod tests {
 
     fn container(children: u32) -> wit::Node {
         node(wit::Content::Box, children)
+    }
+
+    #[test]
+    fn an_editor_that_names_options_the_frame_has_not_is_not_a_page() {
+        // The options of an editor are in the frame's list of them, and the element names its place:
+        // a place past the list is a page that does not hold together.
+        let mut editor = container(0);
+        editor.id = Some(7);
+        editor.editor = Some(0);
+        let Err(Fault::Malformed(why)) = frame_out(frame(vec![editor]), &ModuleLimits::default())
+        else {
+            panic!("an editor with no options was taken");
+        };
+        assert!(why.contains("an editor's options"), "{why}");
     }
 
     #[test]

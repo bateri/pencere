@@ -52,6 +52,8 @@ struct Arenas {
     std::vector<pencere_view_types_path_t> paths;
     std::vector<pencere_view_types_segment_t> segments;
     std::vector<pencere_view_types_command_t> commands;
+    // What few elements have, a list of its own: an element names its place in it.
+    std::vector<pencere_view_types_editor_options_t> editors;
 };
 
 // A list for the host: a malloc'ed copy of `items` (the generated `_free` functions release it),
@@ -1531,8 +1533,9 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         if (field >= 0) nodes.ptr[at].field = {true, (uint8_t)field};
         get(L, meta, "editor");
         if (lua_type(L, -1) == LUA_TTABLE) {
-            nodes.ptr[at].editor.is_some = true;
-            nodes.ptr[at].editor.val = editor_options_at(L, lua_gettop(L), flat.arenas);
+            pencere_view_types_editor_options_t options = editor_options_at(L, lua_gettop(L), flat.arenas);
+            flat.arenas.editors.push_back(options);
+            nodes.ptr[at].editor = {true, (uint32_t)(flat.arenas.editors.size() - 1)};
         } else if (!lua_isnil(L, -1)) {
             luaL_error(L, "an editor's options are a table");
         }
@@ -1780,6 +1783,7 @@ int frame_call(lua_State* L) {
     take_list(job->out->paths, flat.arenas.paths);
     take_list(job->out->segments, flat.arenas.segments);
     take_list(job->out->commands, flat.arenas.commands);
+    take_list(job->out->editors, flat.arenas.editors);
     job->out->animating = job->animating;
     job->out->wake_at.is_some = job->has_wake_at;
     job->out->wake_at.val = job->wake_at;
