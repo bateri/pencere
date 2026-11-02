@@ -469,7 +469,7 @@ impl Editors {
                 if let Some(cursor) = cell.marker.as_ref().and_then(|m| m.cursor) {
                     cursor
                 } else if col.heard.press
-                    || col.heard.menu
+                    || col.heard.context
                     || (col.kind == Kind::Folds
                         && editor
                             .buffer
@@ -602,10 +602,10 @@ impl Editors {
             .view
             .cols
             .get(cell.col)
-            .is_some_and(|col| col.heard.menu);
+            .is_some_and(|col| col.heard.context);
         if heard
             && let Some(event) =
-                self.gutter_event(laid, id, &cell, GutterKind::Press, (button, 1, mods))
+                self.gutter_event(laid, id, &cell, GutterKind::Context, (button, 1, mods))
         {
             self.events.push(EditorEvent::Gutter(event));
         }
@@ -890,7 +890,7 @@ impl Editors {
                 self.with(id, laid, measure, |buffer, _| buffer.tab(now));
                 Route::Done
             }
-            Action::ToLineStart => {
+            Action::DeleteToLineStart => {
                 self.with(id, laid, measure, |buffer, rows| {
                     // Back to where the line starts, past its indent too.
                     let ranges = buffer
@@ -911,7 +911,7 @@ impl Editors {
                 });
                 Route::Done
             }
-            Action::ToLineEnd => {
+            Action::DeleteToLineEnd => {
                 self.with(id, laid, measure, |buffer, rows| {
                     let ranges = buffer
                         .ranges()
@@ -1166,7 +1166,7 @@ impl Editors {
             };
             // A column of the page's that hears this press: the page's, and nothing of the editor's.
             let heard = if mods.control {
-                col.heard.menu
+                col.heard.context
             } else {
                 col.heard.press
             };
@@ -1175,7 +1175,11 @@ impl Editors {
                     laid,
                     id,
                     &cell,
-                    GutterKind::Press,
+                    if mods.control {
+                        GutterKind::Context
+                    } else {
+                        GutterKind::Press
+                    },
                     (Button::Left, count, mods),
                 );
                 if let Some(event) = event {
@@ -1524,8 +1528,8 @@ enum Action {
     Cut,
     Paste,
     Escape,
-    ToLineStart,
-    ToLineEnd,
+    DeleteToLineStart,
+    DeleteToLineEnd,
 }
 
 /// The editor's own keys, as a Mac's text views have them (⌘ the command key, ⌥ the option key),
@@ -1562,7 +1566,7 @@ fn builtin(key: Key, mods: Mods) -> Option<Action> {
         Key::Home => go(Movement::LineStart),
         Key::End if command => go(Movement::DocumentEnd),
         Key::End => go(Movement::LineEnd),
-        Key::Backspace if command => Some(Action::ToLineStart),
+        Key::Backspace if command => Some(Action::DeleteToLineStart),
         Key::Backspace if alt => does(EditCommand::DeleteWordBackward),
         Key::Backspace => does(EditCommand::DeleteBackward),
         Key::Delete if alt => does(EditCommand::DeleteWordForward),
@@ -1591,7 +1595,7 @@ fn builtin(key: Key, mods: Mods) -> Option<Action> {
         Key::Character(c) if control && !alt => match c.to_ascii_lowercase() {
             'a' => go(Movement::LineStart),
             'e' => go(Movement::LineEnd),
-            'k' => Some(Action::ToLineEnd),
+            'k' => Some(Action::DeleteToLineEnd),
             _ => None,
         },
         _ => None,

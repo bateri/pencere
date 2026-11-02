@@ -23,6 +23,10 @@ The engine of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.1` and `2
   press moved the caret) and `version`.
 - **Breaking:** `Place` has `inside` and `version`, and `MenuEntry` has `Paste` (a match that names
   every entry, a struct literal of `Place`, must say them).
+- **Breaking:** the page's key action that deletes to the start or the end of the line is
+  `KeyAction::DeleteToLineStart` and `DeleteToLineEnd` (they were `ToLineStart` and `ToLineEnd`), as the
+  commands are; `ColumnEvents::menu` is `ColumnEvents::context`, and `GutterKind` has `Context`, the
+  press that opens a menu.
 - `EditCommand::Copy` and `EditCommand::Cut`, as the editor's keys do them. There is no command that
   pastes: a page cannot read the pasteboard. `MenuEntry::Paste { title, keys, enabled, editor }` is a
   line the host performs itself when it is picked.

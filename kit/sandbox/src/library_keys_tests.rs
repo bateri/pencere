@@ -107,12 +107,12 @@ fn keys_are_read_as_a_command_reads_them_and_named_as_a_key_event_names_them() {
         r#"
         check("letter", keys.parse("cmd+shift+k"), { key = "k", mods = mods("shift", "command") })
         check("as written", keys.parse("CMD+Shift+K"), { key = "K", mods = mods("shift", "command") })
-        check("other names", keys.parse("option+control+super+x"), { key = "x", mods = mods("alt", "control", "command") })
-        check("page up", keys.parse("ctrl+pageup"), { key = "page_up", mods = mods("control") })
-        check("page down", keys.parse("PageDown"), { key = "page_down", mods = mods() })
-        check("delete", keys.parse("alt+del"), { key = "delete", mods = mods("alt") })
-        check("return", keys.parse("cmd+return"), { key = "enter", mods = mods("command") })
-        check("esc", keys.parse("Esc"), { key = "escape", mods = mods() })
+        check("the modifiers", keys.parse("alt+ctrl+cmd+x"), { key = "x", mods = mods("alt", "control", "command") })
+        check("page up", keys.parse("ctrl+page_up"), { key = "page_up", mods = mods("control") })
+        check("page down", keys.parse("Page_Down"), { key = "page_down", mods = mods() })
+        check("delete", keys.parse("alt+delete"), { key = "delete", mods = mods("alt") })
+        check("enter", keys.parse("cmd+enter"), { key = "enter", mods = mods("command") })
+        check("escape", keys.parse("Escape"), { key = "escape", mods = mods() })
         check("space", keys.parse("ctrl+space"), { key = " ", mods = mods("control") })
         check("function", keys.parse("F12"), { key = "f12", mods = mods() })
         check("a mark", keys.parse("cmd+/"), { key = "/", mods = mods("command") })
@@ -124,6 +124,13 @@ fn keys_are_read_as_a_command_reads_them_and_named_as_a_key_event_names_them() {
             .. "or up, down, left, right, page_up, page_down, home, end, enter, escape, tab, backspace, "
             .. "delete, space or f1 to f20")
         check("no such modifier", select(2, keys.parse("hyper+k")), '"hyper" is not a modifier (cmd, ctrl, alt, shift or mod)')
+        -- The kit reads the names of its specification and no others: not a second name for a modifier or a key.
+        for _, other in { "option+x", "opt+x", "control+x", "command+x", "super+x", "meta+x" } do
+            check(other, keys.parse(other), nil)
+        end
+        for _, other in { "esc", "return", "pageup", "ctrl+pagedown", "del" } do
+            check(other, keys.parse(other), nil)
+        end
         check("f21", keys.parse("f21"), nil)
         "#,
     );
@@ -250,8 +257,8 @@ fn a_key_event_is_the_shortcut_with_the_same_modifiers_and_the_key_in_either_cas
         check("a letter with shift more", keys.matches(key("k", "shift"), "k"), false)
         check("a space with shift more", keys.matches(key(" ", "shift"), "space"), false)
         check("another key", keys.matches(key("j", "command"), "cmd+k"), false)
-        check("named", keys.matches(key("enter", "command"), "cmd+return"), true)
-        check("page down", keys.matches(key("page_down", "control"), "ctrl+pagedown"), true)
+        check("named", keys.matches(key("enter", "command"), "cmd+enter"), true)
+        check("page down", keys.matches(key("page_down", "control"), "ctrl+page_down"), true)
         check("space", keys.matches(key(" "), "space"), true)
         check("function", keys.matches(key("f5"), "F5"), true)
         check("outside ASCII", keys.matches(key("Ş", "shift"), "shift+ş"), true)
@@ -260,7 +267,7 @@ fn a_key_event_is_the_shortcut_with_the_same_modifiers_and_the_key_in_either_cas
         check("key up", keys.matches({ type = "key_up", key = "k", mods = mods("command") }, "cmd+k"), true)
         check("no type", keys.matches({ key = "k", mods = { command = true } }, "cmd+k"), true)
         check("not a key", keys.matches({ type = "text", field = "f", text = "k" }, "k"), false)
-        check("parsed", keys.matches(key("k", "alt"), keys.parse("option+k")), true)
+        check("parsed", keys.matches(key("k", "alt"), keys.parse("alt+k")), true)
         "#,
     );
     assert_eq!(shown, ["ok"]);

@@ -356,7 +356,7 @@ end
 -- changed (`editor_ready` once it has made it, `edit`, `selection`, `viewport`, `editor_refused`,
 -- and `found` while it searches) and asks for what it wants in a reply (`editor = { [id] = … }`). Its document lives as long as an editor of its name is on the page,
 -- hidden or not. `options` (all optional): `wrap`, `tab_width` (4), `hard_tabs`, `gutter` (true),
--- `read_only`, `keys` ("editor", or "page": every key the page's), `hint` (what it says while
+-- `read_only`, `input` ("editor", or "page": every key the page's), `hint` (what it says while
 -- empty), `pairs` (the brackets and quotes that close themselves: "()[]{}" or { "()", "[]" }); what
 -- its language says, all of it left out for prose: `comment` (what the commands that comment put: a
 -- line comment, "--", or { line = "--", block = { "--[[", "]]" } }, either of them, the block a pair
@@ -368,7 +368,7 @@ end
 -- times the font's size), `padding` (4 points), `scroll_margin` (rows kept about the caret, 0),
 -- `numbers` ("absolute", "relative", "hidden"), `gutters` (the gutter's columns, from the left: the
 -- editor's `"marks"` (dots), `"numbers"` and `"folds"` — the three there are where it says none —
--- and the page's own, `{ name = "breakpoints", width = 14, events = { "press", "menu", "hover" },
+-- and the page's own, `{ name = "breakpoints", width = 14, events = { "press", "context", "hover" },
 -- hover = { shape = "dot", color = … } }`: `events` says what of the pointer the page hears of the
 -- column (a page's column: presses of both buttons; `false`: nothing; a press there selects nothing
 -- and folds nothing), `hover` what shows, faint, in the cell the pointer is over where nothing
@@ -379,7 +379,7 @@ end
 -- passed; and "target": the pointer over a word with the modifiers of a press that is the page's held,
 -- and that press), `gestures` (how presses are taken, by their modifiers, button and count:
 -- `{ ["press"] = "place", ["shift+press"] = "extend", ["mod+press"] = "target", ["alt+press"] =
--- "column", ["press×2"] = "word", ["press×3"] = "line" }` are what an editor does where the page says
+-- "column", ["press*2"] = "word", ["press*3"] = "line" }` are what an editor does where the page says
 -- nothing; "add_caret" and false (nothing) are the others; "target" is the page's and needs
 -- `events = { "target" }`; "context" is a press that opens the page's menu: `["right+press"] =
 -- "context"` puts one caret where the press is, unless it is in a selection (then it stays) and the
@@ -387,7 +387,7 @@ end
 -- main button is that right press where the page says nothing of ⌃; `mod` is the host's main modifier), `keymap` (the editor's keys the page
 -- changes: `{ ["mod+d"] = "select_next", ["mod+/"] = false, ["mod+k mod+c"] = "toggle_comment" }`, the keys
 -- of a chord apart by a space; what they do is the name of a command that needs none, "copy", "cut",
--- "paste", "tab", "escape", "to_line_start", "to_line_end", a command's table, or false: nothing of
+-- "paste", "tab", "escape", "delete_to_line_start", "delete_to_line_end", a command's table, or false: nothing of
 -- the editor's; `pencere.layout.keymap(editor)` says what the keys do now), `chord_timeout` (seconds a
 -- chord waits for its next key, 1), `links = { delay = 0.05 }` (the least time between two words told
 -- of), `widgets` (how the groups of text the page puts in lines, `{ from =, to =, widget = "words", side =,
@@ -418,7 +418,7 @@ local EDITOR_OPTIONS = {
 	hard_tabs = true,
 	gutter = true,
 	read_only = true,
-	keys = true,
+	input = true,
 	hint = true,
 	comment = { line = true, block = true },
 	pairs = true,
@@ -648,20 +648,17 @@ function Element:value(words)
 end
 
 local MODIFIERS = {
-	cmd = "command", command = "command", super = "command", meta = "command",
-	ctrl = "control", control = "control",
-	alt = "alt", option = "alt", opt = "alt",
+	cmd = "command",
+	ctrl = "control",
+	alt = "alt",
 	shift = "shift",
 }
 
--- The names a key goes by besides the one the page is told.
+-- The keys that are not a character, by the names a key event gives them. A key is also one
+-- character, "f1" to "f20", or "space" (the character " ").
 local KEY_NAMES = {
-	space = " ",
-	["return"] = "enter",
-	esc = "escape",
-	pageup = "page_up",
-	pagedown = "page_down",
-	del = "delete",
+	up = true, down = true, left = true, right = true, page_up = true, page_down = true, home = true,
+	["end"] = true, enter = true, escape = true, tab = true, backspace = true, delete = true,
 }
 
 -- Keys as a person writes them, "cmd+shift+k", "ctrl+enter", "f5", as { key =, mods = }. The key
@@ -691,7 +688,17 @@ function pencere.keys(words)
 	local key = parts[#parts] or ""
 	if utf8.len(key) ~= 1 then
 		key = string.lower(key)
-		key = KEY_NAMES[key] or key
+		if key == "space" then
+			key = " "
+		elseif key ~= "" and not KEY_NAMES[key] then
+			local number = tonumber(string.match(key, "^f(%d+)$"))
+			if number == nil or number < 1 or number > 20 or string.match(key, "^f0") then
+				refuse(
+					'"' .. key .. '" is not a key: one character, or up, down, left, right, page_up, page_down, '
+						.. "home, end, enter, escape, tab, backspace, delete, space or f1 to f20"
+				)
+			end
+		end
 	end
 	return { key = key, mods = mods }
 end

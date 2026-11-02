@@ -226,7 +226,7 @@ fn an_editor_that_gives_its_keys_to_the_page_is_driven_by_the_page() -> Result<(
         return {
             render = function()
                 return pencere.div():size_full()
-                    :child(pencere.editor("vim", { keys = "page" }):grow(1))
+                    :child(pencere.editor("vim", { input = "page" }):grow(1))
                     :child(pencere.text("keys " .. keys))
             end,
             handle = function(event)
@@ -2157,6 +2157,46 @@ fn a_press_in_a_column_of_the_pages_puts_a_breakpoint_where_there_is_none_and_ta
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_press_that_opens_a_menu_in_a_column_that_hears_it_is_told_as_context_and_the_main_one_as_press()
+-> Result<(), Error> {
+    let mut page = open(
+        r#"
+local told = {}
+return {
+	render = function()
+		return pencere.div():size_full()
+			:child(pencere.editor("code", { gutters = { { name = "dots", width = 14, events = { "press", "context" } }, "numbers" } }):grow(1))
+			:child(pencere.text(table.concat(told, " ")))
+	end,
+	handle = function(event)
+		if event.type == "editor_ready" then
+			return { editor = { code = { { load = "a\nb\nc" } } } }
+		elseif event.type == "gutter" then
+			told[#told + 1] = event.kind .. ":" .. event.button
+			return true
+		end
+	end,
+}
+"#,
+    )?;
+    page.click_gutter("code", "dots", 1, pencere_view::Button::Left)?;
+    page.click_gutter("code", "dots", 1, pencere_view::Button::Right)?;
+    page.click_gutter("code", "dots", 1, pencere_view::Button::Middle)?;
+    assert!(
+        page.says("press:left context:right context:middle"),
+        "{:?}",
+        page.words()
+    );
+    // The word of a column's events was `menu`.
+    let failed = failing(
+        r#"return { render = function() return pencere.editor("e", { gutters = { { name = "dots", events = { "menu" } } } }) end }"#,
+    );
+    assert!(failed.contains("\"context\""), "{failed}");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_press_on_a_bar_opens_a_zone_the_pages_element_stands_in_and_scrolls_with_the_text()
 -> Result<(), Error> {
     let mut page = open(GUTTER)?;
@@ -2294,9 +2334,8 @@ return {
 		if event.type == "editor_ready" then
 			return { editor = { code = { { load = "foo.bar  baz" } } } }
 		elseif event.type == "edit" then
-			local a, z = pencere.layout.word_at("code", 5)
-			local c, d = pencere.layout.word_at("code", 8)
-			said = a .. "-" .. z .. " " .. c .. "-" .. d .. " " .. tostring(pencere.layout.word_at("code", 99))
+			local word, run = pencere.layout.word_at("code", 5), pencere.layout.word_at("code", 8)
+			said = word.from .. "-" .. word.to .. " " .. run.from .. "-" .. run.to .. " " .. tostring(pencere.layout.word_at("code", 99))
 			return { redraw = true }
 		end
 		return nil
@@ -2427,6 +2466,16 @@ fn the_keys_a_page_changes_and_the_chords_it_adds_work_and_a_bad_table_fails_whe
             "no command of an editor",
         ),
         (r#"{ ["mod+q"] = "move" }"#, "needs more than its name"),
+        // The words of the keymap are an editor's commands and a few of its own: `to_line_start` is
+        // `delete_to_line_start`.
+        (
+            r#"{ ["mod+q"] = "to_line_start" }"#,
+            "no command of an editor",
+        ),
+        (
+            r#"{ ["mod+q"] = "to_line_end" }"#,
+            "no command of an editor",
+        ),
         (
             r#"{ ["mod+q mod+q mod+q mod+q mod+q"] = "undo" }"#,
             "one to four keys",
@@ -2453,6 +2502,25 @@ fn the_keys_a_page_changes_and_the_chords_it_adds_work_and_a_bad_table_fails_whe
         r#"return { render = function() return pencere.editor("e", { gestures = { ["mod+tap"] = "word" } }) end }"#,
     );
     assert!(failed.contains("ends in \"press\""), "{failed}");
+    // A count is written `press*2` and no other way, and a press that does nothing is `false`.
+    for gesture in ["press\u{d7}2", "pressx2", "press*4", "press*1"] {
+        let failed = failing(&format!(
+            r#"return {{ render = function() return pencere.editor("e", {{ gestures = {{ ["{gesture}"] = "word" }} }}) end }}"#
+        ));
+        assert!(
+            failed.contains("counts its presses as"),
+            "{gesture}: {failed}"
+        );
+    }
+    let failed = failing(
+        r#"return { render = function() return pencere.editor("e", { gestures = { ["press"] = "nothing" } }) end }"#,
+    );
+    assert!(failed.contains("does \"nothing\""), "{failed}");
+    // What an editor's keys do is its `input`; `keys` was its name.
+    let failed = failing(
+        r#"return { render = function() return pencere.editor("e", { keys = "page" }) end }"#,
+    );
+    assert!(failed.contains("keys"), "{failed}");
     Ok(())
 }
 
@@ -2508,7 +2576,7 @@ return {
 	render = function()
 		return b.div():size_full():child(b.editor("code", { gutter = false,
 			keymap = { ["mod+d"] = "undo", ["mod+a"] = false, ["mod+k mod+u"] = { command = "move", movement = "down" } },
-			gestures = { ["press×2"] = "line" } }):grow(1)):child(b.text(said or "none"))
+			gestures = { ["press*2"] = "line" } }):grow(1)):child(b.text(said or "none"))
 	end,
 	handle = function(event)
 		if event.type == "editor_ready" then
@@ -2520,7 +2588,7 @@ return {
 			end
 			said = tostring(table_of["cmd+d"]) .. " " .. tostring(table_of["cmd+a"]) .. " "
 				.. tostring(table_of["cmd+k cmd+u"] ~= nil) .. " " .. tostring(table_of["cmd+c"]) .. " "
-				.. tostring(type(table_of["left"]))
+				.. tostring(type(table_of["left"])) .. " " .. tostring(table_of["cmd+backspace"])
 			return { redraw = true }
 		end
 		return nil
@@ -2529,7 +2597,11 @@ return {
 "#,
     )?;
     // The page's: ⌘D is Undo now, ⌘A is none, the chord is there, ⌘C is what it was, ← a table.
-    assert!(page.says("undo nil true copy table"), "{:?}", page.words());
+    assert!(
+        page.says("undo nil true copy table delete_to_line_start"),
+        "{:?}",
+        page.words()
+    );
     // Two quick presses are the line, as it says (the editor took them for a word).
     page.pointer(pencere_view::Input::Press {
         at: Point::new(12.0, 12.0),

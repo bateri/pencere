@@ -889,47 +889,6 @@ pencere_view_types_shortcut_t shortcut_of_words(lua_State* L, int words) {
     return out;
 }
 
-// The keys a menu's entry wrote as `key`, the name it had: read as keys where they are, and where
-// they are not, its first character as a page that wrote them before was shown (a page that says
-// nothing new is read as it was, and its reply is not failed for words the kit now reads).
-pencere_view_types_shortcut_t shortcut_or_character(lua_State* L, int words) {
-    lua_getglobal(L, "pencere");
-    lua_rawgetfield(L, -1, "keys");
-    lua_remove(L, -2);
-    lua_pushvalue(L, words);
-    if (lua_pcall(L, 1, 1, 0) == 0) {
-        int keys = lua_gettop(L);
-        get(L, keys, "key");
-        size_t length = 0;
-        const char* name = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
-        bool known = false;
-        for (int at = 0; at < 13 && !known; at++) known = strcmp(name, kKeys[at]) == 0;
-        if (!known && name[0] == 'f' && length >= 2 && length <= 3) {
-            int number = atoi(name + 1);
-            known = number >= 1 && number <= 20;
-        }
-        if (!known) {
-            std::string one = repaired(name, length);
-            uint32_t cp = one.empty() ? 0 : first_character(one);
-            size_t first = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
-            known = !one.empty() && first == one.size();
-        }
-        lua_pop(L, 1);
-        if (known) {
-            pencere_view_types_shortcut_t out = shortcut_at(L, keys);
-            lua_pop(L, 1);
-            return out;
-        }
-    }
-    lua_pop(L, 1);
-    size_t length = 0;
-    const char* bytes = lua_tolstring(L, words, &length);
-    pencere_view_types_shortcut_t out = {};
-    out.key.tag = PENCERE_VIEW_TYPES_KEY_CHARACTER;
-    out.key.val.character = first_character(repaired(bytes, length));
-    return out;
-}
-
 // The commands of an element at `list`: `{ id =, title =, keys = { { key =, mods = {...} }, ... },
 // enabled = }`.
 pencere_view_types_slice_t commands_at(lua_State* L, int list, Arenas& arenas) {
@@ -1101,7 +1060,7 @@ pencere_view_types_gutter_shape_t gutter_shape_at(lua_State* L, int t) {
 }
 
 // One column of the gutter, at the absolute index `t`: its name ("numbers", "folds", "marks" are
-// the editor's), or `{ name =, width =, events = { "press", "menu", "hover" } | false, hover = {
+// the editor's), or `{ name =, width =, events = { "press", "context", "hover" } | false, hover = {
 // shape =, image =, color = }, pad = points }`.
 pencere_view_types_gutter_column_t gutter_column_at(lua_State* L, int t) {
     pencere_view_types_gutter_column_t out = {};
@@ -1124,16 +1083,16 @@ pencere_view_types_gutter_column_t gutter_column_at(lua_State* L, int t) {
             lua_rawgeti(L, events, (int)at);
             const char* said = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "";
             if (strcmp(said, "press") == 0) out.events.val.press = true;
-            else if (strcmp(said, "menu") == 0) out.events.val.menu = true;
+            else if (strcmp(said, "context") == 0) out.events.val.context = true;
             else if (strcmp(said, "hover") == 0) out.events.val.hover = true;
-            else luaL_error(L, "a gutter column hears \"press\", \"menu\" and \"hover\", not \"%s\"", said);
+            else luaL_error(L, "a gutter column hears \"press\", \"context\" and \"hover\", not \"%s\"", said);
             lua_pop(L, 1);
         }
     } else if (lua_type(L, events) == LUA_TBOOLEAN) {
         out.events.is_some = true;
-        out.events.val.press = out.events.val.menu = lua_toboolean(L, events) != 0;
+        out.events.val.press = out.events.val.context = lua_toboolean(L, events) != 0;
     } else if (!lua_isnil(L, events)) {
-        luaL_error(L, "the events of a gutter column are a list of words: { \"press\", \"menu\", \"hover\" }");
+        luaL_error(L, "the events of a gutter column are a list of words: { \"press\", \"context\", \"hover\" }");
     }
     lua_pop(L, 1);
     get(L, t, "hover");
@@ -1224,7 +1183,7 @@ static_assert(PENCERE_VIEW_TYPES_EDITOR_MATCHES_NONE == 0 && PENCERE_VIEW_TYPES_
                   PENCERE_VIEW_TYPES_EDITOR_MATCHES_WORD == 2,
               "kMatches is the order of editor-matches");
 
-// `meta.editor`: { wrap =, tab_width =, hard_tabs =, gutter =, read_only =, keys = "editor" | "page",
+// `meta.editor`: { wrap =, tab_width =, hard_tabs =, gutter =, read_only =, input = "editor" | "page",
 // hint = "words", comment = "--" | { line =, block = }, pairs = "()[]{}", indent = { increase =,
 // decrease = }, folds = "page" | "indent", line_height =, padding =, scroll_margin =,
 // numbers = "absolute" | "relative" | "hidden", current_line = "text" | "gutter" | "all",
@@ -1243,8 +1202,8 @@ pencere_view_types_editor_options_t editor_options_at(lua_State* L, int t, Arena
     view_option_bool_t gutter = optional_flag(L, t, "gutter");
     out.gutter = gutter.is_some ? gutter.val : true;
     out.read_only = flag(L, t, "read_only");
-    static const char* const kKeysOf[] = {"editor", "page"};
-    out.keys = (uint8_t)word(L, t, "keys", kKeysOf, 2, 0);
+    static const char* const kInputOf[] = {"editor", "page"};
+    out.input = (uint8_t)word(L, t, "input", kInputOf, 2, 0);
     out.hint = words_at(L, t, "hint", "the hint of an editor", arenas);
     out.comment = comment_at(L, t, arenas);
     out.pairs = words_at(L, t, "pairs", "the pairs of an editor", arenas);
@@ -1924,7 +1883,7 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_word(L, "button", button_name(event.val.release.button));
             break;
         case PENCERE_VIEW_TYPES_EVENT_SCROLL:
-            set_word(L, "type", "scroll");
+            set_word(L, "type", "wheel");
             set_number(L, "x", event.val.scroll.at.x);
             set_number(L, "y", event.val.scroll.at.y);
             set_number(L, "dx", event.val.scroll.dx);
@@ -2157,18 +2116,18 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_number(L, "now", event.val.wake);
             break;
         case PENCERE_VIEW_TYPES_EVENT_EDITOR_GUTTER: {
-            // { editor =, column =, line = (from 1), kind = "press" | "enter" | "leave", button =,
+            // { editor =, column =, line = (from 1), kind = "press" | "context" | "enter" | "leave", button =,
             // count =, mods…, marker = { id =, layer =, from =, to = } (none where the cell is
             // empty), cell = { x =, y =, w =, h = } }
             const auto& gutter = event.val.editor_gutter;
-            static const char* const kKinds[] = {"press", "enter", "leave"};
+            static const char* const kKinds[] = {"press", "context", "enter", "leave"};
             set_word(L, "type", "gutter");
             push_id(L, gutter.editor);
             lua_setfield(L, -2, "editor");
             lua_pushlstring(L, (const char*)gutter.column.ptr, gutter.column.len);
             lua_setfield(L, -2, "column");
             set_line(L, "line", gutter.line);
-            set_word(L, "kind", gutter.kind < 3 ? kKinds[gutter.kind] : "press");
+            set_word(L, "kind", gutter.kind < 4 ? kKinds[gutter.kind] : "press");
             set_word(L, "button", button_name(gutter.button));
             set_number(L, "count", (double)gutter.count);
             set_mods(L, gutter.mods);
@@ -2572,8 +2531,8 @@ pencere_view_types_list_widget_group_t widget_groups_at(lua_State* L, int t) {
 
 const char* const kPressings[] = {"place", "extend", "add_caret", "column", "word", "line", "target", "nothing", "context"};
 
-// `gestures = { ["mod+press"] = "target", ["alt+shift+press"] = "column", ["press\xC3\x972"] = "word", … }`:
-// a press by its modifiers, button (`middle+press`) and count (`press×2`, `pressx2`); what it does, or
+// `gestures = { ["mod+press"] = "target", ["alt+shift+press"] = "column", ["press*2"] = "word", … }`:
+// a press by its modifiers, button (`middle+press`) and count (`press*2`, `press*3`); what it does, or
 // false (nothing).
 pencere_view_types_list_gesture_binding_t gestures_at(lua_State* L, int t) {
     pencere_view_types_list_gesture_binding_t out = {};
@@ -2599,14 +2558,13 @@ pencere_view_types_list_gesture_binding_t gestures_at(lua_State* L, int t) {
                         luaL_error(L, "the gesture \"%s\": \"%s\" is no modifier or button", key.c_str(), words[at].c_str());
                 } else {
                     if (word.rfind("press", 0) != 0)
-                        luaL_error(L, "the gesture \"%s\" ends in \"press\" (or \"press\xC3\x97" "2\")", key.c_str());
+                        luaL_error(L, "the gesture \"%s\" ends in \"press\" (or \"press*2\")", key.c_str());
                     std::string rest = word.substr(5);
-                    if (rest.rfind("\xC3\x97", 0) == 0) rest = rest.substr(2);
-                    else if (rest.rfind("x", 0) == 0) rest = rest.substr(1);
                     if (!rest.empty()) {
-                        binding.count = (uint32_t)atoi(rest.c_str());
-                        if (binding.count < 1 || binding.count > 3)
-                            luaL_error(L, "the gesture \"%s\" counts 1 to 3 presses", key.c_str());
+                        // The count is `*2` or `*3`, the one way it is written.
+                        if (rest.size() != 2 || rest[0] != '*' || rest[1] < '2' || rest[1] > '3')
+                            luaL_error(L, "the gesture \"%s\" counts its presses as \"press*2\" or \"press*3\"", key.c_str());
+                        binding.count = (uint32_t)(rest[1] - '0');
                     }
                 }
             }
@@ -2616,7 +2574,8 @@ pencere_view_types_list_gesture_binding_t gestures_at(lua_State* L, int t) {
             } else if (lua_type(L, value) == LUA_TSTRING) {
                 int found_at = -1;
                 for (int at = 0; at < 9; at++)
-                    if (strcmp(lua_tostring(L, value), kPressings[at]) == 0) found_at = at;
+                    // "nothing" is not a word: a press that does nothing is false.
+                    if (at != PENCERE_VIEW_TYPES_PRESSING_NOTHING && strcmp(lua_tostring(L, value), kPressings[at]) == 0) found_at = at;
                 if (found_at < 0)
                     luaL_error(L, "the gesture \"%s\" does \"%s\": place, extend, add_caret, column, word, line, target, context or false", key.c_str(), lua_tostring(L, value));
                 binding.pressing = (uint8_t)found_at;
@@ -2641,7 +2600,7 @@ pencere_view_types_list_gesture_binding_t gestures_at(lua_State* L, int t) {
 // `keymap = { ["mod+d"] = "select_next", ["mod+/"] = false, ["mod+k mod+c"] = "toggle_comment",
 // ["ctrl+j"] = { command = "move", movement = "down" } }`: keys (a chord is keys apart by a space) and
 // what they do: the word of an editor command that needs none (`"undo"`), `"copy"`, `"cut"`, `"paste"`,
-// `"tab"`, `"escape"`, `"to_line_start"`, `"to_line_end"`, the table of a command, or false (nothing of
+// `"tab"`, `"escape"`, `"delete_to_line_start"`, `"delete_to_line_end"`, the table of a command, or false (nothing of
 // the editor's).
 pencere_view_types_list_key_binding_t keymap_at(lua_State* L, int t) {
     pencere_view_types_list_key_binding_t out = {};
@@ -2691,8 +2650,8 @@ pencere_view_types_list_key_binding_t keymap_at(lua_State* L, int t) {
                 else if (name == "paste") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_PASTE;
                 else if (name == "tab") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_TAB;
                 else if (name == "escape") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_ESCAPE;
-                else if (name == "to_line_start") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_TO_LINE_START;
-                else if (name == "to_line_end") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_TO_LINE_END;
+                else if (name == "delete_to_line_start") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_DELETE_TO_LINE_START;
+                else if (name == "delete_to_line_end") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_DELETE_TO_LINE_END;
                 else {
                     int found_at = -1;
                     for (int at = 0; at < 45; at++)
@@ -3226,72 +3185,68 @@ int reply_call(lua_State* L) {
         // The titles of the entries are one string, as the words of a frame are.
         Arenas titles;
         get(L, menu, "entries");
-        if (lua_type(L, -1) == LUA_TTABLE) {
-            int list = lua_gettop(L);
-            size_t count = (size_t)lua_objlen(L, list);
-            if (count > kMaxList) luaL_error(L, "a menu has more entries than it may");
-            if (count) {
-                out.menu.val.entries.ptr =
-                    (pencere_view_types_menu_entry_t*)xmalloc(count * sizeof(pencere_view_types_menu_entry_t));
-                memset(out.menu.val.entries.ptr, 0, count * sizeof(pencere_view_types_menu_entry_t));
-                out.menu.val.entries.len = count;
-            }
-            for (size_t at = 0; at < count; at++) {
-                auto& entry = out.menu.val.entries.ptr[at];
-                lua_rawgeti(L, list, (int)at + 1);
-                int entry_index = lua_gettop(L);
-                if (lua_type(L, entry_index) == LUA_TSTRING) {
-                    // "-" is the line between entries.
-                    entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_SEPARATOR;
-                } else if (lua_type(L, entry_index) == LUA_TTABLE) {
-                    // `paste = the editor's name`: a line the application performs itself, the
-                    // pasteboard's text pasted in that editor; the page never reads it. Its words are
-                    // the kit's, so a `title` written with it is not carried.
-                    get(L, entry_index, "paste");
-                    bool paste = !lua_isnil(L, -1);
-                    uint64_t editor = paste ? id_of(L, lua_gettop(L)) : 0;
+        if (lua_type(L, -1) != LUA_TTABLE) luaL_error(L, "a menu has entries: menu = { at = { x =, y = }, entries = { { title = \"Copy\" }, \"-\" } }");
+        int list = lua_gettop(L);
+        size_t count = (size_t)lua_objlen(L, list);
+        if (count > kMaxList) luaL_error(L, "a menu has more entries than it may");
+        if (count) {
+            out.menu.val.entries.ptr =
+                (pencere_view_types_menu_entry_t*)xmalloc(count * sizeof(pencere_view_types_menu_entry_t));
+            memset(out.menu.val.entries.ptr, 0, count * sizeof(pencere_view_types_menu_entry_t));
+            out.menu.val.entries.len = count;
+        }
+        for (size_t at = 0; at < count; at++) {
+            auto& entry = out.menu.val.entries.ptr[at];
+            lua_rawgeti(L, list, (int)at + 1);
+            int entry_index = lua_gettop(L);
+            if (lua_type(L, entry_index) == LUA_TSTRING) {
+                // "-" is the line between entries, and the only word an entry is.
+                if (strcmp(lua_tostring(L, entry_index), "-") != 0)
+                    luaL_error(L, "an entry of a menu is a table with a title, or \"-\" for a line, not \"%s\"", lua_tostring(L, entry_index));
+                entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_SEPARATOR;
+            } else if (lua_type(L, entry_index) == LUA_TTABLE) {
+                // `paste = the editor's name`: a line the application performs itself, the
+                // pasteboard's text pasted in that editor; the page never reads it. Its words are
+                // the kit's, so a `title` written with it is not carried.
+                get(L, entry_index, "paste");
+                bool paste = !lua_isnil(L, -1);
+                uint64_t editor = paste ? id_of(L, lua_gettop(L)) : 0;
+                lua_pop(L, 1);
+                if (!paste) {
+                    entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_ITEM;
+                    get(L, entry_index, "title");
+                    if (lua_type(L, -1) != LUA_TSTRING) luaL_error(L, "an entry of a menu has a title, a string: { title = \"Copy\" }");
+                    size_t length = 0;
+                    const char* bytes = lua_tolstring(L, -1, &length);
+                    entry.val.item.title = add_words(titles, bytes, length);
                     lua_pop(L, 1);
-                    if (!paste) {
-                        entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_ITEM;
-                        get(L, entry_index, "title");
-                        size_t length = 0;
-                        const char* bytes = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : "";
-                        entry.val.item.title = add_words(titles, bytes, length);
-                        lua_pop(L, 1);
-                    }
-                    // The keys that do the same, written as a command's: `keys`, or `key` as a
-                    // page wrote it before (one character is keys too).
-                    decltype(entry.val.item.keys) keys = {};
-                    get(L, entry_index, "keys");
-                    bool legacy = lua_isnil(L, -1);
-                    if (legacy) {
-                        lua_pop(L, 1);
-                        get(L, entry_index, "key");
-                    }
-                    if (lua_type(L, -1) == LUA_TSTRING && lua_objlen(L, -1) > 0) {
-                        int words = lua_gettop(L);
-                        keys = {true, legacy ? shortcut_or_character(L, words) : shortcut_of_words(L, words)};
-                    } else if (!lua_isnil(L, -1) && !(lua_type(L, -1) == LUA_TSTRING)) {
-                        luaL_error(L, "the keys of a menu's entry are written as words: \"ctrl+w\"");
-                    }
-                    lua_pop(L, 1);
-                    get(L, entry_index, "enabled");
-                    bool enabled = lua_isnil(L, -1) ? true : lua_toboolean(L, -1) != 0;
-                    lua_pop(L, 1);
-                    if (paste) {
-                        entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_PASTE;
-                        entry.val.paste.keys = keys;
-                        entry.val.paste.enabled = enabled;
-                        entry.val.paste.editor = editor;
-                    } else {
-                        entry.val.item.keys = keys;
-                        entry.val.item.enabled = enabled;
-                    }
-                } else {
-                    luaL_error(L, "an entry of a menu is a table, or \"-\" for a line");
+                }
+                // The keys that do the same, written as a command's.
+                decltype(entry.val.item.keys) keys = {};
+                get(L, entry_index, "keys");
+                if (lua_type(L, -1) == LUA_TSTRING && lua_objlen(L, -1) > 0) {
+                    int words = lua_gettop(L);
+                    keys = {true, shortcut_of_words(L, words)};
+                } else if (!lua_isnil(L, -1) && !(lua_type(L, -1) == LUA_TSTRING)) {
+                    luaL_error(L, "the keys of a menu's entry are written as words: \"ctrl+w\"");
                 }
                 lua_pop(L, 1);
+                get(L, entry_index, "enabled");
+                bool enabled = lua_isnil(L, -1) ? true : lua_toboolean(L, -1) != 0;
+                lua_pop(L, 1);
+                if (paste) {
+                    entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_PASTE;
+                    entry.val.paste.keys = keys;
+                    entry.val.paste.enabled = enabled;
+                    entry.val.paste.editor = editor;
+                } else {
+                    entry.val.item.keys = keys;
+                    entry.val.item.enabled = enabled;
+                }
+            } else {
+                luaL_error(L, "an entry of a menu is a table, or \"-\" for a line");
             }
+            lua_pop(L, 1);
         }
         lua_pop(L, 1);
         out.menu.val.titles = take_text(titles.text);

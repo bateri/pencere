@@ -1104,7 +1104,7 @@ function Containers:input(event, laid)
 			return self:release(laid, { x = event.x, y = event.y })
 		end
 		return self:reply(false)
-	elseif kind == "scroll" then
+	elseif kind == "wheel" then
 		-- The host scrolls the list; a wheel it did not use is nothing to the page.
 		self.pointer = { x = event.x, y = event.y }
 		return self:reply(false)
@@ -1510,7 +1510,7 @@ function Containers:open_menu(at)
 	-- was opened: the pick is told with the entry of the menu shown, which may not be the last asked for.
 	local entries = {}
 	local function item(title, key, act)
-		entries[#entries + 1] = { title = title, key = key, enabled = act ~= nil, act = act, targets = targets }
+		entries[#entries + 1] = { title = title, keys = key, enabled = act ~= nil, act = act, targets = targets }
 	end
 	if any_down then
 		item("Start", "s", "start")
@@ -1534,7 +1534,7 @@ function Containers:open_menu(at)
 	divide()
 	if single then
 		for _, grey in ipairs({ { "Open a shell", "e" }, { "Logs", "l" }, { "Inspect", "i" } }) do
-			entries[#entries + 1] = { title = grey[1], key = grey[2], enabled = false }
+			entries[#entries + 1] = { title = grey[1], keys = grey[2], enabled = false }
 		end
 		item("Copy id", "y", "copy_id")
 	end

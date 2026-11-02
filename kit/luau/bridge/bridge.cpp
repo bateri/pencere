@@ -463,9 +463,12 @@ int l_word_at(lua_State* state) {
     if (!pencere_view_layout_word_at(editor, checked_place(state, 2, "a place", "bytes"), &word, &why))
         refused_by_host(state, &why);
     if (word.is_some) {
+        lua_createtable(state, 0, 2);
         lua_pushnumber(state, told_from_one(word.val.from));
+        lua_setfield(state, -2, "from");
         lua_pushnumber(state, told_from_one(word.val.to));
-        return 2;
+        lua_setfield(state, -2, "to");
+        return 1;
     }
     lua_pushnil(state);
     return 1;

@@ -296,8 +296,8 @@ function layout.line_of(editor, at)
 	return host.line_of(editor, at)
 end
 
--- The word at the place `at` (or the run of marks, or of spaces) as a double click takes it: its
--- `from` and `to` (the end not in it); nil for an editor or a place it has not. The rule is the
+-- The word at the place `at` (or the run of marks, or of spaces) as a double click takes it:
+-- `{ from =, to = }` (the end not in it); nil for an editor or a place it has not. The rule is the
 -- editor's own, so that a page that asks of a word at the caret (Show Hover, Go to Definition) asks
 -- of the same one the pointer rests on.
 function layout.word_at(editor, at)
@@ -306,7 +306,7 @@ end
 
 -- What the keys of an editor do: the editor's own keys, `{ keys = "cmd+d", does = "select_next" }`
 -- (what the `keymap` option takes: a command's word, "copy", "cut", "paste", "tab", "escape",
--- "to_line_start", "to_line_end", or a command's table), as the
+-- "delete_to_line_start", "delete_to_line_end", or a command's table), as the
 -- page's `keymap` changed them: a key it says is what it says, one it says is false is gone, and a
 -- chord it adds is added. For a page that shows a key where it says what a command does.
 internal.keymaps = {}
@@ -328,14 +328,14 @@ local DEFAULT_KEYS = {
 	{ "page_up", go("page_up") }, { "page_down", go("page_down") }, { "home", go("line_start") },
 	{ "end", go("line_end") }, { "cmd+home", go("document_start") }, { "cmd+end", go("document_end") },
 	{ "backspace", "delete_backward" }, { "alt+backspace", "delete_word_backward" },
-	{ "cmd+backspace", "to_line_start" }, { "delete", "delete_forward" },
+	{ "cmd+backspace", "delete_to_line_start" }, { "delete", "delete_forward" },
 	{ "alt+delete", "delete_word_forward" }, { "enter", "newline" }, { "tab", "tab" },
 	{ "shift+tab", "outdent" }, { "escape", "escape" }, { "cmd+z", "undo" }, { "cmd+shift+z", "redo" },
 	{ "cmd+a", "select_all" }, { "cmd+d", "select_next" }, { "cmd+/", "toggle_comment" },
 	{ "cmd+]", "indent" }, { "cmd+[", "outdent" }, { "cmd+alt+]", "unfold" }, { "cmd+alt+[", "fold" },
 	{ "cmd+g", "find_next" }, { "cmd+shift+g", "find_previous" }, { "cmd+c", "copy" },
 	{ "cmd+x", "cut" }, { "cmd+v", "paste" }, { "ctrl+a", go("line_start") },
-	{ "ctrl+e", go("line_end") }, { "ctrl+k", "to_line_end" },
+	{ "ctrl+e", go("line_end") }, { "ctrl+k", "delete_to_line_end" },
 }
 
 -- The keys of an editor and what they do, as `{ { keys =, does = }, ... }`; `does` is nil where the

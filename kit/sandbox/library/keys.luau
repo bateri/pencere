@@ -24,10 +24,9 @@
 -- Ctrl, Alt, Shift, then the logo key: Win on Windows, Super on Linux and for "other" (a platform a
 -- page does not name).
 --
--- `cmd` is the command key. The kit reads `cmd`, `command`, `super` and `meta` as one modifier
--- (`mods.command`) and a host matches it as it is, never as control: off a Mac it is the key with
--- the system's logo, which the label calls "Super". A page whose shortcuts are control's off a Mac
--- writes `ctrl` there.
+-- `cmd` is the command key (`mods.command`): a host matches it as it is, never as control: off a
+-- Mac it is the key with the system's logo, which the label calls "Super". A page whose shortcuts
+-- are control's off a Mac writes `ctrl` there.
 --
 -- A letter is written as a capital, and a character is the same key in either case (shift says
 -- which), as the host matches a command's keys: by Unicode's simple mapping for ASCII, Latin-1,
@@ -45,9 +44,7 @@ local NAMES = {
 	left = "left",
 	right = "right",
 	page_up = "page_up",
-	pageup = "page_up",
 	page_down = "page_down",
-	pagedown = "page_down",
 	home = "home",
 	["end"] = "end",
 	enter = "enter",
@@ -55,7 +52,6 @@ local NAMES = {
 	tab = "tab",
 	backspace = "backspace",
 	delete = "delete",
-	del = "delete",
 }
 for number = 1, 20 do
 	NAMES["f" .. number] = "f" .. number

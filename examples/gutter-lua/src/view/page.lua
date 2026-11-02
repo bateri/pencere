@@ -89,7 +89,7 @@ end
 local OPTIONS = {
 	gutters = {
 		{
-			name = "breakpoints", width = 14, events = { "press", "menu" },
+			name = "breakpoints", width = 14, events = { "press", "context" },
 			hover = { shape = "dot", color = { "red", 0.35 } },
 		},
 		"numbers",

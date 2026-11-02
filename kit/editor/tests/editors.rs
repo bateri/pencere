@@ -2138,9 +2138,14 @@ fn the_other_button_and_control_are_a_menu_and_a_column_that_hears_neither_is_no
         (both[0].button, both[1].mods.control),
         (Button::Right, true)
     );
+    assert_eq!(
+        (both[0].kind, both[1].kind),
+        (GutterKind::Context, GutterKind::Context),
+        "a press that opens a menu is told as one"
+    );
     let only_press = events(Some(ColumnEvents {
         press: true,
-        menu: false,
+        context: false,
         hover: false,
     }));
     assert_eq!(only_press.len(), 0);
@@ -2152,7 +2157,7 @@ fn the_pointer_coming_to_a_cell_and_going_is_told_to_a_column_that_hears_it_and_
     let mut options = columns();
     options.gutters[1].events = Some(ColumnEvents {
         press: true,
-        menu: false,
+        context: false,
         hover: true,
     });
     options.gutters[1].hover = Some(Preview {
@@ -2626,7 +2631,7 @@ fn what_the_pointer_is_over_is_found_again_when_the_text_scrolls_under_it() {
     let mut options = columns();
     options.gutters[1].events = Some(ColumnEvents {
         press: true,
-        menu: false,
+        context: false,
         hover: true,
     });
     let mut host = Host::new(page_with(options));

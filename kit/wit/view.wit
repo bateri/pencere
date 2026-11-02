@@ -538,8 +538,8 @@ interface types {
         secret,
     }
 
-    /// What the keys do in an editor.
-    enum editor-keys {
+    /// What the keys and the text a person types do in an editor.
+    enum editor-input {
         /// The page's commands first, then the editor's own, then what is typed.
         editor,
         /// The page's, every one: the editor types nothing and does none of its commands for a
@@ -762,7 +762,7 @@ interface types {
         gutter: bool,
         /// The person cannot change the text; the page can.
         read-only: bool,
-        keys: editor-keys,
+        input: editor-input,
         /// What it says while its document is empty: a part of the frame's `text`.
         hint: option<slice>,
         /// How the language writes its comments.
@@ -865,8 +865,8 @@ interface types {
         cut,
         paste,
         escape,
-        to-line-start,
-        to-line-end,
+        delete-to-line-start,
+        delete-to-line-end,
     }
 
     record link-options {
@@ -907,8 +907,9 @@ interface types {
     record column-events {
         /// A press of the main button: the line is not selected, nothing folds, the caret stays.
         press: bool,
-        /// A press of another button, or of the main one with the control key held.
-        menu: bool,
+        /// A press of another button, or of the main one with the control key held: the one that
+        /// opens a menu.
+        context: bool,
         /// The pointer came to a cell, and went from it.
         hover: bool,
     }
@@ -1540,7 +1541,11 @@ interface types {
     }
 
     enum gutter-kind {
+        /// A press of the main button.
         press,
+        /// A press of another button, or of the main one with the control key held: the one that
+        /// opens a menu (the column's `context` event).
+        context,
         /// The pointer came to a cell that is not the one it was on, or went from it.
         enter,
         leave,

@@ -18,6 +18,8 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
 
 ### Changed
 
+- A press in a gutter column that opens a menu (another button, or the main one with ⌃) is told to the page
+  as `GutterKind::Context` and not `GutterKind::Press`, to the columns that hear `ColumnEvents::context`.
 - **What a page asks of an editor and what the editor tells it are in bytes of UTF-8**
   (`Buffer::change`, `select_at`, `carry`, `decorate`; `Note::Edited` and `Note::Selection`; the
   hover, target and gutter events, the place of the pointer, `Snapshot`), while the editor goes on

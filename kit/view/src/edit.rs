@@ -453,8 +453,8 @@ pub struct ColumnEvents {
     /// A press of the main button. The line is not selected, nothing is folded, the caret does not
     /// move; the editor has the keyboard.
     pub press: bool,
-    /// A press of another button, or of the main one with ⌃ held (a menu's).
-    pub menu: bool,
+    /// A press of another button, or of the main one with ⌃ held (one that opens a menu).
+    pub context: bool,
     /// The pointer came to a cell, and went from it.
     pub hover: bool,
 }
@@ -464,7 +464,7 @@ impl Default for ColumnEvents {
     fn default() -> Self {
         Self {
             press: true,
-            menu: true,
+            context: true,
             hover: false,
         }
     }
@@ -492,7 +492,7 @@ impl Column {
             if self.is_editors() {
                 ColumnEvents {
                     press: false,
-                    menu: false,
+                    context: false,
                     hover: false,
                 }
             } else {
@@ -543,7 +543,10 @@ pub struct GutterHit {
 /// What the pointer did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GutterKind {
+    /// A press of the main button.
     Press,
+    /// A press of another button, or of the main one with ⌃ held: the one that opens a menu.
+    Context,
     /// It came to a cell that is not the one it was on (another line, another marker, another
     /// column), or went from one.
     Enter,
@@ -856,8 +859,8 @@ pub enum KeyAction {
     /// Back to one selection where there are several.
     Escape,
     /// Deletes to where the line starts, and to where it ends.
-    ToLineStart,
-    ToLineEnd,
+    DeleteToLineStart,
+    DeleteToLineEnd,
 }
 
 /// How the pointer over a word with a press that is the page's held is told.

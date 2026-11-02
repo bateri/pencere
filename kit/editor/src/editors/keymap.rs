@@ -37,8 +37,8 @@ impl From<&KeyAction> for Action {
             KeyAction::Cut => Action::Cut,
             KeyAction::Paste => Action::Paste,
             KeyAction::Escape => Action::Escape,
-            KeyAction::ToLineStart => Action::ToLineStart,
-            KeyAction::ToLineEnd => Action::ToLineEnd,
+            KeyAction::DeleteToLineStart => Action::DeleteToLineStart,
+            KeyAction::DeleteToLineEnd => Action::DeleteToLineEnd,
         }
     }
 }

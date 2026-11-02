@@ -618,6 +618,7 @@ fn event_in(event: Event) -> wit::Event {
             line: place_in(gutter.line),
             kind: match gutter.kind {
                 GutterKind::Press => wit::GutterKind::Press,
+                GutterKind::Context => wit::GutterKind::Context,
                 GutterKind::Enter => wit::GutterKind::Enter,
                 GutterKind::Leave => wit::GutterKind::Leave,
             },
@@ -1817,9 +1818,9 @@ fn editor_options_out(
         hard_tabs: options.hard_tabs,
         gutter: options.gutter,
         read_only: options.read_only,
-        keys: match options.keys {
-            wit::EditorKeys::Editor => Keys::Editor,
-            wit::EditorKeys::Page => Keys::Page,
+        keys: match options.input {
+            wit::EditorInput::Editor => Keys::Editor,
+            wit::EditorInput::Page => Keys::Page,
         },
         hint,
         comment: CommentTokens { line, block },
@@ -2249,8 +2250,8 @@ fn key_action_out(action: wit::KeyAction) -> KeyAction {
         wit::KeyAction::Cut => KeyAction::Cut,
         wit::KeyAction::Paste => KeyAction::Paste,
         wit::KeyAction::Escape => KeyAction::Escape,
-        wit::KeyAction::ToLineStart => KeyAction::ToLineStart,
-        wit::KeyAction::ToLineEnd => KeyAction::ToLineEnd,
+        wit::KeyAction::DeleteToLineStart => KeyAction::DeleteToLineStart,
+        wit::KeyAction::DeleteToLineEnd => KeyAction::DeleteToLineEnd,
     }
 }
 
@@ -2327,7 +2328,7 @@ fn gutter_column_out(column: &wit::GutterColumn) -> Result<Column, Fault> {
         width: column.width.filter(|width| width.is_finite()),
         events: column.events.map(|events| ColumnEvents {
             press: events.press,
-            menu: events.menu,
+            context: events.context,
             hover: events.hover,
         }),
         hover: column.hover.as_ref().map(|preview| Preview {

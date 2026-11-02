@@ -1250,7 +1250,7 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
                 if e.type == "press" then
                     said = "press " .. e.count
                     return { redraw = true, cursor = "resize_horizontal", keyboard = { field = "name" } }
-                elseif e.type == "scroll" then
+                elseif e.type == "wheel" then
                     said = "scroll " .. e.dx .. " " .. e.dy
                     return { redraw = true, cursor = "not_allowed", keyboard = "page" }
                 elseif e.type == "key" then
@@ -1353,11 +1353,11 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
     );
 }
 
-/// A menu's entry has keys written as a command's (`keys`); one a page wrote as `key` before is
-/// read as keys where it is some, and as its first character where it is not, as it was.
+/// A menu's entry has keys written as a command's (`keys`); a `key` is the page's own field and no
+/// keys, whatever it holds.
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
-fn a_script_gives_a_menus_entries_their_keys_and_reads_an_old_key_as_it_was() {
+fn a_script_gives_a_menus_entries_their_keys_and_a_key_of_an_entry_is_no_keys() {
     use pencere_view::{MenuEntry, Shortcut};
     let mut page = open_script(
         r##"
@@ -1367,8 +1367,9 @@ fn a_script_gives_a_menus_entries_their_keys_and_reads_an_old_key_as_it_was() {
                 if e.type == "press" then
                     return { menu = { at = { x = 1, y = 1 }, entries = {
                         { title = "Close", keys = "ctrl+w" },
-                        { title = "Rename", key = "f2" },
+                        { title = "Rename", keys = "f2" },
                         { title = "Old", key = "⌘W" },
+                        { title = "Copy", key = "copy", keys = "s" },
                         "-",
                     } } }
                 end
@@ -1411,10 +1412,88 @@ fn a_script_gives_a_menus_entries_their_keys_and_reads_an_old_key_as_it_was() {
         [
             Shortcut::parse("ctrl+w"),
             Shortcut::parse("f2"),
-            Some(Shortcut::new(Key::Character('⌘'), Mods::default())),
+            None,
+            Shortcut::parse("s"),
             None,
         ]
     );
+}
+
+/// `pencere.keys` reads the modifiers `cmd`, `ctrl`, `alt`, `shift` and `mod` and the keys of the
+/// specification, and no second name for either (the refusals are in the test of what the page API
+/// refuses).
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn pencere_keys_reads_the_names_of_the_specification() {
+    let update = first(
+        r#"
+        local k = pencere.keys
+        local said = table.concat({
+            k("escape").key, tostring(k("alt+x").mods.alt), k("ctrl+page_down").key,
+            "[" .. k("Space").key .. "]", k("F5").key, k("cmd+shift+K").key, k("cmd++").key,
+            tostring(k("cmd+enter").mods.command), tostring(k("ctrl+delete").mods.control),
+        }, " ")
+        return { render = function() return pencere.text(said) end }"#,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None, "{:?}", update.closed);
+    assert_eq!(
+        words(&update.frame.expect("a page").root),
+        ["escape true page_down [ ] f5 K + true true"]
+    );
+}
+
+/// A menu is a table of entries, each a table with a title or `"-"`: a word that is no line, an
+/// entry with no title and a menu with no entries fail the page, which says why.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_menu_of_words_untitled_entries_or_no_entries_fails_the_page_and_says_why() {
+    for (menu, why) in [
+        (
+            r#"{ at = { x = 1, y = 1 }, entries = { "Copy" } }"#,
+            "or \"-\" for a line, not \"Copy\"",
+        ),
+        (
+            r#"{ at = { x = 1, y = 1 }, entries = { { keys = "ctrl+w" } } }"#,
+            "has a title",
+        ),
+        (
+            r#"{ at = { x = 1, y = 1 }, entries = { { title = 5 } } }"#,
+            "has a title",
+        ),
+        (r#"{ at = { x = 1, y = 1 } }"#, "a menu has entries"),
+        (
+            r#"{ at = { x = 1, y = 1 }, entries = "Copy" }"#,
+            "a menu has entries",
+        ),
+    ] {
+        let mut page = open_script(
+            &format!(
+                r##"return {{
+                    render = function() return pencere.div() end,
+                    handle = function(e)
+                        if e.type == "press" then return {{ menu = {menu} }} end
+                    end,
+                }}"##
+            ),
+            ModuleLimits::default(),
+        );
+        page.module.render(SIZE, 0.0, false);
+        page.until(Duration::from_secs(20), |u| {
+            u.frame.is_some() || u.closed.is_some()
+        });
+        page.module.event(Event::Input(Input::Press {
+            at: Point::new(1.0, 1.0),
+            button: Button::Left,
+            mods: Mods::default(),
+            count: 1,
+        }));
+        let update = page.until(Duration::from_secs(10), |u| u.closed.is_some());
+        let Some(Fault::Failed(said)) = &update.closed else {
+            panic!("{menu}\nwas not refused: {:?}", update.closed);
+        };
+        assert!(said.contains(why), "{menu}\n{said}");
+    }
 }
 
 /// A pick is told the script with the entry of the menu it was a pick of, once: one of a menu the
@@ -1589,7 +1668,7 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
                 :child(pencere.div()
                     :focused()
                     :command("find", "Find", "cmd+shift+f", false)
-                    :command("go", "Go", { "ctrl+pagedown", "ctrl+alt+right", "cmd++" })
+                    :command("go", "Go", { "ctrl+page_down", "ctrl+alt+right", "cmd++" })
                     :draggable("card"))
                 :child(pencere.div():drop_target("done"):selected(true):expanded(false))
         end }"##,
@@ -2776,6 +2855,18 @@ fn what_the_page_api_refuses_it_refuses_at_the_line_of_the_script_that_gave_it()
                 r#"pencere.time.after("x", 1)"#,
                 "pencere.time.every(0, function() end)",
                 "pencere.time.after(1, 5)",
+            ],
+        ),
+        (
+            "keys",
+            &[
+                r#"pencere.keys("esc")"#,
+                r#"pencere.keys("opt+x")"#,
+                r#"pencere.keys("option+x")"#,
+                r#"pencere.keys("command+x")"#,
+                r#"pencere.keys("ctrl+pagedown")"#,
+                r#"pencere.keys("return")"#,
+                r#"pencere.keys("f21")"#,
             ],
         ),
         (

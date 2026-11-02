@@ -385,7 +385,7 @@ local function render()
 			:child(b.div():id("peek"):zone("peek"):h(33):bg("raised2"):border(1, "border")
 				:child(b.text("a peek 33 tall")))
 		)
-		:child(b.text(keys.label("cmd+enter") .. "  " .. keys.label("esc") .. "  " .. keys.label("cmd+shift+k")))
+		:child(b.text(keys.label("cmd+enter") .. "  " .. keys.label("escape") .. "  " .. keys.label("cmd+shift+k")))
 end
 local function handle(event)
 	if event.type == "editor_ready" then

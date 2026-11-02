@@ -15,12 +15,12 @@
 --       by the kit, which has the page rendered again for it.)
 --   handle(event) -> reply         (optional)
 --       The person did something. `event` is { type = "move" | "leave" | "press" | "release" |
---       "scroll" | "scrolled" | "key" | "key_up" | "mods" | "text" | "focus" | "menu" | "command" |
+--       "wheel" | "scrolled" | "key" | "key_up" | "mods" | "text" | "focus" | "menu" | "command" |
 --       "files" | "files_over" | "files_left" | "saving" | "terminal_look",
---       ... } in the page's points: move/press/release/scroll/files have x and y (press and
+--       ... } in the page's points: move/press/release/wheel/files have x and y (press and
 --       release a button, "left", "right" or "middle"; press its `count`, 2 for the second of a
 --       double click; press, key, key_up and mods have mods = { shift =, control =, alt =,
---       command = }; scroll dx and dy, the points the content would move left and up by, for a
+--       command = }; wheel dx and dy, the points the content would move left and up by, for a
 --       wheel no box the host scrolls took; scrolled the `boxes` the host scrolled, each
 --       { id =, x =, y = }, for a page that builds only what is in view), key and
 --       key_up have `key` ("up", "down", "left", "right", "page_up", "page_down", "home", "end",

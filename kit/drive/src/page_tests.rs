@@ -1618,7 +1618,7 @@ fn the_host_scrolls_the_box_under_the_wheel_and_a_turn_no_box_takes_is_the_pages
             handle = function(event)
                 if event.type == "scrolled" then
                     said[#said + 1] = "scrolled " .. event.boxes[1].id .. " " .. event.boxes[1].y
-                elseif event.type == "scroll" then
+                elseif event.type == "wheel" then
                     said[#said + 1] = "scroll " .. event.dy
                 end
                 return true

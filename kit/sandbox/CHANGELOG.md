@@ -67,6 +67,27 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 - **`pencere.call`, `pencere.subscribe` and `pencere.cancel` check their arguments:** `method` and
   `topic` are strings, `params` nil or a table, the functions nil or functions, the `id` of `cancel` a
   number; a mistake is an error at the line of the script.
+- **Words of the Lua page API that said one thing and meant another, or two things, or were written two ways, are one
+  now** (`wit` of `pencere:view@3.0.0`, and the interpreter is rebuilt):
+  - A menu's entry is a table with a `title` or `"-"`; a `key` of an entry is the page's own field and no
+    longer read as keys (write `keys = "ctrl+w"`), any other word is an error where it used to be a line,
+    and a menu with no `entries` is an error where it used to be an empty one.
+  - The event of a wheel no box took is `wheel`, as `Page::wheel` is, and not `scroll`; `scrolled` is as it was.
+  - An editor's keymap word for deleting to the start or the end of the line is `delete_to_line_start` and
+    `delete_to_line_end`, the word of the command (`to_line_start` and `to_line_end` are errors); in the
+    interface `key-action` has `delete-to-line-start` and `delete-to-line-end`.
+  - An editor's option `keys` is `input` (`"editor"` or `"page"`; the interface's `editor-options.input` of
+    `editor-input`).
+  - A gesture's count is written `press*2` (`press*3`), the way a keyboard types it; `press×2`, `pressx2` and
+    the word `"nothing"` are errors (`false` is the press that does nothing).
+  - A gutter column's events are `"press"`, `"context"` and `"hover"` (`"menu"` before), and the press that
+    opens a menu is told as `kind = "context"` (it was `"press"` with a `button`): the interface's
+    `column-events.context` and `gutter-kind.context`.
+  - `pencere.layout.word_at(editor, at)` gives `{ from =, to = }`, or nil, and not two numbers.
+  - `pencere.keys` reads the modifiers `cmd`, `ctrl`, `alt`, `shift` and `mod` and the keys of the
+    specification: `command`, `super`, `meta`, `control`, `option`, `opt`, and the keys `return`, `esc`,
+    `pageup`, `pagedown` and `del` are errors (so is a key that is none), and `@pencere/keys` reads no more
+    than it.
 - The fields of a timer (`fn`, `waiting` and the others) are no longer there to read or write: a
   timer has `:cancel()` and `:active()`. `pencere.f32` is gone from the page API; the interpreter is
   rebuilt (`make luau`).
