@@ -1329,6 +1329,29 @@ calls are being answered at once), `internal` (the handler failed, or its result
 JSON) and `message-too-long` (the answer is over the size of a message, Section 9.3), and a view
 SHOULD read any other code as the plain failure.
 
+A method or a topic whose name begins with `pencere.` is reserved for this specification and the
+kit. A program MUST NOT give a method or a topic of its own such a name, so that a name defined later
+cannot collide with one a program already serves. This version defines one, `pencere.log`, and a later
+version MAY define more.
+
+**`pencere.log`** is a `call` of the view that asks the program to write a line where it keeps what
+is for the person who writes the program and not for the person who uses it: its log. Its `params`
+are an object with a `text`, a string, and a `level`, OPTIONAL, which is `"info"` or `"warn"`; a
+program reads any other `level` as `"info"`. A program that serves it writes the line and answers
+`{}`, and one that does not answers `not-found`, as it does for any name it has none of; a view that
+is told `not-found` SHOULD send no more of them. A program that shows a view of the kind `lua` SHOULD
+serve it, since the `print` of a page (`kit/SPEC.md`, Section 2.4) is this call: a page has no
+terminal of its own, and the one under it is the program's. The `text` is what the view says, and is
+read as untrusted like everything it says: a program that writes it where a terminal may read it
+writes each control character in it, but a tab and a line break, as a visible escape (`\x1b` for
+`ESC`), so that a view cannot act on the terminal through its log. A program MAY cut a line or leave
+one out, and a call whose `params` have no `text` that is a string leaves one out; it answers `{}` all
+the same.
+
+```frame fixtures/to-program/msg-call-log.frame
+<ESC>_pencere;msg;id=3;{"call":{"id":5,"method":"pencere.log","params":{"level":"warn","text":"no row for id 7"}}}<ESC>\
+```
+
 The program and the view each read what the other says as untrusted: an object that is not one of
 these, or lacks a member, has one of the wrong kind, has an `id` of 0, or is a `response` with both
 a `result` and an `error` or with neither, is ignored. An unknown member is ignored too.

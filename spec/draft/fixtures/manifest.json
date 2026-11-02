@@ -781,6 +781,22 @@
       "errors": []
     },
     {
+      "file": "to-program/msg-call-log.frame",
+      "direction": "to-program",
+      "note": "msg carrying a call of the reserved method pencere.log, which asks the program to write a line of its log",
+      "scope": "body",
+      "canonical": true,
+      "messages": [
+        {
+          "kind": "msg",
+          "id": 3,
+          "control": {},
+          "payload": "{\"call\":{\"id\":5,\"method\":\"pencere.log\",\"params\":{\"level\":\"warn\",\"text\":\"no row for id 7\"}}}"
+        }
+      ],
+      "errors": []
+    },
+    {
       "file": "to-program/msg-subscribe.frame",
       "direction": "to-program",
       "note": "msg carrying a subscription of the view",
