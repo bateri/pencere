@@ -561,7 +561,7 @@ fn a_script_can_reach_nothing_of_the_system() {
     let update = first(
         r#"
         local names = { "io", "os", "debug", "require", "loadstring", "load", "dofile", "loadfile",
-            "print", "getfenv", "setfenv", "newproxy", "collectgarbage", "gcinfo", "coroutine",
+            "getfenv", "setfenv", "newproxy", "collectgarbage", "gcinfo", "coroutine",
             "package", "bit32", "buffer", "vector", "utf8", "string", "table", "math" }
         local found = {}
         for _, name in ipairs(names) do
@@ -574,6 +574,7 @@ fn a_script_can_reach_nothing_of_the_system() {
         end
         return { render = function()
             return pencere.div():child(pencere.text(table.concat(found, " "))):child(pencere.text(table.concat(more, " ")))
+                :child(pencere.text(type(print) .. " " .. type(warn)))
         end }
         "#,
         ModuleLimits::default(),
@@ -582,9 +583,15 @@ fn a_script_can_reach_nothing_of_the_system() {
     let frame = update.frame.expect("a page");
     // Only the pure libraries are there, and none of their ways to reach out of the sandbox; and
     // `require`, which reaches the scripts of the bundle and nothing else (`luau_require_tests`).
+    // `print` is not the base library's (the page has no standard output): `warn` and it are the
+    // prelude's, which say to the program (`luau_print_tests`).
     assert_eq!(
         words(&frame.root),
-        ["require utf8 string table math", "math.randomseed"]
+        [
+            "require utf8 string table math",
+            "math.randomseed",
+            "function function"
+        ]
     );
 }
 

@@ -751,6 +751,39 @@ fn a_chain_of_scripts_that_requires_deeper_than_the_interpreter_goes_is_an_error
     );
 }
 
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_required_script_prints_to_the_program_as_the_entry_does_whatever_the_entry_assigned() {
+    // `print` and `warn` are the page API's, for every script; a name a script assigns is its own.
+    let page = r#"
+        print = function() error("the entry's own print is not the module's") end
+        local lib = require("./lib")
+        lib.say("from lib")
+        return { render = function() return pencere.text(lib.name) end }
+    "#;
+    let lib = r#"
+        warn("module loaded")
+        return { name = "lib", say = function(text) print(text, 2) end }
+    "#;
+    let (mut page, _) = open_bundle(
+        "page.lua",
+        &[("page.lua", LUA, page), ("lib.lua", LUA, lib)],
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    let update = page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    assert_eq!(lines_of(&update), ["lib"]);
+    assert_eq!(
+        page.seen.sent,
+        [
+            r#"{"call":{"id":1,"method":"pencere.log","params":{"level":"warn","text":"module loaded"}}}"#,
+            r#"{"call":{"id":2,"method":"pencere.log","params":{"level":"info","text":"from lib\t2"}}}"#,
+        ]
+    );
+}
+
 // --- The kit's library: `@pencere/<name>` ----------------------------------------------------------
 
 #[test]

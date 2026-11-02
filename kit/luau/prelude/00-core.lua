@@ -2,8 +2,9 @@
 -- script's reach once it is wrapped) and the small things the rest is made of.
 --
 -- A script is Luau. What it can use besides the language is the base functions, `string`,
--- `table`, `math` and `utf8`, `require` (the other scripts of its bundle, and the kit's library:
--- `require("@pencere/syntax")`), and `pencere`, the table this prelude fills:
+-- `table`, `math` and `utf8`, `print` and `warn` (which are not the base library's: they say to
+-- the program's log, `40-page.lua`), `require` (the other scripts of its bundle, and the kit's
+-- library: `require("@pencere/syntax")`), and `pencere`, the table this prelude fills:
 --
 --   elements   pencere.div(), pencere.text(), pencere.rich({ pencere.span(...), ... }),
 --              pencere.spark(), pencere.image(), pencere.canvas({ pencere.path()..., ... }),
@@ -22,6 +23,7 @@
 --              wakes the page: a reply's `wake`), pencere.merge (two replies as one)
 --   layout     pencere.layout (what is where on the page as it was last laid out)
 --   program    pencere.send, pencere.call, pencere.subscribe, pencere.cancel, pencere.json
+--              (and `print`, `warn`, globals: a line for the program's log)
 --
 -- Lengths are points. An element is a plain table; the builders are methods that return it.
 

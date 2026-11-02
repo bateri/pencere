@@ -78,10 +78,12 @@ that an earlier refused) arrives with a new minor version of `lua`, as a later L
 ## 2. The Lua page API
 
 A script is Luau. What it can use besides the language is the base functions, `string`, `table`,
-`math`, `utf8`, `require` (the other scripts of its bundle and the kit's library: Sections 2.5 and
-2.6), and `pencere`, the table the prelude fills. It has no files of the system's, no network, no
-clock but the time `render` and a wake hand it (Section 2.3) and the time of day its host says
-(Section 2.2), and no randomness.
+`math`, `utf8`, `print` and `warn` (which say a line to the program's log: Section 2.4), `require`
+(the other scripts of its bundle and the kit's library: Sections 2.5 and 2.6), and `pencere`, the
+table the prelude fills. It has no files of the system's, no network, no clock but the time `render`
+and a wake hand it (Section 2.3) and the time of day its host says (Section 2.2), and no randomness.
+(`print` is not the base library's, which has nowhere to write to: it is the prelude's, and a page has
+no standard output.)
 
 Nothing of the prelude's own is a name a script can reach: what its parts share among themselves,
 and the functions of the host that it wraps, are not fields of `pencere` or of any table a script
@@ -878,9 +880,10 @@ otherwise. This is how the kit puts together what its timers and the page answer
 
 ### 2.4 The program
 
-What the page says to its program is the six messages of the protocol (Section 9.2):
+What the page says to its program is the messages of the protocol (Section 9.2):
 `pencere.call(method, params, done, progress)` asks and is answered once, `pencere.subscribe(topic,
-params, on_value)` asks to hear a topic, `pencere.cancel(id)` gives either up, `pencere.json` encodes
+params, on_value)` asks to hear a topic, `pencere.cancel(id)` gives either up (and `print` and `warn`,
+below, are calls too), `pencere.json` encodes
 and decodes JSON (arrays and objects nested up to 127 levels, the outermost counting as the first: protocol, Section 4.5).
 `pencere.json.decode(text)` is the reader the program's own messages are read with, and gives the
 value, or nil and why (`a comma or a brace was expected at 12`, the place counted from 1; nil alone for
@@ -891,6 +894,49 @@ whether it had it as `null`, for every object decoded, those of the program's me
 while the page has set nothing at that key. What is decoded is encoded again as it was: its `null`
 members, and an empty list as a list. A message the program cannot take yet waits its turn (`pencere.send`, the raw word,
 says whether it took the message), and the host holds the page to the limits of Section 5.
+
+#### `print` and `warn`
+
+`print(...)` and `warn(...)` are global functions of the page: the script has them, and so has every
+script it requires and every module of the kit's library, as it has `pencere`. A script that assigns
+a name `print` or `warn` of its own has its own, in its own globals, as it does for any name. They
+return nothing.
+
+A page has no screen to print to, no standard output and no files, and the program that shows it
+may be on another machine. The line goes to the program, which writes it to its log: not to the
+screen, and not to the page. Each call sends one `call` (protocol, Section 9.2) of the reserved
+method `pencere.log` with the params `{ text = <the line>, level = "info" | "warn" }`: `"info"` for
+`print`, `"warn"` for `warn`. It is an ordinary call of the page's, which the program's library
+answers itself, with `{}`, without a handler of the application's; it goes through the same queue as
+the page's other messages, in order, and counts toward the messages to the program a call may say
+(Section 4).
+A page of any kind may send it (a `web` view's page as well), and nothing in the interface, the
+bridge or the host changes for it. The answer is the prelude's: it is never delivered to the
+page's `message`.
+
+- **The line** is each argument made text as `tostring` makes it, joined with a tab, so
+  `print("a", 1, nil, true)` says `a<TAB>1<TAB>nil<TAB>true`; a line may hold line breaks. A line of
+  more than 8192 bytes is cut at that many, never inside a character (the cut goes back to the
+  character before it), and ends with `… (N more bytes)`, `N` the bytes that were left out.
+- **At most 64 lines are out at once**: waiting to be sent, or sent and not yet answered. A line
+  printed while 64 are out is dropped, and counted; when there is room again (for it and for what
+  follows), one `warn` line, `N lines of print were dropped`, is sent before the next line, and the
+  count starts again. A program that never answers costs the page the 64 lines and nothing more:
+  what the page remembers of its lines does not grow.
+- **A program that has no `pencere.log`** answers `not-found`; from then on, for as long as the
+  page lives, `print` and `warn` say nothing (they are no-ops, and what was waiting to be sent is let
+  go). A program whose library serves it need not keep what it is told: a program MAY cut a line or
+  leave one out (protocol, Section 9.2).
+- **A page that fails** says the last 16 lines that were waiting for the end of its call before it is
+  closed, so that a page that printed and then made an error has said what it printed; it says
+  nothing else it was going to say (a `pencere.call` made in the call that failed is not made). A
+  script that fails in its first run, the one that starts it, says nothing: no page starts.
+- **The line is what the page says**, untrusted as everything the page says is: a program writes
+  the control characters in it as a visible escape before it writes it to a place a terminal may read
+  (protocol, Section 9.2).
+
+Neither `pencere.version` nor the version of `lua` changes for `print` and `warn`: a page that does
+not use them cannot tell that they are there.
 
 ### 2.5 The other scripts of the bundle
 

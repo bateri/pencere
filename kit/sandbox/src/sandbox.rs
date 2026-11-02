@@ -2,11 +2,12 @@
 //! how large a page it may hand out — and what is said when it goes past any of them.
 //!
 //! The module gets **nothing it was not given**: the linker holds the page's own interface and
-//! no other (no clock, no file, no network, no environment, no way to print), so a module that
-//! asks for anything else does not start. What it is given it is given on terms: a store that
-//! refuses to grow past [`ModuleLimits::memory`], a call that is cut off after [`ModuleLimits::call`]
-//! (the module's code is compiled to check for it at every loop head and function entry), and a
-//! page that is read with its size, depth and strings counted.
+//! no other (no clock, no file, no network, no environment, no standard output: what a page prints
+//! it says to its program, as a message), so a module that asks for anything else does not start.
+//! What it is given it is given on terms: a store that refuses to grow past
+//! [`ModuleLimits::memory`], a call that is cut off after [`ModuleLimits::call`] (the module's code
+//! is compiled to check for it at every loop head and function entry), and a page that is read with
+//! its size, depth and strings counted.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

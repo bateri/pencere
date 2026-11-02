@@ -592,6 +592,24 @@ fn serve<R: Runner>(
         .interrupt
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = runner.interrupter();
+    let result = run(&mut runner, program, inbox, post);
+    if result.is_err() {
+        // What the page said to its program before the call that failed ended is said now, as the
+        // module's contract has it (the application "will carry it to the program"): the line a
+        // page printed just before its error is the one a person looks for. The module is closed
+        // after it.
+        post.say(runner.take_sent(), Vec::new());
+    }
+    result
+}
+
+/// The commands the module is given, until it is stopped or one of them fails.
+fn run<R: Runner>(
+    runner: &mut R,
+    program: &dyn Program,
+    inbox: &Receiver<Command>,
+    post: &Post<'_>,
+) -> Result<(), Fault> {
     // What the page was last made for: what an event that changed it makes it again for.
     let mut last: Option<Asked> = None;
     // How many times in a row a settle has asked for the page again without anyone else asking

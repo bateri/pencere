@@ -53,7 +53,24 @@ int entry_points = LUA_NOREF;
 
 constexpr size_t kMessageLimit = 2048;
 
+// What the page printed in the call that failed is said to its program before the page is closed:
+// the line printed just before an error is the one a person looks for. The prelude says it (its
+// `last_words`); where it cannot (it is not made yet, or it fails too) nothing is said.
+void say_last_words() {
+    if (L == nullptr || entry_points == LUA_NOREF) return;
+    lua_getref(L, entry_points);
+    lua_getfield(L, -1, "last_words");
+    lua_remove(L, -2);
+    if (lua_isfunction(L, -1)) {
+        // What it says is its own; an error of its own is not worth a second failure.
+        if (lua_pcall(L, 0, 0, 0) != 0) lua_pop(L, 1);
+    } else {
+        lua_pop(L, 1);
+    }
+}
+
 void fail(const std::string& why) {
+    say_last_words();
     broken = true;
     std::string text = bridge::repaired(why.data(), why.size() > kMessageLimit ? kMessageLimit : why.size());
     view_string_t message;
@@ -795,9 +812,11 @@ void open_libraries(lua_State* state) {
     lua_pop(state, 1);
     luaopen_utf8(state);
     lua_pop(state, 1);
-    // The page has nowhere to print to, and nothing of the system to ask: what the base
-    // library has of either goes.
-    static const char* const gone[] = {"print", "collectgarbage", "gcinfo", "newproxy", "getfenv", "setfenv"};
+    // The page has nothing of the system to ask: what the base library has of it goes. `print` is
+    // not of it: the page's print is the prelude's (it says to the program, which writes the line to
+    // its log), which takes the name over from the base library's, that has no standard output to
+    // write to.
+    static const char* const gone[] = {"collectgarbage", "gcinfo", "newproxy", "getfenv", "setfenv"};
     for (const char* name : gone) {
         lua_pushnil(state);
         lua_setglobal(state, name);

@@ -8,6 +8,22 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- `print(...)` and `warn(...)` in a page (the entry script, the scripts it requires and the kit's
+  library): each is a `call` of the reserved method `pencere.log` with `{ text, level }` (`"info"` or
+  `"warn"`), so a page can say a line to its program's log; nothing of the interface changes. The
+  arguments are made text as `tostring` does and joined with tabs; a line is cut at 8192 bytes, never
+  inside a character, and ends with `… (N more bytes)`; at most 64 lines are out at once, and what
+  is printed past that is dropped, with one `warn` line that says how many before the next one; a
+  program that answers `not-found` is sent no more. The answers are the prelude's and never reach the
+  page's `message`. The base library's `print` is no longer taken away (the prelude's takes the name),
+  and the interpreter is rebuilt (`make luau`). See `kit/SPEC.md`, Section 2.4.
+- **What a page printed in a call that failed is said before the page is closed.** The last 16 of the
+  lines that were waiting for the end of the call are said to the program (the line printed just
+  before an error is the one a person looks for), and nothing else the call would have asked: a call
+  that fails in the script's first run says none, since the page does not start. A message the page
+  sent with `pencere.send` before the call failed, which the host had accepted, now reaches the
+  program too, as `program.send` says it will.
+
 - `ui.grid` chooses rows with `select = "row"`: the whole row is drawn chosen, up and down and the page
   keys go from row to row, home and end go to the first and the last row, and left and right are left
   to the page. A table of things to act on (processes, containers) chooses a row; `"cell"`, the default,

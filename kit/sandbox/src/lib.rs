@@ -43,6 +43,8 @@ mod luau_containers_tests;
 #[cfg(test)]
 mod luau_editor_tests;
 #[cfg(test)]
+mod luau_print_tests;
+#[cfg(test)]
 mod luau_require_tests;
 #[cfg(test)]
 mod luau_tests;

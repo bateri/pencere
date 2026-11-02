@@ -156,11 +156,22 @@
 -- frame): its `handle` is told { type = "wake", now = } then. The earliest of the times asked
 -- stands, and one that came is gone (`pencere.time` has the timers made on it).
 --
--- What the page says to its program is JSON objects, the six messages of a view and its program:
+-- What the page says to its program is JSON objects, messages of a view and its program:
 -- `pencere.call` asks the program to do something and answers once, `pencere.subscribe` asks to hear
 -- a topic as it changes, `pencere.cancel` gives either up. The program may not have read what it was
 -- told before: what is said waits its turn and goes when the program can take it (`pencere.send`,
 -- the raw word, says whether it took the message, and the page keeps what it was not).
+--
+-- `print(...)` and `warn(...)` are the page's two other functions that say something to its program,
+-- and are globals like `require` (the script, the scripts it requires and the kit's library have
+-- them): each is a `pencere.call` of the reserved method `pencere.log`, with `{ text =, level = }`,
+-- that the program's library answers by writing the line to the program's log. The arguments are
+-- each made text as `tostring` does and joined with tabs; a line longer than 8192 bytes is cut
+-- (not inside a character) and ends with how much more there was. At most 64 lines are out (waiting
+-- to be said, or said and not answered) at once: a line printed while 64 are is dropped, and the
+-- next one that can be said is said after one line that tells how many were. A program that
+-- answers that it has no `pencere.log` (`not-found`) is not told another line, for as long as the
+-- page lives.
 
 local internal = ...
 
@@ -187,6 +198,12 @@ local heard = false
 local next_id = 1
 -- What is asked and not yet over, by the number the page gave it.
 local asked = {}
+-- The lines of `print` and `warn` that are waiting in the queue, by their place in it (the number
+-- they were asked by): they are the one kind of message that is let go of when the program has said
+-- it has nowhere to write them.
+local queue_logs = {}
+-- The program answered that it has no `pencere.log`: `print` and `warn` say nothing more.
+local logs_off = false
 
 -- Says `message` (a table) to the program now. True when the program took it; false when it
 -- has not the room (nothing was sent: keep it, `room` says when to try again).
@@ -209,6 +226,15 @@ end
 local function flush()
 	local said = 0
 	while head <= tail do
+		local log = queue_logs[head]
+		if log and logs_off then
+			-- Not said: the program answered that it has no log, after the line was put in the queue.
+			asked[log] = nil
+			queue_logs[head] = nil
+			queue[head] = nil
+			head += 1
+			continue
+		end
 		if full then
 			return false
 		end
@@ -216,6 +242,7 @@ local function flush()
 			return true
 		end
 		if host.send(queue[head]) then
+			queue_logs[head] = nil
 			queue[head] = nil
 			head += 1
 			said += 1
@@ -259,6 +286,92 @@ end
 function pencere.cancel(id)
 	asked[id] = nil
 	enqueue({ cancel = { id = id } })
+end
+
+-- --- print and warn ------------------------------------------------------------------------------
+
+-- A line is cut at this many bytes.
+local LOG_LINE = 8192
+-- This many lines may be out at once: waiting in the queue, or said and not answered. What the page
+-- remembers of its lines (the entries of `asked`, the queue) is held to it.
+local LOG_OUT = 64
+local logs_out = 0
+-- How many lines were let go of for want of room, and are not yet told.
+local logs_dropped = 0
+-- How many of the lines still waiting are said when a call has failed (`entry.last_words`): the last ones.
+local LOG_LAST = 16
+
+-- The answer to a line: it is no longer out; and a program that has no log is not told more.
+local function logged(_, err)
+	logs_out -= 1
+	if type(err) == "table" and err.code == "not-found" then
+		logs_off = true
+	end
+end
+
+-- Puts a line in the queue as a call of `pencere.log`, marked as the prelude's own: its answer
+-- is for `logged` and never for the page's `message`.
+local function say_log(level, text)
+	local id = next_id
+	next_id += 1
+	asked[id] = { kind = "call", log = true, done = logged }
+	logs_out += 1
+	enqueue({ call = { id = id, method = "pencere.log", params = { text = text, level = level } } })
+	queue_logs[tail] = id
+end
+
+-- The arguments as one line: each as `tostring` makes it, joined with tabs. A line too long is cut
+-- before the character it would end in the middle of (a byte of 0x80 to 0xBF continues the
+-- character before it), and says how much was left out.
+local function log_line(...)
+	local given = table.pack(...)
+	local parts = table.create(given.n)
+	for index = 1, given.n do
+		parts[index] = tostring(given[index])
+	end
+	local text = table.concat(parts, "\t")
+	local length = #text
+	if length <= LOG_LINE then
+		return text
+	end
+	local at = LOG_LINE
+	for _ = 1, 3 do
+		local byte = string.byte(text, at + 1)
+		if byte < 0x80 or byte >= 0xC0 then
+			break
+		end
+		at -= 1
+	end
+	return string.sub(text, 1, at) .. "… (" .. (length - at) .. " more bytes)"
+end
+
+local function log(level, ...)
+	if logs_off then
+		return
+	end
+	-- Made first: what the arguments say as text may fail, and a line that fails is not counted.
+	local text = log_line(...)
+	local told = logs_dropped > 0
+	if logs_out + (told and 2 or 1) > LOG_OUT then
+		logs_dropped += 1
+		return
+	end
+	if told then
+		say_log("warn", logs_dropped .. " lines of print were dropped")
+		logs_dropped = 0
+	end
+	say_log(level, text)
+end
+
+-- The page's `print` and `warn` say to the program's log, as the program's own would: in the
+-- global table of the prelude, so that the script, the scripts it requires and the library have
+-- them, each in the table of globals it has of its own over this one.
+function print(...)
+	log("info", ...)
+end
+
+function warn(...)
+	log("warn", ...)
 end
 
 -- --- The menus the page asked for ---------------------------------------------------------------
@@ -451,6 +564,28 @@ function entry.message(text)
 		reply = with_frame(reply)
 	end
 	return finish(reply)
+end
+
+-- The bridge calls this when a call of the page has failed, before the page is closed: the lines of
+-- `print` and `warn` that waited for the end of the call are said now, the last LOG_LAST of them (the
+-- ones nearest the failure), so that a page that printed and then failed is not a page that said
+-- nothing. Nothing else that waits is said: what the page asked of its program in a call that failed
+-- is not asked.
+function entry.last_words()
+	if logs_off then
+		return
+	end
+	local lines = {}
+	for at = head, tail do
+		if queue_logs[at] then
+			table.insert(lines, queue[at])
+		end
+	end
+	for index = math.max(1, #lines - LOG_LAST + 1), #lines do
+		if not host.send(lines[index]) then
+			return
+		end
+	end
 end
 
 function entry.room()
