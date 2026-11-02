@@ -603,6 +603,45 @@ end)
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn what_the_page_prints_is_logged_for_the_test_and_in_the_log_of_the_program_it_has() {
+    let app = App::template("page-prints");
+    app.write(
+        "src/view/page.lua",
+        r#"print("started", 1, nil)
+warn("careful \27[31m")
+pencere.call("hello", { name = "x" }, function() end)
+return { render = function() return pencere.div() end }
+"#,
+    );
+    app.write(
+        "test/page_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("a stand-in program is told what the page printed, and it is not one of the calls", function()
+	local page = test.open({ calls = { hello = function() return {} end } })
+	expect(page:logged()):to_equal({
+		{ level = "info", text = "started\t1\tnil" },
+		{ level = "warn", text = "careful \27[31m" },
+	})
+	expect(#page:calls()):to_equal(1)
+	expect(page:calls()[1].method):to_equal("hello")
+end)
+
+test("the program of the app writes it to its log behind view:, controls written out", function()
+	local page = test.open()
+	page:wait_for(function() return string.find(page:log(), "view: started\t1\tnil", 1, true) ~= nil end)
+	expect(page:log()):to_contain("view: warning: careful \\x1b[31m")
+	expect(#page:logged()):to_equal(2)
+end)
+"#,
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn the_app_runs_in_its_own_environment_and_the_process_of_the_test_is_never_touched() {
     let app = App::template("world");
     let _ = std::fs::remove_file(app.dir.join("test/page_test.lua"));

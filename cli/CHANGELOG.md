@@ -23,6 +23,13 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **What a page prints is in the app's log.** A page's `print` and `warn` are written where the
+  app's own `print` goes (the terminal, `--log FILE`, `.pencere/log` under `pencere dev`), behind
+  `view: ` (and `view: warning: ` for `warn`) so that the two are told apart. A failure of
+  `pencere test` shows them with what the program printed. A control character in a line is written
+  as `\xNN`.
+- `pencere.serve` refuses a `calls` or `topics` name that begins with `pencere.`: the names are the
+  protocol's.
 - `pencere.files.receive` takes the `path` and the `size` the page was handed with a file, in its
   options: where the page passes them on, the file is copied from there rather than read through
   the terminal, which on the person's machine is as fast as the disk. The `files-lua` example's page

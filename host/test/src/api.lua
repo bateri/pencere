@@ -647,6 +647,12 @@ function Page:calls(method)
 	return some
 end
 
+-- page:logged(): what the page printed (`print`, `warn`), in order, as { level = "info" | "warn", text = },
+-- as the page said it to its program, whichever program that is. A line is not one of `page:calls()`.
+function Page:logged()
+	return self.raw:logged()
+end
+
 function Page:last_call(method)
 	local some = self:calls(method)
 	return some[#some]

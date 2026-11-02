@@ -253,6 +253,8 @@ files of `assets/` go to the page of the kit with it.
 
 `print` and the errors of a built app go to the terminal, which is under the view while it is up:
 run it with `--log FILE` to read them in a file. `pencere dev` does that by itself (`.pencere/log`).
+What the page prints (`print` and `warn` in a script of `view/`) comes to the same place, behind `view: `
+(`view: warning: ` for `warn`), so that one file tells the program's words from the page's.
 
 ## Testing an app
 
@@ -291,6 +293,9 @@ end)
   built once and run on a pty, and any other (`command = { "deno", "run", "-A", "src/program/main.ts" }`)
   is run on a pty as a terminal runs it. A page with a program of its own is looked at again until it
   shows what is expected (`within`, 5 seconds); with a stand-in, what is expected is there or not.
+- **What the page prints** (`print`, `warn`) is `page:logged()`: the lines in order, each `{ level =, text = }`, as
+  the page said them to its program, whichever program that is; they are not among `page:calls()`. A
+  program of the app's own writes them to its log behind `view: `, which `page:log()` reads.
 - **Finding things** as a person does, not by the page's own names: `get_by_text`, `get_by_role`
   (button, field, editor, link, checkbox, heading …), `get_by_field`, and `get_by_id` for what the
   page names. A locator looks again when it is used, wants exactly one match, and says what is on the

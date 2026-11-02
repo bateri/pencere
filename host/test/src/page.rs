@@ -291,6 +291,10 @@ fn calls(lua: &Lua, page: &Headless<Any>) -> mlua::Result<Table> {
         let Some(call) = message.get("call") else {
             continue;
         };
+        // What the page prints is not a call of the app's: `page:logged()` has it.
+        if call.get("method").and_then(Json::as_str) == Some(pencere_drive::headless::LOG_METHOD) {
+            continue;
+        }
         let id = call.get("id").and_then(Json::as_u64).unwrap_or(0);
         let table = lua.create_table()?;
         table.set("id", id)?;
@@ -304,6 +308,40 @@ fn calls(lua: &Lua, page: &Headless<Any>) -> mlua::Result<Table> {
         )?;
         table.set("answered", answered.contains(&id))?;
         table.set("cancelled", cancelled.contains(&id))?;
+        count += 1;
+        list.raw_set(count, table)?;
+    }
+    Ok(list)
+}
+
+/// The lines the page printed (`print`, `warn`), in order, as it sent them: `{ level =, text = }`.
+/// They are what the page told its program to write to its log, whatever the program is.
+fn logged(lua: &Lua, page: &Headless<Any>) -> mlua::Result<Table> {
+    let list = lua.create_table()?;
+    let mut count = 0;
+    for text in page.sent() {
+        let Ok(message) = serde_json::from_str::<Json>(text) else {
+            continue;
+        };
+        let Some(call) = message.get("call") else {
+            continue;
+        };
+        if call.get("method").and_then(Json::as_str) != Some(pencere_drive::headless::LOG_METHOD) {
+            continue;
+        }
+        let Some(line) = call
+            .get("params")
+            .and_then(|params| params.get("text")?.as_str())
+        else {
+            continue;
+        };
+        let warn = call
+            .get("params")
+            .and_then(|params| params.get("level")?.as_str())
+            == Some("warn");
+        let table = lua.create_table()?;
+        table.set("level", if warn { "warn" } else { "info" })?;
+        table.set("text", line)?;
         count += 1;
         list.raw_set(count, table)?;
     }
@@ -951,6 +989,9 @@ impl UserData for Handle {
         });
         methods.add_method("subscriptions", |lua, this, ()| {
             this.look(|page| subscriptions(lua, page))?
+        });
+        methods.add_method("logged", |lua, this, ()| {
+            this.look(|page| logged(lua, page))?
         });
 
         // ---- the program ----

@@ -8,7 +8,7 @@ use std::os::fd::RawFd;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use pencere::{Answer, Call, Outcome, Subscription};
+use pencere::{Answer, Call, LogLevel, Outcome, Subscription};
 use serde_json::Value;
 
 /// A call of the view, for the handler in Lua, which answers it when it can.
@@ -34,6 +34,12 @@ pub enum Event {
     Subscribe(SubscribeEvent),
     /// The subscription ended: the view cancelled it, or the view is over.
     SubscriptionEnded(u64),
+    /// A line the view printed (its `print` or `warn`), for the log the app's own `print` goes to:
+    /// the text is as the library made it safe to write (control characters written out).
+    ViewLog {
+        level: LogLevel,
+        text: String,
+    },
     /// `serve` returned.
     Served(Result<Outcome, pencere::Error>),
     /// The app is to start again from its files (`pencere dev`).

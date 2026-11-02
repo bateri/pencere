@@ -11,8 +11,8 @@ use std::thread::JoinHandle;
 
 use mlua::{Function, Lua, Table, UserData, UserDataFields, UserDataMethods, Value};
 use pencere::{
-    Bundle, Call, EndedBy, File, Icon, Kind, NoViewReason, Options, Outcome, Subscription, View,
-    ViewError,
+    Bundle, Call, EndedBy, File, Icon, Kind, LogLevel, NoViewReason, Options, Outcome,
+    RESERVED_PREFIX, Subscription, View, ViewError,
 };
 
 use super::convert::{from_json, to_json};
@@ -364,6 +364,18 @@ pub fn start(core: &Rc<Core>, options: Table, done: Function) -> mlua::Result<()
 
 type Handlers = HashMap<String, Function>;
 
+/// The names that begin with `pencere.` are the protocol's (specification §9.2), and the library
+/// answers the ones it knows itself: an app that gives one is told at its `serve`, not by a view
+/// that never gets it.
+fn reserved(name: &str, table: &str) -> mlua::Result<()> {
+    if name.starts_with(RESERVED_PREFIX) {
+        return Err(super::fault(format!(
+            "{table}[{name:?}]: the names that begin with \"{RESERVED_PREFIX}\" are the protocol's, not an app's"
+        )));
+    }
+    Ok(())
+}
+
 /// The library's options for what `serve` was given, and the Lua handlers they call.
 pub(super) fn prepare(
     core: &Rc<Core>,
@@ -377,7 +389,18 @@ pub(super) fn prepare(
                 .get::<Option<String>>("program")?
                 .unwrap_or_else(|| core.name.clone()),
         )
-        .control(core.control.clone());
+        .control(core.control.clone())
+        // What the page prints goes to the loop, which writes it where the app's own `print` goes: the
+        // library calls this on the thread that reads the view, and Lua runs on the loop's alone.
+        .log({
+            let events = core.events.clone();
+            move |level, text| {
+                events.send(Event::ViewLog {
+                    level,
+                    text: text.to_owned(),
+                });
+            }
+        });
     for view in views_of(&core.files, &specs).map_err(fail)? {
         serving = serving.view(view);
     }
@@ -404,6 +427,7 @@ pub(super) fn prepare(
     if let Some(table) = options.get::<Option<Table>>("calls")? {
         for pair in table.pairs::<String, Function>() {
             let (name, handler) = pair?;
+            reserved(&name, "calls")?;
             let events = core.events.clone();
             let method = name.clone();
             // Handed to the loop as it comes, in the order the view sent it: the loop sees the
@@ -434,6 +458,7 @@ pub(super) fn prepare(
     if let Some(table) = options.get::<Option<Table>>("topics")? {
         for pair in table.pairs::<String, Function>() {
             let (name, handler) = pair?;
+            reserved(&name, "topics")?;
             let events = core.events.clone();
             serving = serving.topic_deferred(
                 name.clone(),
@@ -498,6 +523,7 @@ pub fn handle(core: &Core, event: Event) {
                 core.callback(cleanup, Vec::new());
             }
         }
+        Event::ViewLog { level, text } => on_view_log(core, level, &text),
         Event::Served(result) => on_served(core, lua, result),
         Event::Restart => core.end(super::core::Exit::Restart),
         Event::Watched { id, changes } => on_watched(core, lua, id, &changes),
@@ -505,6 +531,15 @@ pub fn handle(core: &Core, event: Event) {
             super::transfer::on_progress(core, id, bytes, &answer);
         }
         Event::FileDone { id, result } => super::transfer::on_done(core, lua, id, result),
+    }
+}
+
+/// A line the view printed goes where the app's own `print` goes, behind `view: ` so that the two
+/// are told apart in the one log (`warn` as the app's own `warn` is, with `warning:`).
+fn on_view_log(core: &Core, level: LogLevel, text: &str) {
+    match level {
+        LogLevel::Warn => core.log.print(&format!("view: warning: {text}")),
+        _ => core.log.print(&format!("view: {text}")),
     }
 }
 

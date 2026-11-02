@@ -307,6 +307,33 @@ fn serve_with_a_page_that_is_not_there_raises() {
 }
 
 #[test]
+fn serve_refuses_a_call_or_a_topic_named_in_the_protocols_namespace() {
+    let (exit, printed) = run_files(&[
+        (
+            "app.lua",
+            r#"
+        local pencere = require("pencere")
+        local ok, why = pcall(pencere.serve, { page = "page.lua", calls = { ["pencere.log"] = function() end } })
+        print(ok, why)
+        local ok, why = pcall(pencere.serve, { page = "page.lua", topics = { ["pencere.stats"] = function() end } })
+        print(ok, why)
+    "#,
+        ),
+        (
+            "page.lua",
+            "return { render = function() return pencere.div() end }",
+        ),
+    ]);
+    assert_eq!(exit, Exit::Done(0));
+    assert!(
+        printed.contains("calls[\"pencere.log\"]") && printed.contains("topics[\"pencere.stats\"]"),
+        "{printed}"
+    );
+    assert!(printed.contains("the protocol's"), "{printed}");
+    assert!(!printed.contains("true"), "{printed}");
+}
+
+#[test]
 fn the_check_of_a_build_finds_a_script_that_does_not_compile() {
     let mut files = BTreeMap::new();
     files.insert("app.lua".to_owned(), b"print('fine')".to_vec());
