@@ -15,6 +15,15 @@ local function make(kind)
 	return setmetatable({ kind = kind, style = {}, meta = {}, kids = {} }, Element)
 end
 
+-- What a flag is told: on when it is called with nothing (`:hidden()`), otherwise what it is given,
+-- so that a field with nothing in it (`:selected(row.chosen)`) is off.
+local function told(...)
+	if select("#", ...) == 0 then
+		return true
+	end
+	return (...) and true or false
+end
+
 -- A helper that finds its argument wrong raises the error at the line of the script that called
 -- the page API, not at a line of this prelude: the person who reads it has the script.
 local refuse = internal.refuse
@@ -132,10 +141,10 @@ end
 
 function Span:color(color) self.look.color = color return self end
 function Span:weight(weight) self.look.weight = weight return self end
-function Span:bold() self.look.weight = 700 return self end
-function Span:italic() self.look.italic = true return self end
-function Span:underline() self.look.underline = true return self end
-function Span:strike() self.look.strike = true return self end
+function Span:bold(...) self.look.weight = told(...) and 700 or nil return self end
+function Span:italic(...) self.look.italic = told(...) return self end
+function Span:underline(...) self.look.underline = told(...) return self end
+function Span:strike(...) self.look.strike = told(...) return self end
 -- "system" or "terminal".
 function Span:family(family) self.look.family = family return self end
 -- A ground behind the words of this part alone: a highlight, the box of a piece of code.
@@ -315,8 +324,8 @@ function Element:press(id)
 end
 
 -- The keyboard can be on this element (it is named too).
-function Element:focusable()
-	self.meta.focusable = true
+function Element:focusable(...)
+	self.meta.focusable = told(...)
 	return self
 end
 
@@ -621,13 +630,13 @@ function Element:role(role, level)
 end
 
 -- On or off: a checkbox, a switch, a toggle button.
-function Element:checked(on) self.meta.checked = on == true return self end
+function Element:checked(...) self.meta.checked = told(...) return self end
 -- The one chosen of several: the tab in front, the row picked.
-function Element:selected(chosen) self.meta.selected = chosen ~= false return self end
+function Element:selected(...) self.meta.selected = told(...) return self end
 -- Open or shut: a group that opens, the button of a menu.
-function Element:expanded(open) self.meta.expanded = open == true return self end
+function Element:expanded(...) self.meta.expanded = told(...) return self end
 -- Of no use now: it does not answer the pointer, nor take the keyboard; a screen reader says so.
-function Element:disabled(disabled) self.meta.disabled = disabled ~= false return self end
+function Element:disabled(...) self.meta.disabled = told(...) return self end
 
 -- The value the element shows, in words, for a screen reader: "40%".
 function Element:value(words)
@@ -733,8 +742,8 @@ function Element:command(id, title, keys, enabled)
 end
 
 -- The keyboard is on this element: its commands and those of the boxes around it can be done.
-function Element:focused(focused)
-	self.meta.focused = focused ~= false
+function Element:focused(...)
+	self.meta.focused = told(...)
 	return self
 end
 
@@ -766,8 +775,8 @@ function Element:col()
 	return self
 end
 
-function Element:wrap()
-	self.style.wrap = true
+function Element:wrap(...)
+	self.style.wrap = told(...)
 	return self
 end
 
@@ -795,8 +804,10 @@ function Element:span(columns)
 	return self
 end
 
-function Element:hidden()
-	self.style.display = "none"
+-- A flag of its own and not a `display`, so that what `row`, `col` and `grid` said stands, whichever
+-- was said first.
+function Element:hidden(...)
+	self.style.hidden = told(...)
 	return self
 end
 
@@ -821,7 +832,15 @@ function Element:gap_y(points) self.style.gap_y = points return self end
 -- --- Layout: the element in its parent --------------------------------------------------------
 
 function Element:grow(share) self.style.grow = share return self end
-function Element:no_shrink() self.style.shrink = 0 return self end
+function Element:no_shrink(...)
+	local style = self.style
+	if told(...) then
+		style.shrink = 0
+	elseif style.shrink == 0 then
+		style.shrink = nil
+	end
+	return self
+end
 function Element:w_full() self.style.width = { percent = 100 } return self end
 function Element:h_full() self.style.height = { percent = 100 } return self end
 
@@ -879,8 +898,8 @@ function Element:mb(points) edges(self.style, "margin")[3] = points return self 
 function Element:ml(points) edges(self.style, "margin")[4] = points return self end
 
 -- Takes the box out of the flow; `inset` places it against the parent's box.
-function Element:absolute()
-	self.style.absolute = true
+function Element:absolute(...)
+	self.style.absolute = told(...)
 	return self
 end
 
@@ -894,8 +913,8 @@ end
 -- `inset` (`:inset(0, 0, 0, 0)` is the whole page, the ground of a dialog) or beside an element
 -- (`:anchor`), drawn over everything else, cut by nothing that holds it, and the first the pointer
 -- finds. It is as faint as what holds it and hidden with it, and its keys go out through it.
-function Element:overlay()
-	self.style.overlay = true
+function Element:overlay(...)
+	self.style.overlay = told(...)
 	return self
 end
 
@@ -922,8 +941,13 @@ function Element:anchor(to, side, options)
 end
 
 -- Nothing is drawn outside the box.
-function Element:clip()
-	self.style.overflow = "hidden"
+function Element:clip(...)
+	local style = self.style
+	if told(...) then
+		style.overflow = "hidden"
+	elseif style.overflow == "hidden" then
+		style.overflow = nil
+	end
 	return self
 end
 
@@ -931,8 +955,13 @@ end
 -- far is the host's, kept by the box's name (`:id`; one with none does not scroll): the wheel, the
 -- trackpad and the scroll bars move it as the host's system does (`pencere.layout.scroll_offset`,
 -- `scroll_to`, and the `scrolled` event).
-function Element:scroll()
-	self.style.overflow = "scroll"
+function Element:scroll(...)
+	local style = self.style
+	if told(...) then
+		style.overflow = "scroll"
+	elseif style.overflow == "scroll" then
+		style.overflow = nil
+	end
 	return self
 end
 
@@ -991,12 +1020,12 @@ function Element:family(family) text_style(self).family = family return self end
 -- "start", "center" or "end".
 function Element:align(align) text_style(self).align = align return self end
 -- The face's italic form; a line under the words; a line through them.
-function Element:italic() text_style(self).italic = true return self end
-function Element:underline() text_style(self).underline = true return self end
-function Element:strike() text_style(self).strike = true return self end
+function Element:italic(...) text_style(self).italic = told(...) return self end
+function Element:underline(...) text_style(self).underline = told(...) return self end
+function Element:strike(...) text_style(self).strike = told(...) return self end
 
-function Element:truncate()
-	self.style.truncate = true
+function Element:truncate(...)
+	self.style.truncate = told(...)
 	return self
 end
 

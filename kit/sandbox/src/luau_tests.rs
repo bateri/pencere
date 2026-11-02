@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
-use pencere_view::wire::{Kind, Overflow};
+use pencere_view::wire::{Direction, Display, Kind, Overflow};
 use pencere_view::{
     Built, Button, Color, Cursor, Ease, Element, Event, FieldKind, Fill, Fit, Id, Input, Key,
     Keyboard, Mix, Mods, Motion, Point, Rgba, Role, Rows, ScrollTo, Shift, Source, Tip, image,
@@ -1588,6 +1588,116 @@ fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the
     assert!(nodes[9].meta.drop_target);
     assert!(nodes[9].meta.state.selected);
     assert_eq!(nodes[9].meta.state.expanded, Some(false));
+}
+
+/// A flag is on when it is called with nothing and what it is told otherwise, so that a field with
+/// nothing in it (`:selected(row.chosen)`) is off and not on.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_flag_is_on_when_called_with_nothing_and_what_it_is_told_otherwise() {
+    let update = first(
+        r##"
+        local FLAGS = {
+            "selected", "disabled", "focused", "focusable", "hidden", "truncate", "wrap",
+            "absolute", "overlay", "checked", "expanded", "italic", "underline", "strike",
+        }
+        return { render = function()
+            local root = pencere.div()
+            for _, flag in FLAGS do
+                local function made(form) return pencere.div():id(flag .. form) end
+                root:child(made(1)[flag](made(1)))
+                root:child(made(2)[flag](made(2), true))
+                root:child(made(3)[flag](made(3), false))
+                root:child(made(4)[flag](made(4), nil))
+            end
+            return root
+        end }"##,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None, "{:?}", update.closed);
+    let nodes = update.frame.expect("a page").root.fold();
+    let forms = |flag: usize| [0, 1, 2, 3].map(|form| &nodes[1 + flag * 4 + form]);
+    let on = [true, true, false, false];
+    assert_eq!(forms(0).map(|n| n.meta.state.selected), on, "selected");
+    assert_eq!(forms(1).map(|n| n.meta.state.disabled), on, "disabled");
+    assert_eq!(forms(2).map(|n| n.meta.focused), on, "focused");
+    assert_eq!(forms(3).map(|n| n.meta.focusable), on, "focusable");
+    assert_eq!(
+        forms(4).map(|n| n.style.display == Display::None),
+        on,
+        "hidden"
+    );
+    assert_eq!(forms(5).map(|n| n.style.truncate), on, "truncate");
+    assert_eq!(forms(6).map(|n| n.style.wrap), on, "wrap");
+    assert_eq!(forms(7).map(|n| n.style.absolute), on, "absolute");
+    assert_eq!(forms(8).map(|n| n.style.overlay), on, "overlay");
+    let said = on.map(Some);
+    assert_eq!(forms(9).map(|n| n.meta.state.checked), said, "checked");
+    assert_eq!(forms(10).map(|n| n.meta.state.expanded), said, "expanded");
+    assert_eq!(forms(11).map(|n| n.style.text.italic), said, "italic");
+    assert_eq!(forms(12).map(|n| n.style.text.underline), said, "underline");
+    assert_eq!(forms(13).map(|n| n.style.text.strike), said, "strike");
+}
+
+/// A flag that is off takes back only what it said itself, whatever else was said of the element
+/// and in whichever order; a part of a text says what it is told too.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_flag_that_is_off_takes_back_only_what_it_said() {
+    let update = first(
+        r##"return { render = function()
+            local span = pencere.span
+            return pencere.div()
+                :child(pencere.div():row():hidden())
+                :child(pencere.div():hidden():row())
+                :child(pencere.div():row():hidden(false))
+                :child(pencere.div():grid({ 10 }):hidden(false))
+                :child(pencere.div():id("scrolled"):scroll():clip(false))
+                :child(pencere.div():id("back"):scroll():scroll(false))
+                :child(pencere.div():clip():clip(false))
+                :child(pencere.div():clip():scroll(false))
+                :child(pencere.div():no_shrink():no_shrink(false))
+                :child(pencere.div():no_shrink():no_shrink(true))
+                :child(pencere.rich({
+                    span("off"):italic(false):underline(false):strike(false),
+                    span("before"):underline(false):link("before"),
+                    span("after"):link("after"):underline(false),
+                    span("plain"):link("plain"),
+                    span("light"):bold():bold(false),
+                    span("heavy"):bold(true),
+                }))
+        end }"##,
+        ModuleLimits::default(),
+    );
+    assert_eq!(update.closed, None, "{:?}", update.closed);
+    let nodes = update.frame.expect("a page").root.fold();
+    assert_eq!(nodes[1].style.display, Display::None);
+    assert_eq!(
+        nodes[2].style.display,
+        Display::None,
+        "whichever came first"
+    );
+    assert_eq!(nodes[3].style.display, Display::Flex);
+    assert_eq!(nodes[3].style.direction, Direction::Row, "its row is kept");
+    assert_eq!(nodes[4].style.display, Display::Grid, "its grid is kept");
+    assert_eq!(nodes[5].style.overflow, Overflow::Scroll);
+    assert_eq!(nodes[6].style.overflow, Overflow::Visible);
+    assert_eq!(nodes[7].style.overflow, Overflow::Visible);
+    assert_eq!(nodes[8].style.overflow, Overflow::Hidden);
+    assert_eq!(nodes[9].style.shrink, None);
+    assert_eq!(nodes[10].style.shrink, Some(0.0));
+    let Kind::Rich(spans) = &nodes[11].kind else {
+        panic!("a text of many looks: {:?}", nodes[11].kind);
+    };
+    assert_eq!(
+        (spans[0].italic, spans[0].underline, spans[0].strike),
+        (Some(false), Some(false), Some(false))
+    );
+    assert_eq!(spans[1].underline, Some(false), "a link that says not");
+    assert_eq!(spans[2].underline, Some(false), "whichever came first");
+    assert_eq!(spans[3].underline, Some(true), "a link is underlined");
+    assert_eq!(spans[4].weight, None);
+    assert_eq!(spans[5].weight, Some(700));
 }
 
 #[test]

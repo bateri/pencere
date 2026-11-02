@@ -761,6 +761,19 @@ fn italic_and_the_lines_under_and_through_the_words_are_inherited() {
 }
 
 #[test]
+fn an_element_can_take_back_the_italic_and_the_lines_it_would_inherit() {
+    let mut inside = div().child(text("taken back"));
+    inside.style.text.italic = Some(false);
+    inside.style.text.underline = Some(false);
+    inside.style.text.strike = Some(false);
+    let root = div().italic().underline().strike().child(inside);
+    let laid = layout(root, Size::new(200.0, 100.0), 1.0, &mut Fixed);
+    let list = laid.paint(&mut Fixed);
+    let runs = runs(&list);
+    assert!(!runs[0].font.italic && !runs[0].underline && !runs[0].strike);
+}
+
+#[test]
 fn a_page_is_read_as_its_buttons_fields_and_words_each_said_once() {
     use crate::{AccessibleRole, Element};
     let row = |name: &str, label: Option<&str>| {

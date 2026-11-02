@@ -503,7 +503,8 @@ void four(lua_State* L, int t, const char* name, float out[4]) {
 }
 
 void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& arenas) {
-    out.display = (uint8_t)word(L, s, "display", kDisplay, 3, 0);
+    // `hidden` is a flag of its own: what `row`, `col` and `grid` said stands beside it.
+    out.display = flag(L, s, "hidden") ? PENCERE_VIEW_TYPES_DISPLAY_NONE : (uint8_t)word(L, s, "display", kDisplay, 3, 0);
     out.direction = (uint8_t)word(L, s, "direction", kDirection, 2, PENCERE_VIEW_TYPES_DIRECTION_COLUMN);
     out.wrap = flag(L, s, "wrap");
     out.absolute = flag(L, s, "absolute");

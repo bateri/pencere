@@ -49,6 +49,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Changed
 
+- A flag of an element or a part (`wrap`, `hidden`, `no_shrink`, `absolute`, `overlay`, `clip`, `scroll`,
+  `italic`, `underline`, `strike`, `truncate`, `focusable`, `focused`, `checked`, `selected`, `expanded`,
+  `disabled`, a part's `bold`) is on when it is called with nothing and otherwise what it is given:
+  `false` and `nil` are off. `:italic(false)` used to make a text italic, `:hidden(false)` to hide a
+  box and `:selected(nil)` to select a row. `italic(false)`, `underline(false)` and `strike(false)` take
+  back what an element would inherit, and `:hidden()` no longer depends on the order it is said in
+  with `row`, `col` and `grid`.
 - `pencere:view@3.0.0`: an element names the options of its editor by their place in the frame's
   new `editors` list (`node.editor: option<u32>`), as it names its words and its commands, instead
   of carrying room for them. A node is 736 bytes in the interpreter, not 1 728: a page of 8 300

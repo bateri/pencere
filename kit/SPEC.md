@@ -141,9 +141,19 @@ inside inherit: `text_size`, `weight`, `color`,
 `truncate`. Images: `fit("contain" | "cover")`, `tint(color)`. Names and answers: `id`, `press(id)`,
 `focusable`, `focused`, `text_field(id, "line" | "lines" | "secret")`, `label(words)`, `tip(words,
 keys)`, `command(id, title, keys, enabled)`, `draggable(id)`, `drop_target(id)`. To a screen reader:
-`role(name, level)`, `checked(on)`, `selected(chosen)`, `expanded(open)`, `disabled(off)`,
+`role(name, level)`, `checked(on)`, `selected(chosen)`, `expanded(open)`, `disabled(on)`,
 `value(words)`. Motion: `motion({...})`. Children: `child`, `children`. A grid track is a number
 (points), `pencere.fr(n)`, `pencere.range(least, n)` or `"auto"`.
+
+A builder that says a thing is so or not (`wrap`, `hidden`, `no_shrink`, `absolute`, `overlay`, `clip`,
+`scroll`, `italic`, `underline`, `strike`, `truncate`, `focusable`, `focused`, `checked`, `selected`,
+`expanded`, `disabled`, and a part's `bold`, `italic`, `underline`, `strike`) turns it on when it is
+called with nothing, and is otherwise what it is given: `false` and `nil` are off, so that
+`:selected(row.chosen)` with nothing in the field is not selected. `italic(false)`, `underline(false)`
+and `strike(false)` take back what the element would inherit. `hidden(false)`, `no_shrink(false)`,
+`clip(false)` and `scroll(false)` take back only what they said themselves: `:row():hidden(false)` is
+a row, `:hidden():row()` is hidden. `checked` and `expanded` called at all say that the element is a
+thing that is on or off, open or shut; not called, that it is not.
 
 A text is one line: what does not fit runs past its box, or, with `truncate`, ends in "…". `wrap` on
 a text puts its words in new lines where its box is too narrow for them (and at its line breaks),
@@ -205,7 +215,7 @@ A **text of many looks** (`pencere.rich`) is one paragraph made of parts. A part
 (`pencere.span(words)`) says only what it changes of the element's look: `color`, `weight` (`bold`),
 `italic`, `underline`, `strike`, `family`, a ground behind its words alone (`bg`), and `link(id)`,
 which makes it answer the pointer by that name (`layout.hit` says it, a screen reader says a link)
-and underlines it. The size is the element's for every part. Where the element `wrap`s, the parts run
+and underlines it unless it says not (`underline(false)`). The size is the element's for every part. Where the element `wrap`s, the parts run
 on from line to line as the words of one text do, and a word made of two parts with nothing between
 them (`**bold**,`) is not broken between them; where it does not, it is one line for each line break,
 cut with "…" where it may be (`truncate`).
@@ -247,7 +257,7 @@ An element says what it is to a **screen reader** where its look says it and its
 `role("checkbox" | "switch" | "radio" | "tab" | "menu_item" | "link" | "heading" | "image" |
 "progress" | "slider" | "button" | "text", level)` (a heading's level is 1 to 6), and where it stands:
 `checked(on)` (a checkbox, a switch, a radio), `selected(chosen)` (the tab in front, the row picked),
-`expanded(open)`, `disabled(off)` (it does not answer the pointer, nor take the keyboard) and
+`expanded(open)`, `disabled(on)` (it does not answer the pointer, nor take the keyboard) and
 `value(words)` (a progress's `"40%"`). A text field is one by `text_field`, and an editor by `editor`,
 not by a role.
 
