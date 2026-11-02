@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { MAX_VIEW_MESSAGE } from "../src/messages.js";
-import { ViewError, createRouter } from "../src/router.js";
-import type { RouterHandlers } from "../src/router.js";
+import { ViewError, createRouter, visibleControls } from "../src/router.js";
+import type { LogLine, RouterHandlers } from "../src/router.js";
 import { Rig, shown } from "./support.js";
 
 /** A router and the program's side of it: what it sent, parsed, and whether the view still listens. */
@@ -394,6 +394,259 @@ describe("what it ignores (§9.2)", () => {
     const { router, sent } = rig({});
     expect(router.handle({ cancel: { id: 99 } })).toBe(true);
     expect(sent).toEqual([]);
+  });
+});
+
+/** A `pencere.log` call, as the page's `print` makes it. */
+const logCall = (id: number, params?: unknown) => ({
+  call: { id, method: "pencere.log", ...(params === undefined ? {} : { params }) },
+});
+
+describe("pencere.log (§9.2)", () => {
+  it("hands the line to `log` and answers `{}` at once, in the bytes every answer has", () => {
+    const lines: LogLine[] = [];
+    const { router, payloads } = rig({ log: (line) => void lines.push(line) });
+    expect(router.handle(logCall(7, { text: "container web started" }))).toBe(true);
+    // No await: the line is written, then answered, before `handle` returns.
+    expect(lines).toEqual([{ level: "info", text: "container web started" }]);
+    expect(payloads).toEqual(['{"response":{"id":7,"result":{}}}']);
+  });
+
+  it("takes the message as JSON text too, as the host passes it", () => {
+    const lines: LogLine[] = [];
+    const { router, payloads } = rig({ log: (line) => void lines.push(line) });
+    router.handle('{"call":{"id":3,"method":"pencere.log","params":{"text":"hi","level":"warn"}}}');
+    expect(lines).toEqual([{ level: "warn", text: "hi" }]);
+    expect(payloads).toEqual(['{"response":{"id":3,"result":{}}}']);
+  });
+
+  it("gives a `warn` line the level `warn`", () => {
+    const lines: LogLine[] = [];
+    const { router } = rig({ log: (line) => void lines.push(line) });
+    router.handle(logCall(1, { text: "low on disk", level: "warn" }));
+    expect(lines).toEqual([{ level: "warn", text: "low on disk" }]);
+  });
+
+  it("reads a level that is missing, unknown or not a string as `info`", () => {
+    const lines: LogLine[] = [];
+    const { router, payloads } = rig({ log: (line) => void lines.push(line) });
+    const levels: unknown[] = [
+      "info",
+      "debug",
+      "error",
+      "WARN",
+      "",
+      3,
+      null,
+      true,
+      { level: "warn" },
+    ];
+    router.handle(logCall(1, { text: "no level" }));
+    levels.forEach((level, at) => router.handle(logCall(at + 2, { text: "x", level })));
+    expect(lines.map((line) => line.level)).toEqual(Array(levels.length + 1).fill("info"));
+    expect(payloads).toHaveLength(levels.length + 1);
+    for (const payload of payloads)
+      expect(payload).toMatch(/^\{"response":\{"id":\d+,"result":\{\}\}\}$/);
+  });
+
+  it("gives `log` the line as the page made it: several lines, and text that is not ASCII", () => {
+    const lines: LogLine[] = [];
+    const { router } = rig({ log: (line) => void lines.push(line) });
+    router.handle(logCall(1, { text: "one\n\ttwo é 🙂", extra: "ignored" }));
+    expect(lines).toEqual([{ level: "info", text: "one\n\ttwo é 🙂" }]);
+  });
+
+  it("drops the line but answers `{}` when the app has no `log`: the page is not told `not-found`", async () => {
+    const { router, sent, later } = rig({ calls: { list: () => ({}) } });
+    router.handle(logCall(1, { text: "dropped" }));
+    router.handle(logCall(2, { text: "dropped too", level: "warn" }));
+    await later();
+    expect(sent).toEqual([
+      { response: { id: 1, result: {} } },
+      { response: { id: 2, result: {} } },
+    ]);
+    // A router with no handlers at all is the same.
+    const bare = rig({});
+    bare.router.handle(logCall(1, { text: "dropped" }));
+    expect(bare.payloads).toEqual(['{"response":{"id":1,"result":{}}}']);
+  });
+
+  it("answers `{}` and does not call `log` for params that carry no text: the view is untrusted", () => {
+    const lines: LogLine[] = [];
+    const { router, payloads } = rig({ log: (line) => void lines.push(line) });
+    const bad: (unknown | undefined)[] = [
+      undefined,
+      null,
+      "text",
+      7,
+      ["text"],
+      {},
+      { level: "warn" },
+      { text: 7 },
+      { text: null },
+      { text: ["a"] },
+      { text: { value: "a" } },
+      { text: true },
+    ];
+    bad.forEach((params, at) => router.handle(logCall(at + 1, params)));
+    expect(lines).toEqual([]);
+    expect(payloads).toEqual(bad.map((_, at) => `{"response":{"id":${at + 1},"result":{}}}`));
+  });
+
+  it("is not broken by a `log` that throws: the page is answered and the next call goes on", async () => {
+    const { router, sent, later } = rig({
+      calls: { list: () => ({ items: [1] }) },
+      log: () => {
+        throw new Error("the log file is gone");
+      },
+    });
+    router.handle(logCall(1, { text: "first" }));
+    router.handle({ call: { id: 2, method: "list" } });
+    router.handle(logCall(3, { text: "third", level: "warn" }));
+    await later();
+    expect(sent).toEqual([
+      { response: { id: 1, result: {} } },
+      { response: { id: 3, result: {} } },
+      { response: { id: 2, result: { items: [1] } } },
+    ]);
+  });
+
+  it("is not a call of the app: the app's handlers are not asked, and its calls go on as before", async () => {
+    const asked: string[] = [];
+    const { router, sent, later } = rig({
+      calls: { list: (_params, call) => void asked.push(call.method) },
+      log: () => {},
+    });
+    router.handle(logCall(1, { text: "x" }));
+    router.handle({ call: { id: 2, method: "list" } });
+    router.handle({ call: { id: 3, method: "pencere.other" } });
+    await later();
+    expect(asked).toEqual(["list"]);
+    expect(sent).toEqual([
+      { response: { id: 1, result: {} } },
+      {
+        response: {
+          id: 3,
+          error: { code: "not-found", message: "there is nothing to call by that name" },
+        },
+      },
+      { response: { id: 2, result: {} } },
+    ]);
+  });
+
+  it("does not take an id that is out for a second request, as for any call", async () => {
+    const lines: LogLine[] = [];
+    const { router, sent, later } = rig({
+      calls: { slow: () => new Promise(() => {}) },
+      log: (line) => void lines.push(line),
+    });
+    router.handle({ call: { id: 1, method: "slow" } });
+    router.handle(logCall(1, { text: "same id" }));
+    await later();
+    expect(lines).toEqual([]);
+    expect(sent).toEqual([]);
+    // An answered line leaves its id free, as an answered call does.
+    router.handle(logCall(2, { text: "once" }));
+    router.handle(logCall(2, { text: "again" }));
+    expect(lines.map((line) => line.text)).toEqual(["once", "again"]);
+  });
+
+  it("writes the control characters of the text out, so that a line cannot act on a terminal", () => {
+    const lines: LogLine[] = [];
+    const { router } = rig({ log: (line) => void lines.push(line) });
+    router.handle(
+      logCall(1, { text: "a\x1b[31mred\x1b[0m\r\nb\x1b]0;title\x07\u009b2J", level: "warn" }),
+    );
+    expect(lines).toEqual([
+      { level: "warn", text: "a\\x1b[31mred\\x1b[0m\\x0d\nb\\x1b]0;title\\x07\\x9b2J" },
+    ]);
+  });
+});
+
+describe("visibleControls", () => {
+  it("writes ESC, CR, NUL, DEL and a C1 character as \\xNN, in lowercase hex", () => {
+    expect(visibleControls("\x1b")).toBe("\\x1b");
+    expect(visibleControls("\r")).toBe("\\x0d");
+    expect(visibleControls("\0")).toBe("\\x00");
+    expect(visibleControls("\x7f")).toBe("\\x7f");
+    expect(visibleControls("\u0085")).toBe("\\x85");
+    expect(visibleControls("\u009b")).toBe("\\x9b");
+    expect(visibleControls("\u009f")).toBe("\\x9f");
+  });
+
+  it("keeps the tab and the line feed", () => {
+    expect(visibleControls("a\tb\nc")).toBe("a\tb\nc");
+  });
+
+  it("keeps every other character: text that is not ASCII, emoji, and what only looks like a control", () => {
+    for (const text of [
+      "é",
+      "ş ğ ı",
+      "日本語",
+      "🙂 👩‍💻",
+      "\u00a0 \u00a1",
+      "\u2028\u2029",
+      "\u200b\ufeff",
+      "",
+    ])
+      expect(visibleControls(text), text).toBe(text);
+  });
+
+  it("changes exactly U+0000 to U+0008, U+000B to U+001F and U+007F to U+009F", () => {
+    for (let code = 0; code < 0x100; code += 1) {
+      const c = String.fromCharCode(code);
+      const control = code <= 0x1f || (code >= 0x7f && code <= 0x9f);
+      const kept = code === 0x09 || code === 0x0a || !control;
+      const expected = kept ? c : `\\x${code.toString(16).padStart(2, "0")}`;
+      expect(visibleControls(`<${c}>`), `U+${code.toString(16)}`).toBe(`<${expected}>`);
+    }
+  });
+
+  it("leaves a text with no control character as it is, and does not write a new escape twice", () => {
+    expect(visibleControls("plain")).toBe("plain");
+    expect(visibleControls("\\x1b")).toBe("\\x1b");
+    expect(visibleControls(visibleControls("\x1b"))).toBe("\\x1b");
+  });
+});
+
+describe("the reserved prefix (§9.2)", () => {
+  const handler = () => ({});
+  const topic = () => {};
+
+  it("refuses a call whose name begins with `pencere.`, `pencere.log` included, and names the key", () => {
+    for (const key of ["pencere.log", "pencere.", "pencere.future", "pencere.a.b"]) {
+      const make = () => createRouter({ calls: { list: handler, [key]: handler } }, () => true);
+      expect(make, key).toThrow(TypeError);
+      expect(make, key).toThrow(`calls["${key}"]`);
+      expect(make, key).toThrow(/"pencere\." are reserved/);
+    }
+  });
+
+  it("refuses a topic whose name begins with `pencere.`, and names the key", () => {
+    for (const key of ["pencere.log", "pencere.stats"]) {
+      const make = () => createRouter({ topics: { [key]: topic } }, () => true);
+      expect(make, key).toThrow(TypeError);
+      expect(make, key).toThrow(`topics["${key}"]`);
+      expect(make, key).toThrow(/"pencere\." are reserved/);
+    }
+  });
+
+  it("refuses it when `log` is given too: the line goes to `log`, never to a call of the app", () => {
+    expect(() =>
+      createRouter({ calls: { "pencere.log": handler }, log: () => {} }, () => true),
+    ).toThrow(/calls\["pencere\.log"\]/);
+  });
+
+  it("takes names that only look like it", () => {
+    expect(() =>
+      createRouter(
+        {
+          calls: { pencere: handler, pencerelog: handler, "my.pencere.log": handler, log: handler },
+          topics: { pencere: topic, "x.pencere.": topic },
+        },
+        () => true,
+      ),
+    ).not.toThrow();
   });
 });
 

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { toWire } from "../src/json.js";
 import { callPayload, cancelPayload, subscribePayload } from "../src/messages.js";
 import { ViewError } from "../src/serve.js";
-import type { CallContext, ServeOptions, Subscription } from "../src/serve.js";
+import type { CallContext, LogLine, ServeOptions, Subscription } from "../src/serve.js";
 import { Rig, fixture, payloadOf, shown } from "./support.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -324,6 +324,77 @@ describe("a call of the view", () => {
     rig.sayBytes(fixture("to-program/msg-chunked.frame"));
     await rig.next("msg");
     expect(params?.reason?.startsWith("Arrêt demandé depuis la vue. ")).toBe(true);
+    await end();
+  });
+});
+
+describe("a line the view prints (pencere.log)", () => {
+  it("reaches the `log` option, as the fixture writes it, and is answered `{}` in the bytes of every answer", async () => {
+    const lines: LogLine[] = [];
+    const { rig, end } = await running({ log: (line) => void lines.push(line) });
+    rig.say("msg", payloadOf("to-program/msg-call-log.frame"));
+    const answer = await rig.next("msg");
+    expect(answer.payload).toBe('{"response":{"id":5,"result":{}}}');
+    expect(lines).toEqual([{ level: "warn", text: "no row for id 7" }]);
+    await end();
+  });
+
+  it("is served by the library when the app has other calls, in the order the view sent it", async () => {
+    const lines: LogLine[] = [];
+    const { rig, end } = await running({
+      calls: { list: () => ({ containers: CONTAINERS }) },
+      log: (line) => void lines.push(line),
+    });
+    rig.say("msg", callPayload(1, "pencere.log", { text: "before" }));
+    rig.say("msg", callPayload(2, "list"));
+    rig.say("msg", callPayload(3, "pencere.log", { text: "after", level: "debug" }));
+    await rig.settle();
+    expect(lines).toEqual([
+      { level: "info", text: "before" },
+      { level: "info", text: "after" },
+    ]);
+    expect(spoken(rig)).toEqual([
+      { response: { id: 1, result: {} } },
+      { response: { id: 3, result: {} } },
+      { response: { id: 2, result: { containers: CONTAINERS } } },
+    ]);
+    await end();
+  });
+
+  it("is answered `{}`, not `not-found`, when the app has no `log`, and writes nothing else", async () => {
+    const { rig, end } = await running({ calls: { list: () => ({}) } });
+    const before = rig.text();
+    rig.say("msg", callPayload(1, "pencere.log", { text: "dropped" }));
+    await rig.settle();
+    expect(spoken(rig)).toEqual([{ response: { id: 1, result: {} } }]);
+    // The library has no sink of its own: nothing is printed while the view is up.
+    expect(rig.text()).toBe(before);
+    await end();
+  });
+
+  it("is answered `{}` and not logged when the text is not a string; a `log` that throws changes nothing", async () => {
+    const lines: LogLine[] = [];
+    const { rig, end } = await running({
+      log: (line) => {
+        lines.push(line);
+        throw new Error("the sink is gone");
+      },
+    });
+    rig.say("msg", callPayload(1, "pencere.log", { text: 7 }));
+    rig.say("msg", callPayload(2, "pencere.log"));
+    rig.say("msg", callPayload(3, "pencere.log", { text: "a\u001b[2Jb" }));
+    rig.say("msg", callPayload(4, "pencere.log", { text: "next" }));
+    await rig.settle();
+    expect(lines).toEqual([
+      { level: "info", text: "a\\x1b[2Jb" },
+      { level: "info", text: "next" },
+    ]);
+    expect(spoken(rig).map((m) => Object.values(m)[0])).toEqual([
+      { id: 1, result: {} },
+      { id: 2, result: {} },
+      { id: 3, result: {} },
+      { id: 4, result: {} },
+    ]);
     await end();
   });
 });

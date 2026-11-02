@@ -20,6 +20,17 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ### Added
 
+- **A Lua page's `print` and `warn` reach the program** (specification §9.2). The router serves the
+  reserved method `pencere.log` itself, never through `calls`: it answers `{}` at once and gives the
+  line to the new `ServeOptions.log` (and `RouterHandlers.log` of `createRouter`) as a `LogLine`,
+  which has a `level`, `"warn"` for `warn` and `"info"` for anything else, and a `text`, in which
+  every control character but the tab and the line feed is written as `\xNN`, since the page is
+  untrusted. There is no default: nothing is printed while the view is up, and without `log` the
+  line is dropped (the page is answered `{}` all the same). A `log` that throws loses the line and
+  nothing more.
+- **Names that begin with `pencere.` are the protocol's.** `serve`, `serveWith` and `createRouter`
+  refuse a `calls` or a `topics` with such a key, `pencere.log` included, with a `TypeError` that
+  names the key, before any view is asked for.
 - `ServeOptions.retryWindow`: how long a view that fell is left alone before it is shown again.
 - **Files beside the view's bundle** (specification §8.8 to §8.10), for a view opened at `lua` 2.1:
   `ViewControl.attach(bytes)` adds a file for the view to draw and resolves

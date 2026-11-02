@@ -5,6 +5,11 @@
  * `serve` writes them to the host; a test, or a harness that drives the handlers of an app
  * without a terminal, writes them where it likes. There is one dispatch: `serve` uses this one.
  *
+ * One method is the router's own: `pencere.log`, with which a page's `print` and `warn` reach the
+ * program (§9.2). The router answers it, hands the line to the `log` handler if there is one, and
+ * never asks the app's `calls` for it. Every name that begins with `pencere.` is reserved for the
+ * protocol, so an app's calls and topics may not use one.
+ *
  * ```ts
  * const sent: unknown[] = [];
  * const router = createRouter({ calls: { list: () => ({ items: [] }) } }, (payload) => {
@@ -85,12 +90,37 @@ export type TopicHandler = (
   subscription: Subscription,
 ) => void | (() => void) | Promise<void | (() => void)>;
 
+/**
+ * A line a page printed with `print` or `warn`, as the program is given it. The view is untrusted
+ * and the text is meant for a terminal or a file: every control character in it but the tab and
+ * the line feed is written out as `\xNN` (two lowercase hex digits; ESC is `\x1b`), so that the
+ * line cannot act on a terminal it is written to. It may span several lines.
+ */
+export interface LogLine {
+  /** `warn` for a line of `warn`; `info` for any other. */
+  readonly level: "info" | "warn";
+  /** What the page printed, its arguments already joined by the page. */
+  readonly text: string;
+}
+
+/** The prefix of the names the protocol keeps for itself (§9.2): the app's calls and topics do not begin with it. */
+export const RESERVED_PREFIX = "pencere.";
+
+/** The method a page's `print` and `warn` call (§9.2); the router answers it, never the app. */
+export const LOG_METHOD = "pencere.log";
+
 /** What a router is given to answer with. */
 export interface RouterHandlers {
   /** The calls the view may make, by method. A method that is not here is answered `not-found`. */
   calls?: Readonly<Record<string, CallHandler>>;
   /** The subscriptions the view may make, by topic. A topic that is not here is answered `not-found`. */
   topics?: Readonly<Record<string, TopicHandler>>;
+  /**
+   * Takes a line the view printed (`print` and `warn` of a Lua page): see {@link LogLine}. It is
+   * called from where the view's messages are read and has to return quickly. If there is none, the
+   * line is dropped; the view is answered either way.
+   */
+  log?: (line: LogLine) => void;
 }
 
 /**
@@ -140,8 +170,62 @@ function stop(cleanup: () => void): void {
     // The subscription is over either way.
   }
 }
-/** The router of a program whose handlers are `handlers`, answering through `send`. */
+
+/** A control character (C0, DEL, C1) that is not the tab or the line feed. */
+const CONTROL = /[^\P{Cc}\t\n]/gu;
+
+/**
+ * The text of a line the view printed, made safe to write to a terminal: each control character
+ * except the tab and the line feed becomes `\xNN`, two lowercase hex digits of its code. Anything
+ * else, such as `é` or an emoji, stays as it is.
+ */
+export function visibleControls(text: string): string {
+  return text.replace(CONTROL, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
+}
+
+/**
+ * The line a `pencere.log` call carries, or `undefined` for params that are not one: the view is
+ * untrusted, so a `text` that is not a string is no line, and a `level` that is not `warn` is `info`.
+ */
+function logLineOf(params: unknown): LogLine | undefined {
+  if (typeof params !== "object" || params === null || Array.isArray(params)) return undefined;
+  const { text, level } = params as Record<string, unknown>;
+  if (typeof text !== "string") return undefined;
+  return { level: level === "warn" ? "warn" : "info", text: visibleControls(text) };
+}
+
+/**
+ * Whether the keys of `table` are free of the reserved prefix.
+ * @throws {TypeError} naming the first key that begins with `pencere.`.
+ */
+function checkTable(option: "calls" | "topics", table: unknown): void {
+  if (typeof table !== "object" || table === null) return;
+  for (const key of Object.getOwnPropertyNames(table))
+    if (key.startsWith(RESERVED_PREFIX))
+      throw new TypeError(
+        `${option}["${key}"]: names that begin with "${RESERVED_PREFIX}" are reserved for the protocol; ` +
+          `a program cannot give a call or a topic such a name`,
+      );
+}
+
+/**
+ * Refuses handlers that take a name the protocol reserves: a key of `calls` or `topics` that begins
+ * with `pencere.` (§9.2), `pencere.log` included. `serve` and {@link createRouter} both ask this
+ * before anything else, so that the mistake is the program's own, found when it starts and not when
+ * a page calls.
+ * @throws {TypeError} naming the key.
+ */
+export function checkReserved(handlers: Pick<RouterHandlers, "calls" | "topics">): void {
+  checkTable("calls", handlers.calls);
+  checkTable("topics", handlers.topics);
+}
+
+/**
+ * The router of a program whose handlers are `handlers`, answering through `send`.
+ * @throws {TypeError} for a call or a topic whose name begins with `pencere.`, which the protocol reserves.
+ */
 export function createRouter(handlers: RouterHandlers, send: Send): Router {
+  checkReserved(handlers);
   const calls = new Map<number, AbortController>();
   const subs = new Map<number, Subscribed>();
 
@@ -175,10 +259,31 @@ export function createRouter(handlers: RouterHandlers, send: Send): Router {
     if (cleanup !== undefined) stop(cleanup);
   };
 
+  /**
+   * A line the page printed (§9.2): given to the program's `log`, if it has one, and answered `{}` at
+   * once either way, so that a page whose program does not listen goes on printing. What `log` does
+   * or fails at is not the view's business.
+   */
+  const log = (id: number, params: unknown): void => {
+    const line = logLineOf(params);
+    if (line !== undefined && handlers.log !== undefined) {
+      try {
+        handlers.log(line);
+      } catch {
+        // The line is lost; the conversation with the view goes on.
+      }
+    }
+    answer(id, {});
+  };
+
   const call = (request: Extract<ViewRequest, { type: "call" }>): void => {
     const { id } = request;
     // An id that is out is not used again; a view that does is not following §9.2.
     if (calls.has(id) || subs.has(id)) return;
+    if (request.method === LOG_METHOD) {
+      log(id, request.params);
+      return;
+    }
     const handler = handlerOf(handlers.calls, request.method);
     if (handler === undefined) {
       tell(failurePayload(id, "not-found", "there is nothing to call by that name"));

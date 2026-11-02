@@ -61,8 +61,15 @@ import type {
   WelcomeOffer,
 } from "./messages.js";
 import { synchronousOutput } from "./output.js";
-import { ViewError, createRouter } from "./router.js";
-import type { CallContext, CallHandler, Router, Subscription, TopicHandler } from "./router.js";
+import { ViewError, checkReserved, createRouter } from "./router.js";
+import type {
+  CallContext,
+  CallHandler,
+  LogLine,
+  Router,
+  Subscription,
+  TopicHandler,
+} from "./router.js";
 import {
   DEVICE_ATTRIBUTES,
   ENTER_ALTERNATE_SCREEN,
@@ -76,7 +83,7 @@ import type { Terminal } from "./terminal.js";
 
 // What the handlers of a program are made of lives with the router; `serve` is where a program meets it.
 export { ViewError } from "./router.js";
-export type { CallContext, CallHandler, Subscription, TopicHandler } from "./router.js";
+export type { CallContext, CallHandler, LogLine, Subscription, TopicHandler } from "./router.js";
 
 // ---- what the program offers ---------------------------------------------------
 
@@ -121,6 +128,19 @@ export interface ServeOptions {
   calls?: Readonly<Record<string, CallHandler>>;
   /** The subscriptions the view may make, by topic. A topic that is not here is answered `not-found`. */
   topics?: Readonly<Record<string, TopicHandler>>;
+  /**
+   * Takes what the view prints (the `print` and `warn` of a Lua page, §9.2): the line's `level` (`"warn"` for
+   * `warn`, `"info"` for anything else) and its `text`, in which every control character but the tab
+   * and the line feed is written as `\xNN` (ESC is `\x1b`), because the view is untrusted and the
+   * line is meant for a log or a terminal. Called from where the view's messages are read, so it
+   * has to return quickly; if it throws, the line is lost and the view is not told. The library has
+   * no default: it never prints while the view is up, because the terminal is the view's, so a
+   * program that wants the lines writes them to a file or a logger of its own. Without `log` the
+   * lines are dropped; the view is answered `{}` either way. `pencere.log` is the method the view
+   * calls and is served by the library, never by `calls`: a name that begins with `pencere.` is
+   * reserved, and `serve` refuses a `calls` or a `topics` that has one.
+   */
+  log?: (line: LogLine) => void;
   /**
    * What the program does when no view is shown: no tty, no host answered, the host shares no
    * version or no kind, or it refused or ended the open before the view ran. It runs after the
@@ -398,9 +418,11 @@ function prepare(views: readonly ViewSpec[]): Prepared[] {
  * no listener of its own for the signal, lets the signal end the process. The same
  * happens when the process exits while the view is up, except that it cannot wait.
  *
- * @throws {TypeError | BundleError} for `views` that are not a list a program may offer.
+ * @throws {TypeError | BundleError} for `views` that are not a list a program may offer, and for a
+ * key of `calls` or `topics` that begins with `pencere.`, which the protocol reserves (§9.2).
  */
 export async function serve(options: ServeOptions): Promise<ServeResult> {
+  checkReserved(options);
   const views = prepare(options.views);
   if (options.filter !== true) return serveChecked(options, views, systemEnvironment());
   const terminal = controllingTerminal();
@@ -420,6 +442,7 @@ export async function serveWith(
   options: ServeOptions,
   environment: Environment,
 ): Promise<ServeResult> {
+  checkReserved(options);
   return serveChecked(options, prepare(options.views), environment);
 }
 
@@ -574,6 +597,7 @@ class TerminalSession implements ViewTarget {
       {
         ...(options.calls === undefined ? {} : { calls: options.calls }),
         ...(options.topics === undefined ? {} : { topics: options.topics }),
+        ...(options.log === undefined ? {} : { log: options.log }),
       },
       (payload) => this.#tell(payload),
     );

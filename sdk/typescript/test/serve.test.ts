@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { BundleError, bundleFromFiles } from "../src/bundle.js";
 import { encode } from "../src/frame.js";
 import { toWire } from "../src/json.js";
-import { serveWith } from "../src/serve.js";
+import { serve, serveWith } from "../src/serve.js";
 import type { NoView, ServeOptions, ServeResult } from "../src/serve.js";
 import {
   DA_REPLY,
@@ -167,6 +167,37 @@ describe("what a program may offer", () => {
       [{ kind: "lua", versions: ["0.5"], bundle: luaBundle(), access: { connect: [] } }],
       TypeError,
     );
+  });
+
+  it("gives no call or topic a name that begins with `pencere.`: it is the protocol's, `pencere.log` included", async () => {
+    const handler = () => ({});
+    const refused = async (more: Partial<ServeOptions>, key: string, tty = true) => {
+      const rig = new Rig();
+      rig.input.isTTY = tty;
+      rig.output.isTTY = tty;
+      const failed = serveWith(options(more), rig.environment());
+      await expect(failed).rejects.toThrow(TypeError);
+      await expect(failed).rejects.toThrow(key);
+      await expect(failed).rejects.toThrow(/"pencere\." are reserved/);
+      // Before the terminal was touched, and with no tty too: the program is wrong whatever it runs in.
+      expect(rig.terminal.calls).toEqual([]);
+      expect(rig.written).toEqual([]);
+    };
+    await refused({ calls: { list: handler, "pencere.log": handler } }, 'calls["pencere.log"]');
+    await refused({ calls: { "pencere.future": handler } }, 'calls["pencere.future"]');
+    await refused({ topics: { "pencere.log": () => {} } }, 'topics["pencere.log"]');
+    await refused({ topics: { "pencere.stats": () => {} } }, 'topics["pencere.stats"]');
+    await refused(
+      { calls: { "pencere.log": handler }, log: () => {} },
+      'calls["pencere.log"]',
+      false,
+    );
+    await expect(serve(options({ calls: { "pencere.log": handler } }))).rejects.toThrow(
+      /calls\["pencere\.log"\].*reserved/,
+    );
+    await expect(
+      serve(options({ topics: { "pencere.x": () => {} }, filter: true })),
+    ).rejects.toThrow(/topics\["pencere\.x"\].*reserved/);
   });
 
   it("is checked when a function makes the bundle, for the version the host chose", async () => {

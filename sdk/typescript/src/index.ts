@@ -39,6 +39,7 @@ export type {
   CallContext,
   CallHandler,
   EndedBy,
+  LogLine,
   NoView,
   NoViewReason,
   ServeOptions,

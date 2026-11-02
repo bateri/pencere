@@ -72,6 +72,27 @@ the view gave it up. The view side of all this is a few lines of JavaScript post
 its window's parent (specification §9.4); the [`containers`
 example](https://github.com/bateri/pencere/tree/main/examples/containers) has both halves.
 
+What a Lua page prints with `print` and `warn` reaches the program too, as a `call` of the reserved
+method `pencere.log` that `serve` answers itself, at once, and hands to the `log` option as a line:
+`{ level, text }`, where `level` is `"warn"` for `warn` and `"info"` for anything else. The text comes
+from a page the program does not trust and is meant for a log or a terminal, so every control
+character in it but the tab and the line feed is written as `\xNN` (an escape is `\x1b`). The library
+has no sink of its own and prints nothing while the view is up, because the terminal is the view's:
+the program decides where the lines go. Without `log` they are dropped, and the page is answered all
+the same. A `calls` or `topics` with a name that begins with `pencere.` is refused when `serve`
+starts: that prefix is the protocol's.
+
+```ts
+import { appendFileSync } from "node:fs";
+
+await serve({
+  views,
+  calls,
+  log: ({ level, text }) =>
+    appendFileSync("app.log", `${level === "warn" ? "warning: " : ""}${text}\n`),
+});
+```
+
 A program that wants to close its view and go on — to show its own interface for a while, or, while
 a program is developed, to show the view again with the files that changed — gives `serve` a
 `ViewControl` and calls it while `serve` runs. A host that lists `dismiss` in its `welcome` takes
@@ -233,7 +254,8 @@ A page that is built with a bundler imports the module like any other, and needs
 name, runs it, and writes the `response`, `push` and `progress` back, with the errors turned into
 the view's words (`ViewError` as its `code` and message, anything else as `internal`).
 `createRouter` is that router with no terminal: the handlers of an app can be tested, or driven by a
-development harness, through it.
+development harness, through it. It takes `log` as well, and refuses the names that begin with
+`pencere.` as `serve` does.
 
 ```ts
 import { createRouter } from "@pencere/sdk";
