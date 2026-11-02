@@ -10,6 +10,12 @@ The drive of a page of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.
 
 ### Added
 
+- The headless host's table of calls (`Calls`) answers the page's `print` and `warn`, which are calls
+  of the reserved method `pencere.log`, itself, at once with `{}`, and keeps the lines:
+  `Calls::logged()` and `Headless::logged()` (`Logged { level, text }`, the text as the page sent it).
+  The lines are not the application's calls: they are not in `Calls::calls`, `methods` or `waiting`,
+  and a handler given for the name is never called. `InProcess` and the peers that carry the page's
+  words to a real program are not changed: the program's library answers there.
 - **Files beside the bundle**: `Page::give` (files the person gave the page, with their handles),
   `Page::files_over`, `Page::files_left` and `Page::saving`; `Host::panel` for the Open or the Save
   panel a page asked for. The headless host plays them: `Headless::give_files`, `drag_files_over`,

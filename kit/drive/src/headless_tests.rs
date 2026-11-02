@@ -12,7 +12,7 @@ use pencere_view::edit::EditCommand;
 use pencere_view::{Cursor, Event, Id, MenuEntry, Paint, Point};
 use serde_json::json;
 
-use crate::headless::{Calls, Error, Failure, Files, Focus, Headless};
+use crate::headless::{Calls, Error, Failure, Files, Focus, Headless, Logged};
 
 fn example(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -802,6 +802,55 @@ return {
             r#"false true true {"dirs":["a"],"git":null}|false false false {"dirs":[]}|true true false {"git":{"branch":"main"}}"#
         )
     );
+    Ok(())
+}
+
+/// What a page prints (`print`, `warn`) is a call of the reserved method `pencere.log`: the table of
+/// calls answers it at once and keeps the lines, apart from the application's own calls.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn what_a_page_prints_is_kept_by_its_program_and_is_none_of_the_applications_calls()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local heard = 0
+print("start", 1, nil)
+return {
+    render = function() return pencere.text("heard " .. heard) end,
+    handle = function(event)
+        if event.type == "key" and event.key == "enter" then
+            warn("saving", event.key)
+            pencere.call("save", { n = 1 })
+            return true
+        end
+    end,
+    message = function()
+        heard += 1
+        return true
+    end,
+}
+"#,
+    )
+    .open()?;
+    let line = |level: &str, text: &str| Logged {
+        level: level.to_owned(),
+        text: text.to_owned(),
+    };
+    assert_eq!(page.logged(), [line("info", "start\t1\tnil")]);
+    page.press("enter")?;
+    assert_eq!(
+        page.logged(),
+        [line("info", "start\t1\tnil"), line("warn", "saving\tenter")]
+    );
+    // The application's calls are the one `save`, which waits for its answer: no line is a call of
+    // the page's, and none waits for an answer.
+    assert_eq!(page.methods(), ["save"]);
+    assert_eq!(page.peer().calls().len(), 1);
+    assert_eq!(page.peer().waiting().len(), 1);
+    assert!(page.peer().noise().is_empty());
+    // The lines were answered `{}`, and the answers are the prelude's: the page's `message` was
+    // not called for them.
+    assert!(page.says("heard 0"), "{:?}", page.words());
     Ok(())
 }
 

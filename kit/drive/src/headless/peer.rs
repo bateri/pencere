@@ -65,6 +65,22 @@ pub struct Subscription {
     pub live: bool,
 }
 
+/// A line the page printed (`print`, `warn`), as its program heard it: a call of the reserved method
+/// [`LOG_METHOD`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Logged {
+    /// `"info"` for `print`, `"warn"` for `warn`. A call that names no level, or one this kit does not
+    /// know, is read as `"info"`, as the program libraries read it.
+    pub level: String,
+    /// The line, exactly as the page sent it. A program that writes the lines to a terminal makes
+    /// them safe to write first; this one stands for a program that is a test, and keeps what was
+    /// said.
+    pub text: String,
+}
+
+/// The method the page's `print` and `warn` call, which the program's library answers itself.
+pub const LOG_METHOD: &str = "pencere.log";
+
 type Handler = Box<dyn FnMut(&Value) -> Result<Value, Failure>>;
 
 /// A program made of a table of calls, in this process: each method the page may call has a
@@ -73,10 +89,17 @@ type Handler = Box<dyn FnMut(&Value) -> Result<Value, Failure>>;
 /// program's would, until the test answers it ([`Calls::answer`]) — so that what the page shows
 /// while it waits can be looked at. What the page asked is kept ([`Calls::calls`],
 /// [`Calls::methods`], [`Calls::subscriptions`]).
+///
+/// **The page's own lines are not the application's calls.** What the page prints (`print`, `warn`)
+/// is a call of the reserved method [`LOG_METHOD`], which a program's library answers itself, and so
+/// does this one, at once with `{}`: the lines are kept apart ([`Calls::logged`]), they are not in
+/// [`Calls::calls`], [`Calls::methods`] or [`Calls::waiting`], and a handler given for that name
+/// ([`Calls::on`]) is never called.
 #[derive(Default)]
 pub struct Calls {
     handlers: HashMap<String, Handler>,
     calls: Vec<Heard>,
+    logged: Vec<Logged>,
     subscriptions: Vec<Subscription>,
     /// What the page said that was not one of the messages a page says.
     noise: Vec<String>,
@@ -136,14 +159,20 @@ impl Calls {
         self.outbox.push(message.to_owned());
     }
 
-    /// Every call the page made, in order.
+    /// Every call the page made, in order. Not the lines it printed ([`Calls::logged`]).
     pub fn calls(&self) -> &[Heard] {
         &self.calls
     }
 
-    /// The methods the page called, in order.
+    /// The methods the page called, in order. Not [`LOG_METHOD`], which its `print` and `warn` call.
     pub fn methods(&self) -> Vec<&str> {
         self.calls.iter().map(|call| call.method.as_str()).collect()
+    }
+
+    /// Every line the page printed (`print`, `warn`), in order, as it sent it ([`Logged`]). Each was
+    /// answered at once with `{}`.
+    pub fn logged(&self) -> &[Logged] {
+        &self.logged
     }
 
     /// The calls still waiting for an answer.
@@ -174,9 +203,31 @@ fn response(id: u64, answer: Result<Value, Failure>) -> String {
     }
 }
 
+impl Calls {
+    /// The page printed: the line is kept and answered, as a program's library does. A call that has
+    /// no `text` to write leaves no line and is answered all the same (specification §9.2).
+    fn log(&mut self, id: u64, params: &Value) {
+        if let Some(text) = params.get("text").and_then(Value::as_str) {
+            let level = match params.get("level").and_then(Value::as_str) {
+                Some("warn") => "warn",
+                _ => "info",
+            };
+            self.logged.push(Logged {
+                level: level.to_owned(),
+                text: text.to_owned(),
+            });
+        }
+        self.outbox
+            .push(response(id, Ok(Value::Object(serde_json::Map::new()))));
+    }
+}
+
 impl Peer for Calls {
     fn heard(&mut self, message: &str) {
         match Message::parse(message) {
+            Ok(Message::Call(call)) if call.method == LOG_METHOD => {
+                self.log(call.id, &call.params);
+            }
             Ok(Message::Call(call)) => {
                 let answered = match self.handlers.get_mut(&call.method) {
                     Some(handler) => {
@@ -251,6 +302,66 @@ mod tests {
             [r#"{"response":{"id":2,"error":{"code":"busy","message":"not now"}}}"#]
         );
         assert!(!calls.answer("save", Ok(json!({}))), "nothing waits");
+    }
+
+    #[test]
+    fn a_line_the_page_printed_is_kept_and_answered_at_once_and_is_not_one_of_its_calls() {
+        let mut calls = Calls::new().on("pencere.log", |_| panic!("never called"));
+        calls.heard(
+            r#"{"call":{"id":1,"method":"pencere.log","params":{"text":"a\t1","level":"info"}}}"#,
+        );
+        calls.heard(r#"{"call":{"id":2,"method":"list"}}"#);
+        calls.heard(r#"{"call":{"id":3,"method":"pencere.log","params":{"text":"careful \u001b[0m","level":"warn"}}}"#);
+        // No level, and one that is not known, are `info`.
+        calls.heard(r#"{"call":{"id":4,"method":"pencere.log","params":{"text":"plain"}}}"#);
+        calls.heard(
+            r#"{"call":{"id":5,"method":"pencere.log","params":{"text":"odd","level":"debug"}}}"#,
+        );
+        assert_eq!(
+            calls.said(),
+            [
+                r#"{"response":{"id":1,"result":{}}}"#,
+                r#"{"response":{"id":3,"result":{}}}"#,
+                r#"{"response":{"id":4,"result":{}}}"#,
+                r#"{"response":{"id":5,"result":{}}}"#,
+            ]
+        );
+        let logged = |level: &str, text: &str| Logged {
+            level: level.to_owned(),
+            text: text.to_owned(),
+        };
+        // The text is kept as the page sent it.
+        assert_eq!(
+            calls.logged(),
+            [
+                logged("info", "a\t1"),
+                logged("warn", "careful \u{1b}[0m"),
+                logged("info", "plain"),
+                logged("info", "odd"),
+            ]
+        );
+        // The application's calls are the one `list`, which waits; the lines are none of them.
+        assert_eq!(calls.methods(), ["list"]);
+        assert_eq!(calls.calls().len(), 1);
+        assert_eq!(calls.waiting().len(), 1);
+        assert!(calls.noise().is_empty());
+    }
+
+    #[test]
+    fn a_call_of_the_log_method_with_no_text_is_no_line_and_is_answered_all_the_same() {
+        let mut calls = Calls::new();
+        calls.heard(r#"{"call":{"id":1,"method":"pencere.log","params":{"level":"warn"}}}"#);
+        calls.heard(r#"{"call":{"id":2,"method":"pencere.log","params":{"text":7}}}"#);
+        assert!(calls.logged().is_empty());
+        assert!(calls.methods().is_empty());
+        assert!(calls.noise().is_empty());
+        assert_eq!(
+            calls.said(),
+            [
+                r#"{"response":{"id":1,"result":{}}}"#,
+                r#"{"response":{"id":2,"result":{}}}"#,
+            ]
+        );
     }
 
     #[test]

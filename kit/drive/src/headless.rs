@@ -59,7 +59,7 @@ use field::{Done, Held};
 pub use files::Files;
 #[cfg(feature = "program")]
 pub use in_process::InProcess;
-pub use peer::{Calls, Heard, Peer, Subscription};
+pub use peer::{Calls, Heard, LOG_METHOD, Logged, Peer, Subscription};
 pub use pencere_wire::messages::Error as Failure;
 pub use serde_json::Value;
 
@@ -2231,9 +2231,15 @@ impl Headless<Calls> {
         Ok(answered)
     }
 
-    /// The methods the page called, in order.
+    /// The methods the page called, in order. Not the lines it printed ([`Headless::logged`]).
     pub fn methods(&self) -> Vec<&str> {
         self.peer.methods()
+    }
+
+    /// The lines the page printed (`print`, `warn`), in order, as it sent them: what its program,
+    /// which is a test, was told to write to its log. Each was answered at once.
+    pub fn logged(&self) -> &[Logged] {
+        self.peer.logged()
     }
 }
 
