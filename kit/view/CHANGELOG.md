@@ -242,6 +242,8 @@ DeleteToLineEnd}`; `EditorAsk::Change` has `history` and `tag` (told back in `Ed
 
 ### Changed
 
+- **A modifier has one name.** `Shortcut::parse` reads `cmd`, `ctrl`, `alt` and `shift`; `command`,
+  `super`, `meta`, `control`, `option` and `opt` are not keys.
 - **A place of an editor's text is a byte of its UTF-8, not a character** (`Change`, `Range`,
   `Edited`, `Selection`, `Decoration`, `Decorate`, `EditorAsk::Reveal`, the places of `HoverEvent`,
   `TargetEvent`, `GutterHit` and `Place`, and `Fill::select`), counted from 0 as before: the unit of a

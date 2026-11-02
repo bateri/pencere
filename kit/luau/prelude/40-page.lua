@@ -127,7 +127,7 @@
 --     nothing is selected; "cut" takes it out too. There is no command that pastes)
 --   { decorate = "layer", version =, from =, to =, decorations = { d, ... } }, each `d`
 --     { from =, to =, color =, background =, weight =, italic =, strike =,
---       underline = colour | { wavy = colour }, id = "name", held = "command", over = true,
+--       underline = colour | { wavy = colour }, id = "name", held = "cmd", over = true,
 --       cursor = "pointer" } (the `id` is told in the `hits` of a "hover" over it and in a "target"
 --       press on it; `held` is the modifiers while which alone it is drawn, `mod` the host's main
 --       one: a link that shows while ⌘ is held; `over` while the pointer is over its range; `cursor`

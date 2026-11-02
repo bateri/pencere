@@ -50,9 +50,9 @@ impl Shortcut {
         let (key, held) = parts.split_last()?;
         for part in held {
             match part.to_ascii_lowercase().as_str() {
-                "cmd" | "command" | "super" | "meta" => mods.command = true,
-                "ctrl" | "control" => mods.control = true,
-                "alt" | "option" | "opt" => mods.alt = true,
+                "cmd" => mods.command = true,
+                "ctrl" => mods.control = true,
+                "alt" => mods.alt = true,
                 "shift" => mods.shift = true,
                 _ => return None,
             }
@@ -193,6 +193,9 @@ mod tests {
         assert_eq!(Shortcut::parse("escape").unwrap().mods, Mods::default());
         assert_eq!(Shortcut::parse("space").unwrap().key, Key::Character(' '));
         assert_eq!(Shortcut::parse("hyper+k"), None);
+        for other in ["command", "super", "meta", "control", "option", "opt"] {
+            assert_eq!(Shortcut::parse(&format!("{other}+k")), None, "{other}");
+        }
         assert_eq!(Shortcut::parse("f21"), None);
         assert_eq!(Shortcut::parse("nothing"), None);
         assert_eq!(Shortcut::parse(""), None);

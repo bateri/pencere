@@ -2358,9 +2358,9 @@ const char* main_modifier() {
 bool modifier_word(const std::string& word, pencere_view_types_mods_t& mods) {
     std::string w = lower_of(word);
     if (w == "mod") w = main_modifier();
-    if (w == "cmd" || w == "command" || w == "super" || w == "meta") mods.command = true;
-    else if (w == "ctrl" || w == "control") mods.control = true;
-    else if (w == "alt" || w == "option" || w == "opt") mods.alt = true;
+    if (w == "cmd") mods.command = true;
+    else if (w == "ctrl") mods.control = true;
+    else if (w == "alt") mods.alt = true;
     else if (w == "shift") mods.shift = true;
     else return false;
     return true;
@@ -2380,7 +2380,7 @@ std::vector<std::string> split(const std::string& text, char by) {
 
 }  // namespace
 
-// `held = "command"`, `"mod"`, `"control+alt"`: the modifiers a look is drawn while held.
+// `held = "cmd"`, `"mod"`, `"ctrl+alt"`: the modifiers a look is drawn while held.
 pencere_view_types_option_mods_t held_at(lua_State* L, int t, const char* name) {
     pencere_view_types_option_mods_t out = {};
     get(L, t, name);
@@ -2388,9 +2388,9 @@ pencere_view_types_option_mods_t held_at(lua_State* L, int t, const char* name) 
         out.is_some = true;
         for (const auto& word : split(lua_tostring(L, -1), '+'))
             if (!modifier_word(word, out.val))
-                luaL_error(L, "%s is modifiers joined by +: command, control, alt, shift or mod, not \"%s\"", name, word.c_str());
+                luaL_error(L, "%s is modifiers joined by +: cmd, ctrl, alt, shift or mod, not \"%s\"", name, word.c_str());
     } else if (!lua_isnil(L, -1)) {
-        luaL_error(L, "%s is modifiers written as words: \"command\", \"mod\", \"control+alt\"", name);
+        luaL_error(L, "%s is modifiers written as words: \"cmd\", \"mod\", \"ctrl+alt\"", name);
     }
     lua_pop(L, 1);
     return out;
@@ -2487,7 +2487,7 @@ pencere_view_types_widget_t widget_at(lua_State* L, int t) {
     return out;
 }
 
-// `widgets = { hints = { show = "unless_held", hold = "control+alt", size = 0.9, color =, background =,
+// `widgets = { hints = { show = "unless_held", hold = "ctrl+alt", size = 0.9, color =, background =,
 // radius = 3, pad = 3, gap = 16, margin = 3 } }`: how a group of widgets look and when they show.
 pencere_view_types_list_widget_group_t widget_groups_at(lua_State* L, int t) {
     pencere_view_types_list_widget_group_t out = {};

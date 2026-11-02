@@ -141,7 +141,14 @@ end
 
 function Span:color(color) self.look.color = color return self end
 function Span:weight(weight) self.look.weight = weight return self end
-function Span:bold(...) self.look.weight = told(...) and 700 or nil return self end
+function Span:bold(...)
+	if told(...) then
+		self.look.weight = 700
+	elseif self.look.weight == 700 then
+		self.look.weight = nil
+	end
+	return self
+end
 function Span:italic(...) self.look.italic = told(...) return self end
 function Span:underline(...) self.look.underline = told(...) return self end
 function Span:strike(...) self.look.strike = told(...) return self end
@@ -391,7 +398,7 @@ end
 -- the editor's; `pencere.layout.keymap(editor)` says what the keys do now), `chord_timeout` (seconds a
 -- chord waits for its next key, 1), `links = { delay = 0.05 }` (the least time between two words told
 -- of), `widgets` (how the groups of text the page puts in lines, `{ from =, to =, widget = "words", side =,
--- group = }`, look and when they show: `{ hints = { show = "unless_held", hold = "control+alt", size = 0.9,
+-- group = }`, look and when they show: `{ hints = { show = "unless_held", hold = "ctrl+alt", size = 0.9,
 -- color =, background =, radius = 3, pad = 3, gap = 16, margin = 3 } }`; "on", "off", "unless_held", "when_held"),
 -- `current_line` (where the caret's line is drawn:
 -- "text", "gutter", "all"), `whitespace` (which spaces and tabs it shows, as VS Code: "none",

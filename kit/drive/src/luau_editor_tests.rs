@@ -2578,6 +2578,42 @@ fn the_keys_a_page_changes_and_the_chords_it_adds_work_and_a_bad_table_fails_whe
     Ok(())
 }
 
+/// A modifier has one name wherever a page writes it: a press, the keys of an editor and the
+/// modifiers a look or a group of widgets waits for read the words the keys of a command read.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_modifier_has_one_name_wherever_a_page_writes_it() -> Result<(), Error> {
+    for other in ["command", "super", "meta", "control", "option", "opt"] {
+        let failed = failing(&format!(
+            r#"return {{ render = function() return pencere.editor("e", {{ gestures = {{ ["{other}+press"] = "word" }} }}) end }}"#
+        ));
+        assert!(
+            failed.contains("no modifier or button"),
+            "{other}: {failed}"
+        );
+        let failed = failing(&format!(
+            r#"return {{ render = function() return pencere.editor("e", {{ widgets = {{ hints = {{ show = "unless_held", hold = "{other}" }} }} }}) end }}"#
+        ));
+        assert!(failed.contains("modifiers joined by"), "{other}: {failed}");
+        let refused = open(&format!(
+            r#"return {{ render = function() return pencere.editor("e", {{ keymap = {{ ["{other}+d"] = "undo" }} }}) end }}"#
+        ))
+        .map(drop);
+        assert!(
+            matches!(&refused, Err(Error::Ended(Fault::Malformed(why))) if why.contains("are not keys")),
+            "{other}: {refused:?}"
+        );
+    }
+    open(
+        r#"return { render = function() return pencere.editor("e", {
+            gestures = { ["cmd+press"] = "word", ["ctrl+press"] = "add_caret", ["alt+press"] = "column" },
+            keymap = { ["cmd+d"] = "undo", ["ctrl+d"] = "undo", ["alt+d"] = false },
+            widgets = { hints = { show = "unless_held", hold = "cmd+ctrl+alt+shift" } },
+        }) end }"#,
+    )?;
+    Ok(())
+}
+
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_window_that_loses_the_keyboard_lets_go_of_the_modifiers_and_the_links_they_made()

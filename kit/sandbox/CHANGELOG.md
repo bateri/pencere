@@ -57,8 +57,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   `disabled`, a part's `bold`) is on when it is called with nothing and otherwise what it is given:
   `false` and `nil` are off. `:italic(false)` used to make a text italic, `:hidden(false)` to hide a
   box and `:selected(nil)` to select a row. `italic(false)`, `underline(false)` and `strike(false)` take
-  back what an element would inherit, and `:hidden()` no longer depends on the order it is said in
-  with `row`, `col` and `grid`.
+  back what an element would inherit, `hidden(false)`, `no_shrink(false)`, `clip(false)`, `scroll(false)`
+  and a part's `bold(false)` only what they said themselves (`:weight(300):bold(false)` is 300), and
+  `:hidden()` no longer depends on the order it is said in with `row`, `col` and `grid`.
 - **What the program says after the page gave a request up is not told to the page.** A `response`,
   `push` or `progress` for a request the page cancelled, or a subscription that ended, used to reach
   the page's `message`; now one whose `id` is a number the kit gave out and has no request for is
@@ -90,7 +91,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   - `pencere.keys` reads the modifiers `cmd`, `ctrl`, `alt`, `shift` and `mod` and the keys of the
     specification: `command`, `super`, `meta`, `control`, `option`, `opt`, and the keys `return`, `esc`,
     `pageup`, `pagedown` and `del` are errors (so is a key that is none), and `@pencere/keys` reads no more
-    than it.
+    than it. `gestures`, `keymap`, `held` and `hold` read the same modifiers: `held = "command"` is
+    `held = "cmd"`, `hold = "control+alt"` is `hold = "ctrl+alt"`.
 - **`@pencere/ui`** (a library of the kit's, which a page takes from the interpreter's build):
   - `u:menu` with a `near` that is not laid out opens at `at` where the page gave one, and gives nil (no
     menu) where it did not; it was an error that took the page down. With neither it is still an error.

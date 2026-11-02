@@ -1832,6 +1832,8 @@ fn a_flag_that_is_off_takes_back_only_what_it_said() {
                     span("plain"):link("plain"),
                     span("light"):bold():bold(false),
                     span("heavy"):bold(true),
+                    span("thin"):weight(300):bold(false),
+                    span("told"):weight(700):bold(false),
                 }))
         end }"##,
         ModuleLimits::default(),
@@ -1865,6 +1867,8 @@ fn a_flag_that_is_off_takes_back_only_what_it_said() {
     assert_eq!(spans[3].underline, Some(true), "a link is underlined");
     assert_eq!(spans[4].weight, None);
     assert_eq!(spans[5].weight, Some(700));
+    assert_eq!(spans[6].weight, Some(300), "bold did not say the 300");
+    assert_eq!(spans[7].weight, None, "700 is what bold says");
 }
 
 #[test]
