@@ -52,6 +52,16 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Changed
 
+- **Breaking:** `Answer` has `person`: whether the event it answers was something the person did
+  (`Panel::follows`, the rule a panel is shown by). A reply to what the program said, to a wake or to a
+  change of the room is not. The host takes it to keep what only the person may ask of it (the
+  pasteboard) from the program.
+- **Breaking:** the interface's `key-action` has no `paste`: `keymap = { enter = "paste" }` fails the
+  page where it is written, as any word that is no command of an editor does. The keymap was a way for
+  a page to read the pasteboard, which a page never does: text reaches an editor from it only on the
+  person's own paste key and the person's pick of a menu entry the host performs itself. The
+  interpreter is rebuilt (`make luau`). `lua` stays `0.1` while the specification is a draft.
+
 - **The kind `lua` is `0.1`, and the interface is `pencere:view@0.1.0`.** `pencere.version` is the
   string `"0.1"` (it was the number `2`). While the specification is a draft the versions of `lua`
   and `web` are `0.x`: a change an existing view can notice moves the minor number (`0.2` after

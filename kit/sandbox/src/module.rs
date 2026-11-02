@@ -115,6 +115,13 @@ enum Command {
 pub struct Answer {
     pub reply: Reply,
     pub pointer: bool,
+    /// Whether the event it answers was something the person did: a press or its release, a key, a
+    /// pick in a menu, a command (the rule a panel is shown by, [`Panel::follows`], and the same
+    /// one). A reply to what the program said, to a wake and to a change of the room is not, and
+    /// neither is one to the pointer moving or to the editor's account of what it did. It says what
+    /// is the person's among what the reply asks of the host (the pasteboard, [`Reply::copy`]): the
+    /// page and its program are untrusted, the person's act is not theirs to claim.
+    pub person: bool,
 }
 
 /// What came out of the module and has not been taken.
@@ -725,8 +732,11 @@ fn run<R: Runner>(
                     };
                     let mut reply = runner.handle(event.clone())?;
                     // A panel only for what the person did (Panel::follows): a page that asked
-                    // for one in its answer to the pointer moving is passed over.
-                    if !Panel::follows(&event) {
+                    // for one in its answer to the pointer moving is passed over. The host is told
+                    // the same of the whole answer (`Answer::person`), for what only the person
+                    // may ask of it.
+                    let person = Panel::follows(&event);
+                    if !person {
                         reply.panel = None;
                     }
                     let reply = wakes.reply(reply, clock(last, program), post);
@@ -753,7 +763,14 @@ fn run<R: Runner>(
                                 | Input::Scroll { .. }
                         ) | Event::Pointer { .. }
                     );
-                    post.put(frame, Some(Answer { reply, pointer }));
+                    post.put(
+                        frame,
+                        Some(Answer {
+                            reply,
+                            pointer,
+                            person,
+                        }),
+                    );
                 }
                 Command::Message(text) => {
                     settled = 0;
@@ -863,6 +880,7 @@ fn answered(mut reply: Reply, post: &Post<'_>) -> bool {
             Some(Answer {
                 reply,
                 pointer: false,
+                person: false,
             }),
         );
     }
@@ -1356,7 +1374,8 @@ mod tests {
             update.replies,
             vec![Answer {
                 reply: Reply::redraw(),
-                pointer: false
+                pointer: false,
+                person: false
             }]
         );
         assert!(update.frame.is_some());

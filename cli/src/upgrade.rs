@@ -124,6 +124,38 @@ enum Done {
     Replaced(String),
 }
 
+/// How many names `private_dir` tries before it gives up.
+const SCRATCH_TRIES: u32 = 8;
+
+/// A new folder in `base` that only the person can enter, for the files the upgrade downloads and
+/// reads back. `base` is the temporary directory, which everyone can write to, and the name of a
+/// folder in it is easy to guess: someone may have made that folder, or a link of that name to a
+/// folder of theirs, beforehand, and then reads what is put in it or changes it between the check
+/// of the sums and the use of the file. So the folder is made by `mkdir` itself with the mode 0700
+/// (it refuses a name that is there, a link included, and does not follow one), never "made if it is
+/// not there", and a name that is taken is passed over for the next; a few are taken and the
+/// upgrade stops without changing anything.
+fn private_dir(base: &Path) -> Result<PathBuf, String> {
+    use std::io::ErrorKind;
+    use std::os::unix::fs::DirBuilderExt as _;
+    let pid = std::process::id();
+    for attempt in 0..SCRATCH_TRIES {
+        let path = base.join(match attempt {
+            0 => format!("pencere-upgrade-{pid}"),
+            next => format!("pencere-upgrade-{pid}-{next}"),
+        });
+        match fs::DirBuilder::new().mode(0o700).create(&path) {
+            Ok(()) => return Ok(path),
+            Err(why) if why.kind() == ErrorKind::AlreadyExists => {}
+            Err(why) => return Err(format!("{}: {why}", path.display())),
+        }
+    }
+    Err(format!(
+        "{}: the folders pencere-upgrade-{pid}… are taken already; nothing was changed",
+        base.display()
+    ))
+}
+
 /// Upgrades the command at `exe` from `source` to `version` (the newest when `None`), or with
 /// `check` only says whether there is a newer one.
 fn upgrade(
@@ -132,8 +164,18 @@ fn upgrade(
     version: Option<&str>,
     check: bool,
 ) -> Result<Done, String> {
-    let scratch = std::env::temp_dir().join(format!("pencere-upgrade-{}", std::process::id()));
-    fs::create_dir_all(&scratch).map_err(|why| format!("{}: {why}", scratch.display()))?;
+    upgrade_in(&std::env::temp_dir(), exe, source, version, check)
+}
+
+/// [`upgrade`] with its folder of downloaded files made in `base`.
+fn upgrade_in(
+    base: &Path,
+    exe: &Path,
+    source: &Source,
+    version: Option<&str>,
+    check: bool,
+) -> Result<Done, String> {
+    let scratch = private_dir(base)?;
     let result = (|| {
         let version = match version {
             Some(version) => {
@@ -424,6 +466,84 @@ mod tests {
         assert!(why.contains("SHA256SUMS"), "{why}");
         assert_eq!(fs::read(&exe).unwrap(), new);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The folder the upgrade works in is named by the process, in the temporary directory that
+    /// everyone writes to: someone who guessed the name can have made it, or made a link of that name
+    /// to a folder of theirs. The upgrade must not work in what it did not make.
+    #[test]
+    fn a_folder_that_is_there_beforehand_is_not_worked_in() {
+        if !curl_is_here() {
+            return;
+        }
+        let pid = std::process::id();
+        let root = std::env::temp_dir().join(format!("pencere-upgrade-trap-test-{pid}"));
+        let _ = fs::remove_dir_all(&root);
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let exe = bin.join("pencere");
+        fs::write(&exe, b"the old one").unwrap();
+        let new = b"\x7fELF the new one";
+        let source = release_dir(&root.join("releases"), "99.0.0", new, &sha256_hex(new));
+
+        // The name the upgrade would take first is a folder of someone else's, with a file in it, and
+        // the next one is a link to a folder of someone else's.
+        let base = root.join("tmp");
+        let planted = base.join(format!("pencere-upgrade-{pid}"));
+        let linked = base.join(format!("pencere-upgrade-{pid}-1"));
+        let elsewhere = root.join("elsewhere");
+        fs::create_dir_all(&planted).unwrap();
+        fs::write(planted.join("theirs"), b"theirs").unwrap();
+        fs::create_dir(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &linked).unwrap();
+
+        let done = upgrade_in(&base, &exe, &source, None, false);
+
+        let traps = (
+            fs::read(planted.join("theirs")).ok(),
+            fs::read_dir(&planted).map(|dir| dir.count()).ok(),
+            fs::read_dir(&elsewhere).map(|dir| dir.count()).ok(),
+            fs::symlink_metadata(&linked).is_ok(),
+            fs::read_dir(&base).map(|dir| dir.count()).ok(),
+        );
+        assert_eq!(done, Ok(Done::Replaced("99.0.0".to_owned())));
+        assert_eq!(
+            traps,
+            (Some(b"theirs".to_vec()), Some(1), Some(0), true, Some(2)),
+            "what was there beforehand is left as it was, with nothing written in or taken out of it, \
+             and the folder the upgrade made is gone"
+        );
+        assert_eq!(fs::read(&exe).unwrap(), new);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_folder_of_the_upgrade_is_the_persons_own_and_new() {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        let base =
+            std::env::temp_dir().join(format!("pencere-upgrade-own-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir(&base).unwrap();
+        let mut made = Vec::new();
+        for _ in 0..SCRATCH_TRIES {
+            let dir = private_dir(&base).unwrap();
+            let meta = fs::metadata(&dir).unwrap();
+            assert_eq!(
+                meta.permissions().mode() & 0o777,
+                0o700,
+                "{}",
+                dir.display()
+            );
+            assert_eq!(meta.uid(), unsafe { libc::geteuid() });
+            assert!(!made.contains(&dir), "one folder twice: {}", dir.display());
+            made.push(dir);
+        }
+        // Every name taken: it stops, and touches none of them.
+        fs::write(made[0].join("kept"), b"kept").unwrap();
+        let why = private_dir(&base).unwrap_err();
+        assert!(why.contains("nothing was changed"), "{why}");
+        assert_eq!(fs::read(made[0].join("kept")).unwrap(), b"kept");
+        fs::remove_dir_all(base).unwrap();
     }
 
     #[test]

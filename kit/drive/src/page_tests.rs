@@ -1679,6 +1679,7 @@ fn what_replies_ask_of_fields_not_yet_laid_is_held_in_order() {
     let answer = |reply: Reply| Answer {
         reply,
         pointer: false,
+        person: false,
     };
     let mut replies = [
         answer(Reply {

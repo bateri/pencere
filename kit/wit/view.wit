@@ -858,12 +858,14 @@ interface types {
         action: option<key-action>,
     }
 
+    /// What a key of an editor does. There is no `paste`: a page can write the pasteboard but never
+    /// read it, so text comes from it only on the person's own paste key and the person's pick of a
+    /// menu entry the host performs itself (`menu-entry.paste`), never on a key the page chose.
     variant key-action {
         command(editor-command),
         tab,
         copy,
         cut,
-        paste,
         escape,
         delete-to-line-start,
         delete-to-line-end,
@@ -1694,8 +1696,8 @@ interface types {
         /// From each caret to the end of its line taken out, or the line break after it.
         delete-to-line-end,
         /// What is selected put on the application's pasteboard, as the editor's copy key does (a
-        /// caret copies its line). There is no command that pastes: a page can write the pasteboard
-        /// but never read it.
+        /// caret copies its line). There is no command that pastes, and no key the page chooses
+        /// (`key-action`) that does: a page can write the pasteboard but never read it.
         copy,
         /// What is selected put on the application's pasteboard and taken out of the text.
         cut,

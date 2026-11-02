@@ -280,6 +280,83 @@ return {
     Ok(())
 }
 
+/// What the page puts on the pasteboard is told with whose act it was (`Host::copy`): the host that
+/// keeps the program from its pasteboard writes only the person's. A reply to a key or a press is
+/// the person's, a reply to what the program said or to a wake is not, and neither is the copy an
+/// editor makes of what the page asked in one: the page and its program are untrusted, and the
+/// pasteboard is the person's. The editor's own copy key is.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_pasteboard_is_told_whether_the_person_asked_for_what_is_put_on_it() -> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local copy_all = { editor = { e = { { load = "alpha beta" }, { command = "select_all" }, { command = "copy" } } } }
+return {
+    render = function()
+        return pencere.div():size_full():child(pencere.editor("e", {}):grow(1))
+    end,
+    handle = function(event)
+        if event.type == "key" and event.key == "c" then
+            return { copy = "by a key" }
+        elseif event.type == "key" and event.key == "e" then
+            return copy_all
+        elseif event.type == "wake" then
+            return { copy = "by a wake", editor = copy_all.editor }
+        end
+    end,
+    message = function(message)
+        if message.say == "copy" then
+            return { copy = "by the program" }
+        elseif message.say == "editor" then
+            return copy_all
+        elseif message.say == "wake" then
+            return { wake = 0 }
+        end
+    end,
+}
+"#,
+    )
+    .size(400.0, 300.0)
+    .open()?;
+    fn copies(page: &Headless) -> Vec<(&str, bool)> {
+        page.copies()
+            .iter()
+            .map(|copied| (copied.text.as_str(), copied.by_person))
+            .collect()
+    }
+    // Replies to the person's keys: the pasteboard, and the copy of an editor the page asked for.
+    page.press("c")?;
+    page.press("e")?;
+    assert_eq!(
+        copies(&page),
+        [("by a key", true), ("alpha beta", true)],
+        "what answers the person's key is the person's"
+    );
+    // Replies to what the program said: not.
+    page.tell(&json!({ "say": "copy" }).to_string())?;
+    page.tell(&json!({ "say": "editor" }).to_string())?;
+    assert_eq!(
+        &copies(&page)[2..],
+        [("by the program", false), ("alpha beta", false)],
+        "what answers the program is not"
+    );
+    // The reply to a wake: not, the page's copy and the editor's.
+    page.tell(&json!({ "say": "wake" }).to_string())?;
+    page.advance(0.1)?;
+    assert_eq!(
+        &copies(&page)[4..],
+        [("by a wake", false), ("alpha beta", false)],
+        "what answers a wake is not"
+    );
+    // The editor's own copy key is the person's.
+    page.focus_editor("e")?;
+    page.press("cmd+a")?;
+    page.press("cmd+c")?;
+    assert_eq!(&copies(&page)[6..], [("alpha beta", true)]);
+    assert_eq!(copies(&page).len(), 7);
+    Ok(())
+}
+
 /// A menu asked for while another is open is not shown (a pane's pop-up is one at a time), and the
 /// page is not told: what the person picks is what they saw, so the page is handed the entry of
 /// the menu shown, not the line the same place holds in the one it asked for last.

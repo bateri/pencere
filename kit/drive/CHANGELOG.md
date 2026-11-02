@@ -40,6 +40,17 @@ The drive of a page of version `0.1` of the kit (`pencere:view@0.1.0`, `lua` `0.
 
 ### Changed
 
+- **Breaking:** `Host::copy` takes `by_person`, `fn copy(&mut self, text: String, by_person: bool)`:
+  whether the person's own act asked for the text (a reply to a press or its release, a key, a pick in a
+  menu or a command, the rule a panel is shown by, `Panel::follows`; the copy or cut an editor makes of
+  what the page asked in such a reply included). It is `false` for a reply to what the program said,
+  to a wake or to a change of the room, so that a host which keeps the program from its pasteboard
+  (a terminal's `osc52 = "off"`) writes only where it is `true`. `Drained::copied` is a `Vec<Copied>`
+  (`Copied { text, by_person }`), `Held::Copy` holds a `Copied`, and `Headless::copies()` lists what the
+  page put on the headless host's pasteboard, each with `by_person`. The editor's own copy key is a
+  `Route::Copy` of `Page::key` and is the host's.
+- **Breaking:** the page's `keymap` has no `"paste"` (`pencere-sandbox`, `pencere-view`).
+
 - **The kit is version `0.1`** (`pencere:view@0.1.0`, `lua` `0.1`). While the specification is a
   draft the versions of `lua` and `web` are `0.x`: a change an existing view can notice moves the
   minor number (`0.2` after `0.1`), an addition does not, and a host opens one version. A program

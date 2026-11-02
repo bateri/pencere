@@ -56,7 +56,7 @@ use pencere_view::{
 };
 
 use crate::editing::{Editing, Told, in_a_room};
-use crate::host::{Drained, Held, Host};
+use crate::host::{Copied, Drained, Held, Host};
 use crate::outline::{Field, Outline, Placement};
 use crate::scrolling::{HostScrolls, Scrolling};
 use crate::waking::Wakes;
@@ -225,7 +225,7 @@ struct State {
     /// earlier menu than the last the page asked for, and the pick is read against what it showed.
     menu_pastes: Vec<(u64, Vec<Option<Id>>)>,
     /// Text the page had an editor copy or cut that the host has not put on its pasteboard.
-    copied: Vec<String>,
+    copied: Vec<Copied>,
     /// A press of the main button with ⌃ was taken as the right button's (a Mac's): its release is
     /// told as the right button's too.
     control_menu: bool,
@@ -1187,7 +1187,11 @@ impl State {
             // page it came with: a frame is worth drawing.
             let keep = self.told.is_some();
             let keyboard_was = self.editing.editors.focused();
-            if self.editing.take_reply(&mut answer.reply, keep) && !building {
+            if self
+                .editing
+                .take_reply(&mut answer.reply, keep, answer.person)
+                && !building
+            {
                 self.redraw = true;
             }
             // The shape of the pointer over an editor's room is the editor's (the I-beam over its text,

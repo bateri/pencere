@@ -394,8 +394,8 @@ end
 -- main button is that right press where the page says nothing of ⌃; `mod` is the host's main modifier), `keymap` (the editor's keys the page
 -- changes: `{ ["mod+d"] = "select_next", ["mod+/"] = false, ["mod+k mod+c"] = "toggle_comment" }`, the keys
 -- of a chord apart by a space; what they do is the name of a command that needs none, "copy", "cut",
--- "paste", "tab", "escape", "delete_to_line_start", "delete_to_line_end", a command's table, or false: nothing of
--- the editor's; `pencere.layout.keymap(editor)` says what the keys do now), `chord_timeout` (seconds a
+-- "tab", "escape", "delete_to_line_start", "delete_to_line_end", a command's table, or false: nothing of
+-- the editor's, and no word pastes; `pencere.layout.keymap(editor)` says what the keys do now), `chord_timeout` (seconds a
 -- chord waits for its next key, 1), `links = { delay = 0.05 }` (the least time between two words told
 -- of), `widgets` (how the groups of text the page puts in lines, `{ from =, to =, widget = "words", side =,
 -- group = }`, look and when they show: `{ hints = { show = "unless_held", hold = "ctrl+alt", size = 0.9,

@@ -2248,7 +2248,6 @@ fn key_action_out(action: wit::KeyAction) -> KeyAction {
         wit::KeyAction::Tab => KeyAction::Tab,
         wit::KeyAction::Copy => KeyAction::Copy,
         wit::KeyAction::Cut => KeyAction::Cut,
-        wit::KeyAction::Paste => KeyAction::Paste,
         wit::KeyAction::Escape => KeyAction::Escape,
         wit::KeyAction::DeleteToLineStart => KeyAction::DeleteToLineStart,
         wit::KeyAction::DeleteToLineEnd => KeyAction::DeleteToLineEnd,

@@ -2599,9 +2599,9 @@ pencere_view_types_list_gesture_binding_t gestures_at(lua_State* L, int t) {
 
 // `keymap = { ["mod+d"] = "select_next", ["mod+/"] = false, ["mod+k mod+c"] = "toggle_comment",
 // ["ctrl+j"] = { command = "move", movement = "down" } }`: keys (a chord is keys apart by a space) and
-// what they do: the word of an editor command that needs none (`"undo"`), `"copy"`, `"cut"`, `"paste"`,
+// what they do: the word of an editor command that needs none (`"undo"`), `"copy"`, `"cut"`,
 // `"tab"`, `"escape"`, `"delete_to_line_start"`, `"delete_to_line_end"`, the table of a command, or false (nothing of
-// the editor's).
+// the editor's). Not `"paste"`: a page never reads the pasteboard, so no key it chooses pastes.
 pencere_view_types_list_key_binding_t keymap_at(lua_State* L, int t) {
     pencere_view_types_list_key_binding_t out = {};
     get(L, t, "keymap");
@@ -2647,7 +2647,6 @@ pencere_view_types_list_key_binding_t keymap_at(lua_State* L, int t) {
                 auto& action = binding.action.val;
                 if (name == "copy") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_COPY;
                 else if (name == "cut") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_CUT;
-                else if (name == "paste") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_PASTE;
                 else if (name == "tab") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_TAB;
                 else if (name == "escape") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_ESCAPE;
                 else if (name == "delete_to_line_start") action.tag = PENCERE_VIEW_TYPES_KEY_ACTION_DELETE_TO_LINE_START;

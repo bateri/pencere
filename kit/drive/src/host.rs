@@ -32,7 +32,7 @@ pub struct Drained {
     pub sent: Vec<String>,
     /// Text the page had an editor copy or cut (`copy`, `cut` of an editor command), in order: the
     /// host puts it on its pasteboard as it does a reply's `copy`, after the replies'.
-    pub copied: Vec<String>,
+    pub copied: Vec<Copied>,
     /// The time the page waits to be woken at changed, and no frame took it: the host arms its clock
     /// for the time the page names now ([`crate::Page::wake_at`]), with no frame drawn for it. A
     /// page that asks nothing never says so.
@@ -41,6 +41,15 @@ pub struct Drained {
     /// under it) and nothing the pointer did says so: the host takes it while the pointer is over the
     /// page, as it takes the shape of a reply to the pointer.
     pub cursor: Option<Cursor>,
+}
+
+/// Text for the host's pasteboard that a page had an editor copy or cut, and whose act it was.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Copied {
+    /// The text.
+    pub text: String,
+    /// Whether it was asked in a reply to something the person did ([`Host::copy`]).
+    pub by_person: bool,
 }
 
 /// What a reply asked of a host's field before the frame that brings the field was laid out: the
@@ -55,7 +64,7 @@ pub enum Held {
     Keyboard(Keyboard),
     /// Text a page had an editor copy or cut within this frame, for the host's pasteboard
     /// ([`Host::copy`]).
-    Copy(String),
+    Copy(Copied),
 }
 
 impl Held {
@@ -64,7 +73,7 @@ impl Held {
         match self {
             Self::Fill(field, fill) => host.fill(field, fill),
             Self::Keyboard(to) => host.keyboard(to),
-            Self::Copy(text) => host.copy(text),
+            Self::Copy(Copied { text, by_person }) => host.copy(text, by_person),
         }
     }
 }
@@ -94,8 +103,16 @@ pub trait Host {
     /// frame ([`crate::Painted::held`]), after its texts; a name the page still does not have then
     /// sends the keyboard to the page.
     fn keyboard(&mut self, _to: Keyboard) {}
-    /// Text for the pasteboard.
-    fn copy(&mut self, _text: String) {}
+    /// Text for the pasteboard, and whether the person's own act asked for it (`by_person`): a reply
+    /// to a press or its release, a key, a pick in a menu or a command (the rule a panel is shown
+    /// by, [`Panel::follows`]), the copy or cut an editor makes of what the page asked in such a
+    /// reply included. It is `false` for the reply to a message of the program, to a wake or to a
+    /// change of the room, and for the editor's account of what it did: the page and its program
+    /// can make the host write the pasteboard there, and a host that keeps the program from it (the
+    /// terminal's `osc52 = "off"`) writes `text` only where `by_person` is `true`. The person's own
+    /// copy key of an editor is not told here: it is a [`Route::Copy`] of [`crate::Page::key`], the
+    /// host's to put on its pasteboard.
+    fn copy(&mut self, _text: String, _by_person: bool) {}
     /// The text on the host's pasteboard, for the entry of a menu the host performs itself
     /// ([`pencere_view::MenuEntry::Paste`]) that the person picked ([`crate::Page::pick`]); `None`
     /// where there is none. It is pasted in the editor and told to no one: a page never reads the
@@ -140,7 +157,12 @@ impl Drained {
         for message in self.sent {
             host.send(message);
         }
-        for Answer { reply, pointer } in self.replies {
+        for Answer {
+            reply,
+            pointer,
+            person,
+        } in self.replies
+        {
             if reply.close {
                 host.close();
             }
@@ -158,7 +180,7 @@ impl Drained {
                 host.keyboard(to);
             }
             if let Some(text) = reply.copy {
-                host.copy(text);
+                host.copy(text, person);
             }
             if let Some(url) = reply.link {
                 host.link(url);
@@ -170,8 +192,8 @@ impl Drained {
                 host.menu(menu);
             }
         }
-        for text in self.copied {
-            host.copy(text);
+        for Copied { text, by_person } in self.copied {
+            host.copy(text, by_person);
         }
         for words in self.diagnostics {
             host.diagnostic(words);
@@ -220,8 +242,8 @@ mod tests {
         fn keyboard(&mut self, to: Keyboard) {
             self.0.push(format!("keyboard {to:?}"));
         }
-        fn copy(&mut self, text: String) {
-            self.0.push(format!("copy {text}"));
+        fn copy(&mut self, text: String, by_person: bool) {
+            self.0.push(format!("copy {text} {by_person}"));
         }
         fn link(&mut self, url: String) {
             self.0.push(format!("link {url}"));
@@ -276,10 +298,12 @@ mod tests {
                 Answer {
                     reply: everything(),
                     pointer: false,
+                    person: true,
                 },
                 Answer {
                     reply: Reply::none().with_cursor(Cursor::Pointer),
                     pointer: true,
+                    person: true,
                 },
             ],
             redraw: true,
@@ -288,7 +312,10 @@ mod tests {
             sent: vec!["{\"call\":{}}".into()],
             wake: true,
             cursor: None,
-            copied: Vec::new(),
+            copied: vec![Copied {
+                text: "cut".into(),
+                by_person: false,
+            }],
         }
         .deliver(&mut log);
         assert_eq!(
@@ -299,11 +326,12 @@ mod tests {
                 "redraw",
                 "fill f text",
                 "keyboard Page",
-                "copy copied",
+                "copy copied true",
                 "link https://example.com",
                 "panel Pick { multiple: true }",
                 "menu 1",
                 "cursor Pointer",
+                "copy cut false",
                 "diagnostic image \"x\" is not one",
                 "redraw",
             ]

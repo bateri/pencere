@@ -848,14 +848,15 @@ pub struct Keybinding {
     pub action: Option<KeyAction>,
 }
 
-/// What the editor's keys do.
+/// What the editor's keys do. None of them pastes: a page never reads the pasteboard, so text comes
+/// from it only on the person's own paste key and the person's pick of a menu entry the host
+/// performs itself ([`MenuEntry::Paste`]), never on a key the page chose.
 #[derive(Clone, Debug, PartialEq)]
 pub enum KeyAction {
     Command(EditCommand),
     Tab,
     Copy,
     Cut,
-    Paste,
     /// Back to one selection where there are several.
     Escape,
     /// Deletes to where the line starts, and to where it ends.

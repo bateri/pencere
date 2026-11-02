@@ -44,6 +44,12 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Fixed
 
+- **`pencere upgrade` works in a folder only the person can enter.** It downloaded the release and
+  its sums into `pencere-upgrade-<pid>` in the temporary directory, made if it was not there, so that
+  a folder (or a link) another user had put there beforehand was written to and read back from. The
+  folder is now made new, with the mode `0700`, and a name that is taken is passed over for another;
+  when a few are taken the upgrade stops and changes nothing.
+
 - **`pencere dev` on a Cargo package leaves what its tools keep alone.** It read every file of the
   project four times a second, and a directory it did not know by name, such as a `.cache` holding a
   checkout and its build, was read with the rest: a quarter of a core for as long as the pane was

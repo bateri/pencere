@@ -63,7 +63,7 @@ pub use peer::{Calls, Heard, LOG_METHOD, Logged, Peer, Subscription};
 pub use pencere_wire::messages::Error as Failure;
 pub use serde_json::Value;
 
-use crate::{Field, FrameAt, Host, Outline, Page, Route, Setup};
+use crate::{Copied, Field, FrameAt, Host, Outline, Page, Route, Setup};
 
 /// A frame of a host that draws sixty a second: how far apart [`Headless::advance`] draws the
 /// frames of a page that moves, and the soonest after one that the next is drawn.
@@ -350,6 +350,8 @@ pub struct Headless<P: Peer = Calls> {
 struct Seen {
     cursor: Option<Cursor>,
     pasteboard: Option<String>,
+    /// Every write to the pasteboard that a page or the person's copy key made, oldest first.
+    copies: Vec<Copied>,
     links: Vec<String>,
     menu: Option<Menu>,
     closed: bool,
@@ -485,8 +487,9 @@ impl<P: Peer> Host for Deliver<'_, P> {
         };
     }
 
-    fn copy(&mut self, text: String) {
-        self.seen.pasteboard = Some(text);
+    fn copy(&mut self, text: String, by_person: bool) {
+        self.seen.pasteboard = Some(text.clone());
+        self.seen.copies.push(Copied { text, by_person });
     }
 
     fn link(&mut self, url: String) {
@@ -1092,7 +1095,13 @@ impl<P: Peer> Headless<P> {
                     self.page.editors().type_text(&typed.to_string());
                 }
             }
-            Route::Copy(text) | Route::Cut(text) => self.seen.pasteboard = Some(text.clone()),
+            Route::Copy(text) | Route::Cut(text) => {
+                self.seen.pasteboard = Some(text.clone());
+                self.seen.copies.push(Copied {
+                    text: text.clone(),
+                    by_person: true,
+                });
+            }
             Route::Paste => {
                 if let Some(text) = self.seen.pasteboard.clone() {
                     self.page.editors().paste(&text);
@@ -2147,6 +2156,13 @@ impl<P: Peer> Headless<P> {
     /// What is on the host's pasteboard: what the page or an editor copied, or the test pasted.
     pub fn pasteboard(&self) -> Option<&str> {
         self.seen.pasteboard.as_deref()
+    }
+
+    /// Every write to the host's pasteboard that the page or an editor's copy key made, oldest
+    /// first, each with whether the person asked for it ([`Host::copy`]'s `by_person`: the editor's
+    /// own key always is). What the test pastes with [`Headless::paste`] is not among them.
+    pub fn copies(&self) -> &[Copied] {
+        &self.seen.copies
     }
 
     /// The links the page asked to open, in order (each one the sandbox let through).

@@ -242,6 +242,9 @@ DeleteToLineEnd}`; `EditorAsk::Change` has `history` and `tag` (told back in `Ed
 
 ### Changed
 
+- **Breaking:** `KeyAction::Paste` is gone, with the `paste` of a page's `keymap`: no key a page
+  chooses pastes. The person's own paste key and the host's menu entry (`MenuEntry::Paste`) stay.
+
 - **The kit is version `0.1`** (`pencere:view@0.1.0`, `lua` `0.1`). While the specification is a
   draft the versions of `lua` and `web` are `0.x`: a change an existing view can notice moves the
   minor number (`0.2` after `0.1`), an addition does not, and a host opens one version. A program

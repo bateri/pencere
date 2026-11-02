@@ -1867,13 +1867,27 @@ whichever comes first:
   and a `bye` that arrives when no view is: whoever can write the stream can send
   one, only the program that read its token can send this one (Section 14), and a program
   that opened no view has no `bye` to send, the host's own observation (below) covers it;
-- the host's own observation where it has one: shell integration reports the
-  command finished (OSC 133 `D`), the tty's foreground process group changed, or the
+- the host's own observation where it has one: the tty's foreground process group changed, or the
   stream ended.
 
 Either way the host closes the view as Section 10.2 says. For the host's own observation its step 2
 does not apply, because the program is gone; for a `bye` the host believes, the answer below takes the
 place of step 2.
+
+**A mark in the stream is not an observation.** Shell integration reports that a command finished
+in the stream itself (OSC 133 `D`), and whoever can write the stream can write that mark: a file
+shown with `cat` and a line of a log can hold one (Section 14), and a view must not close because
+the text of a program that is not the one the person started says so. The mark alone therefore
+closes no view of a host that can check it against an observation of its own. Where the tty is the
+host's own and local, that is the foreground process group: the mark counts when the group is the
+shell's again, and not while a command still holds the tty. Where the program runs on another
+machine, which has no process group to look at, the report has to be one the host can tie to the
+shell that sent it and to the command that is running: it carries a value that the host gave that
+shell when it started the shell and that the shell keeps from the commands it runs, so that the
+program cannot read it, and the host has a view open for a command of that shell. A mark that fails
+the check is ignored, as a `bye` without its token is, and is no error. A host that has no such
+observation, because it cannot tell which process group holds the tty or has no value to give the
+shell, MAY take the mark as it is, and every host MUST let the person close a view regardless (below).
 
 A program that is killed with SIGKILL, or crashes, sends nothing, so a host that
 has no observation would leave the view open for ever; every host MUST let the
@@ -2144,6 +2158,18 @@ host's policy; it SHOULD NOT carry from one program to another. A host SHOULD en
 for the answer for longer than a time of its choosing with `closed`, `reason` `error`, `code`
 `timeout` (Section 8.4), as it does for files that do not arrive.
 
+**What the engine opens beside the policy.** The policy of Section 12.1 governs what a page loads and
+sends; a web engine also reaches the network in ways a policy does not name: a peer connection that
+a script opens (WebRTC), which sends to addresses the page chooses, loopback and private ones
+included, and accepts what comes back; the connections the engine opens ahead of a request, as a
+hint or a speculation (preconnect, prefetch); and the lookups of names it makes ahead of one (DNS
+prefetching). A host MUST close these channels for every page, **whatever the person allowed**:
+allowing an origin allows requests to it, and none of them. It closes them in the engine, by the
+engine's own setting wherever it has one, and not by a script that takes the interface from the page
+(another frame of the page can give it back), and it delivers with every file it serves a header
+that says the names are not to be looked up ahead (`X-DNS-Prefetch-Control: off`). A host that
+cannot close one of them in its engine MUST NOT open a web view.
+
 ### 12.3 Files and navigation
 
 The view has no access to files of its own (a kit view reaches only the files the person gives it, by
@@ -2230,8 +2256,10 @@ alone, so a hostile stream cannot use up the token of the program that is runnin
 **Ending a view.** `bye` needs no answer, so a stream anyone can write could send it; it
 carries the token that opened the view, which that stream cannot read, and a `bye` without
 it or with another is ignored (Section 10.3). `dismiss` carries the same token and is held
-to the same rule (Section 10.8). A stream that cannot open a view cannot close
-the view of the program that is running either. The token is the view's identity while it
+to the same rule (Section 10.8). The mark shell integration writes when a command finished (OSC 133
+`D`) is as writable as a `bye` without its token, and a sign seen in the stream does not close a
+view by itself: the host checks it against its own observation (Section 10.3). A stream that cannot
+open a view cannot close the view of the program that is running either. The token is the view's identity while it
 lives, not a secret that outlasts it: a host forgets it when the view has closed.
 
 **Bundles.** A file is kept only under the digest it was verified to have, and only if

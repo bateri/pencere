@@ -730,9 +730,11 @@ impl<S: Store, E: Entropy> Session<S, E> {
         self.dismiss = offer;
     }
 
-    /// The program ended: the terminal saw the command finish, the foreground
-    /// process group change or the stream end. The view is closed and nothing is
-    /// written until a `hello` says a program is there again (§10.3).
+    /// The program ended: the terminal saw the foreground process group change or the stream end,
+    /// or checked a shell integration mark that says the command finished against an observation of
+    /// its own (a mark in the stream is no observation by itself: §10.3 and §14 say whoever can write
+    /// the stream can write it). The view is closed and nothing is written until a `hello` says a
+    /// program is there again.
     pub fn program_ended(&mut self) {
         self.ended = true;
         self.token = None;

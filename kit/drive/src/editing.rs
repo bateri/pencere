@@ -16,6 +16,7 @@ use std::sync::Arc;
 use pencere_editor::{CaretPhase, EditorEvent, Editors};
 
 use crate::glide::Glide;
+use crate::host::Copied;
 use pencere_view::edit::{Caret, EditorAsk, TextSnapshot};
 use pencere_view::{Event, Id, Keyboard, Laid, Measure, Point, Reply, ScrollTo};
 
@@ -24,7 +25,11 @@ pub(crate) struct Editing {
     pub(crate) editors: Editors,
     /// What the page's replies asked of its editors: done in the next frame, once the editors are
     /// made for the page it laid out (a reply may come with the page that has the editor).
-    asks: Vec<(Id, EditorAsk)>,
+    /// With whether the reply that asked was to something the person did ([`pencere_sandbox::Answer::person`]).
+    asks: Vec<(Id, EditorAsk, bool)>,
+    /// Text the page's asks had the editors copy or cut, in the order they were done, with whether
+    /// the person asked: told with the rest of what came of the editors ([`Editing::told`]).
+    copies: Vec<Copied>,
     /// The editor a reply sent the keyboard to that was not there yet: given it once the editors
     /// are made.
     focus: Option<Id>,
@@ -48,7 +53,7 @@ pub(crate) struct Told {
     /// Something only drawn changed (the gutter mark under the pointer): a frame, and nothing told.
     pub redraw: bool,
     /// Text the page had copied or cut, for the host's pasteboard.
-    pub copied: Vec<String>,
+    pub copied: Vec<Copied>,
 }
 
 impl Told {
@@ -68,6 +73,7 @@ impl Editing {
         Self {
             editors: Editors::new(),
             asks: Vec::new(),
+            copies: Vec::new(),
             focus: None,
             blink: Blink::new(),
             glide: Glide::default(),
@@ -77,15 +83,17 @@ impl Editing {
     /// Takes what `reply` asks of the editors out of it (a copy of it, where the reply is to be
     /// `kept` whole), to be done at the next frame, and gives the keyboard where it says
     /// (`Keyboard::Field` of an editor; a field or the page is none of them). Whether there was
-    /// anything for the editors.
-    pub(crate) fn take_reply(&mut self, reply: &mut Reply, kept: bool) -> bool {
+    /// anything for the editors. `person`: the reply is to something the person did, which is whose
+    /// act a copy or cut it asks of an editor is.
+    pub(crate) fn take_reply(&mut self, reply: &mut Reply, kept: bool, person: bool) -> bool {
         let asks = if kept {
             reply.editor.clone()
         } else {
             std::mem::take(&mut reply.editor)
         };
         let any = !asks.is_empty();
-        self.asks.extend(asks);
+        self.asks
+            .extend(asks.into_iter().map(|(id, ask)| (id, ask, person)));
         match reply.keyboard {
             Some(Keyboard::Field(id)) => {
                 self.editors.set_focus(Some(id));
@@ -116,8 +124,14 @@ impl Editing {
         if let Some(id) = self.focus.take() {
             self.editors.set_focus(Some(id));
         }
-        for (id, ask) in std::mem::take(&mut self.asks) {
+        for (id, ask, person) in std::mem::take(&mut self.asks) {
             self.editors.ask(laid, id, ask, measure, now);
+            // Taken at once, so that what is copied is of the reply that asked it.
+            self.copies
+                .extend(self.editors.take_copied().into_iter().map(|text| Copied {
+                    text,
+                    by_person: person,
+                }));
         }
     }
 
@@ -146,13 +160,20 @@ impl Editing {
                 .map(|(id, text)| (id, Arc::new(text) as Arc<dyn TextSnapshot>))
                 .collect()
         };
+        // What the page asked was taken as it was done; what is left was done by the person's own
+        // act on the host's side (its menu's Copy, [`crate::PageEditors::command`]).
+        let mut copied = std::mem::take(&mut self.copies);
+        copied.extend(self.editors.take_copied().into_iter().map(|text| Copied {
+            text,
+            by_person: true,
+        }));
         Told {
             texts,
             events: events.into_iter().map(Event::from).collect(),
             scrolls,
             relayout,
             redraw,
-            copied: self.editors.take_copied(),
+            copied,
         }
     }
 }

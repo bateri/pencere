@@ -3182,6 +3182,22 @@ fn the_host_paste_entry_of_a_read_only_editor_is_off_and_a_page_cannot_ask_an_ed
     let refused = page.click_at(Point::new(12.0, 12.0));
     let why = failed(refused);
     assert!(why.contains("paste"), "{why}");
+    // Nor does a key the page chose: the `keymap` has no word that pastes, so the text of the
+    // pasteboard cannot go into an editor on a key of the page's (a plain one, the paste key's own, a
+    // chord) where the person is not asking for it. The page fails where it writes the word.
+    for table in [
+        r#"{ enter = "paste" }"#,
+        r#"{ ["mod+v"] = "paste" }"#,
+        r#"{ ["mod+k mod+v"] = "paste" }"#,
+    ] {
+        let why = failing(&format!(
+            "return {{ render = function() return pencere.editor(\"e\", {{ keymap = {table} }}) end }}"
+        ));
+        assert!(
+            why.contains("\"paste\"") && why.contains("no command of an editor"),
+            "{table}: {why}"
+        );
+    }
     Ok(())
 }
 
