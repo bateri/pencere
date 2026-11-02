@@ -346,105 +346,64 @@ end
 
 // --- The context ----------------------------------------------------------------------------------
 
-/// A component of the page's own: two buttons of the library inside it, whose presses it takes as
-/// its own change, and a count it keeps by its name where the page gives it no table.
-const STEPPER: &str = r#"
-local Stepper = ui.component("stepper", {
-    state = function(props)
-        return { value = props.start or 0 }
-    end,
-    view = function(u, id, props, state)
-        return pencere.div():row():gap(4)
-            :child(u:icon_button(u:part(id, "less"), { icon = "dash", label = "Less" }))
-            :child(pencere.text(id .. "=" .. state.value))
-            :child(u:icon_button(u:part(id, "more"), { icon = "plus", label = "More" }))
-    end,
-    action = function(u, id, props, state, act)
-        local part = u:part_of(act.from)
-        if act.kind ~= "press" or part == nil then
-            return nil
-        end
-        state.value += part.part == "less" and -1 or 1
-        return true, { kind = "change", value = state.value }
-    end,
-})
-"#;
-
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
-fn a_component_takes_the_actions_of_those_inside_it_as_its_own() -> Result<(), Error> {
-    let mut page = open(&format!(
-        "{STEPPER}
-S.mine = {{ value = 10 }}
+fn the_library_does_not_hand_a_page_the_way_it_makes_its_components() -> Result<(), Error> {
+    let page = open(
+        r#"
 view = function(u)
-    return pencere.div():gap(4)
-        :child(Stepper(u, 'kept', {{ start = 3 }}))
-        :child(Stepper(u, 'owned', {{ state = S.mine }}))
+    return pencere.text("component is " .. tostring(ui.component))
 end
-"
-    ))?;
-    page.click("kept/more")?;
-    page.click("kept/more")?;
-    page.click("owned/less")?;
-    assert!(page.says("kept=5"));
-    assert!(page.says("owned=9"));
-    assert_eq!(
-        log(&page),
-        [
-            "kept change value=4",
-            "kept change value=5",
-            "owned change value=9"
-        ]
-    );
+"#,
+    )?;
+    assert!(page.says("component is nil"), "{:?}", page.words());
     Ok(())
 }
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn what_a_component_keeps_by_its_name_is_forgotten_when_it_is_not_drawn() -> Result<(), Error> {
-    let mut page = open(&format!(
-        "{STEPPER}
+    let mut page = open(
+        r#"
 S.shown = true
+S.items = { { key = "a", title = "Item a" }, { key = "b", title = "Item b" } }
 view = function(u)
-    local root = pencere.div():gap(4):child(u:button('hide', {{ title = 'Hide' }}))
+    local root = pencere.div():gap(4):child(u:button("hide", { title = "Hide" }))
     if S.shown then
-        root:child(Stepper(u, 'kept', {{ start = 1 }}))
+        root:child(u:list("results", { items = S.items, height = 24 }))
     end
     return root
 end
 on_action = function(act)
-    if act.from == 'hide' then
+    if act.from == "hide" then
         S.shown = not S.shown
     end
 end
-"
-    ))?;
-    page.click("kept/more")?;
-    assert!(page.says("kept=2"));
+"#,
+    )?;
+    page.click("results/row/b")?;
+    assert!(accessible(&page, "results/row/b").state.selected);
     page.click("hide")?;
-    assert!(!page.says("kept="));
+    assert!(!page.says("Item b"));
     page.click("hide")?;
-    assert!(page.says("kept=1"), "drawn again, it starts again");
+    assert!(
+        !accessible(&page, "results/row/b").state.selected,
+        "drawn again, it starts again"
+    );
     Ok(())
 }
 
-/// A layer of the page's own: what is inside it takes the keyboard while it is in front.
+/// A layer: what is inside it takes the keyboard while it is in front.
 const SHEET: &str = r#"
-local Sheet = ui.component("sheet", {
-    view = function(u, id, props)
-        u:layer(id)
-        return pencere.div():overlay():inset(40, 40, nil, 40):p(12):gap(8):bg("raised2")
-            :child(u:button(u:part(id, "first"), { title = "First" }))
-            :child(u:button(u:part(id, "second"), { title = "Second" }))
-    end,
-})
 S.open = false
 view = function(u)
     local root = pencere.div():gap(8)
         :child(u:button("open", { title = "Open" }))
         :child(u:button("after", { title = "After" }))
     if S.open then
-        root:child(Sheet(u, "sheet"))
+        root:child(u:modal("sheet", { label = "Sheet", width = 300 }, pencere.div():p(12):gap(8)
+            :child(u:button("first", { title = "First" }))
+            :child(u:button("second", { title = "Second" }))))
     end
     return root
 end
@@ -466,73 +425,23 @@ fn a_layer_takes_the_keyboard_holds_it_and_gives_it_back_when_it_closes() -> Res
     page.press("enter")?;
     // A render has no reply: the keyboard goes in with the kit's timer, at the next frame.
     page.step()?;
-    assert_eq!(keys_at(&page), "keys at sheet/first in page");
+    assert_eq!(keys_at(&page), "keys at first in page");
     page.press("tab")?;
-    assert_eq!(keys_at(&page), "keys at sheet/second in page");
+    assert_eq!(keys_at(&page), "keys at second in page");
     page.press("tab")?;
     assert_eq!(
         keys_at(&page),
-        "keys at sheet/first in page",
+        "keys at first in page",
         "round within the layer, never out to the page behind it"
     );
     page.press("shift+tab")?;
-    assert_eq!(keys_at(&page), "keys at sheet/second in page");
+    assert_eq!(keys_at(&page), "keys at second in page");
     page.press("escape")?;
     page.step()?;
     assert_eq!(log(&page), ["open press", "sheet dismiss"]);
     assert!(!page.says("First"));
     assert_eq!(keys_at(&page), "keys at open in page", "back where it was");
     assert_eq!(page.focus(), Focus::Page);
-    Ok(())
-}
-
-#[test]
-#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
-fn a_part_that_took_the_press_follows_the_pointer_until_it_comes_up() -> Result<(), Error> {
-    let mut page = open(
-        r#"
-local Handle = ui.component("handle", {
-    view = function(u, id)
-        return pencere.div():row():gap(40)
-            :child(pencere.div():press(u:part(id, "grip")):size(20, 20):bg("accent"))
-            :child(pencere.div():id("there"):size(20, 20))
-    end,
-    press = function(u, id, props, state, part)
-        if part == "grip" then
-            return false, nil, true
-        end
-    end,
-    drag = function(u, id, props, state, part, key, at)
-        return true, { kind = "drag", dx = math.floor(at.dx) }
-    end,
-    release = function(u, id, props, state, part, key, at)
-        return true, { kind = "done", dx = math.floor(at.dx) }
-    end,
-    cursor = function(u, id, props, state, part)
-        if part == "grip" then
-            return "resize_horizontal"
-        end
-    end,
-})
-view = function(u)
-    return Handle(u, "split")
-end
-"#,
-    )?;
-    page.hover("split/grip")?;
-    assert_eq!(page.cursor(), Some(pencere_view::Cursor::ResizeHorizontal));
-    page.drag("split/grip", "there")?;
-    let said = log(&page);
-    assert_eq!(
-        said.last().map(String::as_str),
-        Some("split done dx=60"),
-        "{said:?}"
-    );
-    assert!(
-        said.iter().any(|line| line == "split drag dx=60"),
-        "{said:?}"
-    );
-    assert!(said.len() > 2, "the drag is told as it goes: {said:?}");
     Ok(())
 }
 
@@ -690,7 +599,7 @@ on_action = function(act, u)
             end
         end
         table.insert(S.tabs, to, tab)
-    elseif act.from == "tabs" and act.kind == "menu" then
+    elseif act.from == "tabs" and act.kind == "context" then
         return u:menu("tab-menu", { { key = "close", title = "Close" }, "-", { key = "rename", title = "Rename" } },
             { at = act.at })
     end
@@ -976,6 +885,43 @@ end
     Ok(())
 }
 
+/// A menu by an element that is not laid out opens at the place the page gave, and at none when it
+/// gave none; with neither it is a mistake.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_menu_by_an_element_that_is_not_laid_out_opens_at_its_place_or_not_at_all() -> Result<(), Error>
+{
+    let script = |options: &str| {
+        format!(
+            r#"
+view = function(u)
+    return u:button("more", {{ title = "More" }})
+end
+on_action = function(act, u)
+    if act.from == "more" then
+        return u:menu("more-menu", {{ {{ key = "copy", title = "Copy" }} }}, {options})
+    end
+end
+"#
+        )
+    };
+    let mut page = open(&script(r#"{ near = "gone", at = { x = 30, y = 40 } }"#))?;
+    page.click("more")?;
+    assert!(page.menu().is_some(), "it opens at the place");
+    let mut page = open(&script(r#"{ near = "gone" }"#))?;
+    page.click("more")?;
+    assert!(page.menu().is_none(), "there is no place for it");
+    assert_eq!(log(&page), ["more press"], "and the page goes on");
+    let mut page = open(&script("{}"))?;
+    match page.click("more") {
+        Err(Error::Ended(Fault::Failed(why))) => {
+            assert!(why.contains("a menu is at an element"), "{why}");
+        }
+        other => panic!("expected the page to fail, it is {other:?}"),
+    }
+    Ok(())
+}
+
 /// The host shows one menu at a time and does not show one asked for while another is up: what is
 /// picked is a line of the menu shown, whichever menu the page asked for last.
 #[test]
@@ -1186,8 +1132,14 @@ view = function(u)
     return pencere.div():size_full():gap(4)
         :child(u:button("before", { title = "Before" }))
         :child(u:list("results", { items = S.items, state = S.state, height = 24, multi = true,
-            keys = S.vim and { j = "down", k = "up" } or nil,
+            key_map = S.vim and { j = "down", k = "up" } or nil,
             count = S.count }))
+        :child(pencere.text(S.marked or "none marked"))
+end
+on_action = function(act)
+    if act.kind == "mark" then
+        S.marked = #act.marked .. " marked"
+    end
 end
 "#;
 
@@ -1216,7 +1168,7 @@ fn a_list_builds_the_rows_in_view_and_is_chosen_and_opened_with_the_pointer() ->
     page.right_click("results/row/k4")?;
     assert_eq!(
         log(&page).last().map(String::as_str),
-        Some("results menu key=k4")
+        Some("results context key=k4")
     );
     Ok(())
 }
@@ -1268,6 +1220,7 @@ fn a_list_with_the_keyboard_goes_by_the_arrow_keys_and_keeps_the_row_in_view() -
         "{:?}",
         log(&page).last()
     );
+    assert!(page.says("1 marked"), "the keys marked are in `marked`");
     Ok(())
 }
 
@@ -1564,7 +1517,7 @@ view = function(u)
         :child(u:tree("files", { roots = { "src" }, state = S.state, height = 24,
             children = function(key) return S.kids[key] end,
             item = function(key) return { title = string.match(key, "[^/]+$"), badge = key == "src/z.lua" and "M" or nil } end,
-            keys = S.vim and { j = "down", k = "up", h = "left", l = "right" } or nil }))
+            key_map = S.vim and { j = "down", k = "up", h = "left", l = "right" } or nil }))
 end
 "#;
 
@@ -1690,12 +1643,14 @@ fn a_split_is_dragged_held_between_its_limits_and_sized_with_the_arrow_keys() ->
     assert_eq!(page.bounds("first").expect("pane").w, 300.0);
     let said = log(&page);
     assert!(
-        said.iter().any(|line| line == "side resize size=300"),
+        said.iter()
+            .any(|line| line == "side resize final=false size=300"),
         "{said:?}"
     );
     assert_eq!(
         said.last().map(String::as_str),
-        Some("side resized size=300")
+        Some("side resize final=true size=300"),
+        "let go, it says it is the last"
     );
     page.drag_between(
         pencere_view::Point::new(handle.rect.x + 63.0, 200.0),
@@ -1706,12 +1661,18 @@ fn a_split_is_dragged_held_between_its_limits_and_sized_with_the_arrow_keys() ->
         400.0,
         "held at its limit"
     );
+    let told = log(&page).len();
     page.click("side/handle")?;
+    assert_eq!(
+        log(&page).len(),
+        told,
+        "a press on the edge that does not move it says nothing"
+    );
     page.press("left")?;
     assert_eq!(page.bounds("first").expect("pane").w, 384.0);
     assert_eq!(
         log(&page).last().map(String::as_str),
-        Some("side resized size=384")
+        Some("side resize final=true size=384")
     );
     Ok(())
 }
@@ -1943,6 +1904,12 @@ fn a_grid_builds_the_rows_in_view_and_chooses_a_cell_with_the_pointer_and_the_ke
     assert!(row.x <= id.x, "the rows and the header start together");
     page.click_in("g/row/3", 160.0, 5.0)?;
     assert_eq!(log(&page), ["g select column=2 row=3"]);
+    page.right_click("g/row/5")?;
+    assert!(
+        log(&page).last().unwrap().starts_with("g context column="),
+        "{:?}",
+        log(&page).last()
+    );
     page.double_click("g/row/4")?;
     assert!(
         log(&page).iter().any(|line| line.starts_with("g open")),
@@ -2039,7 +2006,7 @@ fn a_grid_sorts_by_a_press_on_a_head_and_sizes_a_column_by_its_edge() -> Result<
     assert!(
         log(&page)
             .iter()
-            .any(|line| line.starts_with("g resize column=id")),
+            .any(|line| line.starts_with("g resize column=id final=false width=")),
         "{:?}",
         log(&page)
     );
@@ -2047,7 +2014,16 @@ fn a_grid_sorts_by_a_press_on_a_head_and_sizes_a_column_by_its_edge() -> Result<
         log(&page)
             .last()
             .unwrap()
-            .starts_with("g resized column=id")
+            .starts_with("g resize column=id final=true width="),
+        "{:?}",
+        log(&page).last()
+    );
+    let told = log(&page).len();
+    page.click("g/edge/id")?;
+    assert_eq!(
+        log(&page).len(),
+        told,
+        "a press on the edge that does not move it says nothing"
     );
     Ok(())
 }

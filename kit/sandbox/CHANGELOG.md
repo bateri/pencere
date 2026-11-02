@@ -88,6 +88,19 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
     specification: `command`, `super`, `meta`, `control`, `option`, `opt`, and the keys `return`, `esc`,
     `pageup`, `pagedown` and `del` are errors (so is a key that is none), and `@pencere/keys` reads no more
     than it.
+- **`@pencere/ui`** (a library of the kit's, which a page takes from the interpreter's build):
+  - `u:menu` with a `near` that is not laid out opens at `at` where the page gave one, and gives nil (no
+    menu) where it did not; it was an error that took the page down. With neither it is still an error.
+  - The right press of a tab, a row of a list, a cell of a grid or a line of a tree is the action
+    `{ kind = "context", … }` and not `kind = "menu"`, so that the request and the pick (`kind = "menu"`,
+    `entry = key`) are two words.
+  - A `split`'s edge and a `grid`'s column say `resize { …, final }`: `final = false` as it is dragged,
+    `true` when it is let go after it moved and at each step of the keys. `resized` is gone, a press that
+    does not move the edge says nothing (it said a `resized` with no `width` in a grid), and `width` is
+    always there.
+  - `ui.component` is no longer handed to a page: the library's components are the ones a page draws.
+  - A list and a tree take `key_map` for keys of their own (`keys` before, which a `list` also meant
+    for the keys of an item), and the `mark` of a list carries them as `marked`.
 - The fields of a timer (`fn`, `waiting` and the others) are no longer there to read or write: a
   timer has `:cancel()` and `:active()`. `pencere.f32` is gone from the page API; the interpreter is
   rebuilt (`make luau`).

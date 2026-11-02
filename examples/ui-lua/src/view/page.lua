@@ -255,7 +255,7 @@ local function act(action)
 		end
 	elseif action.from == "files" and action.kind == "expand" then
 		return true
-	elseif action.from == "side" and action.kind == "resized" then
+	elseif action.from == "side" and action.kind == "resize" and action.final then
 		return true
 	elseif action.from == "hint" or (action.from == "hint-card" and action.kind == "dismiss") then
 		S.popover = not S.popover

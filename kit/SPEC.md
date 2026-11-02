@@ -1382,8 +1382,16 @@ name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"
 - `button`, `icon_button`, `toggle`, `badge`, `kbd`, `rule`, `banner`; `input`, `segments`, `tabs`;
   `modal`, `dialog`, `toasts`, `menu` (the host's), `editor_menu`, `popover`; `list`, `palette`,
   `completions`, `tree`, `grid`; `split`, `status`; `find_bar`. `ui.commands(list)` writes the page's commands once for the host, the
-  palette and the help, and holds them while a modal is in front. `ui.component(name, spec)` makes
-  a component of the page's own the same way.
+  palette and the help, and holds them while a modal is in front.
+- `u:menu(id, entries, { near =, at = })` is the reply that asks the host for a menu at an element
+  (below its left edge) or at a place (`at = { x =, y = }`): where `near` is not laid out it opens at
+  `at`, and where there is no `at` either there is no menu (nil); with neither given, it is an error. A
+  press of the right button on a tab, a row, a cell or a line of a tree is the action `{ kind = "context",
+… at = { x =, y = } }`, which the page answers with `u:menu`; what is picked in a menu comes back as
+  `{ kind = "menu", entry = key }`. `list` and `tree` take `key_map = { j = "down" }` for keys of their
+  own, and a list with `multi` says `mark { marked }`. A `split`'s edge and a `grid`'s column say
+  `resize { size, final }` (`{ column, width, final }`): `final = false` while it is dragged, `true` when
+  it is let go after it moved and at each step of the keys; a press that does not move it says nothing.
 - An icon-only button and a field must say what they are in words (`label`), or the page fails at the
   line that drew them. A layer takes the keyboard when it opens and gives it back when it closes.
 

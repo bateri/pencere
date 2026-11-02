@@ -3,7 +3,7 @@
 --   u:input("query", { state = Q, hint = "Search", label = "Search in files" })   -- change { text }, submit { text, mods }
 --   u:segments("view", { items = { { key = "list", title = "List" }, ... }, value = S.view })   -- select { key }
 --   u:tabs("tabs", { items = tabs, active = S.active, reorder = true })
---       -- select { key }, close { key }, move { key, before }, menu { key, at }
+--       -- select { key }, close { key }, move { key, before }, context { key, at }
 
 local core = require("./core")
 local theme = require("./theme")
@@ -216,7 +216,7 @@ local TAB_WIDTH = 200
 -- Tabs in a strip that scrolls across: `items` are `{ key, title, hint, icon, dirty, closable, tone,
 -- tip }`, `active` the key of the one in front. The pointer chooses one as it goes down on it
 -- (`select`), closes one with its cross or the middle button (`close`), asks for its menu with the
--- right button (`menu { key, at }`); with `reorder`, a tab dragged onto another is put in front of
+-- right button (`context { key, at }`); with `reorder`, a tab dragged onto another is put in front of
 -- it (`move { key, before }`: `before` is the key of the tab it goes in front of, nil for the end).
 -- A tab with unsaved changes (`dirty`) shows a dot where its cross is until the pointer is over it.
 -- The tab in front is scrolled into view once the page has been laid out. The arrow keys, home and
@@ -298,7 +298,7 @@ controls.tabs = core.component("tabs", {
 		if event.button == "middle" then
 			return true, { kind = "close", key = key }
 		elseif event.button == "right" then
-			return true, { kind = "menu", key = key, at = { x = event.x, y = event.y } }
+			return true, { kind = "context", key = key, at = { x = event.x, y = event.y } }
 		elseif event.button == "left" then
 			local reply = u:focus(u:name(id, "tab", key))
 			if key == props.active then

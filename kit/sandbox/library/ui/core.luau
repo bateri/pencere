@@ -134,10 +134,10 @@ end
 -- An action is `{ kind = ..., ... }`; `from` is the component's name unless it says another.
 function core.component(name, spec)
 	if type(name) ~= "string" then
-		error("ui.component takes a name, then what the component is", 2)
+		error("a component takes a name, then what the component is", 2)
 	end
 	if type(spec) ~= "table" or type(spec.view) ~= "function" then
-		error("a component has a view: ui.component(name, { view = function(u, id, props, state) ... end })", 2)
+		error("a component has a view: component(name, { view = function(u, id, props, state) ... end })", 2)
 	end
 	return function(u, id, props)
 		if getmetatable(u) ~= Ctx then

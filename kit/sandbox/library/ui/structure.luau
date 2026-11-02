@@ -2,9 +2,9 @@
 -- bar that says where things stand.
 --
 --   u:tree("files", { roots = { "src" }, children = list_of, item = describe, state = T })
---       -- select { key }, open { key, how }, expand { key, open }, menu { key, at }
+--       -- select { key }, open { key, how }, expand { key, open }, context { key, at }
 --   u:split("side", { state = { size = 240 }, min = 160, max = 520, first = side, second = main })
---       -- resize { size }, resized { size }, drawer { open }
+--       -- resize { size, final }, drawer { open }
 --   u:status("status", { start = { { key = "branch", words = "main" } }, finish = { … } })   -- press { key }
 
 local core = require("./core")
@@ -55,7 +55,7 @@ end
 --
 -- The pointer chooses a row (`select`), opens a folder with a press on it or on its arrow
 -- (`expand { key, open }`), and opens what has no children with a second press (`open { key, how }`); the
--- right button asks for a menu (`menu { key, at }`). With the keyboard (`keys` maps others, as a list's):
+-- right button asks for a menu (`context { key, at }`). With the keyboard (`key_map` maps others, as a list's):
 -- the arrow keys, home, end and page up and down move, right opens a folder and goes into it, left
 -- closes it and goes out of it, enter opens a file or toggles a folder. `guides` (the default) draws a
 -- line down each level of depth.
@@ -88,7 +88,7 @@ local Tree = core.component("tree", {
 			items = flat,
 			state = state,
 			height = props.height,
-			keys = props.keys,
+			key_map = props.key_map,
 			role = "button",
 			row = function(row, _, look_of)
 				local shown = row.shown
@@ -135,7 +135,7 @@ local Tree = core.component("tree", {
 		if mods.command or mods.control or mods.alt then
 			return nil
 		end
-		local name = (props.keys and props.keys[event.key]) or event.key
+		local name = (props.key_map and props.key_map[event.key]) or event.key
 		local flat = state.flat or {}
 		local at = nil
 		for index, row in flat do
@@ -195,8 +195,8 @@ local Tree = core.component("tree", {
 				return true
 			end
 			return true, { kind = "open", key = act.key, how = act.how }
-		elseif act.kind == "menu" then
-			return true, { kind = "menu", key = act.key, at = act.at }
+		elseif act.kind == "context" then
+			return true, { kind = "context", key = act.key, at = act.at }
 		end
 		return true
 	end,
@@ -210,9 +210,10 @@ local STEP = 16
 
 -- Two panes side by side and an edge between them that the person drags to size one: `first` and
 -- `second` are elements; `side` ("start", the default, or "end") is the one that has the width,
--- `state.size` points (240 unless `default` says), between `min` and `max`. It says `resize { size }` as
--- the edge goes and `resized { size }` when it is let go (the page keeps it where it keeps its
--- settings); the arrow keys on the edge size it by sixteen points, as a window splitter does. Under
+-- `state.size` points (240 unless `default` says), between `min` and `max`. It says `resize { size, final }`:
+-- `final = false` as the edge goes, `final = true` when it is let go after it went, and for each step of
+-- the arrow keys (the page keeps the size where it keeps its settings, when `final`); a press on the edge
+-- that does not move it says nothing. The arrow keys on the edge size it by sixteen points, as a window splitter does. Under
 -- `narrow_below` points of page the sized pane leaves the row: `second` has all of it, and the sized
 -- pane comes over it with a scrim behind it while `state.drawer` is true (the page opens it, the scrim
 -- and escape say `drawer { open = false }`).
@@ -291,6 +292,7 @@ local Split = core.component("split", {
 	press = function(u, id, props, state, part, _, event)
 		if part == "handle" and event.button == "left" then
 			state.origin = state.size
+			state.moved = nil
 			return false, nil, true
 		elseif part == "handle" then
 			return false
@@ -307,14 +309,19 @@ local Split = core.component("split", {
 			return false
 		end
 		state.size = size
-		return true, { kind = "resize", size = size }
+		state.moved = true
+		return true, { kind = "resize", size = size, final = false }
 	end,
 	release = function(u, id, props, state, part)
 		if part ~= "handle" or state.origin == nil then
 			return nil
 		end
 		state.origin = nil
-		return true, { kind = "resized", size = state.size }
+		if not state.moved then
+			return false
+		end
+		state.moved = nil
+		return true, { kind = "resize", size = state.size, final = true }
 	end,
 	cursor = function(_, _, _, _, part)
 		if part == "handle" then
@@ -350,7 +357,7 @@ local Split = core.component("split", {
 			return false
 		end
 		state.size = size
-		return true, { kind = "resized", size = size }
+		return true, { kind = "resize", size = size, final = true }
 	end,
 })
 structure.split = Split

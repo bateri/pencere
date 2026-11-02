@@ -310,22 +310,29 @@ local Toasts = core.component("toasts", {
 
 -- --- A menu of the host's ---------------------------------------------------------------------------------------
 
--- The host's menu, at the element `options.near` (below its left edge), or at `options.at` (`{ x, y }`):
--- the reply that asks for it, to be returned from `handle`. `entries` are `{ key, title, keys, enabled }`
--- and `"-"` for a rule. What the person picks comes back as `{ from = id, kind = "menu", entry = key }`, with
+-- The host's menu, at the element `options.near` (below its left edge), or at `options.at` (`{ x, y }`)
+-- where `near` is not laid out (not drawn, or not yet): the reply that asks for it, to be returned from
+-- `handle`, or nil where there is no place to open it at (`near` alone, and not laid out). `entries` are
+-- `{ key, title, keys, enabled }` and `"-"` for a rule. What the person picks comes back as
+-- `{ from = id, kind = "menu", entry = key }`, with
 -- `editor = options.editor` where the menu is of an editor (`u:editor_menu`): the pick is of the menu the person
 -- was shown, which may not be the last the page asked for, so what it is of is told with the pick and not kept.
 function core.Ctx:menu(id, entries, options)
 	options = options or {}
-	local at = options.at
-	if at == nil and options.near ~= nil then
+	local at = nil
+	if options.near ~= nil then
 		local box = layout.bounds(options.near)
 		if box ~= nil then
 			at = { x = box.x, y = box.y + box.h }
 		end
 	end
+	at = at or options.at
 	if at == nil then
-		error("a menu is at an element (near =) or a place (at = { x =, y = })", 2)
+		if options.near == nil then
+			error("a menu is at an element (near =) or a place (at = { x =, y = })", 2)
+		end
+		-- The element it was to open by is not on the page: there is no place for it.
+		return nil
 	end
 	-- Each line carries what a pick of it is, for the host to hand back with the pick (`event.entry`): the
 	-- menu shown is not always the one asked for last.

@@ -2,7 +2,7 @@
 -- finds one among many, the completions that stand by a caret.
 --
 --   u:list("results", { items = rows, state = L, row = function(item, index, look) … end })
---       -- select { key }, open { key, how }, menu { key, at }, mark { keys }, need { first, last }
+--       -- select { key }, open { key, how }, context { key, at }, mark { marked }, need { first, last }
 --   u:palette("palette", { items = cmds:items(), state = P, label = "Command palette" })
 --       -- pick { item }, query { text }, back, dismiss
 --   u:completions("complete", { editor = "doc", items = found, state = C })        -- pick { item }, dismiss
@@ -124,9 +124,9 @@ lists.move = move
 -- (with `multi`): both are the page's where it gives `state`.
 --
 -- The pointer chooses a row as it goes down on it (`select`), a second press opens it (`open`) and
--- the right button asks for its menu (`menu { key, at }`); the command or control key held marks or
+-- the right button asks for its menu (`context { key, at }`); the command or control key held marks or
 -- unmarks it. A list that has the keyboard goes with the arrow keys, page up and down, home and end
--- (`props.keys` maps others: `{ j = "down", k = "up" }`), opens with enter (`open { how = "key" }`)
+-- (`props.key_map` maps others: `{ j = "down", k = "up" }`), opens with enter (`open { how = "key" }`)
 -- and marks with the space bar. `focusable = false` leaves the keyboard where it is (a palette's
 -- field). `active` says it has the keyboard when it has not (the palette's field has it), and
 -- `hover_selects` has the cursor follow the pointer. Rows the page has not read yet (`count` past
@@ -210,7 +210,7 @@ local List = core.component("list", {
 		local mods = event.mods or {}
 		if event.button == "right" then
 			state.cursor = key
-			return true, { kind = "menu", key = key, at = { x = event.x, y = event.y } }
+			return true, { kind = "context", key = key, at = { x = event.x, y = event.y } }
 		elseif event.button ~= "left" then
 			return false
 		end
@@ -220,7 +220,7 @@ local List = core.component("list", {
 			for marked_key in state.marks do
 				table.insert(marked, marked_key)
 			end
-			return true, { kind = "mark", keys = marked }
+			return true, { kind = "mark", marked = marked }
 		end
 		local changed = state.cursor ~= key
 		state.cursor = key
@@ -248,7 +248,7 @@ local List = core.component("list", {
 		if mods.command or mods.control or mods.alt then
 			return nil
 		end
-		local name = (props.keys and props.keys[event.key]) or event.key
+		local name = (props.key_map and props.key_map[event.key]) or event.key
 		if MOVES[name] then
 			return move(u, u.mounts[id], name)
 		end
@@ -262,7 +262,7 @@ local List = core.component("list", {
 			for marked_key in state.marks do
 				table.insert(marked, marked_key)
 			end
-			return true, { kind = "mark", keys = marked }
+			return true, { kind = "mark", marked = marked }
 		end
 		return nil
 	end,

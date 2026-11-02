@@ -24,8 +24,7 @@
 --   end,
 --
 -- A component is a method of the context, called in `render` with a name and its props; what the
--- person does with it comes back from `u:handle` as actions. A page writes components of its own the
--- same way (`ui.component`). The context's other methods (`u:hovered`, `u:focused`, `u:part`, …)
+-- person does with it comes back from `u:handle` as actions. The context's other methods (`u:hovered`, `u:focused`, `u:part`, …)
 -- are in `core.luau`, the tokens of the theme in `theme.luau`.
 
 local core = require("@self/core")
@@ -43,7 +42,6 @@ local editor_menu = require("@self/editor_menu")
 local ui = {}
 
 ui.new = core.new
-ui.component = core.component
 -- The names of the glyphs a component draws, and that an icon may name ("chevron_right", "close", …).
 ui.GLYPHS = look.GLYPHS
 -- A toast to add to the page's items, and the items that have not run out.

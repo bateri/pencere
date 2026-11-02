@@ -3,8 +3,8 @@
 --   u:grid("result", { columns = { { key = "id", title = "id", type = "int", align = "end" }, … },
 --       count = 120000, cell = function(row, column) return rows[row] and rows[row][column.key] end,
 --       state = G })
---       -- select { row, column }, open { row, column }, sort { column }, resize { column, width },
---       -- resized { column, width }, need { first, last }, menu { row, column, at }
+--       -- select { row, column }, open { row, column }, sort { column }, resize { column, width, final },
+--       -- need { first, last }, context { row, column, at }
 
 local core = require("./core")
 local look = require("./look")
@@ -163,11 +163,12 @@ end
 -- words, an element, or nil where its row has not been read yet. The rows are a long list's: only
 -- those near what is in view are made, and the columns the same across. The header does not scroll
 -- down, and goes across with the rows; the person drags the edge of a column's name to size it
--- (`resize { column, width }` as it goes, `resized` when it is let go: `state.widths` keeps what the
+-- (`resize { column, width, final }`: `final = false` as it goes, `true` when it is let go after it went,
+-- and `width` is always there; a press on the edge that does not move it says nothing: `state.widths` keeps what the
 -- page has not said), and presses its name to sort (`sort { column }`: the page orders its rows and
 -- says it in `state.sort = { column = key, descending = }`, which the header draws). A press on a cell
 -- chooses it (`select { row, column }`), a second opens it (`open`), the right button asks for a menu
--- (`menu { row, column, at }`); with the keyboard the arrow keys, page up and down, home and end (a row's
+-- (`context { row, column, at }`); with the keyboard the arrow keys, page up and down, home and end (a row's
 -- first and last column) go from cell to cell and enter opens. With `select = "row"` the grid chooses
 -- rows, not cells: the whole row is drawn chosen, up and down and the page keys go from row to row,
 -- home and end go to the first and the last row, left and right are the page's, and the actions
@@ -339,7 +340,7 @@ local Grid = core.component("grid", {
 			local widths = widths_of(props, state)
 			for index, column in props.columns do
 				if column.key == key then
-					state.origin = { key = key, width = widths[index] }
+					state.origin = { key = key, width = widths[index], moved = false }
 				end
 			end
 			return false, nil, true
@@ -354,7 +355,7 @@ local Grid = core.component("grid", {
 		local column = box ~= nil and column_at(props, widths, number, event.x - box.x) or 1
 		if event.button == "right" then
 			state.cursor = { row = key, column = column }
-			return true, { kind = "menu", row = key, column = column, at = { x = event.x, y = event.y } }
+			return true, { kind = "context", row = key, column = column, at = { x = event.x, y = event.y } }
 		elseif event.button ~= "left" then
 			return false
 		end
@@ -383,14 +384,19 @@ local Grid = core.component("grid", {
 			return false
 		end
 		state.widths[key] = width
-		return true, { kind = "resize", column = key, width = width }
+		state.origin.moved = true
+		return true, { kind = "resize", column = key, width = width, final = false }
 	end,
 	release = function(_, _, _, state, part, key)
 		if part ~= "edge" or state.origin == nil then
 			return nil
 		end
+		local moved = state.origin.moved
 		state.origin = nil
-		return true, { kind = "resized", column = key, width = state.widths[key] }
+		if not moved then
+			return false
+		end
+		return true, { kind = "resize", column = key, width = state.widths[key], final = true }
 	end,
 	cursor = function(_, _, _, _, part)
 		if part == "edge" then
