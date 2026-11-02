@@ -1486,6 +1486,60 @@ return {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_closed_syntax_colours_no_more_and_gives_back_the_ask_that_empties_its_layer()
+-> Result<(), Error> {
+    let mut page = open(&format!(
+        "{DENSE}{}",
+        r#"
+local syntax = Syntax.new(dense, "e")
+local loaded, status = false, "open"
+local line = string.rep("a1", 5000)
+local document = table.concat({ line, line, line, line }, "\n")
+return {
+    render = function()
+        return pencere.div():size_full():col()
+            :child(pencere.editor("e", { gutter = false }):grow(1))
+            :child(pencere.text(status):id("close"):press("close"))
+    end,
+    handle = function(event)
+        local reply = nil
+        if event.type == "viewport" and not loaded then
+            loaded = true
+            reply = { editor = { e = { load = document } } }
+        elseif event.type == "press" and pencere.layout.hit({ x = event.x, y = event.y }) == "close" then
+            local cleared = syntax:close()
+            status = "closed " .. #cleared .. " " .. #syntax:close()
+            return { redraw = true, editor = { e = cleared } }
+        end
+        syntax:handle(event)
+        return syntax:reply(reply)
+    end,
+}
+"#
+    ))?;
+    // It has coloured some of the document and goes on at the next frame, with a timer of its own.
+    assert!(decorated(&page, "e", "syntax", 0) > 0);
+    assert!(page.asks_at().is_some());
+    page.click("close")?;
+    // One ask empties the layer; a second `close` gives none.
+    assert!(page.says("closed 1 0"), "{:?}", page.words());
+    page.idle()?;
+    assert!(page.asks_at().is_none());
+    for line in 0..4 {
+        assert_eq!(decorated(&page, "e", "syntax", line), 0, "line {line}");
+    }
+    // An edit after it colours nothing.
+    page.focus_editor("e")?;
+    page.type_text("z")?;
+    page.idle()?;
+    for line in 0..4 {
+        assert_eq!(decorated(&page, "e", "syntax", line), 0, "line {line}");
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_token_that_reads_nothing_fails_the_page_with_its_languages_name_and_its_line() {
     let why = failing(
         r#"

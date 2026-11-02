@@ -826,6 +826,9 @@ fn a_name_the_library_has_nothing_at_and_a_path_out_of_it_are_errors_that_say_so
         // The bundle has no path with an `@`: the library is reached through its alias alone.
         "./@pencere/syntax",
         "@self/@pencere/syntax",
+        // A module of the library is asked for by its name; the parts it is made of are its own.
+        "@pencere/languages/sql",
+        "@pencere/ui/core",
     ];
     let update = first_of(
         "page.lua",
@@ -866,6 +869,16 @@ fn a_name_the_library_has_nothing_at_and_a_path_out_of_it_are_errors_that_say_so
         lines[6].contains("the bundle has no script at \"@pencere/syntax\""),
         "{}",
         lines[6]
+    );
+    assert!(
+        lines[8].contains("the kit's library has no module \"languages/sql\""),
+        "{}",
+        lines[8]
+    );
+    assert!(
+        lines[9].contains("the kit's library has no module \"ui/core\""),
+        "{}",
+        lines[9]
     );
 }
 

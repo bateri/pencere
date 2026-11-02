@@ -92,7 +92,10 @@ is given, so that a script, and a module of the library, can neither read them n
 `pencere.layout`, `pencere.time`, the classes of elements, spans, paths and timers with their
 metatables, `pencere.json.null`) are read only, as `pencere` itself is: assigning to one, or adding a
 field, is an error of the script at its line, whatever the script is and whichever script ran before
-it. The tables a script makes with them are its own.
+it. The tables a script makes with them are its own. Of an object the page API or a module of the
+library gives (an element, a timer, a syntax, a language, a document, the context of a component) only
+the fields and methods this document names are the contract: any other field it happens to hold is
+not, and may change in every version.
 
 A call of the page API that is given what it refuses (the wrong kind of value, a name it has not, a
 box that cannot be what the call needs it to be) fails the page with the error at the line of the
@@ -908,7 +911,7 @@ says whether it took the message), and the host holds the page to the limits of 
 
 `method` and `topic` are strings, `params` is nil or a table, `done`, `progress`, `on_value` and
 `on_error` are nil or functions, and the `id` of `pencere.cancel` is the number a request was
-given; anything else is a mistake of the script, at its line (Section 2). `pencere.call` and
+given (a whole number from 1); anything else is a mistake of the script, at its line (Section 2). `pencere.call` and
 `pencere.subscribe` give back the number of the request, which the kit chooses, from 1 and up.
 
 A subscription the program refuses, or ends with an error (protocol, Section 9.2), calls `on_error`
@@ -917,8 +920,8 @@ value follows. Without an `on_error` it ends without a word. A subscription is a
 error and by nothing else: a `response` with a `result` to a `subscribe` is ignored.
 
 What the program says after the page gave a request up (`pencere.cancel`), or after it ended, is
-not told to the page: a `response`, `push` or `progress` whose `id` is a number the kit has given
-out and has no request for is dropped, and so is one of a kind that request does not take. Only a
+not told to the page: a `response`, `push` or `progress` whose `id` is a whole number from 1 that the kit
+has given out and has no request for is dropped, and so is one of a kind that request does not take. Only a
 message with another `id` reaches `message`: a page that numbers its own messages (`pencere.send`)
 takes its numbers from beyond those the kit gives out (the kit takes the next one for each request,
 and for each line of `print` and `warn`), as the protocol has it that no two requests of a page
@@ -1006,9 +1009,9 @@ MUST give a script the library of its own kit's version; the kit's sandbox does
   another, and reaches no script of the bundle: a path past the library's root is an error. A
   script of the bundle reaches the library through the alias alone, as no path of a bundle has an
   `@` in it.
-- A module made of several files has the others as its parts (`@pencere/languages/sql`): they can
-  be required, but they are not the library's interface, and what they are may change with any
-  version of the kit.
+- A module made of several files has the others as its parts (`@pencere/languages/sql`): a script of
+  the bundle cannot require them (`@pencere/languages` is the module, and the only name it has), only
+  the library's own modules can, and what they are may change with any version of the kit.
 - A name the library has nothing at is an error, raised at the line of the `require`, that says so
   (`the kit's library has no module "x"`). A module runs once in a page, as a script of the bundle
   does. An error at a line of it says the module and the line (`@pencere/syntax:12: …`); an error it
@@ -1067,6 +1070,13 @@ of the editor goes in the page's reply (`syntax:reply(reply)`, its asks before t
 a timer of its own (`pencere.time.after(0, …)`) wakes the page, does the next call and hands what it
 found to the editor with the wake's reply, so that a large document is coloured to its end with no
 event of the person's (`syntax:work()` does a call at once, for a page that wants one).
+`syntax:close()` ends it for a page that colours the editor another way from then on (the language of
+the file changed): its timer is cut, `handle`, `work`, `reply` and `asks` do nothing after it, and it
+returns the list for the reply's `editor[id]` that takes away what it coloured (one ask that empties
+the layer; an empty list where it had coloured nothing, and from a second `close`). That list goes
+out in a reply before the colours of the syntax that takes its place, which has not seen the viewport
+the editor told and is given it (`syntax:handle(event)` with the last `viewport` event) before it
+colours anything.
 
 #### `@pencere/languages`
 
@@ -1078,10 +1088,8 @@ A description is a frozen table: `name`; `aliases`, its other names; `extensions
 ends in after its last dot; `filenames`, whole names of files in it (`"Makefile"`, `".bashrc"`);
 `patterns`, Lua patterns a file's whole name in lower case is in it by (`"^dockerfile[%.%-]"`);
 `interpreters`, the programs a `#!` first line runs a script in it with, without their version
-(`"python"`); `first_line`, a Lua pattern the first line of a file in it matches (`"^%s*<%?xml"`), or
-nil; and `family`, the module of readers it is built with (`"clike"`, `"scripting"`, `"markup"`,
-`"data"`, `"sheets"`, `"tools"` or `"sql"`). Names, aliases, extensions and file names are matched in
-any letter case.
+(`"python"`); and `first_line`, a Lua pattern the first line of a file in it matches (`"^%s*<%?xml"`), or
+nil. Names, aliases, extensions and file names are matched in any letter case.
 
 The kit's languages are C, C#, C++, CSS, Diff, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, JSX,
 Kotlin, Less, Lua, Makefile, Markdown, PHP, PostgreSQL, Python, Ruby, Rust, SCSS, Shell, SQL, SQLite,
@@ -1113,8 +1121,8 @@ spaces and no tabs). A page gives `config` to an editor as it is (`pencere.edito
 language.config)`), its own options in a copy (`table.clone(language.config)`); a page that gives the
 editor another `tab_width` gives `Syntax.new` the same.
 
-Requiring the module builds no language: it reads its descriptions alone, and a family's module is
-required when a language of it is first loaded. A language that holds another loads the other by
+Requiring the module builds no language: it reads its descriptions alone, and the module of readers a
+language is built with is required when it is first loaded. A language that holds another loads the other by
 name, through the module, when it first meets it: HTML its scripts and styles by the tag's `lang` or
 `type` (`lang="ts"`, `type="module"`, `type="text/css"`), a script read to the tag that closes it, on
 its own line too; Markdown the code in a fence, by the first word of the fence's info. A held language
@@ -1216,8 +1224,8 @@ Keys as a page writes them (`"cmd+shift+k"`, Section 2.1), as a person reads the
 (`local keys = require("@pencere/keys")`).
 
 - `keys.parse(words)` is `pencere.keys(words)` with the key checked and named as a key event names
-  it (`"page_up"`, `"delete"`, `"enter"`, `"escape"`, `" "`, `"f1"` to `"f20"`, or one character), or
-  nil and why for words that are not keys.
+  it (`"page_up"`, `"delete"`, `"enter"`, `"escape"`, `" "`, `"f1"` to `"f20"`, or one character, a letter
+  in its small form: `"CMD+Shift+K"` is the key `"k"`), or nil and why for words that are not keys.
 - `keys.caps(words, options)` is a cap for each key (`{ "⇧", "⌘", "K" }`), and
   `keys.label(words, options)` the label: on a Mac the caps with nothing between (`"⇧⌘K"`), elsewhere
   joined by `+` (`"Ctrl+Shift+K"`). `words` are words or what `keys.parse` made; words that are not

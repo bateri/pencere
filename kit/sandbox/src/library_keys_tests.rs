@@ -106,7 +106,7 @@ fn keys_are_read_as_a_command_reads_them_and_named_as_a_key_event_names_them() {
     let shown = checked(
         r#"
         check("letter", keys.parse("cmd+shift+k"), { key = "k", mods = mods("shift", "command") })
-        check("as written", keys.parse("CMD+Shift+K"), { key = "K", mods = mods("shift", "command") })
+        check("in small form", keys.parse("CMD+Shift+K"), { key = "k", mods = mods("shift", "command") })
         check("the modifiers", keys.parse("alt+ctrl+cmd+x"), { key = "x", mods = mods("alt", "control", "command") })
         check("page up", keys.parse("ctrl+page_up"), { key = "page_up", mods = mods("control") })
         check("page down", keys.parse("Page_Down"), { key = "page_down", mods = mods() })

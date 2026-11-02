@@ -505,6 +505,9 @@ std::vector<std::string> running;
 // from the root of the kit's library where `library` is set.
 std::vector<std::string> place;
 bool library = false;
+// Whether the `require` that is running was made by a script of the bundle (a script reaches a
+// module of the library, not the parts it is made of; the library's own modules reach theirs).
+bool from_bundle = false;
 // What the paths of the library's modules start with, as the application is asked for them.
 constexpr const char* kLibrary = "@pencere/";
 // The error that is on its way up came out of a script that was running, not out of the
@@ -601,6 +604,10 @@ Candidates candidates(const std::vector<std::string>& parts) {
         for (const std::string& part : parts) {
             if (part[0] == '@') return found;
         }
+    } else if (from_bundle && parts.size() > 1) {
+        // `@pencere/languages` is a module a script may ask for; `@pencere/languages/sql` is a part
+        // of it, which the module asks for itself.
+        return found;
     }
     std::string base = (library ? kLibrary : "") + joined(parts);
     auto look = [&](const std::string& file) {
@@ -631,6 +638,7 @@ luarequire_NavigateResult require_reset(lua_State*, void*, const char* chunkname
     std::string name = chunkname + 1;
     size_t prefix = strlen(kLibrary);
     library = name.compare(0, prefix, kLibrary) == 0;
+    from_bundle = !library;
     place = split(library ? name.substr(prefix) : module_of(name));
     return NAVIGATE_SUCCESS;
 }

@@ -13,7 +13,7 @@
 --   handle = function(event) syntax:handle(event); return syntax:reply(nil) end
 --
 -- A description is { name =, aliases =, extensions =, filenames =, patterns =, interpreters =,
--- first_line =, family = }. A language is { name =, description =, syntax =, config = }: `syntax` is
+-- first_line = }. A language is { name =, description =, syntax =, config = }: `syntax` is
 -- a language of `@pencere/syntax` that names its tokens from `languages.styles`, and `config` is what
 -- an editor is told of the language (`pencere.editor(id, config)`: its comments, the rules of its
 -- indent, folding by the indent, the brackets and quotes that close themselves, and, where the
@@ -133,7 +133,8 @@ end
 --   patterns      Lua patterns a file's whole name (in lower case) is in it by: "^dockerfile[%.%-]"
 --   interpreters  the programs a script's first line (`#!`) runs it with, without their version
 --   first_line    a Lua pattern the first line of a file in it matches: "^%s*<%?xml"
---   family        the family of readers it is built with (a module of its own)
+--   family        the family of readers it is built with (a module of its own); kept inside, a
+--                 description a page is given does not say it
 local DESCRIPTIONS = {
 	-- The languages of braces.
 	{
@@ -372,6 +373,8 @@ local by_interpreter = {}
 local by_pattern = {}
 local with_first_line = {}
 local known = {}
+-- The family each description is built with (not a field of it: a family is the module's own).
+local family_of = {}
 
 local function frozen(list)
 	return list and table.freeze(table.clone(list)) or table.freeze({})
@@ -386,9 +389,9 @@ for _, spec in DESCRIPTIONS do
 		patterns = frozen(spec.patterns),
 		interpreters = frozen(spec.interpreters),
 		first_line = spec.first_line,
-		family = spec.family,
 	})
 	known[description] = true
+	family_of[description] = spec.family
 	by_name[string.lower(description.name)] = description
 	for _, alias in description.aliases do
 		local key = string.lower(alias)
@@ -572,7 +575,7 @@ function languages.load(which)
 	if language then
 		return language
 	end
-	local family = FAMILIES[description.family]()
+	local family = FAMILIES[family_of[description]]()
 	local made = family.make(description.name, context)
 	readers[description] = made.reader
 	language = table.freeze({

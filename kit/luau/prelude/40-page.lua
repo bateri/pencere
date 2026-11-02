@@ -308,8 +308,11 @@ end
 -- Gives up a call that is still out, or a subscription. What the program says of it after this is
 -- not told to the page.
 function pencere.cancel(id)
-	if type(id) ~= "number" then
-		refuse("pencere.cancel takes the number a call or a subscription was given, not a " .. type(id))
+	if type(id) ~= "number" or id < 1 or id % 1 ~= 0 then
+		refuse(
+			"pencere.cancel takes the number a call or a subscription was given, not "
+				.. (type(id) == "number" and tostring(id) or "a " .. type(id))
+		)
 	end
 	asked[id] = nil
 	enqueue({ cancel = { id = id } })
@@ -588,7 +591,7 @@ function entry.message(text)
 	-- request up, or after a subscription ended, or it is what the protocol does not have (a push to
 	-- a call, a value in the answer to a subscribe). `message` has the numbers the kit did not give,
 	-- which a page that numbers its own messages (`pencere.send`) takes from beyond these.
-	if not taken and number and number < next_id then
+	if not taken and number and number >= 1 and number % 1 == 0 and number < next_id then
 		taken = true
 	end
 	if not taken and page.message then

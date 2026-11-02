@@ -868,13 +868,18 @@ fn what_the_program_says_of_a_request_that_is_over_is_not_told_to_the_page() {
         // A subscription is answered by an error and by nothing else: it goes on.
         r#"{"response":{"id":5,"result":{}}}"#,
         r#"{"push":{"id":5,"value":{}}}"#,
-        // A number the kit did not give, and what is not of a request: the page's.
+        // A number the kit did not give (past its last, or none it would give), and what is not of
+        // a request: the page's.
         r#"{"response":{"id":50,"result":{}}}"#,
+        r#"{"response":{"id":0,"result":{}}}"#,
+        r#"{"response":{"id":-1,"result":{}}}"#,
+        r#"{"response":{"id":1.5,"result":{}}}"#,
         r#"{"hello":1}"#,
     ] {
         page.module.message(message.into());
     }
-    let expected = "refused not-found,live pushed,message 50,message nil";
+    let expected =
+        "refused not-found,live pushed,message 50,message 0,message -1,message 1.5,message nil";
     until_seen(&mut page, Duration::from_secs(5), |seen| {
         seen.frame
             .as_ref()
@@ -2882,6 +2887,10 @@ fn what_the_page_api_refuses_it_refuses_at_the_line_of_the_script_that_gave_it()
                 r#"pencere.subscribe("x", nil, nil, "y")"#,
                 r#"pencere.cancel("x")"#,
                 "pencere.cancel()",
+                "pencere.cancel(1.5)",
+                "pencere.cancel(-1)",
+                "pencere.cancel(0)",
+                "pencere.cancel(0 / 0)",
             ],
         ),
         (

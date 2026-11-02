@@ -772,6 +772,7 @@ list[1] = nil
 say(tostring(languages.list()[1] ~= nil))
 say(tostring(pcall(function() languages.find("Rust").name = "Iron" end)))
 say(tostring(pcall(function() table.insert(languages.find("Rust").aliases, "iron") end)))
+-- The family a language is built with is the module's own, not a field of its description.
 say(tostring(languages.find("Rust").family) .. " " .. tostring(languages.find("SQL").family))
 "##,
     );
@@ -828,7 +829,7 @@ say(tostring(languages.find("Rust").family) .. " " .. tostring(languages.find("S
             "true",
             "false",
             "false",
-            "clike sql",
+            "nil nil",
         ]
     );
 }

@@ -36,27 +36,6 @@
 
 local keys = {}
 
--- The words of a key that is not a character, as `pencere.keys` gives them (in small letters), and
--- the name a key event gives the key.
-local NAMES = {
-	up = "up",
-	down = "down",
-	left = "left",
-	right = "right",
-	page_up = "page_up",
-	page_down = "page_down",
-	home = "home",
-	["end"] = "end",
-	enter = "enter",
-	escape = "escape",
-	tab = "tab",
-	backspace = "backspace",
-	delete = "delete",
-}
-for number = 1, 20 do
-	NAMES["f" .. number] = "f" .. number
-end
-
 -- How each platform writes the modifiers, in its order, and the keys that are not characters.
 local MODIFIERS = {
 	mac = { { "control", "⌃" }, { "alt", "⌥" }, { "shift", "⇧" }, { "command", "⌘" } },
@@ -205,16 +184,10 @@ local function read(words)
 	local length = utf8.len(key)
 	if length == 0 then
 		return nil, '"' .. words .. '" says no key after its modifiers'
-	elseif length ~= 1 then
-		local name = NAMES[key]
-		if name == nil then
-			return nil,
-				'"'
-					.. key
-					.. '" is not a key: one character, or up, down, left, right, page_up, page_down, home, end, '
-					.. "enter, escape, tab, backspace, delete, space or f1 to f20"
-		end
-		parsed.key = name
+	elseif length == 1 then
+		-- A letter is the key of its small form, whichever way it was written: `"cmd+K"` is `"cmd+k"`.
+		-- (A key that is not a character `pencere.keys` has named and checked.)
+		parsed.key = cased(key, SMALL)
 	end
 	return parsed
 end
@@ -264,8 +237,9 @@ end
 
 -- Keys written as words, `"cmd+shift+k"`, read: `{ key =, mods = { shift =, control =, alt =,
 -- command = } }`, the key named as a key event names it (`"k"`, `"enter"`, `"page_up"`, `"f5"`,
--- `" "` for the space bar); or nil and why where the words are not keys (a shortcut a person typed
--- in a setting). It is `pencere.keys`, with the key's name checked.
+-- `" "` for the space bar), a letter always in its small form (`"CMD+Shift+K"` is the key `"k"`); or
+-- nil and why where the words are not keys (a shortcut a person typed in a setting). It is
+-- `pencere.keys` (which checks the key's name), with the letter in its small form.
 function keys.parse(words)
 	if type(words) ~= "string" then
 		error('keys.parse takes keys written as words ("cmd+k"), not a ' .. type(words), 2)

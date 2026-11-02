@@ -46,6 +46,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 - `@pencere/ui`: `u:editor_menu` and `u:editor_menu_pick`, the menu of an editor (Cut, Copy, Paste, Select
   All, Toggle Line Comment, Select All Occurrences, with the editor's keys, the page's lines around them),
   and `ui.EDITOR_MENU_COMMAND` (Shift F10) to open it at the caret; `u:menu` passes a line's `paste`.
+- `@pencere/syntax`: `syntax:close()` ends a syntax for a page that colours the editor another way from
+  then on: its timer is cut, `handle`, `work`, `reply` and `asks` do nothing after it, and it returns the
+  list for the reply's `editor[id]` that empties the layer it coloured.
 
 ### Changed
 
@@ -66,7 +69,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   without `on_error` it ends without a word. It used to reach `message` as an answer to nothing.
 - **`pencere.call`, `pencere.subscribe` and `pencere.cancel` check their arguments:** `method` and
   `topic` are strings, `params` nil or a table, the functions nil or functions, the `id` of `cancel` a
-  number; a mistake is an error at the line of the script.
+  whole number from 1; a mistake is an error at the line of the script.
 - **Words of the Lua page API that said one thing and meant another, or two things, or were written two ways, are one
   now** (`wit` of `pencere:view@3.0.0`, and the interpreter is rebuilt):
   - A menu's entry is a table with a `title` or `"-"`; a `key` of an entry is the page's own field and no
@@ -91,6 +94,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 - **`@pencere/ui`** (a library of the kit's, which a page takes from the interpreter's build):
   - `u:menu` with a `near` that is not laid out opens at `at` where the page gave one, and gives nil (no
     menu) where it did not; it was an error that took the page down. With neither it is still an error.
+    Given both, it opens by `near` where that is laid out (it opened at `at` before).
   - The right press of a tab, a row of a list, a cell of a grid or a line of a tree is the action
     `{ kind = "context", … }` and not `kind = "menu"`, so that the request and the pick (`kind = "menu"`,
     `entry = key`) are two words.
@@ -101,6 +105,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   - `ui.component` is no longer handed to a page: the library's components are the ones a page draws.
   - A list and a tree take `key_map` for keys of their own (`keys` before, which a `list` also meant
     for the keys of an item), and the `mark` of a list carries them as `marked`.
+- **`@pencere/languages`, `@pencere/keys` and the library's parts.** A description has no `family` (the
+  module of readers a language is built with is the module's own). `keys.parse` gives a letter in its
+  small form (`"CMD+Shift+K"` is the key `"k"`; `keys.label`, `keys.caps` and `keys.matches` say what
+  they said). A script of the page cannot `require("@pencere/languages/sql")` or any other part of a
+  module of the library: it is not found, while `require("@pencere/languages")` and the module's own
+  parts work as before; the interpreter is rebuilt (`make luau`). The specification says that of an
+  object the page API gives only the fields and methods it names are the contract.
 - The fields of a timer (`fn`, `waiting` and the others) are no longer there to read or write: a
   timer has `:cancel()` and `:active()`. `pencere.f32` is gone from the page API; the interpreter is
   rebuilt (`make luau`).

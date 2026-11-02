@@ -869,8 +869,10 @@ function Syntax.new(language, editor, options)
 		segment = nil,
 		made = {},
 		full = false,
-		-- The timer it goes on with while it is busy (nil while none waits).
+		-- The timer it goes on with while it is busy (nil while none waits), and whether it is
+		-- closed (`close`).
 		timer = nil,
+		closed = false,
 	}, Syntax)
 end
 
@@ -1193,7 +1195,8 @@ local function span(self, a, b)
 end
 
 local function ready(self)
-	return self.version ~= nil
+	return not self.closed
+		and self.version ~= nil
 		and self.batch == nil
 		and layout.editor_version(self.editor) == self.version
 		and window(self) ~= nil
@@ -1350,7 +1353,7 @@ end
 -- it, before the page's own asks of the editor: what `handle`, `message` and `room` return. The
 -- page's reply itself is not changed.
 function Syntax:reply(reply)
-	if #self.pending == 0 then
+	if self.closed or #self.pending == 0 then
 		return reply
 	end
 	return merge({ editor = { [self.editor] = self:asks() } }, reply)
@@ -1486,7 +1489,7 @@ end
 --       return syntax:reply(respond(event))
 --   end
 function Syntax:handle(event)
-	if type(event) ~= "table" or event.editor ~= self.editor then
+	if self.closed or type(event) ~= "table" or event.editor ~= self.editor then
 		return
 	end
 	local kind = event.type
@@ -1508,6 +1511,55 @@ function Syntax:handle(event)
 	end
 	self:work()
 	go_on(self)
+end
+
+-- Ends it, for a page that colours the editor another way from now on (the language of the file
+-- changed): its timer is cut and, from here, `handle`, `work`, `reply` and `asks` do nothing, so
+-- that it never colours the layer again, whatever it still held to hand out. What it returns is
+-- what takes away what it coloured: a list for the reply's `editor[name]` with the one ask that
+-- empties the layer (empty where it had coloured nothing, or where the editor is not there). A
+-- second `close` returns an empty list.
+--
+-- A syntax that takes its place has not been told the viewport (the editor tells it when the lines
+-- in view change): give it the last `viewport` event the page had, and hand out `cleared` in a
+-- reply of its own, before the new syntax's asks, which go out with the replies after it (not through
+-- the new syntax's `reply`, which puts its asks first and would take what it coloured away).
+--
+--   local cleared = syntax:close()
+--   syntax = Syntax.new(other.syntax, "editor")
+--   syntax:handle(last_viewport)
+--   return { editor = { editor = cleared } }
+function Syntax:close()
+	if self.closed then
+		return {}
+	end
+	self.closed = true
+	local timer = self.timer
+	self.timer = nil
+	if timer ~= nil then
+		timer:cancel()
+	end
+	local coloured = self.held ~= nil
+	self.pending = {}
+	self.pending_count = 0
+	self.segment = nil
+	self.held = nil
+	self.painted = {}
+	self.ends, self.ok, self.chunk = {}, {}, nil
+	local id = self.editor
+	local version = layout.editor_version(id)
+	if not coloured or version == nil then
+		return {}
+	end
+	return {
+		{
+			decorate = self.layer,
+			version = version,
+			from = 1,
+			to = layout.editor_length(id) + 1,
+			decorations = {},
+		},
+	}
 end
 
 return Syntax
