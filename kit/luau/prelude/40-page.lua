@@ -94,16 +94,18 @@
 --     keyboard = "page" | { field = name }, fill = { [name] = "text for that field", or
 --     { text =, select = { from =, to = } (bytes from 1) or true (all of it) }, ... },
 --     menu = { at = { x =, y = }, entries = { { title =, keys = "ctrl+w", enabled = }, "-" (a line),
---     { title =, keys =, enabled =, paste = editor } (a line the application performs itself: the
+--     { enabled =, paste = editor } (a line the application performs itself: the
 --     pasteboard's text pasted in that editor as its paste key would, honouring a read-only editor
 --     and several carets; the page is told the pick as any and never reads the pasteboard, nor can
---     it ask an editor to paste), ... } (a line's table is told back with its pick, as `entry`, with
+--     it ask an editor to paste; it has no keys: no key picks it), ... } (a line's table is told back with its pick, as `entry`, with
 --     whatever else the page put in it) }, editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds,
 --     pick = true or { multiple = true } (the Open panel), save = "name" or { name =, type = } (the
 --     Save panel) }
--- A panel is shown only for a reply to something the person did (a press or its release, a key, a
--- pick in a menu, a command): asked for in a reply to anything else, it is passed over; a reply asks
--- for one.
+-- A panel and a menu are shown only for a reply to something the person did (a press or its
+-- release, a key, a pick in a menu, a command): asked for in a reply to anything else (a message of
+-- the program, a wake, the pointer moving), they are passed over; a reply asks for one panel.
+-- The pasteboard (`copy`) is the person's to write on a press, a pick, a command and the keys of a
+-- copy and a cut (cmd+c, cmd+x): a host that keeps programs from it writes only then.
 -- where an ask of an editor is one of:
 --   { load = "text", more = true }             a piece of the document (the first in place of all)
 --   { change = { { from =, to =, insert = }, ... }, base = version, history = false, tag = "disk" }

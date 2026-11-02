@@ -1099,7 +1099,9 @@ impl<P: Peer> Headless<P> {
                 self.seen.pasteboard = Some(text.clone());
                 self.seen.copies.push(Copied {
                     text: text.clone(),
-                    by_person: true,
+                    // A key the page chose for a copy (`keymap = { f6 = "copy" }`) is not the
+                    // person's word for writing the pasteboard; the system's own is.
+                    by_person: pencere_view::copy_key(key, mods),
                 });
             }
             Route::Paste => {

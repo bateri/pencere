@@ -82,7 +82,8 @@ end
 -- editor before the second's; a frame where either wants one, the page closed where either asks;
 -- where both say the one thing (the keyboard, the pasteboard, a menu, a link, a panel — `pick` and
 -- `save` are one — the pointer's shape) the second's; and the earlier of two wakes. Neither is
--- changed.
+-- changed. (A menu or a panel in the reply to a wake or a timer is passed over by the host: they
+-- are the person's.)
 local function merge_two(first, second)
 	if first == nil then
 		return second

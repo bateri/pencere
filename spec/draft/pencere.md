@@ -1876,18 +1876,18 @@ place of step 2.
 
 **A mark in the stream is not an observation.** Shell integration reports that a command finished
 in the stream itself (OSC 133 `D`), and whoever can write the stream can write that mark: a file
-shown with `cat` and a line of a log can hold one (Section 14), and a view must not close because
-the text of a program that is not the one the person started says so. The mark alone therefore
-closes no view of a host that can check it against an observation of its own. Where the tty is the
-host's own and local, that is the foreground process group: the mark counts when the group is the
+shown with `cat` and a line of a log can hold one, so can the program on another machine, which writes
+the very stream the shell does (Section 14), and a view must not close because the text of a program
+that is not the one the person started says so. The mark closes a view only against an observation of
+the host's own, and a host that has none takes it for nothing. Where the tty is the host's own and
+local, the observation is the foreground process group: the mark counts when the group is the
 shell's again, and not while a command still holds the tty. Where the program runs on another
-machine, which has no process group to look at, the report has to be one the host can tie to the
-shell that sent it and to the command that is running: it carries a value that the host gave that
-shell when it started the shell and that the shell keeps from the commands it runs, so that the
-program cannot read it, and the host has a view open for a command of that shell. A mark that fails
-the check is ignored, as a `bye` without its token is, and is no error. A host that has no such
-observation, because it cannot tell which process group holds the tty or has no value to give the
-shell, MAY take the mark as it is, and every host MUST let the person close a view regardless (below).
+machine, which has no process group to look at, the host has no observation and the mark closes no
+view: such a program ends its view with its `bye`, with the transport ending, or with the person
+(below). A mark that fails the check, or has nothing to be checked against, is ignored, as a `bye`
+without its token is, and is no error. A host MAY read a mark as a hint of what the person's next act
+means (a host that closes the view on the person's interrupt once the mark has been seen), never as
+the end of the view by itself. Every host MUST let the person close a view regardless (below).
 
 A program that is killed with SIGKILL, or crashes, sends nothing, so a host that
 has no observation would leave the view open for ever; every host MUST let the
@@ -2257,9 +2257,10 @@ alone, so a hostile stream cannot use up the token of the program that is runnin
 carries the token that opened the view, which that stream cannot read, and a `bye` without
 it or with another is ignored (Section 10.3). `dismiss` carries the same token and is held
 to the same rule (Section 10.8). The mark shell integration writes when a command finished (OSC 133
-`D`) is as writable as a `bye` without its token, and a sign seen in the stream does not close a
-view by itself: the host checks it against its own observation (Section 10.3). A stream that cannot
-open a view cannot close the view of the program that is running either. The token is the view's identity while it
+`D`) is as writable as a `bye` without its token, and a sign seen in the stream closes no view
+by itself: only the host's own observation does (Section 10.3), and where it has none, the view ends
+with the program's `bye`, with the transport or with the person. A stream that cannot open a view
+cannot close the view of the program that is running either. The token is the view's identity while it
 lives, not a secret that outlasts it: a host forgets it when the view has closed.
 
 **Bundles.** A file is kept only under the digest it was verified to have, and only if

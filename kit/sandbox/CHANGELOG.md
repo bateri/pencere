@@ -52,10 +52,21 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Changed
 
-- **Breaking:** `Answer` has `person`: whether the event it answers was something the person did
-  (`Panel::follows`, the rule a panel is shown by). A reply to what the program said, to a wake or to a
-  change of the room is not. The host takes it to keep what only the person may ask of it (the
-  pasteboard) from the program.
+- **Breaking:** `Answer` has `person`: whether the event it answers was the person's word for writing
+  their pasteboard: a press or its release, a pick in a menu, a command, and of the keys only the
+  system's copy and cut (`pencere_view::copy_key`). A reply to any other key, to what the program
+  said, to a wake or to a change of the room is not. The host takes it to keep what only the person
+  may ask of it (the pasteboard) from the program.
+- **A menu is shown by the rule a panel is** (`Panel::follows`): a menu a page asks for in its reply to a
+  message of the program, to a wake, to the room to send or to the pointer moving is passed over. A
+  program could put a menu with a line that pastes under a person who did not ask for one, and the
+  person's click on it read the pasteboard into an editor.
+- **Breaking:** the line of a menu that pastes (`paste = editor`, `menu-paste`) has no `keys`: no key
+  picks it, and what a page writes there is not read. The interface's `menu-paste` loses `keys`. The
+  interpreter is rebuilt (`make luau`).
+- The person's paste key, `cmd+v`, may be written back in a `keymap` as `pencere.layout.keymap` lists it
+  (`"paste"`): it changes nothing, the editor has it anyway. A page that gives the list back is no
+  longer failed; any other key that does `"paste"` still is.
 - **Breaking:** the interface's `key-action` has no `paste`: `keymap = { enter = "paste" }` fails the
   page where it is written, as any word that is no command of an editor does. The keymap was a way for
   a page to read the pasteboard, which a page never does: text reaches an editor from it only on the

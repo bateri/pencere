@@ -103,15 +103,17 @@ pub trait Host {
     /// frame ([`crate::Painted::held`]), after its texts; a name the page still does not have then
     /// sends the keyboard to the page.
     fn keyboard(&mut self, _to: Keyboard) {}
-    /// Text for the pasteboard, and whether the person's own act asked for it (`by_person`): a reply
-    /// to a press or its release, a key, a pick in a menu or a command (the rule a panel is shown
-    /// by, [`Panel::follows`]), the copy or cut an editor makes of what the page asked in such a
-    /// reply included. It is `false` for the reply to a message of the program, to a wake or to a
-    /// change of the room, and for the editor's account of what it did: the page and its program
-    /// can make the host write the pasteboard there, and a host that keeps the program from it (the
-    /// terminal's `osc52 = "off"`) writes `text` only where `by_person` is `true`. The person's own
-    /// copy key of an editor is not told here: it is a [`Route::Copy`] of [`crate::Page::key`], the
-    /// host's to put on its pasteboard.
+    /// Text for the pasteboard, and whether the person's own word asked for it (`by_person`): a
+    /// reply to a press or its release, a pick in a menu or a command, and of the keys only the
+    /// system's copy and cut ([`pencere_view::copy_key`]); the copy or cut an editor makes of what
+    /// the page asked in such a reply included. It is `false` for the reply to any other key (the
+    /// page chose what it does), to a message of the program, to a wake or to a change of the room,
+    /// and for the editor's account of what it did: the page and its program can make the host
+    /// write the pasteboard there, and a host that keeps the program from it (the terminal's
+    /// `osc52 = "off"`) writes `text` only where `by_person` is `true`. The editor's own copy key
+    /// is not told here: it is a [`Route::Copy`] of [`crate::Page::key`], the host's to put on its
+    /// pasteboard, and a key the page chose for it (`keymap = { f6 = "copy" }`) is the person's
+    /// word only where [`pencere_view::copy_key`] says so.
     fn copy(&mut self, _text: String, _by_person: bool) {}
     /// The text on the host's pasteboard, for the entry of a menu the host performs itself
     /// ([`pencere_view::MenuEntry::Paste`]) that the person picked ([`crate::Page::pick`]); `None`

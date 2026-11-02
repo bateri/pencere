@@ -100,6 +100,19 @@ pub enum Input {
     Mods(Mods),
 }
 
+/// Whether a key is the system's own copy or cut: ⌘C or ⌘X, and no more than the command key held.
+/// The pasteboard is the person's, and only these keys are the person's word for writing it: a
+/// page may bind any other key to a copy, and a program can have its page do so, which is not the
+/// person asking. A host that keeps a program from the pasteboard (the terminal's
+/// `osc52 = "off"`) writes what a key copies only when this is `true` for it.
+pub fn copy_key(key: Key, mods: Mods) -> bool {
+    matches!(key, Key::Character('c' | 'C' | 'x' | 'X'))
+        && mods.command
+        && !mods.shift
+        && !mods.control
+        && !mods.alt
+}
+
 /// A place in the document of an editor ([`crate::Element::editor`]): the editor's name and the
 /// place, in bytes ([`crate::edit`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -283,10 +296,10 @@ pub enum MenuEntry {
     /// to paste: text comes from it only on the person's key or the person's pick of this entry, and
     /// the page is told the pick as any. `title` is the kit's ("Paste"; what the page wrote is not
     /// carried), so that the person is told what the pick does; the drive pastes only into the editor
-    /// the person had the keyboard in when the page asked for the menu.
+    /// the person had the keyboard in when the page asked for the menu. It has no keys: no key the
+    /// page chose picks it, and the person's own paste key is the editor's.
     Paste {
         title: String,
-        keys: Option<Shortcut>,
         enabled: bool,
         editor: Id,
     },
@@ -357,17 +370,27 @@ pub enum Panel {
 }
 
 impl Panel {
-    /// Whether a panel asked for in the reply to `event` is shown: only for something the person
-    /// did — a press or its release (a button acts on the release), a key, a pick in a menu, a
-    /// command. The pointer moving, a wake, a message of the program are not, so that a page cannot
-    /// open panel after panel by itself.
+    /// Whether a panel (and a menu: [`Reply::menu`]) asked for in the reply to `event` is shown:
+    /// only for something the person did — a press or its release (a button acts on the release),
+    /// a key, a pick in a menu, a command. The pointer moving, a wake, a message of the program are
+    /// not, so that a page cannot open panel after panel by itself, nor put a menu under a person
+    /// who did not ask for one.
     pub fn follows(event: &Event) -> bool {
-        matches!(
-            event,
+        use crate::edit::{GutterKind, TargetKind};
+        match event {
             Event::Input(Input::Press { .. } | Input::Release { .. } | Input::Key { .. })
-                | Event::MenuPick { .. }
-                | Event::Command(_)
-        )
+            | Event::MenuPick { .. }
+            | Event::Command(_) => true,
+            // The press an editor takes is the person's as much as one the page takes: the pointer
+            // over an editor is told with the editor's place, and a press in a gutter or on a word
+            // the page holds is a press.
+            Event::Pointer { input, .. } => {
+                matches!(input, Input::Press { .. } | Input::Release { .. })
+            }
+            Event::Gutter(gutter) => matches!(gutter.kind, GutterKind::Press | GutterKind::Context),
+            Event::Target(target) => target.kind == TargetKind::Press,
+            _ => false,
+        }
     }
 }
 
@@ -490,6 +513,68 @@ mod tests {
             Event::Focus(None),
         ] {
             assert!(!Panel::follows(&not), "{not:?}");
+        }
+    }
+
+    #[test]
+    fn a_press_over_an_editor_is_a_press() {
+        let at = Point::new(1.0, 1.0);
+        let place = Place {
+            editor: crate::Id::named("e"),
+            at: 0,
+            inside: false,
+            version: 0,
+        };
+        let press = Input::Press {
+            at,
+            button: Button::Right,
+            count: 1,
+            mods: Mods::default(),
+        };
+        let release = Input::Release {
+            at,
+            button: Button::Right,
+        };
+        for input in [press, release] {
+            assert!(Panel::follows(&Event::Pointer { input, place }));
+        }
+        for input in [Input::Move(at), Input::Leave] {
+            assert!(!Panel::follows(&Event::Pointer { input, place }));
+        }
+    }
+
+    #[test]
+    fn only_command_c_and_command_x_are_the_copy_keys() {
+        let command = Mods {
+            command: true,
+            ..Mods::default()
+        };
+        for key in ['c', 'x', 'C', 'X'] {
+            assert!(copy_key(Key::Character(key), command), "{key}");
+            assert!(!copy_key(Key::Character(key), Mods::default()), "{key}");
+            for held in [
+                Mods {
+                    shift: true,
+                    ..command
+                },
+                Mods {
+                    alt: true,
+                    ..command
+                },
+                Mods {
+                    control: true,
+                    ..command
+                },
+                Mods {
+                    control: true,
+                    ..Mods::default()
+                },
+            ] {
+                assert!(!copy_key(Key::Character(key), held), "{key} {held:?}");
+            }
+        }
+        for key in [Key::Character('v'), Key::Enter, Key::Function(6)] {
+            assert!(!copy_key(key, command), "{key:?}");
         }
     }
 }

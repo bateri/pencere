@@ -28,8 +28,11 @@ The engine of version `0.1` of the kit (`pencere:view@0.1.0`, `lua` `0.1`).
   commands are; `ColumnEvents::menu` is `ColumnEvents::context`, and `GutterKind` has `Context`, the
   press that opens a menu.
 - `EditCommand::Copy` and `EditCommand::Cut`, as the editor's keys do them. There is no command that
-  pastes: a page cannot read the pasteboard. `MenuEntry::Paste { title, keys, enabled, editor }` is a
-  line the host performs itself when it is picked.
+  pastes: a page cannot read the pasteboard. `MenuEntry::Paste { title, enabled, editor }` is a
+  line the host performs itself when it is picked; it has no keys, so that no key picks it.
+- `copy_key(key, mods)`: whether a key is the system's own copy or cut (⌘C, ⌘X and no other
+  modifier). A host that keeps programs from its pasteboard writes what a key copies only then;
+  `Panel::follows` is the rule for a menu as well as a panel.
 
 ### Fixed
 

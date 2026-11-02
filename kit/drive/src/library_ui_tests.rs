@@ -2159,20 +2159,22 @@ fn an_editors_menu_has_the_standard_lines_with_the_editors_keys_and_the_pages_ow
         ]
     );
     // The keys are the editor's now, written as a command's are: ⌘ and a letter, not the word Enter.
+    // The host's line of a paste has none: no key picks it.
     let keys: Vec<Option<String>> = page
         .menu()
         .expect("a menu")
         .entries
         .iter()
         .filter_map(|entry| match entry {
-            MenuEntry::Item { title, keys, .. } | MenuEntry::Paste { title, keys, .. } => {
+            MenuEntry::Item { title, keys, .. } => {
                 Some((title.clone(), keys.as_ref().map(|k| format!("{k:?}"))))
             }
-            MenuEntry::Separator => None,
+            MenuEntry::Paste { .. } | MenuEntry::Separator => None,
         })
-        .filter(|(title, _)| ["Cut", "Copy", "Paste", "Select All"].contains(&title.as_str()))
+        .filter(|(title, _)| ["Cut", "Copy", "Select All"].contains(&title.as_str()))
         .map(|(_, keys)| keys)
         .collect();
+    assert_eq!(keys.len(), 3);
     assert!(keys.iter().all(Option::is_some), "{keys:?}");
     // Paste is the host's line; the rest are the page's.
     assert!(matches!(

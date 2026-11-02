@@ -1969,9 +1969,9 @@ interface types {
     /// nor ask an editor to paste; it is told the pick as any. The line's words are the kit's
     /// ("Paste"), not the page's: the person is told what the pick does, and a page cannot label it
     /// as something else. It pastes only into the editor the person had the keyboard in when the page
-    /// asked for the menu.
+    /// asked for the menu. It has no keys: no key picks it, as a key the page chose would be the page's
+    /// way to the pasteboard (the person's own paste key is the editor's).
     record menu-paste {
-        keys: option<shortcut>,
         enabled: bool,
         editor: id,
     }

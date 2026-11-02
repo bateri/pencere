@@ -1408,8 +1408,8 @@ fn a_script_gives_a_menus_entries_their_keys_and_a_key_of_an_entry_is_no_keys() 
         .entries
         .iter()
         .map(|entry| match entry {
-            MenuEntry::Item { keys, .. } | MenuEntry::Paste { keys, .. } => *keys,
-            MenuEntry::Separator => None,
+            MenuEntry::Item { keys, .. } => *keys,
+            MenuEntry::Paste { .. } | MenuEntry::Separator => None,
         })
         .collect();
     assert_eq!(

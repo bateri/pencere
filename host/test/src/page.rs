@@ -957,12 +957,10 @@ impl UserData for Handle {
                     }
                     pencere_view::MenuEntry::Paste {
                         title,
-                        keys,
                         enabled,
                         editor,
                     } => {
                         item.set("title", title.as_str())?;
-                        item.set("keys", keys.as_ref().map(|keys| format!("{keys:?}")))?;
                         item.set("enabled", *enabled)?;
                         item.set("paste", editor.number())?;
                     }

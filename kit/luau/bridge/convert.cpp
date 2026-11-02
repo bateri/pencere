@@ -2601,7 +2601,9 @@ pencere_view_types_list_gesture_binding_t gestures_at(lua_State* L, int t) {
 // ["ctrl+j"] = { command = "move", movement = "down" } }`: keys (a chord is keys apart by a space) and
 // what they do: the word of an editor command that needs none (`"undo"`), `"copy"`, `"cut"`,
 // `"tab"`, `"escape"`, `"delete_to_line_start"`, `"delete_to_line_end"`, the table of a command, or false (nothing of
-// the editor's). Not `"paste"`: a page never reads the pasteboard, so no key it chooses pastes.
+// the editor's). Not `"paste"`: a page never reads the pasteboard, so no key it chooses pastes. Only the
+// person's own paste key (`cmd+v`) may be written as `layout.keymap` reads it, and it is what the editor
+// has anyway.
 pencere_view_types_list_key_binding_t keymap_at(lua_State* L, int t) {
     pencere_view_types_list_key_binding_t out = {};
     get(L, t, "keymap");
@@ -2622,11 +2624,10 @@ pencere_view_types_list_key_binding_t keymap_at(lua_State* L, int t) {
                 from = end + 1;
             }
             if (steps.empty() || steps.size() > 4) luaL_error(L, "a chord of keys has one to four keys, apart by spaces: \"%s\"", key.c_str());
-            binding.keys.len = steps.size();
-            binding.keys.ptr = (view_string_t*)xmalloc(steps.size() * sizeof(view_string_t));
-            for (size_t at = 0; at < steps.size(); at++) {
+            std::vector<std::string> chord;
+            for (const std::string& step : steps) {
                 // The `mod` of a step is the host's main modifier.
-                std::string step = steps[at], written;
+                std::string written;
                 size_t pos = 0;
                 while (true) {
                     size_t plus = step.find('+', pos);
@@ -2636,8 +2637,18 @@ pencere_view_types_list_key_binding_t keymap_at(lua_State* L, int t) {
                     pos = plus + 1;
                 }
                 written += step.substr(pos);
-                binding.keys.ptr[at] = host_string(written.data(), written.size());
+                chord.push_back(written);
             }
+            // The person's own paste key written back as `layout.keymap` reads it (`cmd+v` does "paste"):
+            // what the editor does with it anyway, so it is no entry. Nothing else pastes.
+            if (chord.size() == 1 && lower_of(chord[0]) == "cmd+v" && lua_type(L, -1) == LUA_TSTRING &&
+                std::string(lua_tostring(L, -1)) == "paste") {
+                lua_pop(L, 1);
+                continue;
+            }
+            binding.keys.len = chord.size();
+            binding.keys.ptr = (view_string_t*)xmalloc(chord.size() * sizeof(view_string_t));
+            for (size_t at = 0; at < chord.size(); at++) binding.keys.ptr[at] = host_string(chord[at].data(), chord[at].size());
             int value = lua_gettop(L);
             if (lua_type(L, value) == LUA_TBOOLEAN && !lua_toboolean(L, value)) {
                 // Nothing of the editor's.
@@ -3220,22 +3231,24 @@ int reply_call(lua_State* L) {
                     entry.val.item.title = add_words(titles, bytes, length);
                     lua_pop(L, 1);
                 }
-                // The keys that do the same, written as a command's.
+                // The keys that do the same, written as a command's. Not those of the application's
+                // own line: no key picks it, so what a page writes there is not read.
                 decltype(entry.val.item.keys) keys = {};
-                get(L, entry_index, "keys");
-                if (lua_type(L, -1) == LUA_TSTRING && lua_objlen(L, -1) > 0) {
-                    int words = lua_gettop(L);
-                    keys = {true, shortcut_of_words(L, words)};
-                } else if (!lua_isnil(L, -1) && !(lua_type(L, -1) == LUA_TSTRING)) {
-                    luaL_error(L, "the keys of a menu's entry are written as words: \"ctrl+w\"");
+                if (!paste) {
+                    get(L, entry_index, "keys");
+                    if (lua_type(L, -1) == LUA_TSTRING && lua_objlen(L, -1) > 0) {
+                        int words = lua_gettop(L);
+                        keys = {true, shortcut_of_words(L, words)};
+                    } else if (!lua_isnil(L, -1) && !(lua_type(L, -1) == LUA_TSTRING)) {
+                        luaL_error(L, "the keys of a menu's entry are written as words: \"ctrl+w\"");
+                    }
+                    lua_pop(L, 1);
                 }
-                lua_pop(L, 1);
                 get(L, entry_index, "enabled");
                 bool enabled = lua_isnil(L, -1) ? true : lua_toboolean(L, -1) != 0;
                 lua_pop(L, 1);
                 if (paste) {
                     entry.tag = PENCERE_VIEW_TYPES_MENU_ENTRY_PASTE;
-                    entry.val.paste.keys = keys;
                     entry.val.paste.enabled = enabled;
                     entry.val.paste.editor = editor;
                 } else {

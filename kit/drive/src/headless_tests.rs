@@ -293,11 +293,19 @@ fn the_pasteboard_is_told_whether_the_person_asked_for_what_is_put_on_it() -> Re
 local copy_all = { editor = { e = { { load = "alpha beta" }, { command = "select_all" }, { command = "copy" } } } }
 return {
     render = function()
-        return pencere.div():size_full():child(pencere.editor("e", {}):grow(1))
+        return pencere.div():size_full()
+            :child(pencere.editor("e", { keymap = { f6 = "copy" } }):grow(1))
+            :child(pencere.div():id("copy"):press("copy"):size(100, 30):child(pencere.text("copy")))
     end,
     handle = function(event)
-        if event.type == "key" and event.key == "c" then
+        if event.type == "press" and event.button == "right" then
+            return { copy = "by a press", menu = { at = { x = event.x, y = event.y }, entries = { { title = "Copy" } } } }
+        elseif event.type == "menu" then
+            return copy_all
+        elseif event.type == "key" and event.key == "c" then
             return { copy = "by a key" }
+        elseif event.type == "key" and event.key == "x" then
+            return { copy = "by a cut" }
         elseif event.type == "key" and event.key == "e" then
             return copy_all
         elseif event.type == "wake" then
@@ -324,36 +332,154 @@ return {
             .map(|copied| (copied.text.as_str(), copied.by_person))
             .collect()
     }
-    // Replies to the person's keys: the pasteboard, and the copy of an editor the page asked for.
+    // Replies to the copy and the cut of the system's own keys (⌘C, ⌘X): the person's. A plain key
+    // is not: the page chose what it does, and "Cmd-C" is what the person means by a copy.
+    page.press("cmd+c")?;
+    page.press("cmd+x")?;
     page.press("c")?;
+    page.press("x")?;
+    page.press("shift+cmd+c")?;
+    page.press("alt+cmd+c")?;
     page.press("e")?;
     assert_eq!(
         copies(&page),
-        [("by a key", true), ("alpha beta", true)],
-        "what answers the person's key is the person's"
+        [
+            ("by a key", true),
+            ("by a cut", true),
+            ("by a key", false),
+            ("by a cut", false),
+            ("by a key", false),
+            ("by a key", false),
+            ("alpha beta", false),
+        ],
+        "only the keys of a copy and a cut are the person's"
+    );
+    // A press and a pick of a menu are the person's, and so is the copy of an editor a command asks.
+    let from = copies(&page).len();
+    page.right_click("copy")?;
+    page.pick_titled("Copy")?;
+    assert_eq!(
+        &copies(&page)[from..],
+        [("by a press", true), ("alpha beta", true)],
+        "what answers a press and the pick of a menu is the person's"
     );
     // Replies to what the program said: not.
+    let from = copies(&page).len();
     page.tell(&json!({ "say": "copy" }).to_string())?;
     page.tell(&json!({ "say": "editor" }).to_string())?;
     assert_eq!(
-        &copies(&page)[2..],
+        &copies(&page)[from..],
         [("by the program", false), ("alpha beta", false)],
         "what answers the program is not"
     );
     // The reply to a wake: not, the page's copy and the editor's.
+    let from = copies(&page).len();
     page.tell(&json!({ "say": "wake" }).to_string())?;
     page.advance(0.1)?;
     assert_eq!(
-        &copies(&page)[4..],
+        &copies(&page)[from..],
         [("by a wake", false), ("alpha beta", false)],
         "what answers a wake is not"
     );
-    // The editor's own copy key is the person's.
+    // The editor's own copy key is the person's; a key the page chose for a copy is not.
+    let from = copies(&page).len();
     page.focus_editor("e")?;
     page.press("cmd+a")?;
     page.press("cmd+c")?;
-    assert_eq!(&copies(&page)[6..], [("alpha beta", true)]);
-    assert_eq!(copies(&page).len(), 7);
+    page.press("f6")?;
+    assert_eq!(
+        &copies(&page)[from..],
+        [("alpha beta", true), ("alpha beta", false)],
+        "the copy of a key the page chose for it is not the person's"
+    );
+    Ok(())
+}
+
+/// A menu is the person's: it opens for a press, a key, the pick of one, a command. A program that
+/// opens one with a message, or a page with a wake, puts a Paste line under a pointer the person is
+/// not using, and what the person picks is the pasteboard in an editor: the pasteboard is theirs to
+/// read only when they ask for it. The chain is the one a program makes from its own words: the
+/// page copies something, the program moves the keyboard to the editor, asks for the menu, and
+/// the person's click on the line pastes.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_menu_opens_for_what_the_person_did_and_never_for_what_the_program_or_a_wake_said()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local got = "nothing"
+local function menu() return { menu = { at = { x = 1, y = 1 }, entries = {
+    { title = "Nice words", keys = "enter", paste = "e" },
+} } } end
+return {
+    render = function()
+        return pencere.div():size_full()
+            :child(pencere.editor("e", {}):grow(1))
+            :child(pencere.div():id("row"):press("row"):size(100, 30):child(pencere.text(got)))
+    end,
+    handle = function(event)
+        if event.type == "key" and event.key == "s" then
+            return { copy = "SECRET" }
+        elseif event.type == "key" and event.key == "f5" then
+            return menu()
+        elseif event.type == "press" and event.button == "right" then
+            return menu()
+        elseif event.type == "wake" then
+            return menu()
+        elseif event.type == "menu" then
+            got = "picked"
+            return { redraw = true, copy = "EVIL-AFTER-PICK" }
+        end
+    end,
+    message = function(m)
+        if m.say == "focus" then
+            return { keyboard = { field = "e" } }
+        elseif m.say == "menu" then
+            return menu()
+        elseif m.say == "wake" then
+            return { wake = 0 }
+        end
+    end,
+}
+"#,
+    )
+    .size(400.0, 300.0)
+    .open()?;
+    let editor = |page: &Headless| page.editor_text("e").unwrap_or_default();
+    page.press("s")?;
+    assert_eq!(page.pasteboard(), Some("SECRET"));
+    // The program asks for the menu, after it moved the keyboard to the editor: no menu, and so no
+    // pick that pastes.
+    page.tell(&json!({ "say": "focus" }).to_string())?;
+    page.tell(&json!({ "say": "menu" }).to_string())?;
+    assert_eq!(page.menu(), None, "a message of the program opened a menu");
+    assert_eq!(page.pick(0), Err(Error::NoMenu));
+    assert_eq!(editor(&page), "", "the pasteboard went into the editor");
+    // The wake the program asked for is no more the person's.
+    page.tell(&json!({ "say": "wake" }).to_string())?;
+    page.advance(0.1)?;
+    assert_eq!(page.menu(), None, "a wake opened a menu");
+    assert_eq!(page.pick(0), Err(Error::NoMenu));
+    assert_eq!(editor(&page), "");
+    // A key the person pressed opens it, and so does a press; the line says nothing of keys, so
+    // none picks it, and the person's pick pastes.
+    page.focus_editor("e")?;
+    page.press("f5")?;
+    let menu = page.menu().expect("a key opens a menu").clone();
+    assert_eq!(menu.entries.len(), 1);
+    assert!(
+        !format!("{:?}", menu.entries).contains("Enter"),
+        "the line of a paste takes no keys: {:?}",
+        menu.entries
+    );
+    assert_eq!(page.press("enter"), Err(Error::MenuOpen));
+    assert_eq!(editor(&page), "");
+    page.pick(0)?;
+    assert_eq!(editor(&page), "SECRET", "the person's pick pastes");
+    page.right_click("row")?;
+    assert!(page.menu().is_some(), "a press opens a menu");
+    page.press("escape")?;
+    assert_eq!(page.menu(), None);
     Ok(())
 }
 

@@ -20,7 +20,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use pencere_view::edit::TextSnapshot;
-use pencere_view::{Element, Event, Id, Input, Laid, Panel, Point, Reply, ScrollTo, Size};
+use pencere_view::{
+    Element, Event, Id, Input, Laid, Panel, Point, Reply, ScrollTo, Size, copy_key,
+};
 use pencere_wire::json::unescaped_len;
 
 use crate::luau::Script;
@@ -115,12 +117,14 @@ enum Command {
 pub struct Answer {
     pub reply: Reply,
     pub pointer: bool,
-    /// Whether the event it answers was something the person did: a press or its release, a key, a
-    /// pick in a menu, a command (the rule a panel is shown by, [`Panel::follows`], and the same
-    /// one). A reply to what the program said, to a wake and to a change of the room is not, and
-    /// neither is one to the pointer moving or to the editor's account of what it did. It says what
-    /// is the person's among what the reply asks of the host (the pasteboard, [`Reply::copy`]): the
-    /// page and its program are untrusted, the person's act is not theirs to claim.
+    /// Whether the event it answers was the person's word for writing their pasteboard: a press or
+    /// its release, a pick in a menu, a command, and of the keys only the system's copy and cut
+    /// ([`pencere_view::copy_key`]: the page chose what any other key does, and "Cmd-C" is what the
+    /// person means by a copy). A reply to what the program said, to a wake and to a change of the
+    /// room is not, and neither is one to the pointer moving or to the editor's account of what it
+    /// did. It says what is the person's among what the reply asks of the host (the pasteboard,
+    /// [`Reply::copy`]): the page and its program are untrusted, the person's act is not theirs to
+    /// claim.
     pub person: bool,
 }
 
@@ -731,14 +735,15 @@ fn run<R: Runner>(
                         event => event.clone(),
                     };
                     let mut reply = runner.handle(event.clone())?;
-                    // A panel only for what the person did (Panel::follows): a page that asked
-                    // for one in its answer to the pointer moving is passed over. The host is told
-                    // the same of the whole answer (`Answer::person`), for what only the person
-                    // may ask of it.
-                    let person = Panel::follows(&event);
-                    if !person {
+                    // A panel and a menu only for what the person did (Panel::follows): a page
+                    // that asked for one in its answer to the pointer moving is passed over. The
+                    // host is told whether it was the person's word for the pasteboard
+                    // (`Answer::person`), for what only the person may ask of it.
+                    if !Panel::follows(&event) {
                         reply.panel = None;
+                        reply.menu = None;
                     }
+                    let person = by_person(&event);
                     let reply = wakes.reply(reply, clock(last, program), post);
                     post.say(runner.take_sent(), runner.take_asks());
                     let frame = match (reply.redraw, last) {
@@ -857,18 +862,30 @@ fn newest_of_each(boxes: Vec<(Id, Point)>) -> Vec<(Id, Point)> {
     out
 }
 
+/// Whether `event` is the person's word for writing their pasteboard (`Answer::person`): the rule a
+/// panel and a menu are shown by ([`Panel::follows`]), but for a key, which is so only when it is
+/// the system's copy or cut ([`copy_key`]).
+fn by_person(event: &Event) -> bool {
+    match event {
+        Event::Input(Input::Key { key, mods }) => copy_key(*key, *mods),
+        other => Panel::follows(other),
+    }
+}
+
 /// What the page said back to something the program did, or to a wake: whether it wants to be
 /// drawn again (the page that follows the batch), and the rest of the reply (a menu, the keyboard,
 /// the pasteboard, a link, the end), which is told now.
 fn answered(mut reply: Reply, post: &Post<'_>) -> bool {
     let redraw = reply.redraw;
-    // Nothing the person did: a panel asked for here is passed over.
+    // Nothing the person did: a panel or a menu asked for here is passed over. A menu is the
+    // person's: a Paste line under a pointer they are not using, opened by a word of the program,
+    // is a pasteboard read they did not ask for.
     reply.panel = None;
+    reply.menu = None;
     // Whatever the reply asks of the host, it is posted: a page that hears its program puts what it
     // heard in a field or an editor (a file it read, a completion, the mark of a mistake), opens the
     // address it was sent, and a reply that only redraws is the frame that follows.
     let asks = reply.close
-        || reply.menu.is_some()
         || reply.keyboard.is_some()
         || reply.copy.is_some()
         || reply.link.is_some()
@@ -1426,6 +1443,79 @@ mod tests {
         assert_eq!(waiting.replies.len(), 1, "{:?}", waiting.replies);
         assert_eq!(waiting.replies[0].reply.copy.as_deref(), Some("kept"));
         assert_eq!(waiting.replies[0].reply.panel, None);
+    }
+
+    #[test]
+    fn a_menu_asked_for_on_hearing_the_program_or_a_wake_is_passed_over() {
+        let menu = || pencere_view::Menu {
+            at: Point::new(1.0, 1.0),
+            entries: vec![pencere_view::MenuEntry::Separator],
+            serial: 0,
+        };
+        let mailbox = Mailbox::default();
+        let post = Post {
+            mailbox: &mailbox,
+            wake: &|| {},
+        };
+        // Only a menu: nothing to post.
+        let mut reply = Reply::none();
+        reply.menu = Some(menu());
+        answered(reply, &post);
+        assert!(mailbox.waiting.lock().unwrap().replies.is_empty());
+        // With what else it asks: the rest, and no menu.
+        let mut reply = Reply::none();
+        reply.copy = Some("kept".into());
+        reply.menu = Some(menu());
+        answered(reply, &post);
+        let waiting = mailbox.waiting.lock().unwrap();
+        assert_eq!(waiting.replies.len(), 1, "{:?}", waiting.replies);
+        assert_eq!(waiting.replies[0].reply.copy.as_deref(), Some("kept"));
+        assert_eq!(waiting.replies[0].reply.menu, None);
+    }
+
+    #[test]
+    fn the_pasteboard_is_the_persons_for_a_press_a_pick_a_command_and_the_keys_of_a_copy() {
+        let at = Point::new(1.0, 1.0);
+        let key = |key: pencere_view::Key, command: bool| {
+            Event::Input(Input::Key {
+                key,
+                mods: pencere_view::Mods {
+                    command,
+                    ..pencere_view::Mods::default()
+                },
+            })
+        };
+        for person in [
+            Event::Input(Input::Press {
+                at,
+                button: pencere_view::Button::Left,
+                mods: pencere_view::Mods::default(),
+                count: 1,
+            }),
+            Event::Input(Input::Release {
+                at,
+                button: pencere_view::Button::Left,
+            }),
+            Event::MenuPick {
+                serial: 0,
+                index: 0,
+            },
+            Event::Command(Id::named("copy")),
+            key(pencere_view::Key::Character('c'), true),
+            key(pencere_view::Key::Character('x'), true),
+        ] {
+            assert!(by_person(&person), "{person:?}");
+        }
+        for not in [
+            key(pencere_view::Key::Character('c'), false),
+            key(pencere_view::Key::Character('y'), true),
+            key(pencere_view::Key::Enter, false),
+            Event::Input(Input::Move(at)),
+            Event::Wake { now: 1.0 },
+            Event::Focus(None),
+        ] {
+            assert!(!by_person(&not), "{not:?}");
+        }
     }
 
     #[test]

@@ -305,7 +305,8 @@ end
 -- What the keys of an editor do: the editor's own keys, `{ keys = "cmd+d", does = "select_next" }`
 -- (what the `keymap` option takes: a command's word, "copy", "cut", "tab", "escape",
 -- "delete_to_line_start", "delete_to_line_end", or a command's table; and "paste" for the person's
--- own paste key, which only the editor can have: a page reads it and cannot write it), as the
+-- own paste key, which only the editor can have: a page reads it, and writes it back as it reads it
+-- (`cmd+v`), which changes nothing; no other key is a paste), as the
 -- page's `keymap` changed them: a key it says is what it says, one it says is false is gone, and a
 -- chord it adds is added. For a page that shows a key where it says what a command does.
 internal.keymaps = {}

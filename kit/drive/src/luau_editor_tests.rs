@@ -3187,8 +3187,9 @@ fn the_host_paste_entry_of_a_read_only_editor_is_off_and_a_page_cannot_ask_an_ed
     // chord) where the person is not asking for it. The page fails where it writes the word.
     for table in [
         r#"{ enter = "paste" }"#,
-        r#"{ ["mod+v"] = "paste" }"#,
         r#"{ ["mod+k mod+v"] = "paste" }"#,
+        r#"{ ["cmd+shift+v"] = "paste" }"#,
+        r#"{ ["ctrl+v"] = "paste" }"#,
     ] {
         let why = failing(&format!(
             "return {{ render = function() return pencere.editor(\"e\", {{ keymap = {table} }}) end }}"
@@ -3198,6 +3199,49 @@ fn the_host_paste_entry_of_a_read_only_editor_is_off_and_a_page_cannot_ask_an_ed
             "{table}: {why}"
         );
     }
+    Ok(())
+}
+
+/// The keys of an editor are listed by `pencere.layout.keymap`, the person's paste key among them
+/// as `"paste"`, and a page that gives the list back as its `keymap` (to change one key of it) is
+/// not failed for the word: the key is the editor's anyway and goes on pasting. A key the page
+/// chooses is still no paste.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_list_of_the_keys_of_an_editor_is_given_back_with_the_persons_paste_key_in_it()
+-> Result<(), Error> {
+    let mut page = open(
+        r#"
+local function keys_of(name)
+	local map = {}
+	for _, row in ipairs(pencere.layout.keymap(name)) do map[row.keys] = row.does or false end
+	map["mod+d"] = "select_all"
+	return map
+end
+return { render = function()
+	return pencere.div():size_full()
+		:child(pencere.editor("e", {}):grow(1))
+		:child(pencere.editor("f", { keymap = keys_of("e"), gutter = false }):grow(1))
+end }"#,
+    )?;
+    let says_paste = |table: &str| {
+        open(&format!(
+            "return {{ render = function() return pencere.editor(\"e\", {{ keymap = {table} }}) end }}"
+        ))
+        .map(drop)
+    };
+    // The key as the list has it, and as the system's main modifier spells it.
+    says_paste(r#"{ ["cmd+v"] = "paste" }"#)?;
+    says_paste(r#"{ ["mod+v"] = "paste" }"#)?;
+    // The person's key still pastes in the editor that was given the list back, and the key the
+    // page added to the list is the page's.
+    page.focus_editor("f")?;
+    page.type_text("ab")?;
+    page.press("cmd+a")?;
+    page.press("cmd+c")?;
+    page.press("right")?;
+    page.press("cmd+v")?;
+    assert_eq!(page.editor("f").map(|f| f.text()), Some("abab".to_owned()));
     Ok(())
 }
 
