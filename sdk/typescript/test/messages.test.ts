@@ -51,7 +51,7 @@ describe("what the program writes", () => {
     const open: OpenFields = {
       token: TOKEN,
       view: "web",
-      version: "1.0",
+      version: "0.1",
       program: "containers",
       title: "Containers",
       access: { connect: ["https://api.example.com"], permissions: ["clipboardWrite"] },
@@ -364,7 +364,7 @@ describe("a welcome", () => {
       token: TOKEN,
       host: { name: "pencere-test", version: "0.0.0" },
       features: ["dismiss"],
-      views: [{ kind: "web", versions: ["1.0"] }],
+      views: [{ kind: "web", versions: ["0.1"] }],
       opens: [],
       restart: false,
     });
@@ -373,7 +373,7 @@ describe("a welcome", () => {
   it("lists the kinds in the order the host wrote them, each with its versions in its order", () => {
     expect(offer("to-program/welcome-versions.frame").views).toEqual([
       { kind: "lua", versions: ["0.5", "0.4"] },
-      { kind: "web", versions: ["1.0"] },
+      { kind: "web", versions: ["0.1"] },
     ]);
   });
 
@@ -415,8 +415,8 @@ describe("a welcome", () => {
   it("reads the kinds leniently: what is not an entry of §5.2 is left out, a kind counts once", () => {
     expect(
       readViews([
-        { kind: "web", versions: ["1.0", "nine", 2, "1.0.0"] },
-        { kind: "web", versions: ["2.0"] },
+        { kind: "web", versions: ["0.1", "nine", 2, "1.0.0"] },
+        { kind: "web", versions: ["0.2"] },
         { kind: "lua" },
         { kind: "lua", versions: [] },
         { kind: 3, versions: ["0.5"] },
@@ -425,11 +425,11 @@ describe("a welcome", () => {
         { kind: "lua", versions: ["0.5"] },
       ]),
     ).toEqual([
-      { kind: "web", versions: ["1.0"] },
+      { kind: "web", versions: ["0.1"] },
       { kind: "lua", versions: ["0.5"] },
     ]);
     expect(readViews(undefined)).toEqual([]);
-    expect(readViews({ kind: "web", versions: ["1.0"] })).toEqual([]);
+    expect(readViews({ kind: "web", versions: ["0.1"] })).toEqual([]);
   });
 });
 
@@ -446,7 +446,7 @@ describe("choosing the view", () => {
   it("follows the program's order of kinds and not the host's", () => {
     expect(chooseView(offers("web", ["lua", "0.5"]), offers(["lua", "0.5"], "web"))).toEqual({
       kind: "web",
-      version: "1.0",
+      version: "0.1",
     });
   });
 
@@ -460,7 +460,7 @@ describe("choosing the view", () => {
   it("goes on to the next kind when a kind has no version in common (session/no-common-version)", () => {
     expect(chooseView(offers(["lua", "0.9"], "web"), offers("web"))).toEqual({
       kind: "web",
-      version: "1.0",
+      version: "0.1",
     });
     expect(chooseView(offers(["lua", "0.9"]), offers(["lua", "0.4", "0.5"]))).toBeUndefined();
   });

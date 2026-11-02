@@ -14,8 +14,8 @@
 //!
 //! A view's files are its own and die with it: a handle, an attached digest and a panel are
 //! nothing once the view has ended, whatever ended it (§10.2). Only a view the terminal draws
-//! itself, opened at a version of its interface that has them (`lua` 2.1), has them at
-//! all (§5.5); every other view, a page among them, is answered as if it had none.
+//! itself (`lua`) has them (§5.5); every other view, a page among them, is answered as if it had
+//! none.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -211,12 +211,12 @@ pub(super) struct Files {
 }
 
 impl Files {
-    /// The files of a view of `kind` opened at `version` of its interface.
-    pub(super) fn new(kind: ViewKind, version: &str, attached: AttachedFiles) -> Self {
+    /// The files of a view of `kind`.
+    pub(super) fn new(kind: ViewKind, attached: AttachedFiles) -> Self {
         // A table the view before this one left is not this view's.
         attached.clear();
         Self {
-            capable: has_files(kind, version),
+            capable: has_files(kind),
             attached,
             pending: Vec::new(),
             handles: HashMap::new(),
@@ -264,17 +264,11 @@ impl Files {
     }
 }
 
-/// Whether a view of `kind` at `version` has files beside its bundle: a view the terminal draws
-/// itself at `lua` 2.1 and later (specification §5.5).
-pub fn has_files(kind: ViewKind, version: &str) -> bool {
-    let Some((major, minor)) = version.split_once('.') else {
-        return false;
-    };
-    let (Ok(major), Ok(minor)) = (major.parse::<u32>(), minor.parse::<u32>()) else {
-        return false;
-    };
+/// Whether a view of `kind` has files beside its bundle: a view the terminal draws itself does, at
+/// the one version it opens, and a page does not (specification §5.5).
+pub fn has_files(kind: ViewKind) -> bool {
     match kind {
-        ViewKind::Lua => (major, minor) >= (2, 1),
+        ViewKind::Lua => true,
         ViewKind::Web => false,
     }
 }

@@ -245,7 +245,7 @@ pub fn page() -> Bundle {
 }
 
 pub fn web_views() -> Value {
-    json!([{ "kind": "web", "versions": ["1.0"] }])
+    json!([{ "kind": "web", "versions": ["0.1"] }])
 }
 
 pub fn modes_are_back(pane: &Pane) {

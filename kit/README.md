@@ -103,7 +103,7 @@ one `Images` for a view, and uses three of its calls:
   `redraw` that pixels are there, and `diagnostics` why an image was refused. Nothing is polled
   and nothing woken at rest.
 
-A terminal that hosts files beside the bundle (`lua` `2.1`) answers `Assets::read` for
+A terminal that opens `lua` answers `Assets::read` for
 a `sha256:` name from the files the program attached to the view (`Session::attached` of the host
 crate, or `AttachedFiles::get` from a thread that has no session: `Session::attached_files` gives
 one table for the life of the session, which the view's end empties) and for a `file:` name from its own table of the handles it made, never from a path, and
@@ -114,19 +114,19 @@ page asks for are the drive's `Host::panel`, which the terminal hands the sessio
 ## Versions
 
 The kit's version is the one a view names in its `open` (specification Sections 5.4 and 5.5): `lua`
-`2.1`, the page API whose `pencere.version` is `2`. Until the first general release it is the one
-version, and a change of the kit in the meantime does not number a new one. (What `2.0` added to
-`1.0`, from overlays to editors of text, their languages and a page's timers, and what `2.1` adds,
-the files beside the bundle, are listed in [`SPEC.md`](SPEC.md), Section 1, which also has the
-rules the versions follow from the first general release on.) The interface `pencere:view` has no
+`0.1`, the page API whose `pencere.version` is the string `"0.1"`. While the specification is a
+draft the versions of `lua` are `0.x`: a change an existing view can notice moves the minor number
+(`0.2` after `0.1`), and an addition does not. A terminal opens one version, and a program written
+for another is not opened and says so in a sentence. (The rules the versions follow from the first
+general release on are in [`SPEC.md`](SPEC.md), Section 1.) The interface `pencere:view` has no
 version of the kit's: it is the link between the interpreter and the sandbox, and a change of it is
 a new build of the interpreter (`make luau`).
 
 From the first general release on:
 
-- An **addition** that no existing view can notice is a new minor version (`2.2`): a new element or
+- An **addition** that no existing view can notice is a new minor version (`1.1`): a new element or
   a new colour role in the page API. A host opens every published minor version of a major.
-- A **change to something a view already uses** is a new major version (`3.0`), and comes only when
+- A **change to something a view already uses** is a new major version (`2.0`), and comes only when
   a function has to mean something else and a new name cannot do it. A host opens the newest major
   and the one before it; an older view is refused in words that name both sides.
 - The interpreter is the terminal's, so a new element or a new role is an addition for a script.

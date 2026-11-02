@@ -34,8 +34,7 @@ const ATTACHED = "sha256:";
 
 /**
  * Why a file could not be attached, read or saved. `code` is `unsupported` when no view that has
- * files runs (none is up, or it was opened at a version without them: `lua` before 2.1,
- * a page), `ended` when the view ended before the host answered, or the host's own:
+ * files runs (none is up, or it is a page), `ended` when the view ended before the host answered, or the host's own:
  * for an attach `limit`, `view`, `size`, `digest`; for a read `handle`, `range`, `busy`, `gone`,
  * `io`; for a write `handle`, `order`, `size`, `space`, `io`; for a `stage` or a `fetch` `handle`,
  * `busy`, `gone`, `size`, `space`, `route`, `io`, `cancelled` (§8.11).
@@ -79,12 +78,9 @@ export interface Transfer {
   unstage(): void;
 }
 
-/** Whether a view of `kind` opened at `version` has files beside its bundle (§5.5). */
-export function hasFiles(kind: string, version: string): boolean {
-  const [major = Number.NaN, minor = 0] = version.split(".").map(Number);
-  if (!Number.isInteger(major)) return false;
-  if (kind === "lua") return major > 2 || (major === 2 && minor >= 1);
-  return false;
+/** Whether a view of `kind` has files beside its bundle (§5.5): a `lua` view does, a page does not. */
+export function hasFiles(kind: string): boolean {
+  return kind === "lua";
 }
 
 interface Waiting<T> {

@@ -6,7 +6,7 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
-The engine of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.1` and `2.0`).
+The engine of version `0.1` of the kit (`pencere:view@0.1.0`, `lua` `0.1`).
 
 ### Added
 
@@ -241,6 +241,12 @@ DeleteToLineEnd}`; `EditorAsk::Change` has `history` and `tag` (told back in `Ed
   (`Scrolls::take_moved`, `Event::Scrolled`). `Extent::offset` is how far a box is scrolled.
 
 ### Changed
+
+- **The kit is version `0.1`** (`pencere:view@0.1.0`, `lua` `0.1`). While the specification is a
+  draft the versions of `lua` and `web` are `0.x`: a change an existing view can notice moves the
+  minor number (`0.2` after `0.1`), an addition does not, and a host opens one version. A program
+  whose version the host does not open is not opened, and says so in a sentence that names both
+  sides.
 
 - **A modifier has one name.** `Shortcut::parse` reads `cmd`, `ctrl`, `alt` and `shift`; `command`,
   `super`, `meta`, `control`, `option` and `opt` are not keys.

@@ -410,7 +410,7 @@ fn the_programs_closing_and_reopening_are_said_and_answered_at_once() {
     let page = pencere::Bundle::single("page.lua", &b"return {}"[..]).expect("a bundle");
     let reopener = {
         let control = control.clone();
-        asking(move || control.reopen(Some(vec![View::new(Kind::Lua, &["2.0"], page)])))
+        asking(move || control.reopen(Some(vec![View::new(Kind::Lua, &["0.1"], page)])))
     };
     match conversation.receive(WITHIN) {
         Some(Said::Reopened(Some(views))) => assert_eq!(views.len(), 1),
@@ -570,7 +570,7 @@ fn a_reopening_while_the_terminal_is_lent_is_the_view_that_comes_back() {
     let page = pencere::Bundle::single("page.lua", &b"return {}"[..]).expect("a bundle");
     let reopening = {
         let control = control.clone();
-        asking(move || control.reopen(Some(vec![View::new(Kind::Lua, &["2.0"], page)])))
+        asking(move || control.reopen(Some(vec![View::new(Kind::Lua, &["0.1"], page)])))
     };
     assert!(conversation.receive(Duration::from_millis(100)).is_none());
     lent.returned(ExitStatus::from_raw(0));

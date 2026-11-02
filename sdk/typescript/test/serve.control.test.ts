@@ -59,7 +59,7 @@ describe("a program that closes its view and goes on (§10.8)", () => {
     const hello = await rig.next("hello");
     rig.say("welcome", welcomePayload(TOKEN_2), hello.id);
     const open = await rig.next("open");
-    expect(JSON.parse(open.payload)).toMatchObject({ token: TOKEN_2, view: "web", version: "1.0" });
+    expect(JSON.parse(open.payload)).toMatchObject({ token: TOKEN_2, view: "web", version: "0.1" });
     // It is not reopened until the host has taken the open.
     const state = await Promise.race([reopening, sleep(30).then(() => "waiting")]);
     expect(state).toBe("waiting");
@@ -138,12 +138,37 @@ describe("a program that closes its view and goes on (§10.8)", () => {
     expect(await served).toEqual({
       kind: "closed",
       by: "program",
-      view: { kind: "web", version: "1.0" },
+      view: { kind: "web", version: "0.1" },
     });
     // No bye: the host has torn the view down and forgotten its token.
     expect(rig.messages().map((m) => m.kind)).toEqual(["hello", "open", "dismiss"]);
     expect(rig.terminal.calls).toEqual(["enter", "restore"]);
     expect(rig.text().endsWith("\x1b[?1049l")).toBe(true);
+  });
+
+  it("has files beside the bundle in a view of lua at 0.1, and none in a page", async () => {
+    const page = await withControl();
+    await expect(page.control.attach(Buffer.from("a picture"))).rejects.toMatchObject({
+      code: "unsupported",
+    });
+    expect(page.rig.messages().map((m) => m.kind)).toEqual(["hello", "open"]);
+    page.rig.say("closed", closed("user"));
+    await page.served;
+
+    const rig = new Rig();
+    const control = new ViewControl();
+    const { served, open } = await shown(
+      rig,
+      { control, views: [{ kind: "lua", versions: ["0.1"], bundle: luaBundle() }] },
+      { views: offers(["lua", "0.1"]) },
+    );
+    expect(JSON.parse(open.payload)).toMatchObject({ view: "lua", version: "0.1" });
+    const attaching = control.attach(Buffer.from("a picture"));
+    const attach = await rig.next("attach");
+    rig.say("need", need(), attach.id);
+    expect(await attaching).toMatch(/^sha256:/);
+    rig.say("closed", closed("user"));
+    await served;
   });
 
   it("touches nothing when the host does not list dismiss, and says so", async () => {
@@ -364,7 +389,7 @@ describe("a host that starts the view again (§10.7)", () => {
     expect(JSON.parse(again.payload)).toMatchObject({
       token: TOKEN_2,
       view: "web",
-      version: "1.0",
+      version: "0.1",
     });
     expect(subscription?.signal.aborted).toBe(true);
     rig.say("need", need(), again.id);

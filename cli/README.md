@@ -171,7 +171,7 @@ on a Mac, inotify on Linux); nothing is polled, and an app whose files do not ch
 ## Files with the view
 
 A page of the kit can show files and take them, and its bytes never pass through it (the protocol,
-Sections 8.8 to 8.10; a terminal that opens `lua` 2.1). The page gets handles; the program, with
+Sections 8.8 to 8.10; a terminal that opens `lua`). The page gets handles; the program, with
 `pencere.files`, moves the bytes:
 
 - **Showing a file.** `files.attach(path)` (or `files.attach_data(bytes)`) reads it once, gives it to
@@ -192,7 +192,7 @@ Sections 8.8 to 8.10; a terminal that opens `lua` 2.1). The page gets handles; t
 
 Each waits without holding the loop, and runs once the view is up (in a call of the view, or after
 it). A failure is raised as `{ code =, message = }` (the terminal's `limit`, `gone`, `order`, …;
-`unsupported` on a terminal that opens only `lua` 2.0), which a call of the view answers the view
+`unsupported` before the terminal took the view's open), which a call of the view answers the view
 with. `examples/files-lua` does all three; a test plays the person with `give_files`,
 `drag_files_over`, `panel`, `choose_files` and `choose_place`, and the program's files with
 `test.open{ attach = { bytes } }`.

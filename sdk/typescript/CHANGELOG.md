@@ -8,6 +8,14 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ### Changed
 
+- **The kinds are `0.1`.** `WEB_VERSION` is `"0.1"`, and a `lua` view is written at `"0.1"`. While
+  the specification is a draft the versions of `lua` and `web` are `0.x`: a change an existing view
+  can notice moves the minor number (`0.2` after `0.1`), an addition does not, and a host opens one
+  version. A program whose version the host does not open is not opened, and says so in a sentence
+  that names both sides. The sentence `serve` prints then ends with `update the older of the two`.
+  **Breaking:** `hasFiles` takes the kind alone: a `lua` view has files at any version, a page has
+  none.
+
 - **A view that fails is shown again, not the end of `serve`.** The host's `closed` with
   `reason` `error` and `code` `view` (a page that trapped, went over a limit or made an error) no
   longer ends the program: `serve` forgets the view and asks for it again with a new `hello`,
@@ -32,7 +40,7 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
   refuse a `calls` or a `topics` with such a key, `pencere.log` included, with a `TypeError` that
   names the key, before any view is asked for.
 - `ServeOptions.retryWindow`: how long a view that fell is left alone before it is shown again.
-- **Files beside the view's bundle** (specification §8.8 to §8.10), for a view opened at `lua` 2.1:
+- **Files beside the view's bundle** (specification §8.8 to §8.10), for a view opened at `lua` 0.1:
   `ViewControl.attach(bytes)` adds a file for the view to draw and resolves
   with the name it draws it by (`sha256:` and the digest) once the host holds it, sending nothing
   for a file the view has attached already or the host still holds; `detach`, `read(handle, offset,
@@ -53,7 +61,7 @@ length)` of a file the person gave and `write(handle, offset, bytes, end)` to th
 ### Removed
 
 - **The `wasm` kind of view.** `ViewKind` is `"lua" | "web"`, `VIEW_KINDS` and `ENTRY_TYPES` lose
-  `wasm`, and `hasFiles` is true for `lua` at 2.1 and later only. A `ViewSpec` with `kind: "wasm"`
+  `wasm`, and `hasFiles` is true for `lua` only. A `ViewSpec` with `kind: "wasm"`
   no longer type-checks.
 
 ## [0.2.0] - 2026-10-25

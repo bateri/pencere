@@ -6,7 +6,7 @@ a pty and plays the host of the views that program opens, with the
 view, what is refused, which files of a bundle are missing, what the page is told,
 what ends it. The page is a script, not a web view, so a program can be tried, and the
 libraries tested, without a terminal that hosts pencere. It opens the two kinds of view the
-protocol has: a page (`web`) and a Lua script that a terminal draws itself (`lua`, at 2.1); it
+protocol has: a page (`web`) and a Lua script that a terminal draws itself (`lua`, at 0.1); it
 draws neither, and plays both the same way.
 
 ```sh
@@ -17,10 +17,10 @@ What happens is written to stderr, one line each, in the order it happens:
 
 ```
 host: sees the tty: canonical=false echo=false
-host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@1.0
+host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@0.1
 host: answers CSI c
 screen: alternate screen on
-program: open id=2 view=web version=1.0 title="Containers" bundle of 3 files
+program: open id=2 view=web version=0.1 title="Containers" bundle of 3 files
 host: need id=2 re=2 missing=3
 ...
 view: title="Containers" program="containers"

@@ -576,11 +576,11 @@ mod tests {
                 "q7Vh2sB0xJm9kLw4TzN1cA",
                 &host(),
                 &names(&["dismiss"]),
-                &[offer("web", &["1.0"])],
+                &[offer("web", &["0.1"])],
                 &[],
                 false
             ),
-            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}"#
+            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["0.1"]}]}"#
         );
         assert_eq!(
             welcome_offer(
@@ -588,11 +588,11 @@ mod tests {
                 "Zk3mP8rD5uYb1Xe6HqS0vg",
                 &host(),
                 &names(&["dismiss"]),
-                &[offer("wasm", &["0.5", "0.4"]), offer("web", &["1.0"])],
+                &[offer("wasm", &["0.5", "0.4"]), offer("web", &["0.1"])],
                 &[],
                 true
             ),
-            r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}],"restart":true}"#
+            r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"wasm","versions":["0.5","0.4"]},{"kind":"web","versions":["0.1"]}],"restart":true}"#
         );
         assert_eq!(
             welcome_offer(1, "t", &host(), &Features::default(), &[], &[], false),
@@ -605,11 +605,11 @@ mod tests {
                 "t",
                 &host(),
                 &Features::default(),
-                &[offer("web", &["1.0"])],
+                &[offer("web", &["0.1"])],
                 &[offer("wasm", &["0.5", "0.4"])],
                 false
             ),
-            r#"{"version":1,"token":"t","host":{"name":"pencere-test","version":"0.0.0"},"views":[{"kind":"web","versions":["1.0"]}],"opens":[{"kind":"wasm","versions":["0.5","0.4"]}]}"#
+            r#"{"version":1,"token":"t","host":{"name":"pencere-test","version":"0.0.0"},"views":[{"kind":"web","versions":["0.1"]}],"opens":[{"kind":"wasm","versions":["0.5","0.4"]}]}"#
         );
         assert_eq!(
             welcome_unsupported(&host()),
@@ -704,15 +704,15 @@ mod tests {
         );
         for bad in [
             r#"{"versions":[1]}"#,
-            r#"{"views":[{"kind":"web","versions":["1.0"]}]}"#,
+            r#"{"views":[{"kind":"web","versions":["0.1"]}]}"#,
             r#"{"versions":[1],"views":["web"]}"#,
-            r#"{"versions":[1],"views":{"kind":"web","versions":["1.0"]}}"#,
+            r#"{"versions":[1],"views":{"kind":"web","versions":["0.1"]}}"#,
             r#"{"versions":[1],"views":[{"kind":"web"}]}"#,
             r#"{"versions":[1],"views":[{"versions":["1.0"]}]}"#,
             r#"{"versions":[1],"views":[{"kind":7,"versions":["1.0"]}]}"#,
-            r#"{"versions":[1],"views":[{"kind":"web","versions":"1.0"}]}"#,
+            r#"{"versions":[1],"views":[{"kind":"web","versions":"0.1"}]}"#,
             r#"{"versions":[1],"views":[{"kind":"web","versions":[1.0]}]}"#,
-            r#"{"versions":[1],"views":[["web",["1.0"]]]}"#,
+            r#"{"versions":[1],"views":[["web",["0.1"]]]}"#,
         ] {
             assert_eq!(hello(bad), None, "{bad}");
         }

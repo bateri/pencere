@@ -128,7 +128,7 @@ pub fn session_of(
         .collect();
     let mut host = self::config(&config["host"]);
     // The kinds of view a host opens, with the versions it speaks, are named in its entry; a
-    // host that names none opens web views at 1.0.
+    // host that names none opens web views at 0.1.
     if let Some(views) = config["views"].as_array() {
         host.views = views.iter().map(offer).collect();
     }
@@ -186,7 +186,7 @@ pub fn host_info() -> HostInfo {
     }
 }
 
-/// A host that opens web pages at 1.0 and draws nothing itself.
+/// A host that opens web pages at 0.1 and draws nothing itself.
 pub fn web_config() -> Config {
     Config::new(
         host_info(),
@@ -376,7 +376,7 @@ impl Rig {
 
     /// The `hello` of a program that shows web pages; the token it is answered with.
     pub fn hello(&mut self) -> String {
-        self.hello_with(&json!([{"kind": "web", "versions": ["1.0"]}]))["token"]
+        self.hello_with(&json!([{"kind": "web", "versions": ["0.1"]}]))["token"]
             .as_str()
             .unwrap()
             .to_owned()
@@ -422,7 +422,7 @@ pub fn open_web(token: &str, access: Option<Value>, extra: Value) -> Value {
     let mut value = json!({
         "token": token,
         "view": "web",
-        "version": "1.0",
+        "version": "0.1",
         "program": "containers",
         "title": "Containers",
         "bundle": web_bundle(),

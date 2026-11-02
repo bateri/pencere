@@ -14,7 +14,7 @@ usage: pencere-fake-host [options] -- <program> [args...]
 Runs <program> on a pty and plays the host of its views: it answers the
 program's capability query, hands out the token, takes the bundle and starts a
 view that is a script, not a web view. It opens the two kinds of view: a page
-(`web` 1.0), and a Lua script the terminal draws itself (`lua` 2.1); the script plays both
+(`web` 0.1), and a Lua script the terminal draws itself (`lua` 0.1); the script plays both
 the same way, and nothing is drawn. The script is a page: it is told the
 context first, then it sends the messages it was given, and logs what the program
 says back. What happens is written to stderr, one line each, in the order it
@@ -88,6 +88,8 @@ options:
                        take the transfer back and use messages
   --interrupt-at-pipe  ^C is typed into the pane once a pipe has been made for a
                        transfer and the program told its name
+  --kit-version V      open the Lua script (`lua`) at version V instead of 0.1, as a
+                       terminal of another release of the kit does
   --allow-network      grant the origins and permissions a page asks for
                        (default: refuse them)
   --passthrough        copy what the program writes to this program's stdout
@@ -177,6 +179,8 @@ pub struct Args {
     pub limit: Duration,
     /// The host closes a view at the program's request (`dismiss`).
     pub dismiss: bool,
+    /// The version of `lua` the host opens, when it is not the stand-in's own.
+    pub kit_version: Option<String>,
     /// The opens the host refuses, counting from 1.
     pub refuse_opens: Vec<u32>,
     pub gestures: Gestures,
@@ -246,6 +250,7 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
         size: None,
         limit: Duration::from_secs(30),
         dismiss: true,
+        kit_version: None,
         refuse_opens: Vec::new(),
         gestures: Gestures::default(),
         stage: None,
@@ -276,6 +281,7 @@ fn parse_with<I: Iterator<Item = String>>(args: &mut I) -> Result<Option<Args>, 
             | "--size"
             | "--limit"
             | "--refuse-open"
+            | "--kit-version"
             | "--drop"
             | "--paste"
             | "--pick"
@@ -319,6 +325,7 @@ fn option(parsed: &mut Args, name: &str, value: &str) -> Result<(), String> {
             parsed.links.push(value.to_owned());
         }
         "--cancel-after" => parsed.cancel_after = Some(count(name, value)?),
+        "--kit-version" => parsed.kit_version = Some(value.to_owned()),
         "--then" => {
             parsed.then = match value {
                 "wait" => Then::Wait,
@@ -485,6 +492,18 @@ mod tests {
             panic!("did not parse");
         };
         assert_eq!(args.on_view, 1);
+    }
+
+    #[test]
+    fn the_version_of_lua_the_host_opens_can_be_named() {
+        let Outcome::Run(args) = parsed(&["--kit-version", "0.2", "--", "p"]) else {
+            panic!("did not parse");
+        };
+        assert_eq!(args.kit_version.as_deref(), Some("0.2"));
+        let Outcome::Run(args) = parsed(&["--", "p"]) else {
+            panic!("did not parse");
+        };
+        assert_eq!(args.kit_version, None);
     }
 
     #[test]

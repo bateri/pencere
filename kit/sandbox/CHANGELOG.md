@@ -29,7 +29,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   to the page. A table of things to act on (processes, containers) chooses a row; `"cell"`, the default,
   stays for a table of values.
 
-- **`pencere:view@3.0.0`**, and the Lua page API `2.1`: the files beside the bundle (specification
+- **`pencere:view@0.1.0`**, and the Lua page API `0.1`: the files beside the bundle (specification
   §8.8 to §8.10). The `files` event carries its `source` and each file's handle, name, size, type
   and path (Lua `event.files`, each `{ handle =, name =, size =, type =, path =, kind = }`); new
   events `files-over`, `files-left` and `saving`; a reply's `panel` (Lua `pick = true` or
@@ -38,7 +38,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   or a command;
   images named `sha256:` (a file the program attached) and `file:` (one the person gave), which a
   host's `Assets` answers from its own tables, and `Images::forget` for the names the program let go
-  of. The interpreter is rebuilt. **Breaking:** the sandbox opens `pencere:view@3.0.0`, not `2.0.0`.
+  of. The interpreter is rebuilt. **Breaking:** the sandbox opens `pencere:view@0.1.0`, not `2.0.0`.
 - The interface has `pressing.context`, `editor-command.copy` and `.cut`, `menu-entry.paste` and
   `place.inside` and `.version`; Lua pages write `["right+press"] = "context"`,
   `{ command = "copy" }` / `"cut"`, a menu entry `{ paste = editor }` (the line says "Paste" whatever the page wrote) and read
@@ -51,6 +51,14 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   list for the reply's `editor[id]` that empties the layer it coloured.
 
 ### Changed
+
+- **The kind `lua` is `0.1`, and the interface is `pencere:view@0.1.0`.** `pencere.version` is the
+  string `"0.1"` (it was the number `2`). While the specification is a draft the versions of `lua`
+  and `web` are `0.x`: a change an existing view can notice moves the minor number (`0.2` after
+  `0.1`), an addition does not, and a host opens one version. A program whose version the host does
+  not open is not opened, and says so in a sentence that names both sides. The interpreter is
+  rebuilt. **Breaking:** the sandbox opens `pencere:view@0.1.0`, and a component built against
+  `pencere:view@3.0.0` is refused.
 
 - A flag of an element or a part (`wrap`, `hidden`, `no_shrink`, `absolute`, `overlay`, `clip`, `scroll`,
   `italic`, `underline`, `strike`, `truncate`, `focusable`, `focused`, `checked`, `selected`, `expanded`,
@@ -72,7 +80,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   `topic` are strings, `params` nil or a table, the functions nil or functions, the `id` of `cancel` a
   whole number from 1; a mistake is an error at the line of the script.
 - **Words of the Lua page API that said one thing and meant another, or two things, or were written two ways, are one
-  now** (`wit` of `pencere:view@3.0.0`, and the interpreter is rebuilt):
+  now** (`wit` of `pencere:view@0.1.0`, and the interpreter is rebuilt):
   - A menu's entry is a table with a `title` or `"-"`; a `key` of an entry is the page's own field and no
     longer read as keys (write `keys = "ctrl+w"`), any other word is an error where it used to be a line,
     and a menu with no `entries` is an error where it used to be an empty one.
@@ -117,7 +125,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 - The fields of a timer (`fn`, `waiting` and the others) are no longer there to read or write: a
   timer has `:cancel()` and `:active()`. `pencere.f32` is gone from the page API; the interpreter is
   rebuilt (`make luau`).
-- `pencere:view@3.0.0`: an element names the options of its editor by their place in the frame's
+- `pencere:view@0.1.0`: an element names the options of its editor by their place in the frame's
   new `editors` list (`node.editor: option<u32>`), as it names its words and its commands, instead
   of carrying room for them. A node is 736 bytes in the interpreter, not 1 728: a page of 8 300
   elements is drawn in 28 MiB of its memory (36 before, 60 with the list grown by doubling), one of
@@ -130,7 +138,7 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   `gutter` or `hover` event, the `first` and `last` of a `viewport` and the lines of `line_start`
   and `line_of` are from 1. A place inside a character is an error at the script's line (the
   `layout` queries) or an `editor_refused` with `"mid-character"` (an ask). The interface
-  (`pencere:view@3.0.0`) says it: `char-range` is `byte-range`, `refusal` has `mid-character`, and
+  (`pencere:view@0.1.0`) says it: `char-range` is `byte-range`, `refusal` has `mid-character`, and
   `editor-text`, `line-of` and `word-at` are `result`s.
   The library follows: `@pencere/syntax` `tokens` and the decorations it makes are bytes of the line
   from 1, `@pencere/fuzzy` `positions` are the bytes the matched characters start at (from 1), and
@@ -410,7 +418,7 @@ type = "editor_ready", editor =, version = }`.
 - `draw_figure`: a canvas's paths in pixels (premultiplied RGBA, the box's size), each colour as the
   host resolves it — the one rasteriser every host draws a figure with. The same figure in the same
   colours has the same `Bitmap::id`, and a figure's id is never an image's.
-- The interpreter speaks the Lua page API `2` (`pencere.version`): `pencere.rich`, `pencere.span`,
+- The interpreter speaks the Lua page API (`pencere.version`): `pencere.rich`, `pencere.span`,
   `pencere.canvas`, `pencere.path`, `pencere.keys`, the element methods `overlay`, `anchor`,
   `bg_gradient`, `max_h`, `role`, `checked`, `selected`, `expanded`, `disabled`, `value`, `command`,
   `focused`, `draggable` and `drop_target`, `layout.drag_source` and `layout.drop_target`, the drag

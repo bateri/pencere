@@ -177,7 +177,7 @@ describe("a signal while the view is up", () => {
     expect(await served).toEqual({
       kind: "closed",
       by: "signal",
-      view: { kind: "web", version: "1.0" },
+      view: { kind: "web", version: "0.1" },
     });
     expect(rig.process.kills).toEqual([]);
     expect(rig.terminal.calls).toEqual(["enter", "discard", "restore"]);
@@ -405,7 +405,7 @@ describe("the program's own signal", () => {
     expect(await served).toEqual({
       kind: "closed",
       by: "aborted",
-      view: { kind: "web", version: "1.0" },
+      view: { kind: "web", version: "0.1" },
     });
     expect(rig.terminal.calls).toEqual(["enter", "discard", "restore"]);
     expect(rig.process.kills).toEqual([]);
@@ -487,7 +487,7 @@ describe("⌃Z while the view is up", () => {
     expect(await served).toEqual({
       kind: "closed",
       by: "user",
-      view: { kind: "web", version: "1.0" },
+      view: { kind: "web", version: "0.1" },
     });
     expect(rig.terminal.calls.at(-1)).toBe("restore");
     // Only the one view was ended by the program's word; no bye was ever said.

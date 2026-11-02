@@ -8,6 +8,14 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Changed
 
+- **The kinds are `0.1`.** A Lua app is shown at `lua` `0.1`, `pencere.version` is the string
+  `"0.1"`, and a terminal that opens `lua` at another version is told so on standard error before
+  the app's fallback runs: `pencere: this program is written for lua 0.1; this terminal opens lua
+0.2; update the older of the two`. While the specification is a draft the versions of `lua` and
+  `web` are `0.x`: a change an existing view can notice moves the minor number (`0.2` after `0.1`),
+  an addition does not, and a host opens one version. A program whose version the host does not open
+  is not opened, and says so in a sentence that names both sides.
+
 - **`pencere test` counts places as a script does**: `page:select`, `page:caret_to` and the
   `anchor` and `head` of `page:editor(name).selections` are bytes of the text from 1, as
   `layout.editor_text` and an editor's events say them.
@@ -17,9 +25,8 @@ All notable changes to the `pencere` command are recorded here. The format follo
   a minute (the page asks the app for where it was); `ended = "error"` now means that was given up
   on, because the failure came twice inside the minute or the terminal did not bring the view back.
 
-- **A Lua app is shown at `lua` `2.1` alone.** `pencere.serve` no longer offers `2.0`: the kit has
-  one version of the page API until its first general release. A terminal that opens only `2.0`
-  finds no version in common.
+- **A Lua app is shown at `lua` `0.1` alone.** The kit has one version of the page API while the
+  specification is a draft. A terminal that opens another finds no version in common.
 
 ### Added
 
@@ -58,7 +65,7 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Changed
 
-- The runner shows the views of version `2.0` of the kit's page API (`lua` `2.0`).
+- The runner shows the views of the kit's page API at `lua` `0.1`.
 - `pencere.handoff` is the `pencere` library's hand-off: the same `serve` shows the view again
   instead of a new one being started, the app's loop is no longer the one that waits for the view
   to give the terminal back, and a hangup while the program has the terminal is passed on to it
@@ -67,12 +74,12 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
-- **Files with the view** (`pencere.files`, a terminal that opens `lua` 2.1): `attach` and
+- **Files with the view** (`pencere.files`, a terminal that opens `lua` 0.1): `attach` and
   `attach_data` give the view a file to draw and return its name, `detach` lets it go, `receive`
   takes a file the person gave the page by its handle (through a `.pencere-part` that is deleted when
   it is not finished), `send` writes a file to the place the person chose in the Save panel, and
   `safe_name` makes the person's name one a path can take. Each waits without holding the loop; a
-  failure is `{ code =, message = }`. Apps offer `lua` 2.1 first, and 2.0. `pencere test` plays the
+  failure is `{ code =, message = }`. Apps offer `lua` 0.1. `pencere test` plays the
   person's files: `give_files`, `drag_files_over`, `drag_files_away`, `panel`, `choose_files`,
   `choose_place`, and `test.open{ attach = { bytes } }`. The example `files-lua` shows them.
 

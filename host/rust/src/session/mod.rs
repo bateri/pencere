@@ -80,7 +80,7 @@ pub const MAX_OPEN_LINKS: usize = 8;
 
 /// The version of the bridge of a page (specification §5.5, §9.4) that this crate speaks: the
 /// version a host offers `web` at.
-pub const WEB_BRIDGE_VERSION: &str = "1.0";
+pub const WEB_BRIDGE_VERSION: &str = "0.1";
 
 /// The size of the view's container, in CSS pixels: the content area of the pane
 /// (specification §7.2).
@@ -1310,7 +1310,7 @@ impl<S: Store, E: Entropy> Session<S, E> {
         } = open;
         let web = kind == ViewKind::Web;
         let context = web.then(|| page::context_text(&self.context, &grant));
-        let files = files::Files::new(kind, &version, self.attached.clone());
+        let files = files::Files::new(kind, self.attached.clone());
         let start = ViewStart {
             kind,
             version,

@@ -96,7 +96,7 @@ export interface ViewSpec {
   kind: ViewKind;
   /**
    * The versions of the kind's interface the view is written against, in the order the program
-   * prefers them (§5.5). `["1.0"]` for a `web` view when left out; a `lua` view
+   * prefers them (§5.5). `["0.1"]` for a `web` view when left out; a `lua` view
    * has to say.
    */
   versions?: readonly string[];
@@ -1036,7 +1036,7 @@ class TerminalSession implements ViewTarget {
 
   // ---- the files beside the bundle (§8.8 to §8.10) -----------------------------
 
-  /** A view runs, its open taken and nothing being done to it, at a version that has files. */
+  /** A view runs, its open taken and nothing being done to it, of a kind that has files. */
   #hasFiles(): boolean {
     const shown = this.#shown;
     return (
@@ -1045,7 +1045,7 @@ class TerminalSession implements ViewTarget {
       this.#accepted &&
       this.#change === undefined &&
       shown !== undefined &&
-      hasFiles(shown.kind, shown.version)
+      hasFiles(shown.kind)
     );
   }
 

@@ -113,7 +113,7 @@ such as Windows, has no host as far as this library is concerned.
 
 ## Files
 
-For a view opened at `lua` 2.1 and later, `ViewControl` moves files between the person's
+For a `lua` view, `ViewControl` moves files between the person's
 machine and the program: `attach(bytes)` adds a file for the view to draw, `read(handle, offset,
 length)` reads a file the person gave the view (dropped on it, pasted, chosen in the Open panel) and
 `write(handle, offset, bytes, end)` writes to the place the person chose in the Save panel. Each is

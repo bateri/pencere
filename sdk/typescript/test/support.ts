@@ -298,11 +298,11 @@ export class Rig {
   }
 }
 
-/** The `views` of a `welcome` that opens the kinds named, each at the versions given (`web` at `1.0` by default). */
+/** The `views` of a `welcome` that opens the kinds named, each at the versions given (`web` at `0.1` by default). */
 export function offers(...kinds: (string | [string, ...string[]])[]): ViewOffer[] {
   return kinds.map((kind) =>
     typeof kind === "string"
-      ? { kind, versions: [kind === "web" ? "1.0" : "0.5"] }
+      ? { kind, versions: [kind === "web" ? "0.1" : "0.5"] }
       : { kind: kind[0], versions: kind.slice(1) },
   );
 }

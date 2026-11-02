@@ -6,7 +6,7 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ## [Unreleased]
 
-The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
+The editor of version `0.1` of the kit (`pencere:view@0.1.0`, `lua` `0.1`).
 
 ### Added
 
@@ -17,6 +17,12 @@ The editor of version `2.0` of the kit (`pencere:view@2.0.0`, `lua` `2.0`).
   pasteboard); a key the page binds to them does what the editor's own key does.
 
 ### Changed
+
+- **The kit is version `0.1`** (`pencere:view@0.1.0`, `lua` `0.1`). While the specification is a
+  draft the versions of `lua` and `web` are `0.x`: a change an existing view can notice moves the
+  minor number (`0.2` after `0.1`), an addition does not, and a host opens one version. A program
+  whose version the host does not open is not opened, and says so in a sentence that names both
+  sides.
 
 - A press in a gutter column that opens a menu (another button, or the main one with ⌃) is told to the page
   as `GutterKind::Context` and not `GutterKind::Press`, to the columns that hear `ColumnEvents::context`.

@@ -127,7 +127,7 @@ export class ViewControl {
    * view draws it by: `sha256:` and its digest. Resolves once the host holds the bytes; a file the
    * view has attached already, or that the host still holds, does not cross the stream again.
    * What is attached goes with the view. Rejects with a {@link FileError}: `unsupported` with no
-   * view that has files (`lua` 2.1 and later), the host's code when it refuses
+   * view that has files (a `lua` view), the host's code when it refuses
    * (`limit`, …), `ended` when the view ended first.
    */
   attach(data: Uint8Array): Promise<string> {

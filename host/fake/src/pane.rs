@@ -24,8 +24,8 @@ use crate::screen::{Screen, Seen};
 pub const DEVICE_ATTRIBUTES: &[u8] = b"\x1b[?62;4c";
 
 /// The version of the interface of a Lua script the terminal draws itself that the stand-in speaks:
-/// `2.1`, the one that has files beside the bundle (specification §5.5).
-pub const KIT_VERSION: &str = "2.1";
+/// `0.1`, the one version the kit has (specification §5.5).
+pub const KIT_VERSION: &str = "0.1";
 
 /// A pixel is not a cell, but the view's container is told in pixels.
 pub const CELL_WIDTH: u32 = 8;
@@ -265,10 +265,10 @@ impl Typing {
 mod tests {
     use super::*;
 
-    /// The stand-in opens a page and a Lua script at the one version the kit has until its first
-    /// general release: a program that offers only `2.0` finds nothing in common.
+    /// The stand-in opens a page and a Lua script at the one version the kit has: a program that
+    /// offers only `0.2` finds nothing in common.
     #[test]
-    fn the_stand_in_opens_lua_at_2_1_alone() {
+    fn the_stand_in_opens_lua_at_0_1_alone() {
         let config = config(pty::Size { cols: 80, rows: 24 });
         let lua: Vec<&Offer> = config
             .views
@@ -277,7 +277,7 @@ mod tests {
             .collect();
         assert_eq!(lua.len(), 1);
         assert_eq!(lua[0].versions, [KIT_VERSION]);
-        assert_eq!(KIT_VERSION, "2.1");
+        assert_eq!(KIT_VERSION, "0.1");
     }
 
     /// What a view said goes past the bound with the terminal's own bytes after it: the view's

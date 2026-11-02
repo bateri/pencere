@@ -1,6 +1,6 @@
 -- The view of files-lua: the picture its program attached, a place to drop files on, and the files
 -- received, each with a button that saves a copy of it. It is a page of the kit's page API at `lua`
--- 2.1: the person's files come as `files` events, each with a handle the page passes on to its
+-- 0.1: the person's files come as `files` events, each with a handle the page passes on to its
 -- program and draws an image by, and the Open and the Save panels are asked for in a reply to a
 -- press. The page never sees a file's bytes.
 

@@ -15,7 +15,7 @@
           "kind": "hello",
           "id": 1,
           "control": {},
-          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"0.1\"]}]}"
         }
       ],
       "errors": []
@@ -31,7 +31,7 @@
           "kind": "hello",
           "id": 1,
           "control": {},
-          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"0.1\"]}]}"
         }
       ],
       "errors": []
@@ -47,7 +47,7 @@
           "kind": "hello",
           "id": 1,
           "control": {},
-          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"lua\",\"versions\":[\"0.5\",\"0.4\"]},{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"lua\",\"versions\":[\"0.5\",\"0.4\"]},{\"kind\":\"web\",\"versions\":[\"0.1\"]}]}"
         }
       ],
       "errors": []
@@ -63,7 +63,7 @@
           "kind": "open",
           "id": 2,
           "control": {},
-          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"web\",\"version\":\"1.0\",\"program\":\"containers\",\"title\":\"Containers\",\"access\":{\"connect\":[\"https://api.example.com\"],\"permissions\":[\"clipboardWrite\"]},\"bundle\":{\"entry\":\"index.html\",\"files\":[{\"path\":\"index.html\",\"sha256\":\"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54\",\"size\":132,\"type\":\"text/html\"},{\"path\":\"app.js\",\"sha256\":\"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c\",\"size\":67,\"type\":\"text/javascript\"},{\"path\":\"style.css\",\"sha256\":\"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e\",\"size\":61,\"type\":\"text/css\"}]}}"
+          "payload": "{\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"view\":\"web\",\"version\":\"0.1\",\"program\":\"containers\",\"title\":\"Containers\",\"access\":{\"connect\":[\"https://api.example.com\"],\"permissions\":[\"clipboardWrite\"]},\"bundle\":{\"entry\":\"index.html\",\"files\":[{\"path\":\"index.html\",\"sha256\":\"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54\",\"size\":132,\"type\":\"text/html\"},{\"path\":\"app.js\",\"sha256\":\"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c\",\"size\":67,\"type\":\"text/javascript\"},{\"path\":\"style.css\",\"sha256\":\"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e\",\"size\":61,\"type\":\"text/css\"}]}}"
         }
       ],
       "errors": []
@@ -259,7 +259,7 @@
           "kind": "hello",
           "id": 1,
           "control": {},
-          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"0.1\"]}]}"
         },
         {
           "kind": "zzz",
@@ -299,7 +299,7 @@
           "control": {
             "x": "1"
           },
-          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"0.1\"]}]}"
         }
       ],
       "errors": []
@@ -484,7 +484,7 @@
           "kind": "hello",
           "id": 5,
           "control": {},
-          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"versions\":[1],\"views\":[{\"kind\":\"web\",\"versions\":[\"0.1\"]}]}"
         }
       ],
       "errors": ["abandoned"]
@@ -529,7 +529,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"0.1\"]}]}"
         }
       ],
       "errors": []
@@ -545,7 +545,7 @@
           "kind": "welcome",
           "id": 2,
           "control": {},
-          "payload": "{\"version\":1,\"token\":\"Zk3mP8rD5uYb1Xe6HqS0vg\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}],\"restart\":true}"
+          "payload": "{\"version\":1,\"token\":\"Zk3mP8rD5uYb1Xe6HqS0vg\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"0.1\"]}],\"restart\":true}"
         }
       ],
       "errors": []
@@ -563,7 +563,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\",\"stage\"],\"stage\":{\"dir\":\"/home/alice/.pencere/stage/6d0f9f1c\",\"token\":\"3f9c2a7be1d84056a9c4e7b1d2f80a65\"},\"views\":[{\"kind\":\"lua\",\"versions\":[\"2.1\"]}]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\",\"stage\"],\"stage\":{\"dir\":\"/home/alice/.pencere/stage/6d0f9f1c\",\"token\":\"3f9c2a7be1d84056a9c4e7b1d2f80a65\"},\"views\":[{\"kind\":\"lua\",\"versions\":[\"0.1\"]}]}"
         }
       ],
       "errors": []
@@ -599,7 +599,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"lua\",\"versions\":[\"0.5\",\"0.4\"]},{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"lua\",\"versions\":[\"0.5\",\"0.4\"]},{\"kind\":\"web\",\"versions\":[\"0.1\"]}]}"
         }
       ],
       "errors": []
@@ -857,7 +857,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"0.1\"]}]}"
         }
       ],
       "errors": []
@@ -875,7 +875,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"0.1\"]}]}"
         }
       ],
       "errors": []
@@ -1045,7 +1045,7 @@
     {
       "file": "to-program/welcome-opens.frame",
       "direction": "to-program",
-      "note": "the answer of a host that opens web pages at 1.0 and the interface of the kit at 1.0 to a program that listed lua at 2.0 and web at 1.0: lua is left out of views for want of a version in common, and named in opens with the version the host does open",
+      "note": "the answer of a host that opens web pages at 0.1 and the interface of the kit at 0.1 to a program that listed lua at 0.2 and web at 0.1: lua is left out of views for want of a version in common, and named in opens with the version the host does open",
       "scope": "body",
       "canonical": true,
       "messages": [
@@ -1055,7 +1055,7 @@
           "control": {
             "re": "1"
           },
-          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"1.0\"]}],\"opens\":[{\"kind\":\"lua\",\"versions\":[\"1.0\"]}]}"
+          "payload": "{\"version\":1,\"token\":\"q7Vh2sB0xJm9kLw4TzN1cA\",\"host\":{\"name\":\"pencere-test\",\"version\":\"0.0.0\"},\"features\":[\"dismiss\"],\"views\":[{\"kind\":\"web\",\"versions\":[\"0.1\"]}],\"opens\":[{\"kind\":\"lua\",\"versions\":[\"0.1\"]}]}"
         }
       ],
       "errors": []
@@ -1897,7 +1897,7 @@
           },
           {
             "kind": "web",
-            "versions": ["1.0"]
+            "versions": ["0.1"]
           }
         ]
       },
@@ -1939,7 +1939,7 @@
           },
           {
             "kind": "web",
-            "versions": ["1.0"]
+            "versions": ["0.1"]
           }
         ]
       },
@@ -2725,11 +2725,11 @@
         "views": [
           {
             "kind": "lua",
-            "versions": ["1.0"]
+            "versions": ["0.1"]
           },
           {
             "kind": "web",
-            "versions": ["1.0"]
+            "versions": ["0.1"]
           }
         ]
       },
@@ -2951,7 +2951,7 @@
     },
     {
       "name": "attach-files",
-      "note": "a program attaches two files to its lua 2.1 view: the host asks for both, keeps the one that is what its digest says and refuses the other in a second need, sends nothing for a file already attached, forgets one at detach, attaches it again from its store without asking for it, and refuses a file over 8 MiB for the limit",
+      "note": "a program attaches two files to its lua view: the host asks for both, keeps the one that is what its digest says and refuses the other in a second need, sends nothing for a file already attached, forgets one at detach, attaches it again from its store without asking for it, and refuses a file over 8 MiB for the limit",
       "config": {
         "host": {
           "name": "pencere-test",
@@ -2962,7 +2962,7 @@
         "views": [
           {
             "kind": "lua",
-            "versions": ["2.0", "2.1"]
+            "versions": ["0.1"]
           }
         ]
       },
@@ -3033,20 +3033,14 @@
     },
     {
       "name": "attach-without-files",
-      "note": "an attach while no view runs, and one to a view opened at lua 2.0, which has no files beside its bundle, are answered with every digest refused for view",
+      "note": "an attach while no view runs, and one to a page, which has no files beside its bundle, are answered with every digest refused for view",
       "config": {
         "host": {
           "name": "pencere-test",
           "version": "0.0.0"
         },
         "tokens": ["q7Vh2sB0xJm9kLw4TzN1cA"],
-        "store": ["ef637abb8c8f9fe8f2156cb68d0243c868cb75775ea98f8c43de85fcf3fc9c24"],
-        "views": [
-          {
-            "kind": "lua",
-            "versions": ["2.0", "2.1"]
-          }
-        ]
+        "store": ["83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea"]
       },
       "steps": [
         {
@@ -3090,7 +3084,7 @@
         "views": [
           {
             "kind": "lua",
-            "versions": ["2.1"]
+            "versions": ["0.1"]
           }
         ]
       },
@@ -3219,7 +3213,7 @@
         "views": [
           {
             "kind": "lua",
-            "versions": ["2.0", "2.1"]
+            "versions": ["0.1"]
           }
         ]
       },
@@ -3378,7 +3372,7 @@
         "views": [
           {
             "kind": "lua",
-            "versions": ["2.1"]
+            "versions": ["0.1"]
           }
         ]
       },
@@ -3655,7 +3649,7 @@
         "views": [
           {
             "kind": "lua",
-            "versions": ["2.1"]
+            "versions": ["0.1"]
           }
         ]
       },
@@ -3899,7 +3893,7 @@
         "views": [
           {
             "kind": "lua",
-            "versions": ["2.1"]
+            "versions": ["0.1"]
           }
         ]
       },
@@ -4002,7 +3996,7 @@
         "views": [
           {
             "kind": "lua",
-            "versions": ["2.1"]
+            "versions": ["0.1"]
           }
         ]
       },
@@ -4069,11 +4063,11 @@
         "views": [
           {
             "kind": "web",
-            "versions": ["1.0"]
+            "versions": ["0.1"]
           },
           {
             "kind": "lua",
-            "versions": ["2.1"]
+            "versions": ["0.1"]
           }
         ]
       },

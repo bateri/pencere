@@ -458,9 +458,9 @@ fn a_reopening_while_the_command_has_the_terminal_is_the_view_that_comes_back() 
     let page = Bundle::single("page.lua", &b"return {}"[..]).expect("a bundle");
     let reopening = {
         let control = control.clone();
-        asking(move || control.reopen(Some(vec![View::new(Kind::Lua, &["2.0"], page)])))
+        asking(move || control.reopen(Some(vec![View::new(Kind::Lua, &["0.1"], page)])))
     };
-    let lua = json!([{ "kind": "lua", "versions": ["2.0"] }]);
+    let lua = json!([{ "kind": "lua", "versions": ["0.1"] }]);
     let open = shown_again(&mut pane, &lua);
     let body = json_of(&open);
     assert_eq!(body["view"], "lua");

@@ -29,7 +29,7 @@
 /// (`page.room`); it does not ask again and again, and it is not closed for being fast. What the
 /// program says to the page is held to what the page has taken (the program's own `write` slows
 /// down), so a page is never handed more than it can read.
-package pencere:view@3.0.0;
+package pencere:view@0.1.0;
 
 interface types {
     /// A name for an element, so that what is kept about it between frames (a scroll position,

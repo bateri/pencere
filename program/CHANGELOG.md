@@ -8,6 +8,14 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Changed
 
+- **The kinds are `0.1`.** `Kind::Web` is offered at `0.1` (`WEB_VERSION`), and a Lua app's page at
+  `lua` `0.1`. While the specification is a draft the versions of `lua` and `web` are `0.x`: a
+  change an existing view can notice moves the minor number (`0.2` after `0.1`), an addition does
+  not, and a host opens one version. A program whose version the host does not open is not opened,
+  and says so in a sentence that names both sides. The sentence a program says then ends with
+  `update the older of the two`. **Breaking:** a view has files beside its bundle by its kind
+  (`lua`), not by a version number.
+
 - **A view that fails is shown again, not the end of `serve`.** The terminal's `closed`
   with `reason` `error` and `code` `view` (a page that trapped, went over a limit or made an error)
   no longer ends the program: `serve` forgets the view and asks for it again, silently and with the
@@ -18,8 +26,8 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   with another `code`, and a failure while a reopening, a closing or a hand-off is under way, are as
   they were. A Lua app, which runs on this library, gets it with no change.
 
-- **`pencere::serve` offers a Lua app at `lua` `2.1` alone.** The kit has one version of the page
-  API until its first general release, so `2.0` is no longer in the list.
+- **`pencere::serve` offers a Lua app at `lua` `0.1` alone.** The kit has one version of the page
+  API while the specification is a draft.
 
 ### Added
 
@@ -34,9 +42,9 @@ All notable changes to the `pencere` crate are recorded here. The format follows
   (`Error::Options`): the names are the protocol's (specification §9.2), and a `Conversation` never
   asks a handler for one.
 - `Options::retry_window`: how long a view that fell is left alone before it is shown again.
-- An app's page of the kit (`pencere::app!`, `App::views`) is offered at `lua` 2.1 as well as 2.0,
-  as the `pencere` command's Lua apps are, preferring 2.1: a Rust program's page can draw a picture
-  the program attached (`sha256:`) and a file the person gave (`file:`), which 2.0 does not name.
+- An app's page of the kit (`pencere::app!`, `App::views`) is offered at `lua` 0.1,
+  as the `pencere` command's Lua apps are: a Rust program's page can draw a picture the program
+  attached (`sha256:`) and a file the person gave (`file:`).
 - `ViewControl::receive_from` receives a file the person gave by copying it from the path the
   terminal handed the view, when the view passes the path on with the size: a terminal hands a path
   only where the program reads the same files as the person, and then not a byte of the file crosses
@@ -69,12 +77,12 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Changed
 
-- A Lua app's page is offered as `lua` `2.0`, the version of the kit's page API it is now written
+- A Lua app's page is offered as `lua` `0.1`, the version of the kit's page API it is written
   against.
 
 ### Added
 
-- **Files beside the view's bundle** (specification §8.8 to §8.10), for a view opened at `lua` `2.1`.
+- **Files beside the view's bundle** (specification §8.8 to §8.10), for a view opened at `lua` `0.1`.
   `ViewControl::attach` (and `attach_file`) adds a file for the view to
   draw and returns the name it draws it by (`sha256:` and the digest of the bytes sent), once the
   terminal holds it; a file attached already, or still in the terminal's store, does not cross

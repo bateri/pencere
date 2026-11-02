@@ -308,9 +308,10 @@ describe("with no host", () => {
       const { served } = await start(
         rig,
         { fallback: (why) => void fallbacks.push(why) },
-        { views: [], opens: [{ kind: "web", versions: ["2.0", "2.1"] }] },
+        { views: [], opens: [{ kind: "web", versions: ["0.2", "0.3"] }] },
       );
-      const words = "this program is written for web 1.0; this terminal opens web 2.0 or 2.1";
+      const words =
+        "this program is written for web 0.1; this terminal opens web 0.2 or 0.3; update the older of the two";
       expect(await served).toEqual({ kind: "no-view", reason: "no-common-view", message: words });
       expect(written).toEqual([`pencere: ${words}\n`]);
       // The words come before the fallback, which has them as well.
@@ -419,9 +420,9 @@ describe("the open", () => {
       { views: offers(["lua", "0.4", "0.5"], "web") },
     );
     const open = await rig.next("open");
-    expect(JSON.parse(open.payload)).toMatchObject({ view: "web", version: "1.0" });
+    expect(JSON.parse(open.payload)).toMatchObject({ view: "web", version: "0.1" });
     rig.say("closed", closed("user"));
-    expect(await served).toMatchObject({ view: { kind: "web", version: "1.0" } });
+    expect(await served).toMatchObject({ view: { kind: "web", version: "0.1" } });
   });
 
   it("opens a page without the access of a kit view, and a kit view without any", async () => {
@@ -561,7 +562,7 @@ describe("the files", () => {
 });
 
 describe("when the host ends the view", () => {
-  const view = { kind: "web", version: "1.0" };
+  const view = { kind: "web", version: "0.1" };
 
   it("takes the person closing it as the view's end, gives the terminal back, and says no bye", async () => {
     const rig = new Rig();
@@ -783,7 +784,7 @@ describe("the result", () => {
     const { served } = await shown(rig);
     rig.say("closed", closed("user"));
     const result: ServeResult = await served;
-    expect(result).toEqual({ kind: "closed", by: "user", view: { kind: "web", version: "1.0" } });
+    expect(result).toEqual({ kind: "closed", by: "user", view: { kind: "web", version: "0.1" } });
   });
 
   it("names a kit view by its kind and the version chosen", async () => {

@@ -34,10 +34,8 @@
 -- given, so a page, and a module of the library, can neither read nor change it.
 local internal = ...
 
--- The major number of the page API (2.1 adds the files beside the bundle to 2.0: the `files`,
--- `files_over`, `files_left` and `saving` events, the `pick` and `save` of a reply, images named
--- `sha256:` and `file:`).
-pencere.version = 2
+-- The version of the page API, a string (`kit/SPEC.md`, Section 1).
+pencere.version = "0.1"
 
 -- A number as the engine holds it, in single precision. The engine measures and draws in
 -- single precision, and a page that adds up highlights or sizes in doubles can come to a

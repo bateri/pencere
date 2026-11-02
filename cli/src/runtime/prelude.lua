@@ -390,10 +390,10 @@ local function moved(start)
 	return result
 end
 
--- files: what a view of `lua` 2.1 (a terminal that has files beside the bundle) moves with its app.
+-- files: what a view of `lua` (a terminal that has files beside the bundle) moves with its app.
 -- Each waits, as process.run does, and so runs in the app, in a call of the view or in a callback,
--- once the view is up: before the terminal took the view's open they fail with `unsupported`, as
--- they do on a terminal that opens only `lua` 2.0. A failure is `{ code =, message = }`: the
+-- once the view is up: before the terminal took the view's open they fail with `unsupported`.
+-- A failure is `{ code =, message = }`: the
 -- terminal's code (`limit`, `gone`, `order`, …), `ended` when the view ended first, `io` when a file
 -- of this machine could not be read or written.
 --

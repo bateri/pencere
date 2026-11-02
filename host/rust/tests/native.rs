@@ -35,7 +35,7 @@ const KIT: &str = "0.5";
 /// The versions the tests' hosts speak of a kind, and a program lists of it.
 fn versions(kind: ViewKind) -> &'static [&'static str] {
     match kind {
-        ViewKind::Web => &["1.0"],
+        ViewKind::Web => &["0.1"],
         _ => &[KIT],
     }
 }
@@ -382,14 +382,14 @@ fn the_end_of_a_view_tells_the_program_why() {
 #[test]
 fn a_welcome_says_the_versions_a_kind_opens_at_when_the_program_speaks_none_of_them() {
     let mut rig = rig(&[ViewKind::Lua, ViewKind::Web]);
-    // The program speaks lua 9.9 and web 1.0: the host opens lua, at 0.5 only.
+    // The program speaks lua 9.9 and web 0.1: the host opens lua, at 0.5 only.
     let welcome = rig.hello_with(&json!([
         {"kind": "lua", "versions": ["9.9"]},
-        {"kind": "web", "versions": ["1.0"]},
+        {"kind": "web", "versions": ["0.1"]},
     ]));
     assert_eq!(
         welcome["views"],
-        json!([{"kind": "web", "versions": ["1.0"]}])
+        json!([{"kind": "web", "versions": ["0.1"]}])
     );
     // Only a kind the host opens is named, with the versions it opens, in its own order; `web` is
     // shared.
@@ -408,7 +408,7 @@ fn a_hello_nested_128_levels_deep_is_not_one_and_a_hello_at_127_is() {
     // member nobody reads counts as well (specification §4.5).
     let hello = |levels: usize| {
         format!(
-            r#"{{"versions":[1],"views":[{{"kind":"web","versions":["1.0"]}}],"x":{}{}}}"#,
+            r#"{{"versions":[1],"views":[{{"kind":"web","versions":["0.1"]}}],"x":{}{}}}"#,
             "[".repeat(levels - 1),
             "]".repeat(levels - 1)
         )
@@ -465,9 +465,9 @@ fn what_a_view_says_is_its_own_kind_of_write_and_the_bound_is_asked_before_it_is
 #[test]
 fn the_bytes_of_a_file_the_person_gave_go_to_the_program_as_the_views_words_do() {
     // A view whose interface has files beside its bundle (specification §5.5).
-    let mut rig = Rig::with(kit_config(&[(ViewKind::Lua, &["2.1"])]));
-    rig.hello_with(&json!([{"kind": "lua", "versions": ["2.1"]}]));
-    open(&mut rig, SCRIPT.len() as u64, &json!({"version": "2.1"}));
+    let mut rig = Rig::with(kit_config(&[(ViewKind::Lua, &["0.1"])]));
+    rig.hello_with(&json!([{"kind": "lua", "versions": ["0.1"]}]));
+    open(&mut rig, SCRIPT.len() as u64, &json!({"version": "0.1"}));
     rig.take();
     file(&mut rig);
     rig.take();
@@ -491,15 +491,35 @@ fn the_bytes_of_a_file_the_person_gave_go_to_the_program_as_the_views_words_do()
     );
 }
 
-/// A view of `lua` 2.1 that is up, its script's file sent.
+/// A view of `lua` that is up, its script's file sent.
 fn up_with_files() -> Rig {
-    let mut rig = Rig::with(kit_config(&[(ViewKind::Lua, &["2.1"])]));
-    rig.hello_with(&json!([{"kind": "lua", "versions": ["2.1"]}]));
-    open(&mut rig, SCRIPT.len() as u64, &json!({"version": "2.1"}));
+    let mut rig = Rig::with(kit_config(&[(ViewKind::Lua, &["0.1"])]));
+    rig.hello_with(&json!([{"kind": "lua", "versions": ["0.1"]}]));
+    open(&mut rig, SCRIPT.len() as u64, &json!({"version": "0.1"}));
     rig.take();
     file(&mut rig);
     rig.take();
     rig
+}
+
+#[test]
+fn a_view_of_lua_at_0_1_has_files_and_a_page_has_none() {
+    assert!(pencere_host::session::has_files(ViewKind::Lua));
+    assert!(!pencere_host::session::has_files(ViewKind::Web));
+    // A view that is up at `lua` `0.1` answers a handle's read, which a view with no files would
+    // not (`the_bytes_of_a_file_the_person_gave_go_to_the_program_as_the_views_words_do` goes on
+    // from there).
+    let mut rig = up_with_files();
+    let handle = rig
+        .host
+        .grant_file(&FileGrant { size: 3 })
+        .expect("a view of lua 0.1 takes a file the person gave");
+    rig.json("read", &json!({"handle": handle, "offset": 0, "length": 3}));
+    let (_, acted) = rig.take();
+    assert!(
+        matches!(acted.as_slice(), [Action::ReadFile { .. }]),
+        "{acted:?}"
+    );
 }
 
 #[test]
@@ -629,9 +649,9 @@ fn nothing_attached_is_in_the_table_once_the_view_is_over_however_it_ended() {
 
 #[test]
 fn a_view_without_files_has_an_empty_table_even_if_the_program_attaches() {
-    let mut rig = rig(&[ViewKind::Lua, ViewKind::Web]);
+    let mut rig = Rig::new();
     let table = rig.host.attached_files();
-    up(&mut rig, &json!({}));
+    rig.up_web(None);
     let name = attach(&mut rig, b"a picture");
     assert_eq!(read_elsewhere(&table, &name), None);
     assert_eq!(rig.host.attached(&name), None);
@@ -732,7 +752,7 @@ fn a_web_open_needs_its_bundle_like_any_other() {
     hello(&mut rig);
     rig.json(
         "open",
-        &json!({ "token": TOKEN, "view": "web", "version": "1.0" }),
+        &json!({ "token": TOKEN, "view": "web", "version": "0.1" }),
     );
     assert_eq!(refusal(&mut rig), "manifest");
 }
@@ -765,7 +785,7 @@ fn a_program_that_still_lists_the_removed_wasm_kind_has_it_left_out_like_any_unk
     let welcome = rig.hello_with(&json!([
         {"kind": "wasm", "versions": ["3.0"]},
         {"kind": "lua", "versions": [KIT]},
-        {"kind": "web", "versions": ["1.0"]},
+        {"kind": "web", "versions": ["0.1"]},
     ]));
     assert_eq!(welcome["views"], offers(&[ViewKind::Lua, ViewKind::Web]));
     assert!(welcome.get("opens").is_none(), "{welcome}");
@@ -782,20 +802,20 @@ fn a_program_that_still_lists_the_removed_wasm_kind_has_it_left_out_like_any_unk
 #[test]
 fn a_program_that_lists_lua_2_0_finds_no_version_in_common_with_a_host_that_opens_2_1() {
     let mut rig = Rig::with(kit_config(&[
-        (ViewKind::Lua, &["2.1"]),
-        (ViewKind::Web, &["1.0"]),
+        (ViewKind::Lua, &["0.1"]),
+        (ViewKind::Web, &["0.1"]),
     ]));
     let welcome = rig.hello_with(&json!([
-        {"kind": "lua", "versions": ["2.0"]},
-        {"kind": "web", "versions": ["1.0"]},
+        {"kind": "lua", "versions": ["0.2"]},
+        {"kind": "web", "versions": ["0.1"]},
     ]));
     assert_eq!(
         welcome["views"],
-        json!([{"kind": "web", "versions": ["1.0"]}])
+        json!([{"kind": "web", "versions": ["0.1"]}])
     );
     assert_eq!(
         welcome["opens"],
-        json!([{"kind": "lua", "versions": ["2.1"]}])
+        json!([{"kind": "lua", "versions": ["0.1"]}])
     );
 }
 
@@ -871,7 +891,7 @@ fn an_open_has_to_name_a_kind_and_a_version_the_welcome_offered() {
         ),
         (
             &["lua"],
-            json!({ "view": "web", "version": "1.0", "bundle": page }),
+            json!({ "view": "web", "version": "0.1", "bundle": page }),
         ),
         (
             &["web"],
@@ -907,8 +927,8 @@ fn a_bundle_whose_entry_is_not_what_the_view_says_is_refused_and_the_host_infers
     for (view, version, bundle) in [
         ("lua", KIT, Some(html_for_a_script.clone())),
         ("lua", KIT, None),
-        ("web", "1.0", Some(script_for_a_page.clone())),
-        ("web", "1.0", None),
+        ("web", "0.1", Some(script_for_a_page.clone())),
+        ("web", "0.1", None),
     ] {
         let mut rig = rig(&[ViewKind::Lua, ViewKind::Web]);
         hello(&mut rig);
@@ -938,7 +958,7 @@ fn a_bundle_whose_entry_is_not_what_the_view_says_is_refused_and_the_host_infers
 #[test]
 fn a_restart_offers_every_kind_the_host_opens_in_its_own_order_with_every_version() {
     let mut config =
-        common::kit_config(&[(ViewKind::Lua, &["0.5", "0.4"]), (ViewKind::Web, &["1.0"])]);
+        common::kit_config(&[(ViewKind::Lua, &["0.5", "0.4"]), (ViewKind::Web, &["0.1"])]);
     // A kind listed twice counts once, at its first place.
     config
         .views
@@ -956,7 +976,7 @@ fn a_restart_offers_every_kind_the_host_opens_in_its_own_order_with_every_versio
         welcome["views"],
         json!([
             {"kind": "lua", "versions": ["0.5", "0.4"]},
-            {"kind": "web", "versions": ["1.0"]},
+            {"kind": "web", "versions": ["0.1"]},
         ])
     );
     // A program opens what it likes of them with the new token, at any of the versions.

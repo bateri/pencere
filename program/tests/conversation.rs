@@ -70,7 +70,7 @@ fn a_program_goes_from_the_hello_to_the_interrupt_and_leaves_the_tty_as_it_found
     let open_body: Value = serde_json::from_str(&open.payload).expect("JSON");
     assert_eq!(open_body["token"], TOKEN);
     assert_eq!(open_body["view"], "web");
-    assert_eq!(open_body["version"], "1.0");
+    assert_eq!(open_body["version"], "0.1");
     assert_eq!(open_body["program"], "test");
     assert_eq!(open_body["bundle"]["entry"], "index.html");
 
@@ -177,7 +177,7 @@ fn a_program_goes_from_the_hello_to_the_interrupt_and_leaves_the_tty_as_it_found
     };
     assert_eq!(closed.by, EndedBy::Signal(libc::SIGINT));
     assert_eq!(closed.view.kind, Kind::Web);
-    assert_eq!(closed.view.version, "1.0");
+    assert_eq!(closed.view.version, "0.1");
     assert_eq!(
         Outcome::Closed(closed).shell_status(),
         130,
@@ -374,7 +374,7 @@ fn a_host_that_opens_the_kind_in_other_versions_says_which_in_words() {
             "host": { "name": "t", "version": "0" },
             "features": ["dismiss"],
             "views": [],
-            "opens": [{ "kind": "web", "versions": ["2.0", "2.1"] }],
+            "opens": [{ "kind": "web", "versions": ["0.2", "0.3"] }],
         }),
     );
     pane.write_raw(REPLY);
@@ -382,7 +382,10 @@ fn a_host_that_opens_the_kind_in_other_versions_says_which_in_words() {
     assert_eq!(no_view.reason, NoViewReason::NoCommonView);
     assert_eq!(
         no_view.message.as_deref(),
-        Some("this program is written for web 1.0; this terminal opens web 2.0 or 2.1")
+        Some(
+            "this program is written for web 0.1; this terminal opens web 0.2 or 0.3; \
+             update the older of the two"
+        )
     );
     assert!(!pane.text().contains("pencere;open"));
 }
@@ -738,7 +741,7 @@ fn the_program_opens_the_first_of_its_kinds_the_terminal_lists_at_a_version_both
         body["views"],
         json!([
             { "kind": "lua", "versions": ["0.5", "0.4"] },
-            { "kind": "web", "versions": ["1.0"] },
+            { "kind": "web", "versions": ["0.1"] },
         ])
     );
     // The terminal draws pages and has an older interface of scripts: the program's first kind
@@ -747,7 +750,7 @@ fn the_program_opens_the_first_of_its_kinds_the_terminal_lists_at_a_version_both
         hello.id,
         TOKEN,
         &json!([
-            { "kind": "web", "versions": ["1.0"] },
+            { "kind": "web", "versions": ["0.1"] },
             { "kind": "lua", "versions": ["0.4"] },
         ]),
     );
@@ -764,6 +767,61 @@ fn the_program_opens_the_first_of_its_kinds_the_terminal_lists_at_a_version_both
     };
     assert_eq!(closed.view.kind, Kind::Lua);
     assert_eq!(closed.view.version, "0.4");
+}
+
+#[test]
+fn a_view_of_lua_at_0_1_has_files_beside_its_bundle_and_a_page_has_none() {
+    let _one = one_at_a_time();
+    // A page: the helper answers at once and nothing is sent to the terminal.
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let handle = serve_on(pane.terminal(), move |options| options.control(given));
+    shown(&mut pane);
+    assert!(matches!(
+        control.attach(&b"a picture"[..]),
+        Err(pencere::FileError::Unsupported)
+    ));
+    pane.send("closed", None, &json!({ "reason": "user" }));
+    finished(handle);
+    drop(pane);
+
+    // A script at 0.1: the attach goes to the terminal, which takes the file.
+    let mut pane = Pane::new();
+    let control = ViewControl::new();
+    let given = control.clone();
+    let handle = std::thread::spawn({
+        let terminal = pane.terminal();
+        move || {
+            let script = Bundle::single("view.lua", &b"return {}\n"[..]).expect("a bundle");
+            pencere::serve(
+                Options::new()
+                    .view(View::new(Kind::Lua, &["0.1"], script))
+                    .control(given)
+                    .terminal(terminal),
+            )
+        }
+    });
+    let hello = pane.expect("hello");
+    pane.welcome(
+        hello.id,
+        TOKEN,
+        &json!([{ "kind": "lua", "versions": ["0.1"] }]),
+    );
+    let open = pane.expect("open");
+    let body: Value = serde_json::from_str(&open.payload).expect("JSON");
+    assert_eq!(body["version"], "0.1");
+    pane.send("need", Some(open.id), &json!({ "missing": [] }));
+    let attaching = {
+        let control = control.clone();
+        asking(move || control.attach(&b"a picture"[..]))
+    };
+    let attach = pane.expect("attach");
+    pane.send("need", Some(attach.id), &json!({ "missing": [] }));
+    let name = joined(attaching).expect("a view of lua 0.1 takes an attached file");
+    assert!(name.starts_with("sha256:"), "{name}");
+    pane.send("closed", None, &json!({ "reason": "user" }));
+    finished(handle);
 }
 
 #[test]
@@ -827,7 +885,7 @@ fn a_panic_of_the_program_gives_the_terminal_back() {
             // The files of the view cannot be made: the panic happens on the thread of the
             // loop, with the terminal taken.
             let view =
-                View::per_version(Kind::Web, &["1.0"], |_version| panic!("the files are gone"));
+                View::per_version(Kind::Web, &["0.1"], |_version| panic!("the files are gone"));
             pencere::serve(Options::new().view(view).terminal(terminal))
         }
     });
@@ -886,7 +944,7 @@ fn what_a_program_offers_is_checked_before_the_terminal_is_touched() {
     // A page is not a script.
     let error = pencere::serve(
         Options::new()
-            .view(View::new(Kind::Lua, &["1.0"], page()))
+            .view(View::new(Kind::Lua, &["0.1"], page()))
             .terminal(pane.terminal()),
     )
     .expect_err("a page is not a script");

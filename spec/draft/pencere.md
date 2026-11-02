@@ -149,7 +149,7 @@ a terminator in this protocol and does not occur in a frame (Section 4.2).
 prefix; a payload may contain `;`.
 
 ```frame fixtures/to-host/hello.frame
-<ESC>_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"web","versions":["0.1"]}]}<ESC>\
 ```
 
 ### 4.2 Character set
@@ -277,7 +277,7 @@ sender MUST NOT write one. A receiver drops it as it drops a text that is not JS
 two receivers need build a tree to agree on what a message is (Section 9.3).
 
 ```frame fixtures/to-program/welcome.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["0.1"]}]}<ESC>\
 ```
 
 ### 4.6 Limits
@@ -436,14 +436,14 @@ an empty list is a list: the program speaks no version that the host does, and t
 with `supported` (Section 5.2). A kind that is listed twice counts once, at its first place.
 
 ```frame fixtures/to-host/hello-fence.frame
-<ESC>_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"web","versions":["0.1"]}]}<ESC>\
 <ESC>[c
 ```
 
 A program that can show two kinds, one of them in two versions:
 
 ```frame fixtures/to-host/hello-views.frame
-<ESC>_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"lua","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"lua","versions":["0.5","0.4"]},{"kind":"web","versions":["0.1"]}]}<ESC>\
 ```
 
 ### 5.2 The answer
@@ -468,7 +468,7 @@ that lists `stage` says where its folder on the program's machine is in `stage`,
 the feature, or the feature without a `stage` that is well formed, is no offer.
 
 ```frame fixtures/to-program/welcome-stage.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss","stage"],"stage":{"dir":"/home/alice/.pencere/stage/6d0f9f1c","token":"3f9c2a7be1d84056a9c4e7b1d2f80a65"},"views":[{"kind":"lua","versions":["2.1"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss","stage"],"stage":{"dir":"/home/alice/.pencere/stage/6d0f9f1c","token":"3f9c2a7be1d84056a9c4e7b1d2f80a65"},"views":[{"kind":"lua","versions":["0.1"]}]}<ESC>\
 ```
 
 `views` lists what the host will open: the kinds of the `hello` and, for each, the versions of its
@@ -490,22 +490,23 @@ never names a kind the host will not open. It is for people and for the program'
 changes nothing about which kinds the program may open (`views` alone does that), and a program that
 finds nothing to open in `views` but a kind in `opens` SHOULD say so in words that name both sides
 (Section 5.3). A restart `welcome` (Section 10.7) lists every version the host speaks in `views`, so it
-has no `opens`. The answer of a host that opens web pages at `1.0` and the kit's interface at `1.0`
-to a program that listed `lua` at `2.0` and `web` at `1.0`:
+has no `opens`. The answer of a host that opens web pages at `0.1` and the kit's interface at `0.1`
+to a program that listed `lua` at `0.2` and `web` at `0.1`:
 
 ```frame fixtures/to-program/welcome-opens.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}],"opens":[{"kind":"lua","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["0.1"]}],"opens":[{"kind":"lua","versions":["0.1"]}]}<ESC>\
 ```
 
 ```frame fixtures/session/handshake/02-out.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["0.1"]}]}<ESC>\
 ```
 
 ```frame fixtures/to-program/welcome-versions.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"lua","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"lua","versions":["0.5","0.4"]},{"kind":"web","versions":["0.1"]}]}<ESC>\
 ```
 
-The host in this example opens `lua` at `0.4` and `0.5` and `web` at `1.0`; the program's `hello`
+The host in this example opens `lua` at `0.4` and `0.5` and `web` at `0.1` (made-up versions, so that
+the example shows several at once; a host of this draft opens one version of a kind, Section 5.4); the program's `hello`
 (`session/several-versions`) listed `lua` at `0.6`, `0.5` and `0.4`, and `web`. The version
 `0.6` is left out because the host does not speak it, and the two
 versions of `lua` that remain are in the program's order, not the host's.
@@ -535,16 +536,16 @@ a shell as typed text.
 
 A program that falls back because `views` is empty, and finds in `opens` a kind it listed, SHOULD
 say what would have served before its fallback runs, in a sentence that names the kind and the
-versions of both sides, for instance `this program is written for lua 2.0; this terminal opens lua
-1.0`; the libraries of this repository print it on the program's standard error as
-`pencere: <sentence>`. A program that finds nothing in `opens` says nothing of the kind: the host
+versions of both sides and tells the person to update the older of the two, for instance `this program
+is written for lua 0.2; this terminal opens lua 0.1; update the older of the two`; the libraries of
+this repository print it on the program's standard error as `pencere: <sentence>`. A program that finds nothing in `opens` says nothing of the kind: the host
 does not open what it lists, or there is no host.
 
 A `welcome` is only believed when the program has sent a `hello` and
 the `welcome` answers it; an unsolicited `welcome` is handled by Section 10.7 or ignored.
 
 ```frame fixtures/to-program/noise.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["0.1"]}]}<ESC>\
 <ESC>[?62;4cls<CR>
 ```
 
@@ -563,18 +564,33 @@ change of the wire is a new version with new fixtures.
 The versions of a kind (Section 5.5) are another thing and do not move with this one: they are the
 versions of the interface a view of that kind is written against.
 
-The versions of the kit view (`lua`, Section 5.5) follow one rule, **from the first general release
-of this document on**. Until then none of it is applied: the kit changes without a new number, and
-a draft opens `lua` at one version. The number of `lua` is that of the page API of the global
-`pencere`, and the libraries the host brings with it (`@pencere/*`, `kit/SPEC.md`) are a part of that
-API and follow the same rule.
+The versions of the kinds `lua` and `web` (Section 5.5) follow one rule while this document is a
+draft and another from its first general release on. The number of `lua` is that of the page API
+of the global `pencere`, and the libraries the host brings with it (`@pencere/*`, `kit/SPEC.md`) are a
+part of that API and follow the same rule.
 
-- A change that no existing view can notice is a new **minor** version, `2.2` after `2.1`: a new
+**While this document is a draft,** the versions of `lua` and `web` are `0.x`.
+
+- A change that an existing view can notice moves the minor number: `0.2` after `0.1`. A function
+  that means something else, a member or a message that is renamed or dropped, and a behaviour
+  that is not what it was are such changes.
+- An addition does not move it: a new function, a new element, a new colour role, a new optional
+  member of a message. A script or a page that uses something a later version added asks first
+  whether it exists (`if pencere.x then`).
+- A host opens one version of a kind, the one it has, and an `open` of any other is refused as
+  `unsupported` (Section 6.4). A program whose version the host does not open is not opened: the
+  host names the version it does open in `opens` (Section 5.2) and the program says so in a
+  sentence (Section 5.3).
+
+**From the first general release of this document on,** a version is `1.0` at first, a host may open
+several versions of a kind, and the numbers move by these rules:
+
+- A change that no existing view can notice is a new **minor** version, `1.1` after `1.0`: a new
   function, a new element, a new colour role. A minor version only adds.
 - A host opens every published minor version of a major (Section 5.5), and the newest major
-  together with the one before it. A host that has stopped opening a version refuses an `open` for
+  together with the one before. A host that has stopped opening a version refuses an `open` for
   it as `unsupported` (Section 6.4).
-- A new **major** version, `3.0` after `2.1`, comes only when a function of the page API has to mean
+- A new **major** version, `2.0` after `1.1`, comes only when a function of the page API has to mean
   something else and a new name cannot do it. A new element or a new role is an addition for a
   script, not a reason for a major version.
 - Every change is one of two sorts: one that applies to every view (a fix of security, of a limit
@@ -584,7 +600,7 @@ API and follow the same rule.
 - A script that uses something a later version added asks first whether it exists
   (`if pencere.x then`).
 
-A program whose `hello` listed a version the host stopped opening finds out from `opens` (Section
+A program whose `hello` listed a version the host does not open finds out from `opens` (Section
 5.2), and its library says so in words that name both sides (Section 5.3).
 
 A program MAY send `hello` again at any time; each answered `hello` gets a new
@@ -597,10 +613,10 @@ from the files of a bundle. A **kind** of view is named by a string in a closed 
 document defines, and each kind has **versions**, which name the interface a view of that kind is
 written against:
 
-| Name  | The view                                                                                                         | What its version names                                                                     |
-| ----- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `lua` | A script in the Lua language that the host runs, with an interpreter of its own, in a sandbox, and draws itself. | The Lua page API of the kit, the global `pencere` (`pencere.version` is the major number). |
-| `web` | A web page, shown in a web view of the host's.                                                                   | The bridge of Section 9.4 between the page and its host: now `1.0`.                        |
+| Name  | The view                                                                                                         | What its version names                                                                          |
+| ----- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `lua` | A script in the Lua language that the host runs, with an interpreter of its own, in a sandbox, and draws itself. | The Lua page API of the kit, the global `pencere` (`pencere.version` is the version, a string). |
+| `web` | A web page, shown in a web view of the host's.                                                                   | The bridge of Section 9.4 between the page and its host: now `0.1`.                             |
 
 A version is a string of two numbers, `major.minor`, such as `0.5`:
 
@@ -610,19 +626,16 @@ number  = "0" / ( %x31-39 *8DIGIT )
 ```
 
 Versions are compared for equality and for nothing else; the order of a list is the preference of
-whoever wrote it. What a version means is the interface's. For the kit, `lua` `2.1` is the
-page API whose `pencere.version` is `2` (it has, among what `2.0` added to `1.0`, the editors of
-text of Section 9.8, and `2.1` added the files beside the bundle of Sections 8.8 to 8.10); the
-rule that moves the numbers is in Section 5.4, and a host that updates its kit offers the new major
-version and the one before (while this document is a draft, the libraries of this repository offer
-`lua` `2.1` alone). The examples in this document use made-up versions (`0.4`, `0.5`,
-`0.6`) so that they show several at once. For `web`, a change that only adds an optional member to a message of Section 9.4 moves the
-minor number, and one that renames or drops a member or a message moves the major. A host MAY open
-several versions of a kind — a host that updates its kit offers the one it now has and the one
-before — and the program chooses among those both speak (Section 5.2).
+whoever wrote it. What a version means is the interface's. For the kit, `lua` `0.1` is the page API
+whose `pencere.version` is the string `"0.1"`; the rule that moves the numbers is in Section 5.4.
+The examples in this document use made-up versions (`0.4`, `0.5`, `0.6`) so that they show several
+at once, which a host of this draft does not open. For `web`, a change to a message of Section 9.4
+that an existing page can notice moves the minor number, and an optional member added to a message
+does not. While this document is a draft a host opens one version of a kind; from its first general
+release on it MAY open several, and the program chooses among those both speak (Section 5.2).
 
-A host does not compare versions for "newer" or "older"; it **lists every version it accepts**. A
-host that speaks `M.n` of a kind and accepts the earlier minor versions of the same major, as
+A host does not compare versions for "newer" or "older"; it **lists every version it accepts**. From
+the first general release on, a host that speaks `M.n` of a kind and accepts the earlier minor versions of the same major, as
 every host of the kit should (a minor version only adds, Section 5.4), lists each of them (`M.0`
 up to `M.n`) and opens each; a program written against `M.k` and not `M.n` is then opened under
 `M.k`, the version it was written for. No rule makes `1.2` stand in for `1.0`: if `1.0` is not
@@ -638,12 +651,10 @@ The kind `lua` is the **kit view**, the view the host draws itself (Section 9.8)
 has a script for an entry and no document. The kind `web` is a page and has an HTML
 document for an entry; it is the one kind that reaches the host with messages of its own (Section 9.4).
 
-The interface from `lua` `2.1` on has **files beside the bundle** (Sections 8.8 to
-8.10): a host that lists it speaks `attach`, `detach`, `read` and `write`, and a program
-learns that it may send them from the version it opened, not from a feature of the `welcome`. (This
-is what that version means, not an order of versions: a host still lists each version it opens.)
-Every other view, a page and a kit view at an earlier version, has none, and the host answers those
-messages as Sections 8.8 to 8.10 say it does when no view runs. The host's folder (Section 8.11) is
+The kind `lua` has **files beside the bundle** (Sections 8.8 to 8.10): a host that opens it
+speaks `attach`, `detach`, `read` and `write`, and a program learns that it may send them from the
+kind it opened, not from a feature of the `welcome` and not from a version. A page has none, and the
+host answers those messages as Sections 8.8 to 8.10 say it does when no view runs. The host's folder (Section 8.11) is
 a feature, not a version: whether a host can reach the program's machine does not depend on the
 interface of a view. A program uses it for the files of the views that have files.
 
@@ -671,7 +682,7 @@ program in the background — can send `hello` but cannot read the answer, so it
 cannot open a view (Section 14).
 
 ```frame fixtures/session/token-single-use/05-in.frame
-<ESC>_pencere;open;id=3;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"1.0","program":"containers","title":"Containers","access":{"connect":["https://api.example.com"],"permissions":["clipboardWrite"]},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}]}}<ESC>\
+<ESC>_pencere;open;id=3;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"0.1","program":"containers","title":"Containers","access":{"connect":["https://api.example.com"],"permissions":["clipboardWrite"]},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}]}}<ESC>\
 ```
 
 The session in the fixtures `session/token-single-use` shows this `open` refused:
@@ -742,7 +753,7 @@ counted as they are written, whether or not they are origins, and a host MAY enf
 `open` whose `access` goes over a bound is refused with `limit` (Section 6.4).
 
 ```frame fixtures/to-host/open-web.frame
-<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"1.0","program":"containers","title":"Containers","access":{"connect":["https://api.example.com"],"permissions":["clipboardWrite"]},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}]}}<ESC>\
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"0.1","program":"containers","title":"Containers","access":{"connect":["https://api.example.com"],"permissions":["clipboardWrite"]},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}]}}<ESC>\
 ```
 
 The `open` of a view the host draws itself is the same without `access`:
@@ -793,7 +804,7 @@ spent, as for any refusal), and the program that switches to the alternate scree
 new `hello`. The `open` of the session `screen-refused`, and the answer to it:
 
 ```frame fixtures/session/screen-refused/05-in.frame
-<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"1.0","bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea","size":66,"type":"text/html"}]}}<ESC>\
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"0.1","bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea","size":66,"type":"text/html"}]}}<ESC>\
 ```
 
 ```frame fixtures/session/screen-refused/06-out.frame
@@ -892,7 +903,7 @@ for the sum of the sizes. These are constants of the protocol, like the message
 limits; a host MAY enforce lower ones and then refuses with `limit`.
 
 ```frame fixtures/to-host/open-web.frame
-<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"1.0","program":"containers","title":"Containers","access":{"connect":["https://api.example.com"],"permissions":["clipboardWrite"]},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}]}}<ESC>\
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"0.1","program":"containers","title":"Containers","access":{"connect":["https://api.example.com"],"permissions":["clipboardWrite"]},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}]}}<ESC>\
 ```
 
 ### 8.3 What is missing
@@ -1468,7 +1479,7 @@ agrees on what a message is without building a tree. A sender MUST NOT write one
 
 A page cannot reach the host except through the web platform's message channel, and the host's end
 of that channel is the page's bridge. Sections 9.4 to 9.7 are what the kind `web` means, and its version,
-**`1.0`**, is the version of the interface a page is written against (Section 5.5). The kit views
+**`0.1`**, is the version of the interface a page is written against (Section 5.5). The kit views
 have their own section, 9.8.
 
 The page sends a message to the host with `postMessage` to the window that embeds it, and receives
@@ -1602,9 +1613,9 @@ the page API of the global `pencere`, and it is not part of this document:
 `kit/SPEC.md` in this repository describes the page API (the
 elements, the colour strings, the functions), and the prelude it is written in (`kit/luau/prelude`)
 is normative with it. The language is **Luau at the release the kit pins**
-(`0.740` for `lua` `2.x`, `kit/luau/pins`) with the library the interpreter exposes: a script
-that uses syntax a later Luau added is not a `lua` `2.x` script, and such syntax arrives with a
-minor version of `lua` that raises Luau (Section 5.4). A host MUST run the kit's own interpreter
+(`0.740` for `lua` `0.1`, `kit/luau/pins`) with the library the interpreter exposes: a script
+that uses syntax a later Luau added is not a `lua` `0.1` script, and such syntax arrives with a
+new version of `lua` that raises Luau (Section 5.4). A host MUST run the kit's own interpreter
 component (`kit/sandbox/luau/luau.wasm`) rather than another Luau, so that a script means one thing
 on every host. The script is source text: a host does not load compiled code from a program.
 The entry is the script, and it MAY `require` the other files of its bundle whose media type is
@@ -1680,7 +1691,7 @@ reply, and the view fails; a change, a load or decorations that would take a doc
 past what it may hold, or that are made against a version older than the last 1 024, are refused by
 the editor, which tells the view why and does none of it (`kit/SPEC.md`, Section 2.3).
 
-**Editors.** A kit view of version `2.0` may hold editors of text (`kit/SPEC.md`, Section 2.1): rooms
+**Editors.** A kit view may hold editors of text (`kit/SPEC.md`, Section 2.1): rooms
 in which the host puts an editor of its own, which keeps the document, its carets and selections,
 undoing and what the system's input method composes, lays out and draws the lines, and scrolls them
 as it scrolls a box. The view is told what changed, by version, where the carets are and the lines in
@@ -1956,7 +1967,7 @@ open, SHOULD apply the checks of Section 6.2, and gives up if no `open` arrives
 in a time of its choosing.
 
 ```frame fixtures/to-program/welcome-restart.frame
-<ESC>_pencere;welcome;id=2;{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}],"restart":true}<ESC>\
+<ESC>_pencere;welcome;id=2;{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["0.1"]}],"restart":true}<ESC>\
 ```
 
 A running view that the host restarts is torn down at once and without a `closed` (Section 10.2, step
@@ -1964,11 +1975,11 @@ A running view that the host restarts is torn down at once and without a `closed
 offer and what becomes of the token the view had, which is no more:
 
 ```frame fixtures/session/restart/06-out.frame
-<ESC>_pencere;welcome;id=3;{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}],"restart":true}<ESC>\
+<ESC>_pencere;welcome;id=3;{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["0.1"]}],"restart":true}<ESC>\
 ```
 
 ```frame fixtures/session/restart/07-in.frame
-<ESC>_pencere;open;id=3;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"1.0","bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea","size":66,"type":"text/html"}]}}<ESC>\
+<ESC>_pencere;open;id=3;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"0.1","bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea","size":66,"type":"text/html"}]}}<ESC>\
 ```
 
 ```frame fixtures/session/restart/08-out.frame
@@ -1978,7 +1989,7 @@ offer and what becomes of the token the view had, which is no more:
 and of the `open` with the new token:
 
 ```frame fixtures/session/restart/09-in.frame
-<ESC>_pencere;open;id=4;{"token":"Zk3mP8rD5uYb1Xe6HqS0vg","view":"web","version":"1.0","bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea","size":66,"type":"text/html"}]}}<ESC>\
+<ESC>_pencere;open;id=4;{"token":"Zk3mP8rD5uYb1Xe6HqS0vg","view":"web","version":"0.1","bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"83b177a33228866c079d766c12c4b743f8ec7576ea9558264617992720d123ea","size":66,"type":"text/html"}]}}<ESC>\
 ```
 
 ```frame fixtures/session/restart/10-out.frame
@@ -2542,21 +2553,21 @@ messages left out are skipped.
 1. The program puts the tty in non-canonical mode, writes `hello` and the fence:
 
 ```frame fixtures/to-host/hello-fence.frame
-<ESC>_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"web","versions":["0.1"]}]}<ESC>\
 <ESC>[c
 ```
 
 2. The host answers before it answers `CSI c`:
 
 ```frame fixtures/to-program/welcome.frame
-<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["1.0"]}]}<ESC>\
+<ESC>_pencere;welcome;id=1,re=1;{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"pencere-test","version":"0.0.0"},"features":["dismiss"],"views":[{"kind":"web","versions":["0.1"]}]}<ESC>\
 ```
 
 3. The program switches to the alternate screen and opens its view with the token, the kind and its
    version, its names, what the page asks to reach, and the manifest:
 
 ```frame fixtures/to-host/open-web.frame
-<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"1.0","program":"containers","title":"Containers","access":{"connect":["https://api.example.com"],"permissions":["clipboardWrite"]},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}]}}<ESC>\
+<ESC>_pencere;open;id=2;{"token":"q7Vh2sB0xJm9kLw4TzN1cA","view":"web","version":"0.1","program":"containers","title":"Containers","access":{"connect":["https://api.example.com"],"permissions":["clipboardWrite"]},"bundle":{"entry":"index.html","files":[{"path":"index.html","sha256":"aeba6c19a632d2153a9e336a88b385d438c474a996d5be1408f6cd2ca6898e54","size":132,"type":"text/html"},{"path":"app.js","sha256":"bcc81d22a717681517bc99bbad72438377e02c19583fae67522475fd8b3ca62c","size":67,"type":"text/javascript"},{"path":"style.css","sha256":"72735d03f2b7e5a9ddb8ebe1c5fde2da88aa74292ba7ac608490a94f0ebbac0e","size":61,"type":"text/css"}]}}<ESC>\
 ```
 
 4. The host names what it lacks:

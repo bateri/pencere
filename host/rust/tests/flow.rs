@@ -147,7 +147,7 @@ fn appendix_c_is_this_conversation_byte_for_byte() {
     let actions = host.take_actions();
     let start = started(&actions).unwrap();
     assert_eq!(start.kind, ViewKind::Web);
-    assert_eq!(start.version, "1.0");
+    assert_eq!(start.version, "0.1");
     assert_eq!(
         start.context.as_deref(),
         Some(text_of("bridge/context.json").as_str())
@@ -178,26 +178,26 @@ fn appendix_c_is_this_conversation_byte_for_byte() {
 
 #[test]
 fn a_welcome_offers_each_kind_at_the_versions_both_speak_in_the_programs_order() {
-    let config = common::kit_config(&[(ViewKind::Lua, &["0.4", "0.5"]), (ViewKind::Web, &["1.0"])]);
+    let config = common::kit_config(&[(ViewKind::Lua, &["0.4", "0.5"]), (ViewKind::Web, &["0.1"])]);
     let mut rig = Rig::with(config);
     let welcome = rig.hello_with(&json!([
         {"kind": "lua", "versions": ["0.6", "0.5", "0.5", "0.4"]},
         {"kind": "gopher", "versions": ["1.0"]},
-        {"kind": "web", "versions": ["1.0", "0.9"]},
+        {"kind": "web", "versions": ["0.1", "0.9"]},
         {"kind": "lua", "versions": ["0.4"]},
     ]));
     assert_eq!(
         welcome["views"],
         json!([
             {"kind": "lua", "versions": ["0.5", "0.4"]},
-            {"kind": "web", "versions": ["1.0"]},
+            {"kind": "web", "versions": ["0.1"]},
         ])
     );
     // A kind listed twice counts once, at its first place, whatever the second says.
     let mut rig = Rig::new();
     let welcome = rig.hello_with(&json!([
         {"kind": "web", "versions": ["0.9"]},
-        {"kind": "web", "versions": ["1.0"]},
+        {"kind": "web", "versions": ["0.1"]},
     ]));
     assert_eq!(welcome["views"], json!([]));
     assert!(welcome["token"].is_string());
@@ -209,7 +209,7 @@ fn a_welcome_offers_each_kind_at_the_versions_both_speak_in_the_programs_order()
 #[test]
 fn a_hello_gets_a_new_token_and_is_answered_only_when_the_pane_looks_as_a_waiting_program_leaves_it()
  {
-    let hello = r#"{"versions":[1],"views":[{"kind":"web","versions":["1.0"]}]}"#;
+    let hello = r#"{"versions":[1],"views":[{"kind":"web","versions":["0.1"]}]}"#;
     // Hello after hello: the first token is worthless.
     let mut rig = Rig::new();
     let first = rig.hello();
@@ -291,7 +291,7 @@ fn a_hello_gets_a_new_token_and_is_answered_only_when_the_pane_looks_as_a_waitin
         "hello",
         None,
         None,
-        r#"{"versions":[2,3],"views":[{"kind":"web","versions":["1.0"]}]}"#,
+        r#"{"versions":[2,3],"views":[{"kind":"web","versions":["0.1"]}]}"#,
     );
     let (wrote, _) = rig.take();
     assert_eq!(
@@ -465,7 +465,7 @@ fn what_cannot_be_answered_is_refused_with_a_code_in_the_order_of_the_specificat
     // `unsupported`: a kind the table has not got, or the welcome did not list, and a version
     // of a kind that it listed which it did not.
     assert_eq!(refused_with(|b| b["view"] = json!("gopher")), "unsupported");
-    assert_eq!(refused_with(|b| b["version"] = json!("1.1")), "unsupported");
+    assert_eq!(refused_with(|b| b["version"] = json!("0.2")), "unsupported");
     assert_eq!(refused_with(|b| b["version"] = json!("")), "unsupported");
     // The checks that come first win: an `access` of the wrong shape is a `manifest` even for a
     // version nobody speaks, and so is a missing bundle for a kind nobody opens.
@@ -535,7 +535,7 @@ fn a_page_that_asks_for_nothing_starts_at_once_with_the_restrictive_policy() {
     let mut rig = Rig::new();
     let start = rig.up_web(None);
     assert_eq!(start.kind, ViewKind::Web);
-    assert_eq!(start.version, "1.0");
+    assert_eq!(start.version, "0.1");
     assert_eq!(start.policy, sandbox::DEFAULT_POLICY);
     assert_eq!(start.allow, "");
     assert!(start.grant.is_empty());
@@ -963,7 +963,7 @@ fn a_store_that_forgets_between_the_need_and_the_end_fails_the_open_rather_than_
         &mut host,
         "hello",
         None,
-        r#"{"versions":[1],"views":[{"kind":"web","versions":["1.0"]}]}"#,
+        r#"{"versions":[1],"views":[{"kind":"web","versions":["0.1"]}]}"#,
     );
     send(
         &mut host,
@@ -1059,7 +1059,7 @@ fn a_bye_ends_the_view_only_with_the_token_that_opened_it() {
         "hello",
         None,
         None,
-        r#"{"versions":[1],"views":[{"kind":"web","versions":["1.0"]}]}"#,
+        r#"{"versions":[1],"views":[{"kind":"web","versions":["0.1"]}]}"#,
     );
     assert_eq!(rig.take().0.len(), 1);
     assert_eq!(rig.host.state(), State::Offered);
@@ -1152,7 +1152,7 @@ fn a_dismiss_closes_the_view_and_the_program_is_told_once_it_is_gone() {
 fn a_host_that_does_not_offer_dismiss_lists_no_feature_and_keeps_the_view() {
     let mut rig = Rig::new();
     rig.host.offer_dismiss(false);
-    let welcome = rig.hello_with(&json!([{"kind": "web", "versions": ["1.0"]}]));
+    let welcome = rig.hello_with(&json!([{"kind": "web", "versions": ["0.1"]}]));
     // No feature to list: the member is left out, as an empty one is.
     assert!(
         welcome["features"]
@@ -1247,7 +1247,7 @@ fn a_restart_while_a_view_runs_closes_it_at_once_without_telling_the_program_it_
     let body: Value = serde_json::from_str(&wrote[0].payload).unwrap();
     assert_eq!(body["restart"], true);
     assert_eq!(wrote[0].re(), None);
-    assert_eq!(body["views"], json!([{"kind": "web", "versions": ["1.0"]}]));
+    assert_eq!(body["views"], json!([{"kind": "web", "versions": ["0.1"]}]));
     assert_eq!(rig.host.state(), State::Offered);
     // The offer expires when the wait the host chose does.
     rig.host.timed_out();
@@ -1282,7 +1282,7 @@ fn the_ids_of_what_the_host_writes_count_up_by_one_across_every_kind() {
         "hello",
         None,
         None,
-        r#"{"versions":[1],"views":[{"kind":"web","versions":["1.0"]}]}"#,
+        r#"{"versions":[1],"views":[{"kind":"web","versions":["0.1"]}]}"#,
     );
     rig2.json("open", &open_web(TOKENS[0], None, json!({})));
     rig2.send_files();

@@ -19,7 +19,9 @@ use pencere_host::bundle::MemoryStore;
 use pencere_host::frame::{Direction, Event, Message, StreamDecoder};
 use pencere_host::icon::{Icon, IconTheme};
 use pencere_host::sandbox::Grant;
-use pencere_host::session::{Action, FetchError, Session, StageError, State, ViewStart};
+use pencere_host::session::{
+    Action, FetchError, Offer, Session, StageError, State, ViewKind, ViewStart,
+};
 use serde_json::Value;
 
 use crate::args::{Args, Ask, Gestures, Then};
@@ -100,7 +102,12 @@ impl Host {
         };
         // A terminal that draws views itself opens them as bundles like pages; the stand-in
         // accepts the two kinds and plays their page as a script, with nothing drawn.
-        let mut session = Session::new(pane::config(size), store, pane::entropy(urandom));
+        let mut config = pane::config(size);
+        if let Some(version) = &args.kit_version {
+            config.views.retain(|offer| offer.kind != ViewKind::Lua);
+            config.views.push(Offer::new(ViewKind::Lua, &[version]));
+        }
+        let mut session = Session::new(config, store, pane::entropy(urandom));
         session.offer_dismiss(args.dismiss);
         let stage = match &args.stage {
             Some(dir) => {
@@ -880,7 +887,7 @@ fn base64_length(text: &str) -> usize {
     (text.len() / 4 * 3).saturating_sub(padding)
 }
 
-/// The kinds of view a `welcome` lists, with their versions: `web@1.0`.
+/// The kinds of view a `welcome` lists, with their versions: `web@0.1`.
 fn offered(payload: &Value) -> String {
     let list: Vec<String> = payload
         .get("views")

@@ -32,7 +32,7 @@ export const ENTRY_TYPES: Readonly<Record<ViewKind, string>> = {
 };
 
 /** The version of the bridge of a page that this library's `web` views are written against (§9.4). */
-export const WEB_VERSION = "1.0";
+export const WEB_VERSION = "0.1";
 
 /** A version of a kind's interface: `major.minor` (§5.5). */
 const VERSION = /^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$/;
@@ -338,8 +338,9 @@ export function chooseView(
 
 /**
  * The sentence for a program whose host opens kinds of its list, but not in the versions it
- * speaks (§5.2): the versions of those kinds that it is written for, and those the host opens.
- * `undefined` when the host named no such kind.
+ * speaks (§5.2): the versions of those kinds that it is written for, those the host opens, and what
+ * the person does about it: updates the older of the two. `undefined` when the host named no such
+ * kind.
  */
 export function noVersionSentence(
   mine: readonly ViewOffer[],
@@ -354,7 +355,7 @@ export function noVersionSentence(
     held.push(`${view.kind} ${host.versions.join(" or ")}`);
   }
   if (wanted.length === 0) return undefined;
-  return `this program is written for ${wanted.join(", ")}; this terminal opens ${held.join(", ")}`;
+  return `this program is written for ${wanted.join(", ")}; this terminal opens ${held.join(", ")}; update the older of the two`;
 }
 
 /** Reads a `need`: the digests the host lacks, in its order. */

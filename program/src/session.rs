@@ -1089,8 +1089,8 @@ impl Session<'_> {
 
     // ---- closing the view at the program's request (§10.8) --------------------------
 
-    /// A view runs, its open taken and nothing being done to it, at a version that has files
-    /// beside its bundle (§5.5).
+    /// A view runs, its open taken and nothing being done to it, of a kind that has files beside
+    /// its bundle (§5.5).
     fn has_files(&self) -> bool {
         matches!(self.phase, Phase::Showing)
             && self.live
@@ -1099,7 +1099,7 @@ impl Session<'_> {
             && self
                 .shown
                 .as_ref()
-                .is_some_and(|shown| files::has_files(shown.kind, &shown.version))
+                .is_some_and(|shown| files::has_files(shown.kind))
     }
 
     /// The program asks to close its view, or to show another in its place, or for a file.

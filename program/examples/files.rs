@@ -26,7 +26,7 @@ use serde_json::{Value, json};
 const SCRIPT: &[u8] = b"return { render = function() end }";
 
 /// The version of a Lua page that has files beside its bundle.
-const VERSION: &str = "2.1";
+const VERSION: &str = "0.1";
 
 /// The view has been shown again once.
 static REOPENED: AtomicBool = AtomicBool::new(false);

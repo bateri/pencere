@@ -311,17 +311,17 @@ fn a_program_goes_from_the_capability_query_to_the_interrupt() {
         // The host looked at the tty before it answered (§6.2): the SDK had made
         // it non-canonical with echo off.
         "host: sees the tty: canonical=false echo=false",
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@1.0",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@0.1",
         // The answer to the question comes before the reply to `CSI c` (§5.2).
         "host: answers CSI c",
         "screen: alternate screen on",
-        r#"program: open id=2 view=web version=1.0 title="Containers" bundle of 3 files"#,
+        r#"program: open id=2 view=web version=0.1 title="Containers" bundle of 3 files"#,
         "host: need id=2 re=2 missing=3",
         "program: file",
         "program: file",
         "program: file",
         "view: started from the bundle: entry index.html, 3 files",
-        "view: kind=web version=1.0",
+        "view: kind=web version=0.1",
         // What the strip above the view says: the program's words for the view and for
         // itself, and its icon, a PNG in a `data:` URI.
         r#"view: title="Containers" program="containers""#,
@@ -683,8 +683,8 @@ fn a_program_closes_its_view_shows_another_and_another_and_closes_that_one_and_g
     let run = run_program("reopen.mjs", &["--call", "show"]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@1.0",
-        "program: open id=2 view=web version=1.0 bundle of 2 files",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@0.1",
+        "program: open id=2 view=web version=0.1 bundle of 2 files",
         "host: need id=2 re=2 missing=2",
         "program: file",
         "program: file",
@@ -703,7 +703,7 @@ fn a_program_closes_its_view_shows_another_and_another_and_closes_that_one_and_g
         // crosses the stream again, the one that did not does not.
         "program: hello id=",
         "host: welcome id=* re=* version=1 with a token",
-        "program: open id=* view=web version=1.0 bundle of 2 files",
+        "program: open id=* view=web version=0.1 bundle of 2 files",
         "host: need id=* re=* missing=1",
         "program: file",
         "view: started from the bundle: entry index.html, 2 files",
@@ -714,7 +714,7 @@ fn a_program_closes_its_view_shows_another_and_another_and_closes_that_one_and_g
         // Shown again as it was: the host holds all of it.
         "program: hello id=",
         "host: welcome id=* re=* version=1 with a token",
-        "program: open id=* view=web version=1.0 bundle of 2 files",
+        "program: open id=* view=web version=0.1 bundle of 2 files",
         "host: need id=* re=* missing=0",
         "view: started from the bundle: entry index.html, 2 files",
         "view: -> call id=1 show",
@@ -762,7 +762,7 @@ fn a_program_that_has_its_view_shown_again_after_it_answered_is_waited_for() {
         "view: destroyed",
         "host: closed id=* re=* reason=program",
         "program: hello id=",
-        r#"program: open id=* view=web version=1.0 title="Containers" bundle of 3 files"#,
+        r#"program: open id=* view=web version=0.1 title="Containers" bundle of 3 files"#,
         // The terminal held the files: nothing crossed the stream again.
         "host: need id=* re=* missing=0",
         "view: -> call id=1 reload",
@@ -781,7 +781,7 @@ fn a_host_that_does_not_close_views_for_the_program_does_not_list_dismiss() {
     let run = run_containers(&["--no-dismiss", "--call", "reload", "--then", "interrupt"]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=* re=* version=1 with a token features= views=web@1.0",
+        "host: welcome id=* re=* version=1 with a token features= views=web@0.1",
         "view: -> call id=1 reload",
         // The program asks to show its view again, and is told the terminal cannot close it.
         r#"view: <- response id=1 result={"reloads":1}"#,
@@ -824,15 +824,15 @@ fn the_host_that_starts_the_view_again_gets_it_asked_for_again() {
     let run = run_containers(&["--call", "list", "--then", "restart"]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        r#"program: open id=2 view=web version=1.0 title="Containers" bundle of 3 files"#,
+        r#"program: open id=2 view=web version=0.1 title="Containers" bundle of 3 files"#,
         "view: -> call id=1 list",
         "view: <- response id=1 result=",
         "host: starts the view again, as after a reconnection",
         "view: destroyed",
         // No `hello` asked: the host offers again, with every version it speaks, and the
         // program that has a view open opens it again.
-        "host: welcome id=* version=1 with a token (restart) features=dismiss views=web@1.0",
-        r#"program: open id=* view=web version=1.0 title="Containers" bundle of 3 files"#,
+        "host: welcome id=* version=1 with a token (restart) features=dismiss views=web@0.1",
+        r#"program: open id=* view=web version=0.1 title="Containers" bundle of 3 files"#,
         "host: need id=* re=* missing=0",
         "view: -> call id=1 list",
         "view: <- response id=1 result=",
@@ -853,7 +853,7 @@ fn the_question_to_the_person_names_the_program_and_refusing_it_leaves_the_page_
     let run = run_program("access.mjs", &["--call", "show", "--then", "interrupt"]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        r#"program: open id=2 view=web version=1.0 title="Show it" bundle of 1 files with access"#,
+        r#"program: open id=2 view=web version=0.1 title="Show it" bundle of 1 files with access"#,
         "host: need id=2 re=2 missing=1",
         "program: file",
         // The words the program has for itself and for its view; the question names no one else.
@@ -963,11 +963,11 @@ fn forger(name: &str, with_raw_tty: bool) -> Run {
     fs::write(
         &script,
         format!(
-            r#"{stty}printf '\033_pencere;hello;id=1;{{"versions":[1],"views":[{{"kind":"web","versions":["1.0"]}}]}}\033\\'
+            r#"{stty}printf '\033_pencere;hello;id=1;{{"versions":[1],"views":[{{"kind":"web","versions":["0.1"]}}]}}\033\\'
 printf '\033[c'
 sleep 0.3
 printf '\033[?1049h'
-printf '\033_pencere;open;id=2;{{"token":"AAAAAAAAAAAAAAAAAAAAAA","view":"web","version":"1.0","title":"x\\u001b[2J"}}\033\\'
+printf '\033_pencere;open;id=2;{{"token":"AAAAAAAAAAAAAAAAAAAAAA","view":"web","version":"0.1","title":"x\\u001b[2J"}}\033\\'
 sleep 0.3
 "#
         ),
@@ -987,7 +987,7 @@ fn a_program_that_cannot_read_the_answer_cannot_open_a_view() {
         "host: welcome id=1 re=1 version=1 with a token",
         // The view's title has an escape in it; the record writes it out and does
         // not put it on the person's terminal.
-        r#"program: open id=2 view=web version=1.0 title="x\u{1b}[2J" without a bundle"#,
+        r#"program: open id=2 view=web version=0.1 title="x\u{1b}[2J" without a bundle"#,
         "reason=refused code=token",
     ]);
     assert!(!run.text().contains('\u{1b}'), "{:?}", run.text());
@@ -1021,7 +1021,7 @@ fn the_answer_to_hello_comes_before_the_reply_to_csi_c() {
     fs::write(
         &script,
         r#"stty -icanon -echo min 0 time 5
-printf '\033_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"web","versions":["1.0"]}]}\033\\'
+printf '\033_pencere;hello;id=1;{"versions":[1],"views":[{"kind":"web","versions":["0.1"]}]}\033\\'
 printf '\033[c'
 dd bs=512 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n'
 "#,
@@ -1146,7 +1146,7 @@ fn a_filter_asks_for_its_view_on_the_terminal_and_writes_what_was_chosen_to_the_
         "program: hello id=1",
         "host: sees the tty: canonical=false echo=false",
         "screen: alternate screen on",
-        r#"program: open id=2 view=web version=1.0 title="Choose rows" bundle of 1 files"#,
+        r#"program: open id=2 view=web version=0.1 title="Choose rows" bundle of 1 files"#,
         "view: -> call id=1 rows",
         "view: -> call id=2 choose",
         // The program answers the call before it closes the view, so the view hears
@@ -1251,7 +1251,7 @@ fn a_lua_filter_shows_its_view_on_the_terminal_and_writes_what_was_chosen_to_the
         "program: hello id=1",
         "host: sees the tty: canonical=false echo=false",
         "screen: alternate screen on",
-        "program: open id=2 view=lua version=2.1",
+        "program: open id=2 view=lua version=0.1",
         "view: -> call id=1 rows",
         "view: -> call id=2 choose",
         // The program answers the call before it closes the view, so the view hears that the
@@ -1331,6 +1331,45 @@ fn a_lua_app_whose_terminal_goes_away_still_does_what_it_does_after_its_view() {
     );
 }
 
+/// A Lua app that shows a page and says what it shows when there is nothing to show.
+const LUA_WITH_A_FALLBACK: &str = r#"
+local pencere = require("pencere")
+pencere.serve {
+	page = "page.lua",
+	fallback = function(why) print("fallback: " .. why.reason) end,
+}
+"#;
+
+#[test]
+fn a_lua_app_whose_terminal_opens_another_version_tells_the_person_which_to_update() {
+    // The terminal opens `lua` at 0.2 and the app, written for 0.1, is not opened: the person reads
+    // what each side speaks and what to do, on the screen the app was given back, before the app's
+    // own fallback.
+    let dir = fresh("lua-other-version");
+    let source = dir.join("app");
+    fs::create_dir_all(&source).expect("a directory");
+    fs::write(source.join("app.lua"), LUA_WITH_A_FALLBACK).expect("an app");
+    fs::write(
+        source.join("page.lua"),
+        "return { render = function() return {} end }\n",
+    )
+    .expect("a page");
+    let app = dir.join("other");
+    let (status, said) = pencere(&dir, &["build", "app", "-o", &app.to_string_lossy()]);
+    assert!(status.success(), "pencere build: {said}");
+    let run = run(&["--kit-version", "0.2"], &[&app.to_string_lossy()]);
+    assert!(run.status.success(), "{}", run.text());
+    run.never("program: open");
+    let sentence = "pencere: this program is written for lua 0.1; this terminal opens lua 0.2; update the older of the two";
+    let at = run
+        .output_has(sentence)
+        .unwrap_or_else(|| panic!("the person is not told:\n{}", run.text()));
+    let fallback = run
+        .output_has("fallback: no-common-view")
+        .expect("the fallback ran");
+    assert!(at < fallback, "the sentence comes before the fallback");
+}
+
 // ---- the example, on each runtime and as one executable ------------------------------------
 
 /// The size of a file the page would fetch: the files of the view, and the module that is the
@@ -1347,8 +1386,8 @@ fn example_file_size(name: &str) -> u64 {
 fn check_the_example_opens_answers_a_call_and_pushes_to_its_page(run: &Run) {
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@1.0",
-        r#"program: open id=2 view=web version=1.0 title="Containers" bundle of 4 files"#,
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@0.1",
+        r#"program: open id=2 view=web version=0.1 title="Containers" bundle of 4 files"#,
         "host: need id=2 re=2 missing=4",
         "view: started from the bundle: entry index.html, 4 files",
         // What the strip above the view says, and the icon.
@@ -1492,15 +1531,15 @@ fn the_rust_example_opens_answers_a_call_and_pushes_to_its_page() {
         // The host looked at the tty before it answered (§6.2): the library had made it
         // non-canonical with echo off.
         "host: sees the tty: canonical=false echo=false",
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@0.1",
         // The answer to the question comes before the reply to `CSI c` (§5.2).
         "host: answers CSI c",
         "screen: alternate screen on",
-        r#"program: open id=2 view=lua version=2.1 title="Containers" bundle of 1 files"#,
+        r#"program: open id=2 view=lua version=0.1 title="Containers" bundle of 1 files"#,
         "host: need id=2 re=2 missing=1",
         "program: file",
         "view: started from the bundle: entry containers.lua, 1 files",
-        "view: kind=lua version=2.1",
+        "view: kind=lua version=0.1",
         // What the strip above the view says: the program's words for the view and for itself.
         r#"view: title="Containers" program="containers-rust""#,
         // The program pushes the use of the running containers as soon as it is asked.
@@ -1566,7 +1605,7 @@ fn a_lua_view_asks_to_open_a_link_as_a_page_does_and_its_program_never_hears_of_
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "view: kind=lua version=2.1",
+        "view: kind=lua version=0.1",
         "view: -> link https://example.com/docs",
         "view: -> link file:///etc/passwd",
         "view: -> call id=1 nobody",
@@ -1615,7 +1654,7 @@ fn the_rust_example_is_asked_for_its_view_again_by_a_host_that_starts_it_again()
     let run = run_rust_example(&["--subscribe", "stats", "--then", "restart"], &[]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@0.1",
         "program: open id=2 view=lua",
         "view: -> subscribe id=1 stats",
         "host: starts the view again, as after a reconnection",
@@ -1804,7 +1843,7 @@ fn a_program_stopped_by_ctrl_z_gives_the_terminal_back_and_shows_its_view_again_
         "program: hello id=*",
         "host: sees the tty: canonical=false echo=false",
         "screen: alternate screen on",
-        r#"program: open id=* view=web version=1.0 title="Suspend""#,
+        r#"program: open id=* view=web version=0.1 title="Suspend""#,
         "view: started from the bundle",
         // The page is shown again and calls `suspend` once more, which ends the program with SIGINT.
         "view: -> call id=1 suspend",
@@ -2048,15 +2087,15 @@ fn the_built_lua_app_opens_its_view_answers_calls_and_feeds_its_page_until_the_i
     run.in_order(&[
         "program: hello id=1",
         "host: sees the tty: canonical=false echo=false",
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@0.1",
         "host: answers CSI c",
         "screen: alternate screen on",
-        r#"program: open id=2 view=lua version=2.1 title="Containers" bundle of 5 files"#,
+        r#"program: open id=2 view=lua version=0.1 title="Containers" bundle of 5 files"#,
         "host: need id=2 re=2 missing=5",
         "program: file",
         "view: started from the bundle: entry page.lua, 5 files",
         "view: fetched assets/box.svg image/svg+xml",
-        "view: kind=lua version=2.1",
+        "view: kind=lua version=0.1",
         r#"view: title="Containers" program="containers-lua""#,
         "view: icons png 64x64",
         "view: -> subscribe id=1 stats",
@@ -2144,7 +2183,7 @@ fn an_app_made_by_new_and_built_is_a_program_that_shows_a_view() {
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        r#"program: open id=2 view=lua version=2.1 title="greeter" bundle of 2 files"#,
+        r#"program: open id=2 view=lua version=0.1 title="greeter" bundle of 2 files"#,
         "view: -> subscribe id=1 clock",
         "program: msg id=* push=1",
         r#"view: <- push id=1 value={"now":"#,
@@ -2186,8 +2225,8 @@ fn an_app_whose_page_is_several_files_sends_all_of_them_as_scripts_of_the_view()
     // The page, the two scripts it requires and the picture of the template: the paths are the
     // ones the page writes, relative to the page's own directory, and the scripts are typed as one.
     run.in_order(&[
-        r#"program: open id=2 view=lua version=2.1 title="split" bundle of 4 files"#,
-        "view: kind=lua version=2.1",
+        r#"program: open id=2 view=lua version=0.1 title="split" bundle of 4 files"#,
+        "view: kind=lua version=0.1",
     ]);
     for (path, text) in [("screens/logs.lua", logs), ("parts/init.luau", parts)] {
         let wanted = format!("view: fetched {path} text/x-lua {} bytes", text.len());
@@ -2219,7 +2258,7 @@ fn pencere_dev_shows_the_view_again_and_not_the_app_when_a_script_the_page_requi
         ],
         &[&command, "dev", &directory.to_string_lossy()],
         vec![(
-            "view: kind=lua version=2.1",
+            "view: kind=lua version=0.1",
             Box::new(move || {
                 fs::write(&edited, "return { edited = true }\n").expect("the script is written");
             }),
@@ -2227,13 +2266,13 @@ fn pencere_dev_shows_the_view_again_and_not_the_app_when_a_script_the_page_requi
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "program: open id=2 view=lua version=2.1",
-        "view: kind=lua version=2.1",
+        "program: open id=2 view=lua version=0.1",
+        "view: kind=lua version=0.1",
         // The script of the page changed: the view is closed by the program and shown again.
         "program: dismiss id=",
         "view: destroyed",
-        "program: open id=* view=lua version=2.1",
-        "view: kind=lua version=2.1",
+        "program: open id=* view=lua version=0.1",
+        "view: kind=lua version=0.1",
         "host: the person presses ^C",
         "program: exited with status 0",
     ]);
@@ -2359,7 +2398,7 @@ fn pencere_dev_shows_the_view_again_when_the_page_changes_and_runs_the_app_again
         &[&command, "dev", &directory.to_string_lossy()],
         vec![
             (
-                "view: kind=lua version=2.1",
+                "view: kind=lua version=0.1",
                 Box::new(move || {
                     let mut text = fs::read_to_string(&page_edit).expect("the page");
                     text.push_str("\n-- edited\n");
@@ -2381,23 +2420,23 @@ fn pencere_dev_shows_the_view_again_when_the_page_changes_and_runs_the_app_again
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "program: hello id=1",
-        "program: open id=2 view=lua version=2.1",
-        "view: kind=lua version=2.1",
+        "program: open id=2 view=lua version=0.1",
+        "view: kind=lua version=0.1",
         // The page changed: the view is closed by the program and shown again, of the new file.
         "program: dismiss id=",
         "host: the program asks to close its view",
         "view: destroyed",
         "host: closed id=* re=* reason=program",
         "program: hello id=",
-        "program: open id=* view=lua version=2.1",
-        "view: kind=lua version=2.1",
+        "program: open id=* view=lua version=0.1",
+        "view: kind=lua version=0.1",
         // A script changed: the view is closed the same way, and the program starts again.
         "program: dismiss id=",
         "view: destroyed",
         "host: closed id=* re=* reason=program",
         "program: hello id=",
-        "program: open id=* view=lua version=2.1",
-        "view: kind=lua version=2.1",
+        "program: open id=* view=lua version=0.1",
+        "view: kind=lua version=0.1",
         "host: the person presses ^C",
         "program: bye id=* reason=signal",
         "program: exited with status 0",
@@ -2445,7 +2484,7 @@ fn pencere_dev_shows_a_rust_programs_view_again_when_its_page_changes_and_builds
         &[&command, "dev", &project.to_string_lossy()],
         vec![
             (
-                "view: kind=lua version=2.1",
+                "view: kind=lua version=0.1",
                 Box::new(move || {
                     let mut text = fs::read_to_string(&page).expect("the page");
                     text.push_str("\n-- edited\n");
@@ -2468,20 +2507,20 @@ fn pencere_dev_shows_a_rust_programs_view_again_when_its_page_changes_and_builds
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "program: hello id=1",
-        "program: open id=2 view=lua version=2.1",
-        "view: kind=lua version=2.1",
+        "program: open id=2 view=lua version=0.1",
+        "view: kind=lua version=0.1",
         // The page changed: the program closes its view and shows it again, of the new file.
         "program: dismiss id=",
         "view: destroyed",
         "host: closed id=* re=* reason=program",
         "program: hello id=",
-        "program: open id=* view=lua version=2.1",
-        "view: kind=lua version=2.1",
+        "program: open id=* view=lua version=0.1",
+        "view: kind=lua version=0.1",
         // The source changed: the program is stopped, built and run again.
         "program: bye id=* reason=signal",
         "program: hello id=1",
-        "program: open id=2 view=lua version=2.1",
-        "view: kind=lua version=2.1",
+        "program: open id=2 view=lua version=0.1",
+        "view: kind=lua version=0.1",
         "host: the person presses ^C",
         "program: bye id=* reason=signal",
         // ⌃C is how `pencere dev` is left: it ends with nothing wrong.
@@ -2529,8 +2568,8 @@ fn pencere_build_makes_a_rust_program_that_carries_its_page_and_shows_it() {
     let _ = fs::remove_dir_all(&directory);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "program: open id=2 view=lua version=2.1",
-        "view: kind=lua version=2.1",
+        "program: open id=2 view=lua version=0.1",
+        "view: kind=lua version=0.1",
         r#"view: <- response id=* result={"message":"Hello, rust!"}"#,
         "host: the person presses ^C",
         "program: exited with status 130",
@@ -2573,10 +2612,10 @@ fn an_app_with_a_web_page_made_by_new_opens_a_web_view_and_its_calls_and_pushes_
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@1.0",
-        r#"program: open id=2 view=web version=1.0 title="webby" bundle of 3 files"#,
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=web@0.1",
+        r#"program: open id=2 view=web version=0.1 title="webby" bundle of 3 files"#,
         "view: started from the bundle: entry index.html, 3 files",
-        "view: kind=web version=1.0",
+        "view: kind=web version=0.1",
         "view: -> subscribe id=1 clock",
         "program: msg id=* push=1",
         r#"view: <- push id=1 value={"now":"#,
@@ -2606,7 +2645,7 @@ fn pencere_dev_shows_a_web_page_again_when_one_of_its_files_changes() {
         ],
         &[&command, "dev", &project.to_string_lossy()],
         vec![(
-            "view: kind=web version=1.0",
+            "view: kind=web version=0.1",
             Box::new(move || {
                 let mut text = fs::read_to_string(&script).expect("the page script");
                 text.push_str("\n// edited\n");
@@ -2616,16 +2655,16 @@ fn pencere_dev_shows_a_web_page_again_when_one_of_its_files_changes() {
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "program: open id=2 view=web version=1.0",
-        "view: kind=web version=1.0",
+        "program: open id=2 view=web version=0.1",
+        "view: kind=web version=0.1",
         "program: dismiss id=",
         "host: the program asks to close its view",
         "host: closed id=* re=* reason=program",
         "program: hello id=",
-        "program: open id=* view=web version=1.0",
+        "program: open id=* view=web version=0.1",
         // The files the page did not change are in the terminal's store already.
         "host: need id=* re=* missing=1",
-        "view: kind=web version=1.0",
+        "view: kind=web version=0.1",
         "host: the person presses ^C",
         "program: exited with status 0",
     ]);
@@ -2673,7 +2712,7 @@ fn an_app_that_hands_the_terminal_to_a_program_gets_it_back_and_shows_its_view_a
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "program: open id=2 view=lua version=2.1",
+        "program: open id=2 view=lua version=0.1",
         "view: -> call id=1 shell",
         // The view is closed by the program, and the terminal is the program's.
         "program: dismiss id=",
@@ -2681,7 +2720,7 @@ fn an_app_that_hands_the_terminal_to_a_program_gets_it_back_and_shows_its_view_a
         "host: closed id=* re=* reason=program",
         // Taken back: a new view, asked for as for a first one.
         "program: hello id=",
-        "program: open id=* view=lua version=2.1",
+        "program: open id=* view=lua version=0.1",
         "view: -> call id=1 shell",
         r#"view: <- response id=1 result={"skipped":true}"#,
         "host: the person presses ^C",
@@ -2715,7 +2754,7 @@ fn a_kit_views_page_that_asks_to_be_closed_keeps_its_view_and_tells_the_program_
         &[],
     );
     run.in_order(&[
-        "view: kind=lua version=2.1",
+        "view: kind=lua version=0.1",
         "view: -> call id=1 list",
         "host: msg id=* call=1 list",
         "view: -> close",
@@ -2968,8 +3007,8 @@ fn an_attached_file_crosses_once_and_the_view_shown_again_finds_it_without_its_b
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1",
-        "view: kind=lua version=2.1",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@0.1",
+        "view: kind=lua version=0.1",
         "view: -> call id=1 attach",
         "program: attach id=* files=1",
         "host: need id=* re=* missing=1",
@@ -2978,7 +3017,7 @@ fn an_attached_file_crosses_once_and_the_view_shown_again_finds_it_without_its_b
         "host: need id=* re=* missing=0",
         r#"view: <- response id=1 result={"name":"sha256:"#,
         // The view is shown again: what it had attached is no longer, and the file is the store's.
-        "view: kind=lua version=2.1",
+        "view: kind=lua version=0.1",
         "view: -> call id=1 attach",
         "program: attach id=* files=1",
         "host: need id=* re=* missing=0",
@@ -3350,8 +3389,8 @@ fn a_lua_app_attaches_a_picture_receives_a_dropped_file_and_saves_a_copy_where_t
     );
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@2.1",
-        "view: kind=lua version=2.1",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss views=lua@0.1",
+        "view: kind=lua version=0.1",
         // The picture is a file of the bundle too: the terminal holds it, and nothing crosses.
         "program: attach id=* files=1",
         "host: need id=* re=* missing=0",
@@ -3506,7 +3545,7 @@ fn a_dropped_file_crosses_a_pipe_in_the_hosts_folder_and_the_stream_carries_none
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "host: keeps a folder at",
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss,stage views=lua@2.1",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss,stage views=lua@0.1",
         "person: drops big.bin (9437189 bytes): $1",
         "program: stage id=* offset=0",
         "host: stages big.bin from 0 through a pipe",
@@ -3997,7 +4036,7 @@ fn the_typescript_sdk_moves_a_file_through_the_hosts_folder_and_nothing_crosses_
     let dir = fresh("stage-typescript");
     let (run, _) = run_typescript_staged(&dir, &dir.join("folder"), &[]);
     run.in_order(&[
-        "host: welcome id=1 re=1 version=1 with a token features=dismiss,stage views=lua@2.1",
+        "host: welcome id=1 re=1 version=1 with a token features=dismiss,stage views=lua@0.1",
         "program: stage id=* offset=0",
         "host: staged id=* re=* pipe",
         "host: staged id=* re=* sent=4194313",

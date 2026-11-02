@@ -1,6 +1,6 @@
 # The pencere kit: the page API, colours and sandbox floors
 
-Version `2.1` of the kind `lua` ([the protocol](../spec/draft/pencere.md), Sections 5.5 and 9.8).
+Version `0.1` of the kind `lua` ([the protocol](../spec/draft/pencere.md), Sections 5.5 and 9.8).
 This document is normative for what the protocol leaves to the kit: with the prelude
 [`luau/prelude`](luau/prelude) for the page API of `lua` views. The key words are those of Section 2
 of the protocol. A statement here that the prelude contradicts is a mistake in this document.
@@ -11,26 +11,32 @@ host that keeps the rules of this document and the sandbox floors shows the same
 
 ## 1. Versions
 
-| Kind  | The version is                                                                        | Source of truth               |
-| ----- | ------------------------------------------------------------------------------------- | ----------------------------- |
-| `lua` | `2.1`: the page API whose `pencere.version` is `2`, in Luau `0.740` (`kit/luau/pins`) | `luau/prelude`, this document |
+| Kind  | The version is                                                                                       | Source of truth               |
+| ----- | ---------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `lua` | `0.1`: the page API whose `pencere.version` is the string `"0.1"`, in Luau `0.740` (`kit/luau/pins`) | `luau/prelude`, this document |
 
-`lua` is the one kind of the kit (protocol, Section 5.4), and `2.1` the one version a host opens
-until the first general release of the protocol: the kit changes in the meantime without a new
-number. `lua` `2.x` is bound to the release of Luau that the kit pins: a script that needs syntax or
-a library function a later Luau added is not a `lua` `2.x` script, and such a Luau arrives with a
-new minor version of `lua`. A host MUST run the kit's own interpreter, the component
+`lua` is the one kind of the kit (protocol, Section 5.4), and `0.1` the one version a host opens
+while the protocol is a draft. `lua` `0.x` is bound to the release of Luau that the kit pins: a
+script that needs syntax or a library function a later Luau added is not a `lua` `0.1` script, and
+such a Luau arrives with a new version of `lua`. A host MUST run the kit's own interpreter, the component
 `kit/sandbox/luau/luau.wasm`, so that a script means one thing on every host. The interface
 [`wit/view.wit`](wit/view.wit) is the link between that interpreter and the sandbox that runs it:
 an internal one, which no view is written against and whose version is no promise to anyone.
 
+While the protocol is a draft, the versions of `lua` are `0.x` (protocol, Section 5.4). A change
+that an existing view can notice moves the minor number (`0.2` after `0.1`), and an addition does
+not: a new function, a new element, a new colour role, a new event. A host opens one version. A
+program written for a version the host does not open is not opened, and says so in a sentence that
+names both sides. A script that uses something a later version added asks first whether it exists
+(`if pencere.x then`).
+
 From the first general release on, the versions follow the rules of the protocol (Section 5.4):
 
-- A change that no existing view can notice is a new minor version (`2.2`): a new function, a new
+- A change that no existing view can notice is a new minor version (`1.1`): a new function, a new
   element, a new colour role. A minor version only adds.
 - A host opens every published minor version of a major, and the newest major together with the
   one before it.
-- A new major version (`3.0`) comes only when a function of the page API has to mean something else
+- A new major version (`2.0`) comes only when a function of the page API has to mean something else
   and a new name cannot do it.
 - Every change is one of two sorts: one that applies to every view (a fix of security, of a limit
   or of a bug), or one that applies only to a view opened at the version that carries it (a
@@ -41,39 +47,11 @@ From the first general release on, the versions follow the rules of the protocol
 - The kit's library (`@pencere/*`, Section 2.6) is a part of the page API: it comes with the host
   and follows the same rules.
 
-What the number has meant so far is below. No host opens a version before `2.1`.
-
-`2.0` is `1.0` and these, each a change to what a view or a host already used (so a major version):
-overlays and anchors, texts of many looks, canvases, commands and their keys, dragging and dropping,
-what an element is to a screen reader and its state, fills from one colour to another, a middle
-button, keys that go up, the modifiers alone and files dropped on the page (Sections 2.1 to 2.3 and
-4); editors of text (Sections 2.1 and 2.3, and the host's part in Section 4), with their search and
-what it finds (`found`), what a page says of its language (its comments, the rules of its indent,
-folding by the indent), the spaces, tabs and guides of the indent they show; a reply's `link` and
-`wake`, with the kit's timers, `pencere.time` (Sections 2.2 and 2.3); the kit's library, with a
-language that colours an editor, `@pencere/syntax` (Section 2.6); what a reply selects in a field and
-the keys a field has no use for, commands done by more than one set of keys and menus' entries with
-keys (Sections 2.1 and 2.3); and an editor's changes kept out of its history and named, the place it
-reveals put where the page says, the other places of its selection marked, its `editor_ready` and
-the commands of whole lines (Sections 2.1 and 2.3); the time of day and the host's keyboard, with
-`mod` (Sections 2.1 and 2.2, and the interface's `system`), what spins, and the `null` members of
-what a page decodes (Sections 2.1 and 2.4); and the pointer's rest over a word of an editor, the names
-of ranges of its text that an overlay stands by, and the names of its styles; widgets in lines; the presses a page maps and the keys it changes, with chords; and looks
-drawn by the modifiers held (Sections 2.1, 2.3 and 2.6); and how an editor's selection looks, with the corners of its lines rounded as a terminal's are, and its caret (its corners, light, blinking, motion and look away from the keyboard) (Section 2.1); and what the host says of how its terminal draws its cursor and its selection and of what it draws, which a page reads and decides on (Sections 2.2, 2.3, 2.6 and 4).
-
-`2.1` is `2.0` and the files beside the bundle (protocol, Sections 8.8 to 8.10), each an addition a
-`2.0` script does not notice (so a minor version of `lua`): the `files` a page is told carry how the person gave them (`source`) and each file's handle,
-name, size, type and, on the person's machine, its path; `files_over` and `files_left` while files
-are dragged over the page; `saving` when the person chose a place in the Save panel; a reply's `pick`
-and `save`, the Open and the Save panel, shown only for a reply to something the person did; and an
-image named `sha256:` and a digest (a file the program attached) or `file:` and a handle (one the
-person gave) (Sections 2.1, 2.3 and 5).
-
 The regular expressions of a view (an editor's search, the rules of its indent) are in the syntax of
 Rust's `regex` crate, `1.x` at the release the kit pins (its `Cargo.lock`), and one may take at most
 4 MiB compiled (`pencere_view::edit::limits::PATTERN_SIZE`): a pattern that would take more is none.
 A release of `regex` whose syntax a view could notice (a pattern it reads otherwise, or one it takes
-that an earlier refused) arrives with a new minor version of `lua`, as a later Luau does.
+that an earlier refused) arrives with a new version of `lua`, as a later Luau does.
 
 ## 2. The Lua page API
 
@@ -850,7 +828,7 @@ is not a string is an error of the script. The link is the host's, not a message
 is not a span's `link(id)` either, which names a part of a text for the pointer: a page opens what
 such a part stands for by answering its press with `{ link = url }`.
 
-The **files the person gives** a page (`lua` `2.1`; protocol, Section 8.9) come as
+The **files the person gives** a page (protocol, Section 8.9) come as
 `files`, each with the `handle` the host made of it (32 lowercase hex digits; none for a `kind` of
 `"folder"`, which is not read), its `name`, its `size` in bytes, its media `type` (the host's guess)
 and, only where the host knows the program reads the same files as the person, its `path`. The name
@@ -1606,7 +1584,7 @@ A host:
 [`README.md`](README.md) describes how a page names a picture and how the host draws it; the limits
 and the formats are those of the protocol, Section 9.8.
 
-Besides a file of the bundle, a page of `lua` `2.1` names a file beside it: `sha256:`
+Besides a file of the bundle, a page of `lua` names a file beside it: `sha256:`
 and the digest of a file its program attached (protocol, Section 8.8) and `file:` and the handle of
 one the person gave it (Section 8.9). A manifest path has no `:`, so the names never meet; the host
 answers them from its own tables (the program's attached files, its handles), and a name that is in

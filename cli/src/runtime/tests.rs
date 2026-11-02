@@ -1049,7 +1049,7 @@ fn a_view_handed_over_is_served_by_the_one_who_holds_it_and_ends_when_it_says() 
             by: pencere::EndedBy::Program,
             view: pencere::Shown {
                 kind: pencere::Kind::Lua,
-                version: "2.0".into(),
+                version: "0.1".into(),
             },
             code: None,
             message: None,

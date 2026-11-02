@@ -11,7 +11,7 @@ dist/files-lua --into ~/Downloads    # received files go there (by default, wher
 pencere test                         # the page's tests, under the host with no screen
 ```
 
-It needs a terminal that opens `lua` 2.1, the version of the page API that has files beside the
+It needs a terminal that opens `lua`, the kind whose page API has files beside the
 bundle (the protocol, Sections 8.8 to 8.10). The program's side is `pencere.files`
 (`src/program/app.lua`); the page's is the `files` event and a reply's `pick` and `save`
 (`src/view/page.lua`). The view never sees a file's bytes: it is handed a handle, passes it to its

@@ -18,7 +18,7 @@ under this name) are recorded here. The format follows
   (`StageError`, `FetchError`); `unstage` and the end of the view are `Action::Unstage`, with
   `Action::AbortWrite` for the place a `fetch` had begun to write. At most `MAX_OPEN_TRANSFERS` (2)
   are out at once, and the third is `busy`.
-- **Files beside the bundle** (specification §8.8 to §8.10), for a view opened at `lua` `2.1`
+- **Files beside the bundle** (specification §8.8 to §8.10), for a view opened at `lua` `0.1`
   (`has_files`). A program's `attach` adds files to its view, verified as
   the files of a bundle are and held to 8 MiB a file and 1024 files or 64 MiB a view; it is
   answered with a `need` that lists what is missing and what is `refused`, and once more when the
@@ -46,6 +46,13 @@ under this name) are recorded here. The format follows
 
 ### Changed
 
+- **The kinds are `0.1`.** `WEB_BRIDGE_VERSION` is `"0.1"`. While the specification is a draft the
+  versions of `lua` and `web` are `0.x`: a change an existing view can notice moves the minor number
+  (`0.2` after `0.1`), an addition does not, and a host opens one version. A program whose version
+  the host does not open is not opened, and says so in a sentence that names both sides.
+  **Breaking:** `has_files` takes the kind alone (`has_files(ViewKind::Lua)`): a `lua` view has
+  files beside its bundle at any version, a page has none.
+
 - `sandbox::is_openable_link` is `pencere_wire::link::is_openable`, the one copy of the rule the
   kit's sandbox holds a kit view's links to as well.
 
@@ -53,7 +60,7 @@ under this name) are recorded here. The format follows
 
 - **The `wasm` kind of view.** `ViewKind::Wasm` is gone, `bundle::WASM_MEDIA_TYPE` with it, and a
   `hello` that lists `wasm` finds the kind unknown, as it does any name that is not in the table
-  (specification §5.5). `has_files` is true for `lua` at 2.1 and later only. The kit has one kind of
+  (specification §5.5). `has_files` is true for `lua` only. The kit has one kind of
   view of its own, a Lua script.
 
 ## [0.3.1] - 2026-10-26

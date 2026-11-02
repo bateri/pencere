@@ -6,7 +6,7 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ## [Unreleased]
 
-The drive of a page of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.1`).
+The drive of a page of version `0.1` of the kit (`pencere:view@0.1.0`, `lua` `0.1`).
 
 ### Added
 
@@ -39,6 +39,12 @@ The drive of a page of version `3.0` of the kit (`pencere:view@3.0.0`, `lua` `2.
   (`spawn`).
 
 ### Changed
+
+- **The kit is version `0.1`** (`pencere:view@0.1.0`, `lua` `0.1`). While the specification is a
+  draft the versions of `lua` and `web` are `0.x`: a change an existing view can notice moves the
+  minor number (`0.2` after `0.1`), an addition does not, and a host opens one version. A program
+  whose version the host does not open is not opened, and says so in a sentence that names both
+  sides.
 
 - **The places a page says and is told are bytes of the editor's text** (see `pencere-view`); what a
   host says of the person (`Page::select`, `Headless::select`, `caret_to`) stays in characters, and

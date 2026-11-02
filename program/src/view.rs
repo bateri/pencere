@@ -47,7 +47,7 @@ impl fmt::Display for Kind {
 }
 
 /// The version of a `web` view's interface (the bridge of §9.4) that this library speaks.
-pub const WEB_VERSION: &str = "1.0";
+pub const WEB_VERSION: &str = "0.1";
 
 /// Whether `text` is a version of §5.5: `major.minor`, each without a leading zero.
 pub(crate) fn is_version(text: &str) -> bool {

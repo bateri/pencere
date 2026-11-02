@@ -9,7 +9,7 @@
  * ```ts
  * const result = await serve({
  *   views: [
- *     { kind: "lua", versions: ["2.1"], bundle: await bundleFromDirectory(new URL("./page/", import.meta.url)) },
+ *     { kind: "lua", versions: ["0.1"], bundle: await bundleFromDirectory(new URL("./page/", import.meta.url)) },
  *     { kind: "web", bundle: await bundleFromDirectory(new URL("./view/", import.meta.url)) },
  *   ],
  *   program: "containers",

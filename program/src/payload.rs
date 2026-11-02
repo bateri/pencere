@@ -451,8 +451,9 @@ pub(crate) fn choose(mine: &[(Kind, &[String])], theirs: &[Listed]) -> Option<(u
 }
 
 /// The sentence for a program whose terminal opens kinds of its list, but not in the versions it
-/// speaks (§5.2): the versions of those kinds that it is written for, and those the terminal
-/// opens. `None` when the terminal named no such kind.
+/// speaks (§5.2): the versions of those kinds that it is written for, those the terminal opens,
+/// and what the person does about it: updates the older of the two. `None` when the terminal named
+/// no such kind.
 pub(crate) fn no_version_sentence(mine: &[(Kind, &[String])], opens: &[Listed]) -> Option<String> {
     let (mut wanted, mut held) = (Vec::new(), Vec::new());
     for (kind, versions) in mine {
@@ -466,7 +467,7 @@ pub(crate) fn no_version_sentence(mine: &[(Kind, &[String])], opens: &[Listed]) 
         return None;
     }
     Some(format!(
-        "this program is written for {}; this terminal opens {}",
+        "this program is written for {}; this terminal opens {}; update the older of the two",
         wanted.join(", "),
         held.join(", ")
     ))
@@ -624,7 +625,7 @@ mod tests {
         if fixtures().is_none() {
             return;
         }
-        let web = versions(&["1.0"]);
+        let web = versions(&["0.1"]);
         assert_eq!(
             hello(&[(Kind::Web, &web)]),
             payload_of("to-host/hello.frame")
@@ -711,7 +712,7 @@ mod tests {
         let fields = OpenFields {
             token: TOKEN,
             kind: Kind::Web,
-            version: "1.0",
+            version: "0.1",
             program: Some("containers"),
             title: Some("Containers"),
             icons: &[],
@@ -754,13 +755,13 @@ mod tests {
 
     #[test]
     fn the_versions_of_both_sides_are_said_in_words_for_the_kinds_the_terminal_named() {
-        let mine = vec!["2.0".to_owned(), "3.0".to_owned()];
-        let web = vec!["1.0".to_owned()];
+        let mine = vec!["0.2".to_owned(), "0.3".to_owned()];
+        let web = vec!["0.1".to_owned()];
         let program: Vec<(Kind, &[String])> = vec![(Kind::Lua, &mine), (Kind::Web, &web)];
         let opens = [
             Listed {
                 kind: "lua".into(),
-                versions: vec!["1.0".into(), "1.1".into()],
+                versions: vec!["0.1".into(), "0.9".into()],
             },
             Listed {
                 kind: "gopher".into(),
@@ -770,7 +771,10 @@ mod tests {
         // Only a kind that the program lists and the terminal named: `gopher` is not the program's.
         assert_eq!(
             no_version_sentence(&program, &opens).as_deref(),
-            Some("this program is written for lua 2.0 or 3.0; this terminal opens lua 1.0 or 1.1")
+            Some(
+                "this program is written for lua 0.2 or 0.3; this terminal opens lua 0.1 or 0.9; \
+                 update the older of the two"
+            )
         );
         assert_eq!(no_version_sentence(&program, &[]), None);
     }
@@ -845,7 +849,7 @@ mod tests {
     #[test]
     fn a_welcome_is_read_as_the_fixtures_have_it() {
         let offer = welcome(
-            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"t","version":"0"},"features":["dismiss"],"views":[{"kind":"lua","versions":["0.5","0.4"]},{"kind":"web","versions":["1.0"]}]}"#,
+            r#"{"version":1,"token":"q7Vh2sB0xJm9kLw4TzN1cA","host":{"name":"t","version":"0"},"features":["dismiss"],"views":[{"kind":"lua","versions":["0.5","0.4"]},{"kind":"web","versions":["0.1"]}]}"#,
         );
         let Some(Welcome::Offer(offer)) = offer else {
             panic!("an offer");
@@ -857,7 +861,7 @@ mod tests {
 
         // A kind listed twice counts once; an entry that is not of the shape is left out.
         let Some(Welcome::Offer(offer)) = welcome(
-            r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","features":[],"views":[{"kind":"web","versions":["1.0"]},{"kind":"web","versions":["2.0"]},{"kind":"lua","versions":["x"]},"web",{"versions":["1.0"]}],"restart":true}"#,
+            r#"{"version":1,"token":"Zk3mP8rD5uYb1Xe6HqS0vg","features":[],"views":[{"kind":"web","versions":["0.1"]},{"kind":"web","versions":["0.2"]},{"kind":"lua","versions":["x"]},"web",{"versions":["1.0"]}],"restart":true}"#,
         ) else {
             panic!("an offer");
         };
@@ -880,7 +884,7 @@ mod tests {
 
     #[test]
     fn the_program_chooses_in_its_own_order() {
-        let (lua, web) = (versions(&["1.0", "0.9"]), versions(&["1.0"]));
+        let (lua, web) = (versions(&["0.1", "0.9"]), versions(&["0.1"]));
         let mine: Vec<(Kind, &[String])> = vec![(Kind::Lua, &lua), (Kind::Web, &web)];
         let host = |list: &[(&str, &[&str])]| -> Vec<Listed> {
             list.iter()
@@ -892,8 +896,8 @@ mod tests {
         };
         // The terminal's own order does not matter, the program's does.
         assert_eq!(
-            choose(&mine, &host(&[("web", &["1.0"]), ("lua", &["1.0"])])),
-            Some((0, "1.0".into()))
+            choose(&mine, &host(&[("web", &["0.1"]), ("lua", &["0.1"])])),
+            Some((0, "0.1".into()))
         );
         // The first version of the program's that the terminal speaks.
         assert_eq!(
@@ -901,7 +905,7 @@ mod tests {
             Some((0, "0.9".into()))
         );
         // A kind at no version in common is not a kind in common.
-        assert_eq!(choose(&mine, &host(&[("lua", &["2.0"])])), None);
+        assert_eq!(choose(&mine, &host(&[("lua", &["0.2"])])), None);
         assert_eq!(choose(&mine, &[]), None);
     }
 

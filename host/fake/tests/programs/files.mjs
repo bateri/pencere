@@ -147,7 +147,7 @@ const result = await serve({
   views: [
     {
       kind: "lua",
-      versions: ["2.1"],
+      versions: ["0.1"],
       bundle: bundleFromFiles(
         [{ path: "files.lua", data: Buffer.from("return { render = function() end }") }],
         { entry: "files.lua" },
