@@ -318,6 +318,42 @@ pub struct Menu {
     pub serial: u64,
 }
 
+impl Menu {
+    /// Whether a Paste line ([`MenuEntry::Paste`]) of a menu asked for in the reply to `event` is on:
+    /// only for a press of the right button, which is what asks for a menu (a Mac's ⌃ with the main
+    /// button is told the page as one, `menu_press_of`), in an editor, a gutter or elsewhere. The line
+    /// reads the pasteboard when it is picked, and the person's other acts are not for a menu: a key
+    /// (Shift F10 is a command a key did), the second click of a double click, a release, a pick in
+    /// another menu, a command of the host's list. A page that opens a menu for any of them, or a
+    /// program that has the page do so by the keyboard it moved, gets no pick that reads it.
+    pub fn pastes_for(event: &Event) -> bool {
+        use crate::edit::GutterKind;
+        match event {
+            Event::Input(Input::Press { button, .. })
+            | Event::Pointer {
+                input: Input::Press { button, .. },
+                ..
+            } => *button == Button::Right,
+            Event::Gutter(gutter) => gutter.kind == GutterKind::Context,
+            _ => false,
+        }
+    }
+
+    /// The menu as the person is shown it for the reply to `event`: its Paste lines off where
+    /// [`Menu::pastes_for`] says no. They stay in their places, for the page counts its lines and is
+    /// told a pick by its number, so that the line after one is the line it was.
+    pub fn for_event(&mut self, event: &Event) {
+        if Self::pastes_for(event) {
+            return;
+        }
+        for entry in &mut self.entries {
+            if let MenuEntry::Paste { enabled, .. } = entry {
+                *enabled = false;
+            }
+        }
+    }
+}
+
 /// How the person gave the page files ([`Event::Files`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileSource {
@@ -541,6 +577,95 @@ mod tests {
         for input in [Input::Move(at), Input::Leave] {
             assert!(!Panel::follows(&Event::Pointer { input, place }));
         }
+    }
+
+    #[test]
+    fn a_paste_line_is_on_only_for_a_press_of_the_right_button() {
+        use crate::edit::{GutterEvent, GutterKind};
+        let at = Point::new(1.0, 1.0);
+        let place = Place {
+            editor: crate::Id::named("e"),
+            at: 0,
+            inside: false,
+            version: 0,
+        };
+        let press = |button| Input::Press {
+            at,
+            button,
+            count: 1,
+            mods: Mods::default(),
+        };
+        let gutter = |kind, button| {
+            Event::Gutter(GutterEvent {
+                editor: crate::Id::named("e"),
+                column: String::new(),
+                line: 0,
+                kind,
+                button,
+                count: 1,
+                mods: Mods::default(),
+                marker: None,
+                rect: crate::Rect::default(),
+            })
+        };
+        for on in [
+            Event::Input(press(Button::Right)),
+            Event::Pointer {
+                input: press(Button::Right),
+                place,
+            },
+            gutter(GutterKind::Context, Button::Right),
+        ] {
+            assert!(Menu::pastes_for(&on), "{on:?}");
+        }
+        for off in [
+            Event::Input(press(Button::Left)),
+            Event::Input(press(Button::Middle)),
+            Event::Input(Input::Release {
+                at,
+                button: Button::Right,
+            }),
+            Event::Input(Input::Key {
+                key: Key::Enter,
+                mods: Mods::default(),
+            }),
+            Event::Pointer {
+                input: press(Button::Left),
+                place,
+            },
+            gutter(GutterKind::Press, Button::Left),
+            Event::MenuPick {
+                serial: 1,
+                index: 0,
+            },
+            Event::Command(crate::Id::named("menu")),
+            Event::Wake { now: 1.0 },
+        ] {
+            assert!(!Menu::pastes_for(&off), "{off:?}");
+        }
+        // A menu for a key keeps the line where it was, off; for a right press it is left as it is.
+        let menu = Menu {
+            at,
+            entries: vec![
+                MenuEntry::Separator,
+                MenuEntry::Paste {
+                    title: "Paste".into(),
+                    enabled: true,
+                    editor: crate::Id::named("e"),
+                },
+            ],
+            serial: 0,
+        };
+        let mut by_key = menu.clone();
+        by_key.for_event(&Event::Command(crate::Id::named("menu")));
+        assert!(matches!(
+            by_key.entries[1],
+            MenuEntry::Paste { enabled: false, .. }
+        ));
+        assert_eq!(by_key.entries.len(), 2);
+        let mut by_press = menu.clone();
+        by_press.for_event(&Event::Input(press(Button::Right)));
+        assert_eq!(by_press, menu);
     }
 
     #[test]

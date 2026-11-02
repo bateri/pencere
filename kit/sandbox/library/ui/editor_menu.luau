@@ -19,7 +19,9 @@
 -- entries of `u:menu`, `"-"` for a rule). Nothing is greyed for an empty selection, as the keys do
 -- not: Copy and Cut take the caret's line. A `read_only` editor greys Cut, Paste and Toggle Line Comment.
 -- Paste is a line the host performs itself, with its pasteboard, as the paste key would: the page
--- never reads the pasteboard and cannot ask for a paste, and is told the pick as any. The others are
+-- never reads the pasteboard and cannot ask for a paste, and is told the pick as any. It has no keys
+-- (the person's paste key is the editor's) and is on only in the menu a right press opens: in the one
+-- Shift F10, another click or a pick asks for it stays in its place, off. The others are
 -- asks the helper makes of the editor when `u:editor_menu_pick` is given the pick.
 --
 -- Without `at` the menu opens at the caret (`pencere.caret_of`), under it: for the keys, which
@@ -119,7 +121,7 @@ function editor_menu.editor_menu(u, id, props)
 			local entry = {
 				key = line.key,
 				title = line.title,
-				keys = bound[line.does],
+				keys = if line.paste then nil else bound[line.does],
 				enabled = not (line.writes and props.read_only == true),
 			}
 			if line.paste then

@@ -98,7 +98,9 @@ enum Command {
     Settle,
     Laid(Arc<Laid>),
     Texts(Vec<(Id, Arc<dyn TextSnapshot>)>),
-    Event(Event),
+    /// What the person did, and for an event a key did (a command the page bound it to), whether
+    /// the key is the system's copy or cut ([`copy_key`]).
+    Event(Event, Option<bool>),
     Message(String),
     /// The program has read enough that the module may say what it kept.
     Room,
@@ -254,7 +256,18 @@ impl Module {
 
     /// Tells the module what the person did. Returns at once.
     pub fn event(&self, event: Event) {
-        let _ = self.commands.send(Command::Event(event));
+        let _ = self.commands.send(Command::Event(event, None));
+    }
+
+    /// Tells the module an event that a key did: the command the page bound `key` (held with
+    /// `mods`) to. The page is told the command and nothing of the key, as for [`Module::event`], but
+    /// the key says whose word the pasteboard has in the answer: a command the person asked for
+    /// from the host's list is the person's, one a key did only when the key is the system's copy or
+    /// cut ([`copy_key`]); the page chose what any other key does. Returns at once.
+    pub fn event_by_key(&self, event: Event, key: pencere_view::Key, mods: pencere_view::Mods) {
+        let _ = self
+            .commands
+            .send(Command::Event(event, Some(copy_key(key, mods))));
     }
 
     /// Tells the module what its program said (a JSON object, as written). Returns at once, and
@@ -695,28 +708,28 @@ fn run<R: Runner>(
                     post.say(runner.take_sent(), runner.take_asks());
                 }
                 // A run of pointer moves is the last of them.
-                Command::Event(Event::Input(Input::Move(_)))
+                Command::Event(Event::Input(Input::Move(_)), _)
                     if matches!(
                         later.first(),
-                        Some(Command::Event(Event::Input(Input::Move(_))))
+                        Some(Command::Event(Event::Input(Input::Move(_)), _))
                     ) => {}
                 // A run of wheel turns over one point is one turn by all of them: a page slower
                 // to make than the wheel turns does not fall behind it, a page for each turn.
-                Command::Event(Event::Input(Input::Scroll { at: here, dx, dy }))
+                Command::Event(Event::Input(Input::Scroll { at: here, dx, dy }), _)
                     if matches!(
                         later.first(),
-                        Some(Command::Event(Event::Input(Input::Scroll { at, .. }))) if at == here
+                        Some(Command::Event(Event::Input(Input::Scroll { at, .. }), _)) if at == here
                     ) =>
                 {
                     wheel = (wheel.0 + dx, wheel.1 + dy);
                 }
                 // A run of the boxes the application scrolled is where they stand after the last.
-                Command::Event(Event::Scrolled(boxes))
-                    if matches!(later.first(), Some(Command::Event(Event::Scrolled(_)))) =>
+                Command::Event(Event::Scrolled(boxes), _)
+                    if matches!(later.first(), Some(Command::Event(Event::Scrolled(_), _))) =>
                 {
                     scrolled.extend(boxes.iter().copied());
                 }
-                Command::Event(event) => {
+                Command::Event(event, by_key) => {
                     settled = 0;
                     let event = match event {
                         Event::Scrolled(boxes) => {
@@ -743,7 +756,13 @@ fn run<R: Runner>(
                         reply.panel = None;
                         reply.menu = None;
                     }
-                    let person = by_person(&event);
+                    // A Paste line in a menu is on only where the person pressed the right button
+                    // ([`Menu::for_event`]): it reads the pasteboard when it is picked, and a key
+                    // or a click that was not for a menu has not asked for that.
+                    if let Some(menu) = &mut reply.menu {
+                        menu.for_event(&event);
+                    }
+                    let person = by_person(&event, *by_key);
                     let reply = wakes.reply(reply, clock(last, program), post);
                     post.say(runner.take_sent(), runner.take_asks());
                     let frame = match (reply.redraw, last) {
@@ -864,11 +883,14 @@ fn newest_of_each(boxes: Vec<(Id, Point)>) -> Vec<(Id, Point)> {
 
 /// Whether `event` is the person's word for writing their pasteboard (`Answer::person`): the rule a
 /// panel and a menu are shown by ([`Panel::follows`]), but for a key, which is so only when it is
-/// the system's copy or cut ([`copy_key`]).
-fn by_person(event: &Event) -> bool {
-    match event {
-        Event::Input(Input::Key { key, mods }) => copy_key(*key, *mods),
-        other => Panel::follows(other),
+/// the system's copy or cut ([`copy_key`]). A command is told from two sources: the host's list
+/// (its menu, its palette), which is the person's, and a key the page bound to it (`by_key`: whether
+/// that key is a copy or a cut), which is so only for those two.
+fn by_person(event: &Event, by_key: Option<bool>) -> bool {
+    match (event, by_key) {
+        (Event::Input(Input::Key { key, mods }), _) => copy_key(*key, *mods),
+        (Event::Command(_), Some(copy)) => copy,
+        (other, _) => Panel::follows(other),
     }
 }
 
@@ -1504,8 +1526,11 @@ mod tests {
             key(pencere_view::Key::Character('c'), true),
             key(pencere_view::Key::Character('x'), true),
         ] {
-            assert!(by_person(&person), "{person:?}");
+            assert!(by_person(&person, None), "{person:?}");
         }
+        // A command a key did is the person's only for the keys of a copy and a cut.
+        assert!(by_person(&Event::Command(Id::named("copy")), Some(true)));
+        assert!(!by_person(&Event::Command(Id::named("copy")), Some(false)));
         for not in [
             key(pencere_view::Key::Character('c'), false),
             key(pencere_view::Key::Character('y'), true),
@@ -1514,7 +1539,7 @@ mod tests {
             Event::Wake { now: 1.0 },
             Event::Focus(None),
         ] {
-            assert!(!by_person(&not), "{not:?}");
+            assert!(!by_person(&not, None), "{not:?}");
         }
     }
 

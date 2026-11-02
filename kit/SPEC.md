@@ -555,7 +555,7 @@ at a ⌘-click). A press in an editor is the editor's as well: it puts the caret
 
 `mods` is `{ shift =, control =, alt =, command = }`. A reply is `nil` (nothing changed), `true` or
 `false` (a frame is worth drawing or not), or a table: `redraw`, `close`, `copy` (text for the
-pasteboard; a host that keeps programs from its pasteboard, a terminal's `osc52 = "off"`, is told whether the person asked for it and writes it only if they did: a reply to a press or its release, a pick in a menu or a command, and of the keys only the system's copy and cut, ⌘C and ⌘X; not a reply to another key, to a message of the program, to a wake or to the room, whatever the page made the key do), `cursor` (`"arrow"`, `"pointer"`, `"text"`, `"resize_horizontal"`, `"resize_vertical"`,
+pasteboard; a host that keeps programs from its pasteboard, a terminal's `osc52 = "off"`, is told whether the person asked for it and writes it only if they did: a reply to a press or its release, a pick in a menu or a command the host's list asked for, and of the keys only the system's copy and cut, ⌘C and ⌘X (so also a command a key did: a page's command bound to ⌘C is the person's, one bound to any other key is not); not a reply to another key, to a message of the program, to a wake or to the room, whatever the page made the key do), `cursor` (`"arrow"`, `"pointer"`, `"text"`, `"resize_horizontal"`, `"resize_vertical"`,
 `"not_allowed"`, `"grab"`, `"grabbing"` or `"crosshair"`), `keyboard` (`"page"` or `{ field = name }`),
 `fill` (`{ [name] = text }`, or `{ [name] = { text =, select = } }`: what fields are to hold from now
 on, and what is selected in them; `select` is `{ from =, to = }`, bytes from 1 (Section 2.7) in either order,
@@ -779,7 +779,8 @@ where the text has as many lines; the page is told the pick (`menu`, the `index`
 (an `edit` that tells what went in is told, as for the person's own key). The line's words are the kit's
 ("Paste"), whatever the page wrote, and it pastes only into the editor that had the keyboard when the page
 asked for the menu, and only a line that is on: a page cannot send what is on the pasteboard to an editor
-the person is not in, nor give the pick another name.
+the person is not in, nor give the pick another name. The line is on only in the menu a right press
+asked for (below, **A menu is shown by the same rule**).
 A page asks for a paste by a command, `{ command = "paste" }`, or binds a key to one,
 `keymap = { enter = "paste" }`, and is failed where it writes it, as for any word that is no command; the person's own key, `["cmd+v"] = "paste"`, as `layout.keymap` lists it, is no error and changes nothing.
 
@@ -848,7 +849,17 @@ anything else (the pointer moving, a wake, a message of the program, the room to
 over, so that a page cannot open panel after panel by itself; and the host shows one panel at a time,
 dropping one asked for while another is up. **A menu is shown by the same rule**: a menu asked for in
 a reply to a message of the program, a wake, the room to send or the pointer moving is passed over, so
-that a program cannot put a menu, and with it a line that pastes, under a person who did not ask for one.
+that a program cannot put a menu, and with it a line that pastes, under a person who did not ask for one;
+so is a menu asked for in the reply to the editor's account of what it did (`edit`, `selection`,
+`viewport`, `focus`), which the page is told and nobody asked, without a word to the page: it asks from
+the press or the key. **A Paste line is on only in the menu a context press opened**: a press of the right button (a Mac's ⌃
+with the main button too, where the drive tells it the page as the right button's, below), in an editor,
+in a gutter or elsewhere. In a menu that a key (Shift F10, which is a command a key did), a press of
+the main button (the second click of a double click too), a release, a command of the host's list
+or the pick of another menu asked for, the line stays in its place, so that the page's count of its
+lines and the number of a pick are what they were, and is off: nothing picks it. A person who typed a
+letter and a space, or clicked twice, has not asked to paste; the cost is that the editor's menu from the
+keyboard has Paste greyed, and ⌘V still pastes.
 
 A reply's **`wake`** asks the host to wake the page that many seconds from now (0 or more; 0 for the
 next frame). Once the time has come the host tells `handle` `{ type = "wake", now = }`, `now` the
@@ -1367,7 +1378,8 @@ name)`), and says `{ kind = "dismiss" }` at what `dismiss` lists: `"escape"`, `"
   (`ui.EDITOR_MENU_COMMAND`, Shift F10, is the command of that). Copy, Cut and the rest are not greyed for an
   empty selection, as the keys are not (Copy and Cut take the caret's line); `read_only` greys Cut, Paste and
   Toggle Line Comment. Paste is the host's line (`paste = editor`): the page neither reads the pasteboard nor
-  asks the editor to paste. `u:editor_menu_pick(act)` is the reply that asks the editor for the line picked
+  asks the editor to paste, and the line is on only in the menu a right press opens: in the one Shift F10
+  asks for it is greyed. `u:editor_menu_pick(act)` is the reply that asks the editor for the line picked
   (nil for the page's lines and Paste).
 - `button`, `icon_button`, `toggle`, `badge`, `kbd`, `rule`, `banner`; `input`, `segments`, `tabs`;
   `modal`, `dialog`, `toasts`, `menu` (the host's), `editor_menu`, `popover`; `list`, `palette`,

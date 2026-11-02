@@ -466,7 +466,7 @@ impl Page {
                 .as_ref()
                 .and_then(|laid| laid.command_for(key, mods))
         {
-            state.event(Event::Command(command));
+            state.event_by_key(Event::Command(command), key, mods);
             return;
         }
         let input = self.menu_press_of(into_page(input, place));
@@ -627,7 +627,8 @@ impl Page {
 
     /// The person asked for the command named `id`, from the host's list of what the page can be
     /// told to do ([`Outline::commands`]). The keys of a command are not told here: the drive tells
-    /// the page the command in place of a key it is told that does one.
+    /// the page the command in place of a key it is told that does one, and that command is a key's
+    /// (its answer has the person's word for the pasteboard only where the key is a copy or a cut).
     pub fn command(&mut self, id: Id) {
         self.state.event(Event::Command(id));
     }
@@ -1150,6 +1151,15 @@ impl State {
         self.module.event(event);
     }
 
+    /// The command that `key` held with `mods` is bound to ([`Module::event_by_key`]): told to the
+    /// page as any event, with the key saying whose word the pasteboard has in the answer.
+    fn event_by_key(&mut self, event: Event, key: Key, mods: Mods) {
+        if let Some(told) = &mut self.told {
+            told.push(event.clone());
+        }
+        self.module.event_by_key(event, key, mods);
+    }
+
     /// Takes what the module has put out into what the page keeps. `building`: a frame is being
     /// laid out and drawn from what is taken, so it is that frame that shows it — the host is not
     /// told to draw another for it (the wake that came with it finds nothing new to say). The drain,
@@ -1492,7 +1502,7 @@ impl PageEditors<'_> {
             .unwrap_or(Route::NotEditor);
         let state = &mut self.page.state;
         match route {
-            Route::Command(id) => state.event(Event::Command(id)),
+            Route::Command(id) => state.event_by_key(Event::Command(id), key, mods),
             Route::Page => state.event(Event::Input(Input::Key { key, mods })),
             _ => {}
         }

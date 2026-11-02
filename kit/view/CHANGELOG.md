@@ -10,6 +10,9 @@ The engine of version `0.1` of the kit (`pencere:view@0.1.0`, `lua` `0.1`).
 
 ### Added
 
+- `Menu::pastes_for(event)` and `Menu::for_event(event)`: whether a Paste line of a menu asked for in the
+  reply to `event` is on (only a press of the right button, in an editor, a gutter or elsewhere), and the
+  menu with its Paste lines off, in their places, where it is not.
 - **Files beside the bundle** (specification §8.8 to §8.10): `Event::Files` says how the person gave
   them (`FileSource`: a drop, a paste, a pick in the Open panel) and each file's `FileEntry` (the
   handle, the name, the size, the media type, the path where the host knows the program reads the

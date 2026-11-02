@@ -395,6 +395,81 @@ return {
     Ok(())
 }
 
+/// A command of the page is told from two sources: the host's own (its menu, its palette) and a key
+/// the page bound to it. The first is the person's word for the pasteboard; the second only when the
+/// key is the system's copy or cut, as for a key the page is told as one: a page that binds a plain
+/// key to a command that copies, or that asks its editor to copy, has not the person's word for it.
+/// The attack goes by the paths a host takes: a key with no editor holding the keyboard, and the
+/// same keys with one.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_command_a_key_did_is_the_persons_word_for_the_pasteboard_only_when_the_key_is_a_copy()
+-> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+return {
+    render = function()
+        return pencere.div():size_full()
+            :command("plain", "Plain", "z")
+            :command("fn", "Fn", "f6")
+            :command("via", "Via the editor", "f7")
+            :command("button", "Copy", "cmd+c")
+            :command("cut", "Cut", "cmd+x")
+            :command("shifted", "Shifted", "shift+cmd+c")
+            :command("host", "Host")
+            :child(pencere.editor("e", {}):grow(1))
+    end,
+    handle = function(event)
+        if event.type ~= "command" then
+            return nil
+        elseif event.id == "via" then
+            return { editor = { e = { { load = "alpha beta" }, { command = "select_all" }, { command = "copy" } } } }
+        end
+        return { copy = "by " .. event.id }
+    end,
+}
+"#,
+    )
+    .size(400.0, 300.0)
+    .open()?;
+    fn copies(page: &Headless) -> Vec<(&str, bool)> {
+        page.copies()
+            .iter()
+            .map(|copied| (copied.text.as_str(), copied.by_person))
+            .collect()
+    }
+    let keys = ["z", "f6", "f7", "cmd+c", "cmd+x", "shift+cmd+c"];
+    let want = [
+        ("by plain", false),
+        ("by fn", false),
+        ("alpha beta", false),
+        ("by button", true),
+        ("by cut", true),
+        ("by shifted", false),
+    ];
+    // No editor has the keyboard: the key reaches the page.
+    for key in keys {
+        page.press(key)?;
+    }
+    assert_eq!(copies(&page), want, "a command by a key, no editor");
+    // An editor has it: the key is the page's command first, told from the editor's route.
+    page.focus_editor("e")?;
+    let from = copies(&page).len();
+    for key in keys {
+        page.press(key)?;
+    }
+    assert_eq!(
+        &copies(&page)[from..],
+        want,
+        "a command by a key, in an editor"
+    );
+    // The host's own list of commands is the person's.
+    let from = copies(&page).len();
+    page.command("host")?;
+    assert_eq!(&copies(&page)[from..], [("by host", true)]);
+    Ok(())
+}
+
 /// A menu is the person's: it opens for a press, a key, the pick of one, a command. A program that
 /// opens one with a message, or a page with a wake, puts a Paste line under a pointer the person is
 /// not using, and what the person picks is the pasteboard in an editor: the pasteboard is theirs to
@@ -462,7 +537,8 @@ return {
     assert_eq!(page.pick(0), Err(Error::NoMenu));
     assert_eq!(editor(&page), "");
     // A key the person pressed opens it, and so does a press; the line says nothing of keys, so
-    // none picks it, and the person's pick pastes.
+    // none picks it. A key is not the person's word for the pasteboard, though: the line is there
+    // and off. The right press that opens the menu is, and the person's pick of it pastes.
     page.focus_editor("e")?;
     page.press("f5")?;
     let menu = page.menu().expect("a key opens a menu").clone();
@@ -473,13 +549,95 @@ return {
         menu.entries
     );
     assert_eq!(page.press("enter"), Err(Error::MenuOpen));
-    assert_eq!(editor(&page), "");
+    assert_eq!(page.pick(0), Err(Error::NoEntry("0".into())));
+    assert_eq!(editor(&page), "", "a key's menu pastes");
+    page.press("escape")?;
+    page.right_click("e")?;
+    assert!(page.menu().is_some(), "a press opens a menu");
     page.pick(0)?;
     assert_eq!(editor(&page), "SECRET", "the person's pick pastes");
     page.right_click("row")?;
     assert!(page.menu().is_some(), "a press opens a menu");
     page.press("escape")?;
     assert_eq!(page.menu(), None);
+    Ok(())
+}
+
+/// A Paste line reads the pasteboard when it is picked, so the page may show it only to a person who
+/// asked for a menu by the one act that means a menu: a right press (a context press). Whatever else
+/// opens a menu, a key, a left press (the second click of a double click too), a release, a command,
+/// the pick in another menu, shows the line off (its place stays, for the page counts its entries): a
+/// person who typed a letter and a space, or clicked twice, has not asked for a paste. The attack is
+/// the one a program makes of its own words: it moves the keyboard to an editor, a plain key (the
+/// editor lets go of it) opens a menu, and the person's next key or click picks the line.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_paste_line_of_a_menu_is_on_only_for_a_right_press() -> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local function menu() return { menu = { at = { x = 1, y = 1 }, entries = {
+    { title = "Other" }, { title = "Nice words", paste = "e" },
+} } } end
+return {
+    render = function()
+        return pencere.div():size_full():command("go", "Go")
+            :child(pencere.editor("e", { keymap = { z = false } }):grow(1))
+            :child(pencere.div():id("row"):press("row"):size(100, 30):child(pencere.text("row")))
+    end,
+    handle = function(event)
+        if event.type == "key" and event.key == "s" then
+            return { copy = "SECRET" }
+        elseif event.type == "key" or event.type == "press" or event.type == "release"
+            or event.type == "command" or event.type == "menu" then
+            return menu()
+        end
+    end,
+    message = function(m)
+        if m.say == "focus" then return { keyboard = { field = "e" } } end
+    end,
+}
+"#,
+    )
+    .size(400.0, 300.0)
+    .open()?;
+    let editor = |page: &Headless| page.editor_text("e").unwrap_or_default();
+    // Whether the page's Paste line (the second) is on in the menu that is up.
+    fn paste_on(page: &Headless) -> bool {
+        matches!(
+            page.menu().expect("a menu is up").entries[1],
+            pencere_view::MenuEntry::Paste { enabled: true, .. }
+        )
+    }
+    page.press("s")?;
+    assert_eq!(page.pasteboard(), Some("SECRET"));
+    page.tell(&json!({ "say": "focus" }).to_string())?;
+
+    // A plain key the editor lets go of; the line is off and nothing picks it.
+    page.press("z")?;
+    assert!(!paste_on(&page), "a key put a Paste line under the person");
+    assert_eq!(page.pick(1), Err(Error::NoEntry("1".into())));
+    // The pick of the other line is the page's: its next menu has the line off, as well.
+    page.pick(0)?;
+    assert!(!paste_on(&page), "the pick of a menu put a Paste line up");
+    page.press("escape")?;
+    assert_eq!(editor(&page), "");
+
+    // A left press (the menu the second click of a double click opens is one: the line is off for
+    // the button, whatever the count), and a command.
+    page.click("row")?;
+    assert!(!paste_on(&page), "a left press");
+    page.press("escape")?;
+    page.command("go")?;
+    assert!(!paste_on(&page), "a command");
+    page.press("escape")?;
+    assert_eq!(editor(&page), "");
+
+    // The right press: over the editor, which has the keyboard, and the person's pick pastes.
+    page.focus_editor("e")?;
+    page.right_click("e")?;
+    assert!(paste_on(&page), "a right press shows the line");
+    page.pick(1)?;
+    assert_eq!(editor(&page), "SECRET", "the person's pick of it pastes");
     Ok(())
 }
 

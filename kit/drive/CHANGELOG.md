@@ -40,6 +40,12 @@ The drive of a page of version `0.1` of the kit (`pencere:view@0.1.0`, `lua` `0.
 
 ### Changed
 
+- The command a key did (a page's command for a key, with no editor holding the keyboard or with one)
+  is told the module with the key (`Module::event_by_key`), so that its answer has the person's word
+  for the pasteboard only where the key is the system's copy or cut; `Page::command`, the host's own
+  list, is the person's. `Headless::copies()` shows it.
+- A Paste line of a menu is off, in its place, except in the menu a right press asked for
+  (`pencere_view::Menu::for_event`): `Headless::pick` of it is `Error::NoEntry`.
 - **Breaking:** `Host::copy` takes `by_person`, `fn copy(&mut self, text: String, by_person: bool)`:
   whether the person's own word asked for the text (a reply to a press or its release, a pick in a
   menu or a command, and of the keys only the system's copy and cut, `pencere_view::copy_key`; the

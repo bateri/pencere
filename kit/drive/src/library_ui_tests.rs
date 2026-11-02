@@ -2220,6 +2220,61 @@ fn a_line_of_the_menu_asks_the_editor_and_paste_is_the_hosts_with_its_pasteboard
     Ok(())
 }
 
+/// The command that asks for the editor's menu at the caret (Shift F10) is a key's, and a key is not
+/// the person's word to read the pasteboard: the menu has the Paste line, off, so that the lines
+/// after it keep their places. The right press the page asked its editor for is, and its line pastes.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_editors_menu_a_key_asks_for_has_no_paste_to_pick_and_the_one_a_right_press_opens_has()
+-> Result<(), Error> {
+    let mut page = open(&editor_menu_page("", ""))?;
+    page.select("code", 0, 5)?;
+    right_press_in(&mut page, "code")?;
+    page.pick_titled("Copy")?;
+    assert_eq!(page.pasteboard(), Some("alpha"));
+    page.select("code", 0, 0)?;
+    page.focus_editor("code")?;
+    page.press("shift+f10")?;
+    let shown = menu_titles(&page);
+    assert!(shown.contains(&"Paste (off)".to_owned()), "{shown:?}");
+    assert!(
+        matches!(page.pick_titled("Paste"), Err(Error::NoEntry(_))),
+        "the menu a key asked for pastes"
+    );
+    assert_eq!(
+        page.editor("code").map(|b| b.text()),
+        Some("alpha beta\ngamma delta".to_owned())
+    );
+    // The lines after Paste are still the ones the person sees: Select All is picked as itself.
+    page.pick_titled("Select All")?;
+    assert_eq!(
+        page.editor("code").map(|b| b.ranges().to_vec()),
+        Some(vec![pencere_view::edit::Range::new(0, 22)])
+    );
+    right_press_in(&mut page, "code")?;
+    assert!(menu_titles(&page).contains(&"Paste".to_owned()));
+    page.press("escape")?;
+    // A Mac's ⌃ with the main button in the editor is the right button the page is told (the drive
+    // turns it into one before the page hears it), so it is a context press as well.
+    let room = page.bounds("code").expect("the editor");
+    let at = pencere_view::Point::new(room.x + 6.0, room.y + 6.0);
+    page.pointer(pencere_view::Input::Press {
+        at,
+        button: pencere_view::Button::Left,
+        mods: pencere_view::Mods {
+            control: true,
+            ..pencere_view::Mods::default()
+        },
+        count: 1,
+    })?;
+    assert!(
+        menu_titles(&page).contains(&"Paste".to_owned()),
+        "{:?}",
+        menu_titles(&page)
+    );
+    Ok(())
+}
+
 /// The editor a line of the menu asks is the editor of the menu the person was shown, not of the last
 /// menu the page asked for under the same name.
 #[test]

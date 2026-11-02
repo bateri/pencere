@@ -52,6 +52,16 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Changed
 
+- **A Paste line of a menu is on only in the menu a right press opened.** In a menu that a key (Shift F10 is a
+  command a key did), the main button (the second click of a double click too), a release, a command or
+  the pick of another menu asked for, the line stays in its place, so that the page's count of its
+  lines and the number of a pick are what they were, and is off: nothing picks it. A key and a plain
+  click are not the person's word to read the pasteboard. `u:editor_menu` gives Paste no `keys` and its
+  Shift F10 menu has the line greyed (⌘V pastes).
+- A command a key did is the person's word for the pasteboard (`Answer::person`) only when the key is
+  the system's copy or cut (`Module::event_by_key`): a page that binds a plain key to a command that
+  copies, or asks its editor to copy, has not the person's word for it. A command of the host's list
+  still is. The page is told the command as before.
 - **Breaking:** `Answer` has `person`: whether the event it answers was the person's word for writing
   their pasteboard: a press or its release, a pick in a menu, a command, and of the keys only the
   system's copy and cut (`pencere_view::copy_key`). A reply to any other key, to what the program

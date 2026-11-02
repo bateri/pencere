@@ -131,7 +131,8 @@ enum Done {
 /// the folder is made by `mkdtemp`, which makes up a name nobody can have made beforehand, creates
 /// the folder in the same call with the mode 0700 and refuses a name that is there (a link
 /// included); it is never "made if it is not there". `base` itself is made first when `TMPDIR`
-/// names a folder that is not there yet, as `mktemp -d` does in the installer.
+/// names a folder that is not there yet (the installer's `mktemp -d` stops there; the upgrade runs
+/// from a command that is installed, whose person has a `TMPDIR` of their own to be made).
 #[allow(unsafe_code)]
 fn private_dir(base: &Path) -> Result<PathBuf, String> {
     use std::ffi::{CString, OsStr};
@@ -469,8 +470,11 @@ mod tests {
 
     /// The folder the upgrade works in is made in the temporary directory that everyone writes to,
     /// and its name is made up by the system (`mkdtemp`: not the process's number, not a name that
-    /// can be guessed and made beforehand): someone who filled the temporary directory with folders
-    /// and links of the names a process would take must neither be worked in nor stop the upgrade.
+    /// can be guessed and made beforehand). The names it once took, from the process's number, and
+    /// the template's own are folders and links of someone else's here: a return to a name that can be
+    /// guessed would work in one of them, or stop at it, and the upgrade must do neither. (A name
+    /// `mkdtemp` makes up cannot be made beforehand, so that it refuses a name that is there is
+    /// `mkdtemp`'s own; what the upgrade is tested for is the folder it makes and where.)
     #[test]
     fn a_folder_that_is_there_beforehand_is_not_worked_in() {
         if !curl_is_here() {
@@ -486,14 +490,15 @@ mod tests {
         let new = b"\x7fELF the new one";
         let source = release_dir(&root.join("releases"), "99.0.0", new, &sha256_hex(new));
 
-        // Every name a process number can make is a folder of someone else's with a file in it, or a
-        // link to a folder of theirs.
+        // Every name the upgrade took before (from the process's number) and the template's own is a
+        // folder of someone else's with a file in it, or a link to a folder of theirs.
         let base = root.join("tmp");
         let elsewhere = root.join("elsewhere");
         fs::create_dir_all(&base).unwrap();
         fs::create_dir(&elsewhere).unwrap();
         let names: Vec<_> = std::iter::once(format!("pencere-upgrade-{pid}"))
             .chain((1..8).map(|next| format!("pencere-upgrade-{pid}-{next}")))
+            .chain(std::iter::once("pencere-upgrade-XXXXXX".to_owned()))
             .collect();
         for (at, name) in names.iter().enumerate() {
             if at % 2 == 0 {
@@ -539,7 +544,7 @@ mod tests {
     }
 
     /// The temporary directory may not be made yet (`TMPDIR` names a folder that is not there): the
-    /// upgrade makes it, as `mktemp -d` of the installer does not fail for it either.
+    /// upgrade makes it, where the installer's `mktemp -d` would stop.
     #[test]
     fn a_temporary_directory_that_is_not_there_is_made() {
         let root =
