@@ -22,8 +22,13 @@ use crate::leaving;
 /// How often the files are looked at.
 const EVERY: Duration = Duration::from_millis(250);
 
-/// The directories of a project that are not its sources: what Cargo, pencere and git keep there.
-const NOT_SOURCES: [&str; 5] = ["target", "dist", ".pencere", ".git", "node_modules"];
+/// The directories of a project that are not its sources, at any depth: what Cargo and npm keep
+/// there. What is hidden (`.git`, `.pencere`, a tool's `.cache`) is not either. The rest is read four
+/// times a second for as long as the pane is open, and a tool's directory can hold thousands of files.
+const NOT_SOURCES: [&str; 2] = ["target", "node_modules"];
+
+/// What `pencere build` makes, at the top of a project; a `dist` further in may be a page's.
+const BUILT: &str = "dist";
 
 /// Whether `root` is a project of this kind: a Cargo package (and not a Lua app).
 pub fn is_project(root: &Path) -> bool {
@@ -47,13 +52,16 @@ fn stamps(root: &Path) -> Stamps {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
-            if relative.as_os_str().is_empty() && NOT_SOURCES.contains(&name) {
+            if name.starts_with('.') {
                 continue;
             }
             let path = relative.join(name);
             let Ok(meta) = entry.metadata() else { continue };
             if meta.is_dir() {
-                pending.push(path);
+                let built = name == BUILT && relative.as_os_str().is_empty();
+                if !built && !NOT_SOURCES.contains(&name) {
+                    pending.push(path);
+                }
             } else if let Some(text) = path.to_str() {
                 stamps.insert(
                     text.replace(std::path::MAIN_SEPARATOR, "/"),
@@ -316,15 +324,25 @@ mod tests {
     }
 
     #[test]
-    fn what_cargo_and_git_keep_is_not_looked_at() {
+    fn what_tools_keep_is_not_looked_at_however_deep_and_the_rest_is() {
         let root = std::env::temp_dir().join(format!("pencere-dev-cargo-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for path in [
             "Cargo.toml",
+            "demo/seed.sql",
             "src/program/main.rs",
+            "src/view/dist/page.lua",
             "src/view/page.lua",
             "target/debug/x",
             ".git/HEAD",
+            ".DS_Store",
+            ".cache/pencere/target/debug/deps/x",
+            ".pencere/log",
+            "dist/program",
+            "node_modules/a/index.js",
+            "tools/site/node_modules/a/index.js",
+            "tools/site/target/debug/x",
+            "src/view/.hidden/x",
         ] {
             let path = root.join(path);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -333,7 +351,13 @@ mod tests {
         let found: Vec<String> = stamps(&root).into_keys().collect();
         assert_eq!(
             found,
-            ["Cargo.toml", "src/program/main.rs", "src/view/page.lua"]
+            [
+                "Cargo.toml",
+                "demo/seed.sql",
+                "src/program/main.rs",
+                "src/view/dist/page.lua",
+                "src/view/page.lua",
+            ]
         );
         std::fs::remove_dir_all(root).unwrap();
     }

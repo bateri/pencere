@@ -30,6 +30,12 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Fixed
 
+- **`pencere dev` on a Cargo package leaves what its tools keep alone.** It read every file of the
+  project four times a second, and a directory it did not know by name, such as a `.cache` holding a
+  checkout and its build, was read with the rest: a quarter of a core for as long as the pane was
+  open. What is hidden, and `target` and `node_modules` at any depth, are now left out, so a save
+  there no longer builds and runs the program again either.
+
 - `pencere dev` is left with ⌃C, as it says, and ends with 0: while the program runs, while Cargo
   builds it and while a change is waited for. It ended with the program's 130, or was killed by the
   signal while it waited, so `make dev` reported an error on every leaving.

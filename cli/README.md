@@ -41,7 +41,8 @@ pencere test               # its tests: the page under a host with no screen (se
 The same two commands work on a program written in Rust (`pencere new hello --lang rust`, a Cargo
 package): `pencere dev` builds it with Cargo and runs it in the pane, shows the view again without
 ending the program when the page or a picture changes, and builds and runs it again when anything
-else does; `pencere build` builds it with `cargo build --release` and copies it to `dist/`. The page
+else does (outside what its tools keep: what is hidden, `target`, `node_modules`, and the `dist` at
+the top); `pencere build` builds it with `cargo build --release` and copies it to `dist/`. The page
 is the same page of the kit, in `src/view/`, carried into the program by its build script.
 
 ## Where things go
