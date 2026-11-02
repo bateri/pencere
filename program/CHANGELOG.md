@@ -23,6 +23,16 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **What a page prints reaches the program's log.** A Lua page's `print` and `warn` are the call
+  `pencere.log` (specification §9.2), which the library answers itself: `Options::log` takes each
+  line with its `LogLevel` and its text, and with no sink the lines are left out and the page is
+  answered all the same. The text is the page's and read as untrusted: each control character in it
+  but a tab and a line break reaches the sink written as `\xNN` (`\x1b` for `ESC`). `serve` and a
+  `Conversation` serve the call alike, with the `RESERVED_PREFIX` (`pencere.`) of the names that are
+  the protocol's.
+- `serve` refuses a program that gives a method or a topic a name that begins with `pencere.`
+  (`Error::Options`): the names are the protocol's (specification §9.2), and a `Conversation` never
+  asks a handler for one.
 - `Options::retry_window`: how long a view that fell is left alone before it is shown again.
 - An app's page of the kit (`pencere::app!`, `App::views`) is offered at `lua` 2.1 as well as 2.0,
   as the `pencere` command's Lua apps are, preferring 2.1: a Rust program's page can draw a picture

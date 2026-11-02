@@ -14,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use pencere::{
-    CloseResult, Conversation, HandOffResult, Kind, Options, ReopenResult, Said, View, ViewControl,
-    ViewError,
+    CloseResult, Conversation, Error, HandOffResult, Kind, LogLevel, Options, ReopenResult, Said,
+    View, ViewControl, ViewError,
 };
 use serde_json::{Value, json};
 
@@ -249,6 +249,147 @@ crate::both_ways!(
     a_subscription_pushes_until_it_is_cancelled_and_its_cleanup_runs,
     a_topic_whose_handler_fails_ends_the_subscription_with_its_error,
 );
+
+/// The lines a program's `log` sink was given, as the scenarios read them.
+type Lines = Arc<Mutex<Vec<(LogLevel, String)>>>;
+
+fn a_line_of_the_views_log_reaches_the_sink_and_is_answered_with_nothing<S: Side>() {
+    let lines = Lines::default();
+    let kept = Arc::clone(&lines);
+    let mut view = S::start(move |options| {
+        options.log(move |level, text| {
+            kept.lock().expect("lines").push((level, text.to_owned()));
+        })
+    });
+    let said = |view: &mut S, id: u64, params: Value| {
+        view.send(&call(id, "pencere.log", &params));
+        assert_eq!(
+            view.said(),
+            json!({ "response": { "id": id, "result": {} } }),
+            "{params}"
+        );
+    };
+    said(&mut view, 1, json!({ "text": "ready", "level": "warn" }));
+    said(&mut view, 2, json!({ "text": "no level" }));
+    said(
+        &mut view,
+        3,
+        json!({ "text": "a level it does not know", "level": "loud" }),
+    );
+    said(&mut view, 4, json!({ "text": "two\nlines\tand a tab" }));
+    // A view is untrusted: what it says cannot act on a terminal that shows the log.
+    said(
+        &mut view,
+        5,
+        json!({ "text": "\u{1b}[31mred\u{1b}[0m\r\u{7f}" }),
+    );
+    // No text, or text that is not a string, is a line left out and a call answered all the same.
+    said(&mut view, 6, json!({ "level": "warn" }));
+    said(&mut view, 7, json!({ "text": 3 }));
+    said(&mut view, 8, json!(null));
+    assert_eq!(
+        *lines.lock().expect("lines"),
+        vec![
+            (LogLevel::Warn, "ready".to_owned()),
+            (LogLevel::Info, "no level".to_owned()),
+            (LogLevel::Info, "a level it does not know".to_owned()),
+            (LogLevel::Info, "two\nlines\tand a tab".to_owned()),
+            (LogLevel::Info, "\\x1b[31mred\\x1b[0m\\x0d\\x7f".to_owned()),
+        ]
+    );
+    // It is a call like another: the number is free again as soon as it is answered.
+    said(&mut view, 1, json!({ "text": "again" }));
+    view.end();
+}
+
+fn a_view_is_answered_when_the_program_has_no_place_for_its_log<S: Side>() {
+    let mut view = S::start(|options| options);
+    view.send(&call(
+        1,
+        "pencere.log",
+        &json!({ "text": "nobody reads it" }),
+    ));
+    assert_eq!(
+        view.said(),
+        json!({ "response": { "id": 1, "result": {} } })
+    );
+    view.end();
+}
+
+fn a_reserved_name_is_not_found_when_the_library_has_nothing_at_it<S: Side>() {
+    let mut view = S::start(|options| options);
+    view.send(&call(1, "pencere.nothing", &json!({})));
+    assert_eq!(view.said()["response"]["error"]["code"], "not-found");
+    view.send(&json!({ "subscribe": { "id": 2, "topic": "pencere.nothing" } }));
+    assert_eq!(view.said()["response"]["error"]["code"], "not-found");
+    view.end();
+}
+
+crate::both_ways!(
+    a_line_of_the_views_log_reaches_the_sink_and_is_answered_with_nothing,
+    a_view_is_answered_when_the_program_has_no_place_for_its_log,
+    a_reserved_name_is_not_found_when_the_library_has_nothing_at_it,
+);
+
+#[test]
+fn a_program_that_gives_a_method_or_a_topic_a_reserved_name_is_refused_by_serve() {
+    for (calls, topics) in [
+        (&["pencere.log"][..], &[][..]),
+        (&["pencere.other"], &[]),
+        (&[], &["pencere.stats"]),
+    ] {
+        let pane = Pane::new();
+        let handle = serve_on(pane.terminal(), move |mut options| {
+            for name in calls {
+                options = options.call(*name, |_params, _call| Ok(()));
+            }
+            for name in topics {
+                options = options.topic(*name, |_params, _subscription| Ok(()));
+            }
+            options
+        });
+        let refused = handle
+            .join()
+            .expect("serve does not panic")
+            .expect_err("serve is refused");
+        let Error::Options(why) = refused else {
+            panic!("an error of the options, not {refused:?}");
+        };
+        assert!(why.contains("pencere."), "{why}");
+        assert!(
+            why.contains(calls.first().or(topics.first()).expect("a name")),
+            "{why}"
+        );
+    }
+}
+
+#[test]
+fn a_conversation_never_asks_a_handler_for_a_reserved_name() {
+    let asked = Arc::new(AtomicBool::new(false));
+    let (call_asked, topic_asked) = (Arc::clone(&asked), Arc::clone(&asked));
+    let mut conversation = Conversation::new(
+        Options::new()
+            .call("pencere.log", move |_params, _call| {
+                call_asked.store(true, Ordering::SeqCst);
+                Ok(json!({ "mine": true }))
+            })
+            .topic("pencere.stats", move |_params, _subscription| {
+                topic_asked.store(true, Ordering::SeqCst);
+                Ok(())
+            }),
+    );
+    conversation.send(&call(1, "pencere.log", &json!({ "text": "x" })).to_string());
+    let Some(Said::Message(answer)) = conversation.receive(Duration::from_secs(5)) else {
+        panic!("an answer");
+    };
+    assert_eq!(answer, r#"{"response":{"id":1,"result":{}}}"#);
+    conversation.send(&json!({ "subscribe": { "id": 2, "topic": "pencere.stats" } }).to_string());
+    let Some(Said::Message(answer)) = conversation.receive(Duration::from_secs(5)) else {
+        panic!("an answer");
+    };
+    assert!(answer.contains("not-found"), "{answer}");
+    assert!(!asked.load(Ordering::SeqCst));
+}
 
 // ---- what only a conversation has ------------------------------------------------------------
 

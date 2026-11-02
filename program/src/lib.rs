@@ -50,7 +50,9 @@
 //! * the **writes**: one thread writes, a few bytes at a time while the tty has room, so a
 //!   terminal that is not reading cannot keep the program from reading or from leaving.
 //!
-//! The program must not print while the view is up: the terminal is the view's.
+//! The program must not print while the view is up: the terminal is the view's. What a page of the
+//! kit prints (its `print` and `warn`) comes to the program as a line for [`Options::log`], where the
+//! program puts it in a log of its own.
 //!
 //! A program that goes on after its view, or reloads the view as its files change, closes it and
 //! shows another with a [`ViewControl`] (§10.8); one that runs a shell or an editor in its pane
@@ -82,6 +84,7 @@ mod files;
 mod foreground;
 mod handlers;
 mod link;
+mod log;
 mod payload;
 #[allow(unsafe_code)]
 mod pipes;
@@ -106,10 +109,12 @@ pub use control::{CloseResult, HandOff, HandOffResult, ReopenResult, ViewControl
 pub use conversation::{Conversation, Lent, Said};
 pub use files::{FileError, MAX_PIECE, safe_name};
 pub use handlers::{Answer, Call, Subscription, ViewError};
+pub use log::{LogLevel, RESERVED_PREFIX};
 pub use terminal::Terminal;
 pub use view::{Access, Icon, IconTheme, Kind, Permission, View, WEB_VERSION};
 
 use handlers::{CallFn, CallHandler, Method, TopicHandler};
+use log::LogFn;
 use view::Source;
 
 /// What the program does when no view is shown.
@@ -124,6 +129,7 @@ pub struct Options {
     icons: Vec<Icon>,
     calls: HashMap<String, Method>,
     topics: HashMap<String, TopicHandler>,
+    log: Option<Arc<LogFn>>,
     fallback: Option<Fallback>,
     terminal: Option<Terminal>,
     control: Option<ViewControl>,
@@ -168,6 +174,7 @@ impl Options {
             icons: Vec::new(),
             calls: HashMap::new(),
             topics: HashMap::new(),
+            log: None,
             fallback: None,
             terminal: None,
             control: None,
@@ -222,7 +229,9 @@ impl Options {
     /// Answers the calls of the view to `method`. The handler is given the params of the call
     /// (`null` when it has none) and returns the result, or a [`ViewError`] the view gets as the
     /// error of the call; a result that serialises to `null` is `{}`, since a result is never
-    /// `null`. A method that has no handler is answered `not-found`.
+    /// `null`. A method that has no handler is answered `not-found`. A name that begins with
+    /// `pencere.` is the protocol's, not the program's (specification §9.2): `serve` refuses a
+    /// program that gives one, and a [`Conversation`] never asks the handler.
     ///
     /// The handler runs on a thread of its own, so it may take its time; it should look at
     /// [`Call::is_cancelled`] now and then, and may report its progress with [`Call::progress`].
@@ -350,7 +359,24 @@ impl Options {
         self
     }
 
-    /// What the program does when no view is shown: no tty, no terminal answered, it shares no
+    /// Takes the lines a view says to the program's log: what a page's `print` and `warn` are
+    /// (specification §9.2, the reserved call `pencere.log`). The library answers the call itself,
+    /// so the program needs no handler of its own for it, and gives each line to `sink` with its
+    /// [`LogLevel`] and its text. The text is the view's and read as untrusted: each control
+    /// character in it but a tab and a line break is written as `\xNN` (`\x1b` for `ESC`), so that a
+    /// view cannot act on a terminal that shows the log.
+    ///
+    /// `sink` runs on the thread that reads the view (in [`Conversation`], on the one that sends),
+    /// once for each line, in the order the view said them; it should return at once. A program is
+    /// not to print while its view is up (the terminal is the view's): the sink writes to a file,
+    /// a log of the program's own, or the program's tracing. With no sink the lines are left out
+    /// and the view is answered all the same.
+    #[must_use]
+    pub fn log(mut self, sink: impl Fn(LogLevel, &str) + Send + Sync + 'static) -> Self {
+        self.log = Some(Arc::new(sink));
+        self
+    }
+
     /// version or no kind, or it refused or ended the open before the view ran. It runs after
     /// the terminal has been given back, and is told why. It does not run when a signal ended the
     /// wait.
@@ -427,7 +453,22 @@ impl Options {
 
     /// Checks what the program offers.
     fn check(&self) -> Result<(), Error> {
-        Self::check_views(&self.views)
+        Self::check_views(&self.views)?;
+        // The names that begin with `pencere.` are the protocol's (specification §9.2): a handler
+        // under one would never be asked, so it is refused where the program can see why.
+        let mut names: Vec<&String> = self.calls.keys().chain(self.topics.keys()).collect();
+        names.sort();
+        match names
+            .iter()
+            .find(|name| name.starts_with(log::RESERVED_PREFIX))
+        {
+            Some(name) => Err(Error::Options(format!(
+                "{name:?} cannot be a method or a topic of a program: the names that begin with \
+                 \"{}\" are the protocol's",
+                log::RESERVED_PREFIX
+            ))),
+            None => Ok(()),
+        }
     }
 
     /// Checks the kinds of view a program offers, as listed in a `hello`.

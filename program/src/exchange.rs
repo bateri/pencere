@@ -16,7 +16,7 @@ use std::io;
 use std::sync::Arc;
 
 use pencere_wire::messages::Message;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::Options;
 use crate::handlers::{
@@ -24,6 +24,7 @@ use crate::handlers::{
     TopicHandler, ViewError, Work, fits, payload_of, read_message, run_call, run_deferred,
     run_topic,
 };
+use crate::log;
 
 /// How many messages a handler can have waiting for the owner before it has to wait.
 pub(crate) const WORK_ROOM: usize = 256;
@@ -125,6 +126,30 @@ impl Exchange {
         Self::tell(toward, &payload_of(&message));
     }
 
+    /// A call of a name the protocol reserves (§9.2): `pencere.log` says a line to the program's log,
+    /// and is answered `{}` whether the program has a place for it or not (a view that was told
+    /// `not-found` stops saying them); any other is a name the library has nothing at.
+    fn on_reserved_call(
+        options: &Options,
+        id: u64,
+        method: &str,
+        params: &Value,
+        toward: &mut dyn Toward,
+    ) {
+        if method != log::METHOD {
+            Self::tell_failure(
+                toward,
+                id,
+                &ViewError::with_message("not-found", "there is nothing to call by that name"),
+            );
+            return;
+        }
+        if let (Some(sink), Some((level, text))) = (&options.log, log::read(params)) {
+            sink(level, &log::visible(text));
+        }
+        Self::tell(toward, &payload_of(&Message::answer(id, json!({}))));
+    }
+
     fn on_call(
         &mut self,
         options: &Options,
@@ -135,6 +160,12 @@ impl Exchange {
     ) {
         // An id that is out is not used again; a view that does is not following §9.2.
         if self.calls.contains_key(&id) || self.subscriptions.contains_key(&id) {
+            return;
+        }
+        // The names that begin with `pencere.` are the protocol's (§9.2): the library answers the
+        // ones it knows, and no handler of the program's is asked for any of them.
+        if method.starts_with(log::RESERVED_PREFIX) {
+            Self::on_reserved_call(options, id, &method, &params, toward);
             return;
         }
         let Some(entry) = options.calls.get(&method) else {
@@ -222,7 +253,13 @@ impl Exchange {
         if self.calls.contains_key(&id) || self.subscriptions.contains_key(&id) {
             return;
         }
-        let Some(entry) = options.topics.get(&topic) else {
+        // The protocol defines no topic of the reserved names (§9.2) yet, and the program may give none.
+        let entry = if topic.starts_with(log::RESERVED_PREFIX) {
+            None
+        } else {
+            options.topics.get(&topic)
+        };
+        let Some(entry) = entry else {
             Self::tell_failure(
                 toward,
                 id,

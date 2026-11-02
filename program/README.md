@@ -140,6 +140,32 @@ Anything a handler returns is JSON: the result of a call is `Serialize`, an erro
 `ViewError` with a short `code` the view can act on and words for the person, and a handler that
 panics is an `internal` error of its call and nothing else.
 
+## What a page prints
+
+A page of the kit has no terminal of its own, and the one under it is yours, which you must not write to
+while the view is up. So the `print` and `warn` of a page are a call, `pencere.log`, that the library answers
+itself: no handler of yours is needed, and `Options::log` takes each line with its `LogLevel` and its text,
+on the thread that reads the view, in the order the page said them. Put them where you keep your own
+log: a file, your tracing.
+
+```rust
+use pencere::{LogLevel, Options};
+use std::sync::{Arc, Mutex};
+
+let lines = Arc::new(Mutex::new(Vec::new()));
+let kept = Arc::clone(&lines);
+let options = Options::new().log(move |level, text| {
+    let word = if level == LogLevel::Warn { "warning" } else { "info" };
+    kept.lock().unwrap().push(format!("view {word}: {text}"));
+});
+# drop(options);
+```
+
+The text is the page's and not to be trusted: a control character in it, but a tab and a line break, comes
+as `\xNN` (`\x1b` for `ESC`), so that a page cannot act on a terminal that shows your log. With no
+`Options::log` the lines are left out, and the page is answered all the same. The names that begin with
+`pencere.` are the protocol's: `serve` refuses a method or a topic of yours that has one.
+
 ## Closing the view and showing another
 
 A program that goes on after its view, or whose author reloads the view as the files change, makes
