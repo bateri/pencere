@@ -109,7 +109,7 @@ A script **returns the page**, a table of the functions the host calls:
 | `render(size, now, reduce_motion) -> element[, animating[, wake_at]]` | The host draws. `size` is `{ w =, h = }` in points, `now` seconds on the host's clock, `reduce_motion` the person's setting. `animating` asks for the next frame at once; a page at rest costs no frames. `wake_at` (a time on `now`'s clock) asks a page at rest to be rendered once more then. |
 | `settle() -> boolean` (optional)                                      | The page was laid out: bring back what depends on the layout. `true` when something changed. (A timer set here is asked for: the kit has the page rendered again.)                                                                                                                               |
 | `handle(event) -> reply` (optional)                                   | The person did something, or the time the page asked to be woken at came. See Section 2.3.                                                                                                                                                                                                       |
-| `message(message) -> reply` (optional)                                | The program said something that no `pencere.call` or `pencere.subscribe` of the page was waiting for. `message` is the decoded JSON.                                                                                                                                                             |
+| `message(message) -> reply` (optional)                                | The program said something that no `pencere.call` or `pencere.subscribe` of the page was waiting for, and that is not an answer to a request the kit numbered (Section 2.4). `message` is the decoded JSON.                                                                                      |
 | `room() -> reply` (optional)                                          | The program has read enough that a message `pencere.send` answered `false` to may be sent again.                                                                                                                                                                                                 |
 
 ### 2.1 Elements
@@ -452,7 +452,7 @@ with `@pencere/terminal` (Section 2.6).
 program runner's. `pencere.time.after(seconds, fn)` runs `fn` once, `seconds` (0 or more) from now;
 `pencere.time.every(seconds, fn)` every `seconds` (more than 0) from then on, once and not once for
 each for runs it fell behind on. Both return a timer: `:cancel()` stops it (`true` where it was still
-waiting) and `:active()` says whether it waits. `pencere.time.now()` is the time the host last gave
+waiting) and `:active()` says whether it waits; a timer has nothing else a script can read. `pencere.time.now()` is the time the host last gave
 the page, `render`'s `now` or a wake's (0 before any); it does not go on between them.
 `pencere.time.wall()` is the time of day, as the host's system says it: the seconds of Unix time
 (since 1970-01-01 00:00:00 UTC, leap seconds not counted) and how far the person's local time is
@@ -892,8 +892,8 @@ otherwise. This is how the kit puts together what its timers and the page answer
 
 What the page says to its program is the messages of the protocol (Section 9.2):
 `pencere.call(method, params, done, progress)` asks and is answered once, `pencere.subscribe(topic,
-params, on_value)` asks to hear a topic, `pencere.cancel(id)` gives either up (and `print` and `warn`,
-below, are calls too), `pencere.json` encodes
+params, on_value, on_error)` asks to hear a topic, `pencere.cancel(id)` gives either up (and `print` and
+`warn`, below, are calls too), `pencere.json` encodes
 and decodes JSON (arrays and objects nested up to 127 levels, the outermost counting as the first: protocol, Section 4.5).
 `pencere.json.decode(text)` is the reader the program's own messages are read with, and gives the
 value, or nil and why (`a comma or a brace was expected at 12`, the place counted from 1; nil alone for
@@ -904,6 +904,24 @@ whether it had it as `null`, for every object decoded, those of the program's me
 while the page has set nothing at that key. What is decoded is encoded again as it was: its `null`
 members, and an empty list as a list. A message the program cannot take yet waits its turn (`pencere.send`, the raw word,
 says whether it took the message), and the host holds the page to the limits of Section 5.
+
+`method` and `topic` are strings, `params` is nil or a table, `done`, `progress`, `on_value` and
+`on_error` are nil or functions, and the `id` of `pencere.cancel` is the number a request was
+given; anything else is a mistake of the script, at its line (Section 2). `pencere.call` and
+`pencere.subscribe` give back the number of the request, which the kit chooses, from 1 and up.
+
+A subscription the program refuses, or ends with an error (protocol, Section 9.2), calls `on_error`
+once with the error, `{ code =, message = }` as a call's; the subscription is then over, and no
+value follows. Without an `on_error` it ends without a word. A subscription is answered by an
+error and by nothing else: a `response` with a `result` to a `subscribe` is ignored.
+
+What the program says after the page gave a request up (`pencere.cancel`), or after it ended, is
+not told to the page: a `response`, `push` or `progress` whose `id` is a number the kit has given
+out and has no request for is dropped, and so is one of a kind that request does not take. Only a
+message with another `id` reaches `message`: a page that numbers its own messages (`pencere.send`)
+takes its numbers from beyond those the kit gives out (the kit takes the next one for each request,
+and for each line of `print` and `warn`), as the protocol has it that no two requests of a page
+share one.
 
 #### `print` and `warn`
 

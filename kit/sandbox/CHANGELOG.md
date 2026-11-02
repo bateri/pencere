@@ -56,6 +56,20 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   box and `:selected(nil)` to select a row. `italic(false)`, `underline(false)` and `strike(false)` take
   back what an element would inherit, and `:hidden()` no longer depends on the order it is said in
   with `row`, `col` and `grid`.
+- **What the program says after the page gave a request up is not told to the page.** A `response`,
+  `push` or `progress` for a request the page cancelled, or a subscription that ended, used to reach
+  the page's `message`; now one whose `id` is a number the kit gave out and has no request for is
+  dropped, and `message` has the numbers the kit did not give (a page that numbers its own
+  messages, as `containers.lua` does, takes them from beyond the kit's).
+- **`pencere.subscribe(topic, params, on_value, on_error)`.** A subscription the program refuses or
+  ends with an error calls `on_error(err)` once, the subscription is over and no push follows;
+  without `on_error` it ends without a word. It used to reach `message` as an answer to nothing.
+- **`pencere.call`, `pencere.subscribe` and `pencere.cancel` check their arguments:** `method` and
+  `topic` are strings, `params` nil or a table, the functions nil or functions, the `id` of `cancel` a
+  number; a mistake is an error at the line of the script.
+- The fields of a timer (`fn`, `waiting` and the others) are no longer there to read or write: a
+  timer has `:cancel()` and `:active()`. `pencere.f32` is gone from the page API; the interpreter is
+  rebuilt (`make luau`).
 - `pencere:view@3.0.0`: an element names the options of its editor by their place in the frame's
   new `editors` list (`node.editor: option<u32>`), as it names its words and its commands, instead
   of carrying room for them. A node is 736 bytes in the interpreter, not 1 728: a page of 8 300

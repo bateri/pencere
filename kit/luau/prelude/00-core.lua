@@ -41,8 +41,9 @@ pencere.version = 2
 
 -- A number as the engine holds it, in single precision. The engine measures and draws in
 -- single precision, and a page that adds up highlights or sizes in doubles can come to a
--- value that is not the engine's (a level of 1e-17 where the engine has 0).
-function pencere.f32(value)
+-- value that is not the engine's (a level of 1e-17 where the engine has 0). The prelude's alone:
+-- a page that wants it writes it (`string.pack("<f", …)`).
+function internal.f32(value)
 	return (string.unpack("<f", string.pack("<f", value)))
 end
 

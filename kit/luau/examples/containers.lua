@@ -26,7 +26,9 @@ local Rows, Ui = pencere.Rows, pencere.Ui
 local TWO32 = 4294967296
 
 -- `x` as the single-precision number Rust would have it as.
-local f32 = pencere.f32
+local function f32(value)
+	return (string.unpack("<f", string.pack("<f", value)))
+end
 
 local function finite(x)
 	return x == x and x ~= math.huge and x ~= -math.huge

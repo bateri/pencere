@@ -180,6 +180,7 @@ local json = pencere.json
 local time = internal.time
 local merge = pencere.merge
 local lists = internal.lists
+local refuse = internal.refuse
 
 -- A call may say this many messages; the application closes a page that says more.
 local PER_CALL = 8
@@ -261,10 +262,29 @@ local function with_frame(reply)
 	return merge(reply, true)
 end
 
--- Asks the program to do `method` (with `params`, a value) and answer once: `done(result, err)`
+-- Refuses what a request is not, at the line of the script that made it: the name of what is asked
+-- is a string, the params nothing or a table (they are the object of the message), and what hears
+-- the answer nothing or a function. A request of the wrong shape would otherwise fail later, in the
+-- host, with no line to name, or be answered to nobody.
+local function check_request(fname, noun, name, params, hearers)
+	if type(name) ~= "string" then
+		refuse("pencere." .. fname .. " takes the " .. noun .. " to ask for, a string, not a " .. type(name))
+	end
+	if params ~= nil and type(params) ~= "table" then
+		refuse("pencere." .. fname .. " takes params that are nil or a table, not a " .. type(params))
+	end
+	for _, hearer in hearers do
+		if hearer[2] ~= nil and type(hearer[2]) ~= "function" then
+			refuse("pencere." .. fname .. " takes " .. hearer[1] .. " that is nil or a function, not a " .. type(hearer[2]))
+		end
+	end
+end
+
+-- Asks the program to do `method` (with `params`, a table) and answer once: `done(result, err)`
 -- is called with the result, or with nil and { code =, message = }. `progress(report)` is called
 -- with { done =, total =, note = } while a call that takes a while goes on. The number of the call.
 function pencere.call(method, params, done, progress)
+	check_request("call", "method", method, params, { { "done", done }, { "progress", progress } })
 	local id = next_id
 	next_id += 1
 	asked[id] = { kind = "call", done = done, progress = progress }
@@ -273,17 +293,24 @@ function pencere.call(method, params, done, progress)
 end
 
 -- Asks to hear `topic` as it changes: `on_value(value)` is called for each value the program
--- pushes. The number of the subscription.
-function pencere.subscribe(topic, params, on_value)
+-- pushes. If the program refuses the subscription, or ends it with an error, `on_error(err)` is
+-- called once ({ code =, message = }, as a call's) and no value follows; without an `on_error` the
+-- subscription ends without a word. The number of the subscription.
+function pencere.subscribe(topic, params, on_value, on_error)
+	check_request("subscribe", "topic", topic, params, { { "on_value", on_value }, { "on_error", on_error } })
 	local id = next_id
 	next_id += 1
-	asked[id] = { kind = "subscribe", on_value = on_value }
+	asked[id] = { kind = "subscribe", on_value = on_value, on_error = on_error }
 	enqueue({ subscribe = { id = id, topic = topic, params = params } })
 	return id
 end
 
--- Gives up a call that is still out, or a subscription.
+-- Gives up a call that is still out, or a subscription. What the program says of it after this is
+-- not told to the page.
 function pencere.cancel(id)
+	if type(id) ~= "number" then
+		refuse("pencere.cancel takes the number a call or a subscription was given, not a " .. type(id))
+	end
 	asked[id] = nil
 	enqueue({ cancel = { id = id } })
 end
@@ -524,38 +551,45 @@ function entry.message(text)
 	local taken = false
 	-- What the page asked is found by the number it gave and by what it asked: an answer is for a
 	-- call, a push for a subscription.
-	local function asked_as(body, kind)
-		local request = type(body) == "table" and type(body.id) == "number" and asked[body.id]
-		if request and request.kind == kind then
-			return request
-		end
-		return nil
-	end
+	local body = message.push or message.response or message.progress
+	local number = type(body) == "table" and type(body.id) == "number" and body.id or nil
+	local request = number and asked[number]
 	if message.push then
-		local request = asked_as(message.push, "subscribe")
-		if request then
+		if request and request.kind == "subscribe" then
 			taken = true
 			if request.on_value then
-				reply = time.taken(request.on_value(message.push.value))
+				reply = time.taken(request.on_value(body.value))
 			end
 		end
 	elseif message.response then
-		local request = asked_as(message.response, "call")
-		if request then
+		if request and request.kind == "call" then
 			taken = true
-			asked[message.response.id] = nil
+			asked[number] = nil
 			if request.done then
-				reply = time.taken(request.done(message.response.result, message.response.error))
+				reply = time.taken(request.done(body.result, body.error))
+			end
+		elseif request and request.kind == "subscribe" and body.error ~= nil then
+			-- The program ended the subscription with an error: it is over, and told once.
+			taken = true
+			asked[number] = nil
+			if request.on_error then
+				reply = time.taken(request.on_error(body.error))
 			end
 		end
 	elseif message.progress then
-		local request = asked_as(message.progress, "call")
-		if request then
+		if request and request.kind == "call" then
 			taken = true
 			if request.progress then
-				reply = time.taken(request.progress(message.progress))
+				reply = time.taken(request.progress(body))
 			end
 		end
+	end
+	-- What is left with a number the kit gave out is not the page's: it comes after the page gave a
+	-- request up, or after a subscription ended, or it is what the protocol does not have (a push to
+	-- a call, a value in the answer to a subscribe). `message` has the numbers the kit did not give,
+	-- which a page that numbers its own messages (`pencere.send`) takes from beyond these.
+	if not taken and number and number < next_id then
+		taken = true
 	end
 	if not taken and page.message then
 		reply = time.taken(page.message(message))

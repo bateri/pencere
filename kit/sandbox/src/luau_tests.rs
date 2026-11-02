@@ -613,6 +613,15 @@ fn a_script_cannot_change_what_every_script_shares() {
         for _, name in { "_heard", "_asked" } do
             hidden[#hidden + 1] = "layout." .. name .. "=" .. tostring(pencere.layout[name])
         end
+        hidden[#hidden + 1] = "f32=" .. tostring(pencere.f32)
+        -- A timer has nothing a script can read but what it does.
+        local timer = pencere.time.after(1, function() end)
+        for _, name in { "fn", "waiting", "due", "delay", "every", "order" } do
+            hidden[#hidden + 1] = "timer." .. name .. "=" .. tostring(timer[name])
+        end
+        local waited = timer:active()
+        local stopped = timer:cancel()
+        local timer_says = string.format("%s %s %s", tostring(waited), tostring(stopped), tostring(timer:active()))
 
         -- The tables it makes public, and the classes of what a script is handed, cannot be changed.
         local changed = {}
@@ -649,6 +658,7 @@ fn a_script_cannot_change_what_every_script_shares() {
                 :child(pencere.text(table.concat(hidden, " ")))
                 :child(pencere.text(#changed == 0 and "all held" or table.concat(changed, ", ")))
                 :child(pencere.text(tostring(ok4)))
+                :child(pencere.text(timer_says))
         end }
         "#,
         ModuleLimits::default(),
@@ -661,10 +671,15 @@ fn a_script_cannot_change_what_every_script_shares() {
     assert_eq!(
         said[1],
         "host=nil _keymaps=nil _lists=nil _time=nil start=nil render=nil settle=nil handle=nil \
-         message=nil room=nil layout._heard=nil layout._asked=nil"
+         message=nil room=nil layout._heard=nil layout._asked=nil f32=nil timer.fn=nil \
+         timer.waiting=nil timer.due=nil timer.delay=nil timer.every=nil timer.order=nil"
     );
     assert_eq!(said[2], "all held");
     assert_eq!(said[3], "true");
+    assert_eq!(
+        said[4], "true true false",
+        "a timer waits, is stopped, and is not waiting"
+    );
 }
 
 #[test]
@@ -799,6 +814,74 @@ fn a_page_that_asks_its_program_things_is_answered_and_pushed_to() {
     page.module.message("not json at all".into());
     let update = page.until(Duration::from_millis(300), |u| u.closed.is_some());
     assert_eq!(update.closed, None);
+}
+
+/// What the program says after the page gave a request up, or after a subscription ended, is not the
+/// page's `message`; a subscription that fails tells the page once; what has a number the kit did
+/// not give reaches `message`.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn what_the_program_says_of_a_request_that_is_over_is_not_told_to_the_page() {
+    let mut page = open_script(
+        r#"
+        local seen = {}
+        local function note(text) seen[#seen + 1] = text; return true end
+        pencere.call("kept", nil, function() return note("kept answered") end)
+        local gone = pencere.call("gone", nil, function() return note("gone answered") end)
+        pencere.subscribe("refused", nil, function() return note("refused pushed") end,
+            function(err) return note("refused " .. err.code) end)
+        pencere.subscribe("silent", nil, function() return note("silent pushed") end)
+        pencere.subscribe("live", nil, function() return note("live pushed") end)
+        local ended = pencere.subscribe("ended", nil, function() return note("ended pushed") end)
+        pencere.cancel(gone)
+        pencere.cancel(ended)
+        return {
+            render = function() return pencere.div():child(pencere.text(table.concat(seen, ","))) end,
+            message = function(message)
+                local body = message.response or message.push or message.progress
+                return note("message " .. tostring(body and body.id))
+            end,
+        }
+        "#,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    assert_eq!(page.seen.sent.len(), 8, "{:?}", page.seen.sent);
+    for message in [
+        // The call the page gave up: its answer, its progress, and a push that is not of a call.
+        r#"{"response":{"id":2,"result":{}}}"#,
+        r#"{"progress":{"id":2,"done":1}}"#,
+        r#"{"push":{"id":2,"value":{}}}"#,
+        // The subscription that ended: what the program still says of it.
+        r#"{"push":{"id":6,"value":{}}}"#,
+        r#"{"response":{"id":6,"error":{"code":"internal","message":"no"}}}"#,
+        // A subscription the program refuses: told once, then over.
+        r#"{"response":{"id":3,"error":{"code":"not-found","message":"no such topic"}}}"#,
+        r#"{"response":{"id":3,"error":{"code":"not-found","message":"no such topic"}}}"#,
+        r#"{"push":{"id":3,"value":{}}}"#,
+        // One without an `on_error` ends without a word.
+        r#"{"response":{"id":4,"error":{"code":"internal","message":"no"}}}"#,
+        r#"{"push":{"id":4,"value":{}}}"#,
+        // A subscription is answered by an error and by nothing else: it goes on.
+        r#"{"response":{"id":5,"result":{}}}"#,
+        r#"{"push":{"id":5,"value":{}}}"#,
+        // A number the kit did not give, and what is not of a request: the page's.
+        r#"{"response":{"id":50,"result":{}}}"#,
+        r#"{"hello":1}"#,
+    ] {
+        page.module.message(message.into());
+    }
+    let expected = "refused not-found,live pushed,message 50,message nil";
+    until_seen(&mut page, Duration::from_secs(5), |seen| {
+        seen.frame
+            .as_ref()
+            .is_some_and(|frame| words(&frame.root) == [expected])
+    });
+    let said = words(&page.seen.frame.clone().expect("a page").root);
+    assert_eq!(said, [expected], "{:?}", page.seen.closed);
 }
 
 #[test]
@@ -2693,6 +2776,21 @@ fn what_the_page_api_refuses_it_refuses_at_the_line_of_the_script_that_gave_it()
                 r#"pencere.time.after("x", 1)"#,
                 "pencere.time.every(0, function() end)",
                 "pencere.time.after(1, 5)",
+            ],
+        ),
+        (
+            "the program",
+            &[
+                "pencere.call(1)",
+                r#"pencere.call("x", 5)"#,
+                r#"pencere.call("x", nil, "y")"#,
+                r#"pencere.call("x", nil, nil, 1)"#,
+                "pencere.subscribe({})",
+                r#"pencere.subscribe("x", "y")"#,
+                r#"pencere.subscribe("x", nil, 1)"#,
+                r#"pencere.subscribe("x", nil, nil, "y")"#,
+                r#"pencere.cancel("x")"#,
+                "pencere.cancel()",
             ],
         ),
         (

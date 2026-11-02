@@ -8,7 +8,7 @@
 local internal = ...
 
 local layout = pencere.layout
-local f32 = pencere.f32
+local f32 = internal.f32
 local refuse = internal.refuse
 local where = internal.host.where
 

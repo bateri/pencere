@@ -9,7 +9,7 @@
 --
 -- The kit's timers run on it, named as the program runner's:
 --
---   local saving = pencere.time.after(0.5, function() pencere.call("save", text) end)
+--   local saving = pencere.time.after(0.5, function() pencere.call("save", { text = text }) end)
 --   local clock = pencere.time.every(1, function() return true end)   -- a frame each second
 --   saving:cancel()             -- whether it was still waiting
 --   clock:active()              -- whether it is
@@ -43,8 +43,10 @@ local refuse = internal.refuse
 -- The latest time the host gave, and the time of the wake being answered (nil while none is).
 local known = 0
 local waking = nil
--- The timers that wait, as a set. A timer set where the time was not known has no `due`, only
--- its `delay`, until the next wake places it.
+-- The timers that wait, each with what the kit holds of it: { due =, delay =, every =, fn =, order = }.
+-- It is in this table and not in the timer the script is handed, so that a script cannot read or
+-- write it. A timer set where the time was not known has no `due`, only its `delay`, until the next
+-- wake places it.
 local timers = {}
 local made = 0
 -- What the page asked of its own wakes: the time it asked for, placed, and the fewest seconds it
@@ -285,15 +287,14 @@ local function add(seconds, every, fn, name)
 	if waking == nil then
 		owed = true
 	end
-	local timer = setmetatable({
+	local timer = setmetatable({}, Timer)
+	timers[timer] = {
 		due = waking and waking + seconds or nil,
 		delay = seconds,
 		every = every and seconds or nil,
 		fn = fn,
 		order = made,
-		waiting = true,
-	}, Timer)
-	timers[timer] = true
+	}
 	return timer
 end
 
@@ -322,15 +323,14 @@ end
 
 -- Stops the timer: whether it was still waiting (an `after` that ran is not).
 function Timer:cancel()
-	local was = self.waiting
-	self.waiting = false
+	local was = timers[self] ~= nil
 	timers[self] = nil
 	return was
 end
 
 -- Whether the timer is still waiting to run.
 function Timer:active()
-	return self.waiting
+	return timers[self] ~= nil
 end
 
 -- --- What the application's calls do with it (`40-page.lua`) -------------------------------------
@@ -379,8 +379,8 @@ function hooks.asked()
 	owed = false
 	local unplaced = own_delay ~= nil or held ~= nil
 	local earliest = own_due
-	for timer in next, timers do
-		local due = timer.due
+	for _, state in next, timers do
+		local due = state.due
 		if due == nil then
 			unplaced = true
 		elseif earliest == nil or due < earliest then
@@ -427,9 +427,9 @@ end
 function hooks.woken(now, handle)
 	hooks.given(now)
 	waking = now
-	for timer in next, timers do
-		if timer.due == nil then
-			timer.due = now + timer.delay
+	for _, state in next, timers do
+		if state.due == nil then
+			state.due = now + state.delay
 		end
 	end
 	if own_delay ~= nil then
@@ -440,16 +440,17 @@ function hooks.woken(now, handle)
 		own_delay = nil
 	end
 	local due = {}
-	for timer in next, timers do
-		if timer.due <= now then
+	for timer, state in next, timers do
+		if state.due <= now then
 			due[#due + 1] = timer
 		end
 	end
 	table.sort(due, function(a, b)
-		if a.due ~= b.due then
-			return a.due < b.due
+		local first, second = timers[a], timers[b]
+		if first.due ~= second.due then
+			return first.due < second.due
 		end
-		return a.order < b.order
+		return first.order < second.order
 	end)
 	-- The page's own wake is gone once it comes, before the page is told, so that what it asks
 	-- then stands.
@@ -460,18 +461,18 @@ function hooks.woken(now, handle)
 	local reply = nil
 	for _, timer in ipairs(due) do
 		-- One that ran before it may have stopped it.
-		if timer.waiting then
-			if timer.every then
-				local next_due = timer.due + timer.every
+		local state = timers[timer]
+		if state then
+			if state.every then
+				local next_due = state.due + state.every
 				if next_due <= now then
-					next_due = now + timer.every
+					next_due = now + state.every
 				end
-				timer.due = next_due
+				state.due = next_due
 			else
-				timer.waiting = false
 				timers[timer] = nil
 			end
-			reply = merge(reply, hooks.taken(timer.fn()))
+			reply = merge(reply, hooks.taken(state.fn()))
 		end
 	end
 	if own and handle then
