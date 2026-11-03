@@ -5,39 +5,57 @@ over plain ssh with no GPU, the program takes its pane the way a full-screen pro
 takes the screen, and gives it back when it ends — but what it puts there is a real interface, not
 a grid of characters.
 
-The program does not draw the view. It hands the terminal the files of the view, the terminal runs
-them, and while the view is up the two talk to each other in six small messages: the view calls the
-program and subscribes to its topics, and the program answers and pushes. That is the whole
-protocol, and it is the same for every kind of view.
+## Install
 
-There are two families of views:
-
-- **views the terminal draws itself**, with the pencere kit, in its own font and theme: a Lua
-  script (`lua`), which may `require` the other scripts of its bundle;
-- **a web page** (`web`): HTML and JavaScript, built with whatever builds to the web, in the
-  terminal's web view. It takes the terminal's colours and font from a message the terminal sends
-  it.
-
-The messages ride in the terminal's own stream: no port, no extra connection, nothing to set up on
-the server. The view opens in the program's own pane and closes when the program ends. It leaves
-the terminal's own shortcuts alone, loads its files once and keeps them by content, and a program
-in a terminal that does not support pencere is told so and can fall back to text.
-
-The view runs on the machine of the person looking at it, so it is kept in a sandbox. A script
-gets nothing it was not handed; a web page reaches nothing but its own program unless
-the program names a domain and the person allows it.
-
-## A first app, in three languages
-
-The same program: a view, one call it answers, and one topic it feeds. Whichever you write it in,
-it is one file to hand to someone, and `pencere new <name> --lang lua|ts|rust` starts it for you.
-The `pencere` command installs with one line, on macOS and Linux ([more in its
-README](cli/README.md#install)):
+The `pencere` command makes, runs and packs an app. It installs with one line, on macOS and Linux
+([more in its README](cli/README.md#install)):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/bateri/pencere/main/cli/install.sh | sh
 ```
 
+A program in TypeScript or Rust takes the library instead:
+
+```sh
+npm install @pencere/sdk
+cargo add pencere
+```
+
+To see a view you need a terminal that hosts pencere: [bateri](https://github.com/bateri/bateri) is the first, from its 0.23.
+
+## Pens
+
+Programs made with pencere. Each is one file, and shows a real interface in the pane it runs in, on your machine or on a server over plain `ssh`, in the font and the theme of your terminal.
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><a href="https://github.com/bateri/dockerpen"><img src="https://raw.githubusercontent.com/bateri/dockerpen/main/docs/containers.png" width="100%" alt="dockerpen"></a><br><b><a href="https://github.com/bateri/dockerpen">dockerpen</a></b><br>Docker in the pane: containers, their logs and resource use, images, volumes, networks and disk.</td>
+    <td width="50%" valign="top"><a href="https://github.com/bateri/pickpen"><img src="https://raw.githubusercontent.com/bateri/pickpen/main/docs/confirm.png" width="100%" alt="pickpen"></a><br><b><a href="https://github.com/bateri/pickpen">pickpen</a></b><br>Choose rows in the middle of a pipeline: filter, sort and mark them, and the rows you chose go out on stdout.</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><a href="https://github.com/bateri/toppen"><img src="https://raw.githubusercontent.com/bateri/toppen/main/docs/overview.png" width="100%" alt="toppen"></a><br><b><a href="https://github.com/bateri/toppen">toppen</a></b><br>A system monitor in the way of <code>top</code> and <code>btop</code>: CPU, memory, network, disks, GPU and a process table you can sort and act on.</td>
+    <td width="50%" valign="top"><a href="https://github.com/bateri/sqlpen"><img src="https://raw.githubusercontent.com/bateri/sqlpen/main/docs/grid.png" width="100%" alt="sqlpen"></a><br><b><a href="https://github.com/bateri/sqlpen">sqlpen</a></b><br>A SQL client for PostgreSQL and SQLite: the tables of the database, an editor that knows SQL, and the rows in a grid.</td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><a href="https://github.com/bateri/textpen"><img src="https://raw.githubusercontent.com/bateri/textpen/main/docs/editor.png" width="100%" alt="textpen"></a><br><b><a href="https://github.com/bateri/textpen">textpen</a></b><br>A code editor: the project's files as a tree, tabs, search across them, and what git says of them.</td>
+    <td width="50%" valign="top"><b>Your own</b><br><code>pencere new</code> starts one, in Lua, TypeScript or Rust: <a href="#a-first-app-in-three-languages">a first app</a>.</td>
+  </tr>
+</table>
+
+Each installs with its one line:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/bateri/dockerpen/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/bateri/pickpen/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/bateri/toppen/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/bateri/sqlpen/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/bateri/textpen/main/install.sh | sh
+```
+
+## A first app, in three languages
+
+The same program: a view, one call it answers, and one topic it feeds. Whichever you write it in,
+it is one file to hand to someone, and `pencere new <name> --lang lua|ts|rust` starts it for you.
 **Lua**, run by the `pencere` command (`pencere build` makes one executable of it). The program is
 `src/program/app.lua`, the view `src/view/page.lua` and the pictures `src/assets/`:
 
@@ -97,59 +115,29 @@ let outcome = pencere::serve(
 )?;
 ```
 
-## Pens
+## How it works
 
-Programs made with pencere. Each is one file, and shows a real interface in the pane it runs in, on your machine or on a server over plain `ssh`, in the font and the theme of your terminal.
+The program does not draw the view. It hands the terminal the files of the view, the terminal runs
+them, and while the view is up the two talk to each other in six small messages: the view calls the
+program and subscribes to its topics, and the program answers and pushes. That is the whole
+protocol, and it is the same for every kind of view.
 
-### [dockerpen](https://github.com/bateri/dockerpen)
+There are two families of views:
 
-Docker in the pane: containers, their logs and resource use, images, volumes, networks and disk.
+- **views the terminal draws itself**, with the pencere kit, in its own font and theme: a Lua
+  script (`lua`), which may `require` the other scripts of its bundle;
+- **a web page** (`web`): HTML and JavaScript, built with whatever builds to the web, in the
+  terminal's web view. It takes the terminal's colours and font from a message the terminal sends
+  it.
 
-![dockerpen](https://raw.githubusercontent.com/bateri/dockerpen/main/docs/containers.png)
+The messages ride in the terminal's own stream: no port, no extra connection, nothing to set up on
+the server. The view opens in the program's own pane and closes when the program ends. It leaves
+the terminal's own shortcuts alone, loads its files once and keeps them by content, and a program
+in a terminal that does not support pencere is told so and can fall back to text.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/bateri/dockerpen/main/install.sh | sh
-```
-
-### [pickpen](https://github.com/bateri/pickpen)
-
-Choose rows in the middle of a pipeline: filter, sort and mark them, and the rows you chose go out on stdout.
-
-![pickpen](https://raw.githubusercontent.com/bateri/pickpen/main/docs/confirm.png)
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/bateri/pickpen/main/install.sh | sh
-```
-
-### [toppen](https://github.com/bateri/toppen)
-
-A system monitor in the way of `top` and `btop`: CPU, memory, network, disks, GPU and a process table you can sort and act on.
-
-![toppen](https://raw.githubusercontent.com/bateri/toppen/main/docs/overview.png)
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/bateri/toppen/main/install.sh | sh
-```
-
-### [sqlpen](https://github.com/bateri/sqlpen)
-
-A SQL client for PostgreSQL and SQLite: the tables of the database, an editor that knows SQL, and the rows in a grid.
-
-![sqlpen](https://raw.githubusercontent.com/bateri/sqlpen/main/docs/grid.png)
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/bateri/sqlpen/main/install.sh | sh
-```
-
-### [textpen](https://github.com/bateri/textpen)
-
-A code editor: the project's files as a tree, tabs, search across them, and what git says of them.
-
-![textpen](https://raw.githubusercontent.com/bateri/textpen/main/docs/editor.png)
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/bateri/textpen/main/install.sh | sh
-```
+The view runs on the machine of the person looking at it, so it is kept in a sandbox. A script
+gets nothing it was not handed; a web page reaches nothing but its own program unless
+the program names a domain and the person allows it.
 
 ## Status
 
