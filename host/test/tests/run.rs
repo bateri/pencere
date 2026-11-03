@@ -888,7 +888,7 @@ fn the_page_of_a_cargo_package_is_tested_with_the_program_it_builds_on_a_pty() {
         &include_str!("../../../cli/templates/rust/Cargo.toml.tmpl")
             .replace("{{name}}", "package-app")
             .replace(
-                "pencere = \"0.3\"",
+                "pencere = \"0.4\"",
                 &format!("pencere = {{ path = {:?} }}", root.join("program")),
             ),
     );

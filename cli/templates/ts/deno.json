@@ -1,6 +1,6 @@
 {
   "imports": {
-    "@pencere/sdk": "npm:@pencere/sdk@^0.2.0"
+    "@pencere/sdk": "npm:@pencere/sdk@^0.4.0"
   },
   "tasks": {
     "dev": "deno run --watch=src/view --allow-read --allow-run --allow-env src/program/main.ts",

@@ -60,5 +60,5 @@ The task is in [`deno.jsonc`](deno.jsonc). `--include` puts in the files the pro
 time, which `deno compile` cannot see (the view, and the page's bridge module); `--no-config` and
 the [import map](import-map.json) keep the executable to what the program needs, since in this
 repository, an npm workspace, Deno would also put all of `node_modules` in it. In a project of your
-own the import map names the package: `"@pencere/sdk": "npm:@pencere/sdk@^0.2.0"`. The first
+own the import map names the package: `"@pencere/sdk": "npm:@pencere/sdk@^0.4.0"`. The first
 compile for a version of Deno downloads that version's runtime.
