@@ -6,6 +6,8 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-03
+
 ### Changed
 
 - **The kinds are `0.1`.** A Lua app is shown at `lua` `0.1`, `pencere.version` is the string

@@ -7,6 +7,8 @@ under this name) are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-03
+
 ### Added
 
 - **The host's folder on the program's machine** (specification §8.11): the bytes of a file may cross

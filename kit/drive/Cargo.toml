@@ -1,7 +1,7 @@
 [package]
 name = "pencere-drive"
 description = "The drive of a page of pencere's native views: what the person does told to the page, its frames laid out with its editors and its scrolling, its replies and wakes handed to the host — and a host with no screen, to test a page with"
-version = "0.3.1"
+version = "0.4.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -17,22 +17,22 @@ include = [
 
 [dependencies]
 # The page engine: what a page is, how it is laid out, scrolled and moved, and what it says back.
-pencere-view = { path = "../view", version = "0.3.1" }
+pencere-view = { path = "../view", version = "0.4.0" }
 # The editor of text the host puts in each editor's room: the drive keeps the page's editors.
-pencere-editor = { path = "../editor", version = "0.3.1" }
+pencere-editor = { path = "../editor", version = "0.4.0" }
 # The sandbox the page runs in, and its images: the drive tells it and takes what it puts out.
-pencere-sandbox = { path = "../sandbox", version = "0.3.1" }
+pencere-sandbox = { path = "../sandbox", version = "0.4.0" }
 # The six messages of a program and its view (`messages::Message`): the program of a page under the
 # headless host (`headless::Calls`) reads and answers them as the program library does. Already in
 # the graph by the sandbox, which depends on the wire.
-pencere-wire = { path = "../../wire", version = "0.3.1" }
+pencere-wire = { path = "../../wire", version = "0.4.0" }
 # The values of those messages, which a test's handlers take and return. Already in the graph by
 # the wire.
 serde_json = "1"
 # A program in this process (`headless::InProcess`), off unless asked: the program library's own
 # handlers, served by its `Conversation` as `serve` serves them. The library is the program's side,
 # which a terminal that drives pages has no use for and does not link (`make check`).
-pencere = { path = "../../program", version = "0.3.1", optional = true }
+pencere = { path = "../../program", version = "0.4.0", optional = true }
 tiny-skia = { version = "0.12", optional = true }
 fontdue = { version = "0.9", optional = true, default-features = false, features = ["std", "simd"] }
 

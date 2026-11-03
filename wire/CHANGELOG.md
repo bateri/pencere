@@ -6,6 +6,8 @@ All notable changes to the `pencere-wire` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-03
+
 ### Added
 
 - The host's folder on the program's machine (specification §8.11): the feature `FEATURE_STAGE`

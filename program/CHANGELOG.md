@@ -6,6 +6,8 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-03
+
 ### Changed
 
 - **The kinds are `0.1`.** `Kind::Web` is offered at `0.1` (`WEB_VERSION`), and a Lua app's page at

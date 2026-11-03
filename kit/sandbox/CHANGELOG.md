@@ -6,6 +6,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-03
+
 ### Added
 
 - `print(...)` and `warn(...)` in a page (the entry script, the scripts it requires and the kit's

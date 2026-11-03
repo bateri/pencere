@@ -6,6 +6,8 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-03
+
 The drive of a page of version `0.1` of the kit (`pencere:view@0.1.0`, `lua` `0.1`).
 
 ### Added

@@ -6,6 +6,8 @@ All notable changes to `@pencere/sdk` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-03
+
 ### Changed
 
 - **The kinds are `0.1`.** `WEB_VERSION` is `"0.1"`, and a `lua` view is written at `"0.1"`. While
