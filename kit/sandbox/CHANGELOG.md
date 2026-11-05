@@ -6,6 +6,8 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-05
+
 ### Added
 
 - `figure_key`: what `draw_figure` would give a figure, its bitmap's `id` and size, without drawing it,

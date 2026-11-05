@@ -6,6 +6,10 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-05
+
+Released with the other crates; no change of its own.
+
 ## [0.4.0] - 2026-11-03
 
 The engine of version `0.1` of the kit (`pencere:view@0.1.0`, `lua` `0.1`).

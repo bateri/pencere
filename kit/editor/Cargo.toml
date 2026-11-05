@@ -1,7 +1,7 @@
 [package]
 name = "pencere-editor"
 description = "The editor of text of pencere's native views: a document, its selections, its history and what an input method composes, laid out and drawn in a page's room, the same in every terminal"
-version = "0.4.0"
+version = "0.4.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -18,7 +18,7 @@ include = [
 # The page engine: the room of an editor is a box of a page, and what the page and the editor say
 # to each other is the engine's (`pencere_view::edit`). The editor depends on the engine, never
 # the engine on it (`make check`).
-pencere-view = { path = "../view", version = "0.4.0" }
+pencere-view = { path = "../view", version = "0.4.1" }
 # The text: a tree of pieces, so that an edit of a large document does not copy it and a copy of
 # it (what the page is posted to read) costs nothing that grows with it. Only `\n` breaks a line,
 # as the page counts lines.

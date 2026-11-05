@@ -7,6 +7,10 @@ under this name) are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-05
+
+Released with the other crates; no change of its own.
+
 ## [0.4.0] - 2026-11-03
 
 ### Added

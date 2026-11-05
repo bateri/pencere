@@ -23,9 +23,9 @@ path = "src/main.rs"
 [dependencies]
 # The program's side of the protocol: the handshake, the tty, the signals, the way out. The
 # runner is a program like any other that uses it; what Lua adds is the language.
-pencere = { path = "../program", version = "0.4.0" }
+pencere = { path = "../program", version = "0.4.1" }
 # The bundle of a view is the wire's; the runner reads digests and base64 with the same code.
-pencere-wire = { path = "../wire", version = "0.4.0" }
+pencere-wire = { path = "../wire", version = "0.4.1" }
 serde_json = "1"
 libc = "0.2"
 # Luau, the dialect the page API is in, so that an app and its page are one language. Luau is

@@ -21,9 +21,9 @@ path = "src/main.rs"
 pencere-cli = { path = "../../cli" }
 # The page under the host with no screen, with the program of the app in this process (`program`)
 # and the pictures of a failure (`shot`).
-pencere-drive = { path = "../../kit/drive", version = "0.4.0", features = ["program", "shot"] }
+pencere-drive = { path = "../../kit/drive", version = "0.4.1", features = ["program", "shot"] }
 # The page engine's own types: what a page is made of, the keys and the places a test names.
-pencere-view = { path = "../../kit/view", version = "0.4.0" }
+pencere-view = { path = "../../kit/view", version = "0.4.1" }
 # A program on a pty, played to by the host of the stand-in terminal, for a program in any language.
 pencere-fake-host = { path = "../fake" }
 # The values a test's calls take and give, and what the processes of the runner say to one another.

@@ -842,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "pencere"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "libc",
  "pencere-wire",
@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "pencere-drive"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "fontdue",
  "pencere",
@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "pencere-editor"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "pencere-view",
  "regex",
@@ -903,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "pencere-host"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "pencere-wire",
  "serde",
@@ -912,7 +912,7 @@ dependencies = [
 
 [[package]]
 name = "pencere-sandbox"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "containers-page",
  "pencere-editor",
@@ -940,14 +940,14 @@ dependencies = [
 
 [[package]]
 name = "pencere-view"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "taffy",
 ]
 
 [[package]]
 name = "pencere-wire"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "serde",
  "serde_json",

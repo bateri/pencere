@@ -6,6 +6,8 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-05
+
 ### Changed
 
 - The decorations in a range are found from near it, and folded regions are matched to their folds by
