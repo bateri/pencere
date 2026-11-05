@@ -6,6 +6,12 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+### Added
+
+- `figure_key`: what `draw_figure` would give a figure, its bitmap's `id` and size, without drawing it,
+  so that a host that holds the pixels does not draw them again with each frame. A canvas that fills a
+  good part of a screen takes tens of milliseconds to draw.
+
 ## [0.4.0] - 2026-11-03
 
 ### Added

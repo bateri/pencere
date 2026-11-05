@@ -22,13 +22,70 @@ const MOST_SIDE: u32 = 8192;
 /// that keeps the textures of both by id keeps them apart.
 const FIGURE_ID: u64 = 1 << 63;
 
+/// What a figure is known by without drawing it, so that a host that still has its pixels need not
+/// draw it again: a canvas is laid out anew with each frame, and drawing it costs what its pixels do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FigureKey {
+    /// The `id` of the bitmap [`draw_figure`] gives: the same for the same figure in the same
+    /// colours, wherever it stands.
+    pub id: u64,
+    /// The bitmap's size, pixels: the figure's box, whole pixels rounded up.
+    pub width: u32,
+    pub height: u32,
+}
+
+/// [`draw_figure`]'s answer but for the pixels: `None` where it draws nothing.
+pub fn figure_key(figure: &Figure, resolve: impl FnMut(Color) -> [f32; 4]) -> Option<FigureKey> {
+    planned(figure, resolve).map(|plan| plan.key)
+}
+
 /// The paths of `figure` drawn into pixels the size of its box (whole pixels, rounded up), each
 /// colour as `resolve` says it is — sRGB with its opacity, each `0.0..=1.0`, as
 /// [`Color::resolve`] gives it. `None` for a box with no room, or one with nothing that is drawn.
 ///
 /// The bitmap's `id` is the same for the same figure in the same colours: a host that drew it
-/// once need not upload it again.
-pub fn draw_figure(figure: &Figure, mut resolve: impl FnMut(Color) -> [f32; 4]) -> Option<Bitmap> {
+/// once need not upload it again, nor draw it ([`figure_key`]).
+pub fn draw_figure(figure: &Figure, resolve: impl FnMut(Color) -> [f32; 4]) -> Option<Bitmap> {
+    let Plan { key, scale, parts } = planned(figure, resolve)?;
+    let mut pixmap = Pixmap::new(key.width, key.height)?;
+    let transform = Transform::from_scale(scale, scale);
+    for part in &parts {
+        if let Some(rgba) = part.fill {
+            pixmap.fill_path(
+                &part.shape,
+                &paint(rgba),
+                FillRule::EvenOdd,
+                transform,
+                None,
+            );
+        }
+        if let Some((rgba, width)) = part.line {
+            let stroke = Stroke {
+                width,
+                line_cap: LineCap::Round,
+                line_join: LineJoin::Round,
+                ..Stroke::default()
+            };
+            pixmap.stroke_path(&part.shape, &paint(rgba), &stroke, transform, None);
+        }
+    }
+    Some(Bitmap::new(key.id, key.width, key.height, pixmap.take()))
+}
+
+/// A figure made ready to draw: what it is known by, and what is drawn of each of its paths.
+struct Plan {
+    key: FigureKey,
+    scale: f32,
+    parts: Vec<Part>,
+}
+
+struct Part {
+    shape: resvg::tiny_skia::Path,
+    fill: Option<[f32; 4]>,
+    line: Option<([f32; 4], f32)>,
+}
+
+fn planned(figure: &Figure, mut resolve: impl FnMut(Color) -> [f32; 4]) -> Option<Plan> {
     let side = |length: f32| {
         if length.is_finite() && length > 0.0 {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -46,41 +103,42 @@ pub fn draw_figure(figure: &Figure, mut resolve: impl FnMut(Color) -> [f32; 4]) 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     (width, height, scale.to_bits()).hash(&mut hasher);
 
-    let mut pixmap = Pixmap::new(width, height)?;
-    let transform = Transform::from_scale(scale, scale);
-    let mut drew = false;
+    let mut parts = Vec::new();
     for path in &figure.paths {
         let Some(shape) = shape(&path.segments, &mut hasher) else {
             continue;
         };
-        if let Some(fill) = path.fill {
+        let fill = path.fill.map(|fill| {
             let rgba = resolve(fill);
             hash_rgba(rgba, &mut hasher);
-            pixmap.fill_path(&shape, &paint(rgba), FillRule::EvenOdd, transform, None);
-            drew = true;
-        }
-        if let Some(line) = path.stroke {
+            rgba
+        });
+        let line = path.stroke.and_then(|line| {
             let width = if line.width.is_finite() {
                 line.width
             } else {
                 0.0
             };
-            if width > 0.0 {
+            (width > 0.0).then(|| {
                 let rgba = resolve(line.color);
                 hash_rgba(rgba, &mut hasher);
                 width.to_bits().hash(&mut hasher);
-                let stroke = Stroke {
-                    width,
-                    line_cap: LineCap::Round,
-                    line_join: LineJoin::Round,
-                    ..Stroke::default()
-                };
-                pixmap.stroke_path(&shape, &paint(rgba), &stroke, transform, None);
-                drew = true;
-            }
+                (rgba, width)
+            })
+        });
+        if fill.is_some() || line.is_some() {
+            parts.push(Part { shape, fill, line });
         }
     }
-    drew.then(|| Bitmap::new(hasher.finish() | FIGURE_ID, width, height, pixmap.take()))
+    (!parts.is_empty()).then(|| Plan {
+        key: FigureKey {
+            id: hasher.finish() | FIGURE_ID,
+            width,
+            height,
+        },
+        scale,
+        parts,
+    })
 }
 
 /// The steps of a path as a shape to draw, in the canvas's points; `None` for one with nothing to
@@ -212,6 +270,33 @@ mod tests {
         let moved = path().circle(11.0, 10.0, 6.0).stroke(2.0, Role::Accent);
         let c = draw_figure(&figure(vec![moved], 1.0), solid).expect("drawn");
         assert_ne!(a.id, c.id);
+    }
+
+    /// A host decides by the key whether to draw: it says what the bitmap will be, whatever is drawn,
+    /// and is no key where no bitmap comes.
+    #[test]
+    fn the_key_of_a_figure_is_what_its_bitmap_is_known_by() {
+        let ring = path().circle(10.0, 10.0, 6.0).stroke(2.0, Role::Accent);
+        let filled = path().rect(1.0, 1.0, 5.0, 5.0).fill(Role::Accent);
+        let drawn = figure(vec![ring, filled], 2.0);
+        let key = figure_key(&drawn, solid).expect("a key");
+        let bitmap = draw_figure(&drawn, solid).expect("drawn");
+        assert_eq!(
+            (key.id, key.width, key.height),
+            (bitmap.id, bitmap.width, bitmap.height)
+        );
+        // Where it stands is not what it is.
+        let mut moved = drawn.clone();
+        moved.rect.x += 100.5;
+        moved.rect.y += 7.25;
+        assert_eq!(figure_key(&moved, solid), Some(key));
+        // Nothing drawn is no key, as it is no bitmap.
+        let nothing = figure(vec![path().rect(0.0, 0.0, 5.0, 5.0)], 1.0);
+        assert_eq!(figure_key(&nothing, solid), None);
+        assert!(draw_figure(&nothing, solid).is_none());
+        let mut no_room = drawn;
+        no_room.rect.h = 0.0;
+        assert_eq!(figure_key(&no_room, solid), None);
     }
 
     #[test]

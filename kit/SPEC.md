@@ -1542,7 +1542,7 @@ A host:
 - draws a box's fill from one colour to another as a style sheet's `linear-gradient` of that angle
   draws it, over its plain fill and under its border, and a canvas's paths as `pencere_sandbox`'s
   `draw_figure` draws them (the one rasteriser, so that a figure is the same on every host), in the
-  colours of its theme;
+  colours of its theme, drawing again only what `figure_key` says it does not hold;
 - lists the commands that can be done now (`Laid::commands`: those of the element the page says has
   the keyboard and of the boxes around it) where a person looks for what can be done, and tells the
   page the one asked for there; and, before it tells the page a key, looks for the command those keys

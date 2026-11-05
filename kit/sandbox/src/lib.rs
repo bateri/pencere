@@ -51,7 +51,7 @@ mod luau_tests;
 #[cfg(test)]
 mod test_support;
 
-pub use figure::draw_figure;
+pub use figure::{FigureKey, draw_figure, figure_key};
 pub use images::{Arrival, Assets, Bitmap, Diagnostic, ImageLimits, Images};
 pub use luau::{COMPONENT as LUAU_COMPONENT, Script};
 pub use module::{Answer, Frame, Module, Runner, Update};
