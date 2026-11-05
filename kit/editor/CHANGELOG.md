@@ -6,6 +6,12 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ## [Unreleased]
 
+### Changed
+
+- The decorations in a range are found from near it, and folded regions are matched to their folds by
+  line, instead of going through all that come before: an editor with thousands of decorations took
+  longer to draw the further down its text it was scrolled.
+
 ## [0.4.0] - 2026-11-03
 
 The editor of version `0.1` of the kit (`pencere:view@0.1.0`, `lua` `0.1`).

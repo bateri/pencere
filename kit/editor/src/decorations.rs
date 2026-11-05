@@ -21,6 +21,21 @@ pub(crate) struct Layer {
     pub gated: bool,
     /// The same for widgets.
     pub widgets: bool,
+    /// How long the longest of the items is: how far back from a place an item that reaches it can
+    /// start, so that a look at the lines in view does not go through all that come before them.
+    pub longest: usize,
+}
+
+impl Layer {
+    /// What is known of the items said again, after they changed.
+    fn sum_up(&mut self) {
+        self.longest = self
+            .items
+            .iter()
+            .map(|item| item.to.saturating_sub(item.from))
+            .max()
+            .unwrap_or(0);
+    }
 }
 
 /// An editor's decorations, and its folded regions.
@@ -104,16 +119,22 @@ impl Decorations {
                 layer.anchors = anchors;
                 layer.gated = gated;
                 layer.widgets = widgets;
+                layer.sum_up();
             }
-            None => self.layers.push(Layer {
-                name: name.to_owned(),
-                items: all,
-                rulers,
-                zones,
-                anchors,
-                gated,
-                widgets,
-            }),
+            None => {
+                let mut layer = Layer {
+                    name: name.to_owned(),
+                    items: all,
+                    rulers,
+                    zones,
+                    anchors,
+                    gated,
+                    widgets,
+                    longest: 0,
+                };
+                layer.sum_up();
+                self.layers.push(layer);
+            }
         }
         self.layers.retain(|layer| !layer.items.is_empty());
         Ok(())
@@ -144,6 +165,7 @@ impl Decorations {
             });
             items.sort_by_key(|item| (item.from, item.to));
             layer.items = items;
+            layer.sum_up();
         }
         self.layers.retain(|layer| !layer.items.is_empty());
         let mut folded = std::mem::take(&mut self.folded);
@@ -161,9 +183,13 @@ impl Decorations {
         let mut out = Vec::new();
         for (index, layer) in self.layers.iter().enumerate() {
             // The items are in order of their starts: those starting at or past `to` are not it,
-            // apart from a mark of the place `to` when the range is empty.
+            // apart from a mark of the place `to` when the range is empty, and those that start
+            // further back than the longest of them reach are over before `from`.
             let end = layer.items.partition_point(|item| item.from <= to);
-            for item in layer.items.get(..end).unwrap_or_default() {
+            let start = layer
+                .items
+                .partition_point(|item| item.from.saturating_add(layer.longest) < from);
+            for item in layer.items.get(start..end).unwrap_or_default() {
                 let overlaps = if item.from == item.to {
                     item.from >= from && item.from <= to
                 } else {
@@ -278,12 +304,22 @@ impl Decorations {
     /// did, with that fold's range, or, as it is, where it starts on one of `others` (the lines the
     /// editor folds from of itself).
     pub fn keep_folded(&mut self, line_of: &dyn Fn(usize) -> usize, others: &[usize]) {
-        let folds = self.folds();
         let mut folded = std::mem::take(&mut self.folded);
+        // Asked of every layer's every change, with no folded region as with thousands.
+        let folds: Vec<(usize, (usize, usize))> = if folded.is_empty() {
+            Vec::new()
+        } else {
+            self.folds()
+                .into_iter()
+                .map(|fold| (line_of(fold.0), fold))
+                .collect()
+        };
         folded.retain_mut(|region| {
             let line = line_of(region.0);
-            match folds.iter().find(|fold| line_of(fold.0) == line) {
-                Some(fold) => {
+            // In order of where they start, so in order of their lines: the first on the line.
+            let first = folds.partition_point(|(on, _)| *on < line);
+            match folds.get(first).filter(|(on, _)| *on == line) {
+                Some((_, fold)) => {
                     *region = *fold;
                     true
                 }
@@ -309,6 +345,129 @@ fn in_range(item: &Decoration, from: usize, to: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What `in_range` is to say of `from..to`, every item looked at.
+    fn looked_at_all(
+        decorations: &Decorations,
+        from: usize,
+        to: usize,
+    ) -> Vec<(usize, Decoration)> {
+        let mut out = Vec::new();
+        for (index, layer) in decorations.layers.iter().enumerate() {
+            for item in &layer.items {
+                let overlaps = if item.from == item.to {
+                    item.from >= from && item.from <= to
+                } else {
+                    item.to > from && item.from < to.max(from + 1)
+                };
+                if overlaps {
+                    out.push((index, item.clone()));
+                }
+            }
+        }
+        out
+    }
+
+    fn found(decorations: &Decorations, from: usize, to: usize) -> Vec<(usize, Decoration)> {
+        decorations
+            .in_range(from, to)
+            .into_iter()
+            .map(|(index, item)| (index, item.clone()))
+            .collect()
+    }
+
+    /// Short items, one long one that starts far back, marks of a place, and each carried over a
+    /// change: whatever the longest is and however it came to be, nothing that reaches a range is
+    /// left out, nothing else is said, and the order stays.
+    #[test]
+    fn a_range_finds_what_reaches_it_however_far_back_it_starts() {
+        let mut decorations = Decorations::default();
+        let short: Vec<Decoration> = (0..200)
+            .map(|n| Decoration::new(n * 10, n * 10 + 3, Mark::Fold))
+            .collect();
+        let marks: Vec<Decoration> = (0..50)
+            .map(|n| Decoration::new(n * 37, n * 37, Mark::Fold))
+            .collect();
+        decorations
+            .replace("short", 0, usize::MAX, short)
+            .expect("held");
+        decorations
+            .replace("marks", 0, usize::MAX, marks)
+            .expect("held");
+        decorations
+            .replace(
+                "long",
+                0,
+                usize::MAX,
+                vec![
+                    Decoration::new(5, 1900, Mark::Fold),
+                    Decoration::new(1000, 1004, Mark::Fold),
+                ],
+            )
+            .expect("held");
+        let check = |decorations: &Decorations| {
+            for from in (0..2100).step_by(7) {
+                for length in [0, 1, 3, 40] {
+                    assert_eq!(
+                        found(decorations, from, from + length),
+                        looked_at_all(decorations, from, from + length),
+                        "{from}..{}",
+                        from + length
+                    );
+                }
+            }
+        };
+        check(&decorations);
+        // The long one goes and the rest are looked for from nearer by.
+        decorations.replace("long", 0, 6, Vec::new()).expect("held");
+        assert_eq!(
+            decorations
+                .layers
+                .iter()
+                .find(|layer| layer.name == "long")
+                .map(|layer| layer.longest),
+            Some(4)
+        );
+        check(&decorations);
+        // An edit makes an item longer: what comes in inside it is in it.
+        decorations.map(&[Step {
+            from: 1001,
+            to: 1001,
+            len: 500,
+        }]);
+        assert_eq!(
+            decorations
+                .layers
+                .iter()
+                .find(|layer| layer.name == "long")
+                .map(|layer| layer.longest),
+            Some(504)
+        );
+        check(&decorations);
+    }
+
+    /// A folded region is told by the line it starts on, as many as there are: the first fold on the
+    /// line is what it is now, and one on no fold's line goes unless the editor folds from there.
+    #[test]
+    fn folded_regions_stay_with_the_folds_on_their_lines() {
+        let line_of = |at: usize| at / 10;
+        let mut decorations = Decorations::default();
+        decorations
+            .replace(
+                "folds",
+                0,
+                usize::MAX,
+                vec![
+                    Decoration::new(11, 40, Mark::Fold),
+                    Decoration::new(15, 18, Mark::Fold),
+                    Decoration::new(50, 70, Mark::Fold),
+                ],
+            )
+            .expect("held");
+        decorations.folded = vec![(12, 30), (51, 60), (80, 90), (95, 99)];
+        decorations.keep_folded(&line_of, &[9]);
+        assert_eq!(decorations.folded, vec![(11, 40), (50, 70), (95, 99)]);
+    }
 
     #[test]
     fn an_editor_holds_no_more_layers_and_decorations_than_it_may() {
