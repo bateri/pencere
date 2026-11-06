@@ -68,7 +68,9 @@ check-timing:
 # editor, the sandbox and the messages of a program and its view (for the program of a page under its
 # host with no screen; the program library itself only when a test asks for it, `program`) and
 # nothing of a platform or a font. The command,
-# which is the runner copied into every app, hosts nothing; its library (the Lua runtime with the
+# which is the runner copied into every app, hosts nothing (the host crate is linked for its
+# `apps` module alone, which does no I/O: `pencere dist` writes an app.json and reads it back by the
+# rule every terminal reads it by); its library (the Lua runtime with the
 # rest of the command) is shared with the runner of an app's tests alone.
 audit:
 	@fail=0; \
@@ -89,7 +91,8 @@ audit:
 	done; \
 	if cargo tree --workspace -e normal -i image --depth 1 --prefix none | tail -n +2 | grep -vE "^libsui "; then echo "audit: the image crate is linked by something other than libsui — it is there for the icons of a Windows executable, which the command never writes; nothing that shows a picture links it"; fail=1; fi; \
 	if cargo tree --workspace -e normal -i libsui --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-cli "; then echo "audit: libsui is linked by a crate other than pencere-cli — it is how the command writes an app into an executable, and no library has a use for it"; fail=1; fi; \
-	if cargo tree -p pencere-cli -e normal --prefix none | tail -n +2 | grep -E "^(pencere-(host|sandbox|view)|wasmtime|taffy|objc2|dispatch2|block2|metal|wgpu|winit) "; then echo "audit: the pencere command links a terminal's crate or a platform library — it is a program that uses the program library, and hosts nothing"; fail=1; fi; \
+	if cargo tree -p pencere-cli -e normal --prefix none | tail -n +2 | grep -E "^(pencere-(sandbox|view)|wasmtime|taffy|objc2|dispatch2|block2|metal|wgpu|winit) "; then echo "audit: the pencere command links a terminal's crate or a platform library — it is a program that uses the program library, and hosts nothing; the host crate alone is let in, for the rule dist reads and checks an app.json by"; fail=1; fi; \
+	if cargo tree -p pencere-cli -e normal --prefix none | tail -n +2 | grep -qE "^pencere-host "; then if grep -rnE "pencere_host::(session|sandbox|theme|icon|bundle)" cli/src | grep -v ":[[:space:]]*//"; then echo "audit: the pencere command uses more of the host crate than its apps module — it hosts no view"; fail=1; fi; fi; \
 	if cargo tree --workspace -e normal -i pencere-cli --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-test "; then echo "audit: a crate other than pencere-test depends on the library of the pencere command — it is the command's insides, which only the runner of an app's tests shares (the two are released together)"; fail=1; fi; \
 	if cargo tree -p pencere-sandbox -e normal --prefix none | tail -n +2 | grep -E "^(fontdb|rustybuzz|ttf-parser|harfrust|skrifa|read-fonts|swash|fontconfig|freetype|font-types)"; then echo "audit: pencere-sandbox links to a font or text-shaping library — an SVG draws shapes and no words, and no font is loaded for it"; fail=1; fi; \
 	if grep -rnE "std::(fs|net|process)\b|File::open|TcpStream" kit/sandbox/src --exclude="*_tests.rs" | grep -v ":[[:space:]]*//"; then echo "audit: the sandbox reads a file, opens a connection or runs a program — the only door it has to the bundle is Assets, which the host gives"; fail=1; fi; \

@@ -6,6 +6,17 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ## [Unreleased]
 
+### Added
+
+- **`pencere key` and `pencere dist`**, the release step of an app (specification `apps.md`).
+  `pencere key` makes the key a release is signed with, once, and prints its public half.
+  `pencere dist VERSION` writes `SHA256SUMS`, an `app.json` and its signature beside the
+  executable of every target, which it makes (a Lua app) or takes from `--files DIR` (a Rust
+  program, built on each target's own machine); what the release needs is asked of the program
+  itself, started on a pty of its own, and the earlier releases the file lists come from the one
+  released before. Nothing is uploaded. The command now links `pencere-host`, for its `apps`
+  module alone.
+
 ## [0.4.0] - 2026-11-03
 
 ### Changed

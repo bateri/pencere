@@ -944,10 +944,12 @@ dependencies = [
 name = "pencere-cli"
 version = "0.4.0"
 dependencies = [
+ "ed25519-dalek",
  "libc",
  "libsui",
  "mlua",
  "pencere",
+ "pencere-host",
  "pencere-wire",
  "regex",
  "serde_json",

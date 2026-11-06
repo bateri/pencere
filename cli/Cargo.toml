@@ -26,8 +26,15 @@ path = "src/main.rs"
 pencere = { path = "../program", version = "0.4.0" }
 # The bundle of a view is the wire's; the runner reads digests and base64 with the same code.
 pencere-wire = { path = "../wire", version = "0.4.0" }
+# What a release is (`app.json`) and how it is checked: the file `pencere dist` writes is read back
+# with the rule every terminal reads it by, and the earlier release it lists is read the same way.
+# The crate does no I/O and hosts no view; the command links it for this alone (`make audit`).
+pencere-host = { path = "../host/rust", version = "0.4.0" }
 serde_json = "1"
 libc = "0.2"
+# Signs the `app.json` of a release with the key `pencere key` makes. The key's bytes come from the
+# system's own source (`/dev/urandom`): no random-number crate is needed for the 32 of them.
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # Luau, the dialect the page API is in, so that an app and its page are one language. Luau is
 # compiled into the binary from the crate's sources; no Lua is installed on the machine.
 mlua = { version = "0.11", features = ["luau"] }

@@ -15,7 +15,7 @@ under this name) are recorded here. The format follows
   one a host can open (`Manifest::select`: the greatest version number whose protocol versions and
   views the host's handshake would accept, whatever the order or the dates). It does no I/O and
   trusts no key: the terminal compares `Manifest::key` with the keys it believes. The crate now
-  depends on `ed25519-dalek`, with signing left out.
+  depends on `ed25519-dalek`.
 
 ## [0.4.0] - 2026-11-03
 
