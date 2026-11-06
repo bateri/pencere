@@ -1780,10 +1780,10 @@ impl<P: Peer> Headless<P> {
     ///
     /// As [`Headless::settle`].
     pub fn detach(&mut self, name: &str) -> Result<(), Error> {
-        if self.beside.remove(name) {
-            if let Some(images) = self.page.images() {
-                images.forget(&[name.to_owned()]);
-            }
+        if self.beside.remove(name)
+            && let Some(images) = self.page.images()
+        {
+            images.forget(&[name.to_owned()]);
         }
         self.settle()
     }

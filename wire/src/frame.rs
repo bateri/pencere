@@ -388,15 +388,15 @@ impl Assembler {
             out.push(Event::Error(DecodeError::MessageTooLong));
             return;
         }
-        if !chunk.more {
-            if let Some(done) = self.open.take() {
-                out.push(Event::Message(Message {
-                    kind: done.kind,
-                    id: done.id,
-                    control: done.control,
-                    payload: done.payload,
-                }));
-            }
+        if !chunk.more
+            && let Some(done) = self.open.take()
+        {
+            out.push(Event::Message(Message {
+                kind: done.kind,
+                id: done.id,
+                control: done.control,
+                payload: done.payload,
+            }));
         }
     }
 }

@@ -6,7 +6,7 @@
 # came out static; `curl` is what `pencere build --target` fetches a runner with, which the tests of the
 # command use. The base tag's major.minor is the local rustc's (`make dist` compares them:
 # two compilers are two different gates); after `brew upgrade` this line is brought to it.
-FROM rust:1.88-alpine
+FROM rust:1.99-alpine
 
 RUN apk add --no-cache build-base file curl
 

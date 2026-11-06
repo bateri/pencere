@@ -309,12 +309,11 @@ impl Rig {
                 for event in events {
                     match event {
                         Event::Message(m) => {
-                            if m.kind == "welcome" {
-                                if let Ok(body) = serde_json::from_str::<Value>(&m.payload) {
-                                    if let Some(token) = body["token"].as_str() {
-                                        self.token = Some(token.to_owned());
-                                    }
-                                }
+                            if m.kind == "welcome"
+                                && let Ok(body) = serde_json::from_str::<Value>(&m.payload)
+                                && let Some(token) = body["token"].as_str()
+                            {
+                                self.token = Some(token.to_owned());
                             }
                             self.wrote.push(m);
                         }

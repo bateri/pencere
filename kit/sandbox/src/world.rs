@@ -1824,8 +1824,10 @@ fn editor_options_out(
         hint,
         comment: CommentTokens { line, block },
         pairs: pairs
-            .chunks_exact(2)
-            .filter_map(|pair| Some((*pair.first()?, *pair.get(1)?)))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[open, close]| (open, close))
             .collect(),
         indent: IndentRules { increase, decrease },
         folds: match options.folds {
@@ -4185,7 +4187,7 @@ mod tests {
     impl Program for Room {
         fn may_say(&self, bytes: usize) -> bool {
             self.0
-                .fetch_update(
+                .try_update(
                     std::sync::atomic::Ordering::SeqCst,
                     std::sync::atomic::Ordering::SeqCst,
                     |left| left.checked_sub(bytes),

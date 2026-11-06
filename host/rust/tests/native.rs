@@ -603,7 +603,7 @@ fn a_file_the_program_lets_go_is_gone_from_the_table_and_the_others_stay() {
     rig.json("detach", &json!({"files": [&first[7..]]}));
     let (_, acted) = rig.take();
     assert!(
-        matches!(acted.as_slice(), [Action::ForgetFiles(names)] if names == &[first.clone()]),
+        matches!(acted.as_slice(), [Action::ForgetFiles(names)] if names == std::slice::from_ref(&first)),
         "{acted:?}"
     );
     assert_eq!(read_elsewhere(&table, &first), None);

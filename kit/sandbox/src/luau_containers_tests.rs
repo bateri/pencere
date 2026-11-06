@@ -1427,7 +1427,7 @@ impl Room {
 impl Program for Room {
     fn may_say(&self, _bytes: usize) -> bool {
         self.left
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
                 left.checked_sub(1)
             })
             .is_ok()

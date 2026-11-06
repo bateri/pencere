@@ -718,9 +718,11 @@ impl Canvas<'_> {
             Some(tint) => {
                 let [r, g, b, a] = self.palette.resolve(tint);
                 tinted = pixels
-                    .chunks_exact(4)
-                    .flat_map(|pixel| {
-                        let coverage = f32::from(pixel.get(3).copied().unwrap_or(0)) / 255.0 * a;
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .flat_map(|&[_, _, _, alpha]| {
+                        let coverage = f32::from(alpha) / 255.0 * a;
                         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                         let byte =
                             |value: f32| (value * coverage * 255.0).round().clamp(0.0, 255.0) as u8;

@@ -74,7 +74,7 @@ impl Digest {
             return None;
         }
         let mut bytes = [0u8; 32];
-        for (byte, pair) in bytes.iter_mut().zip(hex.as_bytes().chunks_exact(2)) {
+        for (byte, pair) in bytes.iter_mut().zip(hex.as_bytes().as_chunks::<2>().0) {
             let pair = std::str::from_utf8(pair).ok()?;
             *byte = u8::from_str_radix(pair, 16).ok()?;
         }

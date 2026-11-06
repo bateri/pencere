@@ -516,11 +516,11 @@ function onRegistry(name, version) {
 
 /**
  * A dry run of the publication builds the package from its own files against what crates.io has,
- * and in lockstep it has none of the crates this one asks for at this version. Cargo 1.88 (the
- * toolchain of the gate) cannot package several crates and check them against one another (cargo
- * 1.90 can), so each crate is dry-run on its own, with the crates it asks for taken from the
- * repository (`--config patch.crates-io.<crate>.path`): the package is still built from its own
- * extracted files, which is what the dry run is for.
+ * and in lockstep it has none of the crates this one asks for at this version. Cargo before 1.90
+ * cannot package several crates and check them against one another (the gate's, 1.88 when this was
+ * written, could not; now it is 1.99), so each crate is dry-run on its own, with the crates it asks
+ * for taken from the repository (`--config patch.crates-io.<crate>.path`): the package is still
+ * built from its own extracted files, which is what the dry run is for.
  */
 function dryRun(pkg, version, { resuming = false } = {}) {
   const crate = crateOf(pkg);

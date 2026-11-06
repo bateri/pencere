@@ -433,8 +433,10 @@ fn an_svg_is_drawn_at_the_size_it_is_asked_and_again_when_that_changes() {
     assert!(
         small
             .pixels()
-            .chunks_exact(4)
-            .all(|px| px == [0, 255, 0, 255])
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|&px| px == [0, 255, 0, 255])
     );
 
     // The same size again is the same pixels, and costs nothing.
@@ -648,8 +650,10 @@ fn an_svg_reaches_for_no_file_no_url_and_no_data_it_names_and_draws_no_words() {
     assert!(
         bitmap
             .pixels()
-            .chunks_exact(4)
-            .all(|px| px == [255, 0, 0, 255]),
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|&px| px == [255, 0, 0, 255]),
         "something besides the SVG's own shapes was drawn"
     );
     // And nothing but the SVG itself was asked of the bundle.
@@ -1184,8 +1188,10 @@ fn the_eight_orientations_turn_the_pixels_as_a_web_view_does() {
         let turned = orient(raster, turn);
         let letters: String = turned
             .pixels
-            .chunks_exact(4)
-            .map(|pixel| char::from(pixel[0]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&[red, ..]| char::from(red))
             .collect();
         (turned.width, turned.height, letters)
     };
@@ -1423,13 +1429,7 @@ fn shrinking_averages_the_pixels_each_covers() {
         height,
         pixels: pixels.into_iter().flatten().collect(),
     };
-    let pixels = |raster: &Raster| -> Vec<[u8; 4]> {
-        raster
-            .pixels
-            .chunks_exact(4)
-            .map(|pixel| pixel.try_into().unwrap())
-            .collect()
-    };
+    let pixels = |raster: &Raster| -> Vec<[u8; 4]> { raster.pixels.as_chunks::<4>().0.to_vec() };
     let (red, blue) = ([255, 0, 0, 255], [0, 0, 255, 255]);
     // Four pixels into three: the middle one is half the red one and half the blue one.
     let shrunk = shrink(raster(4, 1, vec![red, red, blue, blue]), 3, 1);

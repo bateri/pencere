@@ -233,16 +233,15 @@ pub(crate) fn shrink(raster: Raster, width: u32, height: u32) -> Raster {
                 let Some(source) = raster.pixels.get(at..at + from_w * 4) else {
                     continue;
                 };
-                for (target, (start, weights)) in row.chunks_exact_mut(4).zip(&across) {
+                for (target, (start, weights)) in row.as_chunks_mut::<4>().0.iter_mut().zip(&across)
+                {
                     let (mut r, mut g, mut b, mut a) = (0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32);
                     let from = source.get(start * 4..).unwrap_or_default();
-                    for (pixel, weight) in from.chunks_exact(4).zip(weights) {
-                        if let &[pr, pg, pb, pa] = pixel {
-                            r += f32::from(pr) * weight;
-                            g += f32::from(pg) * weight;
-                            b += f32::from(pb) * weight;
-                            a += f32::from(pa) * weight;
-                        }
+                    for (&[pr, pg, pb, pa], weight) in from.as_chunks::<4>().0.iter().zip(weights) {
+                        r += f32::from(pr) * weight;
+                        g += f32::from(pg) * weight;
+                        b += f32::from(pb) * weight;
+                        a += f32::from(pa) * weight;
                     }
                     target.copy_from_slice(&[r, g, b, a]);
                 }
@@ -322,30 +321,24 @@ fn png(bytes: &[u8], approve: Approve<'_>) -> Result<Raster, Failure> {
     let mut pixels = Vec::with_capacity(pixel_bytes(width, height).unwrap_or(0));
     match info.color_type {
         png::ColorType::Rgba => {
-            for pixel in raw.chunks_exact(4) {
-                if let &[r, g, b, a] = pixel {
-                    pixels.extend([
-                        premultiplied(r, a),
-                        premultiplied(g, a),
-                        premultiplied(b, a),
-                        a,
-                    ]);
-                }
+            for &[r, g, b, a] in raw.as_chunks::<4>().0 {
+                pixels.extend([
+                    premultiplied(r, a),
+                    premultiplied(g, a),
+                    premultiplied(b, a),
+                    a,
+                ]);
             }
         }
         png::ColorType::Rgb => {
-            for pixel in raw.chunks_exact(3) {
-                if let &[r, g, b] = pixel {
-                    pixels.extend([r, g, b, u8::MAX]);
-                }
+            for &[r, g, b] in raw.as_chunks::<3>().0 {
+                pixels.extend([r, g, b, u8::MAX]);
             }
         }
         png::ColorType::GrayscaleAlpha => {
-            for pixel in raw.chunks_exact(2) {
-                if let &[v, a] = pixel {
-                    let v = premultiplied(v, a);
-                    pixels.extend([v, v, v, a]);
-                }
+            for &[v, a] in raw.as_chunks::<2>().0 {
+                let v = premultiplied(v, a);
+                pixels.extend([v, v, v, a]);
             }
         }
         png::ColorType::Grayscale => {
@@ -428,10 +421,8 @@ fn jpeg(bytes: &[u8], approve: Approve<'_>) -> Result<Raster, Failure> {
     let mut pixels = vec![0_u8; size];
     decoder.decode_into(&mut pixels).map_err(broken)?;
     // A JPEG has no opacity: whatever the conversion left in the fourth channel, it is solid.
-    for pixel in pixels.chunks_exact_mut(4) {
-        if let Some(alpha) = pixel.get_mut(3) {
-            *alpha = u8::MAX;
-        }
+    for [_, _, _, alpha] in pixels.as_chunks_mut::<4>().0 {
+        *alpha = u8::MAX;
     }
     Ok(orient(
         Raster {

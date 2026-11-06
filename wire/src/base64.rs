@@ -68,14 +68,14 @@ fn value(byte: u8) -> Option<u8> {
 /// a multiple of four, the alphabet is the standard one, padding is only at the
 /// end and the bits it discards are zero. Anything else is `None`.
 pub fn decode(text: &[u8]) -> Option<Vec<u8>> {
-    if text.len() % 4 != 0 {
+    if !text.len().is_multiple_of(4) {
         return None;
     }
     let mut out = Vec::with_capacity(text.len() / 4 * 3);
-    let mut groups = text.chunks_exact(4).peekable();
+    let mut groups = text.as_chunks::<4>().0.iter().peekable();
     while let Some(group) = groups.next() {
         let last = groups.peek().is_none();
-        let [a, b, c, d] = *group else { return None };
+        let [a, b, c, d] = *group;
         let (a, b) = (value(a)?, value(b)?);
         if last && c == b'=' {
             if d != b'=' || b & 0x0f != 0 {

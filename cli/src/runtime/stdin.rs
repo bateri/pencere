@@ -129,10 +129,8 @@ pub fn read(core: &Core) {
     if ended {
         // Taken out before `on_end` runs, so that it can start a reading of its own.
         let was = core.stdin.borrow_mut().take().is_some();
-        if was {
-            if let Some(on_end) = on_end {
-                core.callback(on_end, Vec::new());
-            }
+        if was && let Some(on_end) = on_end {
+            core.callback(on_end, Vec::new());
         }
     }
 }

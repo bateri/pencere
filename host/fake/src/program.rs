@@ -359,11 +359,9 @@ impl Program {
             }
             // A link the program's view asks to open is the host's: this one opens none.
             Action::OpenLink { link, .. } => self.session.link_decision(link, false),
-            Action::DestroyView => {
-                if self.started.is_some() {
-                    self.closed
-                        .get_or_insert_with(|| "the program closed its view".to_owned());
-                }
+            Action::DestroyView if self.started.is_some() => {
+                self.closed
+                    .get_or_insert_with(|| "the program closed its view".to_owned());
             }
             // Nothing is on a screen to take back; an action a later version adds is one this
             // host does not know.

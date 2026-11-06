@@ -282,21 +282,20 @@ fn icon_of(files: &Files, path: &str) -> Result<Icon, String> {
     if mime == "image/png"
         && bytes.get(..8) == Some(&PNG_SIGNATURE)
         && bytes.get(12..16) == Some(b"IHDR")
-    {
-        if let (Some(width), Some(height)) = (
+        && let (Some(width), Some(height)) = (
             bytes
                 .get(16..20)
                 .and_then(|part| <[u8; 4]>::try_from(part).ok()),
             bytes
                 .get(20..24)
                 .and_then(|part| <[u8; 4]>::try_from(part).ok()),
-        ) {
-            icon.sizes = vec![format!(
-                "{}x{}",
-                u32::from_be_bytes(width),
-                u32::from_be_bytes(height)
-            )];
-        }
+        )
+    {
+        icon.sizes = vec![format!(
+            "{}x{}",
+            u32::from_be_bytes(width),
+            u32::from_be_bytes(height)
+        )];
     }
     Ok(icon)
 }
