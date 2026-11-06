@@ -4,7 +4,9 @@
 // `frame <path>`) must equal the fixture file it names, byte for byte, and the
 // fixture must be one the manifest lists, so each example is also a conformance
 // case. A block headed `message <path>` is one line of JSON that must equal the
-// text of a bridge fixture, which has no frame around it. The manifest, the files on disk and the fixtures README must agree on
+// text of a bridge fixture, which has no frame around it. A block headed `file <path>` is a
+// whole file of a fixture (an `app.json` of apps.md, its signature, a key): its lines joined by a
+// line feed, none at the end. The manifest, the files on disk and the fixtures README must agree on
 // which files exist. Run by `make check`; it uses nothing but Node.
 //
 // In an example `<ESC>` is the byte 0x1B, `<CR>` and `<LF>` are 0x0D and 0x0A,
@@ -47,12 +49,12 @@ function bytesOf(lines) {
   return Buffer.from(out);
 }
 
-/** The `frame <path>` and `message <path>` blocks of a markdown file: { path, lines, at, message }. */
+/** The `frame <path>`, `message <path>` and `file <path>` blocks of a markdown file: { path, lines, at, text }. */
 function frameBlocks(markdown) {
   const blocks = [];
   const lines = markdown.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const open = /^```(frame|message)\s+(\S+)\s*$/.exec(lines[i] ?? "");
+    const open = /^```(frame|message|file)\s+(\S+)\s*$/.exec(lines[i] ?? "");
     if (open === null) continue;
     const body = [];
     let j = i + 1;
@@ -61,7 +63,7 @@ function frameBlocks(markdown) {
       j += 1;
     }
     if (j >= lines.length) fail(`line ${i + 1}`, "a frame block is never closed");
-    blocks.push({ path: open[2], lines: body, at: i + 1, message: open[1] === "message" });
+    blocks.push({ path: open[2], lines: body, at: i + 1, text: open[1] !== "frame" });
     i = j;
   }
   return blocks;
@@ -93,6 +95,12 @@ function checkSpecDir(dir) {
   for (const entry of manifest.decode ?? []) listed.add(entry.file);
   for (const entry of manifest.bridge ?? []) listed.add(entry.file);
   for (const entry of manifest.message ?? []) listed.add(entry.file);
+  // The app.json fixtures of apps.md: the two keys, and for each case the file and its signature.
+  for (const key of ["key", "other-key"]) if (manifest.apps?.[key]) listed.add(manifest.apps[key]);
+  for (const entry of manifest.apps?.cases ?? []) {
+    listed.add(entry.file);
+    listed.add(entry.signature);
+  }
   for (const session of manifest.session ?? []) {
     for (const step of session.steps ?? []) {
       // The files of a step: what the program writes, what the host writes, the message a page
@@ -116,8 +124,9 @@ function checkSpecDir(dir) {
   for (const file of onDisk.keys()) {
     if (file === "manifest.json" || file === "README.md") continue;
     if (!listed.has(file)) fail(`${name}/fixtures`, `${file} is not in the manifest`);
-    const inSession = file.startsWith("session/");
-    const mention = inSession ? file.split("/").slice(0, 2).join("/") + "/" : file;
+    // A session and an app case are each a directory the README describes as one.
+    const inDirectory = /^(session|apps)\/[^/]+\//.test(file);
+    const mention = inDirectory ? file.split("/").slice(0, 2).join("/") + "/" : file;
     if (!mentions(mention)) fail(`${name}/fixtures/README.md`, `does not mention ${mention}`);
   }
   for (const entry of manifest.decode ?? []) {
@@ -128,13 +137,22 @@ function checkSpecDir(dir) {
   }
 
   // Every example in the specification is a fixture, byte for byte.
-  const markdown = readFileSync(specFile, "utf8");
+  let examples = checkExamples(specFile, name, "pencere.md", onDisk, listed);
+  // The apps document, when the draft has one, has examples of its own.
+  const appsFile = join(dir, "apps.md");
+  if (existsSync(appsFile)) examples += checkExamples(appsFile, name, "apps.md", onDisk, listed);
+  return examples;
+}
+
+/** The examples of one document against the fixtures: how many there are. */
+function checkExamples(file, name, doc, onDisk, listed) {
+  const markdown = readFileSync(file, "utf8");
   const blocks = frameBlocks(markdown);
-  if (blocks.length === 0) fail(name, "pencere.md has no frame example");
+  if (blocks.length === 0) fail(name, `${doc} has no frame example`);
   for (const block of blocks) {
-    const where = `${name}/pencere.md:${block.at}`;
-    const file = onDisk.get(block.path.replace(/^fixtures\//, ""));
-    if (!block.path.startsWith("fixtures/") || file === undefined) {
+    const where = `${name}/${doc}:${block.at}`;
+    const fixture = onDisk.get(block.path.replace(/^fixtures\//, ""));
+    if (!block.path.startsWith("fixtures/") || fixture === undefined) {
       fail(where, `${block.path} is not a fixture`);
       continue;
     }
@@ -142,12 +160,12 @@ function checkSpecDir(dir) {
       fail(where, `${block.path} is not in the manifest`);
     let expected;
     try {
-      expected = block.message ? Buffer.from(block.lines.join("\n")) : bytesOf(block.lines);
+      expected = block.text ? Buffer.from(block.lines.join("\n")) : bytesOf(block.lines);
     } catch (error) {
       fail(where, error instanceof Error ? error.message : String(error));
       continue;
     }
-    const actual = readFileSync(file);
+    const actual = readFileSync(fixture);
     if (!expected.equals(actual)) {
       let at = 0;
       while (at < expected.length && at < actual.length && expected[at] === actual[at]) at += 1;

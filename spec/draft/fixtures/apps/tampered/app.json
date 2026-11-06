@@ -1,0 +1,25 @@
+{
+  "name": "demopen",
+  "version": "0.5.1",
+  "protocol": [1],
+  "views": [{"kind": "lua", "versions": ["0.3"]}],
+  "key": "ed25519:A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+  "files": {
+    "aarch64-apple-darwin": {
+      "url": "https://github.com/example/demopen/releases/download/v0.5.1/demopen-0.5.1-aarch64-apple-darwin",
+      "sha256": "03ebb5789dd14196c3b2dd253381a56edba01fdd3d0662f2b7048fa2296c7cdf"
+    },
+    "x86_64-unknown-linux-musl": {
+      "url": "https://github.com/example/demopen/releases/download/v0.5.1/demopen-0.5.1-x86_64-unknown-linux-musl",
+      "sha256": "f14005f9410179d8e426c41285e4cbff4203b2d74af13491ec2dad13264e474c"
+    }
+  },
+  "previous": [
+    {
+      "version": "0.4.3",
+      "protocol": [1],
+      "views": [{"kind": "lua", "versions": ["0.2"]}],
+      "manifest": "https://github.com/example/demopen/releases/download/v0.4.3/app.json"
+    }
+  ]
+}

@@ -18,7 +18,7 @@ Tokens in the files are fixed test values. The host identity is
 ## `manifest.json`
 
 ```
-{ "protocol": 1, "tokens": {...}, "decode": [...], "session": [...], "bridge": [...], "message": [...] }
+{ "protocol": 1, "tokens": {...}, "decode": [...], "session": [...], "bridge": [...], "message": [...], "apps": {...} }
 ```
 
 A **`decode`** entry has `file`, `direction` (`to-host`: bytes the program writes;
@@ -291,3 +291,40 @@ without a newline at the end unless the entry is about whitespace. A **`bridge`*
 | `bridge/call-pretty.json`        | page-to-host    | a call written over several lines: the host writes the frame of to-program/msg-pretty.frame. Outcome `passed`.                                                                                                                             |
 | `bridge/call-escapes.json`       | page-to-host    | a call with an accent, a DEL and a character outside the first plane: the host writes the frame of to-program/msg-escapes.frame. Outcome `passed`.                                                                                         |
 | `bridge/context-resized.json`    | host-to-page    | the context the page is told when the pane is resized in the session `context-resent` (it is the entry's text, not a bridge entry).                                                                                                        |
+
+## App fixtures
+
+The files of `apps.md`: an `app.json`, its signature `app.json.sig`, and what a reader makes of
+them. They are not frames and have nothing to do with the protocol version above. The `apps` member
+of the manifest has `key` and `other-key`, the files that hold the two public keys of the fixtures
+as text, and `cases`, whose entries have `file`, `signature`, `note` and `outcome`: `ok`, when the
+reader accepts the file (it has the shape of Section 4 and the signature holds, checked against the
+`key` the file names), or the name of the first thing the reader rejects it for: `name`, `version`,
+`address` (Section 4) or `signature` (Section 5). An `ok` entry also has the `name` and `version` the
+file holds and, in `selects`, what a reader makes of it for a host: each has `host`, the
+`protocol` versions the host speaks and the `views` it offers (the shape of the host's own list,
+Section 5.2), and `chooses`, the version of the release the reader takes (`apps.md` Section 7), or
+`null` when none opens. The Rust crate is tested from these files.
+
+The keys are **for tests only**: the secret half of `key` is the 32 bytes `00 01 02 ... 1f` and the
+secret half of `other-key` is `20 21 22 ... 3f`, which is what makes the files reproducible, and
+which is why nobody may trust a release signed with either. Nothing here is the key of a real
+author.
+
+| File                    | What it is and the expected result                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/key.pub`          | the public key of the fixtures, as `key` of every file below writes it, without a newline at the end.                                                   |
+| `apps/other-key.pub`    | a second public key, for a signature that does not hold. Its secret half signs `apps/wrong-key/`.                                                       |
+| `apps/valid/`           | `app.json` and `app.json.sig`: version 0.5.1 of `demopen`, which needs the `lua` view at 0.3, with 0.4.3, which needs 0.2, in `previous`. Outcome `ok`. |
+| `apps/first/`           | the first release, 0.1.0, with an empty `previous`. Outcome `ok`.                                                                                       |
+| `apps/later-fix/`       | 0.4.4, released after 0.5.1 for hosts that open `lua` at 0.2 only: `previous` holds 0.5.1. The highest openable version wins. Outcome `ok`.             |
+| `apps/newer-protocol/`  | 0.6.0, which speaks protocol 2 only, with 0.5.1 (protocol 1) in `previous`. Outcome `ok`.                                                               |
+| `apps/tampered/`        | the `app.json` of `valid` with one digit of a digest changed and its signature kept: still JSON, no longer what was signed. Outcome `signature`.        |
+| `apps/wrong-key/`       | the `app.json` of `valid`, signed with the other key. Outcome `signature`.                                                                              |
+| `apps/invalid-name/`    | a name with capital letters, correctly signed. Outcome `name`.                                                                                          |
+| `apps/invalid-version/` | a version of two numbers, correctly signed. Outcome `version`.                                                                                          |
+| `apps/invalid-address/` | the address of a file begins with `http:`, correctly signed. Outcome `address`.                                                                         |
+
+The limits (65 536 bytes of `app.json`, 32 entries of `previous`) and the other malformed names,
+versions and addresses are tested by the Rust crate from files it makes, not from fixtures of this
+size.

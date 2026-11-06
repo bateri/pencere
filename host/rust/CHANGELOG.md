@@ -7,6 +7,16 @@ under this name) are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The `apps` module** (specification `apps.md`): reads the `app.json` and the `app.json.sig` that
+  release an app, checks the shape of the first and the Ed25519 signature of the second over the
+  bytes as published, and chooses, among a release and the earlier releases it lists, the newest
+  one a host can open (`Manifest::select`: the greatest version number whose protocol versions and
+  views the host's handshake would accept, whatever the order or the dates). It does no I/O and
+  trusts no key: the terminal compares `Manifest::key` with the keys it believes. The crate now
+  depends on `ed25519-dalek`, with signing left out.
+
 ## [0.4.0] - 2026-11-03
 
 ### Added
