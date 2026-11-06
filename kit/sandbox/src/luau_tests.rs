@@ -189,6 +189,26 @@ fn a_helper_given_the_wrong_argument_says_the_line_of_the_script_that_called_it(
             "pencere.div():tint('error')",
             "tint is for an image, and this is a box",
         ),
+        (
+            "pencere.div():page(2)",
+            "page is for an image, and this is a box",
+        ),
+        (
+            "pencere.image('a.pdf'):page(0)",
+            "page is a whole number from 1, not 0",
+        ),
+        (
+            "pencere.image('a.pdf'):page(1.5)",
+            "page is a whole number from 1, not 1.5",
+        ),
+        (
+            "pencere.image('a.pdf'):page('2')",
+            "page is a whole number from 1, not 2",
+        ),
+        (
+            "pencere.image('a.pdf'):page(x)",
+            "page is a whole number from 1, not nil",
+        ),
     ] {
         let update = first(
             &format!("return {{ render = function()\n  local x = nil\n  return {call}\nend }}"),
@@ -393,6 +413,8 @@ fn a_script_says_an_image_and_the_engine_reads_what_it_said() {
                 :child(pencere.image("icons/run.svg"):tint("error"):w(16))
                 :child(pencere.image("icons/run.svg"):tint({ light = "#203040", dark = "#e0d0c0" }))
                 :child(pencere.image("icons/run.svg"):tint(pencere.alpha("accent", 0.5)))
+                :child(pencere.image("book.pdf"))
+                :child(pencere.image("book.pdf"):page(3):fit("cover"))
         end }"##,
         ModuleLimits::default(),
     );
@@ -407,7 +429,7 @@ fn a_script_says_an_image_and_the_engine_reads_what_it_said() {
         Kind::Image(image) => image.clone(),
         other => panic!("{other:?}"),
     };
-    assert_eq!(images.len(), 5);
+    assert_eq!(images.len(), 7);
     // The same elements, as Rust says them.
     let rust = |element: Element| match element.fold().remove(0).kind {
         Kind::Image(image) => image,
@@ -439,6 +461,11 @@ fn a_script_says_an_image_and_the_engine_reads_what_it_said() {
         said(images[4]),
         rust(image("icons/run.svg", Fit::Contain).tint(Role::Accent.alpha(0.5)))
     );
+    // A page that is not said is the first; the rest follow to the engine's picture.
+    assert_eq!(said(images[5]), rust(image("book.pdf", Fit::Contain)));
+    assert_eq!(said(images[5]).page, 1);
+    assert_eq!(said(images[6]), rust(image("book.pdf", Fit::Cover).page(3)));
+    assert_eq!(said(images[6]).page, 3);
 }
 
 #[test]

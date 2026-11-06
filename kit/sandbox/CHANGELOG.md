@@ -6,6 +6,40 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+### Added
+
+- **PDF.** `Images` reads a PDF, told from its bytes (`%PDF-`), and draws a page of it at the size
+  it is asked at, again for every other, so that a page shown larger is sharp. A PDF is one path
+  however many pages it has: each page has its own size (the document's crop box in points, turned
+  by `/Rotate`) and its own drawings, and the view's 1024 paths are not spent on pages. The paper
+  is white. Nothing is run and nothing is read of the machine: the fonts a PDF does not carry
+  are the fourteen substitutes the renderer holds itself. The kit asks for a page with
+  `pencere.image(src):page(n)` (from 1; a file that has no pages is its only page, and a page it
+  has not leaves the box empty with a diagnostic that says how many pages the file has). A file
+  of more than 20000 pages, an encrypted one and one that cannot be read leave their box empty
+  with the reason. The interpreter is rebuilt (`make luau`).
+- New dependency `hayro` 0.9 with `embed-fonts` and `embed-cmaps` (Apache-2.0 OR MIT), with what it brings:
+  `hayro-interpret`, `hayro-syntax`, `hayro-font`, `hayro-cmap`, `hayro-postscript`, `hayro-ccitt`,
+  `hayro-jbig2`, `hayro-jpeg2000` (all Apache-2.0 OR MIT), `vello_cpu`, `vello_common`, `glifo`,
+  `peniko`, `color`, `fearless_simd`, `linebender_resource_handle`, `fastrand` (Apache-2.0 OR MIT),
+  `skrifa`, `read-fonts`, `font-types` (MIT OR Apache-2.0), `pic-scale` (BSD-3-Clause OR
+  Apache-2.0), `ab_glyph_rasterizer` (Apache-2.0), `guillotiere` (MIT/Apache-2.0), `phf` and
+  `synstructure` (MIT), `yoke` and `zerofrom` (Unicode-3.0), `foldhash` (Zlib), `bytemuck_derive`
+  (Zlib OR Apache-2.0 OR MIT), `brotli` (BSD-3-Clause AND MIT), `brotli-decompressor`,
+  `alloc-no-stdlib` and `alloc-stdlib` (BSD-3-Clause). The fourteen fonts of `embed-fonts` are
+  Foxit's, from PDFium (BSD-3-Clause, the notice is in the `hayro-font` crate), and add about
+  260 KiB. The predefined CMaps of `embed-cmaps`, through which most Chinese, Japanese and Korean
+  text is read, are Adobe's (BSD-3-Clause, the notice is in the `hayro-cmap` crate), and add about
+  450 KiB.
+
+### Changed
+
+- Building from source asks for Rust 1.99 (the `rust-version` of the repository, was 1.88).
+- **`Images::size(src, page)` and `Images::bitmap(src, page, whole)` take the page of the file**,
+  from 1; 1 is the page of a file that has none (a PNG, a JPEG, an SVG). A host passes
+  `Picture::page` and the page it was asked for by `Measure::image`.
+- A file that is none of the formats is told as not being "a PNG, JPEG, SVG or PDF file".
+
 ## [0.4.1] - 2026-11-05
 
 ### Added

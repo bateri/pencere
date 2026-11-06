@@ -1742,14 +1742,24 @@ that has files beside its bundle (Section 5.5) also names a file its program att
 among the view's own attached files and handles, and a name that is none of them is an image that is
 not there.
 
-- _Formats._ PNG, JPEG and SVG, told from the bytes and not from the name or the `type` of the file.
-  An SVG draws its shapes: no text in it is drawn and no font is loaded for it, and an `<image>`
-  inside it is never loaded, whether it names a path, a URL or carries its data. Nothing else is read
-  (not GIF or WebP, not a compressed SVG), and a PNG that is an animation shows its first picture.
-- _Limits._ No image is wider or taller than 4096 pixels (an SVG is drawn at most that size), a file
-  is at most 8 MiB as any file of a bundle is (Section 8.2), and the decoded pixels of a view, 4 bytes a
-  pixel, are at most 64 MiB at a time; a view names at most 1024 different paths, as many as a bundle
-  has files. A host MAY hold a view to less, and every host that
+- _Formats._ PNG, JPEG, SVG and PDF, told from the bytes and not from the name or the `type` of the
+  file (a PDF begins with `%PDF-`). An SVG draws its shapes: no text in it is drawn and no font is
+  loaded for it, and an `<image>` inside it is never loaded, whether it names a path, a URL or carries
+  its data. A PDF is drawn as a picture of one of its pages: nothing is run (no script, no form, no
+  link is followed), no file outside it and no network is read, and no font of the machine is looked
+  for: the fonts it does not carry are the host's own substitutes, the same wherever it is shown, and
+  the paper is white. A PDF that is encrypted, or has no page, or is not one that can be read, is an
+  image that cannot be read. Nothing else is read (not GIF or WebP, not a compressed SVG), and a PNG
+  that is an animation shows its first picture.
+- _Page._ The element says which page of the file it shows (`page`, from 1; `1` where it does not
+  say). A file that has no pages, as a PNG has none, is its only page, `1`. A page the file does not
+  have leaves the box empty, and the diagnostic says how many pages it has. Every page is a picture of
+  its own, with its own size, that is drawn when an element asks for it.
+- _Limits._ No image is wider or taller than 4096 pixels (an SVG or a page is drawn at most that
+  size), a file is at most 8 MiB as any file of a bundle is (Section 8.2), and the decoded pixels of a
+  view, 4 bytes a pixel, are at most 64 MiB at a time; a view names at most 1024 different paths, as
+  many as a bundle has files (a PDF is one path, however many pages it has and shows), and a PDF has
+  at most 20000 pages. A host MAY hold a view to less, and every host that
   uses the kit holds it to these. An image that is past a limit, or that cannot be read, leaves its
   box empty and gives the person who wrote the view a diagnostic with the reason; the view is not
   closed for it and nothing is written to the screen the program shares with the shell. A path
@@ -1757,15 +1767,17 @@ not there.
   that the view names more paths than it may.
 - _Size._ The element's size is the style's. A side the style does not say follows the picture's
   proportions, and an element that says neither is the picture's own size in pixels, one point to a
-  pixel (for an SVG the width and height it says). The sizes are known only once the files are
+  pixel (for an SVG the width and height it says; for a page of a PDF the size of the page in
+  points, its crop box turned as its `/Rotate` says, and at most 16384 on the long side). The sizes
+  are known only once the files are
   decoded, which is not on the thread that draws: the page is laid out first as it is, with the
   room of the pictures that are not known as the style gives it, and once more when they are. A page
   at rest asks for nothing and so is drawn no more often than before.
 - _Sharp pictures._ A page is written in points. A host draws a picture at the pixels it comes to,
   and a PNG or a JPEG has the pixels it has: to be sharp on a display with two pixels to the point it
   is given a size in points and sent with twice the pixels (a 24-point icon is a 48-pixel file).
-  An SVG needs nothing of the kind: it is drawn at the size it comes to on the display, and drawn
-  again when that changes.
+  An SVG or a page of a PDF needs nothing of the kind: it is drawn at the size it comes to on the
+  display, and drawn again when that changes.
 - _Fit._ `contain`, the default, draws all of the picture as large as the box lets it be with its
   proportions kept, in the middle of the box. `cover` fills the box with the proportions kept, and
   what does not fit is cut off evenly on both sides.

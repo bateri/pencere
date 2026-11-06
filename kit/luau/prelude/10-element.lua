@@ -59,7 +59,7 @@ end
 --
 --   pencere.image("icons/stop.svg"):w(24):fit("cover"):tint("error"):opacity(0.8)
 --
--- The argument is the path of the file as the bundle's manifest names it (PNG, JPEG or SVG). Its
+-- The argument is the path of the file as the bundle's manifest names it (PNG, JPEG, SVG or PDF). Its
 -- size is the element's, as for any box (`:w(24)`, `:h(24)`); a side that is not said follows the
 -- picture's proportions, and an element that says neither is the picture's own size in pixels, a
 -- point to a pixel: a picture meant to be sharp on a screen with two pixels to the point is
@@ -67,6 +67,8 @@ end
 -- default) or "cover" (the box filled, what does not fit cut off). `:tint` is a colour (any way
 -- of saying one, as for text): the picture is then a shape, drawn in that colour with its own
 -- opacity at each pixel. How much of it shows is the element's `:opacity`, as for any element.
+-- `:page` is the page of a PDF that is shown (from 1, the first where it is not said): the
+-- picture is that page, at the page's own size in points.
 -- Besides a file of the bundle, `src` is a file beside it: "sha256:" and the digest of one the
 -- program attached to the view, "file:" and the handle of one the person gave it (a `files` event).
 function pencere.image(src)
@@ -96,6 +98,18 @@ function Element:fit(how)
 		refuse('fit is "contain" or "cover", not ' .. tostring(how))
 	end
 	picture.fit = how
+	return self
+end
+
+-- Which page of the file the picture is, from 1: a PDF has as many as it says, and a file that has
+-- no pages (a PNG, a JPEG, an SVG) is its only page. A page the file does not have is a picture
+-- that is not drawn, and the page's diagnostics say so.
+function Element:page(number)
+	local picture = picture_of(self, "page")
+	if type(number) ~= "number" or number < 1 or number % 1 ~= 0 or number > 4294967295 then
+		refuse("page is a whole number from 1, not " .. tostring(number))
+	end
+	picture.page = number
 	return self
 end
 

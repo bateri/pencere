@@ -1405,7 +1405,7 @@ fn pictures(page: &Page, list: &DrawList) -> usize {
         .filter(|item| match item {
             Paint::Image(picture) => page
                 .images()
-                .and_then(|images| images.bitmap(&picture.src, picture.full()))
+                .and_then(|images| images.bitmap(&picture.src, picture.page, picture.full()))
                 .is_some(),
             _ => false,
         })
@@ -1424,6 +1424,11 @@ struct ImageRig {
 /// has been laid out, the file asked for, and nothing more is to come until the test opens the gate.
 /// Returns what the page is until then.
 fn image_rig(file: &'static str, bytes: Vec<u8>) -> (ImageRig, DrawList) {
+    image_rig_saying(file, bytes, "")
+}
+
+/// [`image_rig`], with `chain` (`:page(2)`) after the image the script says.
+fn image_rig_saying(file: &'static str, bytes: Vec<u8>, chain: &str) -> (ImageRig, DrawList) {
     let (open, gate) = channel();
     let (asked, was_asked) = channel();
     let assets = Arc::new(Gated {
@@ -1434,7 +1439,7 @@ fn image_rig(file: &'static str, bytes: Vec<u8>) -> (ImageRig, DrawList) {
     });
     let source = format!(
         r#"return {{ render = function()
-            return pencere.div():p(8):child(pencere.image("{file}"))
+            return pencere.div():p(8):child(pencere.image("{file}"){chain})
         end }}"#
     );
     let bundle: Arc<dyn Assets> = Arc::clone(&assets) as Arc<dyn Assets>;
@@ -1578,6 +1583,44 @@ fn a_vector_image_wakes_the_page_for_its_size_then_for_its_pixels() {
     assert_eq!(pictures(&rig.page, &list), 1, "the image is in the list");
     assert!(rig.quiet(), "the image woke the host a third time");
     assert!(!rig.page.drain().redraw);
+}
+
+/// A page of a PDF is a picture of its own: its size is the page's, and its pixels are the page's.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
+fn the_page_of_a_pdf_a_script_names_is_the_picture_that_is_laid_out_and_drawn() {
+    let pdf = include_bytes!("../../sandbox/src/fixtures/pages.pdf").to_vec();
+    let (ImageRig { mut rig, open, .. }, list) =
+        image_rig_saying("book.pdf", pdf, ":page(2):w(100)");
+    assert_eq!(pictures(&rig.page, &list), 0);
+    open.send(()).unwrap();
+    assert!(wait(&rig.woken), "the sizes of the pages woke nobody");
+    assert!(rig.page.drain().redraw);
+    let list = rig.page.frame(frame_at(0.4)).list;
+    assert_eq!(pictures(&rig.page, &list), 0, "no pixels at this size yet");
+    // The second page is the picture, in the proportions of its own size (100 by 200 points).
+    let picture = list
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Paint::Image(picture) => Some(picture.clone()),
+            _ => None,
+        })
+        .expect("the page's picture");
+    assert_eq!(picture.page, 2);
+    assert_eq!((picture.rect.w, picture.rect.h), (100.0, 200.0));
+    assert!(wait(&rig.woken), "the pixels of the page woke nobody");
+    assert!(rig.page.drain().redraw);
+    let list = rig.page.frame(frame_at(0.5)).list;
+    assert_eq!(pictures(&rig.page, &list), 1, "the page is in the list");
+    assert!(rig.quiet(), "the page woke the host a third time");
+    // The green bottom half of the second page, and not the red half of the first.
+    let images = rig.page.images().expect("the page's images");
+    let bitmap = images
+        .bitmap("book.pdf", 2, pencere_view::Size::new(100.0, 200.0))
+        .expect("drawn");
+    let at = ((150 * bitmap.width + 50) * 4) as usize;
+    assert_eq!(bitmap.pixels()[at..at + 4], [0, 255, 0, 255]);
 }
 
 /// A file the decoder refuses is a box with nothing in it and a word for the page's author, told

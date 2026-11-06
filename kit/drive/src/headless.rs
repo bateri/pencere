@@ -1058,7 +1058,7 @@ impl<P: Peer> Headless<P> {
         if let Some(images) = self.page.images() {
             for item in &self.list.items {
                 if let Paint::Image(picture) = item {
-                    let _ = images.bitmap(&picture.src, picture.full());
+                    let _ = images.bitmap(&picture.src, picture.page, picture.full());
                 }
             }
         }

@@ -1464,6 +1464,8 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         int fit = word(L, picture, "fit", kFit, 2, 0);
         image.fit = (pencere_view_types_fit_t)fit;
         image.tint = optional_color(L, picture, "tint");
+        // Whole and from 1: `Element:page` has said so, and the table is the script's to write.
+        image.page = (uint32_t)number(L, picture, "page", 1.0f);
         lua_pop(L, 1);
         nodes.ptr[at].content.tag = PENCERE_VIEW_TYPES_CONTENT_IMAGE;
         nodes.ptr[at].content.val.image = image;

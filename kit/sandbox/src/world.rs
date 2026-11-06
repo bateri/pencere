@@ -1187,6 +1187,7 @@ fn kind_out(
                 wit::Fit::Cover => Fit::Cover,
             },
             tint: image.tint.as_ref().map(color_out),
+            page: image.page.max(1),
         }),
         wit::Content::Rich(part) => {
             let spans = lists.items(lists.spans, part, limits.parts, "a text of many looks")?;

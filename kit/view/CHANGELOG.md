@@ -6,6 +6,17 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- `Element::page(n)`, `Image::page` and `Picture::page`: which page of the file an image shows, from
+  1 (`1` where it is not said), for a file that has pages (a PDF). The Lua page API has it as
+  `pencere.image(src):page(n)`.
+
+### Changed
+
+- **`Measure::image(src, page)` takes the page of the file**, as `Images::size` of the sandbox
+  does: a page a file does not have is `None`.
+
 ## [0.4.1] - 2026-11-05
 
 Released with the other crates; no change of its own.

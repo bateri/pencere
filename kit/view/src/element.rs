@@ -61,6 +61,9 @@ pub struct Image {
     /// and the image's opacity, pixel by pixel, is the amount of it. How much of it shows is the
     /// element's opacity ([`Element::opacity`]).
     pub tint: Option<Color>,
+    /// Which page of the file is shown, from 1, where the file has pages (a PDF); an image that
+    /// has none is its only page, and a page it does not have is no image.
+    pub page: u32,
 }
 
 /// What a text field the host puts over the page takes ([`Element::field`]).
@@ -162,6 +165,7 @@ pub fn image(src: impl Into<String>, fit: Fit) -> Element {
         src: src.into(),
         fit,
         tint: None,
+        page: 1,
     }))
 }
 
@@ -888,6 +892,16 @@ impl Element {
     #[must_use]
     pub fn truncate(self) -> Self {
         self.set(|s| s.truncate = true)
+    }
+
+    /// The page of the file an image shows, from 1: a PDF has as many as it says, and the first is
+    /// the one shown where this is not said. Has no effect on anything but an image.
+    #[must_use]
+    pub fn page(mut self, page: u32) -> Self {
+        if let Kind::Image(image) = &mut self.kind {
+            image.page = page.max(1);
+        }
+        self
     }
 
     /// Paints an image in `color`: the colour of every pixel of it is this one, and what is kept of

@@ -19,9 +19,10 @@ the terminal is told why. The interpreter for scripts (Luau, with the bridge to 
 interface) is a component of its own, kept in this crate as `luau/luau.wasm`; `make luau`
 rebuilds it from the sources in `kit/luau` and `make check` fails while it is not.
 
-It also decodes the images of a page (`Images`): the PNG, JPEG and SVG files of the view's bundle, off
-the thread that draws, held to the same limits in every terminal that uses it, with a diagnostic for
-the image it refuses. An SVG draws its shapes and reads nothing it names. And it draws the paths of
+It also decodes the images of a page (`Images`): the PNG, JPEG, SVG and PDF files of the view's
+bundle, off the thread that draws, held to the same limits in every terminal that uses it, with a
+diagnostic for the image it refuses. An SVG draws its shapes and reads nothing it names; a PDF is
+drawn a page at a time, at the size asked, with no file, network or font of the machine. And it draws the paths of
 a canvas (`draw_figure`), so that a figure is the same pixels in every terminal.
 
 The interface it implements is `wit/view.wit`, the crate's own copy of the kit's (`kit/wit`), which

@@ -102,7 +102,7 @@ An element is a plain table that a chain of builder methods fills. Lengths are p
 | `pencere.div()`                  | A box: a column of its children until told otherwise.                                                              |
 | `pencere.text(string \| number)` | One line of text, in the font, size and colour of the boxes it is in; with `wrap`, as many lines as its box needs. |
 | `pencere.spark(values, color)`   | A sparkline of numbers, newest last; `:peak(value)` is its largest.                                                |
-| `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 9.8).                                                |
+| `pencere.image(path)`            | A picture: a file of the view's own bundle (protocol, Section 9.8); a page of it, for a PDF: `:page(n)`.           |
 | `pencere.rich(parts)`            | A text of many looks: its parts (`pencere.span(words)`, or a string) one after the other, as one paragraph.        |
 | `pencere.canvas(paths)`          | A box with paths drawn in it (`pencere.path()`), in its own points. It has no size of its own.                     |
 | `pencere.editor(id, options)`    | The room of an editor of text the host keeps, lays out and draws (below); `div():editor(id, options)` the same.    |
@@ -119,7 +119,10 @@ Looks: `bg`, `bg_gradient(angle, from, to)`, `border(width, color)`, `rounded`, 
 is that much fainter, its words too, past a host's floor of contrast). Text, which the elements
 inside inherit: `text_size`, `weight`, `color`,
 `family("system" | "terminal")`, `align("start" | "center" | "end")`, `italic`, `underline`, `strike`,
-`truncate`. Images: `fit("contain" | "cover")`, `tint(color)`. Names and answers: `id`, `press(id)`,
+`truncate`. Images: `fit("contain" | "cover")`, `tint(color)`, `page(n)` (a whole number from 1: which page of a PDF the
+picture is; a file that has no pages is its only page, and a page it has not leaves the box empty, with a
+diagnostic that says how many pages the file has. A page that asks whether the terminal draws PDFs asks
+whether `pencere.div().page` exists, as for any later addition). Names and answers: `id`, `press(id)`,
 `focusable`, `focused`, `text_field(id, "line" | "lines" | "secret")`, `label(words)`, `tip(words,
 keys)`, `command(id, title, keys, enabled)`, `draggable(id)`, `drop_target(id)`. To a screen reader:
 `role(name, level)`, `checked(on)`, `selected(chosen)`, `expanded(open)`, `disabled(on)`,

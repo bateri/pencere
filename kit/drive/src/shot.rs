@@ -290,8 +290,8 @@ pub fn png(
                 }
             }
             Paint::Image(picture) => {
-                if let Some(bitmap) =
-                    images.and_then(|images| images.bitmap(&picture.src, picture.full()))
+                if let Some(bitmap) = images
+                    .and_then(|images| images.bitmap(&picture.src, picture.page, picture.full()))
                 {
                     canvas.bitmap(
                         bitmap.pixels(),

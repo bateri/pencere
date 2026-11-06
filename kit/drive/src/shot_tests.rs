@@ -814,7 +814,7 @@ fn the_files_example_is_pictured_with_the_picture_it_attached_and_a_file_it_rece
         .iter()
         .filter(|item| match item {
             pencere_view::Paint::Image(picture) => images
-                .and_then(|images| images.bitmap(&picture.src, picture.full()))
+                .and_then(|images| images.bitmap(&picture.src, picture.page, picture.full()))
                 .is_some(),
             _ => false,
         })

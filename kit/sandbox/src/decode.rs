@@ -1,4 +1,4 @@
-//! Reading the formats the images of a page come in: PNG, JPEG and SVG.
+//! Reading the formats the images of a page come in: PNG, JPEG, SVG and PDF.
 //!
 //! The bytes are not trusted: they are a file a program sent, and what is in them is whatever its
 //! author wrote. So the format is told from the bytes and not from a name, the size of an image is
@@ -13,7 +13,8 @@
 //! An SVG draws shapes and reads nothing of the machine it is drawn on: it is built without text
 //! (no font is loaded, and the words in it are not drawn), without raster images and without
 //! compressed files, and the one door an SVG has to other files — an `<image>`, whether it
-//! names a path, a URL or carries its data — is shut: every such image is skipped.
+//! names a path, a URL or carries its data — is shut: every such image is skipped. A PDF is
+//! read by [`crate::pdf`], which is held to the same.
 
 use std::io::Cursor;
 
@@ -30,6 +31,7 @@ pub(crate) enum Format {
     Png,
     Jpeg,
     Svg,
+    Pdf,
 }
 
 /// Why a file is not an image the page can have.
@@ -54,6 +56,8 @@ pub(crate) enum Failure {
     Work { bytes: usize, most: usize },
     /// The SVG is made of more than a drawing may be.
     Complex { nodes: usize, most: usize },
+    /// The PDF has more pages than a document may.
+    Pages { count: usize, most: usize },
     /// The view names more images than it may.
     Paths { most: usize },
 }
@@ -62,7 +66,7 @@ impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Missing => f.write_str("is not a file of the view's bundle"),
-            Self::Unknown => f.write_str("is not a PNG, JPEG or SVG image"),
+            Self::Unknown => f.write_str("is not a PNG, JPEG, SVG or PDF file"),
             Self::Source { bytes, most } => {
                 write!(f, "is {bytes} bytes, past the {most} bytes a file may be")
             }
@@ -96,6 +100,9 @@ impl std::fmt::Display for Failure {
                 f,
                 "is a drawing of {nodes} parts, past the {most} a drawing may have"
             ),
+            Self::Pages { count, most } => {
+                write!(f, "has {count} pages, past the {most} a document may have")
+            }
             Self::Paths { most } => write!(f, "is past the {most} images a view may name"),
         }
     }
@@ -120,6 +127,11 @@ pub(crate) fn sniff(bytes: &[u8]) -> Option<Format> {
     if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         return Some(Format::Jpeg);
     }
+    // A PDF says what it is in its first bytes (the specification allows some before them; a file
+    // that has them is not taken for one).
+    if bytes.starts_with(b"%PDF-") {
+        return Some(Format::Pdf);
+    }
     // A document in the XML a text file is made of, that has a root of this name in its first
     // lines (after a declaration, a doctype, comments): the parser decides the rest.
     let text = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
@@ -137,7 +149,7 @@ pub(crate) fn raster(
     match format {
         Format::Png => png(bytes, approve),
         Format::Jpeg => jpeg(bytes, approve),
-        Format::Svg => Err(Failure::Unknown),
+        Format::Svg | Format::Pdf => Err(Failure::Unknown),
     }
 }
 
@@ -175,7 +187,7 @@ pub(crate) fn header(bytes: &[u8], format: Format) -> Result<Header, Failure> {
                 working: opened.working,
             })
         }
-        Format::Svg => Err(Failure::Unknown),
+        Format::Svg | Format::Pdf => Err(Failure::Unknown),
     }
 }
 

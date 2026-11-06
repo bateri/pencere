@@ -5,22 +5,24 @@
 //! gives the paths' bytes through [`Assets`], and [`Images`] turns them into what the host needs
 //! of an image — its size, for the layout ([`Images::size`], which the host's
 //! [`pencere_view::Measure::image`] answers from), and its pixels, for the draw list's
-//! [`pencere_view::Picture`] ([`Images::bitmap`]). The formats are PNG, JPEG and SVG, and the
+//! [`pencere_view::Picture`] ([`Images::bitmap`]). The formats are PNG, JPEG, SVG and PDF, and the
 //! limits are [`ImageLimits`], the same in every terminal that uses this crate: a view that works
-//! in one works in all.
+//! in one works in all. A PDF is a file with pages: an element names the page it shows, and a
+//! page is asked for by the path and its number, each with its own size and its own drawings;
+//! it is still one path, which is one of the paths a view may name.
 //!
 //! **Nothing here waits.** The first time a path is asked for, a worker thread of its own reads
 //! the file (an SVG it parses, a PNG or a JPEG it reads the header of), and the answer is *not
 //! yet* until it is done; then the host is woken — once for everything that arrived since it
 //! last looked — and told what [`Images::poll`] says: that a size is known and the page is to be
 //! laid out again, that pixels arrived and it is to be drawn, and why an image was refused (the
-//! page's diagnostics). Each path is read once for its size (the result, a refusal as well, is
+//! page's diagnostics). Each path is read once for its size (a PDF for the sizes of all its pages) (the result, a refusal as well, is
 //! kept for the life of the [`Images`]), and drawn once for each size it is asked at (a few
-//! sizes at most, each its own raster): a host at rest is asked for nothing, and so wakes for
+//! sizes at most, each its own raster; a page of a PDF has the few of its own): a host at rest is asked for nothing, and so wakes for
 //! nothing.
 //!
-//! **What the view holds is bounded, and what it holds is what is drawn.** An SVG is drawn at the
-//! size it is asked at, and so is a PNG or a JPEG: the file is decoded at its own size on the
+//! **What the view holds is bounded, and what it holds is what is drawn.** An SVG or a page of a
+//! PDF is drawn at the size it is asked at, and so is a PNG or a JPEG: the file is decoded at its own size on the
 //! worker, shrunk to the size that is drawn (never made larger than the file; each pixel is the
 //! average of the ones it covers) and only that is kept, so that a screenshot of 2560 by 1600
 //! pixels shown 780 points wide holds the pixels of the 780 and not the 4 million. The size is
@@ -48,6 +50,7 @@ use std::time::{Duration, Instant};
 use pencere_view::Size;
 
 use crate::decode::{self, Failure, Format, Raster, Vector};
+use crate::pdf::Document;
 
 /// The files of the view's bundle, as the host has them: the one door the images have to them.
 pub trait Assets: Send + Sync + 'static {
@@ -98,8 +101,8 @@ pub struct ImageLimits {
     /// holds while it decodes, what a drawing holds in the layers it is drawn on. An image is
     /// worked on at a time.
     pub work_bytes: usize,
-    /// Different sizes an image is drawn at, each its own raster; a size past them is shown as
-    /// the nearest of the others.
+    /// Different sizes an image is drawn at, each its own raster (for a PDF, each page's); a size
+    /// past them is shown as the nearest of the others.
     pub sizes: usize,
     /// How long the pixels of an image that nothing asks for are kept, if their room is needed.
     pub idle: Duration,
@@ -187,11 +190,12 @@ impl Arrival {
 }
 
 enum Job {
-    /// Read the file at the path: an SVG is parsed, a PNG or a JPEG has its header read.
+    /// Read the file at the path: an SVG or a PDF is parsed, a PNG or a JPEG has its header read.
     Decode(String),
-    /// Draw the image at the path at this size: an SVG is drawn, a PNG or a JPEG decoded and shrunk.
-    Draw(String, (u32, u32)),
-    /// Let go of the parsed SVG at the path.
+    /// Draw the image at the path at this size: an SVG or a PDF's page is drawn, a PNG or a JPEG
+    /// decoded and shrunk.
+    Draw(String, At),
+    /// Let go of the parsed SVG or PDF at the path.
     Forget(String),
 }
 
@@ -214,14 +218,53 @@ enum Entry {
     Waiting { since: Instant },
 }
 
+/// Where an image is drawn: which page of the file, and the size. A file that has no pages is
+/// drawn as page 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct At {
+    page: u32,
+    width: u32,
+    height: u32,
+}
+
+impl At {
+    /// The size alone, as a PNG's or a JPEG's drawn sizes are compared.
+    fn covers(self, other: Self) -> bool {
+        self.width >= other.width && self.height >= other.height
+    }
+
+    fn area(self) -> u64 {
+        u64::from(self.width) * u64::from(self.height)
+    }
+}
+
 /// An image: its size, and the pixels it was drawn into at each size it is asked at.
 struct Drawing {
-    /// Its own size: an SVG's, or the file's of a PNG or a JPEG (as it is shown, turned upright).
+    /// Its own size: an SVG's, or the file's of a PNG or a JPEG (as it is shown, turned upright),
+    /// or the first page's of a PDF.
     size: Size,
     /// A PNG or a JPEG, decoded again from its file for each size, never larger than the file;
-    /// not an SVG, which is drawn at any.
+    /// not an SVG or a PDF, which are drawn at any.
     raster: bool,
-    drawn: HashMap<(u32, u32), Drawn>,
+    /// The own size of each page of a PDF; empty for a file that has no pages.
+    pages: Vec<Size>,
+    drawn: HashMap<At, Drawn>,
+}
+
+impl Drawing {
+    /// The own size of the page, from 1: the only page of a file that has no pages is its size.
+    fn size_of(&self, page: u32) -> Option<Size> {
+        let index = usize::try_from(page).ok()?.checked_sub(1)?;
+        if self.pages.is_empty() {
+            return (index == 0).then_some(self.size);
+        }
+        self.pages.get(index).copied()
+    }
+
+    /// How many pages the file has.
+    fn page_count(&self) -> usize {
+        self.pages.len().max(1)
+    }
 }
 
 /// One size of an image.
@@ -246,8 +289,10 @@ struct State {
     told_paths: bool,
     /// What was told to be out of room (a path, or a path and a size): once each.
     told_room: HashSet<String>,
-    /// Told that an SVG is asked at more sizes than it is drawn at.
+    /// Told that an SVG, or a page of a PDF, is asked at more sizes than it is drawn at.
     told_sizes: HashSet<String>,
+    /// Told that a page is asked for that a file does not have: the path and the page.
+    told_pages: HashSet<(String, u32)>,
 }
 
 struct Shared {
@@ -289,15 +334,24 @@ impl Images {
     }
 
     /// The size of the image at `src` in pixels of the image itself (an SVG's own size, the file's
-    /// of a PNG or a JPEG, which is not the size of the pixels held: see [`Images::bitmap`]), if it
-    /// is known. The first time a path is asked for it is not: the file starts to be read (a PNG
-    /// or a JPEG only for its header), and the host is woken when it is (see [`Images::poll`]). A host's
-    /// [`pencere_view::Measure::image`] is this.
-    pub fn size(&self, src: &str) -> Option<Size> {
+    /// of a PNG or a JPEG, which is not the size of the pixels held: see [`Images::bitmap`]; a
+    /// page's of a PDF, in points), if it is known. `page` is the page of the file, from 1: a
+    /// file that has none has the one (1), and a page it does not have is `None` and told once
+    /// to the page's diagnostics. The first time a path is asked for it is not known: the file
+    /// starts to be read (a PNG or a JPEG only for its header), and the host is woken when it is
+    /// (see [`Images::poll`]). A host's [`pencere_view::Measure::image`] is this.
+    pub fn size(&self, src: &str, page: u32) -> Option<Size> {
         let mut state = self.lock();
         let mut wake = false;
         let size = match state.entries.get(src) {
-            Some(Entry::Image(drawing)) => Some(drawing.size),
+            Some(Entry::Image(drawing)) => {
+                let size = drawing.size_of(page);
+                if size.is_none() {
+                    let pages = drawing.page_count();
+                    wake = self.shared.no_such_page(&mut state, src, page, pages);
+                }
+                size
+            }
             Some(Entry::Pending | Entry::Refused) => None,
             Some(Entry::Waiting { since }) => {
                 let again = since.elapsed() >= self.shared.limits.idle;
@@ -316,23 +370,29 @@ impl Images {
         size
     }
 
-    /// The pixels of the image at `src`, to be drawn so that the whole image is `whole` pixels
-    /// ([`pencere_view::Picture::full`]). An image is drawn at the size, once for each size it is
-    /// asked at (a few at most: a size past them is the nearest of the others), and until the
+    /// The pixels of the image at `src` (its page `page`, from 1), to be drawn so that the whole
+    /// image is `whole` pixels ([`pencere_view::Picture::full`]). An image is drawn at the size,
+    /// once for each size it is asked at (a few at most: a size past them is the nearest of the others), and until the
     /// drawing at a new size is done the nearest there is of another is what there is (none the
     /// first time). A PNG or a JPEG is held at the size it is drawn at, rounded up to a step of
     /// [`STEP`] pixels of its long side and no larger than the file: a larger size than the ones
     /// held is decoded again from the file, and a smaller one is a held one that is larger (the
     /// host draws the pixels it is given at the size the page gave them). The host keeps the
     /// texture of a bitmap by its [`Bitmap::id`].
-    pub fn bitmap(&self, src: &str, whole: Size) -> Option<Bitmap> {
+    pub fn bitmap(&self, src: &str, page: u32, whole: Size) -> Option<Bitmap> {
         let mut state = self.lock();
         let now = Instant::now();
-        let wanted = drawn_size(whole, self.shared.limits.side);
+        let (width, height) = drawn_size(whole, self.shared.limits.side);
+        let at = At {
+            page,
+            width,
+            height,
+        };
         let mut wake = false;
         let found = match state.entries.get_mut(src) {
+            Some(Entry::Image(drawing)) if drawing.size_of(page).is_none() => None,
             Some(Entry::Image(_)) => {
-                let (found, job, told) = self.image_at(&mut state, src, wanted, now);
+                let (found, job, told) = self.image_at(&mut state, src, at, now);
                 if let Some(job) = job {
                     wake |= self.post(&mut state, job);
                 }
@@ -365,7 +425,7 @@ impl Images {
         &self,
         state: &mut State,
         src: &str,
-        wanted: (u32, u32),
+        wanted: At,
         now: Instant,
     ) -> (Option<Bitmap>, Option<Job>, bool) {
         let limits = &self.shared.limits;
@@ -374,7 +434,12 @@ impl Images {
         };
         let wanted = if drawing.raster {
             let natural = (drawing.size.w as u32, drawing.size.h as u32);
-            let wanted = stepped(natural, wanted);
+            let (width, height) = stepped(natural, (wanted.width, wanted.height));
+            let wanted = At {
+                width,
+                height,
+                ..wanted
+            };
             if let Some(kept) = covering(drawing, wanted) {
                 kept.asked = now;
                 return (Some(kept.bitmap.clone()), None, false);
@@ -404,11 +469,19 @@ impl Images {
             }
             None => {
                 // At the most sizes a drawing is drawn at, a size nothing has asked for lately
-                // (a pane that was dragged larger asked one at every frame) gives its place up.
-                if drawing.drawn.len() >= limits.sizes {
-                    freed = recycle(drawing, now);
+                // (a pane that was dragged larger asked one at every frame) gives its place up. A
+                // page of a PDF has the sizes of its own.
+                let sizes_of_page = |drawing: &Drawing| {
+                    drawing
+                        .drawn
+                        .keys()
+                        .filter(|at| at.page == wanted.page)
+                        .count()
+                };
+                if sizes_of_page(drawing) >= limits.sizes {
+                    freed = recycle(drawing, wanted.page, now);
                 }
-                if drawing.drawn.len() < limits.sizes {
+                if sizes_of_page(drawing) < limits.sizes {
                     drawing.drawn.insert(wanted, Drawn::Pending);
                     job = Some(Job::Draw(src.to_owned(), wanted));
                 } else if state.told_sizes.insert(src.to_owned()) {
@@ -417,8 +490,13 @@ impl Images {
                     state.arrived.diagnostics.push(Diagnostic {
                         path: src.to_owned(),
                         message: format!(
-                            "is drawn at more than {} sizes at once; the nearest of them is used",
-                            limits.sizes
+                            "is drawn at more than {} sizes at once{}; the nearest of them is used",
+                            limits.sizes,
+                            if drawing.pages.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" (page {})", wanted.page)
+                            }
                         ),
                     });
                     told = true;
@@ -513,7 +591,7 @@ impl Images {
                         freed += kept.bitmap.pixels.len();
                     }
                 }
-                // Only an SVG has a parsed drawing for the worker to let go of.
+                // Only an SVG or a PDF has a parsed drawing for the worker to let go of.
                 if !drawing.raster {
                     drawings.push(src.clone());
                 }
@@ -522,6 +600,7 @@ impl Images {
                 .told_room
                 .retain(|told| !told.starts_with(src.as_str()));
             state.told_sizes.remove(src.as_str());
+            state.told_pages.retain(|(told, _)| told != src);
         }
         state.held = state.held.saturating_sub(freed);
         for src in drawings {
@@ -569,16 +648,17 @@ impl Drop for Images {
     }
 }
 
-/// The nearest of the sizes an image is drawn at to `wanted`, in the proportion of their areas,
-/// to stand in until it is: none where nothing is drawn yet.
-fn stand_in(drawing: &mut Drawing, wanted: (u32, u32), now: Instant) -> Option<Bitmap> {
+/// The nearest of the sizes an image (a page of it) is drawn at to `wanted`, in the proportion of
+/// their areas, to stand in until it is: none where nothing is drawn yet. Another page's is not
+/// the page.
+fn stand_in(drawing: &mut Drawing, wanted: At, now: Instant) -> Option<Bitmap> {
     let area = |width: u32, height: u32| f64::from(width) * f64::from(height);
-    let target = area(wanted.0, wanted.1);
+    let target = area(wanted.width, wanted.height);
     let nearest = drawing
         .drawn
-        .values_mut()
-        .filter_map(|drawn| match drawn {
-            Drawn::Ready(kept) => Some(kept),
+        .iter_mut()
+        .filter_map(|(at, drawn)| match drawn {
+            Drawn::Ready(kept) if at.page == wanted.page => Some(kept),
             _ => None,
         })
         .min_by(|a, b| {
@@ -597,24 +677,24 @@ fn stand_in(drawing: &mut Drawing, wanted: (u32, u32), now: Instant) -> Option<B
 
 /// The drawn size of a PNG or a JPEG that is at least `wanted` on both sides and the least
 /// larger of those that are: what is drawn from it is not larger than its pixels.
-fn covering(drawing: &mut Drawing, wanted: (u32, u32)) -> Option<&mut Kept> {
+fn covering(drawing: &mut Drawing, wanted: At) -> Option<&mut Kept> {
     drawing
         .drawn
         .iter_mut()
         .filter_map(|(at, drawn)| match drawn {
-            Drawn::Ready(kept) if at.0 >= wanted.0 && at.1 >= wanted.1 => Some((at, kept)),
+            Drawn::Ready(kept) if at.covers(wanted) => Some((*at, kept)),
             _ => None,
         })
-        .min_by_key(|(at, _)| u64::from(at.0) * u64::from(at.1))
+        .min_by_key(|(at, _)| at.area())
         .map(|(_, kept)| kept)
 }
 
 /// Whether a drawing that covers `wanted` is being made.
-fn covered_by_pending(drawing: &Drawing, wanted: (u32, u32)) -> bool {
+fn covered_by_pending(drawing: &Drawing, wanted: At) -> bool {
     drawing
         .drawn
         .iter()
-        .any(|(at, drawn)| matches!(drawn, Drawn::Pending) && at.0 >= wanted.0 && at.1 >= wanted.1)
+        .any(|(at, drawn)| matches!(drawn, Drawn::Pending) && at.covers(wanted))
 }
 
 /// How many pixels of the long side a PNG or a JPEG is kept in steps of: the size it is asked at
@@ -643,22 +723,24 @@ pub(crate) fn stepped(natural: (u32, u32), wanted: (u32, u32)) -> (u32, u32) {
 }
 
 /// The pixels that have gone unasked for the longest: when they were asked, the path they are of,
-/// and the size they were drawn at.
-type Oldest = (Instant, String, (u32, u32));
+/// and the page and size they were drawn at.
+type Oldest = (Instant, String, At);
 
 /// How long a drawn size of an SVG must have gone unasked to be given up for a new one when the
 /// drawing is at its most sizes: longer than the passes of one frame of a page take, which ask for
 /// every size in use.
 const RECENT: Duration = Duration::from_millis(100);
 
-/// Gives up the drawn size that nothing has asked for the longest, if that is for [`RECENT`];
-/// the bytes of pixels it held.
-fn recycle(drawing: &mut Drawing, now: Instant) -> usize {
+/// Gives up the drawn size of `page` that nothing has asked for the longest, if that is for
+/// [`RECENT`]; the bytes of pixels it held.
+fn recycle(drawing: &mut Drawing, page: u32, now: Instant) -> usize {
     let oldest = drawing
         .drawn
         .iter()
         .filter_map(|(at, drawn)| match drawn {
-            Drawn::Ready(kept) if now.saturating_duration_since(kept.asked) >= RECENT => {
+            Drawn::Ready(kept)
+                if at.page == page && now.saturating_duration_since(kept.asked) >= RECENT =>
+            {
                 Some((kept.asked, *at))
             }
             _ => None,
@@ -712,6 +794,23 @@ impl Shared {
         }
     }
 
+    /// The file has no page `page`: its box stays empty, and the page is told once, how many it has.
+    /// Whether the host is to be woken.
+    fn no_such_page(&self, state: &mut State, path: &str, page: u32, pages: usize) -> bool {
+        if !state.told_pages.insert((path.to_owned(), page)) {
+            return false;
+        }
+        let has = match pages {
+            1 => "has no page but the first".to_owned(),
+            count => format!("has {count} pages"),
+        };
+        state.arrived.diagnostics.push(Diagnostic {
+            path: path.to_owned(),
+            message: format!("{has}, and no page {page}"),
+        });
+        self.announce(state)
+    }
+
     /// The path is not an image the view can have: it stays empty, and the page is told once.
     fn refuse(&self, state: &mut State, path: &str, failure: &Failure) {
         state.entries.insert(path.to_owned(), Entry::Refused);
@@ -763,7 +862,7 @@ impl Shared {
         let now = Instant::now();
         let idle = self.limits.idle;
         let mut oldest: Option<Oldest> = None;
-        let mut consider = |asked: Instant, path: &String, at: (u32, u32)| {
+        let mut consider = |asked: Instant, path: &String, at: At| {
             if now.saturating_duration_since(asked) >= idle
                 && oldest.as_ref().is_none_or(|(before, ..)| asked < *before)
             {
@@ -834,8 +933,8 @@ impl Shared {
 
 /// The worker: reads and decodes what it is asked, one at a time, until the images are gone.
 fn serve(shared: &Arc<Shared>, inbox: &Receiver<Job>) {
-    // The parsed SVGs, which only this thread draws.
-    let mut vectors: HashMap<String, Vector> = HashMap::new();
+    // The parsed SVGs and PDFs, which only this thread draws.
+    let mut sources: HashMap<String, Source> = HashMap::new();
     while let Ok(job) = inbox.recv() {
         if shared.gone.load(Ordering::SeqCst) {
             return;
@@ -844,17 +943,17 @@ fn serve(shared: &Arc<Shared>, inbox: &Receiver<Job>) {
             Job::Decode(path) => (path.clone(), None),
             Job::Draw(path, at) => (path.clone(), Some(*at)),
             Job::Forget(path) => {
-                if let Some(vector) = vectors.remove(path) {
+                if let Some(source) = sources.remove(path) {
                     let mut state = shared.lock();
-                    state.held = state.held.saturating_sub(vector.weight().bytes);
+                    state.held = state.held.saturating_sub(source.bytes());
                 }
                 continue;
             }
         };
         // A decoder that gives up by panicking costs the image and not the worker.
         let ran = catch_unwind(AssertUnwindSafe(|| match job {
-            Job::Decode(path) => decode_path(shared, &mut vectors, &path),
-            Job::Draw(path, at) => draw(shared, &vectors, &path, at),
+            Job::Decode(path) => decode_path(shared, &mut sources, &path),
+            Job::Draw(path, at) => draw(shared, &sources, &path, at),
             Job::Forget(_) => {}
         }));
         if ran.is_err() {
@@ -869,21 +968,20 @@ fn serve(shared: &Arc<Shared>, inbox: &Receiver<Job>) {
                 }
                 // An image that panicked when drawn stays what it was, and is not drawn at that
                 // size again; the page is told.
-                Some((width, height)) => {
+                Some(at) => {
                     if let Some(Entry::Image(drawing)) = state.entries.get_mut(&path)
-                        && matches!(drawing.drawn.get(&(width, height)), Some(Drawn::Pending))
+                        && matches!(drawing.drawn.get(&at), Some(Drawn::Pending))
                     {
                         let who = if drawing.raster {
                             "decoder"
                         } else {
                             "renderer"
                         };
-                        drawing.drawn.insert((width, height), Drawn::Refused);
+                        let place = place(drawing, at);
+                        drawing.drawn.insert(at, Drawn::Refused);
                         state.arrived.diagnostics.push(Diagnostic {
                             path: path.clone(),
-                            message: format!(
-                                "could not be drawn: the {who} gave up (drawn at {width}\u{d7}{height})"
-                            ),
+                            message: format!("could not be drawn: the {who} gave up ({place})"),
                         });
                     }
                 }
@@ -894,9 +992,36 @@ fn serve(shared: &Arc<Shared>, inbox: &Receiver<Job>) {
     }
 }
 
-/// Reads the file at `path`: an SVG is parsed, a PNG or a JPEG has its size read from the header
-/// (its pixels are decoded when they are drawn, at the size they are asked at).
-fn decode_path(shared: &Arc<Shared>, vectors: &mut HashMap<String, Vector>, path: &str) {
+/// What the worker keeps of a file it draws from what it parsed of it: an SVG or a PDF.
+enum Source {
+    Vector(Box<Vector>),
+    Document(Box<Document>),
+}
+
+impl Source {
+    /// What the parsed file takes in memory, which is paid for from the view's room.
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Vector(vector) => vector.weight().bytes,
+            Self::Document(document) => document.bytes(),
+        }
+    }
+}
+
+/// Where a drawing was made, as the page is told it: the size, and the page where the file has
+/// pages.
+fn place(drawing: &Drawing, at: At) -> String {
+    let size = format!("drawn at {}\u{d7}{}", at.width, at.height);
+    if drawing.pages.is_empty() {
+        size
+    } else {
+        format!("page {}, {size}", at.page)
+    }
+}
+
+/// Reads the file at `path`: an SVG or a PDF is parsed, a PNG or a JPEG has its size read from the
+/// header (its pixels are decoded when they are drawn, at the size they are asked at).
+fn decode_path(shared: &Arc<Shared>, sources: &mut HashMap<String, Source>, path: &str) {
     let outcome = read_and_open(shared, path);
     let mut state = shared.lock();
     match outcome {
@@ -906,6 +1031,7 @@ fn decode_path(shared: &Arc<Shared>, vectors: &mut HashMap<String, Vector>, path
                 Entry::Image(Drawing {
                     size: Size::new(width as f32, height as f32),
                     raster: true,
+                    pages: Vec::new(),
                     drawn: HashMap::new(),
                 }),
             );
@@ -918,12 +1044,37 @@ fn decode_path(shared: &Arc<Shared>, vectors: &mut HashMap<String, Vector>, path
                 Ok(()) => {
                     state.held = state.held.saturating_add(kept);
                     let (w, h) = vector.natural();
-                    vectors.insert(path.to_owned(), *vector);
+                    sources.insert(path.to_owned(), Source::Vector(vector));
                     state.entries.insert(
                         path.to_owned(),
                         Entry::Image(Drawing {
                             size: Size::new(w, h),
                             raster: false,
+                            pages: Vec::new(),
+                            drawn: HashMap::new(),
+                        }),
+                    );
+                    state.arrived.relayout = true;
+                }
+                Err(failure) => shared.fail(&mut state, path, &failure),
+            }
+        }
+        Ok(Opened::Document(document)) => {
+            // The parsed document is held for as long as the view is, and is paid for, as an
+            // SVG's drawing is.
+            let kept = document.bytes();
+            match shared.make_room(&mut state, kept) {
+                Ok(()) => {
+                    state.held = state.held.saturating_add(kept);
+                    let pages = document.sizes().to_vec();
+                    let size = pages.first().copied().unwrap_or(Size::new(1.0, 1.0));
+                    sources.insert(path.to_owned(), Source::Document(document));
+                    state.entries.insert(
+                        path.to_owned(),
+                        Entry::Image(Drawing {
+                            size,
+                            raster: false,
+                            pages,
                             drawn: HashMap::new(),
                         }),
                     );
@@ -942,6 +1093,7 @@ enum Opened {
     /// A PNG or a JPEG, with its size.
     Raster(u32, u32),
     Vector(Box<Vector>),
+    Document(Box<Document>),
 }
 
 /// The bytes of the file at `path`, within what a file may be, and their format.
@@ -961,6 +1113,7 @@ fn read_and_open(shared: &Shared, path: &str) -> Result<Opened, Failure> {
     let (bytes, format) = read_file(shared, path)?;
     match format {
         Format::Svg => Vector::parse(&bytes).map(|vector| Opened::Vector(Box::new(vector))),
+        Format::Pdf => Document::parse(&bytes).map(|document| Opened::Document(Box::new(document))),
         format => {
             let header = decode::header(&bytes, format)?;
             shared.approves(header.width, header.height, header.working)?;
@@ -985,8 +1138,8 @@ fn read_and_shrink(
 }
 
 /// Draws the image at `path` at `at`, if that is still wanted of it.
-fn draw(shared: &Arc<Shared>, vectors: &HashMap<String, Vector>, path: &str, at: (u32, u32)) {
-    let (width, height) = at;
+fn draw(shared: &Arc<Shared>, sources: &HashMap<String, Source>, path: &str, at: At) {
+    let (width, height) = (at.width, at.height);
     let raster = {
         let mut state = shared.lock();
         let Some(Entry::Image(drawing)) = state.entries.get_mut(path) else {
@@ -1011,7 +1164,7 @@ fn draw(shared: &Arc<Shared>, vectors: &HashMap<String, Vector>, path: &str, at:
             .and_then(|bytes| shared.make_room(&mut shared.lock(), bytes))
             .and_then(|()| read_and_shrink(shared, path, width, height))
     } else {
-        let Some(vector) = vectors.get(path) else {
+        let Some(source) = sources.get(path) else {
             return;
         };
         // The pixels it makes, and the layers it is drawn on while it makes them, are approved
@@ -1021,7 +1174,10 @@ fn draw(shared: &Arc<Shared>, vectors: &HashMap<String, Vector>, path: &str, at:
                 most: shared.limits.pixel_bytes,
             })
             .and_then(|bytes| {
-                let working = vector.working(width, height);
+                let working = match source {
+                    Source::Vector(vector) => vector.working(width, height),
+                    Source::Document(document) => document.working(width, height),
+                };
                 if working > shared.limits.work_bytes {
                     return Err(Failure::Work {
                         bytes: working,
@@ -1030,7 +1186,16 @@ fn draw(shared: &Arc<Shared>, vectors: &HashMap<String, Vector>, path: &str, at:
                 }
                 shared.make_room(&mut shared.lock(), bytes)
             })
-            .and_then(|()| vector.draw(width, height))
+            .and_then(|()| match source {
+                Source::Vector(vector) => vector.draw(width, height),
+                Source::Document(document) => document.draw(
+                    usize::try_from(at.page)
+                        .unwrap_or(usize::MAX)
+                        .saturating_sub(1),
+                    width,
+                    height,
+                ),
+            })
     };
     let mut state = shared.lock();
     let now = Instant::now();
@@ -1043,7 +1208,10 @@ fn draw(shared: &Arc<Shared>, vectors: &HashMap<String, Vector>, path: &str, at:
         }
         // No room, and perhaps later.
         Err(failure @ Failure::Budget { .. }) => {
-            if state.told_room.insert(format!("{path}@{width}x{height}")) {
+            if state
+                .told_room
+                .insert(format!("{path}@{}x{width}x{height}", at.page))
+            {
                 told = Some(failure);
             }
             Drawn::Waiting { since: now }
@@ -1077,9 +1245,13 @@ fn draw(shared: &Arc<Shared>, vectors: &HashMap<String, Vector>, path: &str, at:
     }
     state.held = state.held.saturating_sub(freed);
     if let Some(failure) = told {
+        let place = match state.entries.get(path) {
+            Some(Entry::Image(drawing)) => place(drawing, at),
+            _ => format!("drawn at {width}\u{d7}{height}"),
+        };
         state.arrived.diagnostics.push(Diagnostic {
             path: path.to_owned(),
-            message: format!("{failure} (drawn at {width}\u{d7}{height})"),
+            message: format!("{failure} ({place})"),
         });
     }
     let wake = shared.announce(&mut state);
@@ -1105,10 +1277,10 @@ fn pixels_held(state: &mut State, path: &str) -> usize {
 /// Lets go of the sizes of a PNG or a JPEG that the one drawn at `at` covers, being no larger on
 /// either side; the bytes of the pixels they held. The host keeps the texture it made of them by
 /// their `id` for as long as it likes.
-fn give_up_covered(drawing: &mut Drawing, at: (u32, u32)) -> usize {
+fn give_up_covered(drawing: &mut Drawing, at: At) -> usize {
     let mut freed = 0;
     drawing.drawn.retain(|size, drawn| match drawn {
-        Drawn::Ready(kept) if size.0 <= at.0 && size.1 <= at.1 && *size != at => {
+        Drawn::Ready(kept) if size.page == at.page && at.covers(*size) && *size != at => {
             freed += kept.bitmap.pixels.len();
             false
         }

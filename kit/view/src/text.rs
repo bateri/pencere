@@ -58,8 +58,11 @@ pub trait Measure {
     /// point to a pixel. The host that has an image asked for here lays the page out again once
     /// it knows it; until then the element has the room its style gives it and draws nothing.
     ///
+    /// `page` is the page of the file the element shows, from 1 (a PDF has many; for an image that
+    /// has one, any other is `None`, as a page the file does not have is).
+    ///
     /// A host with no images answers `None` (the default).
-    fn image(&mut self, _src: &str) -> Option<Size> {
+    fn image(&mut self, _src: &str, _page: u32) -> Option<Size> {
         None
     }
 

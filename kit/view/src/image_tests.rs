@@ -14,6 +14,8 @@ use crate::{
 struct Images {
     known: HashMap<&'static str, Size>,
     asked: Vec<String>,
+    /// The page each ask was for.
+    pages: Vec<u32>,
 }
 
 impl Images {
@@ -32,8 +34,9 @@ impl Measure for Images {
         }
     }
 
-    fn image(&mut self, src: &str) -> Option<Size> {
+    fn image(&mut self, src: &str, page: u32) -> Option<Size> {
         self.asked.push(src.to_owned());
+        self.pages.push(page);
         self.known.get(src).copied()
     }
 }
@@ -373,4 +376,40 @@ fn a_picture_that_spins_is_turned_with_the_clock_and_still_under_reduce_motion()
     let laid = motions.layout(page(), size, 1.0, &mut host, 3.5, true);
     assert_eq!(turn(&laid, &mut host), 0.0);
     assert!(!motions.moving());
+}
+
+#[test]
+fn the_page_of_an_image_is_asked_of_the_host_and_is_the_pictures() {
+    let mut host = Images::with("book.pdf", 200.0, 100.0);
+    // Not said: the first page, which the host is asked for and the picture is of.
+    let (_, drawn) = lone(
+        div().items_start().child(image("book.pdf", Fit::Contain)),
+        &mut host,
+        1.0,
+    );
+    assert_eq!(
+        (host.pages.last(), drawn.first().map(|p| p.page)),
+        (Some(&1), Some(1))
+    );
+    let (_, drawn) = lone(
+        div()
+            .items_start()
+            .child(image("book.pdf", Fit::Contain).page(4)),
+        &mut host,
+        1.0,
+    );
+    assert_eq!(
+        (host.pages.last(), drawn.first().map(|p| p.page)),
+        (Some(&4), Some(4))
+    );
+    // From 1, and only an image has one.
+    let (_, drawn) = lone(
+        div()
+            .items_start()
+            .child(image("book.pdf", Fit::Contain).page(0)),
+        &mut host,
+        1.0,
+    );
+    assert_eq!(drawn.first().map(|p| p.page), Some(1));
+    assert_eq!(div().page(3), div());
 }

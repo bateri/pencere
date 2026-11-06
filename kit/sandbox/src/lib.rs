@@ -20,6 +20,7 @@ mod images;
 pub mod library;
 mod luau;
 mod module;
+mod pdf;
 mod sandbox;
 mod watchdog;
 mod world;
@@ -48,6 +49,8 @@ mod luau_print_tests;
 mod luau_require_tests;
 #[cfg(test)]
 mod luau_tests;
+#[cfg(test)]
+mod pdf_tests;
 #[cfg(test)]
 mod test_support;
 

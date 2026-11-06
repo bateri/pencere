@@ -172,8 +172,8 @@ impl Measure for Measured<'_> {
         self.measure.measure(font, text)
     }
 
-    fn image(&mut self, src: &str) -> Option<Size> {
-        self.measure.image(src)
+    fn image(&mut self, src: &str, page: u32) -> Option<Size> {
+        self.measure.image(src, page)
     }
 
     fn offsets(&mut self, font: &Font, text: &str, at: &[usize]) -> Vec<f32> {

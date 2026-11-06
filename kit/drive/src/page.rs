@@ -310,10 +310,10 @@ impl Measure for Measured<'_> {
         self.text.measure(font, text)
     }
 
-    fn image(&mut self, src: &str) -> Option<Size> {
+    fn image(&mut self, src: &str, page: u32) -> Option<Size> {
         match self.images {
-            Some(images) => images.size(src),
-            None => self.text.image(src),
+            Some(images) => images.size(src, page),
+            None => self.text.image(src, page),
         }
     }
 

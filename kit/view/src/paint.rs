@@ -69,6 +69,8 @@ pub struct Run {
 pub struct Picture {
     /// The path of the image in the view's bundle.
     pub src: String,
+    /// The page of the file that is drawn, from 1 (1 for an image that has no pages).
+    pub page: u32,
     /// Where the image is drawn, pixels: the box it is in for `cover`; for `contain` the part of
     /// the box the whole image takes, centred.
     pub rect: Rect,
@@ -407,6 +409,7 @@ fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
     let most = rect.w.min(rect.h) / 2.0;
     Some(Picture {
         src: image.src.clone(),
+        page: image.page,
         rect,
         crop,
         tint: image.tint,

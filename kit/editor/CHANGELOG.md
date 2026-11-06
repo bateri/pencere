@@ -6,6 +6,10 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ## [Unreleased]
 
+### Changed
+
+- The editor's measure passes the page of an image on (`Measure::image(src, page)` of the engine).
+
 ## [0.4.1] - 2026-11-05
 
 ### Changed

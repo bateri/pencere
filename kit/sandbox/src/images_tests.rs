@@ -128,7 +128,7 @@ impl Rig {
     /// (a drawing of another size stands in for one that is not yet) is what is returned.
     fn ready(&self, src: &str, whole: Size) -> Bitmap {
         loop {
-            if let Some(bitmap) = self.images.bitmap(src, whole) {
+            if let Some(bitmap) = self.images.bitmap(src, 1, whole) {
                 return bitmap;
             }
             self.wait();
@@ -218,8 +218,8 @@ impl Measure for Host<'_> {
         Metrics::default()
     }
 
-    fn image(&mut self, src: &str) -> Option<Size> {
-        self.images.size(src)
+    fn image(&mut self, src: &str, page: u32) -> Option<Size> {
+        self.images.size(src, page)
     }
 }
 
@@ -256,12 +256,12 @@ fn a_page_is_laid_out_before_its_image_is_decoded_and_once_more_after_and_never_
     };
     // The size is known from the header; the pixels are decoded when they are asked for, at the
     // size they are asked at, and the host is woken once more for them.
-    assert_eq!(rig.images.bitmap(&picture.src, picture.full()), None);
+    assert_eq!(rig.images.bitmap(&picture.src, 1, picture.full()), None);
     let drawn = rig.wait();
     assert!(drawn.redraw && !drawn.relayout && drawn.diagnostics.is_empty());
     let bitmap = rig
         .images
-        .bitmap(&picture.src, picture.full())
+        .bitmap(&picture.src, 1, picture.full())
         .expect("pixels");
     assert_eq!((bitmap.width, bitmap.height), (6, 3));
     assert_eq!(pixel(&bitmap, 0, 0), [10, 20, 30, 255]);
@@ -271,7 +271,7 @@ fn a_page_is_laid_out_before_its_image_is_decoded_and_once_more_after_and_never_
     for _ in 0..100 {
         let laid = layout(page(), Size::new(100.0, 100.0), 1.0, &mut host);
         assert!(!laid.paint(&mut host).items.is_empty());
-        assert!(rig.images.bitmap("logo.png", whole(6.0, 3.0)).is_some());
+        assert!(rig.images.bitmap("logo.png", 1, whole(6.0, 3.0)).is_some());
     }
     rig.quiet();
     // The header, and the pixels at the one size.
@@ -293,7 +293,7 @@ fn the_images_say_whether_anything_is_still_on_its_way() {
         Some(Arc::clone(&gate)),
     );
     assert!(!rig.images.busy(), "nothing asked, nothing on its way");
-    assert_eq!(rig.images.size("logo.png"), None);
+    assert_eq!(rig.images.size("logo.png", 1), None);
     assert!(rig.images.busy(), "the file is being read");
     gate.open();
     while rig.images.busy() {
@@ -301,17 +301,25 @@ fn the_images_say_whether_anything_is_still_on_its_way() {
     }
     assert!(rig.images.poll().relayout);
     // An SVG: decoded for its size, then drawn at the size it is asked at.
-    assert_eq!(rig.images.size("mark.svg"), None);
+    assert_eq!(rig.images.size("mark.svg", 1), None);
     while rig.images.busy() {
         let _ = rig.woke.recv_timeout(Duration::from_secs(20));
     }
-    assert!(rig.images.size("mark.svg").is_some());
-    assert!(rig.images.bitmap("mark.svg", whole(40.0, 20.0)).is_none());
+    assert!(rig.images.size("mark.svg", 1).is_some());
+    assert!(
+        rig.images
+            .bitmap("mark.svg", 1, whole(40.0, 20.0))
+            .is_none()
+    );
     assert!(rig.images.busy(), "being drawn at its size");
     while rig.images.busy() {
         let _ = rig.woke.recv_timeout(Duration::from_secs(20));
     }
-    assert!(rig.images.bitmap("mark.svg", whole(40.0, 20.0)).is_some());
+    assert!(
+        rig.images
+            .bitmap("mark.svg", 1, whole(40.0, 20.0))
+            .is_some()
+    );
     rig.images.poll();
     assert!(!rig.images.busy());
 }
@@ -349,12 +357,12 @@ fn a_png_is_decoded_to_premultiplied_pixels_whatever_its_colour_type() {
         ),
     ]);
     for name in ["rgba.png", "grey.png", "palette.png", "deep.png"] {
-        assert_eq!(rig.images.size(name), None, "not yet");
+        assert_eq!(rig.images.size(name, 1), None, "not yet");
     }
     let arrived = rig.until(|a| a.relayout);
     assert!(arrived.diagnostics.is_empty(), "{:?}", arrived.diagnostics);
     // They arrive one after the other; wait for the last.
-    while rig.images.size("deep.png").is_none() {
+    while rig.images.size("deep.png", 1).is_none() {
         rig.wait();
     }
     let get = |name| rig.ready(name, whole(2.0, 1.0));
@@ -370,13 +378,13 @@ fn a_png_is_decoded_to_premultiplied_pixels_whatever_its_colour_type() {
 #[test]
 fn a_jpeg_is_decoded_and_is_solid() {
     let rig = rig(vec![("photo.jpg", RED_JPEG.to_vec())]);
-    assert_eq!(rig.images.size("photo.jpg"), None);
+    assert_eq!(rig.images.size("photo.jpg", 1), None);
     let arrived = rig.wait();
     assert!(
         arrived.relayout && arrived.diagnostics.is_empty(),
         "{arrived:?}"
     );
-    assert_eq!(rig.images.size("photo.jpg"), Some(Size::new(16.0, 8.0)));
+    assert_eq!(rig.images.size("photo.jpg", 1), Some(Size::new(16.0, 8.0)));
     let bitmap = rig.ready("photo.jpg", whole(16.0, 8.0));
     let [r, g, b, a] = pixel(&bitmap, 8, 4);
     assert!(r > 190 && g < 70 && b < 70, "red: {r} {g} {b}");
@@ -395,21 +403,27 @@ fn the_format_is_told_from_the_bytes_and_not_from_the_name() {
         ),
     ]);
     for name in ["looks-like.png", "looks-like.svg", "declared.svg"] {
-        rig.images.size(name);
+        rig.images.size(name, 1);
     }
     rig.until(|a| a.relayout);
     while ["looks-like.png", "looks-like.svg", "declared.svg"]
         .iter()
-        .any(|name| rig.images.size(name).is_none())
+        .any(|name| rig.images.size(name, 1).is_none())
     {
         rig.wait();
     }
     assert_eq!(
-        rig.images.size("looks-like.png"),
+        rig.images.size("looks-like.png", 1),
         Some(Size::new(20.0, 10.0))
     );
-    assert_eq!(rig.images.size("looks-like.svg"), Some(Size::new(3.0, 3.0)));
-    assert_eq!(rig.images.size("declared.svg"), Some(Size::new(20.0, 10.0)));
+    assert_eq!(
+        rig.images.size("looks-like.svg", 1),
+        Some(Size::new(3.0, 3.0))
+    );
+    assert_eq!(
+        rig.images.size("declared.svg", 1),
+        Some(Size::new(20.0, 10.0))
+    );
 }
 
 // --- SVG: drawn at the size it is wanted at ----------------------------------------------------
@@ -417,18 +431,18 @@ fn the_format_is_told_from_the_bytes_and_not_from_the_name() {
 #[test]
 fn an_svg_is_drawn_at_the_size_it_is_asked_and_again_when_that_changes() {
     let rig = rig(vec![("icon.svg", GREEN_SVG.as_bytes().to_vec())]);
-    assert_eq!(rig.images.size("icon.svg"), None);
+    assert_eq!(rig.images.size("icon.svg", 1), None);
     // Its size is known at once it is parsed: the page is laid out again, nothing drawn yet.
     let arrived = rig.wait();
     assert!(arrived.relayout && !arrived.redraw);
-    assert_eq!(rig.images.size("icon.svg"), Some(Size::new(20.0, 10.0)));
+    assert_eq!(rig.images.size("icon.svg", 1), Some(Size::new(20.0, 10.0)));
 
     // Drawn at what the page wants: not at once, and the host is woken for the pixels (a redraw,
     // not another layout).
-    assert_eq!(rig.images.bitmap("icon.svg", whole(40.0, 20.0)), None);
+    assert_eq!(rig.images.bitmap("icon.svg", 1, whole(40.0, 20.0)), None);
     let arrived = rig.wait();
     assert!(arrived.redraw && !arrived.relayout, "{arrived:?}");
-    let small = rig.images.bitmap("icon.svg", whole(40.0, 20.0)).unwrap();
+    let small = rig.images.bitmap("icon.svg", 1, whole(40.0, 20.0)).unwrap();
     assert_eq!((small.width, small.height), (40, 20));
     assert!(
         small
@@ -441,17 +455,17 @@ fn an_svg_is_drawn_at_the_size_it_is_asked_and_again_when_that_changes() {
 
     // The same size again is the same pixels, and costs nothing.
     assert_eq!(
-        rig.images.bitmap("icon.svg", whole(40.0, 20.0)),
+        rig.images.bitmap("icon.svg", 1, whole(40.0, 20.0)),
         Some(small.clone())
     );
     rig.quiet();
 
     // A new size is a new drawing; until it is done what there is is the one before.
-    let held = rig.images.bitmap("icon.svg", whole(80.0, 40.0)).unwrap();
+    let held = rig.images.bitmap("icon.svg", 1, whole(80.0, 40.0)).unwrap();
     assert_eq!(held, small);
     let arrived = rig.wait();
     assert!(arrived.redraw && !arrived.relayout);
-    let big = rig.images.bitmap("icon.svg", whole(80.0, 40.0)).unwrap();
+    let big = rig.images.bitmap("icon.svg", 1, whole(80.0, 40.0)).unwrap();
     assert_eq!((big.width, big.height), (80, 40));
     assert_ne!(big.id, small.id, "a new drawing is new pixels");
     rig.quiet();
@@ -469,23 +483,26 @@ fn an_svg_is_never_drawn_larger_than_an_image_may_be() {
         limits,
         None,
     );
-    rig.images.size("icon.svg");
+    rig.images.size("icon.svg", 1);
     rig.wait();
-    rig.images.bitmap("icon.svg", whole(1000.0, 500.0));
+    rig.images.bitmap("icon.svg", 1, whole(1000.0, 500.0));
     rig.wait();
-    let bitmap = rig.images.bitmap("icon.svg", whole(1000.0, 500.0)).unwrap();
+    let bitmap = rig
+        .images
+        .bitmap("icon.svg", 1, whole(1000.0, 500.0))
+        .unwrap();
     assert_eq!((bitmap.width, bitmap.height), (16, 8));
 }
 
 #[test]
 fn an_svg_is_drawn_at_a_few_sizes_and_a_size_nothing_asks_for_any_more_gives_its_place_up() {
     let rig = rig(vec![("icon.svg", GREEN_SVG.as_bytes().to_vec())]);
-    rig.images.size("icon.svg");
+    rig.images.size("icon.svg", 1);
     rig.wait();
     // A pane being dragged larger asks a new size at every frame, many of them in the time one
     // frame's passes take.
     for width in 20..60 {
-        rig.images.bitmap("icon.svg", whole(width as f32, 10.0));
+        rig.images.bitmap("icon.svg", 1, whole(width as f32, 10.0));
     }
     // Eight are drawn (as many as a drawing has places), and the page is told once that the rest
     // are the nearest of them.
@@ -494,7 +511,7 @@ fn an_svg_is_drawn_at_a_few_sizes_and_a_size_nothing_asks_for_any_more_gives_its
         told.extend(rig.wait().diagnostics);
         if rig
             .images
-            .bitmap("icon.svg", whole(27.0, 10.0))
+            .bitmap("icon.svg", 1, whole(27.0, 10.0))
             .is_some_and(|bitmap| bitmap.width == 27)
         {
             break;
@@ -504,16 +521,20 @@ fn an_svg_is_drawn_at_a_few_sizes_and_a_size_nothing_asks_for_any_more_gives_its
         panic!("told once, got {told:?}");
     };
     assert!(one.message.contains("more than 8 sizes"), "{one}");
-    let nearest = rig.images.bitmap("icon.svg", whole(59.0, 10.0)).unwrap();
+    let nearest = rig.images.bitmap("icon.svg", 1, whole(59.0, 10.0)).unwrap();
     assert_eq!(nearest.width, 27);
     rig.quiet();
 
     // The sizes of the drag are not asked for any more: a size that is wanted now takes the place of
     // the one that has gone unasked the longest, and is drawn.
     std::thread::sleep(Duration::from_millis(150));
-    assert!(rig.images.bitmap("icon.svg", whole(59.0, 10.0)).is_some());
+    assert!(
+        rig.images
+            .bitmap("icon.svg", 1, whole(59.0, 10.0))
+            .is_some()
+    );
     rig.wait();
-    let last = rig.images.bitmap("icon.svg", whole(59.0, 10.0)).unwrap();
+    let last = rig.images.bitmap("icon.svg", 1, whole(59.0, 10.0)).unwrap();
     assert_eq!((last.width, last.height), (59, 10));
     rig.quiet();
 }
@@ -521,7 +542,7 @@ fn an_svg_is_drawn_at_a_few_sizes_and_a_size_nothing_asks_for_any_more_gives_its
 #[test]
 fn an_svg_used_at_two_sizes_on_one_page_is_drawn_once_at_each_and_the_page_settles() {
     let rig = rig(vec![("icon.svg", GREEN_SVG.as_bytes().to_vec())]);
-    rig.images.size("icon.svg");
+    rig.images.size("icon.svg", 1);
     rig.wait();
     let (small, large) = (whole(16.0, 8.0), whole(32.0, 16.0));
     // A host that builds the page again, and asks for both sizes each time, for as long as it is
@@ -529,8 +550,8 @@ fn an_svg_used_at_two_sizes_on_one_page_is_drawn_once_at_each_and_the_page_settl
     let mut wakes = 0;
     let mut rounds = 0;
     loop {
-        rig.images.bitmap("icon.svg", small);
-        rig.images.bitmap("icon.svg", large);
+        rig.images.bitmap("icon.svg", 1, small);
+        rig.images.bitmap("icon.svg", 1, large);
         rounds += 1;
         assert!(rounds < 20, "the page never settled: {wakes} wakes");
         if rig.woke.recv_timeout(Duration::from_millis(400)).is_err() {
@@ -542,15 +563,15 @@ fn an_svg_used_at_two_sizes_on_one_page_is_drawn_once_at_each_and_the_page_settl
     assert!((1..=3).contains(&wakes), "{wakes} wakes");
     // Each use has the raster of its own size, and they stay the same pixels.
     let (a, b) = (
-        rig.images.bitmap("icon.svg", small).unwrap(),
-        rig.images.bitmap("icon.svg", large).unwrap(),
+        rig.images.bitmap("icon.svg", 1, small).unwrap(),
+        rig.images.bitmap("icon.svg", 1, large).unwrap(),
     );
     assert_eq!((a.width, a.height), (16, 8));
     assert_eq!((b.width, b.height), (32, 16));
     assert_ne!(a.id, b.id);
     for _ in 0..50 {
-        assert_eq!(rig.images.bitmap("icon.svg", small).unwrap().id, a.id);
-        assert_eq!(rig.images.bitmap("icon.svg", large).unwrap().id, b.id);
+        assert_eq!(rig.images.bitmap("icon.svg", 1, small).unwrap().id, a.id);
+        assert_eq!(rig.images.bitmap("icon.svg", 1, large).unwrap().id, b.id);
     }
     rig.quiet();
     assert_eq!(rig.reads(), ["icon.svg"]);
@@ -641,11 +662,11 @@ fn an_svg_reaches_for_no_file_no_url_and_no_data_it_names_and_draws_no_words() {
     }
 
     let rig = rig(vec![("trap.svg", svg.into_bytes())]);
-    rig.images.size("trap.svg");
+    rig.images.size("trap.svg", 1);
     rig.wait();
-    rig.images.bitmap("trap.svg", whole(8.0, 8.0));
+    rig.images.bitmap("trap.svg", 1, whole(8.0, 8.0));
     rig.wait();
-    let bitmap = rig.images.bitmap("trap.svg", whole(8.0, 8.0)).unwrap();
+    let bitmap = rig.images.bitmap("trap.svg", 1, whole(8.0, 8.0)).unwrap();
     // Red, all of it: neither the files, nor the data, nor the words.
     assert!(
         bitmap
@@ -664,11 +685,14 @@ fn an_svg_reaches_for_no_file_no_url_and_no_data_it_names_and_draws_no_words() {
 fn the_words_of_an_svg_are_not_drawn() {
     let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="12"><text x="0" y="10" font-size="12" font-family="Helvetica" fill="#000000">Words words words</text></svg>"##;
     let rig = rig(vec![("words.svg", svg.as_bytes().to_vec())]);
-    rig.images.size("words.svg");
+    rig.images.size("words.svg", 1);
     rig.wait();
-    rig.images.bitmap("words.svg", whole(40.0, 12.0));
+    rig.images.bitmap("words.svg", 1, whole(40.0, 12.0));
     rig.wait();
-    let bitmap = rig.images.bitmap("words.svg", whole(40.0, 12.0)).unwrap();
+    let bitmap = rig
+        .images
+        .bitmap("words.svg", 1, whole(40.0, 12.0))
+        .unwrap();
     assert!(
         bitmap.pixels().iter().all(|byte| *byte == 0),
         "something was drawn"
@@ -685,7 +709,7 @@ fn an_image_past_the_side_limit_is_refused_with_a_diagnostic_and_leaves_its_box_
         ("just.png", solid(4096, 1, [0, 0, 0, 255])),
     ]);
     for name in ["wide.png", "tall.png", "just.png"] {
-        rig.images.size(name);
+        rig.images.size(name, 1);
     }
     let arrived = rig.until(|a| a.diagnostics.len() == 2 && a.relayout);
     let words: Vec<String> = arrived
@@ -705,16 +729,16 @@ fn an_image_past_the_side_limit_is_refused_with_a_diagnostic_and_leaves_its_box_
             .any(|w| w.contains("tall.png") && w.contains("1\u{d7}4097")),
         "{words:?}"
     );
-    assert_eq!(rig.images.size("wide.png"), None);
-    assert_eq!(rig.images.size("tall.png"), None);
-    assert_eq!(rig.images.bitmap("wide.png", whole(10.0, 10.0)), None);
+    assert_eq!(rig.images.size("wide.png", 1), None);
+    assert_eq!(rig.images.size("tall.png", 1), None);
+    assert_eq!(rig.images.bitmap("wide.png", 1, whole(10.0, 10.0)), None);
     // The side itself is within the limit.
-    while rig.images.size("just.png").is_none() {
+    while rig.images.size("just.png", 1).is_none() {
         rig.wait();
     }
-    assert_eq!(rig.images.size("just.png"), Some(Size::new(4096.0, 1.0)));
+    assert_eq!(rig.images.size("just.png", 1), Some(Size::new(4096.0, 1.0)));
     // Told once: asking again neither reads nor tells again.
-    rig.images.size("wide.png");
+    rig.images.size("wide.png", 1);
     rig.quiet();
     assert_eq!(rig.reads().iter().filter(|p| *p == "wide.png").count(), 1);
 }
@@ -733,15 +757,15 @@ fn the_pixels_of_a_view_are_held_to_a_budget_and_the_image_that_would_pass_it_is
     rig.ready("a.png", whole(4.0, 4.0));
     rig.ready("b.png", whole(4.0, 4.0));
     // The size of the third is known from its header; its pixels have no room.
-    assert!(rig.images.size("c.png").is_none());
+    assert!(rig.images.size("c.png", 1).is_none());
     rig.until(|a| a.relayout);
-    assert_eq!(rig.images.bitmap("c.png", whole(4.0, 4.0)), None);
+    assert_eq!(rig.images.bitmap("c.png", 1, whole(4.0, 4.0)), None);
     let told = rig.until(|a| !a.diagnostics.is_empty());
     assert!(told.diagnostics[0].message.contains("past"), "{told:?}");
-    assert!(rig.images.bitmap("a.png", whole(4.0, 4.0)).is_some());
-    assert!(rig.images.bitmap("b.png", whole(4.0, 4.0)).is_some());
+    assert!(rig.images.bitmap("a.png", 1, whole(4.0, 4.0)).is_some());
+    assert!(rig.images.bitmap("b.png", 1, whole(4.0, 4.0)).is_some());
     // The refusal was told with the reason, once.
-    assert_eq!(rig.images.bitmap("c.png", whole(4.0, 4.0)), None);
+    assert_eq!(rig.images.bitmap("c.png", 1, whole(4.0, 4.0)), None);
     rig.quiet();
 }
 
@@ -752,7 +776,7 @@ fn the_budget_diagnostic_names_the_image_and_the_budget() {
         ..ImageLimits::default()
     };
     let rig = rig_with(vec![("a.png", solid(4, 4, [1, 1, 1, 255]))], limits, None);
-    rig.images.size("a.png");
+    rig.images.size("a.png", 1);
     let arrived = rig.wait();
     let [diagnostic] = arrived.diagnostics.as_slice() else {
         panic!("one diagnostic, got {arrived:?}");
@@ -782,25 +806,25 @@ fn a_new_drawing_of_an_svg_takes_the_room_of_one_nothing_asks_for() {
         limits,
         None,
     );
-    rig.images.size("icon.svg");
+    rig.images.size("icon.svg", 1);
     rig.wait();
-    rig.images.bitmap("icon.svg", whole(16.0, 8.0));
+    rig.images.bitmap("icon.svg", 1, whole(16.0, 8.0));
     rig.wait();
-    rig.images.bitmap("icon.svg", whole(8.0, 4.0));
+    rig.images.bitmap("icon.svg", 1, whole(8.0, 4.0));
     let arrived = rig.wait();
     assert!(arrived.diagnostics.is_empty(), "{arrived:?}");
     assert_eq!(
         rig.images
-            .bitmap("icon.svg", whole(8.0, 4.0))
+            .bitmap("icon.svg", 1, whole(8.0, 4.0))
             .map(|b| b.width),
         Some(8)
     );
-    rig.images.bitmap("icon.svg", whole(16.0, 8.0));
+    rig.images.bitmap("icon.svg", 1, whole(16.0, 8.0));
     let arrived = rig.wait();
     assert!(arrived.diagnostics.is_empty(), "{arrived:?}");
     assert_eq!(
         rig.images
-            .bitmap("icon.svg", whole(16.0, 8.0))
+            .bitmap("icon.svg", 1, whole(16.0, 8.0))
             .map(|b| b.width),
         Some(16)
     );
@@ -823,11 +847,11 @@ fn an_image_that_does_not_fit_waits_and_is_had_when_the_pixels_of_one_nothing_as
         rig.ready(name, whole(4.0, 4.0));
     }
     // Both are in use, so the third has no room: told, once, and not refused for good.
-    rig.images.bitmap("a.png", whole(4.0, 4.0));
-    rig.images.bitmap("b.png", whole(4.0, 4.0));
-    assert_eq!(rig.images.size("c.png"), None);
+    rig.images.bitmap("a.png", 1, whole(4.0, 4.0));
+    rig.images.bitmap("b.png", 1, whole(4.0, 4.0));
+    assert_eq!(rig.images.size("c.png", 1), None);
     rig.until(|a| a.relayout);
-    assert_eq!(rig.images.bitmap("c.png", whole(4.0, 4.0)), None);
+    assert_eq!(rig.images.bitmap("c.png", 1, whole(4.0, 4.0)), None);
     let told = rig.until(|a| !a.diagnostics.is_empty());
     let [one] = told.diagnostics.as_slice() else {
         panic!("one diagnostic, got {told:?}");
@@ -835,23 +859,23 @@ fn an_image_that_does_not_fit_waits_and_is_had_when_the_pixels_of_one_nothing_as
     assert_eq!(one.path, "c.png");
     assert!(one.message.contains("past"), "{one}");
     // Asked again before the time the others are kept for, it starts nothing.
-    assert_eq!(rig.images.bitmap("c.png", whole(4.0, 4.0)), None);
+    assert_eq!(rig.images.bitmap("c.png", 1, whole(4.0, 4.0)), None);
     rig.quiet();
     assert_eq!(rig.reads(), ["a.png", "a.png", "b.png", "b.png", "c.png"]);
 
     // Later, when the other two have gone unasked for that time, it is had: the pixels of the one
     // asked for the longest ago are let go (its size is still known).
     std::thread::sleep(Duration::from_millis(150));
-    assert_eq!(rig.images.bitmap("c.png", whole(4.0, 4.0)), None);
+    assert_eq!(rig.images.bitmap("c.png", 1, whole(4.0, 4.0)), None);
     let had = rig.until(|a| a.redraw);
     assert!(had.diagnostics.is_empty(), "told again: {had:?}");
-    assert!(rig.images.bitmap("c.png", whole(4.0, 4.0)).is_some());
-    assert_eq!(rig.images.size("a.png"), Some(Size::new(4.0, 4.0)));
+    assert!(rig.images.bitmap("c.png", 1, whole(4.0, 4.0)).is_some());
+    assert_eq!(rig.images.size("a.png", 1), Some(Size::new(4.0, 4.0)));
     // And its pixels come back when something asks for them, in the room of another that nothing asks for.
     std::thread::sleep(Duration::from_millis(150));
-    assert_eq!(rig.images.bitmap("a.png", whole(4.0, 4.0)), None);
+    assert_eq!(rig.images.bitmap("a.png", 1, whole(4.0, 4.0)), None);
     rig.until(|a| a.redraw);
-    assert!(rig.images.bitmap("a.png", whole(4.0, 4.0)).is_some());
+    assert!(rig.images.bitmap("a.png", 1, whole(4.0, 4.0)).is_some());
 }
 
 #[test]
@@ -870,12 +894,12 @@ fn what_is_not_an_image_is_refused_and_told_why_once() {
         "zipped.svgz",
         "absent.png",
     ] {
-        rig.images.size(name);
+        rig.images.size(name, 1);
     }
     // The truncated PNG has a whole header, and so a size: its pixels are what is not whole.
     let mut arrived = rig.until(|a| a.diagnostics.len() == 4 && a.relayout);
-    assert_eq!(rig.images.size("cut.png"), Some(Size::new(4.0, 4.0)));
-    assert_eq!(rig.images.bitmap("cut.png", whole(4.0, 4.0)), None);
+    assert_eq!(rig.images.size("cut.png", 1), Some(Size::new(4.0, 4.0)));
+    assert_eq!(rig.images.bitmap("cut.png", 1, whole(4.0, 4.0)), None);
     let refused = rig.until(|a| !a.diagnostics.is_empty());
     // Its box is laid out again, empty, as one that cannot be read is.
     assert!(refused.relayout);
@@ -890,11 +914,11 @@ fn what_is_not_an_image_is_refused_and_told_why_once() {
             .unwrap_or_default()
     };
     assert!(
-        say("notes.txt").contains("is not a PNG, JPEG or SVG"),
+        say("notes.txt").contains("is not a PNG, JPEG, SVG or PDF file"),
         "{}",
         say("notes.txt")
     );
-    assert!(say("zipped.svgz").contains("is not a PNG, JPEG or SVG"));
+    assert!(say("zipped.svgz").contains("is not a PNG, JPEG, SVG or PDF file"));
     assert!(
         say("cut.png").contains("could not be decoded"),
         "{}",
@@ -918,8 +942,8 @@ fn what_is_not_an_image_is_refused_and_told_why_once() {
         "zipped.svgz",
         "absent.png",
     ] {
-        assert_eq!(rig.images.size(name), None);
-        assert_eq!(rig.images.bitmap(name, whole(10.0, 10.0)), None);
+        assert_eq!(rig.images.size(name, 1), None);
+        assert_eq!(rig.images.bitmap(name, 1, whole(10.0, 10.0)), None);
     }
     rig.quiet();
     assert_eq!(rig.reads().len(), 6);
@@ -936,7 +960,7 @@ fn a_file_larger_than_a_file_may_be_is_refused_unread() {
         limits,
         None,
     );
-    rig.images.size("big.png");
+    rig.images.size("big.png", 1);
     let arrived = rig.wait();
     assert!(
         arrived.diagnostics[0]
@@ -954,7 +978,7 @@ fn a_page_that_names_more_images_than_it_may_is_told_once_and_the_rest_are_not_r
     };
     let rig = rig_with(Vec::new(), limits, None);
     for name in ["a", "b", "c", "d", "e"] {
-        rig.images.size(name);
+        rig.images.size(name, 1);
     }
     let arrived = rig.until(|a| a.diagnostics.len() >= 3);
     assert_eq!(
@@ -968,7 +992,7 @@ fn a_page_that_names_more_images_than_it_may_is_told_once_and_the_rest_are_not_r
             .iter()
             .any(|d| d.message.contains("past the 2 images"))
     );
-    rig.images.size("f");
+    rig.images.size("f", 1);
     rig.quiet();
     assert_eq!(rig.reads().len(), 2);
 }
@@ -981,7 +1005,7 @@ fn images_that_are_gone_wake_nobody() {
         ImageLimits::default(),
         Some(Arc::clone(&gate)),
     );
-    rig.images.size("a.png");
+    rig.images.size("a.png", 1);
     let Rig { images, woke, .. } = rig;
     drop(images);
     gate.open();
@@ -1007,14 +1031,14 @@ fn the_memory_a_decoder_works_in_is_approved_before_it_is_used() {
         None,
     );
     for name in ["a.png", "b.jpg"] {
-        rig.images.size(name);
+        rig.images.size(name, 1);
         let arrived = rig.wait();
         let [one] = arrived.diagnostics.as_slice() else {
             panic!("one diagnostic for {name}, got {arrived:?}");
         };
         assert_eq!(one.path, name);
         assert!(one.message.contains("to work in"), "{one}");
-        assert_eq!(rig.images.size(name), None);
+        assert_eq!(rig.images.size(name, 1), None);
     }
 }
 
@@ -1046,20 +1070,20 @@ fn a_drawing_that_unfolds_into_far_more_than_its_file_says_is_refused() {
         ("bomb.svg", use_bomb(7).into_bytes()),
         ("worse.svg", use_bomb(9).into_bytes()),
     ]);
-    rig.images.size("fine.svg");
+    rig.images.size("fine.svg", 1);
     rig.until(|a| a.relayout);
-    assert!(rig.images.size("fine.svg").is_some());
+    assert!(rig.images.size("fine.svg", 1).is_some());
     for name in ["bomb.svg", "worse.svg"] {
-        rig.images.size(name);
+        rig.images.size(name, 1);
         let arrived = rig.until(|a| !a.diagnostics.is_empty());
         let [one] = arrived.diagnostics.as_slice() else {
             panic!("one diagnostic for {name}, got {arrived:?}");
         };
         assert_eq!(one.path, name);
-        assert_eq!(rig.images.size(name), None);
+        assert_eq!(rig.images.size(name, 1), None);
     }
     // The first is refused for what it comes to, the second by the parser's own limit.
-    rig.images.size("bomb.svg");
+    rig.images.size("bomb.svg", 1);
     rig.quiet();
 }
 
@@ -1071,7 +1095,7 @@ fn a_drawing_is_held_to_the_budget_with_its_parsed_shapes() {
         ..ImageLimits::default()
     };
     let rig = rig_with(vec![("bomb.svg", use_bomb(5).into_bytes())], limits, None);
-    rig.images.size("bomb.svg");
+    rig.images.size("bomb.svg", 1);
     let arrived = rig.wait();
     let [one] = arrived.diagnostics.as_slice() else {
         panic!("one diagnostic, got {arrived:?}");
@@ -1101,9 +1125,9 @@ fn the_layers_a_drawing_is_drawn_on_are_approved_with_its_pixels() {
         ..ImageLimits::default()
     };
     let rig = rig_with(vec![("deep.svg", svg.into_bytes())], limits, None);
-    rig.images.size("deep.svg");
+    rig.images.size("deep.svg", 1);
     rig.wait();
-    assert_eq!(rig.images.bitmap("deep.svg", whole(64.0, 64.0)), None);
+    assert_eq!(rig.images.bitmap("deep.svg", 1, whole(64.0, 64.0)), None);
     let arrived = rig.until(|a| !a.diagnostics.is_empty());
     let [one] = arrived.diagnostics.as_slice() else {
         panic!("one diagnostic, got {arrived:?}");
@@ -1111,12 +1135,12 @@ fn the_layers_a_drawing_is_drawn_on_are_approved_with_its_pixels() {
     assert!(one.message.contains("to work in"), "{one}");
     assert!(one.message.contains("drawn at 64\u{d7}64"), "{one}");
     // Told for that size once, and not asked again at it.
-    assert_eq!(rig.images.bitmap("deep.svg", whole(64.0, 64.0)), None);
+    assert_eq!(rig.images.bitmap("deep.svg", 1, whole(64.0, 64.0)), None);
     rig.quiet();
     // At a size the layers fit, it is drawn.
-    assert_eq!(rig.images.bitmap("deep.svg", whole(8.0, 8.0)), None);
+    assert_eq!(rig.images.bitmap("deep.svg", 1, whole(8.0, 8.0)), None);
     rig.wait();
-    assert!(rig.images.bitmap("deep.svg", whole(8.0, 8.0)).is_some());
+    assert!(rig.images.bitmap("deep.svg", 1, whole(8.0, 8.0)).is_some());
 }
 
 // --- A photograph is held the way it was taken --------------------------------------------------
@@ -1157,15 +1181,18 @@ fn a_photograph_is_shown_upright_as_the_exif_of_its_file_says() {
         ("odd.jpg", jpeg_taken(9)),
     ]);
     for name in ["up.jpg", "turned.jpg", "mirrored.jpg", "odd.jpg"] {
-        rig.images.size(name);
+        rig.images.size(name, 1);
         rig.until(|a| a.relayout);
     }
     // 16 by 8 as it is held; a quarter turn makes it 8 by 16. A mirror, and a value that is none,
     // leave the size.
-    assert_eq!(rig.images.size("up.jpg"), Some(Size::new(16.0, 8.0)));
-    assert_eq!(rig.images.size("turned.jpg"), Some(Size::new(8.0, 16.0)));
-    assert_eq!(rig.images.size("mirrored.jpg"), Some(Size::new(16.0, 8.0)));
-    assert_eq!(rig.images.size("odd.jpg"), Some(Size::new(16.0, 8.0)));
+    assert_eq!(rig.images.size("up.jpg", 1), Some(Size::new(16.0, 8.0)));
+    assert_eq!(rig.images.size("turned.jpg", 1), Some(Size::new(8.0, 16.0)));
+    assert_eq!(
+        rig.images.size("mirrored.jpg", 1),
+        Some(Size::new(16.0, 8.0))
+    );
+    assert_eq!(rig.images.size("odd.jpg", 1), Some(Size::new(16.0, 8.0)));
     let turned = rig.ready("turned.jpg", whole(8.0, 16.0));
     assert_eq!((turned.width, turned.height), (8, 16));
     assert_eq!(pixel(&turned, 7, 15)[3], 255);
@@ -1294,7 +1321,7 @@ fn six_screenshots_are_kept_at_the_size_they_are_drawn_and_scrolling_back_decode
         limits.pixel_bytes
     );
     // Their size, for the layout, is the file's.
-    assert_eq!(rig.images.size("a.png"), Some(Size::new(2560.0, 1600.0)));
+    assert_eq!(rig.images.size("a.png", 1), Some(Size::new(2560.0, 1600.0)));
     let reads = rig.reads();
     assert_eq!(reads.len(), 2 * names.len(), "a header and a decoding each");
 
@@ -1305,7 +1332,7 @@ fn six_screenshots_are_kept_at_the_size_they_are_drawn_and_scrolling_back_decode
             std::thread::sleep(limits.idle);
             let bitmap = rig
                 .images
-                .bitmap(name, drawn_wide())
+                .bitmap(name, 1, drawn_wide())
                 .unwrap_or_else(|| panic!("{name} is empty"));
             assert_eq!(bitmap.id, before.id, "{name} was decoded again");
         }
@@ -1317,9 +1344,9 @@ fn six_screenshots_are_kept_at_the_size_they_are_drawn_and_scrolling_back_decode
 #[test]
 fn an_image_nothing_draws_is_never_decoded() {
     let rig = rig(vec![("a.png", solid(4, 4, [1, 2, 3, 255]))]);
-    assert_eq!(rig.images.size("a.png"), None);
+    assert_eq!(rig.images.size("a.png", 1), None);
     rig.until(|a| a.relayout);
-    assert_eq!(rig.images.size("a.png"), Some(Size::new(4.0, 4.0)));
+    assert_eq!(rig.images.size("a.png", 1), Some(Size::new(4.0, 4.0)));
     rig.quiet();
     // The header was read and nothing more of the file.
     assert_eq!(rig.reads(), ["a.png"]);
@@ -1331,7 +1358,10 @@ fn a_png_is_drawn_no_larger_than_the_file_and_its_size_is_the_files() {
     let rig = rig(vec![("wide.png", two_halves(1200, 800))]);
     let bitmap = rig.ready("wide.png", whole(5000.0, 3333.0));
     assert_eq!((bitmap.width, bitmap.height), (1200, 800));
-    assert_eq!(rig.images.size("wide.png"), Some(Size::new(1200.0, 800.0)));
+    assert_eq!(
+        rig.images.size("wide.png", 1),
+        Some(Size::new(1200.0, 800.0))
+    );
     // And at a size asked far less, the long side is a step and the proportions are the file's.
     let rig = rig_with(
         vec![("wide.png", two_halves(1200, 800))],
@@ -1340,7 +1370,10 @@ fn a_png_is_drawn_no_larger_than_the_file_and_its_size_is_the_files() {
     );
     let small = rig.ready("wide.png", whole(300.0, 200.0));
     assert_eq!((small.width, small.height), (512, 341));
-    assert_eq!(rig.images.size("wide.png"), Some(Size::new(1200.0, 800.0)));
+    assert_eq!(
+        rig.images.size("wide.png", 1),
+        Some(Size::new(1200.0, 800.0))
+    );
 }
 
 #[test]
@@ -1352,7 +1385,10 @@ fn a_larger_size_is_decoded_again_while_the_one_held_stands_in_and_a_smaller_one
 
     // The pane grows: what is held is what there is until the larger one is, and it is not empty.
     let wanted = whole(700.0, 467.0);
-    let stood_in = rig.images.bitmap("wide.png", wanted).expect("never empty");
+    let stood_in = rig
+        .images
+        .bitmap("wide.png", 1, wanted)
+        .expect("never empty");
     assert_eq!(stood_in.id, small.id);
     let large = rig.ready_at("wide.png", wanted, 768);
     assert_eq!((large.width, large.height), (768, 512));
@@ -1362,7 +1398,7 @@ fn a_larger_size_is_decoded_again_while_the_one_held_stands_in_and_a_smaller_one
     // It shrinks again, or is asked at what is a step away: the larger one is what is given, and
     // nothing is read.
     for smaller in [whole(300.0, 200.0), whole(100.0, 67.0), whole(750.0, 500.0)] {
-        let bitmap = rig.images.bitmap("wide.png", smaller).expect("held");
+        let bitmap = rig.images.bitmap("wide.png", 1, smaller).expect("held");
         assert_eq!(bitmap.id, large.id);
     }
     rig.quiet();
@@ -1378,13 +1414,13 @@ fn a_pane_dragged_larger_decodes_a_file_once_for_each_step_and_not_for_each_pixe
     for width in (300..=1100).step_by(10) {
         let width = width as f32;
         rig.images
-            .bitmap("wide.png", whole(width, width * 2.0 / 3.0));
+            .bitmap("wide.png", 1, whole(width, width * 2.0 / 3.0));
         while rig.images.busy() {
             rig.wait();
         }
         let held = rig
             .images
-            .bitmap("wide.png", whole(width, width * 2.0 / 3.0))
+            .bitmap("wide.png", 1, whole(width, width * 2.0 / 3.0))
             .expect("held")
             .width;
         if widths.last() != Some(&held) {
@@ -1418,7 +1454,7 @@ fn a_jpeg_is_kept_at_the_size_it_is_drawn_at_too() {
     let rig = rig(vec![("photo.jpg", RED_JPEG.to_vec())]);
     let bitmap = rig.ready("photo.jpg", whole(4.0, 2.0));
     assert_eq!((bitmap.width, bitmap.height), (16, 8));
-    assert_eq!(rig.images.size("photo.jpg"), Some(Size::new(16.0, 8.0)));
+    assert_eq!(rig.images.size("photo.jpg", 1), Some(Size::new(16.0, 8.0)));
 }
 
 #[test]
@@ -1472,4 +1508,194 @@ fn the_size_a_png_is_kept_at_is_a_step_above_the_size_it_is_drawn_at() {
     assert_eq!(stepped((1000, 3000), (100, 300)), (171, 512));
     // A side that asks for more than the long one does decides.
     assert_eq!(stepped((2000, 1000), (100, 800)), (1792, 896));
+}
+
+// --- PDF: a file with pages ---------------------------------------------------------------------
+
+/// Three pages of different sizes: 200 by 100 points with a red left half, 100 by 200 with a green
+/// bottom half, and 300 by 100 turned a quarter (`/Rotate 90`, so 100 by 300) with a blue half. The
+/// words on them are in Helvetica, which the file does not carry.
+const PAGES_PDF: &[u8] = include_bytes!("fixtures/pages.pdf");
+
+/// The size of page `page` of `src`, asked for until it is known.
+fn page_size(rig: &Rig, src: &str, page: u32) -> Size {
+    loop {
+        if let Some(size) = rig.images.size(src, page) {
+            return size;
+        }
+        rig.wait();
+    }
+}
+
+/// The pixels of page `page` of `src` for a whole page of `whole`, asked for until a drawing of
+/// that very width is there (another page's is never what stands in for it).
+fn page_bitmap(rig: &Rig, src: &str, page: u32, whole: Size) -> Bitmap {
+    loop {
+        if let Some(bitmap) = rig.images.bitmap(src, page, whole)
+            && bitmap.width == whole.w as u32
+        {
+            return bitmap;
+        }
+        rig.wait();
+    }
+}
+
+#[test]
+fn a_pdf_has_the_size_of_each_of_its_pages_and_is_drawn_at_the_size_it_is_asked_at() {
+    let rig = rig(vec![("doc.pdf", PAGES_PDF.to_vec())]);
+    assert_eq!(rig.images.size("doc.pdf", 1), None, "not yet");
+    assert_eq!(page_size(&rig, "doc.pdf", 1), Size::new(200.0, 100.0));
+    assert_eq!(page_size(&rig, "doc.pdf", 2), Size::new(100.0, 200.0));
+    // The quarter turn is applied: the page is as tall as its media box is wide.
+    assert_eq!(page_size(&rig, "doc.pdf", 3), Size::new(100.0, 300.0));
+
+    let small = page_bitmap(&rig, "doc.pdf", 1, whole(200.0, 100.0));
+    assert_eq!((small.width, small.height), (200, 100));
+    assert_eq!(small.pixels().len(), 200 * 100 * 4);
+    // The red half is the left one, the paper is white where nothing is drawn.
+    assert_eq!(pixel(&small, 20, 80), [255, 0, 0, 255]);
+    assert_eq!(pixel(&small, 190, 10), [255, 255, 255, 255]);
+    // The words are Helvetica, which the file does not carry: the renderer's own substitute draws
+    // them, and without it the page would be as blank there as paper.
+    assert!(
+        (105..170).any(|x| (45..70).any(|y| pixel(&small, x, y) != [255, 255, 255, 255])),
+        "the words of a page in a font the file does not carry were not drawn"
+    );
+
+    // At another size it is drawn again from the page and not scaled: the same places, as sharp.
+    let big = page_bitmap(&rig, "doc.pdf", 1, whole(800.0, 400.0));
+    assert_eq!((big.width, big.height), (800, 400));
+    assert_ne!(big.id, small.id);
+    assert_eq!(pixel(&big, 40, 320), [255, 0, 0, 255]);
+    assert_eq!(pixel(&big, 399, 200), [255, 0, 0, 255]);
+    assert_eq!(pixel(&big, 401, 200), [255, 255, 255, 255]);
+
+    let second = page_bitmap(&rig, "doc.pdf", 2, whole(100.0, 200.0));
+    assert_eq!(pixel(&second, 50, 150), [0, 255, 0, 255]);
+    assert_eq!(pixel(&second, 50, 20), [255, 255, 255, 255]);
+    let third = page_bitmap(&rig, "doc.pdf", 3, whole(100.0, 300.0));
+    // Turned a quarter clockwise: the blue left half of the media box is the top one.
+    assert_eq!(pixel(&third, 50, 20), [0, 0, 255, 255]);
+    assert_eq!(pixel(&third, 50, 280), [255, 255, 255, 255]);
+    // The file was read once, for all its pages and every size they were drawn at.
+    assert_eq!(rig.read_count("doc.pdf"), 1);
+}
+
+#[test]
+fn a_page_is_drawn_by_itself_and_no_other_page_stands_in_for_it() {
+    let rig = rig(vec![("doc.pdf", PAGES_PDF.to_vec())]);
+    page_bitmap(&rig, "doc.pdf", 1, whole(200.0, 100.0));
+    // The same size of another page: there is nothing for it yet, and not the first page's pixels.
+    assert_eq!(rig.images.bitmap("doc.pdf", 2, whole(200.0, 100.0)), None);
+    let asked = page_bitmap(&rig, "doc.pdf", 2, whole(200.0, 100.0));
+    assert_eq!(pixel(&asked, 100, 80), [0, 255, 0, 255]);
+}
+
+#[test]
+fn a_pdf_is_one_path_however_many_pages_are_shown() {
+    let rig = rig_with(
+        vec![("doc.pdf", PAGES_PDF.to_vec())],
+        ImageLimits {
+            paths: 1,
+            ..ImageLimits::default()
+        },
+        None,
+    );
+    for page in [1, 2, 3, 1] {
+        page_size(&rig, "doc.pdf", page);
+    }
+    assert_eq!(rig.read_count("doc.pdf"), 1);
+}
+
+#[test]
+fn a_page_the_pdf_does_not_have_is_no_image_and_the_page_is_told_once_how_many_it_has() {
+    let rig = rig(vec![
+        ("doc.pdf", PAGES_PDF.to_vec()),
+        ("logo.png", solid(6, 3, [10, 20, 30, 255])),
+    ]);
+    page_size(&rig, "doc.pdf", 1);
+    rig.images.poll();
+    for page in [4, 4, 0] {
+        assert_eq!(rig.images.size("doc.pdf", page), None);
+        assert_eq!(rig.images.bitmap("doc.pdf", page, whole(10.0, 10.0)), None);
+    }
+    let told = rig.wait();
+    assert_eq!(
+        told.diagnostics
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        [
+            r#"image "doc.pdf" has 3 pages, and no page 4"#,
+            r#"image "doc.pdf" has 3 pages, and no page 0"#
+        ]
+    );
+    // The pages it has are as they were.
+    assert_eq!(page_size(&rig, "doc.pdf", 3), Size::new(100.0, 300.0));
+
+    // A file that has no pages is its first page, and has no other.
+    assert_eq!(page_size(&rig, "logo.png", 1), Size::new(6.0, 3.0));
+    assert_eq!(rig.images.size("logo.png", 2), None);
+    let told = rig.wait();
+    assert_eq!(
+        told.diagnostics
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        [r#"image "logo.png" has no page but the first, and no page 2"#]
+    );
+}
+
+#[test]
+fn a_pdf_is_told_from_its_bytes_and_a_broken_one_leaves_its_box_empty() {
+    // Cut before the first page: what is left names no page.
+    let cut = PAGES_PDF.len() / 5;
+    let rig = rig(vec![
+        // Not by its name.
+        ("looks-like.png", PAGES_PDF.to_vec()),
+        ("header-only.pdf", b"%PDF-1.7\n".to_vec()),
+        ("cut.pdf", PAGES_PDF[..cut].to_vec()),
+        (
+            "garbage.pdf",
+            b"%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\n\x00\xff\xfe".to_vec(),
+        ),
+        ("late.pdf", [b"\n\n".as_slice(), PAGES_PDF].concat()),
+    ]);
+    assert_eq!(
+        page_size(&rig, "looks-like.png", 2),
+        Size::new(100.0, 200.0)
+    );
+    let mut told = Vec::new();
+    for name in ["header-only.pdf", "cut.pdf", "garbage.pdf", "late.pdf"] {
+        assert_eq!(rig.images.size(name, 1), None);
+    }
+    while told.len() < 4 {
+        told.extend(rig.wait().diagnostics);
+    }
+    told.sort_by(|a, b| a.path.cmp(&b.path));
+    let say = |name: &str| {
+        told.iter()
+            .find(|diagnostic| diagnostic.path == name)
+            .map(ToString::to_string)
+            .unwrap_or_default()
+    };
+    assert!(
+        say("header-only.pdf").contains("could not be decoded"),
+        "{told:?}"
+    );
+    assert!(say("cut.pdf").contains("could not be decoded"), "{told:?}");
+    assert!(
+        say("garbage.pdf").contains("could not be decoded"),
+        "{told:?}"
+    );
+    // The specification lets a file begin with other bytes; a file that does is not taken for one.
+    assert!(
+        say("late.pdf").contains("is not a PNG, JPEG, SVG or PDF file"),
+        "{told:?}"
+    );
+    for name in ["header-only.pdf", "cut.pdf", "garbage.pdf", "late.pdf"] {
+        assert_eq!(rig.images.size(name, 1), None);
+        assert_eq!(rig.images.bitmap(name, 1, whole(10.0, 10.0)), None);
+    }
+    rig.quiet();
 }

@@ -2440,7 +2440,7 @@ impl View {
             }
             GutterShape::Image(src) => {
                 let room = (col.w.min(self.row) * 0.8).max(1.0);
-                let size = match measure.image(src) {
+                let size = match measure.image(src, 1) {
                     Some(natural) if natural.w > 0.0 && natural.h > 0.0 => {
                         let fit = (room / natural.w).min(room / natural.h);
                         Size::new(natural.w * fit, natural.h * fit)
@@ -2455,6 +2455,7 @@ impl View {
                 );
                 out.push(Paint::Image(Picture {
                     src: src.clone(),
+                    page: 1,
                     rect,
                     crop: Rect::new(0.0, 0.0, 1.0, 1.0),
                     tint: Some(color),
@@ -2466,6 +2467,7 @@ impl View {
                 if let Some(veil) = veil {
                     out.push(Paint::Image(Picture {
                         src: src.clone(),
+                        page: 1,
                         rect,
                         crop: Rect::new(0.0, 0.0, 1.0, 1.0),
                         tint: Some(veil),

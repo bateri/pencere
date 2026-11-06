@@ -384,8 +384,8 @@ interface types {
     /// A picture: a file of the bundle the page came in, drawn into the element's box. The
     /// element's size is its style's; a side the style leaves out follows the image's
     /// proportions, and an element that says neither is the image's own size in pixels, a
-    /// point to a pixel. The formats are PNG, JPEG and SVG, and the application holds them to
-    /// its limits; one it cannot read leaves the box empty.
+    /// point to a pixel. The formats are PNG, JPEG, SVG and PDF, and the application holds them
+    /// to its limits; one it cannot read leaves the box empty.
     record image {
         /// The path of the file in the bundle, as its manifest names it, or a file beside the
         /// bundle: `sha256:` and the digest of one the program attached to the view, `file:` and
@@ -396,6 +396,9 @@ interface types {
         /// A colour for a picture that is a shape: every pixel of it is this colour, with the
         /// picture's opacity at that pixel. How much of it shows is the element's `opacity`.
         tint: option<color>,
+        /// Which page of the file is shown, from 1: a PDF has as many as it says, and a file that
+        /// has no pages is its only page. A page the file does not have leaves the box empty.
+        page: u32,
     }
 
     /// A part of a text of many looks: its words, and what it changes of the element's look (what

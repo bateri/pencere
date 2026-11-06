@@ -58,6 +58,7 @@ pub(crate) struct TextLine {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Placed {
     pub src: String,
+    pub page: u32,
     pub fit: Fit,
     pub tint: Option<Color>,
     /// The size of the image itself, pixels (a point to a pixel, times the scale); `None` while
@@ -965,7 +966,7 @@ fn build(
             tree.new_leaf(taffy_style)
         }
         Kind::Image(image) => {
-            let natural = natural_size(measure.image(&image.src), scale);
+            let natural = natural_size(measure.image(&image.src, image.page), scale);
             let [top, right, bottom, left] = style.padding;
             let border = style
                 .border
@@ -992,6 +993,7 @@ fn build(
             if let Some(entry) = pending.get_mut(index) {
                 entry.content = Content::Image(Placed {
                     src: image.src,
+                    page: image.page,
                     fit: image.fit,
                     tint: image.tint,
                     natural,

@@ -57,7 +57,7 @@ fn pictures(page: &Headless) -> usize {
         .iter()
         .filter(|item| match item {
             Paint::Image(picture) => images
-                .and_then(|images| images.bitmap(&picture.src, picture.full()))
+                .and_then(|images| images.bitmap(&picture.src, picture.page, picture.full()))
                 .is_some(),
             _ => false,
         })

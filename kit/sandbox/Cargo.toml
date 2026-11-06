@@ -35,15 +35,20 @@ wasmtime = { version = "38", default-features = false, features = [
     "runtime", "cranelift", "component-model", "std", "gc", "gc-drc",
 ] }
 
-# The decoders of the images a page shows (`images`): PNG, JPEG and SVG, each a library in
+# The decoders of the images a page shows (`images`): PNG, JPEG, SVG and PDF, each a library in
 # Rust, linked by this crate alone, so that every terminal that shows these pages takes the same
-# formats and the same limits. All of them are MIT, Apache-2.0, BSD or Zlib (see the changelog).
+# formats and the same limits. All of them are MIT, Apache-2.0, BSD, Zlib or Unicode-3.0 (see the
+# changelog).
 # The SVG renderer is built with neither text nor raster images nor compressed files: an
-# SVG draws shapes, and reads nothing of the machine it is drawn on.
+# SVG draws shapes, and reads nothing of the machine it is drawn on. The PDF renderer is built
+# with the substitutes for the fourteen fonts a PDF need not carry (`embed-fonts`: the crate
+# holds them, and no font of the machine is read) and with the predefined CMaps (`embed-cmaps`)
+# that most Chinese, Japanese and Korean text is read through.
 png = "0.18"
 zune-jpeg = { version = "0.5.15", default-features = false, features = ["std"] }
 zune-core = { version = "0.5", default-features = false, features = ["std"] }
 resvg = { version = "0.48.1", default-features = false }
+hayro = { version = "0.9", default-features = false, features = ["embed-fonts", "embed-cmaps"] }
 
 # Regular expressions (MIT or Apache-2.0), the same crate and features as the editor's: the rules of
 # an editor's indent a page says are compiled here as the editor compiles them, so that one that is
