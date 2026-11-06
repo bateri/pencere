@@ -351,6 +351,31 @@ fn a_hidden_image_asks_for_nothing_to_be_drawn() {
     assert!(pictures(&page.paint(&mut host)).is_empty());
 }
 
+/// An image all outside the box that clips it (a page of a long document scrolled out of its box) is
+/// not in the draw list: what is in it is what the host asks the pixels of, and one it does not show
+/// would hold room of the pixels a view may have. One that is partly inside is.
+#[test]
+fn an_image_outside_its_clip_asks_for_nothing_to_be_drawn() {
+    let mut host = Images::with("a.png", 40.0, 20.0);
+    let root = div().items_start().child(
+        div()
+            .col()
+            .size(100.0, 60.0)
+            .clip()
+            .child(image("a.png", Fit::Contain).size(40.0, 40.0).no_shrink())
+            .child(image("a.png", Fit::Contain).size(40.0, 40.0).no_shrink())
+            .child(image("a.png", Fit::Contain).size(40.0, 40.0).no_shrink()),
+    );
+    let page = laid(root, &mut host, 200.0, 200.0, 1.0);
+    let drawn = pictures(&page.paint(&mut host))
+        .into_iter()
+        .map(|picture| picture.rect.y)
+        .collect::<Vec<_>>();
+    // Each is 20 high in the middle of its 40: the first in the box, the second half in it, the
+    // third under its bottom.
+    assert_eq!(drawn, [10.0, 50.0]);
+}
+
 /// A picture that spins is turned with the clock, about its middle, a turn in the seconds it says,
 /// and is laid out again at every frame while it is on the page; under Reduce Motion it is still.
 #[test]

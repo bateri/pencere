@@ -6,6 +6,12 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+### Changed
+
+- **A picture all outside its clip is not in the draw list** (a page of a long document scrolled
+  out of the box it is in): what a host asks the pixels of is what it shows, and a picture it does
+  not show no longer holds room of the pixels a view may have. Its box's fill is drawn as before.
+
 ### Added
 
 - `Element::page(n)`, `Image::page` and `Picture::page`: which page of the file an image shows, from

@@ -1760,7 +1760,12 @@ not there.
   view, 4 bytes a pixel, are at most 64 MiB at a time; a view names at most 1024 different paths, as
   many as a bundle has files (a PDF is one path, however many pages it has and shows), and a PDF has
   at most 20000 pages. A host MAY hold a view to less, and every host that
-  uses the kit holds it to these. An image that is past a limit, or that cannot be read, leaves its
+  uses the kit holds it to these. The pixels held are those of the pictures the host shows: a
+  picture that is all outside the box that clips it (scrolled out of view) holds none once its room
+  is needed. An SVG or a page of a PDF that has no room at the size it is shown at, while other
+  pictures hold the room, is not left empty: it is drawn smaller, as large as there is room for,
+  and shown at its size until there is room for that, which the host draws with nothing more done
+  by the person. An image that is past a limit, or that cannot be read, leaves its
   box empty and gives the person who wrote the view a diagnostic with the reason; the view is not
   closed for it and nothing is written to the screen the program shares with the shell. A path
   beyond the 1024th that a view names is such an image: its box is empty and the diagnostic says

@@ -1591,6 +1591,94 @@ fn a_page_is_drawn_by_itself_and_no_other_page_stands_in_for_it() {
     assert_eq!(pixel(&asked, 100, 80), [0, 255, 0, 255]);
 }
 
+/// A page of a PDF that has no room at the size it is shown at, because the pages the host shows
+/// hold it, is drawn at half that size rather than left empty, and the host at rest is not woken for
+/// it. Once the host shows something else and the pixels of what it no longer shows have gone
+/// unasked for the time they are kept, the host is woken with nothing asked, asks, and the page is
+/// drawn at its size.
+#[test]
+fn a_page_with_no_room_is_drawn_smaller_and_at_its_size_when_room_comes_with_nothing_asked() {
+    // The first two pages at twice their size are 320 000 bytes each, the third 480 000 and at half
+    // of that 120 000: two and the half fit, two and the third do not, the second, the third and
+    // the half do.
+    let limits = ImageLimits {
+        pixel_bytes: PAGES_PDF.len() + 3 * 256 + 1_000_000,
+        idle: Duration::from_millis(200),
+        ..ImageLimits::default()
+    };
+    let rig = rig_with(vec![("doc.pdf", PAGES_PDF.to_vec())], limits, None);
+    let (one, two, three) = (
+        (1, whole(400.0, 200.0)),
+        (2, whole(200.0, 400.0)),
+        (3, whole(200.0, 600.0)),
+    );
+    let frame = |pages: &[(u32, Size)]| -> Vec<Option<Bitmap>> {
+        pages
+            .iter()
+            .map(|(page, size)| rig.images.bitmap("doc.pdf", *page, *size))
+            .collect()
+    };
+    page_size(&rig, "doc.pdf", 1);
+    page_bitmap(&rig, "doc.pdf", 1, one.1);
+    page_bitmap(&rig, "doc.pdf", 2, two.1);
+
+    // The three are shown: the third is drawn at half its size, and stands in.
+    assert_eq!(frame(&[one, two, three])[2], None);
+    let arrived = rig.until(|a| a.redraw);
+    assert!(
+        arrived.diagnostics[0].message.contains("past"),
+        "{arrived:?}"
+    );
+    let shown = frame(&[one, two, three]);
+    assert!(shown[0].is_some() && shown[1].is_some(), "{shown:?}");
+    let half = shown[2]
+        .clone()
+        .expect("the third page, smaller, and not an empty box");
+    assert_eq!((half.width, half.height), (100, 300));
+    assert_eq!(pixel(&half, 50, 20), [0, 0, 255, 255]);
+
+    // The first is no longer shown, before the third may be tried again; then nothing is asked.
+    std::thread::sleep(RECENT_ENOUGH);
+    let shown = frame(&[two, three]);
+    assert_eq!(shown[1].as_ref().map(|b| b.width), Some(100));
+    // Woken by itself once the first has gone unasked for the time it is kept, and asked again:
+    // the third at its size, in the room of the first.
+    let woken = rig.until(|a| a.redraw);
+    assert!(woken.diagnostics.is_empty(), "{woken:?}");
+    let sharp = page_bitmap(&rig, "doc.pdf", 3, three.1);
+    assert_eq!((sharp.width, sharp.height), (200, 600));
+    assert!(frame(&[two])[0].is_some());
+}
+
+/// The three pages of the fixture all shown, two of them holding the room: the host is not woken for
+/// the third, which waits for what it shows to change.
+#[test]
+fn a_host_at_rest_is_not_woken_for_a_page_whose_room_what_it_shows_holds() {
+    let limits = ImageLimits {
+        pixel_bytes: PAGES_PDF.len() + 3 * 256 + 1_000_000,
+        idle: Duration::from_millis(50),
+        ..ImageLimits::default()
+    };
+    let rig = rig_with(vec![("doc.pdf", PAGES_PDF.to_vec())], limits, None);
+    page_size(&rig, "doc.pdf", 1);
+    page_bitmap(&rig, "doc.pdf", 1, whole(400.0, 200.0));
+    page_bitmap(&rig, "doc.pdf", 2, whole(200.0, 400.0));
+    let frame = || {
+        rig.images.bitmap("doc.pdf", 1, whole(400.0, 200.0));
+        rig.images.bitmap("doc.pdf", 2, whole(200.0, 400.0));
+        rig.images.bitmap("doc.pdf", 3, whole(200.0, 600.0))
+    };
+    assert_eq!(frame(), None);
+    rig.until(|a| a.redraw);
+    assert_eq!(frame().map(|b| b.width), Some(100));
+    // At rest, for longer than the pixels are kept: no wake.
+    rig.quiet();
+    rig.quiet();
+}
+
+/// Longer than the asking of a frame takes (`RECENT` in images.rs).
+const RECENT_ENOUGH: Duration = Duration::from_millis(120);
+
 #[test]
 fn a_pdf_is_one_path_however_many_pages_are_shown() {
     let rig = rig_with(

@@ -6,6 +6,19 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+### Fixed
+
+- **A picture the host shows is not left empty for want of room.** An SVG or a page of a PDF that
+  has no room at the size it is shown at, and no pixels at any other size, is drawn at a half, a
+  quarter, … of it, the first that fits, and stands in (the host draws it larger) until the size
+  is drawn; one whose pixels alone are more than a view may hold is too. The host is woken, with
+  nothing asked, when the size may have room — once the pixels of the pictures it no longer asks
+  for have gone unasked for `ImageLimits::idle` and letting them go would make room enough — and
+  not at rest while the room is held by what it shows. Pixels are let go for a new drawing only
+  where that makes room enough for it. Before, a page of a PDF on a display with two pixels to the
+  point (27 MiB a page in a wide pane) found the 64 MiB held by the pages beside it and stayed an
+  empty box, and was tried again only when the person did something.
+
 ### Added
 
 - **PDF.** `Images` reads a PDF, told from its bytes (`%PDF-`), and draws a page of it at the size

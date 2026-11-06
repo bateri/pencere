@@ -64,7 +64,9 @@ pub struct Run {
 /// rectangle shows of the image, `tint` and `opacity` how it is coloured, `radii` how it is
 /// rounded. It is cut at `clip`. A box whose image the host did not know when the page was laid
 /// out (it was still being decoded, or it is not an image) has a quad if it has a fill and no
-/// picture.
+/// picture, and so has one whose image is all outside its clip (a page of a long document scrolled
+/// out of its box): what a host asks the pixels of is what is seen, and what is not seen holds no
+/// room of the images the view may hold.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Picture {
     /// The path of the image in the view's bundle.
@@ -241,7 +243,7 @@ impl Laid {
                     paint_rich(&mut list, node, rich, &grounds);
                 }
                 Content::Image(image) => {
-                    if let Some(picture) = place_image(node, image) {
+                    if let Some(picture) = place_image(node, image).filter(seen) {
                         list.items.push(Paint::Image(picture));
                     }
                 }
@@ -362,6 +364,21 @@ fn paint_rich(list: &mut DrawList, node: &Node, rich: &Rich, grounds: &[Color]) 
             strike: look.strike,
         }));
     }
+}
+
+/// Whether any of `picture` is inside its clip: the square it sweeps about its middle where it is
+/// turned (a spinner's), its rectangle where not.
+fn seen(picture: &Picture) -> bool {
+    let rect = picture.rect;
+    let bounds = if picture.turn == 0.0 {
+        rect
+    } else {
+        let reach = rect.w.hypot(rect.h) / 2.0;
+        let (x, y) = (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
+        Rect::new(x - reach, y - reach, 2.0 * reach, 2.0 * reach)
+    };
+    let shown = bounds.intersect(picture.clip);
+    shown.w > 0.0 && shown.h > 0.0
 }
 
 /// Where an image stands in its box, and what of it shows; nothing for an image the host did not

@@ -36,14 +36,21 @@
 //! The pixels of the images (and the parsed drawings) are held to [`ImageLimits::pixel_bytes`] in
 //! all, the bytes of what is *kept*. When a new drawing needs room, the pixels of the ones nothing
 //! has asked for in [`ImageLimits::idle`] are let go (they are drawn again if they are asked for
-//! later), the oldest first; a drawing that still does not fit is not refused for good, it waits,
-//! and is tried again when it is asked for after that time, which is when something may have been
-//! let go.
+//! later), the oldest first, and only where that makes room enough: pixels are not let go for a
+//! drawing that would not fit after all. A drawing that still does not fit is not refused for good,
+//! it waits, and is tried again when it is asked for after that time, which is when something may
+//! have been let go. **A box is not left empty for it:** an SVG or a page of a PDF that has no
+//! pixels at any size is drawn at a half, a quarter, … of the size, the first that fits, and that
+//! stands in (the host draws it larger) until the size asked for is drawn. And the host is woken
+//! when there may be room — when the pixels of the pictures it no longer asks for have gone unasked
+//! for [`ImageLimits::idle`] and letting them go would make room enough — so that the size asked
+//! for is drawn with nothing more done: a host at rest is not woken for a drawing whose room is held
+//! by what it shows (a host asks only for what it shows: [`pencere_view::Picture`]).
 
 use std::collections::{HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -197,6 +204,9 @@ enum Job {
     Draw(String, At),
     /// Let go of the parsed SVG or PDF at the path.
     Forget(String),
+    /// Look at what waits for room again: the host asked for it, and may show other things than it
+    /// did ([`Shared::wake_due`]).
+    Look,
 }
 
 /// Pixels the view holds, and when something last asked for them.
@@ -271,7 +281,15 @@ impl Drawing {
 enum Drawn {
     Pending,
     Ready(Kept),
-    Waiting { since: Instant },
+    /// There was no room for it at `since`; asked for last at `asked`. The host is to be woken at
+    /// `wake` for it to be asked again, where there may be room by then: worked out
+    /// ([`Shared::wake_for`]) from what the host showed when it last asked for pixels, `planned`.
+    Waiting {
+        since: Instant,
+        asked: Instant,
+        wake: Option<Instant>,
+        planned: Option<Instant>,
+    },
     Refused,
 }
 
@@ -285,6 +303,11 @@ struct State {
     woken: bool,
     /// The next `Bitmap::id`.
     next: u64,
+    /// When the host last asked for pixels: what it asked for about then is what it shows now
+    /// ([`RECENT`]).
+    last_ask: Option<Instant>,
+    /// When the worker was last told to look at what waits for room ([`Job::Look`]).
+    looked: Option<Instant>,
     /// Told that the view names more paths than it may.
     told_paths: bool,
     /// What was told to be out of room (a path, or a path and a size): once each.
@@ -382,6 +405,7 @@ impl Images {
     pub fn bitmap(&self, src: &str, page: u32, whole: Size) -> Option<Bitmap> {
         let mut state = self.lock();
         let now = Instant::now();
+        state.last_ask = Some(now);
         let (width, height) = drawn_size(whole, self.shared.limits.side);
         let at = At {
             page,
@@ -461,10 +485,19 @@ impl Images {
                 return (Some(kept.bitmap.clone()), None, false);
             }
             Some(Drawn::Pending | Drawn::Refused) => {}
-            Some(Drawn::Waiting { since }) => {
+            Some(Drawn::Waiting { since, asked, .. }) => {
+                *asked = now;
                 if since.elapsed() >= limits.idle {
                     drawing.drawn.insert(wanted, Drawn::Pending);
                     job = Some(Job::Draw(src.to_owned(), wanted));
+                } else if state
+                    .looked
+                    .is_none_or(|looked| now.saturating_duration_since(looked) >= RECENT)
+                {
+                    // Still shown, and the rest of what is shown may have changed: the worker
+                    // plans its wake again once this frame is asked for (no oftener than that).
+                    state.looked = Some(now);
+                    job = Some(Job::Look);
                 }
             }
             None => {
@@ -728,7 +761,8 @@ type Oldest = (Instant, String, At);
 
 /// How long a drawn size of an SVG must have gone unasked to be given up for a new one when the
 /// drawing is at its most sizes: longer than the passes of one frame of a page take, which ask for
-/// every size in use.
+/// every size in use. And so what the host asked for this long before the last it asked for is
+/// what it showed then, and what it asked for before that is what it no longer shows.
 const RECENT: Duration = Duration::from_millis(100);
 
 /// Gives up the drawn size of `page` that nothing has asked for the longest, if that is for
@@ -842,11 +876,21 @@ impl Shared {
     }
 
     /// Makes room for `bytes` more: lets go of the pixels of the drawings nothing has asked for in
-    /// [`ImageLimits::idle`], the longest unasked first, until they fit; `Budget` if they do not.
+    /// [`ImageLimits::idle`], the longest unasked first, until they fit; `Budget` if they do not,
+    /// and then nothing is let go.
     fn make_room(&self, state: &mut State, bytes: usize) -> Result<(), Failure> {
         let most = self.limits.pixel_bytes;
         if bytes > most {
             return Err(Failure::Whole { bytes, most });
+        }
+        let idle = self.limits.idle;
+        let now = Instant::now();
+        let unasked: usize = kept(state)
+            .filter(|(kept, _)| now.saturating_duration_since(kept.asked) >= idle)
+            .map(|(kept, _)| kept.bitmap.pixels.len())
+            .sum();
+        if state.held.saturating_add(bytes) > most.saturating_add(unasked) {
+            return Err(Failure::Budget { most });
         }
         while state.held.saturating_add(bytes) > most {
             if !self.release_one(state) {
@@ -854,6 +898,118 @@ impl Shared {
             }
         }
         Ok(())
+    }
+
+    /// When the host is to be woken for a drawing of `bytes` that had no room at `since`, so that
+    /// it asks for it again: once the pixels it no longer asks for (those it did not ask for with
+    /// the last it did ask for, `shown_from` on: the pictures it does not show) have gone unasked for
+    /// [`ImageLimits::idle`], the longest unasked first, as many as make room enough; and never
+    /// before the drawing may be tried again. None where they would not: the room is held by what
+    /// the host shows, which is had again only when it shows something else, at a frame that asks
+    /// for the drawing anyway.
+    fn wake_for(
+        &self,
+        state: &State,
+        bytes: usize,
+        since: Instant,
+        shown_from: Instant,
+    ) -> Option<Instant> {
+        let most = self.limits.pixel_bytes;
+        let idle = self.limits.idle;
+        let mut need = state.held.saturating_add(bytes).saturating_sub(most);
+        let mut unseen: Vec<(Instant, usize)> = kept(state)
+            .filter(|(kept, _)| kept.asked < shown_from)
+            .map(|(kept, _)| (kept.asked, kept.bitmap.pixels.len()))
+            .collect();
+        unseen.sort_unstable_by_key(|(asked, _)| *asked);
+        let mut by = since + idle;
+        for (asked, bytes) in unseen {
+            if need == 0 {
+                break;
+            }
+            need = need.saturating_sub(bytes);
+            by = by.max(asked + idle);
+        }
+        (need == 0).then_some(by)
+    }
+
+    /// The drawings that wait for room, on the worker: each is planned a wake ([`Shared::wake_for`])
+    /// once the host has done asking for the pixels of a frame ([`RECENT`] after the last it asked
+    /// for), from what it showed then, and again after it asks for more; the host is woken for
+    /// those whose time has come, each once. When to look again, if there is anything to look at.
+    fn wake_due(&self) -> Option<Instant> {
+        let mut state = self.lock();
+        let now = Instant::now();
+        let last = state.last_ask?;
+        let settled = last + RECENT;
+        let shown_from = last.checked_sub(RECENT).unwrap_or(last);
+        // What waits, where it is, and whether it is planned for the last asking.
+        let mut plans = Vec::new();
+        let mut next: Option<Instant> = None;
+        let mut sooner = |at: Instant| next = Some(next.map_or(at, |next: Instant| next.min(at)));
+        for (path, entry) in &state.entries {
+            let Entry::Image(drawing) = entry else {
+                continue;
+            };
+            for (at, drawn) in &drawing.drawn {
+                if let Drawn::Waiting {
+                    since,
+                    asked,
+                    wake,
+                    planned,
+                } = drawn
+                {
+                    if *planned != Some(last) {
+                        if now < settled {
+                            sooner(settled);
+                        } else {
+                            // Not shown at the last frame: not worth a wake.
+                            let shown = *asked >= shown_from;
+                            let bytes =
+                                decode::pixel_bytes(at.width, at.height).unwrap_or(usize::MAX);
+                            let wake = shown
+                                .then(|| self.wake_for(&state, bytes, *since, shown_from))
+                                .flatten();
+                            plans.push((path.clone(), *at, wake));
+                            if let Some(wake) = wake {
+                                sooner(wake);
+                            }
+                        }
+                    } else if let Some(wake) = wake {
+                        sooner(*wake);
+                    }
+                }
+            }
+        }
+        for (path, at, planned_wake) in plans {
+            if let Some(Entry::Image(drawing)) = state.entries.get_mut(&path)
+                && let Some(Drawn::Waiting { wake, planned, .. }) = drawing.drawn.get_mut(&at)
+            {
+                *wake = planned_wake;
+                *planned = Some(last);
+            }
+        }
+        let mut due = false;
+        for entry in state.entries.values_mut() {
+            let Entry::Image(drawing) = entry else {
+                continue;
+            };
+            for drawn in drawing.drawn.values_mut() {
+                if let Drawn::Waiting { wake, .. } = drawn
+                    && wake.is_some_and(|at| at <= now)
+                {
+                    *wake = None;
+                    due = true;
+                }
+            }
+        }
+        if due {
+            state.arrived.redraw = true;
+            let wake = self.announce(&mut state);
+            self.finish(state, wake);
+            return self.wake_due();
+        }
+        next
     }
 
     /// Lets go of the pixels that have been unasked for the longest, if any have been for the time
@@ -931,15 +1087,28 @@ impl Shared {
     }
 }
 
-/// The worker: reads and decodes what it is asked, one at a time, until the images are gone.
+/// The worker: reads and decodes what it is asked, one at a time, until the images are gone; and
+/// between, wakes the host when a drawing that had no room may have it ([`Shared::wake_due`]).
 fn serve(shared: &Arc<Shared>, inbox: &Receiver<Job>) {
     // The parsed SVGs and PDFs, which only this thread draws.
     let mut sources: HashMap<String, Source> = HashMap::new();
-    while let Ok(job) = inbox.recv() {
+    loop {
+        let job = match shared.wake_due() {
+            None => inbox.recv().ok(),
+            Some(at) => match inbox.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                Ok(job) => Some(job),
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => None,
+            },
+        };
+        let Some(job) = job else {
+            return;
+        };
         if shared.gone.load(Ordering::SeqCst) {
             return;
         }
         let (path, at) = match &job {
+            Job::Look => continue,
             Job::Decode(path) => (path.clone(), None),
             Job::Draw(path, at) => (path.clone(), Some(*at)),
             Job::Forget(path) => {
@@ -954,7 +1123,7 @@ fn serve(shared: &Arc<Shared>, inbox: &Receiver<Job>) {
         let ran = catch_unwind(AssertUnwindSafe(|| match job {
             Job::Decode(path) => decode_path(shared, &mut sources, &path),
             Job::Draw(path, at) => draw(shared, &sources, &path, at),
-            Job::Forget(_) => {}
+            Job::Forget(_) | Job::Look => {}
         }));
         if ran.is_err() {
             let mut state = shared.lock();
@@ -1167,35 +1336,33 @@ fn draw(shared: &Arc<Shared>, sources: &HashMap<String, Source>, path: &str, at:
         let Some(source) = sources.get(path) else {
             return;
         };
-        // The pixels it makes, and the layers it is drawn on while it makes them, are approved
-        // before the first is.
-        decode::pixel_bytes(width, height)
-            .ok_or(Failure::Budget {
-                most: shared.limits.pixel_bytes,
-            })
-            .and_then(|bytes| {
-                let working = match source {
-                    Source::Vector(vector) => vector.working(width, height),
-                    Source::Document(document) => document.working(width, height),
-                };
-                if working > shared.limits.work_bytes {
-                    return Err(Failure::Work {
-                        bytes: working,
-                        most: shared.limits.work_bytes,
-                    });
+        let outcome = draw_vector(shared, source, at);
+        // No room at the size asked: where the picture has no pixels at any size, it is drawn
+        // smaller, so that its box is not empty while it waits.
+        let smaller = match &outcome {
+            Err(Failure::Budget { .. } | Failure::Whole { .. })
+                if !has_pixels(shared, path, at.page) =>
+            {
+                draw_smaller(shared, source, at)
+            }
+            _ => None,
+        };
+        if let Some((smaller, raster)) = smaller {
+            let mut state = shared.lock();
+            let now = Instant::now();
+            if let Some(Entry::Image(drawing)) = state.entries.get(path)
+                && !drawing.drawn.contains_key(&smaller)
+            {
+                let bitmap = shared.bitmap(&mut state, raster);
+                state.arrived.redraw = true;
+                if let Some(Entry::Image(drawing)) = state.entries.get_mut(path) {
+                    drawing
+                        .drawn
+                        .insert(smaller, Drawn::Ready(Kept { bitmap, asked: now }));
                 }
-                shared.make_room(&mut shared.lock(), bytes)
-            })
-            .and_then(|()| match source {
-                Source::Vector(vector) => vector.draw(width, height),
-                Source::Document(document) => document.draw(
-                    usize::try_from(at.page)
-                        .unwrap_or(usize::MAX)
-                        .saturating_sub(1),
-                    width,
-                    height,
-                ),
-            })
+            }
+        }
+        outcome
     };
     let mut state = shared.lock();
     let now = Instant::now();
@@ -1206,7 +1373,7 @@ fn draw(shared: &Arc<Shared>, sources: &HashMap<String, Source>, path: &str, at:
             state.arrived.redraw = true;
             Drawn::Ready(Kept { bitmap, asked: now })
         }
-        // No room, and perhaps later.
+        // No room, and perhaps later: the host is woken when there may be.
         Err(failure @ Failure::Budget { .. }) => {
             if state
                 .told_room
@@ -1214,7 +1381,12 @@ fn draw(shared: &Arc<Shared>, sources: &HashMap<String, Source>, path: &str, at:
             {
                 told = Some(failure);
             }
-            Drawn::Waiting { since: now }
+            Drawn::Waiting {
+                since: now,
+                asked: now,
+                wake: None,
+                planned: None,
+            }
         }
         // The file is not what its header said, or is gone: the image is refused for good, and
         // its box is empty as one that cannot be read is.
@@ -1258,6 +1430,73 @@ fn draw(shared: &Arc<Shared>, sources: &HashMap<String, Source>, path: &str, at:
     shared.finish(state, wake);
 }
 
+/// The SVG or the page of a PDF in `source` drawn at `at`: the pixels it makes, and the layers it is
+/// drawn on while it makes them, approved before the first is.
+fn draw_vector(shared: &Shared, source: &Source, at: At) -> Result<Raster, Failure> {
+    let (width, height) = (at.width, at.height);
+    let bytes = decode::pixel_bytes(width, height).ok_or(Failure::Budget {
+        most: shared.limits.pixel_bytes,
+    })?;
+    let working = match source {
+        Source::Vector(vector) => vector.working(width, height),
+        Source::Document(document) => document.working(width, height),
+    };
+    if working > shared.limits.work_bytes {
+        return Err(Failure::Work {
+            bytes: working,
+            most: shared.limits.work_bytes,
+        });
+    }
+    shared.make_room(&mut shared.lock(), bytes)?;
+    match source {
+        Source::Vector(vector) => vector.draw(width, height),
+        Source::Document(document) => document.draw(
+            usize::try_from(at.page)
+                .unwrap_or(usize::MAX)
+                .saturating_sub(1),
+            width,
+            height,
+        ),
+    }
+}
+
+/// The long side under which a picture is not drawn smaller for want of room: a box that small is
+/// not worth the room either.
+const SMALLEST: u32 = 16;
+
+/// The SVG or the page of a PDF in `source` drawn at a half of `at`, a quarter, …, the first that
+/// there is room for, to stand in until `at` is: where it is drawn, and its pixels. None where
+/// nothing down to [`SMALLEST`] fits, or it cannot be drawn.
+fn draw_smaller(shared: &Shared, source: &Source, at: At) -> Option<(At, Raster)> {
+    let mut smaller = at;
+    loop {
+        smaller = At {
+            width: smaller.width.div_ceil(2),
+            height: smaller.height.div_ceil(2),
+            ..smaller
+        };
+        if smaller.width.max(smaller.height) < SMALLEST {
+            return None;
+        }
+        match draw_vector(shared, source, smaller) {
+            Ok(raster) => return Some((smaller, raster)),
+            Err(Failure::Budget { .. } | Failure::Whole { .. }) => {}
+            Err(_) => return None,
+        }
+    }
+}
+
+/// Whether the page `page` of the image at `path` has pixels at some size, to stand in for another.
+fn has_pixels(shared: &Shared, path: &str, page: u32) -> bool {
+    match shared.lock().entries.get(path) {
+        Some(Entry::Image(drawing)) => drawing
+            .drawn
+            .iter()
+            .any(|(at, drawn)| at.page == page && matches!(drawn, Drawn::Ready(_))),
+        _ => false,
+    }
+}
+
 /// The bytes of pixels the image at `path` holds, which are let go of when the image is replaced by
 /// a refusal (nothing is left of it but the diagnostic).
 fn pixels_held(state: &mut State, path: &str) -> usize {
@@ -1272,6 +1511,23 @@ fn pixels_held(state: &mut State, path: &str) -> usize {
             _ => 0,
         })
         .sum()
+}
+
+/// The pixels held, each with the page and the size it is drawn at.
+fn kept(state: &State) -> impl Iterator<Item = (&Kept, At)> {
+    state.entries.values().flat_map(|entry| {
+        let drawn = match entry {
+            Entry::Image(drawing) => Some(&drawing.drawn),
+            _ => None,
+        };
+        drawn
+            .into_iter()
+            .flatten()
+            .filter_map(|(at, drawn)| match drawn {
+                Drawn::Ready(kept) => Some((kept, *at)),
+                _ => None,
+            })
+    })
 }
 
 /// Lets go of the sizes of a PNG or a JPEG that the one drawn at `at` covers, being no larger on

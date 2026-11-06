@@ -1423,3 +1423,141 @@ fn a_panel_is_shown_for_what_the_person_did_and_one_at_a_time() -> Result<(), Er
     assert!(page.says("saving notes 2.txt"), "{:?}", page.words());
     Ok(())
 }
+
+// --- The pages of a long PDF, on a display with two pixels to the point ------------------------------
+
+/// A PDF whose pages are `(width, height, [red, green, blue])`, points, each a box of its colour
+/// over the whole page.
+fn pdf_of_colours(pages: &[(u32, u32, [f32; 3])]) -> Vec<u8> {
+    let mut out = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    let mut object = |out: &mut Vec<u8>, body: &str| {
+        offsets.push(out.len());
+        out.extend(format!("{} 0 obj\n{body}\nendobj\n", offsets.len()).bytes());
+    };
+    object(&mut out, "<< /Type /Catalog /Pages 2 0 R >>");
+    let kids: Vec<String> = (0..pages.len())
+        .map(|at| format!("{} 0 R", 3 + 2 * at))
+        .collect();
+    object(
+        &mut out,
+        &format!(
+            "<< /Type /Pages /Count {} /Kids [{}] >>",
+            pages.len(),
+            kids.join(" ")
+        ),
+    );
+    for (at, (width, height, [r, g, b])) in pages.iter().enumerate() {
+        let content = format!("{r} {g} {b} rg 0 0 {width} {height} re f\n");
+        object(
+            &mut out,
+            &format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] /Contents {} 0 R >>",
+                4 + 2 * at
+            ),
+        );
+        object(
+            &mut out,
+            &format!(
+                "<< /Length {} >>\nstream\n{content}endstream",
+                content.len()
+            ),
+        );
+    }
+    let table = out.len();
+    out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1).bytes());
+    for offset in &offsets {
+        out.extend(format!("{offset:010} 00000 n \n").bytes());
+    }
+    out.extend(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{table}\n%%EOF\n",
+            offsets.len() + 1
+        )
+        .bytes(),
+    );
+    out
+}
+
+/// A picture in view: its page, the size of the pixels the host is given for it (`None`: its box is
+/// empty), and the size it is drawn at.
+type Shown = (u32, Option<(u32, u32)>, (u32, u32));
+
+/// The pictures of the draw list that are in view (some of them inside their clip).
+fn shown(page: &Headless) -> Vec<Shown> {
+    let images = page.page().images().expect("the page's images");
+    page.list()
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Paint::Image(picture) if picture.rect.intersect(picture.clip).h > 0.0 => {
+                let full = picture.full();
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let full = (full.w.round() as u32, full.h.round() as u32);
+                let pixels = images
+                    .bitmap(&picture.src, picture.page, picture.full())
+                    .map(|bitmap| (bitmap.width, bitmap.height));
+                Some((picture.page, pixels, full))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The pages of a PDF in a box that scrolls, shown as wide as a wide pane on a display with two
+/// pixels to the point, under the images' own limits: each page's pixels are 27 MiB, and the 64 MiB
+/// a view may hold are two of them. The pages scrolled to are drawn, none an empty box, though the
+/// room is held by a page that went out of view; and once its pixels have gone unasked for the time
+/// they are kept, with nothing done, they are drawn at their size.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_pages_scrolled_to_are_never_empty_and_are_sharp_once_room_is_had_with_nothing_done()
+-> Result<(), Error> {
+    let colours = [
+        [0.8, 0.1, 0.1],
+        [0.1, 0.6, 0.1],
+        [0.1, 0.1, 0.8],
+        [0.6, 0.6, 0.1],
+    ];
+    let pages: Vec<(u32, u32, [f32; 3])> = colours.iter().map(|&c| (1600, 1100, c)).collect();
+    let pdf = pdf_of_colours(&pages);
+    let name = format!("sha256:{}", pencere_wire::bundle::Digest::of(&pdf));
+    let source = format!(
+        r#"return {{ render = function()
+            local box = pencere.div():id("pages"):col():size(1700, 1000):scroll()
+            for n = 1, 4 do
+                box:child(pencere.image("{name}"):page(n):size(1600, 1100):no_shrink())
+            end
+            return pencere.div():child(box)
+        end }}"#
+    );
+    let mut page = Headless::script(source)
+        .size(1700.0, 1000.0)
+        .scale(2.0)
+        .attached(&pdf)
+        .open()?;
+    page.wait_for(std::time::Duration::from_secs(30), |page| {
+        shown(page).iter().all(|(_, pixels, _)| pixels.is_some())
+    })?;
+    assert_eq!(shown(&page)[0].1, Some((3200, 2200)), "{:?}", shown(&page));
+
+    // The second and the third in view: the first, out of it, still holds its room.
+    page.scroll_to("pages", 1650.0)?;
+    let seen = shown(&page);
+    assert_eq!(seen.iter().map(|(n, ..)| *n).collect::<Vec<_>>(), [2, 3]);
+    assert!(
+        seen.iter().all(|(_, pixels, _)| pixels.is_some()),
+        "a page in view is an empty box: {seen:?}"
+    );
+
+    // Nothing is done for longer than pixels are kept: the page is woken by its images, and both
+    // pages are drawn at their size.
+    std::thread::sleep(std::time::Duration::from_millis(2400));
+    page.settle()?;
+    let seen = shown(&page);
+    assert!(
+        seen.iter().all(|(_, pixels, full)| *pixels == Some(*full)),
+        "{seen:?}"
+    );
+    Ok(())
+}
