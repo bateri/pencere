@@ -24,6 +24,10 @@ serde = { version = "1", features = ["derive"] }
 # without building a tree of its whole body, which a hostile stream could make many times
 # larger than the text.
 serde_json = { version = "1", features = ["raw_value"] }
+# Checks the signature of an app's `app.json` (`apps.rs`). Verification only: signing is left out
+# on purpose, so no terminal built on this crate can sign, and no key is made here; the crate that
+# makes the author's key is the command line tool's. BSD-3-Clause.
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true

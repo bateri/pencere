@@ -4341,5 +4341,249 @@
       "note": "a call nested 128 levels deep is no message: it is ignored",
       "reads": null
     }
-  ]
+  ],
+  "apps": {
+    "key": "apps/key.pub",
+    "other-key": "apps/other-key.pub",
+    "cases": [
+      {
+        "file": "apps/valid/app.json",
+        "signature": "apps/valid/app.json.sig",
+        "note": "a signed app.json of version 0.5.1 that asks for the lua view at 0.3 and lists 0.4.3, which asks for 0.2",
+        "outcome": "ok",
+        "name": "demopen",
+        "version": "0.5.1",
+        "selects": [
+          {
+            "host": {
+              "protocol": [1],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.3"]
+                }
+              ]
+            },
+            "chooses": "0.5.1"
+          },
+          {
+            "host": {
+              "protocol": [1],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.2"]
+                }
+              ]
+            },
+            "chooses": "0.4.3"
+          },
+          {
+            "host": {
+              "protocol": [1],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.2", "0.3"]
+                }
+              ]
+            },
+            "chooses": "0.5.1"
+          },
+          {
+            "host": {
+              "protocol": [1],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.1"]
+                }
+              ]
+            },
+            "chooses": null
+          },
+          {
+            "host": {
+              "protocol": [2],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.3"]
+                }
+              ]
+            },
+            "chooses": null
+          }
+        ]
+      },
+      {
+        "file": "apps/tampered/app.json",
+        "signature": "apps/tampered/app.json.sig",
+        "note": "the app.json of valid with one digit of a digest changed and the signature of valid kept: still JSON, no longer what was signed",
+        "outcome": "signature"
+      },
+      {
+        "file": "apps/wrong-key/app.json",
+        "signature": "apps/wrong-key/app.json.sig",
+        "note": "the app.json of valid, signed with another key than the one it names in key",
+        "outcome": "signature"
+      },
+      {
+        "file": "apps/first/app.json",
+        "signature": "apps/first/app.json.sig",
+        "note": "the first release of an app: previous is empty",
+        "outcome": "ok",
+        "name": "demopen",
+        "version": "0.1.0",
+        "selects": [
+          {
+            "host": {
+              "protocol": [1],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.1"]
+                }
+              ]
+            },
+            "chooses": "0.1.0"
+          },
+          {
+            "host": {
+              "protocol": [1],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.3"]
+                }
+              ]
+            },
+            "chooses": null
+          }
+        ]
+      },
+      {
+        "file": "apps/later-fix/app.json",
+        "signature": "apps/later-fix/app.json.sig",
+        "note": "0.4.4, released after 0.5.1 for hosts that still open the lua view at 0.2: the latest release is the lower number, and 0.5.1 is in previous",
+        "outcome": "ok",
+        "name": "demopen",
+        "version": "0.4.4",
+        "selects": [
+          {
+            "host": {
+              "protocol": [1],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.2"]
+                }
+              ]
+            },
+            "chooses": "0.4.4"
+          },
+          {
+            "host": {
+              "protocol": [1],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.3"]
+                }
+              ]
+            },
+            "chooses": "0.5.1"
+          },
+          {
+            "host": {
+              "protocol": [1],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.2", "0.3"]
+                }
+              ]
+            },
+            "chooses": "0.5.1"
+          },
+          {
+            "host": {
+              "protocol": [1],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.1"]
+                }
+              ]
+            },
+            "chooses": null
+          }
+        ]
+      },
+      {
+        "file": "apps/newer-protocol/app.json",
+        "signature": "apps/newer-protocol/app.json.sig",
+        "note": "0.6.0 speaks protocol 2 only; 0.5.1 in previous speaks 1",
+        "outcome": "ok",
+        "name": "demopen",
+        "version": "0.6.0",
+        "selects": [
+          {
+            "host": {
+              "protocol": [1],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.3"]
+                }
+              ]
+            },
+            "chooses": "0.5.1"
+          },
+          {
+            "host": {
+              "protocol": [1, 2],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.3"]
+                }
+              ]
+            },
+            "chooses": "0.6.0"
+          },
+          {
+            "host": {
+              "protocol": [3],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.3"]
+                }
+              ]
+            },
+            "chooses": null
+          }
+        ]
+      },
+      {
+        "file": "apps/invalid-name/app.json",
+        "signature": "apps/invalid-name/app.json.sig",
+        "note": "a name with capital letters, signed as it should be",
+        "outcome": "name"
+      },
+      {
+        "file": "apps/invalid-version/app.json",
+        "signature": "apps/invalid-version/app.json.sig",
+        "note": "a version of two numbers, signed as it should be",
+        "outcome": "version"
+      },
+      {
+        "file": "apps/invalid-address/app.json",
+        "signature": "apps/invalid-address/app.json.sig",
+        "note": "a file at an http: address, signed as it should be",
+        "outcome": "address"
+      }
+    ]
+  }
 }

@@ -128,6 +128,58 @@ impl Offer {
     }
 }
 
+/// What a host that offers `host` will open of the `listed` views of a `hello` (specification
+/// §5.2), and what it leaves out for want of a version: the one rule of what a `welcome` offers,
+/// and of what an app that names the views it needs (`crate::apps`) can be opened by.
+///
+/// The first list: for each entry of `listed`, in order, the same kind with its versions cut down
+/// to those the host also offers, in the program's order. A kind the host will not open, a
+/// name that is not in the table of kinds, and a kind with no version in common are left
+/// out, and a kind listed twice counts once, at its first place: the host eliminates and
+/// never reorders or adds.
+///
+/// The second list, the `opens` of a `welcome`: the kinds that were left out only for want of a
+/// version in common, each with the versions the host does open, in its own order, so that a
+/// program that finds nothing to open can say which versions would have served.
+pub(crate) fn match_views(
+    host: &[Offer],
+    listed: &[ViewOffer],
+) -> (Vec<ViewOffer>, Vec<ViewOffer>) {
+    let mut offered: Vec<ViewOffer> = Vec::new();
+    let mut opens: Vec<ViewOffer> = Vec::new();
+    // Only the kinds of the table are ever kept, so this stays as short as the table
+    // however long the program's list is.
+    let mut seen: Vec<ViewKind> = Vec::new();
+    for entry in listed {
+        let Some(kind) = ViewKind::from_name(&entry.kind) else {
+            continue;
+        };
+        if seen.contains(&kind) {
+            continue;
+        }
+        seen.push(kind);
+        let Some(offer) = host.iter().find(|offer| offer.kind == kind) else {
+            continue;
+        };
+        let mut versions: Vec<String> = Vec::new();
+        for version in &entry.versions {
+            if offer.versions.contains(version) && !versions.contains(version) {
+                versions.push(version.clone());
+            }
+        }
+        let (into, held) = if versions.is_empty() {
+            (&mut opens, offer.versions.clone())
+        } else {
+            (&mut offered, versions)
+        };
+        into.push(ViewOffer {
+            kind: kind.name().to_owned(),
+            versions: held,
+        });
+    }
+    (offered, opens)
+}
+
 /// What a session is configured with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -954,56 +1006,10 @@ impl<S: Store, E: Entropy> Session<S, E> {
         }
     }
 
-    /// What the host offers of `kind`, if it will open it: the configuration lists it.
-    fn offer_of(&self, kind: ViewKind) -> Option<&Offer> {
-        self.config.views.iter().find(|offer| offer.kind == kind)
-    }
-
-    /// The `views` and the `opens` of the `welcome` that answers a `hello` (specification §5.2).
-    ///
-    /// `views`: for each entry of the `hello`, in order, the same kind with its versions cut down
-    /// to those the host also offers, in the program's order. A kind the host will not open, a
-    /// name that is not in the table of kinds, and a kind with no version in common are left
-    /// out, and a kind listed twice counts once, at its first place: the host eliminates and
-    /// never reorders or adds.
-    ///
-    /// `opens`: the kinds that were left out only for want of a version in common, each with the
-    /// versions the host does open, in its own order, so that a program that finds nothing to
-    /// open can say which versions would have served.
+    /// The `views` and the `opens` of the `welcome` that answers a `hello` (specification §5.2):
+    /// [`match_views`] with the views this host's configuration offers.
     fn offer_for(&self, listed: &[ViewOffer]) -> (Vec<ViewOffer>, Vec<ViewOffer>) {
-        let mut offered: Vec<ViewOffer> = Vec::new();
-        let mut opens: Vec<ViewOffer> = Vec::new();
-        // Only the three kinds of the table are ever kept, so this stays as short as the table
-        // however long the program's list is.
-        let mut seen: Vec<ViewKind> = Vec::new();
-        for entry in listed {
-            let Some(kind) = ViewKind::from_name(&entry.kind) else {
-                continue;
-            };
-            if seen.contains(&kind) {
-                continue;
-            }
-            seen.push(kind);
-            let Some(offer) = self.offer_of(kind) else {
-                continue;
-            };
-            let mut versions: Vec<String> = Vec::new();
-            for version in &entry.versions {
-                if offer.versions.contains(version) && !versions.contains(version) {
-                    versions.push(version.clone());
-                }
-            }
-            let (into, held) = if versions.is_empty() {
-                (&mut opens, offer.versions.clone())
-            } else {
-                (&mut offered, versions)
-            };
-            into.push(ViewOffer {
-                kind: kind.name().to_owned(),
-                versions: held,
-            });
-        }
-        (offered, opens)
+        match_views(&self.config.views, listed)
     }
 
     fn on_hello(&mut self, message: &Message) {

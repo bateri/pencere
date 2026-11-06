@@ -18,6 +18,8 @@
 //!   ([`frame::BodyDecoder`] for bodies a terminal's parser hands over,
 //!   [`frame::StreamDecoder`] for raw bytes) and written ([`frame::encode`]), and the payloads
 //!   of the handshake and of closing.
+//! * [`apps`]: the `app.json` and signature that release an app, read and checked, and the choice of
+//!   the newest release a host can open (`spec/draft/apps.md`).
 //! * [`session`]: one pane's conversation with one program, as a state machine
 //!   that takes what the terminal learns and returns what the terminal does. It
 //!   carries the six messages of a program and its view between the two without reading
@@ -40,6 +42,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod apps;
 pub mod bundle;
 pub mod icon;
 pub mod sandbox;
