@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use pencere_view::Size;
 
-use crate::decode::{Failure, Format, sniff};
+use crate::decode::{Failure, Format, Part, sniff};
 use crate::pdf::Document;
 
 const PAGES_PDF: &[u8] = include_bytes!("fixtures/pages.pdf");
@@ -54,6 +54,57 @@ fn a_page_is_drawn_at_the_size_asked_whatever_it_is() {
         Err(Failure::Broken(_))
     ));
     assert!(matches!(document.draw(0, 0, 10), Err(Failure::Broken(_))));
+}
+
+/// A part of a page is the pixels of that part of the page drawn whole at the same size, to the byte:
+/// the surface of a part is the part's, and the page is moved on it by where the part starts.
+#[test]
+fn a_part_of_a_page_is_the_pixels_of_that_part_of_the_whole_page() {
+    let document = document(PAGES_PDF).unwrap();
+    let whole = document.draw(0, 800, 400).unwrap();
+    // Across the red half's edge and the words of the page.
+    let part = Part {
+        x: 300,
+        y: 100,
+        w: 450,
+        h: 300,
+    };
+    let cut = document.draw_part(0, 800, 400, part).unwrap();
+    assert_eq!((cut.width, cut.height), (450, 300));
+    for row in 0..300_usize {
+        let from = ((100 + row) * 800 + 300) * 4;
+        assert_eq!(
+            cut.pixels[row * 450 * 4..(row + 1) * 450 * 4],
+            whole.pixels[from..from + 450 * 4],
+            "row {row}"
+        );
+    }
+    // A part that is not within the page is refused.
+    for outside in [
+        Part {
+            x: 600,
+            y: 0,
+            w: 300,
+            h: 10,
+        },
+        Part {
+            x: 0,
+            y: 390,
+            w: 10,
+            h: 20,
+        },
+        Part {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 10,
+        },
+    ] {
+        assert!(matches!(
+            document.draw_part(0, 800, 400, outside),
+            Err(Failure::Broken(_))
+        ));
+    }
 }
 
 #[test]

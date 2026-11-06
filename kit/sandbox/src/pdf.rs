@@ -26,7 +26,7 @@ use hayro::vello_cpu::{Pixmap, RasterizerSettings, RenderContext, Resources, Tar
 use hayro::{RenderCache, RenderSettings, render_into};
 use pencere_view::Size;
 
-use crate::decode::{Failure, Raster, pixel_bytes};
+use crate::decode::{Failure, Part, Raster, pixel_bytes};
 
 /// The most pages a document may have: far more than a book has, and few enough that the sizes of
 /// them all, which are read when the file is, take no time or room worth the name.
@@ -105,23 +105,38 @@ impl Document {
     }
 
     /// The page at `index` (from 0) drawn on a `width` by `height` surface, so that it fills it.
+    #[cfg(test)]
     pub(crate) fn draw(&self, index: usize, width: u32, height: u32) -> Result<Raster, Failure> {
+        self.draw_part(index, width, height, Part::whole(width, height))
+    }
+
+    /// The part `part` of the page at `index` (from 0) drawn so that all of the page is `width` by
+    /// `height`: a surface of the part's size, which is all that is made of the page.
+    pub(crate) fn draw_part(
+        &self,
+        index: usize,
+        width: u32,
+        height: u32,
+        part: Part,
+    ) -> Result<Raster, Failure> {
         let pages = self.pdf.pages();
         let page = pages
             .get(index)
             .ok_or_else(|| Failure::Broken("it has no such page".into()))?;
-        let (pixels_w, pixels_h) = match (u16::try_from(width), u16::try_from(height)) {
-            (Ok(w), Ok(h)) if w > 0 && h > 0 => (w, h),
+        let (pixels_w, pixels_h) = match (u16::try_from(part.w), u16::try_from(part.h)) {
+            (Ok(w), Ok(h)) if part.within(width, height) => (w, h),
             _ => return Err(Failure::Broken("no room to draw it".into())),
         };
         let (base_w, base_h) = page.render_dimensions();
-        // The surface is what the page is drawn to fill: the scale is the surface's to the page's.
-        // It is made here and not by `hayro::render`, which takes the surface's size from the
+        // The whole page is `width` by `height`: the scale is that to the page's, and the surface is
+        // the part of it, so the page is moved up and to the left by where the part starts. The
+        // surface is made here and not by `hayro::render`, which takes the surface's size from the
         // page's times the scale and so can fall a pixel short of the size asked for.
-        let scale = Affine::scale_non_uniform(
-            f64::from(width) / f64::from(base_w.max(f32::EPSILON)),
-            f64::from(height) / f64::from(base_h.max(f32::EPSILON)),
-        );
+        let scale = Affine::translate((-f64::from(part.x), -f64::from(part.y)))
+            * Affine::scale_non_uniform(
+                f64::from(width) / f64::from(base_w.max(f32::EPSILON)),
+                f64::from(height) / f64::from(base_h.max(f32::EPSILON)),
+            );
         let mut surface = RenderContext::new(pixels_w, pixels_h);
         render_into(
             page,
@@ -142,8 +157,8 @@ impl Document {
             },
         );
         Ok(Raster {
-            width,
-            height,
+            width: part.w,
+            height: part.h,
             pixels: pixmap.data_as_u8_slice().to_vec(),
         })
     }

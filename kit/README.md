@@ -80,9 +80,10 @@ A page shows pictures with `image(src, fit)` (in Lua, `pencere.image(src):fit(â€
 `src` is the path of a file of the view's own bundle, as its manifest names it, or a file beside
 the bundle: `sha256:` and the digest of one its program attached, `file:` and the handle of one the
 person gave the page; nothing else is reachable (no network, no file system). PNG, JPEG, SVG and PDF (`:page(n)` is the page of a PDF shown); at most 4096 Ã— 4096 pixels an image and
-64 MiB of pixels a view holds (a PNG or a JPEG is kept at the size it is drawn at, not the file's;
-an SVG or a page of a PDF that has no room at its size is drawn smaller until it has, and a picture
-scrolled out of view holds none); `contain` (all of it, centred) or `cover` (the box filled, the
+64 MiB of pixels a view holds (a PNG or a JPEG is kept at the size it is drawn at, not the file's; a
+large SVG or page of a PDF is drawn only where it is seen, so a page larger than 4096 pixels is
+sharp at every zoom and the pixels held are those of the screen; one that has no room at its size
+is drawn smaller until it has, and a picture scrolled out of view holds none); `contain` (all of it, centred) or `cover` (the box filled, the
 rest cut off); `tint` paints the image's opacity in a colour, so that an icon of one colour follows
 the theme. The size is the element's, and where it says a side only the image's proportions give the
 other; where it says neither the image's own size in pixels, a point to a pixel.
@@ -99,9 +100,14 @@ one `Images` for a view, and uses three of its calls:
   is not known. The first ask starts the decoding on a thread of its own; the layout goes on
   without it. It is asked with the page of the file (`Measure::image(src, page)`: from 1, and 1 for
   a file that has no pages, which is everything but a PDF).
-- `Paint::Image` of the draw list is drawn with `Images::bitmap(src, picture.page, picture.full())`:
-  premultiplied RGBA with an `id` to key the texture by. An SVG or a page of a PDF is drawn at the
-  size asked, again for every other.
+- `Paint::Image` of the draw list is drawn with `Images::picture(&picture)`: premultiplied RGBA with
+  an `id` to key the texture by, and `Bitmap::part`, what of the whole image the pixels hold (all of
+  it for a PNG, a JPEG or a small SVG; for a large SVG or a page of a PDF the part that is seen,
+  `Picture::shown`, and a margin: the picture's rectangle is drawn with `Bitmap::crop_of(&picture)`
+  for the texture's crop, which reaches past the pixels only where the clip cuts the rectangle). An
+  SVG or a page of a PDF is drawn at the size asked, again for every other, and a large one in steps
+  of it. A terminal that draws the pictures of its draw list asks for no other (`Images::bitmap` is
+  the whole image at a size).
 - The `wake` given to `Images::new` is called when something arrived. The terminal then calls
   `Images::poll`: `relayout` says a size is known and the page is to be laid out again (once),
   `redraw` that pixels are there, and `diagnostics` why an image was refused. Nothing is polled

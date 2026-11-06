@@ -6,8 +6,16 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- **`Picture::shown`**: what of the whole image is inside the picture's clip, as shares of it like
+  `crop`. A host that rasterises a large SVG or page draws that part and not all of it
+  (`pencere-sandbox`'s `Images::picture`).
+
 ### Changed
 
+- **Breaking:** `Picture` has `shown`, so a host that builds one with a struct literal names it
+  (`crop` where it knows no better: `(0, 0, 1, 1)` is all of the image).
 - **A picture all outside its clip is not in the draw list** (a page of a long document scrolled
   out of the box it is in): what a host asks the pixels of is what it shows, and a picture it does
   not show no longer holds room of the pixels a view may have. Its box's fill is drawn as before.

@@ -7,7 +7,7 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use pencere_view::{Fit, Font, Measure, Metrics, Paint, Size, div, image, layout};
+use pencere_view::{Fit, Font, Measure, Metrics, Paint, Picture, Rect, Size, div, image, layout};
 
 use crate::images::{Arrival, Assets, Bitmap, ImageLimits, Images};
 
@@ -1786,4 +1786,375 @@ fn a_pdf_is_told_from_its_bytes_and_a_broken_one_leaves_its_box_empty() {
         assert_eq!(rig.images.bitmap(name, 1, whole(10.0, 10.0)), None);
     }
     rig.quiet();
+}
+
+// --- A large page is drawn where it is seen -----------------------------------------------------
+
+/// A PDF whose pages are `(width, height)` points, each of four boxes, a quarter of the page each:
+/// red at the top left, green at the top right, blue at the bottom left, yellow at the bottom right.
+fn quadrants_pdf(pages: &[(u32, u32)]) -> Vec<u8> {
+    let mut out = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    let mut object = |out: &mut Vec<u8>, body: &str| {
+        offsets.push(out.len());
+        out.extend(format!("{} 0 obj\n{body}\nendobj\n", offsets.len()).bytes());
+    };
+    object(&mut out, "<< /Type /Catalog /Pages 2 0 R >>");
+    let kids: Vec<String> = (0..pages.len())
+        .map(|at| format!("{} 0 R", 3 + 2 * at))
+        .collect();
+    object(
+        &mut out,
+        &format!(
+            "<< /Type /Pages /Count {} /Kids [{}] >>",
+            pages.len(),
+            kids.join(" ")
+        ),
+    );
+    for (at, (w, h)) in pages.iter().enumerate() {
+        let (x, y) = (w / 2, h / 2);
+        let content = format!(
+            "1 0 0 rg 0 {y} {x} {y} re f\n0 1 0 rg {x} {y} {x} {y} re f\n\
+             0 0 1 rg 0 0 {x} {y} re f\n1 1 0 rg {x} 0 {x} {y} re f\n"
+        );
+        object(
+            &mut out,
+            &format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Contents {} 0 R >>",
+                4 + 2 * at
+            ),
+        );
+        object(
+            &mut out,
+            &format!(
+                "<< /Length {} >>\nstream\n{content}endstream",
+                content.len()
+            ),
+        );
+    }
+    let table = out.len();
+    out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1).bytes());
+    for offset in &offsets {
+        out.extend(format!("{offset:010} 00000 n \n").bytes());
+    }
+    out.extend(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{table}\n%%EOF\n",
+            offsets.len() + 1
+        )
+        .bytes(),
+    );
+    out
+}
+
+/// A page `whole` pixels large with its top `top` pixels from the top of a view `view` large, as the
+/// host has it in its draw list: its picture, with what of it is inside the view as the
+/// engine says it ([`Picture::shown`]).
+fn page_in(page: u32, top: f32, whole: Size, view: Size) -> Picture {
+    let rect = Rect::new(0.0, top, whole.w, whole.h);
+    let clip = Rect::new(0.0, 0.0, view.w, view.h);
+    let seen = rect.intersect(clip);
+    Picture {
+        src: "doc.pdf".to_owned(),
+        page,
+        rect,
+        crop: Rect::new(0.0, 0.0, 1.0, 1.0),
+        shown: Rect::new(
+            (seen.x - rect.x) / rect.w,
+            (seen.y - rect.y) / rect.h,
+            seen.w / rect.w,
+            seen.h / rect.h,
+        ),
+        tint: None,
+        opacity: 1.0,
+        radii: [0.0; 4],
+        clip,
+        turn: 0.0,
+    }
+}
+
+/// Whether the pixels are as many to a pixel of the page as the page has.
+fn is_sharp(bitmap: &Bitmap, picture: &Picture) -> bool {
+    bitmap.width as f32 >= 0.99 * bitmap.part.w * picture.full().w
+}
+
+impl Rig {
+    /// The pixels of the pictures, asked for as a host that is woken asks, again and again, until
+    /// each is as sharp as it is shown; they must be within `within` of the clock, not of the
+    /// time pixels are kept.
+    fn sharp(&self, pictures: &[Picture], within: Duration) -> Vec<Bitmap> {
+        let began = std::time::Instant::now();
+        loop {
+            let got: Vec<Option<Bitmap>> = pictures
+                .iter()
+                .map(|picture| self.images.picture(picture))
+                .collect();
+            let sharp = |(bitmap, picture): (&Option<Bitmap>, &Picture)| {
+                bitmap
+                    .as_ref()
+                    .is_some_and(|bitmap| is_sharp(bitmap, picture))
+            };
+            if got.iter().zip(pictures).all(sharp) {
+                return got.into_iter().flatten().collect();
+            }
+            let left = within.checked_sub(began.elapsed());
+            assert!(
+                left.is_some(),
+                "not sharp within {within:?}: {:?}",
+                got.iter()
+                    .map(|b| b.as_ref().map(|b| (b.width, b.height, b.part)))
+                    .collect::<Vec<_>>()
+            );
+            let _ = self.woke.recv_timeout(left.unwrap_or_default());
+            self.images.poll();
+        }
+    }
+}
+
+#[test]
+fn a_large_page_is_drawn_where_it_is_seen_and_only_there() {
+    let rig = rig(vec![("doc.pdf", quadrants_pdf(&[(1600, 1200)]))]);
+    page_size(&rig, "doc.pdf", 1);
+    // At two pixels to the point the page is 3200 by 2400; the view shows its lower part: from 1000
+    // down, 3000 wide and 1500 tall, across where the quarters meet (1200 down, 1600 across).
+    let whole = Size::new(3200.0, 2400.0);
+    let picture = page_in(1, -1000.0, whole, Size::new(3000.0, 1500.0));
+    let bitmap = rig
+        .sharp(std::slice::from_ref(&picture), Duration::from_secs(20))
+        .remove(0);
+    assert!(
+        bitmap.width <= 3200 && bitmap.height < 2400,
+        "the part and not the page: {}x{}",
+        bitmap.width,
+        bitmap.height
+    );
+    // What it holds is at the page's own resolution, and what is seen is inside it.
+    assert!((bitmap.width as f32 / bitmap.part.w - 3200.0).abs() < 1.0);
+    assert!((bitmap.height as f32 / bitmap.part.h - 2400.0).abs() < 1.0);
+    let (left, top) = (bitmap.part.x * 3200.0, bitmap.part.y * 2400.0);
+    assert!(top <= 1000.0 && left <= 0.5 && top + bitmap.height as f32 >= 2400.0 - 0.5);
+    // Where the quarters meet: the pixel of the page at (x, y) is the bitmap's at (x - left, y - top).
+    let at = |x: f32, y: f32| pixel(&bitmap, (x - left).round() as u32, (y - top).round() as u32);
+    assert_eq!(at(1000.0, 1100.0), [255, 0, 0, 255]);
+    assert_eq!(at(2000.0, 1100.0), [0, 255, 0, 255]);
+    assert_eq!(at(1000.0, 1300.0), [0, 0, 255, 255]);
+    assert_eq!(at(2000.0, 1300.0), [255, 255, 0, 255]);
+    // What the picture's rectangle shows of the bitmap, as shares of its pixels, a host draws as a
+    // texture: the whole page is a rectangle larger than the pixels, and what is seen of it is
+    // inside them.
+    let crop = bitmap.crop_of(&picture);
+    assert!(
+        (crop.h * bitmap.height as f32 - 2400.0).abs() < 0.5,
+        "{crop:?}"
+    );
+    let shown = picture.shown;
+    let inside = |from: f32, len: f32, part_from: f32, part_len: f32| {
+        (from - part_from) / part_len >= -0.001 && (from + len - part_from) / part_len <= 1.001
+    };
+    assert!(inside(shown.x, shown.w, bitmap.part.x, bitmap.part.w));
+    assert!(inside(shown.y, shown.h, bitmap.part.y, bitmap.part.h));
+}
+
+const QUADRANTS_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1200" viewBox="0 0 1600 1200"><rect width="800" height="600" fill="#ff0000"/><rect x="800" width="800" height="600" fill="#00ff00"/><rect y="600" width="800" height="600" fill="#0000ff"/><rect x="800" y="600" width="800" height="600" fill="#ffff00"/></svg>"##;
+
+/// A large SVG is drawn where it is seen, as a page of a PDF is.
+#[test]
+fn a_large_svg_is_drawn_where_it_is_seen_too() {
+    let rig = rig(vec![("doc.pdf", QUADRANTS_SVG.as_bytes().to_vec())]);
+    page_size(&rig, "doc.pdf", 1);
+    let picture = page_in(
+        1,
+        -1000.0,
+        Size::new(3200.0, 2400.0),
+        Size::new(3000.0, 1500.0),
+    );
+    let bitmap = rig
+        .sharp(std::slice::from_ref(&picture), Duration::from_secs(20))
+        .remove(0);
+    assert!(bitmap.height < 2400, "the part and not the whole");
+    let (left, top) = (bitmap.part.x * 3200.0, bitmap.part.y * 2400.0);
+    let at = |x: f32, y: f32| pixel(&bitmap, (x - left).round() as u32, (y - top).round() as u32);
+    assert_eq!(at(1000.0, 1100.0), [255, 0, 0, 255]);
+    assert_eq!(at(2000.0, 1100.0), [0, 255, 0, 255]);
+    assert_eq!(at(1000.0, 1300.0), [0, 0, 255, 255]);
+    assert_eq!(at(2000.0, 1300.0), [255, 255, 0, 255]);
+}
+
+#[test]
+fn a_page_scrolled_a_little_is_not_drawn_again_and_one_scrolled_far_is_never_an_empty_box() {
+    let rig = rig(vec![("doc.pdf", quadrants_pdf(&[(1600, 3200)]))]);
+    page_size(&rig, "doc.pdf", 1);
+    let whole = Size::new(3200.0, 6400.0);
+    let view = Size::new(3000.0, 1500.0);
+    let first = rig
+        .sharp(&[page_in(1, -2000.0, whole, view)], Duration::from_secs(20))
+        .remove(0);
+    // A scroll of a few pixels asks for the same pixels, and nothing is drawn.
+    for by in [10.0, 30.0, -30.0, 50.0] {
+        let bitmap = rig.images.picture(&page_in(1, -2000.0 - by, whole, view));
+        assert_eq!(bitmap.map(|b| b.id), Some(first.id), "scrolled {by}");
+    }
+    rig.quiet();
+    // A scroll past what was drawn: the pixels that are there stand in, so that the box is not empty
+    // (the whole page, small, if nothing else), and the part is drawn and replaces it.
+    let far = page_in(1, -4000.0, whole, view);
+    let standing = rig.images.picture(&far);
+    assert!(standing.is_some(), "a box with nothing in it");
+    let drawn = rig.sharp(&[far], Duration::from_secs(20)).remove(0);
+    assert_ne!(drawn.id, first.id);
+    assert!(drawn.part.y > first.part.y);
+}
+
+#[test]
+fn the_size_a_large_page_is_drawn_at_goes_in_steps_so_that_a_dragged_pane_draws_it_once_for_each() {
+    let rig = rig(vec![("doc.pdf", quadrants_pdf(&[(1600, 1200)]))]);
+    page_size(&rig, "doc.pdf", 1);
+    let view = Size::new(4000.0, 3000.0);
+    let drawn_at = |width: f32| {
+        let bitmap = rig
+            .sharp(
+                &[page_in(1, 0.0, Size::new(width, width * 0.75), view)],
+                Duration::from_secs(20),
+            )
+            .remove(0);
+        (
+            (bitmap.width as f32 / bitmap.part.w).round() as u32,
+            bitmap.id,
+        )
+    };
+    // 3201 and 3260 pixels wide are the one size and the one drawing, a step of 64 above 3200; a
+    // size a percent or more past it is the next step.
+    let (first, id) = drawn_at(3201.0);
+    assert_eq!(first, 3264);
+    assert_eq!(drawn_at(3260.0), (first, id));
+    assert_eq!(drawn_at(3400.0).0, 3456);
+    // Sharp: the size drawn is never below the size asked.
+    assert!(first >= 3201);
+}
+
+/// The user's own case: pages of 1536 by 1024 points at a hundred and twenty-five percent on a
+/// display with two pixels to the point, in a view of 1500 by 1000 points, under the images' own
+/// limits. Two pages in view are 79 MB of pixels whole, past the 64 MiB a view may hold; each page
+/// is sharp at once when it comes into view, and what the view holds stays within the budget.
+#[test]
+fn pages_that_do_not_fit_whole_are_sharp_as_they_are_scrolled_to_within_the_budget() {
+    let pages = [(1536, 1024); 5];
+    let rig = rig(vec![("doc.pdf", quadrants_pdf(&pages))]);
+    page_size(&rig, "doc.pdf", 1);
+    let whole = Size::new(3840.0, 2560.0);
+    let view = Size::new(3000.0, 2000.0);
+    let budget = ImageLimits::default().pixel_bytes;
+    let mut scrolled = 0.0;
+    while scrolled < 3.0 * 2560.0 {
+        let in_view: Vec<Picture> = (0..5)
+            .map(|at| (at as u32 + 1, at as f32 * 2560.0 - scrolled))
+            .filter(|(_, top)| *top < view.h && top + 2560.0 > 0.0)
+            .map(|(page, top)| page_in(page, top, whole, view))
+            .collect();
+        // Within the time of drawing them: far under the two seconds pixels are kept.
+        rig.sharp(&in_view, Duration::from_millis(1500));
+        assert!(
+            rig.images.held() <= budget,
+            "{} at {scrolled}",
+            rig.images.held()
+        );
+        scrolled += 900.0;
+    }
+    let told = rig.images.poll().diagnostics;
+    assert!(told.is_empty(), "{told:?}");
+}
+
+/// At every zoom the keys go by, to four hundred percent, the pixels are as many to a point as the
+/// display has (two) times the zoom, up to a step of the size, and a part is never past a side; what
+/// the view holds stays within the budget at every one (at 400% the page is 400 MB whole).
+#[test]
+fn the_pixels_to_a_point_are_the_zoom_times_the_display_up_to_four_hundred_percent() {
+    let rig = rig(vec![("doc.pdf", quadrants_pdf(&[(1536, 1024)]))]);
+    page_size(&rig, "doc.pdf", 1);
+    let view = Size::new(3000.0, 2000.0);
+    for zoom in [0.5_f32, 1.0, 1.25, 2.0, 3.0, 4.0] {
+        // Two pixels to the point.
+        let whole = Size::new(1536.0 * 2.0 * zoom, 1024.0 * 2.0 * zoom);
+        for top in [0.0, -(whole.h - view.h) / 2.0, -(whole.h - view.h)] {
+            let picture = page_in(1, top, whole, view);
+            let bitmap = rig.sharp(&[picture], Duration::from_secs(30)).remove(0);
+            assert!(bitmap.width <= 4096 && bitmap.height <= 4096, "{zoom}");
+            let density = bitmap.width as f32 / bitmap.part.w;
+            assert!(
+                density >= whole.w * 0.99 && density <= whole.w * 1.035,
+                "{zoom}: {density} pixels across the page, asked for {}",
+                whole.w
+            );
+            assert!(rig.images.held() <= ImageLimits::default().pixel_bytes);
+        }
+    }
+}
+
+#[test]
+fn the_pixels_of_a_page_no_longer_in_view_give_their_room_up_at_once_and_not_after_two_seconds() {
+    // Room for one page's part and not for two; the time they are kept is long.
+    let limits = ImageLimits {
+        pixel_bytes: 36 << 20,
+        idle: Duration::from_secs(30),
+        ..ImageLimits::default()
+    };
+    let rig = rig_with(
+        vec![("doc.pdf", quadrants_pdf(&[(1536, 1024); 2]))],
+        limits,
+        None,
+    );
+    page_size(&rig, "doc.pdf", 1);
+    let whole = Size::new(3840.0, 2560.0);
+    let view = Size::new(3000.0, 2000.0);
+    rig.sharp(&[page_in(1, 0.0, whole, view)], Duration::from_secs(20));
+    // The first is no longer shown (it was not asked for at the host's last frame), the second is:
+    // it is drawn, in the room of the first, with nothing waited out.
+    std::thread::sleep(RECENT_ENOUGH);
+    rig.sharp(&[page_in(2, 0.0, whole, view)], Duration::from_secs(5));
+}
+
+#[test]
+fn the_small_page_that_stands_in_is_asked_for_as_long_as_the_page_is_seen_sharp_or_not() {
+    let rig = rig_with(
+        vec![("doc.pdf", quadrants_pdf(&[(1536, 1024)]))],
+        ImageLimits::default(),
+        None,
+    );
+    page_size(&rig, "doc.pdf", 1);
+    let whole = Size::new(3840.0, 2560.0);
+    let view = Size::new(3000.0, 2000.0);
+    let picture = page_in(1, 0.0, whole, view);
+    rig.sharp(std::slice::from_ref(&picture), Duration::from_secs(20));
+    // The page is held still, asked for at every frame, with a sharp part that holds what is seen.
+    for _ in 0..4 {
+        std::thread::sleep(RECENT_ENOUGH / 2);
+        assert!(rig.images.picture(&picture).is_some());
+    }
+    let asked = rig
+        .images
+        .small_asked("doc.pdf", 1)
+        .expect("the small page is drawn");
+    // It is not the first one it is: the first ask of it was longer ago than the pixels may be
+    // thought still in view, and a page jumped to would find it let go of for room.
+    assert!(
+        asked.elapsed() < RECENT_ENOUGH / 2 + Duration::from_millis(30),
+        "asked {:?} ago",
+        asked.elapsed()
+    );
+}
+
+#[test]
+fn a_page_shown_in_two_places_at_two_sizes_is_sharp_in_both() {
+    let rig = rig_with(
+        vec![("doc.pdf", quadrants_pdf(&[(1536, 1024)]))],
+        ImageLimits::default(),
+        None,
+    );
+    page_size(&rig, "doc.pdf", 1);
+    let view = Size::new(3000.0, 2000.0);
+    // Each asked for at a frame, one after the other: a job for the part of one is not for the
+    // part the other asked for last.
+    let big = page_in(1, 0.0, Size::new(3840.0, 2560.0), view);
+    let small = page_in(1, 0.0, Size::new(2880.0, 1920.0), view);
+    rig.sharp(&[big, small], Duration::from_secs(20));
 }

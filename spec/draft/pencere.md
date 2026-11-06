@@ -1755,14 +1755,17 @@ not there.
   say). A file that has no pages, as a PNG has none, is its only page, `1`. A page the file does not
   have leaves the box empty, and the diagnostic says how many pages it has. Every page is a picture of
   its own, with its own size, that is drawn when an element asks for it.
-- _Limits._ No image is wider or taller than 4096 pixels (an SVG or a page is drawn at most that
-  size), a file is at most 8 MiB as any file of a bundle is (Section 8.2), and the decoded pixels of a
+- _Limits._ No image is wider or taller than 4096 pixels (a PNG or a JPEG; an SVG or a page is drawn
+  at most that size in one piece, and a large one in parts, each at most that size, so that its
+  whole may come to more: a host draws what is seen of it, with a margin, and not the rest), a file
+  is at most 8 MiB as any file of a bundle is (Section 8.2), and the decoded pixels of a
   view, 4 bytes a pixel, are at most 64 MiB at a time; a view names at most 1024 different paths, as
   many as a bundle has files (a PDF is one path, however many pages it has and shows), and a PDF has
   at most 20000 pages. A host MAY hold a view to less, and every host that
-  uses the kit holds it to these. The pixels held are those of the pictures the host shows: a
-  picture that is all outside the box that clips it (scrolled out of view) holds none once its room
-  is needed. An SVG or a page of a PDF that has no room at the size it is shown at, while other
+  uses the kit holds it to these. The pixels held are those of the pictures the host shows, and of
+  a large SVG or page only of the part of it that is seen (and a margin): a picture that is all
+  outside the box that clips it (scrolled out of view) holds none once its room is needed, and its
+  pixels are let go of for room without waiting. An SVG or a page of a PDF that has no room at the size it is shown at, while other
   pictures hold the room, is not left empty: it is drawn smaller, as large as there is room for,
   and shown at its size until there is room for that, which the host draws with nothing more done
   by the person. An image that is past a limit, or that cannot be read, leaves its
@@ -1782,7 +1785,10 @@ not there.
   and a PNG or a JPEG has the pixels it has: to be sharp on a display with two pixels to the point it
   is given a size in points and sent with twice the pixels (a 24-point icon is a 48-pixel file).
   An SVG or a page of a PDF needs nothing of the kind: it is drawn at the size it comes to on the
-  display, and drawn again when that changes.
+  display, and drawn again when that changes; a large one is drawn where it is seen, so that a page
+  zoomed far past 4096 pixels is as sharp as one that is not, and while the part that is seen is
+  being drawn the pixels that are there stand in (the whole page at a small size, if nothing
+  else), so that the box is not empty.
 - _Fit._ `contain`, the default, draws all of the picture as large as the box lets it be with its
   proportions kept, in the middle of the box. `cover` fills the box with the proportions kept, and
   what does not fit is cut off evenly on both sides.

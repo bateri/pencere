@@ -6,6 +6,27 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ## [Unreleased]
 
+### Added
+
+- **`Images::picture(&Picture)`, `Bitmap::part` and `Bitmap::crop_of(&Picture)`: a large SVG or page
+  of a PDF is drawn only where it is seen.** A page whose whole is more than 512 by 512 pixels at the
+  size it is shown at is drawn in the part that is seen (`Picture::shown` of `pencere-view`), 128
+  pixels more on each side, rounded out to a grid, at most 4096 on a side; what is held is the screen
+  and not the page, a page may be far larger than 4096 pixels (to 16 sides) and is sharp at every
+  zoom, and a page scrolled a little asks for nothing more. The whole page at a small size stands in
+  while a part is drawn (a box is not empty), the size a large page is drawn at goes in steps, and a
+  part that is not the one wanted when its turn comes is not drawn. A terminal draws its pictures with
+  `picture` and the texture crop `crop_of`; `Images::bitmap` is still the whole image at a size.
+  Before, a page that was larger than the pixels a view may hold, or two of them, was drawn smaller
+  than shown or waited for room.
+
+### Changed
+
+- **The pixels of an SVG or a page that were not asked for at the host's last frame are let go of
+  for room at once**, not after `ImageLimits::idle` (a page scrolled to had to wait for the page
+  scrolled away from); and a drawing may take the room of the pixels of the same page that stand in
+  for it, when there is no other. A PNG or a JPEG is held as before.
+
 ### Fixed
 
 - **A picture the host shows is not left empty for want of room.** An SVG or a page of a PDF that

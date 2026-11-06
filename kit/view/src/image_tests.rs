@@ -376,6 +376,47 @@ fn an_image_outside_its_clip_asks_for_nothing_to_be_drawn() {
     assert_eq!(drawn, [10.0, 50.0]);
 }
 
+/// A picture says what of the whole image is inside its clip, as shares of the whole image like
+/// `crop`: a host that draws a large page draws that part, and not all of it. What a `cover` crop
+/// cuts off is not part of it; a picture that turns says all of what it shows.
+#[test]
+fn a_picture_says_what_of_the_whole_image_is_inside_its_clip() {
+    let mut host = Images::with("a.png", 40.0, 20.0);
+    let root = div().items_start().child(
+        div()
+            .col()
+            .size(100.0, 60.0)
+            .clip()
+            .child(image("a.png", Fit::Contain).size(40.0, 40.0).no_shrink())
+            .child(image("a.png", Fit::Contain).size(40.0, 40.0).no_shrink()),
+    );
+    let page = laid(root, &mut host, 200.0, 200.0, 1.0);
+    let shown: Vec<Rect> = pictures(&page.paint(&mut host))
+        .into_iter()
+        .map(|picture| picture.shown)
+        .collect();
+    // The first is in its box, all of it; the second is half in it: the top half of the image.
+    assert_eq!(
+        shown,
+        [Rect::new(0.0, 0.0, 1.0, 1.0), Rect::new(0.0, 0.0, 1.0, 0.5)]
+    );
+
+    // A `cover` image shows the middle half of the file's width (a 40 by 20 file in a 40 by 40 box),
+    // and the clip cuts the box at the middle of its height: the left quarter of the file is no part
+    // of what is seen, and the lower half of the file is cut by the clip.
+    let root = div().items_start().child(
+        div()
+            .size(40.0, 20.0)
+            .clip()
+            .child(image("a.png", Fit::Cover).size(40.0, 40.0).no_shrink()),
+    );
+    let page = laid(root, &mut host, 200.0, 200.0, 1.0);
+    let list = page.paint(&mut host);
+    let cover = pictures(&list)[0];
+    assert_eq!(cover.crop, Rect::new(0.25, 0.0, 0.5, 1.0));
+    assert_eq!(cover.shown, Rect::new(0.25, 0.0, 0.5, 0.5));
+}
+
 /// A picture that spins is turned with the clock, about its middle, a turn in the seconds it says,
 /// and is laid out again at every frame while it is on the page; under Reduce Motion it is still.
 #[test]

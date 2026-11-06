@@ -119,6 +119,44 @@ pub(crate) struct Raster {
     pub(crate) pixels: Vec<u8>,
 }
 
+/// A part of an image drawn at some size: whole pixels of that size, from its top-left corner. An SVG
+/// or a page of a PDF is drawn in the part that is seen, and not all of the size it comes to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct Part {
+    pub(crate) x: u32,
+    pub(crate) y: u32,
+    pub(crate) w: u32,
+    pub(crate) h: u32,
+}
+
+impl Part {
+    /// All of an image drawn `width` by `height`.
+    pub(crate) fn whole(width: u32, height: u32) -> Self {
+        Self {
+            x: 0,
+            y: 0,
+            w: width,
+            h: height,
+        }
+    }
+
+    /// Whether `other` is inside this part.
+    pub(crate) fn contains(self, other: Self) -> bool {
+        self.x <= other.x
+            && self.y <= other.y
+            && self.x.saturating_add(self.w) >= other.x.saturating_add(other.w)
+            && self.y.saturating_add(self.h) >= other.y.saturating_add(other.h)
+    }
+
+    /// Whether the part lies inside an image drawn `width` by `height`.
+    pub(crate) fn within(self, width: u32, height: u32) -> bool {
+        self.w > 0
+            && self.h > 0
+            && self.x.saturating_add(self.w) <= width
+            && self.y.saturating_add(self.h) <= height
+    }
+}
+
 /// The format of the bytes, from the bytes.
 pub(crate) fn sniff(bytes: &[u8]) -> Option<Format> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
@@ -691,17 +729,22 @@ impl Vector {
             .saturating_mul(self.weight.layers)
     }
 
-    /// The SVG drawn on a `width` by `height` surface, so that it fills it.
-    pub(crate) fn draw(&self, width: u32, height: u32) -> Result<Raster, Failure> {
-        let mut pixmap = Pixmap::new(width, height)
+    /// The part `part` of the SVG drawn so that all of it is `width` by `height`: a surface of the
+    /// part's size.
+    pub(crate) fn draw_part(&self, width: u32, height: u32, part: Part) -> Result<Raster, Failure> {
+        if !part.within(width, height) {
+            return Err(Failure::Broken("no room to draw it".into()));
+        }
+        let mut pixmap = Pixmap::new(part.w, part.h)
             .ok_or_else(|| Failure::Broken("no room to draw it".into()))?;
         let size = self.tree.size();
         let transform =
-            Transform::from_scale(width as f32 / size.width(), height as f32 / size.height());
+            Transform::from_scale(width as f32 / size.width(), height as f32 / size.height())
+                .post_translate(-(part.x as f32), -(part.y as f32));
         resvg::render(&self.tree, transform, &mut pixmap.as_mut());
         Ok(Raster {
-            width,
-            height,
+            width: part.w,
+            height: part.h,
             pixels: pixmap.take(),
         })
     }

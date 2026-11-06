@@ -5,7 +5,7 @@
 //! gives the paths' bytes through [`Assets`], and [`Images`] turns them into what the host needs
 //! of an image — its size, for the layout ([`Images::size`], which the host's
 //! [`pencere_view::Measure::image`] answers from), and its pixels, for the draw list's
-//! [`pencere_view::Picture`] ([`Images::bitmap`]). The formats are PNG, JPEG, SVG and PDF, and the
+//! [`pencere_view::Picture`] ([`Images::picture`], [`Images::bitmap`]). The formats are PNG, JPEG, SVG and PDF, and the
 //! limits are [`ImageLimits`], the same in every terminal that uses this crate: a view that works
 //! in one works in all. A PDF is a file with pages: an element names the page it shows, and a
 //! page is asked for by the path and its number, each with its own size and its own drawings;
@@ -46,6 +46,21 @@
 //! for [`ImageLimits::idle`] and letting them go would make room enough — so that the size asked
 //! for is drawn with nothing more done: a host at rest is not woken for a drawing whose room is held
 //! by what it shows (a host asks only for what it shows: [`pencere_view::Picture`]).
+//!
+//! **A large SVG or page is drawn where it is seen** ([`Images::picture`]). A page whose whole is
+//! more than [`SMALL`] pixels at the size it is shown at is drawn in a *part* of that size: what is
+//! seen ([`pencere_view::Picture::shown`]) and [`PAY`] pixels more on each side, rounded out to a
+//! grid of [`GRID`] pixels, and at most a side of [`ImageLimits::side`]; the pixels held come to the
+//! screen and not to the page, and the page may be longer than a side. A part that holds what is
+//! seen and a [`MARGIN`] more is the one that is given, so that a page scrolled a little is drawn
+//! no more; past it the part of the page that is asked for is drawn, and the pixels that were
+//! given, or else the whole page at a small size ([`BASE`], drawn first), stand in until it is: a
+//! box is not empty. The size itself (the scale) goes in steps for a large one, so that a pane that
+//! is dragged larger is drawn once for each step. The pixels that were not asked for at the host's
+//! last frame ([`RECENT`] before the last it asked) are let go of when room is needed, without
+//! waiting out [`ImageLimits::idle`]; and where there is no other room a drawing may take the
+//! place of the pixels of the same page that stand in for it. A PNG or a JPEG is held whole, as
+//! it was.
 
 use std::collections::{HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -54,9 +69,9 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
-use pencere_view::Size;
+use pencere_view::{Picture, Rect, Size};
 
-use crate::decode::{self, Failure, Format, Raster, Vector};
+use crate::decode::{self, Failure, Format, Part, Raster, Vector};
 use crate::pdf::Document;
 
 /// The files of the view's bundle, as the host has them: the one door the images have to them.
@@ -137,6 +152,10 @@ pub struct Bitmap {
     pub id: u64,
     pub width: u32,
     pub height: u32,
+    /// What these pixels hold of the **whole** image, as shares of it like [`Picture::crop`]: all of
+    /// it, `(0, 0, 1, 1)`, for a PNG or a JPEG and for a vector image that is small; the part that
+    /// is seen, and a margin, for a page of a PDF or an SVG that is large ([`Images::picture`]).
+    pub part: Rect,
     pixels: Arc<Vec<u8>>,
 }
 
@@ -146,8 +165,23 @@ impl Bitmap {
             id,
             width,
             height,
+            part: Rect::new(0.0, 0.0, 1.0, 1.0),
             pixels: Arc::new(pixels),
         }
+    }
+
+    /// What `picture`'s rectangle shows of these pixels, as shares of them: [`Picture::crop`] taken
+    /// from the whole image to the part these pixels hold. A host draws the pixels as a texture
+    /// with this for its crop. It reaches past the pixels (below 0 or above 1) only where the
+    /// rectangle is cut off by its clip, which is not drawn.
+    pub fn crop_of(&self, picture: &Picture) -> Rect {
+        let (part, crop) = (self.part, picture.crop);
+        Rect::new(
+            (crop.x - part.x) / part.w.max(f32::EPSILON),
+            (crop.y - part.y) / part.h.max(f32::EPSILON),
+            crop.w / part.w.max(f32::EPSILON),
+            crop.h / part.h.max(f32::EPSILON),
+        )
     }
 
     /// The pixels, `4 * width * height` bytes.
@@ -233,11 +267,30 @@ enum Entry {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct At {
     page: u32,
+    /// The size all of the image is drawn at, which the pixels are made as parts of.
     width: u32,
     height: u32,
+    /// The part of that size the pixels are of: all of it for a PNG or a JPEG, and for a vector
+    /// image whose whole is small.
+    part: Part,
 }
 
 impl At {
+    /// All of the image at a size.
+    fn whole(page: u32, width: u32, height: u32) -> Self {
+        Self {
+            page,
+            width,
+            height,
+            part: Part::whole(width, height),
+        }
+    }
+
+    /// Whether the pixels are all of the image.
+    fn is_whole(self) -> bool {
+        self.part == Part::whole(self.width, self.height)
+    }
+
     /// The size alone, as a PNG's or a JPEG's drawn sizes are compared.
     fn covers(self, other: Self) -> bool {
         self.width >= other.width && self.height >= other.height
@@ -245,6 +298,37 @@ impl At {
 
     fn area(self) -> u64 {
         u64::from(self.width) * u64::from(self.height)
+    }
+
+    /// The bytes of the pixels.
+    fn bytes(self) -> usize {
+        decode::pixel_bytes(self.part.w, self.part.h).unwrap_or(usize::MAX)
+    }
+
+    /// Whether the part is what a picture's `shown` is inside, the pixels of the part being
+    /// within half a pixel of it.
+    fn shows(self, shown: Rect) -> bool {
+        let (w, h) = (f64::from(self.width), f64::from(self.height));
+        let reach = |from: f32, len: f32, total: f64| {
+            (f64::from(from) * total, f64::from(from + len) * total)
+        };
+        let (x0, x1) = reach(shown.x, shown.w, w);
+        let (y0, y1) = reach(shown.y, shown.h, h);
+        f64::from(self.part.x) <= x0 + 0.5
+            && f64::from(self.part.x) + f64::from(self.part.w) + 0.5 >= x1
+            && f64::from(self.part.y) <= y0 + 0.5
+            && f64::from(self.part.y) + f64::from(self.part.h) + 0.5 >= y1
+    }
+
+    /// The part as shares of the whole.
+    fn share(self) -> Rect {
+        let (w, h) = (self.width.max(1) as f32, self.height.max(1) as f32);
+        Rect::new(
+            self.part.x as f32 / w,
+            self.part.y as f32 / h,
+            self.part.w as f32 / w,
+            self.part.h as f32 / h,
+        )
     }
 }
 
@@ -259,6 +343,10 @@ struct Drawing {
     /// The own size of each page of a PDF; empty for a file that has no pages.
     pages: Vec<Size>,
     drawn: HashMap<At, Drawn>,
+    /// The parts of each page that were asked for last, the newest last, no more than [`WANTED`]:
+    /// a job for a part that is none of them any more is not done ([`draw`]). More than one, as
+    /// the page may be shown in more places than one (at more sizes, or at a part each).
+    latest: HashMap<u32, Vec<At>>,
 }
 
 impl Drawing {
@@ -394,30 +482,43 @@ impl Images {
     }
 
     /// The pixels of the image at `src` (its page `page`, from 1), to be drawn so that the whole
-    /// image is `whole` pixels ([`pencere_view::Picture::full`]). An image is drawn at the size,
-    /// once for each size it is asked at (a few at most: a size past them is the nearest of the others), and until the
-    /// drawing at a new size is done the nearest there is of another is what there is (none the
-    /// first time). A PNG or a JPEG is held at the size it is drawn at, rounded up to a step of
-    /// [`STEP`] pixels of its long side and no larger than the file: a larger size than the ones
-    /// held is decoded again from the file, and a smaller one is a held one that is larger (the
-    /// host draws the pixels it is given at the size the page gave them). The host keeps the
-    /// texture of a bitmap by its [`Bitmap::id`].
+    /// image is `whole` pixels ([`pencere_view::Picture::full`]), all of it. An image is drawn at the
+    /// size, once for each size it is asked at (a few at most: a size past them is the nearest of
+    /// the others), and until the drawing at a new size is done the nearest there is of another is
+    /// what there is (none the first time). A PNG or a JPEG is held at the size it is drawn at,
+    /// rounded up to a step of [`STEP`] pixels of its long side and no larger than the file: a
+    /// larger size than the ones held is decoded again from the file, and a smaller one is a held
+    /// one that is larger (the host draws the pixels it is given at the size the page gave them).
+    /// The host keeps the texture of a bitmap by its [`Bitmap::id`].
+    ///
+    /// A host that draws a picture asks with [`Images::picture`], which gives only what is seen of
+    /// a large SVG or page.
     pub fn bitmap(&self, src: &str, page: u32, whole: Size) -> Option<Bitmap> {
+        self.pixels(src, page, whole, Rect::new(0.0, 0.0, 1.0, 1.0))
+    }
+
+    /// The pixels for `picture`, as a host draws it: the same as [`Images::bitmap`] for a PNG, a
+    /// JPEG and a vector image whose whole is small, and for a large SVG or page of a PDF only
+    /// **the part of it that is seen** ([`pencere_view::Picture::shown`]), with a margin that is
+    /// rounded out to a grid, so that a page scrolled a little asks for nothing more. What the
+    /// bitmap holds of the whole image is [`Bitmap::part`], and what the picture's rectangle shows
+    /// of it [`Bitmap::crop_of`]. The pixels held are those of what is seen (a screenful at the
+    /// resolution of the display, at most), whatever the size of the page; and while the sharp part
+    /// of a page is drawn, the whole page at a small size stands in, so that the box is not empty.
+    pub fn picture(&self, picture: &Picture) -> Option<Bitmap> {
+        self.pixels(&picture.src, picture.page, picture.full(), picture.shown)
+    }
+
+    fn pixels(&self, src: &str, page: u32, whole: Size, shown: Rect) -> Option<Bitmap> {
         let mut state = self.lock();
         let now = Instant::now();
         state.last_ask = Some(now);
-        let (width, height) = drawn_size(whole, self.shared.limits.side);
-        let at = At {
-            page,
-            width,
-            height,
-        };
         let mut wake = false;
         let found = match state.entries.get_mut(src) {
             Some(Entry::Image(drawing)) if drawing.size_of(page).is_none() => None,
             Some(Entry::Image(_)) => {
-                let (found, job, told) = self.image_at(&mut state, src, at, now);
-                if let Some(job) = job {
+                let (found, jobs, told) = self.image_at(&mut state, src, page, whole, shown, now);
+                for job in jobs {
                     wake |= self.post(&mut state, job);
                 }
                 if told {
@@ -442,54 +543,106 @@ impl Images {
         found
     }
 
-    /// What an image has at `wanted`: its pixels if they are drawn, else the nearest it has; a
-    /// drawing to be started if it is not drawn or being, and whether something is to be told. A
-    /// PNG or a JPEG is asked at its step ([`stepped`]) and a held size that covers it is it.
+    /// What an image has for a whole drawn at `whole`, of which `shown` is seen: its pixels if they
+    /// are drawn, else the nearest it has; the drawings to be started if it is not drawn or being,
+    /// and whether something is to be told. A PNG or a JPEG is asked at its step ([`stepped`]) and a
+    /// held size that covers it is it.
     fn image_at(
         &self,
         state: &mut State,
         src: &str,
-        wanted: At,
+        page: u32,
+        whole: Size,
+        shown: Rect,
         now: Instant,
-    ) -> (Option<Bitmap>, Option<Job>, bool) {
+    ) -> (Option<Bitmap>, Vec<Job>, bool) {
         let limits = &self.shared.limits;
         let Some(Entry::Image(drawing)) = state.entries.get_mut(src) else {
-            return (None, None, false);
+            return (None, Vec::new(), false);
         };
-        let wanted = if drawing.raster {
+        let (width, height) = drawn_size(whole, limits.side);
+        let mut wanted = At::whole(page, width, height);
+        let mut part = None;
+        if drawing.raster {
             let natural = (drawing.size.w as u32, drawing.size.h as u32);
-            let (width, height) = stepped(natural, (wanted.width, wanted.height));
-            let wanted = At {
-                width,
-                height,
-                ..wanted
-            };
+            let (width, height) = stepped(natural, (width, height));
+            wanted = At::whole(page, width, height);
             if let Some(kept) = covering(drawing, wanted) {
                 kept.asked = now;
-                return (Some(kept.bitmap.clone()), None, false);
+                return (Some(kept.bitmap.clone()), Vec::new(), false);
             }
             // One that covers it is on its way: no other is started for it.
             if covered_by_pending(drawing, wanted) {
-                return (stand_in(drawing, wanted, now), None, false);
+                return (stand_in(drawing, wanted, shown, now), Vec::new(), false);
             }
-            wanted
-        } else {
-            wanted
-        };
-        let mut job = None;
+        } else if u64::from(width) * u64::from(height) > SMALL {
+            // Large: it is drawn where it is seen, at the size it comes to, in steps.
+            let (width, height) = vector_scale(whole, shown, limits.side);
+            let seen = seen_part(shown, width, height);
+            let at = At {
+                part: wanted_part(seen, width, height, limits.side),
+                ..At::whole(page, width, height)
+            };
+            wanted = at;
+            part = Some(grow(seen, MARGIN, width, height));
+        }
+        let mut jobs = Vec::new();
         let mut told = false;
         let mut freed = 0;
+        if let Some(margin) = part {
+            let wants = drawing.latest.entry(page).or_default();
+            wants.retain(|at| *at != wanted);
+            wants.push(wanted);
+            if wants.len() > WANTED {
+                wants.remove(0);
+            }
+            // Where it is not all of the page that is drawn, the whole page at a small size is there
+            // to stand in, and is asked for as long as the page is, a sharp part found or not: let
+            // go for room while the page is in view, it would leave a page that is jumped to with
+            // nothing to show.
+            let base = (!wanted.is_whole()).then(|| {
+                let natural = drawing.size_of(page).unwrap_or(Size::new(1.0, 1.0));
+                base_of(page, natural)
+            });
+            if let Some(Drawn::Ready(kept)) = base.and_then(|base| drawing.drawn.get_mut(&base)) {
+                kept.asked = now;
+            }
+            // A sharp one that holds what is seen, with a margin, is the one.
+            if let Some(kept) = newest_holding(drawing, wanted, margin) {
+                kept.asked = now;
+                return (Some(kept.bitmap.clone()), Vec::new(), false);
+            }
+            // The small one is drawn first, as it is quick.
+            if let Some(base) = base {
+                // One that waited for room is tried again as the rest are ([`RECENT`]).
+                let again = matches!(
+                    drawing.drawn.get(&base),
+                    Some(Drawn::Waiting { since, .. }) if since.elapsed() >= RECENT
+                );
+                match drawing.drawn.get(&base) {
+                    Some(Drawn::Ready(_)) => {}
+                    Some(_) if !again => {}
+                    _ => {
+                        drawing.drawn.insert(base, Drawn::Pending);
+                        jobs.push(Job::Draw(src.to_owned(), base));
+                    }
+                }
+            }
+        }
         match drawing.drawn.get_mut(&wanted) {
             Some(Drawn::Ready(kept)) => {
                 kept.asked = now;
-                return (Some(kept.bitmap.clone()), None, false);
+                return (Some(kept.bitmap.clone()), jobs, false);
             }
             Some(Drawn::Pending | Drawn::Refused) => {}
             Some(Drawn::Waiting { since, asked, .. }) => {
                 *asked = now;
-                if since.elapsed() >= limits.idle {
+                // The room of an SVG or a page comes as soon as the pixels that are no longer shown
+                // may go ([`RECENT`]); a PNG's or a JPEG's when they have gone unasked for a time.
+                let retry = if drawing.raster { limits.idle } else { RECENT };
+                if since.elapsed() >= retry {
                     drawing.drawn.insert(wanted, Drawn::Pending);
-                    job = Some(Job::Draw(src.to_owned(), wanted));
+                    jobs.push(Job::Draw(src.to_owned(), wanted));
                 } else if state
                     .looked
                     .is_none_or(|looked| now.saturating_duration_since(looked) >= RECENT)
@@ -497,7 +650,7 @@ impl Images {
                     // Still shown, and the rest of what is shown may have changed: the worker
                     // plans its wake again once this frame is asked for (no oftener than that).
                     state.looked = Some(now);
-                    job = Some(Job::Look);
+                    jobs.push(Job::Look);
                 }
             }
             None => {
@@ -509,14 +662,16 @@ impl Images {
                         .drawn
                         .keys()
                         .filter(|at| at.page == wanted.page)
-                        .count()
+                        .map(|at| (at.width, at.height))
+                        .collect::<HashSet<_>>()
                 };
-                if sizes_of_page(drawing) >= limits.sizes {
+                let known = sizes_of_page(drawing).contains(&(wanted.width, wanted.height));
+                if !known && sizes_of_page(drawing).len() >= limits.sizes {
                     freed = recycle(drawing, wanted.page, now);
                 }
-                if sizes_of_page(drawing) < limits.sizes {
+                if known || sizes_of_page(drawing).len() < limits.sizes {
                     drawing.drawn.insert(wanted, Drawn::Pending);
-                    job = Some(Job::Draw(src.to_owned(), wanted));
+                    jobs.push(Job::Draw(src.to_owned(), wanted));
                 } else if state.told_sizes.insert(src.to_owned()) {
                     // One more size than a drawing is drawn at, and every one is in use: no job,
                     // so a page that asks for sizes without end asks for nothing without end.
@@ -539,9 +694,29 @@ impl Images {
         state.held = state.held.saturating_sub(freed);
         // The nearest drawn size stands in until this one is.
         let Some(Entry::Image(drawing)) = state.entries.get_mut(src) else {
-            return (None, job, told);
+            return (None, jobs, told);
         };
-        (stand_in(drawing, wanted, now), job, told)
+        (stand_in(drawing, wanted, shown, now), jobs, told)
+    }
+
+    /// The bytes of pixels the view holds, and of the parsed drawings it keeps.
+    #[cfg(test)]
+    pub(crate) fn held(&self) -> usize {
+        self.lock().held
+    }
+
+    /// When the small whole page that stands in for the parts of `page` of `src` was last asked for,
+    /// where it is drawn.
+    #[cfg(test)]
+    pub(crate) fn small_asked(&self, src: &str, page: u32) -> Option<Instant> {
+        let state = self.lock();
+        let Some(Entry::Image(drawing)) = state.entries.get(src) else {
+            return None;
+        };
+        match drawing.drawn.get(&base_of(page, drawing.size_of(page)?)) {
+            Some(Drawn::Ready(kept)) => Some(kept.asked),
+            _ => None,
+        }
     }
 
     /// What arrived since the last look, and the host is not woken again for it. A host that is
@@ -682,30 +857,48 @@ impl Drop for Images {
 }
 
 /// The nearest of the sizes an image (a page of it) is drawn at to `wanted`, in the proportion of
-/// their areas, to stand in until it is: none where nothing is drawn yet. Another page's is not
-/// the page.
-fn stand_in(drawing: &mut Drawing, wanted: At, now: Instant) -> Option<Bitmap> {
+/// their areas, to stand in until it is: of those that hold all of `shown`, the part that is seen;
+/// none where nothing is drawn yet, or nothing holds what is seen. Another page's is not the page.
+fn stand_in(drawing: &mut Drawing, wanted: At, shown: Rect, now: Instant) -> Option<Bitmap> {
     let area = |width: u32, height: u32| f64::from(width) * f64::from(height);
     let target = area(wanted.width, wanted.height);
     let nearest = drawing
         .drawn
         .iter_mut()
         .filter_map(|(at, drawn)| match drawn {
-            Drawn::Ready(kept) if at.page == wanted.page => Some(kept),
+            Drawn::Ready(kept) if at.page == wanted.page && at.shows(shown) => Some((*at, kept)),
             _ => None,
         })
-        .min_by(|a, b| {
-            let far = |kept: &Kept| {
-                (area(kept.bitmap.width, kept.bitmap.height) / target)
-                    .ln()
-                    .abs()
-            };
-            far(a).total_cmp(&far(b))
+        .min_by(|(a, kept_a), (b, kept_b)| {
+            let far = |at: &At| (area(at.width, at.height) / target).ln().abs();
+            // The nearer size; of the same, the newer pixels.
+            far(a)
+                .total_cmp(&far(b))
+                .then(kept_b.bitmap.id.cmp(&kept_a.bitmap.id))
         });
-    nearest.map(|kept| {
+    nearest.map(|(_, kept)| {
         kept.asked = now;
         kept.bitmap.clone()
     })
+}
+
+/// The newest pixels of the page of `wanted`, at its size, that hold `margin` (what is seen and a
+/// little more): a part that need not be drawn again.
+fn newest_holding(drawing: &mut Drawing, wanted: At, margin: Part) -> Option<&mut Kept> {
+    drawing
+        .drawn
+        .iter_mut()
+        .filter_map(|(at, drawn)| match drawn {
+            Drawn::Ready(kept)
+                if at.page == wanted.page
+                    && (at.width, at.height) == (wanted.width, wanted.height)
+                    && at.part.contains(margin) =>
+            {
+                Some(kept)
+            }
+            _ => None,
+        })
+        .max_by_key(|kept| kept.bitmap.id)
 }
 
 /// The drawn size of a PNG or a JPEG that is at least `wanted` on both sides and the least
@@ -765,28 +958,57 @@ type Oldest = (Instant, String, At);
 /// what it showed then, and what it asked for before that is what it no longer shows.
 const RECENT: Duration = Duration::from_millis(100);
 
-/// Gives up the drawn size of `page` that nothing has asked for the longest, if that is for
-/// [`RECENT`]; the bytes of pixels it held.
+/// How long before the last time the host asked for pixels another ask may be and still be of the
+/// same frame: a frame asks for every picture it shows in one pass, and the frame before it is
+/// further back than this.
+const FRAME: Duration = Duration::from_millis(30);
+
+/// Gives up the size of `page` that nothing has asked for the longest, with all its parts, if that is
+/// for [`RECENT`]; the bytes of pixels it held.
 fn recycle(drawing: &mut Drawing, page: u32, now: Instant) -> usize {
-    let oldest = drawing
-        .drawn
-        .iter()
-        .filter_map(|(at, drawn)| match drawn {
-            Drawn::Ready(kept)
-                if at.page == page && now.saturating_duration_since(kept.asked) >= RECENT =>
-            {
-                Some((kept.asked, *at))
+    // When each size was last asked for: when its pixels that were asked for last were.
+    let mut last: HashMap<(u32, u32), Instant> = HashMap::new();
+    // A size with a part on its way is not given up: it would stay a size, and its room go for
+    // nothing.
+    let mut busy: HashSet<(u32, u32)> = HashSet::new();
+    for (at, drawn) in &drawing.drawn {
+        if at.page != page {
+            continue;
+        }
+        match drawn {
+            Drawn::Ready(kept) => {
+                let seen = last.entry((at.width, at.height)).or_insert(kept.asked);
+                *seen = (*seen).max(kept.asked);
             }
-            _ => None,
-        })
-        .min_by_key(|(asked, _)| *asked);
-    let Some((_, at)) = oldest else {
+            Drawn::Pending => {
+                busy.insert((at.width, at.height));
+            }
+            _ => {}
+        }
+    }
+    let oldest = last
+        .into_iter()
+        .filter(|(size, _)| !busy.contains(size))
+        .filter(|(_, asked)| now.saturating_duration_since(*asked) >= RECENT)
+        .min_by_key(|(_, asked)| *asked);
+    let Some(((width, height), _)) = oldest else {
         return 0;
     };
-    match drawing.drawn.remove(&at) {
-        Some(Drawn::Ready(kept)) => kept.bitmap.pixels.len(),
-        _ => 0,
-    }
+    let mut freed = 0;
+    drawing.drawn.retain(|at, drawn| {
+        if at.page != page || (at.width, at.height) != (width, height) {
+            return true;
+        }
+        match drawn {
+            Drawn::Pending => true,
+            Drawn::Ready(kept) => {
+                freed += kept.bitmap.pixels.len();
+                false
+            }
+            _ => false,
+        }
+    });
+    freed
 }
 
 /// The size an SVG is drawn at for a whole image of `whole` pixels: whole pixels, at least one and
@@ -804,6 +1026,145 @@ fn drawn_size(whole: Size, side: u32) -> (u32, u32) {
     let shrink = (side / w.max(h)).min(1.0);
     let at = |value: f32| ((value * shrink).round().clamp(1.0, side)) as u32;
     (at(w), at(h))
+}
+
+/// How many more pixels than this a vector image's whole is, it is drawn where it is seen and not
+/// all: a part of a smaller one is no saving.
+const SMALL: u64 = 512 * 512;
+
+/// The grid, pixels, that the part of an image that is drawn is rounded out to, so that the part
+/// asked for is the same for a little scrolling.
+const GRID: u32 = 128;
+
+/// How far beyond what is seen the part that is drawn reaches (before it is rounded out), pixels.
+const PAY: u32 = 128;
+
+/// How near the edge of the part that is held what is seen may come before a new part is drawn.
+const MARGIN: u32 = 64;
+
+/// The long side the whole page that stands in is drawn at, pixels.
+const BASE: u32 = 512;
+
+/// How many parts of a page at one size are kept: the one that is seen and the one before it.
+const PARTS: usize = 2;
+
+/// How many parts of a page are kept as the ones asked for last ([`Drawing::latest`]): those of
+/// as many places as the page is likely shown in at once.
+const WANTED: usize = 4;
+
+/// How many sides ([`ImageLimits::side`]) the whole of a vector image may be: it is drawn in parts,
+/// each at most a side, so the whole is no longer held to one.
+const WHOLES: u32 = 16;
+
+/// From how long a long side the size a vector image is drawn at goes in steps (a long side that is
+/// shorter is the size asked for): a pane that is dragged larger asks for a new drawing once for each
+/// step and not for each pixel.
+const STEPPED_FROM: f64 = 1024.0;
+
+/// The size all of a large SVG or page is drawn at when `shown` of it is seen and it is shown as
+/// `whole`: that, no more than [`WHOLES`] sides long, smaller where what is seen would not be one
+/// raster, and its long side in steps (of a thirty-second of its power of two, at most) so that
+/// a pane dragged larger draws it again for each step.
+fn vector_scale(whole: Size, shown: Rect, side: u32) -> (u32, u32) {
+    let finite = |value: f32| {
+        if value.is_finite() {
+            f64::from(value).max(1.0)
+        } else {
+            1.0
+        }
+    };
+    let (mut w, mut h) = (finite(whole.w), finite(whole.h));
+    let most = f64::from(side) * f64::from(WHOLES);
+    let shrink = (most / w.max(h)).min(1.0);
+    (w, h) = (w * shrink, h * shrink);
+    let share = |value: f32| f64::from(value).clamp(0.0, 1.0);
+    let seen = (share(shown.w) * w).max(share(shown.h) * h);
+    // A little under a side, so that the step up that follows does not pass it.
+    let room = f64::from(side) * 31.0 / 32.0;
+    if seen > room {
+        (w, h) = (w * room / seen, h * room / seen);
+    }
+    let long = w.max(h);
+    if long >= STEPPED_FROM {
+        let step = f64::from(1_u32 << (long.log2().floor() as u32 - 5));
+        let to = (long / step).ceil() * step;
+        (w, h) = (w * to / long, h * to / long);
+    }
+    (w.round().max(1.0) as u32, h.round().max(1.0) as u32)
+}
+
+/// The pixels of an image drawn `width` by `height` that `shown` (shares of the whole) is within,
+/// rounded out to whole pixels, at least one.
+fn seen_part(shown: Rect, width: u32, height: u32) -> Part {
+    let axis = |from: f32, len: f32, total: u32| {
+        let total = f64::from(total);
+        let from = f64::from(from).clamp(0.0, 1.0);
+        let to = (from + f64::from(len)).clamp(0.0, 1.0);
+        let start = (from * total).floor().clamp(0.0, total - 1.0);
+        let end = (to * total).ceil().clamp(start + 1.0, total);
+        (start as u32, end as u32)
+    };
+    let (x, right) = axis(shown.x, shown.w, width);
+    let (y, bottom) = axis(shown.y, shown.h, height);
+    Part {
+        x,
+        y,
+        w: right - x,
+        h: bottom - y,
+    }
+}
+
+/// The part of an image drawn `width` by `height` that is drawn for `seen`: [`PAY`] more on each
+/// side, rounded out to the [`GRID`], and no more than a side of the pixels: where that is more,
+/// a part of a side that holds `seen` as far as it can.
+fn wanted_part(seen: Part, width: u32, height: u32, side: u32) -> Part {
+    let axis = |from: u32, len: u32, total: u32| {
+        let to = from.saturating_add(len);
+        let start = from.saturating_sub(PAY) / GRID * GRID;
+        let end = to
+            .saturating_add(PAY)
+            .div_ceil(GRID)
+            .saturating_mul(GRID)
+            .min(total);
+        if end - start <= side {
+            return (start, end);
+        }
+        let start = (from + len / 2)
+            .saturating_sub(side / 2)
+            .min(total.saturating_sub(side));
+        (start, start.saturating_add(side).min(total))
+    };
+    let (x, right) = axis(seen.x, seen.w, width);
+    let (y, bottom) = axis(seen.y, seen.h, height);
+    Part {
+        x,
+        y,
+        w: right - x,
+        h: bottom - y,
+    }
+}
+
+/// `part` grown by `by` pixels on each side, not past an image drawn `width` by `height`.
+fn grow(part: Part, by: u32, width: u32, height: u32) -> Part {
+    let (x, y) = (part.x.saturating_sub(by), part.y.saturating_sub(by));
+    Part {
+        x,
+        y,
+        w: part.x.saturating_add(part.w).saturating_add(by).min(width) - x,
+        h: part.y.saturating_add(part.h).saturating_add(by).min(height) - y,
+    }
+}
+
+/// Where the whole of the page `page`, of the own size `natural`, is drawn small, to stand in for its
+/// parts at every size: [`BASE`] pixels on its long side, in its proportions.
+fn base_of(page: u32, natural: Size) -> At {
+    let long = natural.w.max(natural.h).max(f32::EPSILON);
+    let side = |value: f32| {
+        (value.max(f32::EPSILON) / long * BASE as f32)
+            .round()
+            .max(1.0) as u32
+    };
+    At::whole(page, side(natural.w), side(natural.h))
 }
 
 impl Shared {
@@ -875,25 +1236,56 @@ impl Shared {
         }
     }
 
-    /// Makes room for `bytes` more: lets go of the pixels of the drawings nothing has asked for in
-    /// [`ImageLimits::idle`], the longest unasked first, until they fit; `Budget` if they do not,
-    /// and then nothing is let go.
-    fn make_room(&self, state: &mut State, bytes: usize) -> Result<(), Failure> {
+    /// Whether the pixels of `kept` (of the path, drawn at `at`) may be let go of now, for room: they
+    /// have gone unasked for [`ImageLimits::idle`]; or, for an SVG or a page, they were not asked
+    /// for at the host's last frame, that is they are not what it shows ([`RECENT`] before the
+    /// last it asked for pixels), which is not waited out; or they are the pixels of the same
+    /// page, at another size or of another part, than the ones `replacing` draws (not the small
+    /// whole page that stands in), which is the last room there is: what stands in for a drawing
+    /// is asked for at every frame, and would hold the room of what is to replace it for good.
+    fn may_go(
+        &self,
+        state: &State,
+        now: Instant,
+        (path, kept, at, raster): (&str, &Kept, At, bool),
+        replacing: Option<(&str, At)>,
+    ) -> bool {
+        let unasked = now.saturating_duration_since(kept.asked) >= self.limits.idle;
+        let out_of_view = !raster
+            && state
+                .last_ask
+                .is_some_and(|last| kept.asked < last.checked_sub(RECENT).unwrap_or(last));
+        let replaced = replacing.is_some_and(|(of, new)| {
+            of == path && at != new && at.page == new.page && at.width.max(at.height) > BASE
+        });
+        unasked || out_of_view || replaced
+    }
+
+    /// Makes room for `bytes` more: lets go of the pixels that may go ([`Shared::may_go`]), the
+    /// longest unasked first, until they fit; `Budget` if they do not, and then nothing is let go.
+    /// `replacing` is the part of a page that the room is for.
+    fn make_room(
+        &self,
+        state: &mut State,
+        bytes: usize,
+        replacing: Option<(&str, At)>,
+    ) -> Result<(), Failure> {
         let most = self.limits.pixel_bytes;
         if bytes > most {
             return Err(Failure::Whole { bytes, most });
         }
-        let idle = self.limits.idle;
         let now = Instant::now();
-        let unasked: usize = kept(state)
-            .filter(|(kept, _)| now.saturating_duration_since(kept.asked) >= idle)
-            .map(|(kept, _)| kept.bitmap.pixels.len())
+        let free: usize = kept(state)
+            .filter(|(path, kept, at, raster)| {
+                self.may_go(state, now, (path, kept, *at, *raster), replacing)
+            })
+            .map(|(_, kept, ..)| kept.bitmap.pixels.len())
             .sum();
-        if state.held.saturating_add(bytes) > most.saturating_add(unasked) {
+        if state.held.saturating_add(bytes) > most.saturating_add(free) {
             return Err(Failure::Budget { most });
         }
         while state.held.saturating_add(bytes) > most {
-            if !self.release_one(state) {
+            if !self.release_one(state, replacing) {
                 return Err(Failure::Budget { most });
             }
         }
@@ -911,24 +1303,28 @@ impl Shared {
         &self,
         state: &State,
         bytes: usize,
-        since: Instant,
+        (since, retry): (Instant, Duration),
         shown_from: Instant,
     ) -> Option<Instant> {
         let most = self.limits.pixel_bytes;
         let idle = self.limits.idle;
         let mut need = state.held.saturating_add(bytes).saturating_sub(most);
-        let mut unseen: Vec<(Instant, usize)> = kept(state)
-            .filter(|(kept, _)| kept.asked < shown_from)
-            .map(|(kept, _)| (kept.asked, kept.bitmap.pixels.len()))
+        let mut unseen: Vec<(Instant, usize, bool)> = kept(state)
+            .filter(|(_, kept, ..)| kept.asked < shown_from)
+            .map(|(_, kept, _, raster)| (kept.asked, kept.bitmap.pixels.len(), raster))
             .collect();
-        unseen.sort_unstable_by_key(|(asked, _)| *asked);
-        let mut by = since + idle;
-        for (asked, bytes) in unseen {
+        unseen.sort_unstable_by_key(|(asked, ..)| *asked);
+        let mut by = since + retry;
+        for (asked, bytes, raster) in unseen {
             if need == 0 {
                 break;
             }
             need = need.saturating_sub(bytes);
-            by = by.max(asked + idle);
+            // The pixels of an SVG or a page that are not shown may go at once; a PNG's, a JPEG's
+            // when they have gone unasked for [`ImageLimits::idle`].
+            if raster {
+                by = by.max(asked + idle);
+            }
         }
         (need == 0).then_some(by)
     }
@@ -942,7 +1338,9 @@ impl Shared {
         let now = Instant::now();
         let last = state.last_ask?;
         let settled = last + RECENT;
-        let shown_from = last.checked_sub(RECENT).unwrap_or(last);
+        // The host has been quiet since `last`: what it asked for in that frame (within [`FRAME`] of
+        // the last ask) is what it shows, and the rest is not, though it was asked a frame before.
+        let shown_from = last.checked_sub(FRAME).unwrap_or(last);
         // What waits, where it is, and whether it is planned for the last asking.
         let mut plans = Vec::new();
         let mut next: Option<Instant> = None;
@@ -950,6 +1348,11 @@ impl Shared {
         for (path, entry) in &state.entries {
             let Entry::Image(drawing) = entry else {
                 continue;
+            };
+            let retry = if drawing.raster {
+                self.limits.idle
+            } else {
+                RECENT
             };
             for (at, drawn) in &drawing.drawn {
                 if let Drawn::Waiting {
@@ -965,10 +1368,9 @@ impl Shared {
                         } else {
                             // Not shown at the last frame: not worth a wake.
                             let shown = *asked >= shown_from;
-                            let bytes =
-                                decode::pixel_bytes(at.width, at.height).unwrap_or(usize::MAX);
+                            let bytes = at.bytes();
                             let wake = shown
-                                .then(|| self.wake_for(&state, bytes, *since, shown_from))
+                                .then(|| self.wake_for(&state, bytes, (*since, retry), shown_from))
                                 .flatten();
                             plans.push((path.clone(), *at, wake));
                             if let Some(wake) = wake {
@@ -1012,26 +1414,18 @@ impl Shared {
         next
     }
 
-    /// Lets go of the pixels that have been unasked for the longest, if any have been for the time
-    /// they are kept; whether it did.
-    fn release_one(&self, state: &mut State) -> bool {
+    /// Lets go of the pixels that have been unasked for the longest, of those that may go
+    /// ([`Shared::may_go`]); whether it did.
+    fn release_one(&self, state: &mut State, replacing: Option<(&str, At)>) -> bool {
         let now = Instant::now();
-        let idle = self.limits.idle;
         let mut oldest: Option<Oldest> = None;
-        let mut consider = |asked: Instant, path: &String, at: At| {
-            if now.saturating_duration_since(asked) >= idle
-                && oldest.as_ref().is_none_or(|(before, ..)| asked < *before)
+        for (path, kept, at, raster) in kept(state) {
+            if self.may_go(state, now, (path, kept, at, raster), replacing)
+                && oldest
+                    .as_ref()
+                    .is_none_or(|(before, ..)| kept.asked < *before)
             {
-                oldest = Some((asked, path.clone(), at));
-            }
-        };
-        for (path, entry) in &state.entries {
-            if let Entry::Image(drawing) = entry {
-                for (at, drawn) in &drawing.drawn {
-                    if let Drawn::Ready(kept) = drawn {
-                        consider(kept.asked, path, *at);
-                    }
-                }
+                oldest = Some((kept.asked, path.clone(), at));
             }
         }
         let Some((_, path, at)) = oldest else {
@@ -1075,13 +1469,15 @@ impl Shared {
         Ok(())
     }
 
-    fn bitmap(&self, state: &mut State, raster: Raster) -> Bitmap {
+    /// The bitmap of the pixels drawn at `at`, held from now on.
+    fn bitmap(&self, state: &mut State, raster: Raster, at: At) -> Bitmap {
         state.next += 1;
         state.held = state.held.saturating_add(raster.pixels.len());
         Bitmap {
             id: state.next,
             width: raster.width,
             height: raster.height,
+            part: at.share(),
             pixels: Arc::new(raster.pixels),
         }
     }
@@ -1180,7 +1576,10 @@ impl Source {
 /// Where a drawing was made, as the page is told it: the size, and the page where the file has
 /// pages.
 fn place(drawing: &Drawing, at: At) -> String {
-    let size = format!("drawn at {}\u{d7}{}", at.width, at.height);
+    let mut size = format!("drawn at {}\u{d7}{}", at.width, at.height);
+    if !at.is_whole() {
+        size = format!("{size}, a part of {}\u{d7}{}", at.part.w, at.part.h);
+    }
     if drawing.pages.is_empty() {
         size
     } else {
@@ -1202,6 +1601,7 @@ fn decode_path(shared: &Arc<Shared>, sources: &mut HashMap<String, Source>, path
                     raster: true,
                     pages: Vec::new(),
                     drawn: HashMap::new(),
+                    latest: HashMap::new(),
                 }),
             );
             state.arrived.relayout = true;
@@ -1209,7 +1609,7 @@ fn decode_path(shared: &Arc<Shared>, sources: &mut HashMap<String, Source>, path
         Ok(Opened::Vector(vector)) => {
             // The parsed drawing is held for as long as the view is, and is paid for.
             let kept = vector.weight().bytes;
-            match shared.make_room(&mut state, kept) {
+            match shared.make_room(&mut state, kept, None) {
                 Ok(()) => {
                     state.held = state.held.saturating_add(kept);
                     let (w, h) = vector.natural();
@@ -1221,6 +1621,7 @@ fn decode_path(shared: &Arc<Shared>, sources: &mut HashMap<String, Source>, path
                             raster: false,
                             pages: Vec::new(),
                             drawn: HashMap::new(),
+                            latest: HashMap::new(),
                         }),
                     );
                     state.arrived.relayout = true;
@@ -1232,7 +1633,7 @@ fn decode_path(shared: &Arc<Shared>, sources: &mut HashMap<String, Source>, path
             // The parsed document is held for as long as the view is, and is paid for, as an
             // SVG's drawing is.
             let kept = document.bytes();
-            match shared.make_room(&mut state, kept) {
+            match shared.make_room(&mut state, kept, None) {
                 Ok(()) => {
                     state.held = state.held.saturating_add(kept);
                     let pages = document.sizes().to_vec();
@@ -1245,6 +1646,7 @@ fn decode_path(shared: &Arc<Shared>, sources: &mut HashMap<String, Source>, path
                             raster: false,
                             pages,
                             drawn: HashMap::new(),
+                            latest: HashMap::new(),
                         }),
                     );
                     state.arrived.relayout = true;
@@ -1322,28 +1724,41 @@ fn draw(shared: &Arc<Shared>, sources: &HashMap<String, Source>, path: &str, at:
             drawing.drawn.remove(&at);
             return;
         }
+        // A part of a page that is not the one that is wanted now (the page was scrolled on while
+        // this waited its turn) is not drawn: there is no use for it, and the worker is for the
+        // one there is.
+        if !at.is_whole()
+            && !drawing
+                .latest
+                .get(&at.page)
+                .is_some_and(|wants| wants.contains(&at))
+        {
+            drawing.drawn.remove(&at);
+            return;
+        }
         drawing.raster
     };
+    // Whether the page had pixels before this drawing, which stand in while it waits.
+    let had_pixels = !raster && has_pixels(shared, path, at.page);
     let outcome = if raster {
         // The room for what is kept is made before the file is decoded, at the size it is kept at.
         decode::pixel_bytes(width, height)
             .ok_or(Failure::Budget {
                 most: shared.limits.pixel_bytes,
             })
-            .and_then(|bytes| shared.make_room(&mut shared.lock(), bytes))
+            .and_then(|bytes| shared.make_room(&mut shared.lock(), bytes, None))
             .and_then(|()| read_and_shrink(shared, path, width, height))
     } else {
         let Some(source) = sources.get(path) else {
             return;
         };
-        let outcome = draw_vector(shared, source, at);
+        let outcome = draw_vector(shared, path, source, at);
         // No room at the size asked: where the picture has no pixels at any size, it is drawn
-        // smaller, so that its box is not empty while it waits.
+        // smaller, so that its box is not empty while it waits. (A page that is drawn in parts has
+        // the whole of it small to stand in, which is drawn first.)
         let smaller = match &outcome {
-            Err(Failure::Budget { .. } | Failure::Whole { .. })
-                if !has_pixels(shared, path, at.page) =>
-            {
-                draw_smaller(shared, source, at)
+            Err(Failure::Budget { .. } | Failure::Whole { .. }) if at.is_whole() && !had_pixels => {
+                draw_smaller(shared, path, source, at)
             }
             _ => None,
         };
@@ -1353,7 +1768,7 @@ fn draw(shared: &Arc<Shared>, sources: &HashMap<String, Source>, path: &str, at:
             if let Some(Entry::Image(drawing)) = state.entries.get(path)
                 && !drawing.drawn.contains_key(&smaller)
             {
-                let bitmap = shared.bitmap(&mut state, raster);
+                let bitmap = shared.bitmap(&mut state, raster, smaller);
                 state.arrived.redraw = true;
                 if let Some(Entry::Image(drawing)) = state.entries.get_mut(path) {
                     drawing
@@ -1369,15 +1784,18 @@ fn draw(shared: &Arc<Shared>, sources: &HashMap<String, Source>, path: &str, at:
     let mut told = None;
     let drawn = match outcome {
         Ok(raster) => {
-            let bitmap = shared.bitmap(&mut state, raster);
+            let bitmap = shared.bitmap(&mut state, raster, at);
             state.arrived.redraw = true;
             Drawn::Ready(Kept { bitmap, asked: now })
         }
-        // No room, and perhaps later: the host is woken when there may be.
+        // No room, and perhaps later: the host is woken when there may be. Told, once for a size,
+        // unless the page has pixels at another size or of another part that stand in: the room
+        // that comes when the pixels of what was scrolled away from go is not the author's to know.
         Err(failure @ Failure::Budget { .. }) => {
-            if state
-                .told_room
-                .insert(format!("{path}@{}x{width}x{height}", at.page))
+            if !had_pixels
+                && state
+                    .told_room
+                    .insert(format!("{path}@{}x{width}x{height}", at.page))
             {
                 told = Some(failure);
             }
@@ -1411,7 +1829,12 @@ fn draw(shared: &Arc<Shared>, sources: &HashMap<String, Source>, path: &str, at:
         if raster && matches!(drawn, Drawn::Ready(_)) {
             freed = give_up_covered(drawing, at);
         }
+        let ready = matches!(drawn, Drawn::Ready(_));
         drawing.drawn.insert(at, drawn);
+        // Of the parts of a page at a size, the one drawn now and the one before it are kept.
+        if !raster && ready && !at.is_whole() {
+            freed += give_up_parts(drawing, at);
+        }
     } else if let Drawn::Ready(kept) = drawn {
         freed += kept.bitmap.pixels.len();
     }
@@ -1432,14 +1855,14 @@ fn draw(shared: &Arc<Shared>, sources: &HashMap<String, Source>, path: &str, at:
 
 /// The SVG or the page of a PDF in `source` drawn at `at`: the pixels it makes, and the layers it is
 /// drawn on while it makes them, approved before the first is.
-fn draw_vector(shared: &Shared, source: &Source, at: At) -> Result<Raster, Failure> {
-    let (width, height) = (at.width, at.height);
-    let bytes = decode::pixel_bytes(width, height).ok_or(Failure::Budget {
+fn draw_vector(shared: &Shared, path: &str, source: &Source, at: At) -> Result<Raster, Failure> {
+    let (width, height, part) = (at.width, at.height, at.part);
+    let bytes = decode::pixel_bytes(part.w, part.h).ok_or(Failure::Budget {
         most: shared.limits.pixel_bytes,
     })?;
     let working = match source {
-        Source::Vector(vector) => vector.working(width, height),
-        Source::Document(document) => document.working(width, height),
+        Source::Vector(vector) => vector.working(part.w, part.h),
+        Source::Document(document) => document.working(part.w, part.h),
     };
     if working > shared.limits.work_bytes {
         return Err(Failure::Work {
@@ -1447,15 +1870,19 @@ fn draw_vector(shared: &Shared, source: &Source, at: At) -> Result<Raster, Failu
             most: shared.limits.work_bytes,
         });
     }
-    shared.make_room(&mut shared.lock(), bytes)?;
+    // What is drawn may take the room of the pixels that stand in for it, if there is no other: the
+    // whole page at a small size stands in for them (and is not drawn this way).
+    let replacing = (width.max(height) > BASE).then_some((path, at));
+    shared.make_room(&mut shared.lock(), bytes, replacing)?;
     match source {
-        Source::Vector(vector) => vector.draw(width, height),
-        Source::Document(document) => document.draw(
+        Source::Vector(vector) => vector.draw_part(width, height, part),
+        Source::Document(document) => document.draw_part(
             usize::try_from(at.page)
                 .unwrap_or(usize::MAX)
                 .saturating_sub(1),
             width,
             height,
+            part,
         ),
     }
 }
@@ -1467,18 +1894,18 @@ const SMALLEST: u32 = 16;
 /// The SVG or the page of a PDF in `source` drawn at a half of `at`, a quarter, …, the first that
 /// there is room for, to stand in until `at` is: where it is drawn, and its pixels. None where
 /// nothing down to [`SMALLEST`] fits, or it cannot be drawn.
-fn draw_smaller(shared: &Shared, source: &Source, at: At) -> Option<(At, Raster)> {
+fn draw_smaller(shared: &Shared, path: &str, source: &Source, at: At) -> Option<(At, Raster)> {
     let mut smaller = at;
     loop {
-        smaller = At {
-            width: smaller.width.div_ceil(2),
-            height: smaller.height.div_ceil(2),
-            ..smaller
-        };
+        smaller = At::whole(
+            smaller.page,
+            smaller.width.div_ceil(2),
+            smaller.height.div_ceil(2),
+        );
         if smaller.width.max(smaller.height) < SMALLEST {
             return None;
         }
-        match draw_vector(shared, source, smaller) {
+        match draw_vector(shared, path, source, smaller) {
             Ok(raster) => return Some((smaller, raster)),
             Err(Failure::Budget { .. } | Failure::Whole { .. }) => {}
             Err(_) => return None,
@@ -1513,21 +1940,50 @@ fn pixels_held(state: &mut State, path: &str) -> usize {
         .sum()
 }
 
-/// The pixels held, each with the page and the size it is drawn at.
-fn kept(state: &State) -> impl Iterator<Item = (&Kept, At)> {
-    state.entries.values().flat_map(|entry| {
-        let drawn = match entry {
-            Entry::Image(drawing) => Some(&drawing.drawn),
+/// The pixels held, each with the path, the page and the size and part it is drawn at, and whether
+/// it is a PNG's or a JPEG's.
+fn kept(state: &State) -> impl Iterator<Item = (&String, &Kept, At, bool)> {
+    state.entries.iter().flat_map(|(path, entry)| {
+        let drawing = match entry {
+            Entry::Image(drawing) => Some(drawing),
             _ => None,
         };
-        drawn
-            .into_iter()
-            .flatten()
-            .filter_map(|(at, drawn)| match drawn {
-                Drawn::Ready(kept) => Some((kept, *at)),
-                _ => None,
-            })
+        drawing.into_iter().flat_map(move |drawing| {
+            drawing
+                .drawn
+                .iter()
+                .filter_map(move |(at, drawn)| match drawn {
+                    Drawn::Ready(kept) => Some((path, kept, *at, drawing.raster)),
+                    _ => None,
+                })
+        })
     })
+}
+
+/// Lets go of the oldest parts of the page of `at`, at its size, past the [`PARTS`] that are kept
+/// (`at` is one of them); the bytes of the pixels they held.
+fn give_up_parts(drawing: &mut Drawing, at: At) -> usize {
+    let mut parts: Vec<(u64, At)> = drawing
+        .drawn
+        .iter()
+        .filter_map(|(of, drawn)| match drawn {
+            Drawn::Ready(kept)
+                if (of.page, of.width, of.height) == (at.page, at.width, at.height)
+                    && !of.is_whole() =>
+            {
+                Some((kept.bitmap.id, *of))
+            }
+            _ => None,
+        })
+        .collect();
+    parts.sort_unstable_by_key(|(id, _)| std::cmp::Reverse(*id));
+    let mut freed = 0;
+    for (_, old) in parts.into_iter().skip(PARTS) {
+        if let Some(Drawn::Ready(kept)) = drawing.drawn.remove(&old) {
+            freed += kept.bitmap.pixels.len();
+        }
+    }
+    freed
 }
 
 /// Lets go of the sizes of a PNG or a JPEG that the one drawn at `at` covers, being no larger on

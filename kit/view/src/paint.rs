@@ -79,6 +79,11 @@ pub struct Picture {
     /// What `rect` shows of the image, as shares of it: `(0, 0, 1, 1)` is all of it, and `cover`
     /// is the middle of it where the proportions of the box are not its own.
     pub crop: Rect,
+    /// What of the **whole** image is inside `clip` (and so is seen), as shares of it like `crop`:
+    /// the part of `crop` that `rect` shows where it is not cut off. A host that rasterises a
+    /// picture (a page of a PDF, an SVG) draws this part and not the rest, so that what it holds is
+    /// what is seen and not the size of a long page; `crop` where the picture turns.
+    pub shown: Rect,
     /// Where there is one, the image is a shape and this is its colour (unresolved: the host
     /// resolves it in the pane's theme, as it does any colour): every pixel of the image is this
     /// colour with the image's opacity at that pixel.
@@ -381,6 +386,25 @@ fn seen(picture: &Picture) -> bool {
     shown.w > 0.0 && shown.h > 0.0
 }
 
+/// The part of the whole image that is inside `clip`: what `rect` shows of it (`crop`) where `rect` is
+/// not cut off, as shares of the whole image. A picture that turns sweeps a square about its middle
+/// and is seen where that is: all of what it shows.
+fn shown_of(rect: Rect, crop: Rect, clip: Rect, turn: f32) -> Rect {
+    if turn != 0.0 || rect.w <= 0.0 || rect.h <= 0.0 {
+        return crop;
+    }
+    let seen = rect.intersect(clip);
+    if seen.w <= 0.0 || seen.h <= 0.0 {
+        return crop;
+    }
+    Rect::new(
+        crop.x + (seen.x - rect.x) / rect.w * crop.w,
+        crop.y + (seen.y - rect.y) / rect.h * crop.h,
+        seen.w / rect.w * crop.w,
+        seen.h / rect.h * crop.h,
+    )
+}
+
 /// Where an image stands in its box, and what of it shows; nothing for an image the host did not
 /// know, or a box with no room left inside its padding and border.
 fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
@@ -424,11 +448,13 @@ fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
         }
     };
     let most = rect.w.min(rect.h) / 2.0;
+    let shown = shown_of(rect, crop, node.clip, node.turn);
     Some(Picture {
         src: image.src.clone(),
         page: image.page,
         rect,
         crop,
+        shown,
         tint: image.tint,
         opacity: node.opacity,
         radii: node.radii.map(|radius| radius.clamp(0.0, most)),

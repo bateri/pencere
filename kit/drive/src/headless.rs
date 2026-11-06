@@ -1054,11 +1054,12 @@ impl<P: Peer> Headless<P> {
             held.deliver(&mut host);
         }
         // The pictures drawn as a host draws them: their pixels asked for at the size they are
-        // drawn at (an SVG is drawn at it), which the next settling waits for.
+        // drawn at, and as far as they are seen (an SVG is drawn at it), which the next settling
+        // waits for.
         if let Some(images) = self.page.images() {
             for item in &self.list.items {
                 if let Paint::Image(picture) = item {
-                    let _ = images.bitmap(&picture.src, picture.page, picture.full());
+                    let _ = images.picture(picture);
                 }
             }
         }
