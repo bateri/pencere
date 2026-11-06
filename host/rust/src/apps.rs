@@ -394,7 +394,8 @@ fn check_requirement(protocol: &[u32], views: &[ViewOffer]) -> Result<(), Error>
     Ok(())
 }
 
-fn is_name(text: &str) -> bool {
+/// Whether `text` is a name of an app (specification Section 4.1).
+pub fn is_name(text: &str) -> bool {
     let start = |b: &u8| b.is_ascii_lowercase() || b.is_ascii_digit();
     let bytes = text.as_bytes();
     bytes.len() <= MAX_NAME
@@ -402,7 +403,8 @@ fn is_name(text: &str) -> bool {
         && bytes.iter().all(|b| start(b) || *b == b'-')
 }
 
-fn is_target(text: &str) -> bool {
+/// Whether `text` is a name of a target (specification Section 4.4).
+pub fn is_target(text: &str) -> bool {
     let bytes = text.as_bytes();
     !bytes.is_empty()
         && bytes.len() <= MAX_NAME

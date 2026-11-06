@@ -13,7 +13,9 @@ mod app;
 mod build_cmd;
 mod dev;
 mod dev_cargo;
+mod dist;
 mod files;
+mod key;
 mod leaving;
 mod macho;
 mod new;
@@ -51,6 +53,19 @@ usage:
                                              make one executable of the app in dir; a Cargo
                                              package is built by Cargo (--release, --target passed
                                              on) and its program copied to dist/
+  pencere key [--key FILE]                   make the key an app's releases are signed with, once
+                                             (the secret half in ~/.config/pencere/signing.key,
+                                             never overwritten), and print the public half; when
+                                             there is a key, only print it
+  pencere dist VERSION [dir] [--name NAME] [--files DIR] [--key FILE] [--base URL] [--tag TAG]
+               [--previous URL|FILE|none] [--describe-args ARGS] [--describe-with FILE]
+                                             the release step of an app: write SHA256SUMS and a
+                                             signed app.json (what the app needs is asked of the
+                                             program itself) beside the files of every target,
+                                             in dist/ or in DIR (--files: the files
+                                             <name>-<version>-<target> already there; a Rust
+                                             program is built on each target's own machine);
+                                             nothing is uploaded
   pencere test [FILE[:LINE] | DIR]... [--grep TEXT] [--jobs N] [--timeout SECONDS]
                [--reporter pretty|tap] [--junit FILE] [--artifacts DIR]
                                              run the tests of the app (test/*_test.lua, Lua) with its
@@ -100,6 +115,8 @@ fn command(args: Vec<String>) -> ExitCode {
         "new" => new::command(&rest),
         "dev" => dev::command(&rest),
         "build" => build_cmd::command(&rest),
+        "key" => key::command(&rest),
+        "dist" => dist::command(&rest),
         "test" => test_cmd::command(&rest),
         "upgrade" => upgrade::command(&rest),
         "--version" | "-V" | "version" => {

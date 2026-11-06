@@ -45,6 +45,40 @@ else does (outside what its tools keep: what is hidden, `target`, `node_modules`
 the top); `pencere build` builds it with `cargo build --release` and copies it to `dist/`. The page
 is the same page of the kit, in `src/view/`, carried into the program by its build script.
 
+## Releasing an app
+
+A terminal that follows an app on its person's behalf (`spec/draft/apps.md`) needs two files beside
+the executable of each target: `app.json`, which names the release and the file and digest of every
+target, and `app.json.sig`, the author's signature over it. Two commands make them:
+
+```sh
+pencere key                # once: makes the signing key, or prints the public half of the one there is
+pencere dist 0.2.0         # dist/: a file per target, SHA256SUMS, app.json and app.json.sig
+```
+
+`pencere key` writes the secret half to `~/.config/pencere/signing.key` (readable by you alone,
+never inside a project, never over a key that is there) and prints the public half, which is what
+`app.json` names in `key`. **Keep a copy of the secret half somewhere safe**: whoever has it can
+release as you, and when it is lost the people who follow your app are asked again before they
+follow a release signed with another key. `--key FILE` or `PENCERE_SIGNING_KEY` name another file.
+
+`pencere dist VERSION` makes the executable of every target as `pencere build` does (a Lua app), or
+takes the ones you have made: `--files DIR` names a directory that has `<name>-<version>-<target>`
+for each target, which is how a Rust program is released, since each target is built on its own
+machine. The files, `SHA256SUMS`, `app.json` and `app.json.sig` are written to `dist/` (to `DIR`,
+with `--files`). What the release needs, the protocol versions and the kinds of view, is not typed:
+`dist` starts the file of this machine's target on a pty of its own, in an empty folder with a home
+of its own, reads the `hello` the program sends as it starts and ends it. `--describe-args` gives
+a program that needs arguments to start the ones it needs, and `--describe-with FILE` names another
+program to ask when this machine's target has no file.
+
+The files are expected at `https://github.com/<owner>/<repo>/releases/download/v<version>/` of the
+repository's `origin` (`--tag` changes the tag, `--base` the whole address). The earlier releases
+that `app.json` lists are made from the `app.json` the repository released before (its
+`releases/latest/download/app.json`, or `--previous ADDRESS-OR-FILE`; `--previous none` for a first
+release); one signed with another key stops the command. `dist` does not upload anything:
+attach all of its files to the release.
+
 ## Where things go
 
 ```
