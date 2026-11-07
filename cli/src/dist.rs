@@ -281,7 +281,15 @@ fn run(options: &Options) -> Result<String, String> {
         }
     };
 
-    let previous = previous_of(options, origin.as_ref(), &name, &public, version, &hello)?;
+    let previous = previous_of(
+        options,
+        origin.as_ref(),
+        &name,
+        &public,
+        version,
+        &hello,
+        &base,
+    )?;
 
     let text = app_json(
         &name,
@@ -515,6 +523,7 @@ fn previous_of(
     public: &str,
     version: Version,
     hello: &Hello,
+    base: &str,
 ) -> Result<Vec<Previous>, String> {
     let address = match (options.previous.as_deref(), origin) {
         (Some("none"), _) => return Ok(Vec::new()),
@@ -569,18 +578,30 @@ fn previous_of(
             "the version {version} is already released: {address} has it"
         ));
     }
+    // Where the earlier release is kept, from where its own files are.
+    let kept = earlier.files.values().find_map(|file| {
+        file.url
+            .rsplit_once('/')
+            .map(|(dir, _)| format!("{dir}/app.json"))
+    });
     let manifest = if address.contains("/releases/latest/download/") {
         // The address of the latest release moves with the next one: the earlier release is
         // kept at the place its own files are.
-        earlier
-            .files
-            .values()
-            .find_map(|file| {
-                file.url
-                    .rsplit_once('/')
-                    .map(|(dir, _)| format!("{dir}/app.json"))
-            })
-            .ok_or("the earlier release lists no file to tell where it is kept from")?
+        kept.ok_or("the earlier release lists no file to tell where it is kept from")?
+    } else if address.starts_with("file:") && !base.starts_with("file:") {
+        // A release that is published lists the earlier one where a terminal can reach it: the
+        // copy on this computer is only how it was read, and its path is not to be written into
+        // what goes out.
+        match kept {
+            Some(kept) if kept.starts_with("https:") => kept,
+            _ => {
+                return Err(format!(
+                    "the earlier release was read from {address}, a place on this computer, and \
+                     its own files are not at an https address to list it by: --previous names \
+                     its app.json on the network, or none for a first release"
+                ));
+            }
+        }
     } else {
         address.clone()
     };
@@ -733,6 +754,8 @@ fn hello_of(program: &Path, args: &[String], within: Duration) -> Result<Hello, 
     result
 }
 
+/// Starts the program on a pty and reads its first `hello`; the child's end of the pty is made its
+/// terminal between `fork` and `exec`, which is the unsafe part.
 #[allow(unsafe_code)]
 fn ask(program: &Path, args: &[String], scratch: &Path, within: Duration) -> Result<Hello, String> {
     let folder = scratch.join("cwd");

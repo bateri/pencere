@@ -377,7 +377,32 @@ fn the_list_of_earlier_releases_is_made_from_the_one_published_before() {
         .collect();
     assert_eq!(listed, ["0.4.3"]);
 
+    // A release that goes out to the network lists the earlier one by where its own files are
+    // kept, not by the path of the copy this computer read.
+    let release = files(&home, "0.6.0");
+    let hello = program(&home, "published-new-requirement", LUA_04);
+    let mut args = release_args(&release, &hello, "0.6.0", valid.to_str().expect("utf8"));
+    let at = args
+        .iter()
+        .position(|arg| arg == "file:///somewhere/")
+        .expect("a base");
+    args[at] = "https://github.com/example/demopen/releases/download/v0.6.0/".to_owned();
+    let (code, _, why) = run_dist(&home, &args, &key);
+    assert_eq!(code, 0, "{why}");
+    let manifest = written(&release);
+    assert_eq!(
+        manifest.previous[1].manifest,
+        "https://github.com/example/demopen/releases/download/v0.5.1/app.json"
+    );
+    assert!(
+        !fs::read_to_string(release.join("app.json"))
+            .expect("app.json")
+            .contains("file:"),
+        "a path of this computer went into a release that is published"
+    );
+
     // The version that is released already.
+    let hello = program(&home, "same-requirement", LUA_03);
     let release = files(&home, "0.5.1");
     let (code, _, said) = run_dist(
         &home,
