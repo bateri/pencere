@@ -16,6 +16,11 @@ under this name) are recorded here. The format follows
   views the host's handshake would accept, whatever the order or the dates). It does no I/O and
   trusts no key: the terminal compares `Manifest::key` with the keys it believes. The crate now
   depends on `ed25519-dalek`.
+- **`Manifest::opens`**: the kinds of path an app says it takes when it is started with one (`file`,
+  `folder`), read from the optional `opens` member of `app.json` (specification `apps.md` 4.7). A
+  file without the member takes neither; a value this version does not know is not in the list and a
+  value written twice is in it once. `Manifest` has a field more, so a struct literal of it needs
+  `opens`.
 
 ## [0.4.1] - 2026-11-05
 

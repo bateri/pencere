@@ -4583,6 +4583,29 @@
         "signature": "apps/invalid-address/app.json.sig",
         "note": "a file at an http: address, signed as it should be",
         "outcome": "address"
+      },
+      {
+        "file": "apps/opens/app.json",
+        "signature": "apps/opens/app.json.sig",
+        "note": "a release that takes a file and a folder: opens lists both",
+        "outcome": "ok",
+        "name": "demopen",
+        "version": "0.6.0",
+        "opens": ["file", "folder"],
+        "selects": [
+          {
+            "host": {
+              "protocol": [1],
+              "views": [
+                {
+                  "kind": "lua",
+                  "versions": ["0.3"]
+                }
+              ]
+            },
+            "chooses": "0.6.0"
+          }
+        ]
       }
     ]
   }

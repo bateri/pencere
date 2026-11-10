@@ -185,6 +185,36 @@ pub struct Previous {
     pub manifest: String,
 }
 
+/// A kind of path a program takes when it is started with one (specification Section 4.7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Opens {
+    /// A file: `"file"`.
+    File,
+    /// A folder: `"folder"`.
+    Folder,
+}
+
+impl Opens {
+    /// The kind a member of `opens` names, `None` for a value this version does not know.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "file" => Some(Self::File),
+            "folder" => Some(Self::Folder),
+            _ => None,
+        }
+    }
+
+    /// The text that names the kind in an `app.json`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Folder => "folder",
+        }
+    }
+}
+
 /// A release, as its `app.json` says it (specification Section 4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
@@ -203,6 +233,10 @@ pub struct Manifest {
     pub files: BTreeMap<String, File>,
     /// The earlier releases a reader may fall back to.
     pub previous: Vec<Previous>,
+    /// The kinds of path the program takes when it is started with one, each once, in the order
+    /// the file lists them; empty when the file has no `opens`, and a value this version does not
+    /// know is not in it.
+    pub opens: Vec<Opens>,
 }
 
 /// What a host takes of a release and its `previous`: see [`Manifest::select`].
@@ -331,6 +365,14 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, Error> {
             manifest: earlier.manifest,
         });
     }
+    let mut opens = Vec::new();
+    for text in &raw.opens {
+        if let Some(kind) = Opens::parse(text)
+            && !opens.contains(&kind)
+        {
+            opens.push(kind);
+        }
+    }
     Ok(Manifest {
         name: raw.name,
         version,
@@ -339,6 +381,7 @@ pub fn parse(bytes: &[u8]) -> Result<Manifest, Error> {
         key: raw.key,
         files,
         previous,
+        opens,
     })
 }
 
@@ -367,6 +410,8 @@ struct Raw {
     key: String,
     files: BTreeMap<String, Object<RawFile>>,
     previous: Vec<Object<RawPrevious>>,
+    #[serde(default)]
+    opens: Vec<String>,
 }
 
 #[derive(Deserialize)]

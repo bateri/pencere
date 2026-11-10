@@ -12,8 +12,8 @@
 mod common;
 
 use pencere_host::apps::{
-    Error, MAX_MANIFEST_BYTES, MAX_PREVIOUS, Manifest, Previous, Selection, Version, is_address,
-    parse, signature_address, verify,
+    Error, MAX_MANIFEST_BYTES, MAX_PREVIOUS, Manifest, Opens, Previous, Selection, Version,
+    is_address, parse, signature_address, verify,
 };
 use pencere_host::message::SUPPORTED_VERSIONS;
 use pencere_host::session::{Offer, ViewKind};
@@ -98,6 +98,12 @@ fn every_case_comes_out_as_the_manifest_says() {
                 "{file}"
             );
             assert_eq!(manifest.key, key, "{file}");
+            let opens: Vec<&str> = manifest.opens.iter().map(|kind| kind.as_str()).collect();
+            let expected: Vec<&str> = entry["opens"]
+                .as_array()
+                .map(|values| values.iter().map(|v| v.as_str().unwrap()).collect())
+                .unwrap_or_default();
+            assert_eq!(opens, expected, "{file}");
             for select in entry["selects"].as_array().unwrap() {
                 let (protocols, views) = host(&select["host"]);
                 let chosen = match manifest.select(&protocols, &views) {
@@ -123,7 +129,7 @@ fn every_case_comes_out_as_the_manifest_says() {
         }
         seen += 1;
     }
-    assert_eq!(seen, 9);
+    assert_eq!(seen, 10);
 }
 
 #[test]
@@ -626,4 +632,47 @@ fn a_kind_the_host_does_not_open_does_not_count() {
         manifest.select(&[1], &[Offer::new(ViewKind::Lua, &["0.3"])]),
         Selection::Current
     ));
+}
+
+#[test]
+fn a_file_without_opens_takes_neither_and_one_with_it_takes_what_it_lists() {
+    let without = parsed(&valid()).unwrap();
+    assert!(without.opens.is_empty());
+
+    let mut value = valid();
+    value["opens"] = json!(["file", "folder"]);
+    assert_eq!(parsed(&value).unwrap().opens, [Opens::File, Opens::Folder]);
+    value["opens"] = json!(["folder"]);
+    assert_eq!(parsed(&value).unwrap().opens, [Opens::Folder]);
+    value["opens"] = json!([]);
+    assert!(parsed(&value).unwrap().opens.is_empty());
+}
+
+#[test]
+fn a_value_of_opens_that_is_not_known_is_not_there_and_one_written_twice_counts_once() {
+    let mut value = valid();
+    value["opens"] = json!(["folder", "bundle", "file", "folder", "File", "", "file"]);
+    let manifest = parsed(&value).unwrap();
+    assert_eq!(manifest.opens, [Opens::Folder, Opens::File]);
+    // The rest of the file reads as it did.
+    assert_eq!(manifest.name, "demopen");
+    assert_eq!(manifest.previous.len(), 1);
+
+    value["opens"] = json!(["symlink"]);
+    assert!(parsed(&value).unwrap().opens.is_empty());
+}
+
+#[test]
+fn opens_that_is_not_a_list_of_strings_is_not_the_shape() {
+    for bad in [
+        json!("file"),
+        json!(null),
+        json!({"file": true}),
+        json!([1]),
+        json!([["file"]]),
+    ] {
+        let mut value = valid();
+        value["opens"] = bad.clone();
+        assert_eq!(parsed(&value), Err(Error::Shape), "{bad}");
+    }
 }

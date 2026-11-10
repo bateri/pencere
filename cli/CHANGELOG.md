@@ -16,6 +16,9 @@ All notable changes to the `pencere` command are recorded here. The format follo
   itself, started on a pty of its own, and the earlier releases the file lists come from the one
   released before. Nothing is uploaded. The command now links `pencere-host`, for its `apps`
   module alone.
+- **`pencere dist --opens file,folder`** says in `app.json` that the program takes the path of a
+  file, of a folder or of both as its last argument, so that a terminal can offer it for the paths
+  a person opens. Without the flag the member is not written and `app.json` is the file it was.
 
 ## [0.4.0] - 2026-11-03
 

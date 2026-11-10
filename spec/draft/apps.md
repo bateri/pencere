@@ -59,8 +59,8 @@ before it has rejected the file, however long the stream it comes from.
 ## 4. `app.json`
 
 A UTF-8 JSON text (RFC 8259) without a byte order mark, whose value is an object with the members
-below. All are REQUIRED. A reader ignores any other member, so that a later version of this document
-can add one; a writer MUST NOT depend on a reader reading it.
+below. All are REQUIRED except `opens`. A reader ignores any other member, so that a later version of
+this document can add one; a writer MUST NOT depend on a reader reading it.
 
 | Member     | Value                                                                               |
 | ---------- | ----------------------------------------------------------------------------------- |
@@ -71,6 +71,7 @@ can add one; a writer MUST NOT depend on a reader reading it.
 | `key`      | the author's public key (5.1)                                                       |
 | `files`    | an object from a target name to the executable file for it (4.4)                    |
 | `previous` | earlier releases a reader may fall back to (4.6), at most 32 entries, possibly none |
+| `opens`    | the kinds of path the program takes when it is started with one (4.7), OPTIONAL     |
 
 ### 4.1 Name
 
@@ -140,6 +141,19 @@ Whoever writes the list for a new release builds it from the `app.json` of the r
 before: that file's `previous` and that file itself, without what the new release makes redundant.
 When the list would be longer than 32 entries, the entries of the lowest version numbers are the
 ones dropped. A reader MUST NOT rely on the order.
+
+### 4.7 Opens
+
+`opens` is a list of strings, each `file` or `folder`: the kinds of path the program takes when it is
+started with one. A terminal that starts the program for a path gives it, after any arguments of its
+own, the absolute path as the last argument, and before it `+LINE` (a plus sign and a decimal line
+number) when it means a line of a file; a program that has a use for the line reads it, and the
+others are not started with it. `file` is the path of a file, `folder` the path of a directory. A
+release with no `opens`, or an empty one, takes neither. A value written twice counts once, and a
+reader ignores a value it does not know, so that a later version of this document can add one.
+
+`opens` says what the author wrote and is signed like every other member. It is not a permission: the
+reader and the person it serves decide whether the program is offered for a path.
 
 ## 5. The signature
 

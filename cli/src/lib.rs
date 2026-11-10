@@ -59,12 +59,15 @@ usage:
                                              there is a key, only print it
   pencere dist VERSION [dir] [--name NAME] [--files DIR] [--key FILE] [--base URL] [--tag TAG]
                [--previous URL|FILE|none] [--describe-args ARGS] [--describe-with FILE]
+               [--opens file,folder]
                                              the release step of an app: write SHA256SUMS and a
                                              signed app.json (what the app needs is asked of the
                                              program itself) beside the files of every target,
                                              in dist/ or in DIR (--files: the files
                                              <name>-<version>-<target> already there; a Rust
                                              program is built on each target's own machine);
+                                             --opens says that the program takes a path of a
+                                             file, of a folder or of both as its last argument;
                                              nothing is uploaded
   pencere test [FILE[:LINE] | DIR]... [--grep TEXT] [--jobs N] [--timeout SECONDS]
                [--reporter pretty|tap] [--junit FILE] [--artifacts DIR]

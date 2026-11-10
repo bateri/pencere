@@ -72,6 +72,11 @@ of its own, reads the `hello` the program sends as it starts and ends it. `--des
 a program that needs arguments to start the ones it needs, and `--describe-with FILE` names another
 program to ask when this machine's target has no file.
 
+`--opens file,folder` says in `app.json` that the program takes the path of a file, of a folder or
+of both as its last argument, with `+LINE` before a file's path when a line is meant, so that a
+terminal can offer the program for the paths a person opens. Without it the member is not written
+and the release is the same file as before.
+
 The files are expected at `https://github.com/<owner>/<repo>/releases/download/v<version>/` of the
 repository's `origin` (`--tag` changes the tag, `--base` the whole address). The earlier releases
 that `app.json` lists are made from the `app.json` the repository released before (its

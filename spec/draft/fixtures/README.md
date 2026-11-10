@@ -301,10 +301,10 @@ as text, and `cases`, whose entries have `file`, `signature`, `note` and `outcom
 reader accepts the file (it has the shape of Section 4 and the signature holds, checked against the
 `key` the file names), or the name of the first thing the reader rejects it for: `name`, `version`,
 `address` (Section 4) or `signature` (Section 5). An `ok` entry also has the `name` and `version` the
-file holds and, in `selects`, what a reader makes of it for a host: each has `host`, the
-`protocol` versions the host speaks and the `views` it offers (the shape of the host's own list,
-Section 5.2), and `chooses`, the version of the release the reader takes (`apps.md` Section 7), or
-`null` when none opens. The Rust crate is tested from these files.
+file holds; `opens`, the values of its `opens`, when it has the member; and, in `selects`, what a
+reader makes of it for a host: each has `host`, the `protocol` versions the host speaks and the
+`views` it offers (the shape of the host's own list, Section 5.2), and `chooses`, the version of the
+release the reader takes (`apps.md` Section 7), or `null` when none opens. The Rust crate is tested from these files.
 
 The keys are **for tests only**: the secret half of `key` is the 32 bytes `00 01 02 ... 1f` and the
 secret half of `other-key` is `20 21 22 ... 3f`, which is what makes the files reproducible, and
@@ -324,6 +324,7 @@ author.
 | `apps/invalid-name/`    | a name with capital letters, correctly signed. Outcome `name`.                                                                                          |
 | `apps/invalid-version/` | a version of two numbers, correctly signed. Outcome `version`.                                                                                          |
 | `apps/invalid-address/` | the address of a file begins with `http:`, correctly signed. Outcome `address`.                                                                         |
+| `apps/opens/`           | 0.6.0, which says in `opens` that it takes a file and a folder. Outcome `ok`; the other `ok` files have no `opens` and take neither.                    |
 
 The limits (65 536 bytes of `app.json`, 32 entries of `previous`) and the other malformed names,
 versions and addresses are tested by the Rust crate from files it makes, not from fixtures of this

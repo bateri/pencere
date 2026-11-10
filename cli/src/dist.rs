@@ -16,7 +16,7 @@ use std::process::{Child, Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
 use ed25519_dalek::{Signer as _, SigningKey};
-use pencere_host::apps::{self, Manifest, Previous, Version};
+use pencere_host::apps::{self, Manifest, Opens, Previous, Version};
 use pencere_wire::base64;
 use pencere_wire::frame::{Direction, Event, StreamDecoder};
 use pencere_wire::message::{Hello, ViewOffer};
@@ -39,6 +39,21 @@ struct Options {
     previous: Option<String>,
     describe_args: Option<String>,
     describe_with: Option<PathBuf>,
+    opens: Vec<Opens>,
+}
+
+/// The kinds of path `--opens` names: `file`, `folder` or both, separated by commas, each once.
+fn opens_of(text: &str) -> Result<Vec<Opens>, String> {
+    let mut kinds = Vec::new();
+    for word in text.split(',') {
+        let kind = Opens::parse(word).ok_or_else(|| {
+            format!("{word:?} is not what a program opens: file, folder, or both with a comma")
+        })?;
+        if !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
+    }
+    Ok(kinds)
 }
 
 pub fn command(args: &[String]) -> ExitCode {
@@ -52,6 +67,7 @@ pub fn command(args: &[String]) -> ExitCode {
     let mut previous = None;
     let mut describe_args = None;
     let mut describe_with = None;
+    let mut opens = Vec::new();
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         let mut value = |what: &str| {
@@ -92,6 +108,10 @@ pub fn command(args: &[String]) -> ExitCode {
                 Ok(v) => describe_with = Some(PathBuf::from(v)),
                 Err(why) => return crate::usage(why),
             },
+            "--opens" => match value("file, folder or both").and_then(|v| opens_of(&v)) {
+                Ok(v) => opens = v,
+                Err(why) => return crate::usage(why),
+            },
             other if other.starts_with('-') => {
                 return crate::usage(format!("{other:?} is not an option of `dist`"));
             }
@@ -119,6 +139,7 @@ pub fn command(args: &[String]) -> ExitCode {
         previous,
         describe_args,
         describe_with,
+        opens,
     };
     match run(&options) {
         Ok(summary) => {
@@ -291,22 +312,14 @@ fn run(options: &Options) -> Result<String, String> {
         &base,
     )?;
 
-    let text = app_json(
-        &name,
-        &options.version,
-        &hello,
-        &public,
-        &base,
-        &built,
-        &previous,
-    );
+    let text = app_json(&name, options, &hello, &public, &base, &built, &previous);
     let signature = format!("{}\n", signature_text(&signing, text.as_bytes()));
     write(&directory.join("app.json"), text.as_bytes())?;
     write(&directory.join("app.json.sig"), signature.as_bytes())?;
     // What was written is read back the way every terminal will read it.
     let written = apps::verify(text.as_bytes(), signature.as_bytes())
         .map_err(|why| format!("the app.json that was made is not one that can be read: {why}"))?;
-    if written.key != public || written.version != version {
+    if written.key != public || written.version != version || written.opens != options.opens {
         return Err("the app.json that was made does not say what it was made from".to_owned());
     }
     Ok(format!(
@@ -459,7 +472,7 @@ fn views_json(views: &[ViewOffer]) -> String {
 /// The text of the `app.json`, the members in the order the specification lists them.
 fn app_json(
     name: &str,
-    version: &str,
+    options: &Options,
     hello: &Hello,
     key: &str,
     base: &str,
@@ -468,7 +481,7 @@ fn app_json(
 ) -> String {
     let mut out = String::from("{\n");
     out.push_str(&format!("  \"name\": {},\n", json(name)));
-    out.push_str(&format!("  \"version\": {},\n", json(version)));
+    out.push_str(&format!("  \"version\": {},\n", json(&options.version)));
     out.push_str(&format!(
         "  \"protocol\": {},\n",
         protocol_json(&hello.versions)
@@ -506,11 +519,16 @@ fn app_json(
             json(&entry.manifest)
         ));
     }
-    out.push_str(if previous.is_empty() {
-        "]\n}"
-    } else {
-        "\n  ]\n}"
-    });
+    out.push_str(if previous.is_empty() { "]" } else { "\n  ]" });
+    // Only a release that says what it opens has the member: the others are written as before.
+    if !options.opens.is_empty() {
+        let names: Vec<&str> = options.opens.iter().map(|kind| kind.as_str()).collect();
+        out.push_str(&format!(
+            ",\n  \"opens\": {}",
+            serde_json::to_string(&names).unwrap_or_default()
+        ));
+    }
+    out.push_str("\n}");
     out
 }
 
@@ -915,6 +933,7 @@ mod tests {
             key: String::new(),
             files: std::collections::BTreeMap::new(),
             previous: listed,
+            opens: Vec::new(),
         }
     }
 

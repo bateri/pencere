@@ -628,3 +628,65 @@ fn a_lua_app_is_made_for_every_target_and_says_what_it_needs() {
     );
     let _ = fs::remove_dir_all(&home);
 }
+
+#[test]
+fn what_a_release_opens_is_written_when_it_is_said_and_otherwise_the_file_is_as_it_was() {
+    let home = directory("opens");
+    let key = home.join("signing.key");
+    write_key(&key, 0);
+    let release = files(&home, "0.6.0");
+    let hello = program(&home, "demopen-hello", LUA_03);
+    let args = release_args(&release, &hello, "0.6.0", "none");
+
+    let (code, _, why) = run_dist(&home, &args, &key);
+    assert_eq!(code, 0, "{why}");
+    let without = fs::read_to_string(release.join("app.json")).expect("an app.json");
+    assert!(!without.contains("opens"), "{without}");
+    assert!(without.ends_with("\"previous\": []\n}"), "{without}");
+    assert!(written(&release).opens.is_empty());
+
+    // Said, it is one member more at the end, each kind once whatever the order it was typed in.
+    let mut with = args.clone();
+    with.extend(["--opens", "folder,file,folder"].map(str::to_owned));
+    let (code, _, why) = run_dist(&home, &with, &key);
+    assert_eq!(code, 0, "{why}");
+    let text = fs::read_to_string(release.join("app.json")).expect("an app.json");
+    assert_eq!(
+        text,
+        without.replace(
+            "\"previous\": []\n}",
+            "\"previous\": [],\n  \"opens\": [\"folder\",\"file\"]\n}"
+        )
+    );
+    assert_eq!(
+        written(&release).opens,
+        [apps::Opens::Folder, apps::Opens::File]
+    );
+
+    // Said again without the flag, the file is the first one, byte for byte.
+    let (code, _, why) = run_dist(&home, &args, &key);
+    assert_eq!(code, 0, "{why}");
+    assert_eq!(
+        fs::read_to_string(release.join("app.json")).expect("an app.json"),
+        without
+    );
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn a_kind_that_is_not_one_of_the_two_is_not_taken_for_opens() {
+    let home = directory("opens-bad");
+    let key = home.join("signing.key");
+    write_key(&key, 0);
+    let release = files(&home, "0.6.0");
+    let hello = program(&home, "demopen-hello", LUA_03);
+    for bad in ["link", "file,", "", "File"] {
+        let mut args = release_args(&release, &hello, "0.6.0", "none");
+        args.extend(["--opens", bad].map(str::to_owned));
+        let (code, _, why) = run_dist(&home, &args, &key);
+        assert_ne!(code, 0, "{bad:?}");
+        assert!(why.contains("not what a program opens"), "{bad:?}: {why}");
+    }
+    assert!(!release.join("app.json").exists());
+    let _ = fs::remove_dir_all(&home);
+}
