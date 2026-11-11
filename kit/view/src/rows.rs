@@ -190,6 +190,10 @@ const BEHIND: f32 = 0.5;
 /// is built again, in views: as much as comes into view while the page builds, at the most a
 /// person scrolls.
 const NEAR: f32 = 1.0;
+/// How much shorter than the window its rows were built for a list's window is before the list is
+/// built again for it. A list is first built before its box is laid out, for a window as tall as
+/// the page, and the rows made for that would be made again at every build of the page.
+const SHORTER: f32 = 0.75;
 
 /// Which rows of a long list a page built, and which way the list goes: kept between frames, so
 /// that the page builds two views of rows ahead of what is in view and half a view behind it, and
@@ -203,6 +207,8 @@ const NEAR: f32 = 1.0;
 pub struct Built {
     /// The rows built last, and how many the list had then.
     built: Option<(Range<usize>, usize)>,
+    /// How tall the window was that they were built for.
+    view: f32,
     /// Whether the list last went up, and where it was then: the way is changed only by a move,
     /// so that the build a move asked for, at the same place, finds the way it went.
     up: bool,
@@ -223,13 +229,14 @@ impl Built {
 
     /// Whether, with the list `rows` at `offset` in a window of `view` points, the page is to be
     /// built again: what is in view is past what was built, or near its end the way the list
-    /// goes, or the list is not as long as it was.
+    /// goes, or the list is not as long as it was, or its window is a good deal shorter than the
+    /// one its rows were built for.
     pub fn stale(&mut self, rows: &Rows, offset: f32, view: f32) -> bool {
         self.went(offset);
         let Some((built, len)) = &self.built else {
             return true;
         };
-        if *len != rows.len() {
+        if *len != rows.len() || view < self.view * SHORTER {
             return true;
         }
         let (top, bottom) = (rows.top(built.start), rows.top(built.end));
@@ -274,6 +281,7 @@ impl Built {
         }
         let span = rows.window(from, to - from, 0.0);
         self.built = Some((span.clone(), rows.len()));
+        self.view = view;
         span
     }
 }
@@ -409,7 +417,8 @@ impl List {
     }
 
     /// The page was laid out as `laid`: whether the list's window is now one the rows made do not
-    /// fill, and the page is to be built again. A list not on the page asks for nothing.
+    /// fill, or one a good deal shorter than the one they were made for (the page's, before the box
+    /// was laid out), and the page is to be built again. A list not on the page asks for nothing.
     pub fn settle(&mut self, laid: &dyn Queries) -> bool {
         let Some(extent) = laid.scroll_extent(self.id) else {
             return false;
@@ -718,6 +727,31 @@ mod tests {
         assert!(!built.stale(&Rows::default(), 0.0, 600.0));
     }
 
+    #[test]
+    fn a_list_built_for_a_taller_window_is_built_again_for_the_one_it_has() {
+        let rows = flat(10_000);
+        let mut built = Built::new();
+        // Before its box is laid out a list is built for a window as tall as the page.
+        let for_the_page = built.span(&rows, 0.0, 864.0);
+        assert_eq!(for_the_page, rows.window(0.0, 5.0 * 864.0, 0.0));
+        // Laid out in a little more than half of the page, it is built again, for that window.
+        assert!(built.stale(&rows, 0.0, 486.0));
+        let for_the_window = built.span(&rows, 0.0, 486.0);
+        assert_eq!(for_the_window, rows.window(0.0, 3.5 * 486.0, 0.0));
+        assert!(for_the_window.len() * 2 < for_the_page.len());
+        assert!(!built.stale(&rows, 0.0, 486.0));
+        // A window a little shorter is not a reason to build again; one a good deal shorter is.
+        assert!(!built.stale(&rows, 0.0, 400.0));
+        assert_eq!(built.span(&rows, 0.0, 400.0), for_the_window);
+        assert!(built.stale(&rows, 0.0, 300.0));
+        // A window with no height asks once, not for ever.
+        let mut built = Built::new();
+        built.span(&rows, 0.0, 600.0);
+        assert!(built.stale(&rows, 0.0, 0.0));
+        built.span(&rows, 0.0, 0.0);
+        assert!(!built.stale(&rows, 0.0, 0.0));
+    }
+
     /// A page laid out with the list's box `view` tall, scrolled `offset` down.
     struct Laid {
         id: Id,
@@ -909,11 +943,17 @@ mod tests {
         let mut list = List::new(LIST);
         list.scroll_to(1.0e9);
         list.build(div(), flat(100), 640.0, row);
-        assert!(!list.settle(&Laid {
+        // Built for the page and laid out in a window a good deal shorter, it is built again for
+        // that window, once.
+        let laid = Laid {
             id: LIST,
             view: 200.0,
             offset: 100.0 * 32.0 - 200.0,
-        }));
+        };
+        assert!(list.settle(&laid));
+        list.build(div(), flat(100), 640.0, row);
+        assert_eq!(list.made().end, 100);
+        assert!(!list.settle(&laid));
         // Nine hundred rows more, and asked to the end again: the end it has now is built.
         list.scroll_to(1.0e9);
         list.build(div(), flat(1000), 640.0, row);

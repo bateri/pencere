@@ -278,6 +278,10 @@ end
 -- comes before the page is built again, in views: as much as comes into view while the page
 -- builds, at the most a person scrolls.
 local AHEAD, BEHIND, NEAR = 2, 0.5, 1
+-- How much shorter than the window its rows were built for a list's window is before the list is
+-- built again for it. A list is first built before its box is laid out, for a window as tall as the
+-- page, and the rows made for that would be made again at every build of the page.
+local SHORTER = 0.75
 
 -- Which rows of a long list a page built, and which way the list goes: kept between frames (one
 -- for each list), so that the page builds two views of rows ahead of what is in view and half a
@@ -291,10 +295,11 @@ Built.__index = Built
 pencere.Built = Built
 
 function Built.new()
-	-- `first`, `last` and `count`: the rows built last, and how many the list had then. `up`
-	-- and `seen`: whether the list last went up, and where it was then: the way is changed only
-	-- by a move, so that the build a move asked for, at the same place, finds the way it went.
-	return setmetatable({ first = nil, last = nil, count = nil, up = false, seen = 0 }, Built)
+	-- `first`, `last` and `count`: the rows built last, and how many the list had then. `view`:
+	-- how tall the window was that they were built for. `up` and `seen`: whether the list last
+	-- went up, and where it was then: the way is changed only by a move, so that the build a move
+	-- asked for, at the same place, finds the way it went.
+	return setmetatable({ first = nil, last = nil, count = nil, view = 0, up = false, seen = 0 }, Built)
 end
 
 local function went(built, offset)
@@ -306,10 +311,11 @@ end
 
 -- Whether, with the list `rows` at `offset` in a window of `view` points, the page is to be built
 -- again: what is in view is past what was built, or near its end the way the list goes, or the
--- list is not as long as it was.
+-- list is not as long as it was, or its window is a good deal shorter than the one its rows were
+-- built for.
 function Built:stale(rows, offset, view)
 	went(self, offset)
-	if self.count == nil or self.count ~= rows:len() then
+	if self.count == nil or self.count ~= rows:len() or view < self.view * SHORTER then
 		return true
 	end
 	local top, bottom = rows:top(self.first), rows:top(self.last + 1)
@@ -349,7 +355,7 @@ function Built:span(rows, offset, view)
 		to = finish
 	end
 	local first, last = rows:window(from, to - from, 0)
-	self.first, self.last, self.count = first, last, rows:len()
+	self.first, self.last, self.count, self.view = first, last, rows:len(), view
 	return first, last
 end
 
@@ -384,7 +390,8 @@ end
 --
 -- The host scrolls the rows made at once; the page is drawn again only when what is in view comes
 -- near the end of what was made (a `scrolled` event asks for the frame whatever `handle` answers),
--- and when the box was laid out taller than the rows made can fill.
+-- when the box was laid out taller than the rows made can fill, and when it was laid out a good
+-- deal shorter than the window they were made for (the page's, before the box is laid out).
 --
 --   pencere.div():id("log"):grow(1):min_h(0):scroll()
 --       :list(pencere.Rows.even(#lines, 18), function(i) return line(lines[i]) end)
@@ -497,7 +504,8 @@ function list_hooks.scrolled(boxes)
 	return again
 end
 
--- The page was laid out: whether a long list's window is now one the rows made do not fill.
+-- The page was laid out: whether a long list's window is now one the rows made do not fill, or one
+-- a good deal shorter than the one they were made for.
 function list_hooks.settle()
 	local again = false
 	for id, list in pairs(lists) do

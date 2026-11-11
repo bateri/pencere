@@ -2511,6 +2511,13 @@ fn a_script_builds_a_long_list_where_the_engine_would() {
                         local first, last = built:span(rows, offset, 600)
                         say("at", offset, tostring(stale), first, last)
                     end
+                    -- Built for a window as tall as a page, then laid out in shorter ones.
+                    local built = pencere.Built.new()
+                    for _, view in ipairs({ 864, 486, 400, 300, 0, 0, 864 }) do
+                        local stale = built:stale(rows, 0, view)
+                        local first, last = built:span(rows, 0, view)
+                        say("in", view, tostring(stale), first, last)
+                    end
                 end
                 return page
             end,
@@ -2564,6 +2571,12 @@ fn a_script_builds_a_long_list_where_the_engine_would() {
                 span.start + 1,
                 span.end
             ));
+        }
+        let mut built = Built::new();
+        for view in [864.0, 486.0, 400.0, 300.0, 0.0, 0.0, 864.0] {
+            let stale = built.stale(rows, 0.0, view);
+            let span = built.span(rows, 0.0, view);
+            expected.push(format!("in {view} {stale} {} {}", span.start + 1, span.end));
         }
     }
     assert_eq!(said, expected);
@@ -2637,8 +2650,17 @@ fn a_long_list_is_built_near_what_is_in_view_and_again_only_when_it_is_scrolled_
     let at_first = laid(&page);
     let extent = at_first.scroll_extent(list).expect("the list scrolls");
     assert_eq!(extent.content.h, 20.0 * 1000.0);
-    // Laid out in a window the rows made fill, nothing is built again.
+    // Laid out in a window a good deal shorter than the page it was built for, the list is built
+    // again of itself, for that window: three views and a half of it from the top, not five pages.
     page.module.lay_out(Arc::clone(&at_first));
+    frame(&mut page);
+    let settled = said(&page);
+    assert!(
+        settled.contains(&"row 35".to_owned()) && !settled.contains(&"row 36".to_owned()),
+        "{settled:?}"
+    );
+    // Laid out in the window its rows were built for, nothing is built again.
+    page.module.lay_out(laid(&page));
     page.seen.frame = None;
     page.take(Duration::from_millis(300));
     assert!(page.seen.frame.is_none(), "the rows made fill the window");
@@ -2647,7 +2669,7 @@ fn a_long_list_is_built_near_what_is_in_view_and_again_only_when_it_is_scrolled_
     // though the page itself said nothing changed.
     assert!(!tell(
         &mut page,
-        Event::Scrolled(vec![Scrolled::at(list, Point::new(0.0, 1000.0))])
+        Event::Scrolled(vec![Scrolled::at(list, Point::new(0.0, 100.0))])
     ));
     assert!(tell(
         &mut page,
@@ -2772,10 +2794,12 @@ fn a_long_list_asked_to_its_end_is_built_at_the_end_it_has_now() {
     };
     page.module.render(SIZE, 0.0, false);
     assert!(frame(&mut page).contains(&"line 100".to_owned()));
-    // Laid out at the end of a hundred lines, then nine hundred more come at once.
+    // Laid out at the end of a hundred lines (in a window shorter than the page it was built for,
+    // so it is built again for it), then nine hundred more come at once.
     let root = page.seen.frame.clone().expect("a page").root;
     page.module
         .lay_out(Arc::new(pencere_view::layout(root, SIZE, 1.0, &mut Rough)));
+    assert!(frame(&mut page).contains(&"line 100".to_owned()));
     page.module.event(Event::Input(Input::Key {
         key: Key::Down,
         mods: Mods::default(),

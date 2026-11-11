@@ -1684,11 +1684,13 @@ fn frame_out(
         )));
     }
     let mut lists = Lists::new(&frame, limits.frame_bytes)?;
-    let nodes = frame
-        .nodes
-        .iter()
-        .map(|node| node_out(node, limits, &mut lists))
-        .collect::<Result<Vec<_>, _>>()?;
+    // Room for every element at once. A list that is collected from results does not know how long
+    // it will be and grows by doubling: on every frame it asked for twice the page in blocks that
+    // big, which a system keeps for a while after they are let go.
+    let mut nodes = Vec::with_capacity(frame.nodes.len());
+    for node in &frame.nodes {
+        nodes.push(node_out(node, limits, &mut lists)?);
+    }
     if editor_in_zoom(&nodes) {
         return Err(Fault::Malformed(
             "an editor inside a box that zooms (or one that zooms): a zoom does not reach an editor's text"

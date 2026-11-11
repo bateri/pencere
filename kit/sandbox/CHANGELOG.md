@@ -73,6 +73,12 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Fixed
 
+- **A long list of the script is built for the window it has, not for the page's**
+  (`pencere.Built`, and so `box:list`, as `pencere-view`'s `Built`): a list laid out in a window
+  less than three quarters of the one its rows were built for is built again for it, once.
+  `make luau` rebuilt the interpreter.
+- **A frame's elements are taken into a list as long as they are**, not one that doubles until
+  they fit.
 - **The rows of a list keep their height when there are more of them than fit.** A row of `u:list`
   (and so of `u:palette`) is `no_shrink`: a list laid out on the cells of a terminal, where every
   length is rounded to a cell, squeezed its rows into one cell each when its content was more than

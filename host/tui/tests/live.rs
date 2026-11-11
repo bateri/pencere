@@ -497,6 +497,8 @@ fn a_terminal_that_hosts_no_view_gets_the_view_drawn_in_its_cells() {
     // What an empty field says: its hint, though nobody has touched the field (it comes with the
     // frame after the one that brings the field).
     terminal.until("Filter by name");
+    // A frame is read as it comes, from the top: the bar at the foot is the last of it.
+    terminal.until("commands");
     for word in ["Running", "Stopped", "api", "mailer", "commands"] {
         assert!(
             terminal.screen.find(word).is_some(),

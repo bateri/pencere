@@ -242,8 +242,11 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     // column across and a row down, so that every length is a whole number of them and every box
     // stands on the cells' edges. The boxes come out in pixels all the same.
     let unit = Units::of(measure.grid());
-    let mut tree: TaffyTree<Leaf> = TaffyTree::new();
-    let mut pending = Vec::new();
+    // Room for every box at once: the tree and the list are as long as the page has elements, and
+    // one that grows to that by doubling asks for twice the memory on every layout.
+    let boxes = count(&root);
+    let mut tree: TaffyTree<Leaf> = TaffyTree::with_capacity(boxes);
+    let mut pending = Vec::with_capacity(boxes);
     let mut lifted = VecDeque::new();
     let (_, root_id) = build(
         &mut tree,
@@ -883,6 +886,17 @@ fn empty(page: Rect) -> Node {
         turn: 0.0,
         thin: (0.0, 0.0),
     }
+}
+
+/// How many elements `root` is, itself among them.
+fn count(root: &Element) -> usize {
+    let mut count = 0;
+    let mut open = vec![root];
+    while let Some(element) = open.pop() {
+        count += 1;
+        open.extend(&element.children);
+    }
+    count
 }
 
 /// Makes the Taffy node of `element` and of what is inside it; returns the element's place in

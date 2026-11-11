@@ -70,6 +70,19 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
   out of the box it is in): what a host asks the pixels of is what it shows, and a picture it does
   not show no longer holds room of the pixels a view may have. Its box's fill is drawn as before.
 
+### Fixed
+
+- **A long list is built for the window it has, not for the page's.** `Built` keeps how tall the
+  window was that its rows were built for, and `stale` is true where the window is less than three
+  quarters of that. A list is first built before its box is laid out, for a window as tall as the
+  page; a list that was laid out in half of the page went on making the rows of five pages at
+  every build until it grew or shrank by a row. It is built again once, when it is laid out, for
+  its own window.
+- **A layout asks for the room of its boxes once.** The tree and the list of boxes are made as long
+  as the page has elements, where they grew to that by doubling at every layout: a page of some
+  thousand elements that is built every second asked for and let go of twice its size in large
+  blocks each time, which a system's allocator holds on to.
+
 ### Added
 
 - `Element::page(n)`, `Image::page` and `Picture::page`: which page of the file an image shows, from

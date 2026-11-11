@@ -496,7 +496,8 @@ moved, all of it the other way at an end of the list, which can only go back), a
 are made again while they hold what is in view with a view to spare the way the list goes. The kit
 asks for the frame a list needs: a `scrolled` event that takes a list near the end of the rows made
 draws the page again whatever `handle` answers, and so does a layout that gives a list a taller
-window than its rows fill. A list that goes less than a view a frame finds its rows built, and the
+window than its rows fill, or one less than three quarters of the window its rows were built for
+(a list is built before its box is laid out, for the page's height, and again for its own). A list that goes less than a view a frame finds its rows built, and the
 page is built about once a view, not at every turn of the wheel. A list the page asked past its end
 (a log that is followed) is built at the end of the rows it is given, though it grew since it was
 laid out. Before the box is laid out its window is taken as the page's height; a list the page stops building is forgotten, and is built
