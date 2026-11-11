@@ -32,7 +32,9 @@ pub enum ImageMode {
 /// How a canvas of the page is shown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CanvasMode {
-    /// In braille dots: eight to a cell, and the tint of what is faint in the cell's ground.
+    /// In braille dots, eight to a cell, where the figure covers them (and no more: the ground is the
+    /// box's under the canvas); a canvas of a cell or two is an icon, its ink filling the cells, in
+    /// quarter blocks where it is flat (an arrow).
     Characters,
     /// As a picture, in the terminal's pixels ([`ImageMode::Kitty`]).
     Picture,
@@ -409,6 +411,77 @@ const INK: f32 = 0.4;
 
 /// How many samples a dot of a canvas is drawn from, across and down.
 const SAMPLES: f32 = 4.0;
+
+/// A canvas of this many cells or fewer is an icon.
+const SMALL: f32 = 2.0;
+
+/// How much wider than tall an icon's ink is for it to be drawn in quarter blocks.
+const FLAT: f32 = 1.3;
+
+/// The quarter blocks of a cell, by which of its quarters are covered: 1 the upper left, 2 the upper
+/// right, 4 the lower left, 8 the lower right.
+const QUARTERS: [char; 16] = [
+    ' ', '\u{2598}', '\u{259d}', '\u{2580}', '\u{2596}', '\u{258c}', '\u{259e}', '\u{259b}',
+    '\u{2597}', '\u{259a}', '\u{2590}', '\u{259c}', '\u{2584}', '\u{2599}', '\u{259f}', '\u{2588}',
+];
+
+/// How far apart two colours of a cell's dots may be (the sum of the channels' differences) for the
+/// dots to count as of one colour.
+const SAME: f32 = 96.0;
+
+/// The dots of one cell that a figure covers, with the colour of what covers them.
+#[derive(Default)]
+struct Dots {
+    bits: u8,
+    /// What covers each dot: its colour, not premultiplied, and how much of the dot is covered.
+    covers: Vec<([f32; 3], f32)>,
+}
+
+impl Dots {
+    fn add(&mut self, bit: u8, premultiplied: [f32; 3], alpha: f32) {
+        self.bits |= bit;
+        let weight = alpha.max(f32::EPSILON);
+        self.covers
+            .push((premultiplied.map(|channel| channel / weight), alpha));
+    }
+
+    /// The colour of what covers the dots: where lines of two colours cross in a cell, the colour that
+    /// has more of the cover (colours near each other count as one, and are averaged by cover), the
+    /// brighter where they have as much. A mean of the two would be a colour neither line has.
+    fn color(&self) -> Rgb {
+        let near = |one: &[f32; 3], other: &[f32; 3]| {
+            one.iter()
+                .zip(other)
+                .map(|(a, b)| (a - b).abs())
+                .sum::<f32>()
+                <= SAME
+        };
+        let light = |color: &[f32; 3]| color.iter().sum::<f32>();
+        let mut best: Option<(f32, [f32; 3])> = None;
+        for (color, _) in &self.covers {
+            let (mut total, mut sum) = (0.0_f32, [0.0_f32; 3]);
+            for (other, cover) in &self.covers {
+                if near(color, other) {
+                    total += cover;
+                    for (sum, channel) in sum.iter_mut().zip(other) {
+                        *sum += channel * cover;
+                    }
+                }
+            }
+            let mean = sum.map(|channel| channel / total.max(f32::EPSILON));
+            let better = best.as_ref().is_none_or(|(most, was)| {
+                total > *most + 0.05 || (total >= *most - 0.05 && light(&mean) > light(was))
+            });
+            if better {
+                best = Some((total, mean));
+            }
+        }
+        let [r, g, b] = best
+            .map_or([0.0; 3], |(_, mean)| mean)
+            .map(|channel| channel.round().clamp(0.0, 255.0) as u8);
+        Rgb::new(r, g, b)
+    }
+}
 
 impl Painter<'_> {
     fn ch(&self) -> f32 {
@@ -1013,9 +1086,16 @@ impl Painter<'_> {
             }
             CanvasMode::Characters => {
                 let (dots_across, dots_down) = (cols * 2.0, rows * 4.0);
-                // Each dot is drawn from a few samples, and a line is at least a dot wide: a line
-                // that is thinner than a dot would otherwise cover too little of any to be one.
-                let dot = (w_pt / dots_across).max(h_pt / dots_down);
+                // A canvas of a cell or two is an icon, small in the room it was given. Its lines are
+                // thinner than a dot, and its ink is what is drawn, to fill the cells; a larger
+                // canvas keeps what it is given, and a line is at least a dot wide in it (one that is
+                // thinner than a dot would cover too little of any to be one).
+                let small = cols * rows <= SMALL;
+                let dot = if small {
+                    0.0
+                } else {
+                    (w_pt / dots_across).max(h_pt / dots_down)
+                };
                 let scale = ((dots_across * SAMPLES / w_pt).max(dots_down * SAMPLES / h_pt))
                     .min(8192.0 / w_pt.max(h_pt));
                 let paths = figure
@@ -1044,6 +1124,18 @@ impl Painter<'_> {
                     pixels: bitmap.pixels().to_vec(),
                     crop: Rect::new(0.0, 0.0, 1.0, 1.0),
                 };
+                let ink = if small {
+                    let Some(ink) = raster.ink_bounds() else {
+                        return;
+                    };
+                    ink
+                } else {
+                    Rect::new(0.0, 0.0, 1.0, 1.0)
+                };
+                // An icon that is flat (a chevron, an arrow: twice as wide as it is tall) reads best in
+                // quarter blocks, whose pixels are then square; a squarer one (a cross, a square) in
+                // braille, which has twice the rows.
+                let flat = small && ink.w * w_pt >= FLAT * ink.h * h_pt;
                 for row in r0..r1 {
                     let middle = row * 2 + 1;
                     if middle < clip.y0 || middle > clip.y1 {
@@ -1053,8 +1145,14 @@ impl Painter<'_> {
                         if col < clip.x0 || col >= clip.x1 {
                             continue;
                         }
-                        let first = (((col - c0) * 2) as f32, ((row - r0) * 4) as f32);
-                        self.braille(col, row, &raster, first, (dots_across, dots_down));
+                        if flat {
+                            let first = (((col - c0) * 2) as f32, ((row - r0) * 2) as f32);
+                            let quarters = (dots_across, rows * 2.0);
+                            self.quarters(col, row, &raster, ink, first, quarters);
+                        } else {
+                            let first = (((col - c0) * 2) as f32, ((row - r0) * 4) as f32);
+                            self.braille(col, row, &raster, ink, first, (dots_across, dots_down));
+                        }
                     }
                 }
             }
@@ -1063,83 +1161,86 @@ impl Painter<'_> {
 
     /// The cell at `col`, `row` drawn as braille from the dots of the raster that start at `first`
     /// (the grid of dots of the whole canvas is `dots` across and down).
+    ///
+    /// A canvas makes no ground: the ground of a cell is the box under the canvas, as the boxes drew
+    /// it. Only the dots a figure covers (`INK`) are braille dots, in the colour of what covers them;
+    /// what it covers less (a faint grid, the fill under a line) is left out.
     fn braille(
         &mut self,
         col: i32,
         row: i32,
         raster: &Raster,
+        zoom: Rect,
         first: (f32, f32),
         dots: (f32, f32),
     ) {
-        let mut ink = 0_u8;
-        let mut ink_sum = [0.0_f32; 3];
-        let mut ink_count = 0.0_f32;
-        // The tint of the dots that are not the line's, for each half of the cell.
-        let mut tint = [[0.0_f32; 3]; 2];
-        let mut tint_count = [0.0_f32; 2];
-        let mut tinted = [false; 2];
+        let mut ink = Dots::default();
         for (across, column) in DOTS.iter().enumerate() {
             for (down, bit) in column.iter().enumerate() {
                 let (x, y) = (first.0 + across as f32, first.1 + down as f32);
-                let [r, g, b, a] = raster.mean(
-                    (x / dots.0, y / dots.1),
-                    ((x + 1.0) / dots.0, (y + 1.0) / dots.1),
-                );
+                let at =
+                    |x: f32, y: f32| (zoom.x + zoom.w * x / dots.0, zoom.y + zoom.h * y / dots.1);
+                let [r, g, b, a] = raster.mean(at(x, y), at(x + 1.0, y + 1.0));
                 let alpha = a / 255.0;
-                let half = down / 2;
                 if alpha >= INK {
-                    ink |= bit;
-                    for (sum, channel) in ink_sum.iter_mut().zip([r, g, b]) {
-                        *sum += channel / alpha;
-                    }
-                    ink_count += 1.0;
-                } else {
-                    let ground = self.canvas.ground_at(col, row * 2 + half as i32);
-                    let lay = |ground: u8, premultiplied: f32| {
-                        f32::from(ground) * (1.0 - alpha) + premultiplied
-                    };
-                    if let (Some(sum), Some(count)) = (tint.get_mut(half), tint_count.get_mut(half))
-                    {
-                        for (sum, value) in sum.iter_mut().zip([
-                            lay(ground.r, r),
-                            lay(ground.g, g),
-                            lay(ground.b, b),
-                        ]) {
-                            *sum += value;
-                        }
-                        *count += 1.0;
-                    }
-                    if alpha > 0.01
-                        && let Some(tinted) = tinted.get_mut(half)
-                    {
-                        *tinted = true;
-                    }
+                    ink.add(*bit, [r, g, b], alpha);
                 }
             }
         }
-        for half in 0..2 {
-            let (Some(sum), Some(&count), Some(&any)) =
-                (tint.get(half), tint_count.get(half), tinted.get(half))
-            else {
-                continue;
+        if ink.bits == 0 {
+            return;
+        }
+        let ch = char::from_u32(0x2800 + u32::from(ink.bits)).unwrap_or(' ');
+        self.put_figure(col, row, ch, ink.color());
+    }
+
+    /// The cell at `col`, `row` of a canvas of a cell or two, drawn as quarter blocks (▘▝▖▗ and the
+    /// halves and corners they make): dots are too few of them to read a small shape by. `first` is the
+    /// quarter of the canvas the cell's first is, the canvas is `quarters` across and down, and what is
+    /// drawn in them is the part of the raster that `zoom` (shares of it) says.
+    fn quarters(
+        &mut self,
+        col: i32,
+        row: i32,
+        raster: &Raster,
+        zoom: Rect,
+        first: (f32, f32),
+        quarters: (f32, f32),
+    ) {
+        let mut ink = Dots::default();
+        for (bit, (across, down)) in [
+            (1_u8, (0.0, 0.0)),
+            (2, (1.0, 0.0)),
+            (4, (0.0, 1.0)),
+            (8, (1.0, 1.0)),
+        ] {
+            let (x, y) = (first.0 + across, first.1 + down);
+            let at = |x: f32, y: f32| {
+                (
+                    zoom.x + zoom.w * x / quarters.0,
+                    zoom.y + zoom.h * y / quarters.1,
+                )
             };
-            if any && count > 0.0 {
-                let [r, g, b] = sum.map(|total| (total / count).round().clamp(0.0, 255.0) as u8);
-                self.canvas
-                    .paint(col, row * 2 + half as i32, Rgb::new(r, g, b), 1.0);
+            let [r, g, b, a] = raster.mean(at(x, y), at(x + 1.0, y + 1.0));
+            let alpha = a / 255.0;
+            if alpha >= INK {
+                ink.add(bit, [r, g, b], alpha);
             }
         }
-        if ink != 0 {
-            let mean = ink_sum.map(|total| (total / ink_count).round().clamp(0.0, 255.0) as u8);
-            let ch = char::from_u32(0x2800 + u32::from(ink)).unwrap_or(' ');
-            let [r, g, b] = mean;
-            if self
-                .canvas
-                .put(col, row, (ch, Rgb::new(r, g, b), Attrs::NONE), false)
-                == Some(true)
-            {
-                self.overlaps += 1;
-            }
+        let Some(ch) = QUARTERS
+            .get(usize::from(ink.bits))
+            .copied()
+            .filter(|ch| *ch != ' ')
+        else {
+            return;
+        };
+        self.put_figure(col, row, ch, ink.color());
+    }
+
+    /// A character of a figure at the cell, in `color`, over the ground the boxes made.
+    fn put_figure(&mut self, col: i32, row: i32, ch: char, color: Rgb) {
+        if self.canvas.put(col, row, (ch, color, Attrs::NONE), false) == Some(true) {
+            self.overlaps += 1;
         }
     }
 

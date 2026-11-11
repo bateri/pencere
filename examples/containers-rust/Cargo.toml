@@ -12,6 +12,9 @@ publish = false
 # Everything a program does to show a view: the handshake, the terminal's modes, the signals, the
 # way out. This program is its calls and its subscription, and the list it makes up.
 pencere = { path = "../../program" }
+# Where the terminal shows no view, the same view in the cells of the terminal: `serve` of this
+# crate is the library's, with the screen behind it.
+pencere-tui = { path = "../../host/tui" }
 # The containers of the example and the numbers a made-up host reports for them: one list, the
 # page's own, not a copy in the program.
 containers-page = { path = "../containers-page" }

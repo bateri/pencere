@@ -255,6 +255,7 @@ dependencies = [
  "containers-page",
  "pencere",
  "pencere-drive",
+ "pencere-tui",
  "serde_json",
 ]
 
@@ -1276,7 +1277,10 @@ dependencies = [
 name = "pencere-tui"
 version = "0.4.1"
 dependencies = [
+ "libc",
+ "pencere",
  "pencere-drive",
+ "pencere-fake-host",
  "pencere-sandbox",
  "pencere-view",
  "unicode-width",

@@ -58,7 +58,7 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
 
 /// The sequence that draws `placement` (the terminal's graphics protocol, Kitty's), at the cell the
 /// cursor is at.
-fn kitty(out: &mut String, placement: &Placement) {
+pub(crate) fn kitty(out: &mut String, placement: &Placement) {
     let data = base64(&placement.rgba);
     let chunks: Vec<&[u8]> = data.as_bytes().chunks(CHUNK).collect();
     let last = chunks.len().saturating_sub(1);
@@ -79,15 +79,35 @@ fn kitty(out: &mut String, placement: &Placement) {
     }
 }
 
+/// How many colours the terminal takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Depth {
+    /// Sixteen million: `38;2;r;g;b`.
+    True,
+    /// The 256 of the terminals that have no more: the colour cube and the greys, nearest to the
+    /// colour the page asks for.
+    Indexed,
+}
+
 /// What the terminal has been told about how the next characters are drawn.
-struct Sgr {
+pub(crate) struct Sgr {
+    depth: Depth,
     fg: Option<Rgb>,
     bg: Option<Bg>,
     attrs: Attrs,
 }
 
 impl Sgr {
-    fn set(&mut self, out: &mut String, cell: &Cell) {
+    pub(crate) fn new(depth: Depth) -> Self {
+        Self {
+            depth,
+            fg: None,
+            bg: None,
+            attrs: Attrs::NONE,
+        }
+    }
+
+    pub(crate) fn set(&mut self, out: &mut String, cell: &Cell) {
         let flags = [
             (Attrs::BOLD, 1, 22),
             (Attrs::ITALIC, 3, 23),
@@ -102,18 +122,28 @@ impl Sgr {
         }
         self.attrs = cell.attrs;
         if self.fg != Some(cell.fg) {
-            let Rgb { r, g, b } = cell.fg;
-            let _ = write!(out, "\x1b[38;2;{r};{g};{b}m");
+            self.color(out, 38, cell.fg);
             self.fg = Some(cell.fg);
         }
         if self.bg != Some(cell.bg) {
             match cell.bg {
-                Bg::Rgb(Rgb { r, g, b }) => {
-                    let _ = write!(out, "\x1b[48;2;{r};{g};{b}m");
-                }
+                Bg::Rgb(rgb) => self.color(out, 48, rgb),
                 Bg::Default => out.push_str("\x1b[49m"),
             }
             self.bg = Some(cell.bg);
+        }
+    }
+
+    /// `ground` is 38 for the text's colour and 48 for the cell's.
+    fn color(&self, out: &mut String, ground: u8, rgb: Rgb) {
+        let Rgb { r, g, b } = rgb;
+        match self.depth {
+            Depth::True => {
+                let _ = write!(out, "\x1b[{ground};2;{r};{g};{b}m");
+            }
+            Depth::Indexed => {
+                let _ = write!(out, "\x1b[{ground};5;{}m", rgb.to_indexed());
+            }
         }
     }
 }
@@ -125,11 +155,7 @@ pub(crate) fn ansi(frame: &Frame) -> Vec<u8> {
     let mut out = String::from("\x1b[H\x1b[2J");
     let last = usize::from(frame.grid.rows()).saturating_sub(1);
     for (index, row) in frame.grid.rows_of_cells().enumerate() {
-        let mut state = Sgr {
-            fg: None,
-            bg: None,
-            attrs: Attrs::NONE,
-        };
+        let mut state = Sgr::new(Depth::True);
         for cell in row.iter().filter(|cell| !cell.tail) {
             state.set(&mut out, cell);
             out.push(cell.ch);

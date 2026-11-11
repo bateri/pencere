@@ -215,12 +215,12 @@ struct Change {
 
 /// Gives the terminal back if a panic ends the program in the middle of the conversation, and
 /// puts the panic hook back.
-struct PanicHook {
+pub(crate) struct PanicHook {
     previous: Arc<dyn Fn(&panic::PanicHookInfo<'_>) + Send + Sync>,
 }
 
 impl PanicHook {
-    fn install() -> Self {
+    pub(crate) fn install() -> Self {
         let previous: Arc<dyn Fn(&panic::PanicHookInfo<'_>) + Send + Sync> =
             Arc::from(panic::take_hook());
         let chain = Arc::clone(&previous);

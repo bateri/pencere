@@ -189,6 +189,7 @@ local List = core.component("list", {
 				:selected(selected)
 				:label(item.label or item.title or tostring(key))
 				:h(height)
+				:no_shrink()
 				:px(props.pad or 8)
 				:row()
 				:items_center()
@@ -369,6 +370,9 @@ end
 -- (`pick { item }`), a click on a row picks it, escape and a click outside it give up (`dismiss`),
 -- and backspace in the empty field is `back` (the page leaves a mode). Each change of the query is
 -- `query { text }`. `footer` is the keys it says at its foot: `{ { keys = "enter", title = "Run" } }`.
+-- `rows` is how many rows it shows at the most (8), `height` how tall a row is (32) and `inset` the
+-- points around the rows (4): a page that is laid out on the cells of a terminal says a `height` of
+-- whole rows and an `inset` of 0, or of whole rows.
 local Palette = core.component("palette", {
 	state = function()
 		return { query = "", cursor = nil, field = { value = "" } }
@@ -409,7 +413,8 @@ local Palette = core.component("palette", {
 			}))
 		)
 		body:child(u:rule("x"))
-		local list_height = math.min(math.max(#rows, 1), props.rows or 8) * (props.height or 32) + 8
+		local inset = props.inset or 4
+		local list_height = math.min(math.max(#rows, 1), props.rows or 8) * (props.height or 32) + 2 * inset
 		if #rows == 0 then
 			body:child(
 				pencere.div():h(props.height or 40):items_center():justify_center():child(
@@ -424,7 +429,7 @@ local Palette = core.component("palette", {
 				focusable = false,
 				hover_selects = true,
 				height = props.height or 32,
-				inset = 4,
+				inset = inset,
 				pad = 10,
 				label = props.label,
 				row = function(item, _, look)

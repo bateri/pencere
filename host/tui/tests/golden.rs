@@ -557,6 +557,129 @@ fn a_line_of_a_canvas_is_the_braille_dots_it_passes() {
     assert_eq!(cell.bg, Bg::Rgb(dark().background));
 }
 
+/// Whether two colours are the same to within what a figure's pixels round to.
+fn near(a: Rgb, b: Rgb) -> bool {
+    [(a.r, b.r), (a.g, b.g), (a.b, b.b)]
+        .iter()
+        .all(|(x, y)| x.abs_diff(*y) <= 2)
+}
+
+/// A figure of one path, in a canvas of `rect`.
+fn figure(rect: Rect, path: pencere_view::Path) -> Paint {
+    Paint::Figure(Figure {
+        rect,
+        scale: 1.0,
+        paths: vec![path],
+        clip: world(),
+    })
+}
+
+#[test]
+fn a_canvas_makes_no_ground_and_leaves_out_what_it_covers_little() {
+    // A box, and over it a canvas that fills all of it with a faint colour (a grid, the fill under a
+    // line): not a dot of it is drawn, and the ground of every cell is the box's.
+    let mut faint = path()
+        .move_to(0.0, 0.0)
+        .line_to(4.0, 0.0)
+        .line_to(4.0, 4.0)
+        .line_to(0.0, 4.0)
+        .close();
+    faint.fill = Some(Color::from(Role::Accent).faded(0.2));
+    let list = vec![
+        quad(Rect::new(0.0, 0.0, 4.0, 4.0), Role::Raised(1)),
+        figure(Rect::new(0.0, 0.0, 4.0, 4.0), faint),
+    ];
+    let frame = draw(list, 4, 2);
+    assert_eq!(frame.text(), "\n\n");
+    for (col, row) in [(0, 0), (3, 0), (0, 1), (3, 1)] {
+        assert_eq!(bg(&frame, col, row), Bg::Rgb(BOX), "{col}, {row}");
+    }
+    // What it draws solidly is dots, in the colour of the line, still on the box's ground.
+    let mut solid = path().move_to(0.0, 1.0).line_to(4.0, 1.0);
+    solid.stroke = Some(Stroke {
+        width: 0.1,
+        color: Role::Accent.solid(),
+    });
+    let list = vec![
+        quad(Rect::new(0.0, 0.0, 4.0, 4.0), Role::Raised(1)),
+        figure(Rect::new(0.0, 0.0, 4.0, 4.0), solid),
+    ];
+    let frame = draw(list, 4, 2);
+    assert_eq!(frame.text(), "⠶⠶⠶⠶\n\n");
+    let cell = frame.grid.cell(1, 0).expect("a cell");
+    assert!(near(cell.fg, dark().role(Role::Accent)));
+    assert_eq!(bg(&frame, 1, 0), Bg::Rgb(BOX));
+}
+
+#[test]
+fn where_two_lines_cross_a_cell_it_is_the_colour_that_has_more_of_it() {
+    // A cell of a chart where a thin line of one colour and a thick one of another run through it:
+    // the cell is the thick line's colour, not a mean of the two that neither line has.
+    let mut thin = path().move_to(0.0, 0.25).line_to(4.0, 0.25);
+    thin.stroke = Some(Stroke {
+        width: 0.5,
+        color: Role::Red.solid(),
+    });
+    let mut thick = path().move_to(0.0, 1.25).line_to(4.0, 1.25);
+    thick.stroke = Some(Stroke {
+        width: 1.5,
+        color: Role::Accent.solid(),
+    });
+    let list = vec![Paint::Figure(Figure {
+        rect: Rect::new(0.0, 0.0, 4.0, 4.0),
+        scale: 1.0,
+        paths: vec![thin, thick],
+        clip: world(),
+    })];
+    let frame = draw(list, 4, 2);
+    assert_eq!(frame.text(), "⣿⣿⣿⣿\n\n");
+    let cell = frame.grid.cell(1, 0).expect("a cell");
+    assert!(near(cell.fg, dark().role(Role::Accent)));
+}
+
+#[test]
+fn a_canvas_of_two_cells_is_an_icon_drawn_in_quarter_blocks_that_fills_them() {
+    // A chevron pointing down, small in the room it has (a cell and a half across and a third of a
+    // row down, in the middle of two cells): its ink is what is drawn in the quarters, so that it
+    // reads as the arrow it is: ▚▞.
+    let mut chevron = path().move_to(0.5, 0.7).line_to(1.0, 1.2).line_to(1.5, 0.7);
+    chevron.stroke = Some(Stroke {
+        width: 0.2,
+        color: Role::Accent.solid(),
+    });
+    let frame = draw(vec![figure(Rect::new(0.0, 0.0, 2.0, 2.0), chevron)], 2, 1);
+    assert_eq!(frame.text(), "▚▞\n");
+    assert!(near(
+        frame.grid.cell(0, 0).expect("a cell").fg,
+        dark().role(Role::Accent)
+    ));
+    // And upward, the same two characters the other way about.
+    let mut chevron = path().move_to(0.5, 1.2).line_to(1.0, 0.7).line_to(1.5, 1.2);
+    chevron.stroke = Some(Stroke {
+        width: 0.2,
+        color: Role::Accent.solid(),
+    });
+    let frame = draw(vec![figure(Rect::new(0.0, 0.0, 2.0, 2.0), chevron)], 2, 1);
+    assert_eq!(frame.text(), "▞▚\n");
+}
+
+#[test]
+fn an_icon_that_is_not_flat_is_braille_with_its_ink_filling_the_cells() {
+    // A cross, small in the room it has: its ink is spread over the two cells, in dots, which have
+    // twice the rows of quarters and keep the two strokes apart.
+    let mut cross = path()
+        .move_to(0.5, 0.5)
+        .line_to(1.5, 1.5)
+        .move_to(1.5, 0.5)
+        .line_to(0.5, 1.5);
+    cross.stroke = Some(Stroke {
+        width: 0.2,
+        color: Role::Accent.solid(),
+    });
+    let frame = draw(vec![figure(Rect::new(0.0, 0.0, 2.0, 2.0), cross)], 2, 1);
+    assert_eq!(frame.text(), "⡱⢎\n");
+}
+
 #[test]
 fn a_canvas_the_terminal_draws_is_one_picture_over_the_grounds() {
     let options = Options {

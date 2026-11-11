@@ -6,6 +6,27 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A program may draw its own view where no terminal hosts it: `Options::screen`.** It is given the
+  program's options (without the fallback and the screen) and the terminal as a `Tty`, taken for a
+  screen the program draws on itself, and returns how the view closed. `serve` runs it where the
+  views are not hosted (every reason for the fallback but that there is no terminal, or that a signal
+  ended the wait) and returns its `Closed`; where it fails the terminal is given back and the
+  fallback runs as before. `PENCERE_TUI` (`SCREEN_VARIABLE`) is `1` to draw it with no terminal
+  asked first, `0` never, and anything else (or none) where none hosts the view. A program with no
+  `Options::screen` is served as before.
+- **`Tty`, the terminal taken for such a screen:** its size (`TIOCGWINSZ`, and `SIGWINCH` through
+  `take_resize`), the alternate screen with the modes the screen asks to switch on and the ones that
+  put them back (written when the terminal is given back, at the end, on a signal or in a panic), a wait
+  on the terminal, a `Waker` and signals, and writes that end where a signal does. The line
+  discipline's own keys are off (flow control, suspend, quit, the next character taken literally), so
+  that ⌃S, ⌃Z, ⌃\ and ⌃V are keys; ⌃C is the interrupt still (`ISIG` is on).
+- **`Conversation::waking`:** a conversation whose handlers use a `Waker` when they have something to
+  be received, so that a reader that waits on the terminal need not look for it.
+- **`View::kind`, `View::versions`, `View::bundle(version)` and `Bundle::get(path)`:** what a host
+  that shows the view itself reads of a view and its files. `Options::views` lists the views.
+
 ## [0.4.1] - 2026-11-05
 
 Released with the other crates; no change of its own.

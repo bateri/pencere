@@ -58,6 +58,31 @@ impl Raster {
         }
     }
 
+    /// Where the picture has something drawn: the smallest rectangle (shares of the picture) that holds
+    /// every pixel that is more than a hint of colour. `None` for a picture with nothing in it.
+    pub(crate) fn ink_bounds(&self) -> Option<Rect> {
+        let mut found: Option<(u32, u32, u32, u32)> = None;
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if self.at(x, y)[3] < 16 {
+                    continue;
+                }
+                found = Some(match found {
+                    Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+                    None => (x, y, x, y),
+                });
+            }
+        }
+        let (x0, y0, x1, y1) = found?;
+        let (width, height) = (self.width as f32, self.height as f32);
+        Some(Rect::new(
+            x0 as f32 / width,
+            y0 as f32 / height,
+            (x1 + 1 - x0) as f32 / width,
+            (y1 + 1 - y0) as f32 / height,
+        ))
+    }
+
     /// Whether every pixel covers what is under it altogether.
     pub(crate) fn is_opaque(&self) -> bool {
         self.pixels

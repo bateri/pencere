@@ -65,6 +65,12 @@
 //!
 //! The same handlers are served with no terminal by a [`Conversation`]: for the program's tests,
 //! and for a host that runs the view in the same process.
+//!
+//! Where the terminal hosts no view, a program may carry a host of its own that draws the view with the
+//! characters of the terminal ([`Options::screen`]): the program's options and the terminal, as a
+//! [`Tty`], are handed to it, and `serve` returns how the view closed as any view's. The
+//! environment variable [`SCREEN_VARIABLE`] forces it (`1`, even where a terminal hosts views) or
+//! keeps it from running (`0`).
 
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
@@ -88,6 +94,8 @@ mod log;
 mod payload;
 #[allow(unsafe_code)]
 mod pipes;
+#[allow(unsafe_code)]
+mod screen;
 mod session;
 mod staged;
 #[allow(unsafe_code)]
@@ -110,6 +118,7 @@ pub use conversation::{Conversation, Lent, Said};
 pub use files::{FileError, MAX_PIECE, safe_name};
 pub use handlers::{Answer, Call, Subscription, ViewError};
 pub use log::{LogLevel, RESERVED_PREFIX};
+pub use screen::{Ready, Size, Tty, Waker};
 pub use terminal::Terminal;
 pub use view::{Access, Icon, IconTheme, Kind, Permission, View, WEB_VERSION};
 
@@ -119,6 +128,15 @@ use view::Source;
 
 /// What the program does when no view is shown.
 type Fallback = Box<dyn FnOnce(&NoView) + Send>;
+
+/// What shows the view on the program's own terminal, with the program's options: how it closed,
+/// or why it could not be shown.
+type Screen = Box<dyn for<'t> FnOnce(Options, Tty<'t>) -> io::Result<Closed> + Send>;
+
+/// The environment variable that decides whether a program draws its view itself ([`Options::screen`]):
+/// `1` draws it with no terminal asked first, `0` never does, and anything else (or none) draws it
+/// where no terminal hosts the view.
+pub const SCREEN_VARIABLE: &str = "PENCERE_TUI";
 
 /// What `serve` is asked.
 pub struct Options {
@@ -131,6 +149,7 @@ pub struct Options {
     topics: HashMap<String, TopicHandler>,
     log: Option<Arc<LogFn>>,
     fallback: Option<Fallback>,
+    screen: Option<Screen>,
     terminal: Option<Terminal>,
     control: Option<ViewControl>,
     answer_timeout: Duration,
@@ -176,6 +195,7 @@ impl Options {
             topics: HashMap::new(),
             log: None,
             fallback: None,
+            screen: None,
             terminal: None,
             control: None,
             answer_timeout: Duration::from_secs(2),
@@ -384,6 +404,27 @@ impl Options {
     pub fn fallback(mut self, fallback: impl FnOnce(&NoView) + Send + 'static) -> Self {
         self.fallback = Some(Box::new(fallback));
         self
+    }
+
+    /// What shows the program's view with the characters of the terminal, where no terminal hosts
+    /// it (the reasons for which [`serve`] runs the fallback, but that there is no terminal at all
+    /// or a signal ended the wait): given these options, without the fallback and the screen, and the
+    /// terminal as a [`Tty`] taken for it, it shows the view, and returns how it closed. Where it
+    /// returns an error the terminal is given back and the fallback runs.
+    #[must_use]
+    pub fn screen(
+        mut self,
+        show: impl for<'t> FnOnce(Options, Tty<'t>) -> io::Result<Closed> + Send + 'static,
+    ) -> Self {
+        self.screen = Some(Box::new(show));
+        self
+    }
+
+    /// The kinds of view the program offers, the app's among them once [`serve`] has read it: what
+    /// a host that shows the view itself chooses from.
+    #[must_use]
+    pub fn views(&self) -> &[View] {
+        &self.views
     }
 
     /// The terminal to show the view on, when it is not the program's standard input and output:
@@ -711,13 +752,40 @@ pub fn serve(mut options: Options) -> Result<Outcome, Error> {
     };
     let terminal = options.terminal.take().unwrap_or_else(Terminal::standard);
     let fallback = options.fallback.take();
-    let outcome = session::run(&options, &terminal);
+    let screen = options.screen.take();
+    let wish = std::env::var(SCREEN_VARIABLE).ok();
+    let screen = screen.filter(|_| wish.as_deref() != Some("0"));
+    let outcome = if screen.is_some() && wish.as_deref() == Some("1") {
+        // No terminal is asked: the person wants the program's own screen.
+        Ok(Outcome::NoView(NoView {
+            reason: if terminal.is_tty() {
+                NoViewReason::NoHost
+            } else {
+                NoViewReason::NoTty
+            },
+            code: None,
+            message: None,
+        }))
+    } else {
+        session::run(&options, &terminal)
+    };
     drop(watching);
-    drop(terminal);
     let outcome = outcome?;
     if let Outcome::NoView(no_view) = &outcome
         && !matches!(no_view.reason, NoViewReason::Interrupted(_))
     {
+        if no_view.reason != NoViewReason::NoTty
+            && let Some(show) = screen
+        {
+            match Tty::take(&terminal) {
+                Ok(tty) => match show(options, tty) {
+                    Ok(closed) => return Ok(Outcome::Closed(closed)),
+                    Err(why) => eprintln!("pencere: the view could not be drawn here: {why}"),
+                },
+                Err(Error::Busy) => return Err(Error::Busy),
+                Err(_) => {}
+            }
+        }
         // A terminal that opens the program's kinds, in other versions: the person is told what
         // would serve (the terminal is the program's own again, so this is the program's to say).
         if no_view.reason == NoViewReason::NoCommonView

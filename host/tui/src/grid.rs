@@ -76,6 +76,15 @@ impl Grid {
             .get(usize::from(row) * usize::from(self.cols) + usize::from(col))
     }
 
+    /// The cell at `col`, `row`, from 0, to change; `None` outside the grid.
+    pub(crate) fn cell_mut(&mut self, col: u16, row: u16) -> Option<&mut Cell> {
+        if col >= self.cols || row >= self.rows {
+            return None;
+        }
+        self.cells
+            .get_mut(usize::from(row) * usize::from(self.cols) + usize::from(col))
+    }
+
     /// The rows, each of its cells.
     pub fn rows_of_cells(&self) -> impl Iterator<Item = &[Cell]> {
         self.cells.chunks(usize::from(self.cols).max(1))

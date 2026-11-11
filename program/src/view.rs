@@ -123,6 +123,32 @@ impl View {
         }
     }
 
+    /// The kind of the view.
+    #[must_use]
+    pub fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    /// The versions of the kind's interface the view is written against, in the order the program
+    /// prefers them.
+    #[must_use]
+    pub fn versions(&self) -> &[String] {
+        &self.versions
+    }
+
+    /// The files of the view at `version`: what a host that runs the view itself, with no
+    /// terminal to ask, shows.
+    ///
+    /// # Errors
+    ///
+    /// When the program cannot make the bundle of that version.
+    pub fn bundle(&self, version: &str) -> Result<Bundle, BundleError> {
+        match &self.source {
+            Source::Fixed(bundle) => Ok(Bundle::clone(bundle)),
+            Source::PerVersion(files) => files(version),
+        }
+    }
+
     /// What a `web` view asks to reach, which the person is asked about (§12.2). Not for a view
     /// the terminal draws itself.
     #[must_use]
@@ -228,5 +254,27 @@ mod tests {
         ] {
             assert!(!is_version(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_host_that_shows_the_view_itself_reads_its_kind_versions_and_files() {
+        let bundle = |text: &str| Bundle::single("page.lua", text.as_bytes().to_vec());
+        let fixed = View::new(Kind::Lua, &["0.1", "0.2"], bundle("one").expect("a bundle"));
+        assert_eq!(fixed.kind(), Kind::Lua);
+        assert_eq!(fixed.versions(), ["0.1", "0.2"]);
+        let one = fixed.bundle("0.2").expect("the bundle");
+        assert_eq!(
+            one.get("page.lua").map(|(_, bytes)| bytes),
+            Some(&b"one"[..])
+        );
+        // One bundle for each version, made when it is asked for.
+        let per = View::per_version(Kind::Lua, &["0.1", "0.2"], move |version| {
+            bundle(&format!("for {version}"))
+        });
+        let two = per.bundle("0.2").expect("the bundle of 0.2");
+        assert_eq!(
+            two.get("page.lua").map(|(_, bytes)| bytes),
+            Some(&b"for 0.2"[..])
+        );
     }
 }

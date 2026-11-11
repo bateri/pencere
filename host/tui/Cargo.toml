@@ -19,10 +19,20 @@ pencere-view = { path = "../../kit/view", version = "0.4.1" }
 pencere-sandbox = { path = "../../kit/sandbox", version = "0.4.1" }
 # How many cells of a terminal a character takes (a letter one, a Chinese character or an emoji two).
 unicode-width = "0.2"
+# The page the screen runs and draws: its frames, its input, and what it says to its host
+# (`Host`). The page's side of the program's view; the host of a terminal that hosts views links it
+# too.
+pencere-drive = { path = "../../kit/drive", version = "0.4.1" }
+# The program's side of the view: its options (the handlers the page calls), the terminal it takes
+# for the screen (`Tty`), and the conversation with the handlers. The live screen is what a program
+# that carries its own view shows where no terminal hosts it.
+pencere = { path = "../../program", version = "0.4.1" }
 
 [dev-dependencies]
-# The page the `frame` example opens and draws, with no screen.
-pencere-drive = { path = "../../kit/drive", version = "0.4.1" }
+# The terminal a test runs a program in: a pty to read what it draws and to type into.
+pencere-fake-host = { path = "../fake" }
+# The size of that pty's window.
+libc = "0.2"
 
 [lints]
 workspace = true

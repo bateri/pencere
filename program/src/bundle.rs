@@ -195,6 +195,16 @@ impl Bundle {
         &self.entry
     }
 
+    /// The media type and the bytes of the file at `path`, where the bundle has one: what a host
+    /// that runs the view itself reads its files with.
+    #[must_use]
+    pub fn get(&self, path: &str) -> Option<(&str, &[u8])> {
+        self.files
+            .iter()
+            .find(|file| file.path == path)
+            .map(|file| (file.media_type.as_str(), &*file.data))
+    }
+
     /// The media type of the entry.
     pub(crate) fn entry_type(&self) -> Option<&str> {
         self.files
@@ -285,6 +295,22 @@ fn walk(
 #[allow(clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_file_is_read_by_its_path_with_its_media_type() {
+        let bundle = Bundle::new(
+            "page.lua",
+            [
+                File::new("page.lua", b"print(1)".to_vec()),
+                File::new("logo.svg", b"<svg/>".to_vec()).media_type("image/svg+xml"),
+            ],
+        )
+        .expect("a bundle");
+        assert_eq!(bundle.entry(), "page.lua");
+        let (media_type, bytes) = bundle.get("logo.svg").expect("the logo");
+        assert_eq!((media_type, bytes), ("image/svg+xml", &b"<svg/>"[..]));
+        assert!(bundle.get("../logo.svg").is_none() && bundle.get("nothing").is_none());
+    }
 
     #[test]
     fn files_that_are_not_a_bundle_are_told_why() {

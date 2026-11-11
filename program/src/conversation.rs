@@ -178,8 +178,20 @@ impl Conversation {
     /// A conversation with the handlers of `options`, and a view that is up.
     #[must_use]
     pub fn new(options: Options) -> Self {
+        Self::with_pipe(options, None)
+    }
+
+    /// A conversation as [`Conversation::new`] makes it, whose handlers use `waker` when they have
+    /// something to be received: a reader that waits on what the waker wakes (a [`crate::Tty`]'s
+    /// wait) is told, and need not look for it.
+    #[must_use]
+    pub fn waking(options: Options, waker: &crate::Waker) -> Self {
+        Self::with_pipe(options, Some(Arc::clone(&waker.0)))
+    }
+
+    fn with_pipe(options: Options, pipe: Option<Arc<crate::terminal::Pipe>>) -> Self {
         let (sender, work) = sync_channel(WORK_ROOM);
-        let outbox = Outbox::new(sender, None);
+        let outbox = Outbox::new(sender, pipe);
         let bound = options
             .control
             .as_ref()

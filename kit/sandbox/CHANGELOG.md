@@ -35,6 +35,9 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   `luau.wasm` is built from it. **Breaking:** `pointer-move` of the interface is a record with
   `mods`, and so are `release`, `scroll` and the pointer an editor is told of.
 
+- **`u:palette` takes `inset`, the points around its rows (4 as before).** A page that is laid out
+  on the cells of a terminal gives rows of whole rows (`height`) and an `inset` of 0, which a
+  rounding of every written length to a cell does not turn into a row each.
 - **`Images::picture(&Picture)`, `Bitmap::part` and `Bitmap::crop_of(&Picture)`: a large SVG or page
   of a PDF is drawn only where it is seen.** A page whose whole is more than 512 by 512 pixels at the
   size it is shown at is drawn in the part that is seen (`Picture::shown` of `pencere-view`), 128
@@ -56,6 +59,10 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Fixed
 
+- **The rows of a list keep their height when there are more of them than fit.** A row of `u:list`
+  (and so of `u:palette`) is `no_shrink`: a list laid out on the cells of a terminal, where every
+  length is rounded to a cell, squeezed its rows into one cell each when its content was more than
+  its box.
 - **A picture the host shows is not left empty for want of room.** An SVG or a page of a PDF that
   has no room at the size it is shown at, and no pixels at any other size, is drawn at a half, a
   quarter, … of it, the first that fits, and stands in (the host draws it larger) until the size

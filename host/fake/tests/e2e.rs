@@ -1689,7 +1689,9 @@ fn the_rust_example_ends_when_the_terminal_goes_away() {
 
 #[test]
 fn the_rust_example_prints_its_containers_where_no_view_can_be_shown() {
-    let run = run_rust_example(&["--no-host"], &[]);
+    // Where nothing hosts the view the example draws it itself, in the cells; with that off it prints.
+    let binary = rust_example().to_string_lossy().into_owned();
+    let run = run(&["--no-host"], &["env", "PENCERE_TUI=0", &binary]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&[
         "program: hello id=1",

@@ -6,9 +6,28 @@ This crate draws that list into the characters of a terminal, for a program whos
 host pencere's views: the page the program carries is the interface it shows there, with no second
 interface written in characters.
 
-The crate does no I/O and keeps no state between frames. It depends on the page engine
-(`pencere-view`), on the sandbox for the pixels of an image and of a canvas (`pencere-sandbox`), and
-on `unicode-width`; on no platform, no font library and no terminal library (`make check`).
+The drawing (`render`) does no I/O and keeps no state between frames; the screen a program shows
+with it (`serve`) does what a terminal needs: it takes the terminal, asks it what it can do, reads its
+keys and mouse and writes only what changed. The crate depends on the page engine (`pencere-view`) and
+its drive (`pencere-drive`), on the sandbox for the pixels of an image and of a canvas
+(`pencere-sandbox`), on the program library (`pencere`) and on `unicode-width`; on no platform, no
+font library and no terminal library (`make check`).
+
+## A program's own screen
+
+```rust
+// Where the terminal hosts no view, the program's `lua` view is drawn in the cells of its terminal.
+let outcome = pencere_tui::serve(options)?; // as `pencere::serve`, with the screen behind it
+```
+
+`PENCERE_TUI=1` draws it without asking the terminal first (also inside a terminal that hosts
+views), `PENCERE_TUI=0` never does, and `PENCERE_TUI_THEME=light` is the colours of a terminal that
+does not say its own. The weakest terminal is the yardstick: no pictures (large ones are half blocks,
+icons are left out), 256 colours, and the keys the old encodings send; what the terminal says it has
+(true colour, the Kitty graphics and keyboard protocols) is used. The shape of the mouse pointer is
+the page's, asked of the terminal with `OSC 22` (a hand over what answers a click, the I-beam over a
+field) and given back with the terminal; a terminal that does not know it ignores it.
+`PENCERE_TUI_TRACE=1` says, when the program ends, where the time of the start went.
 
 ## Use
 
@@ -53,8 +72,12 @@ spacing, which is written for a screen, fall on whole rows.
 
 Pictures go to the terminal as they are where it draws them (`ImageMode::Kitty`), as half blocks where
 it does not (`ImageMode::Blocks`), or not at all. Canvases are drawn as braille dots
-(`CanvasMode::Characters`) or as pictures (`CanvasMode::Picture`). Shadows, rounded corners and
-rotation are not drawn.
+(`CanvasMode::Characters`) or as pictures (`CanvasMode::Picture`). As characters a canvas makes no
+ground of its own (the ground of a cell is the box under the canvas): only what a figure covers
+(a dot of the eight of a cell more than two in five) is drawn, in the colour that covers it, and
+what it covers less is left out. A canvas of a cell or two is an icon: its ink fills the cells, in
+quarter blocks where it is flat (an arrow, ▚▞) and in braille where it is squarer (a cross).
+Shadows, rounded corners and rotation are not drawn.
 
 ## License
 

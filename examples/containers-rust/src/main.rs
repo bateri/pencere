@@ -3,11 +3,12 @@
 //! In a terminal that speaks pencere it opens the container list as a view of the terminal's
 //! own (a script in the Lua language it carries, `containers.lua`) and, once a second, tells it how
 //! much CPU and memory each running container uses — the view does not ask again. In a terminal that does not,
-//! and when asked for text, it prints the list. ⌃C ends it and the shell is where it was. A view
-//! that fails says why once the terminal is back: the error of a script, with its line.
+//! it draws the same view itself, with the characters of the terminal (`pencere-tui`); and when
+//! asked for text, or where it cannot, it prints the list. ⌃C ends it and the shell is where it
+//! was. A view that fails says why once the terminal is back: the error of a script, with its line.
 //!
 //! ```text
-//! containers-rust            the view if the terminal shows one, the list as text if not
+//! containers-rust            the view, the terminal's or its own; the list as text if neither
 //! containers-rust --script F the view is the Lua script in the file F (to try a script of one's own)
 //! containers-rust --flood    the view, with the readings pushed as fast as the terminal takes them
 //! containers-rust --stall N  the view, with the readings stopping after N seconds (a Docker that hangs)
@@ -109,7 +110,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// The view if the terminal shows one, and the list as text if not.
+/// The view, the terminal's or the one this program draws itself, and the list as text if neither.
 fn shown(name: &str, file: Cow<'static, [u8]>, flood: bool, stall: Option<Duration>) -> ExitCode {
     let bundle = match Bundle::single(name, file) {
         Ok(bundle) => bundle,
@@ -123,7 +124,8 @@ fn shown(name: &str, file: Cow<'static, [u8]>, flood: bool, stall: Option<Durati
         .view(View::new(Kind::Lua, &[LUA_VERSION], bundle))
         .program("containers-rust")
         .title("Containers")
-        // The terminal shows no view: the list as text. A refusal or a failure has its words.
+        // Neither the terminal nor this program shows the view: the list as text. A refusal or a
+        // failure has its words.
         .fallback(|why| {
             if let Some(words) = &why.message {
                 complain(&format!(
@@ -135,7 +137,7 @@ fn shown(name: &str, file: Cow<'static, [u8]>, flood: bool, stall: Option<Durati
             }
             say(&table::text());
         });
-    let outcome = match pencere::serve(options) {
+    let outcome = match pencere_tui::serve(options) {
         Ok(outcome) => outcome,
         Err(why) => {
             complain(&format!("containers-rust: {why}\n"));

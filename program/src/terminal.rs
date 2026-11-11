@@ -27,8 +27,8 @@ use std::cell::UnsafeCell;
 use std::io;
 use std::mem::MaybeUninit;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::sync::Once;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::{Mutex, Once};
 use std::time::{Duration, Instant};
 
 /// Switches to the alternate screen.
@@ -201,6 +201,10 @@ static OUTPUT_FD: AtomicI32 = AtomicI32::new(-1);
 static WAKE_FD: AtomicI32 = AtomicI32::new(-1);
 static SIGNALLED: AtomicI32 = AtomicI32::new(0);
 static STOPPED: AtomicBool = AtomicBool::new(false);
+static RESIZED: AtomicBool = AtomicBool::new(false);
+/// What is written to the terminal when it is given back, before the alternate screen is left: the
+/// modes a screen the program draws on itself switched on.
+static LEAVE: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
 fn errno_location() -> *mut libc::c_int {
@@ -231,6 +235,8 @@ extern "C" fn on_signal(signal: libc::c_int) {
     let saved = unsafe { location.as_ref().copied() };
     if signal == STOPPING {
         STOPPED.store(true, Ordering::SeqCst);
+    } else if signal == libc::SIGWINCH {
+        RESIZED.store(true, Ordering::SeqCst);
     } else {
         let _ = SIGNALLED.compare_exchange(0, signal, Ordering::SeqCst, Ordering::SeqCst);
     }
@@ -258,6 +264,25 @@ pub(crate) fn take_signal() -> Option<libc::c_int> {
     match SIGNALLED.swap(0, Ordering::SeqCst) {
         0 => None,
         signal => Some(signal),
+    }
+}
+
+/// Whether a signal that ends the program has come and not been taken.
+pub(crate) fn signal_pending() -> bool {
+    SIGNALLED.load(Ordering::SeqCst) != 0
+}
+
+/// Whether the terminal's window changed size since this was last asked, once.
+pub(crate) fn take_resize() -> bool {
+    RESIZED.swap(false, Ordering::SeqCst)
+}
+
+/// What is written when the terminal is given back, before the screen is left: replaces what was
+/// set before.
+pub(crate) fn set_leave(bytes: &[u8]) {
+    if let Ok(mut leave) = LEAVE.lock() {
+        leave.clear();
+        leave.extend_from_slice(bytes);
     }
 }
 
@@ -373,6 +398,14 @@ pub(crate) fn restore() {
         return;
     }
     let output = OUTPUT_FD.load(Ordering::SeqCst);
+    // A panic may have the lock: what is not there to read is not written, and the rest is.
+    let leave = LEAVE
+        .try_lock()
+        .map(|mut bytes| std::mem::take(&mut *bytes))
+        .unwrap_or_default();
+    if !leave.is_empty() {
+        let _ = write_within(output, &leave, FAREWELL);
+    }
     if ALTERNATE.swap(false, Ordering::SeqCst) {
         let _ = write_within(output, LEAVE_ALTERNATE, FAREWELL);
     }
@@ -461,6 +494,17 @@ pub(crate) enum TakeError {
     Failed,
 }
 
+/// The modes the terminal is put in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Modes {
+    /// What the protocol asks (§4.9): the line editing and the echo off, signals on.
+    Protocol,
+    /// A screen the program draws on itself: as the protocol, and nothing of the tty's own keys
+    /// but ⌃C reaches the program as a signal or is eaten before it (flow control, suspend,
+    /// the quit character, the next character taken literally).
+    Screen,
+}
+
 /// The terminal while the program uses it: in the modes the protocol asks, with the handlers of
 /// the signals installed. Dropping it gives it back.
 pub(crate) struct Taken {
@@ -475,6 +519,15 @@ impl Taken {
     /// Puts the terminal in the modes the protocol asks (§4.9) and listens for the signals.
     /// `wake` is the pipe the loop polls.
     pub(crate) fn take(terminal: &Terminal, wake: &Pipe) -> Result<Self, TakeError> {
+        Self::take_in(terminal, wake, Modes::Protocol)
+    }
+
+    /// The same, in the modes of `modes`.
+    pub(crate) fn take_in(
+        terminal: &Terminal,
+        wake: &Pipe,
+        modes: Modes,
+    ) -> Result<Self, TakeError> {
         if IN_USE.swap(true, Ordering::SeqCst) {
             return Err(TakeError::Busy);
         }
@@ -499,6 +552,20 @@ impl Taken {
         raw.c_lflag |= libc::ISIG;
         raw.c_cc[libc::VMIN] = 0;
         raw.c_cc[libc::VTIME] = 0;
+        if modes == Modes::Screen {
+            // ⌃S and ⌃Q are keys, not flow control; Enter is the CR the terminal sends; ⌃V and
+            // the other characters the line discipline takes for itself are keys; ⌃Z and ⌃\
+            // end nothing.
+            raw.c_iflag &= !(libc::IXON | libc::ICRNL | libc::INLCR | libc::IGNCR);
+            raw.c_lflag &= !libc::IEXTEN;
+            raw.c_cc[libc::VSUSP] = libc::_POSIX_VDISABLE;
+            raw.c_cc[libc::VQUIT] = libc::_POSIX_VDISABLE;
+            #[cfg(target_os = "macos")]
+            {
+                raw.c_cc[libc::VDSUSP] = libc::_POSIX_VDISABLE;
+                raw.c_cc[libc::VSTATUS] = libc::_POSIX_VDISABLE;
+            }
+        }
         set_modes(terminal.input(), &raw).map_err(|_| TakeError::Failed)?;
         // SAFETY: nobody reads the slots before `ARMED` is stored below.
         unsafe {
@@ -543,6 +610,21 @@ impl Taken {
                 if libc::sigaction(signal, &action, &mut old) == 0 {
                     self.previous.push((signal, old));
                 }
+            }
+        }
+    }
+
+    /// Listens for the terminal's window changing size too ([`take_resize`]).
+    pub(crate) fn listen_for_resizes(&mut self) {
+        // SAFETY: a sigaction of ours with a handler that only touches atomics and a pipe.
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = on_signal as *const () as libc::sighandler_t;
+            action.sa_flags = 0;
+            libc::sigemptyset(&mut action.sa_mask);
+            let mut old: libc::sigaction = std::mem::zeroed();
+            if libc::sigaction(libc::SIGWINCH, &action, &mut old) == 0 {
+                self.previous.push((libc::SIGWINCH, old));
             }
         }
     }

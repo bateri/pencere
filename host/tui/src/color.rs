@@ -49,6 +49,38 @@ impl Rgb {
         }
     }
 
+    /// The nearest of the colours a 256-colour terminal has beyond its own sixteen (which are the
+    /// person's to set, and are not what they look like): the 6 by 6 by 6 cube of 16 to 231 or the
+    /// 24 greys of 232 to 255.
+    pub fn to_indexed(self) -> u8 {
+        const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+        let nearest = |channel: u8| {
+            LEVELS
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, level)| i32::from(channel).abs_diff(i32::from(**level)))
+                .map_or(0, |(index, _)| index)
+        };
+        let (r, g, b) = (nearest(self.r), nearest(self.g), nearest(self.b));
+        let level = |index: usize| i32::from(LEVELS.get(index).copied().unwrap_or(0));
+        let cube = (level(r), level(g), level(b));
+        let distance = |(cr, cg, cb): (i32, i32, i32)| {
+            (cr - i32::from(self.r)).pow(2)
+                + (cg - i32::from(self.g)).pow(2)
+                + (cb - i32::from(self.b)).pow(2)
+        };
+        // The greys are 8, 18, ... 238: one a step of 10.
+        let mean = (i32::from(self.r) + i32::from(self.g) + i32::from(self.b)) / 3;
+        let step = ((mean - 8 + 5) / 10).clamp(0, 23);
+        let grey = 8 + step * 10;
+        let cube_index = 16 + 36 * r + 6 * g + b;
+        if distance((grey, grey, grey)) < distance(cube) {
+            u8::try_from(232 + step).unwrap_or(255)
+        } else {
+            u8::try_from(cube_index).unwrap_or(255)
+        }
+    }
+
     /// The relative luminance, `0.0` (black) to `1.0` (white): how a theme is told dark from light.
     pub fn luminance(self) -> f32 {
         let linear = |c: u8| {
