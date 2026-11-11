@@ -17,6 +17,7 @@ use crate::edit::EditorOptions;
 use crate::element::{Carry, FieldKind, Fit, Kind, Meta, Spark, State};
 use crate::paint::Quad;
 use crate::rich::{Look, RichLine, cut_line, lay_lines};
+use crate::rowplan::{self, Plan};
 use crate::style::{
     Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
     Style, TextStyle, Track, Zoom,
@@ -253,6 +254,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         DEFAULT_TEXT,
         (scale, unit),
         measure,
+        None,
     );
     // The overlays, after everything else (so drawn over it), each a child of the page's box: its
     // insets are the page's. An overlay inside an overlay is lifted in its turn.
@@ -271,6 +273,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             text,
             (scale, unit),
             measure,
+            None,
         );
         if let Some(entry) = pending.get_mut(index) {
             entry.overlay = true;
@@ -894,6 +897,7 @@ fn build(
     outer: TextStyle,
     (scale, unit): (f32, Units),
     measure: &mut dyn Measure,
+    given: Option<f32>,
 ) -> (usize, NodeId) {
     let Element {
         kind,
@@ -932,6 +936,9 @@ fn build(
     };
     let color = text.color.unwrap_or(Role::Foreground.solid());
 
+    // On a grid the rows of the box's height, its paddings and gaps, and of what is in it that the box
+    // gives, come as a whole (see `rowplan`); off one nothing is planned.
+    let plan = rowplan::plan(&style, &children, given, scale, unit);
     let index = pending.len();
     let px = |points: f32| snap(points, scale);
     pending.push(Pending {
@@ -945,7 +952,10 @@ fn build(
         ),
         zoom,
         zoomed,
-        pad_bottom: unit.down(style.padding[2], scale) * unit.y,
+        pad_bottom: plan
+            .bottom
+            .unwrap_or_else(|| unit.down(style.padding[2], scale))
+            * unit.y,
         pad_right: unit.across(style.padding[1], scale) * unit.x,
         hidden: style.display == Display::None,
         opacity: style
@@ -978,6 +988,7 @@ fn build(
         &style,
         (scale, unit),
         matches!(kind, Kind::Text(_) | Kind::Rich(_)),
+        &plan,
     );
     let id = match kind {
         Kind::Text(content) => {
@@ -1092,7 +1103,7 @@ fn build(
                 entry.content = Content::Editor(EditorLook { font, color });
             }
             let mut ids: Vec<NodeId> = Vec::with_capacity(children.len());
-            for child in children {
+            for (place, child) in children.into_iter().enumerate() {
                 if child.style.overlay {
                     // Laid out after the rest, as a child of the page.
                     lifted.push_back(Lifted {
@@ -1112,6 +1123,7 @@ fn build(
                         text,
                         (scale * zoomed, unit),
                         measure,
+                        plan.children.get(place).copied().flatten(),
                     )
                     .1,
                 );
@@ -1141,10 +1153,10 @@ pub(crate) fn snap(points: f32, scale: f32) -> f32 {
 /// ([`Grid`]), so that what a page's points come to is a whole number of columns across and of rows
 /// down. `x` and `y` are the pixels a unit is, across and down.
 #[derive(Clone, Copy, Debug)]
-struct Units {
-    x: f32,
-    y: f32,
-    grid: bool,
+pub(crate) struct Units {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) grid: bool,
 }
 
 impl Units {
@@ -1175,7 +1187,7 @@ impl Units {
     }
 
     /// `points` as whole units down.
-    fn down(self, points: f32, scale: f32) -> f32 {
+    pub(crate) fn down(self, points: f32, scale: f32) -> f32 {
         self.cells(points * scale, self.y)
     }
 
@@ -1201,7 +1213,7 @@ impl Units {
     }
 
     /// A size of `points` down: at least one row on a grid, where it is any.
-    fn high(self, points: f32, scale: f32) -> f32 {
+    pub(crate) fn high(self, points: f32, scale: f32) -> f32 {
         let units = self.down(points, scale);
         if self.grid && points > 0.0 {
             units.max(1.0)
@@ -1228,11 +1240,16 @@ fn bound(length: Length, scale: f32, unit: impl Fn(f32, f32) -> f32) -> LengthPe
     }
 }
 
-fn convert(style: &Style, (scale, unit): (f32, Units), is_text: bool) -> TStyle {
+/// A box's style as taffy's, in the layout's unit. `plan` is the rows the box's heights, paddings and
+/// gaps come to on a grid, where they are planned: it is those that are given to taffy then, and not
+/// the points rounded one by one.
+fn convert(style: &Style, (scale, unit): (f32, Units), is_text: bool, plan: &Plan) -> TStyle {
     let across = |points: f32| unit.across(points, scale);
     let down = |points: f32| unit.down(points, scale);
     let edge_x = |points: f32| LengthPercentage::length(across(points));
-    let edge_y = |points: f32| LengthPercentage::length(down(points));
+    let planned = |rows: Option<f32>, points: f32| {
+        LengthPercentage::length(rows.unwrap_or_else(|| down(points)))
+    };
     let margin_x = |points: f32| LengthPercentageAuto::length(across(points));
     let margin_y = |points: f32| LengthPercentageAuto::length(down(points));
     let inset_x = |value: Option<f32>| value.map_or_else(LengthPercentageAuto::auto, margin_x);
@@ -1282,7 +1299,10 @@ fn convert(style: &Style, (scale, unit): (f32, Units), is_text: bool) -> TStyle 
         },
         size: TSize {
             width: dimension(style.width, scale, |p, s| unit.wide(p, s)),
-            height: dimension(style.height, scale, |p, s| unit.high(p, s)),
+            height: match plan.height {
+                Some(rows) => Dimension::length(rows),
+                None => dimension(style.height, scale, |p, s| unit.high(p, s)),
+            },
         },
         min_size,
         max_size: TSize {
@@ -1296,14 +1316,14 @@ fn convert(style: &Style, (scale, unit): (f32, Units), is_text: bool) -> TStyle 
             left: margin_x(m_left),
         },
         padding: TRect {
-            top: edge_y(top),
+            top: planned(plan.top, top),
             right: edge_x(right),
-            bottom: edge_y(bottom),
+            bottom: planned(plan.bottom, bottom),
             left: edge_x(left),
         },
         gap: TSize {
             width: edge_x(style.gap.0),
-            height: edge_y(style.gap.1),
+            height: planned(plan.gap, style.gap.1),
         },
         flex_grow: style.grow,
         flex_shrink: style.shrink.unwrap_or(1.0),

@@ -2357,6 +2357,12 @@ interface system {
     enum drawing {
         /// A box's soft shadow: where it is not here, `quad.shadow` is not drawn (a caret's glow).
         shadow,
+        /// The page is drawn in the character cells of a terminal: boxes stand on cells, a line of
+        /// text is a row, and what is small (a mark, an arrow) is best a character.
+        cells,
+        /// A picture of the page is drawn in too few pixels to read a small one by (a terminal with
+        /// no graphics protocol): an icon is best said in characters.
+        coarse-images,
     }
 
     /// The time of day now: read as it is asked, so that it goes on within a call.

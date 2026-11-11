@@ -32,13 +32,31 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   `precise` and `mods`, `Move` and `Release` have `mods`. **Breaking:** `Input::Move` is `Move { at,
 mods }` and `Input::Release` has `mods`, so a host or a page that builds or matches them names
   the field.
+- **`Drawing::Cells` and `Drawing::CoarseImages`**: a host says (`Program::draws`) that its page is
+  drawn in the character cells of a terminal, and that a picture of it is drawn in too few pixels to
+  read a small one by (a terminal with no graphics protocol). `pencere.draws()` has them as `cells`
+  and `coarse_images`; a page that is told them draws what is small as a character and keeps off
+  sizes a cell would round to nothing. A host that says neither is as it was.
 - **`Grid` and `Measure::grid`**: a host that draws in the cells of a terminal says how many pixels
   a cell is across and down, and the page is laid out on them: every length a page writes is a whole
   number of columns across (width, the room to the left and right, the gap between columns, the
   columns of a grid, how far a box is scrolled across) and of rows down, and a line of text is a row
   of the measure's height. A box that is written with a size keeps at least a cell, and one written
-  thinner than half a cell is drawn as thick as it was written, in its cell. A host that does not
-  say (the default) is laid out as ever, pixel for pixel.
+  thinner than half a cell is drawn as thick as it was written, in its cell. A box that is written a
+  height and is a column of boxes that are written theirs has its rows shared out as a whole, and not
+  rounded part by part: its rows are those of its height, and its padding above and below, the gaps
+  between what is in it and the heights of those are shared out over them by the points each is (a
+  card of 164 points is 9 rows, a head, a value, figures and a graph of 1, 2, 2 and 2 rows with a row
+  of padding above and below, where each rounded on its own is 8 and leaves a row at the foot); a part
+  with a line of text in it is a row for each line at least; parts of as many points as one another are
+  as many rows as one another, taking a row more together or none (ten rows of 32 points are ten
+  rows); a part takes a row above its points only from half a row up; and a box that is given its
+  rows by the one it is in has them. A box that centres what is in it down the page (a row that is
+  `items_center`, a column that is `justify_center`) is the nearest number of rows to its height that
+  has the oddness of what is in it (44 points round 3 rows around one line, 2 around two lines), so
+  that a line in it has as many rows above as below. A box that is not written a height, or whose
+  parts are not all written one, is as it was; across, nothing is rounded another way. A host that does
+  not say (the default) is laid out as ever, pixel for pixel.
 
 - **`Picture::shown`**: what of the whole image is inside the picture's clip, as shares of it like
   `crop`. A host that rasterises a large SVG or page draws that part and not all of it

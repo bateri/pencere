@@ -34,6 +34,8 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
   modifiers; `Input::Move` and `Input::Release` carry `mods`.
 - **`Headless`** drives them: `pinch`, `pinch_at`, `magnify_at`, `smart_magnify`, `rotate`, `swipe`,
   `force`, `click_extra` and `trackpad_at` (the fingers of a trackpad moving a box or the page).
+- `Page::binds` says whether a key with its modifiers is one the page binds to a command, so a
+  host can tell a key that moves a view from one the page answers with a command.
 
 ### Changed
 

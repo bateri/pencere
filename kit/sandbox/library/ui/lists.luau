@@ -11,6 +11,7 @@ local core = require("./core")
 local theme = require("./theme")
 local fuzzy = require("@pencere/fuzzy")
 local layers = require("./layers")
+local glyphs = require("./look")
 
 local layout = pencere.layout
 local alpha = pencere.alpha
@@ -371,8 +372,9 @@ end
 -- and backspace in the empty field is `back` (the page leaves a mode). Each change of the query is
 -- `query { text }`. `footer` is the keys it says at its foot: `{ { keys = "enter", title = "Run" } }`.
 -- `rows` is how many rows it shows at the most (8), `height` how tall a row is (32) and `inset` the
--- points around the rows (4): a page that is laid out on the cells of a terminal says a `height` of
--- whole rows and an `inset` of 0, or of whole rows.
+-- points around the rows (4). On the cells of a terminal (`pencere.draws().cells`) a row is the theme's
+-- row, which is one, and there is no inset, unless the page says: a row of 32 points is two rows of
+-- cells, and four points are none.
 local Palette = core.component("palette", {
 	state = function()
 		return { query = "", cursor = nil, field = { value = "" } }
@@ -413,22 +415,33 @@ local Palette = core.component("palette", {
 			}))
 		)
 		body:child(u:rule("x"))
-		local inset = props.inset or 4
-		local list_height = math.min(math.max(#rows, 1), props.rows or 8) * (props.height or 32) + 2 * inset
+		local cells = glyphs.in_cells()
+		local row_height = props.height or (cells and t.size.row or 32)
+		local inset = props.inset or (cells and 0 or 4)
+		local list_height = math.min(math.max(#rows, 1), props.rows or 8) * row_height + 2 * inset
 		if #rows == 0 then
 			body:child(
-				pencere.div():h(props.height or 40):items_center():justify_center():child(
+				pencere.div():h(props.height or (cells and t.size.row or 40)):items_center():justify_center():child(
 					pencere.text(props.empty or "No results"):color(t.ink_quiet)
 				)
 			)
 		else
-			body:child(u:list(u:part(id, "list"), {
+			-- A list as tall as its rows is as many rows of cells as it has (a few points of each are
+			-- no row, and ten of them are two); one that has more than it shows is cut at the points
+			-- that stand for them.
+			local function sized(list)
+				if cells then
+					return list:max_h(list_height):grow(0)
+				end
+				return list:h(list_height):grow(0)
+			end
+			body:child(sized(u:list(u:part(id, "list"), {
 				items = rows,
 				state = state,
 				active = true,
 				focusable = false,
 				hover_selects = true,
-				height = props.height or 32,
+				height = row_height,
 				inset = inset,
 				pad = 10,
 				label = props.label,
@@ -454,7 +467,7 @@ local Palette = core.component("palette", {
 					end
 					return row
 				end,
-			}):h(list_height):grow(0))
+			})))
 		end
 		if props.footer ~= nil then
 			local foot = pencere.div():row():items_center():gap(14):px(12):py(6):bg(alpha("foreground", 0.03))

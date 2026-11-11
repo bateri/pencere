@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use pencere::{
@@ -21,13 +21,14 @@ use pencere::{
 use pencere_drive::{FrameAt, Host, Page, Route, Setup};
 use pencere_sandbox::{Assets, Fault, Program, Script};
 use pencere_view::{
-    Button, Cursor, FieldKind, Fill, Id, Input, Key, KeyConvention, Keyboard, Menu, Mods, Panel,
-    Phase, Point, copy_key,
+    Button, Cursor, Drawing, FieldKind, Fill, Id, Input, Key, KeyConvention, Keyboard, Menu, Mods,
+    Panel, Phase, Point, copy_key,
 };
 
 use crate::field::{TextField, draw_fields};
 use crate::input::{Decoder, Event, KeyEvent, Mouse, MouseKind};
 use crate::measure::Cells;
+use crate::memory;
 use crate::output::base64;
 use crate::paint::{CanvasMode, ImageMode, Options as Paint, render};
 use crate::probe::{self, Found, Guess};
@@ -120,11 +121,53 @@ impl Assets for Files {
     }
 }
 
-/// What the page asks of its program's system: the time on the clock the frames run on, and the
-/// keyboard of a terminal that is not a Mac's. The program has the room for whatever the page says
-/// (the handlers are read as fast as they write).
+/// How long a page that asks what is drawn waits for the terminal to say what it is: the probe's
+/// own end (a terminal that does not answer is given up on much sooner) and a little more.
+const LONGEST_ASKED: Duration = Duration::from_secs(10);
+
+/// What the page asks of its program's system: the time on the clock the frames run on, what the
+/// screen draws, and the keyboard of a terminal that is not a Mac's. The program has the room for
+/// whatever the page says (the handlers are read as fast as they write).
 struct Clock {
     started: Instant,
+    /// Whether the terminal draws pictures (Kitty graphics), once the probe has found out: what is
+    /// drawn is said from it, and the page is started before the probe, so a page that asks first
+    /// waits here (on its own thread) for the answer.
+    graphics: Mutex<Option<bool>>,
+    found_out: Condvar,
+}
+
+impl Clock {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            graphics: Mutex::new(None),
+            found_out: Condvar::new(),
+        }
+    }
+
+    /// The probe is over: the terminal draws pictures or does not (`false` also when it did not
+    /// answer, which is the guess that costs nothing).
+    fn found(&self, graphics: bool) {
+        if let Ok(mut said) = self.graphics.lock() {
+            *said = Some(graphics);
+        }
+        self.found_out.notify_all();
+    }
+
+    /// Whether the terminal draws pictures, waiting for the probe; `false` when it takes too long.
+    fn pictures(&self) -> bool {
+        let Ok(said) = self.graphics.lock() else {
+            return false;
+        };
+        match self
+            .found_out
+            .wait_timeout_while(said, LONGEST_ASKED, |said| said.is_none())
+        {
+            Ok((said, _)) => (*said).unwrap_or(false),
+            Err(_) => false,
+        }
+    }
 }
 
 impl Program for Clock {
@@ -140,6 +183,16 @@ impl Program for Clock {
 
     fn keyboard(&self) -> KeyConvention {
         KeyConvention::Linux
+    }
+
+    /// A screen draws in the cells of a terminal, and a terminal that draws no pictures draws the
+    /// ones a page has in half blocks.
+    fn draws(&self) -> Vec<Drawing> {
+        if self.pictures() {
+            vec![Drawing::Cells]
+        } else {
+            vec![Drawing::Cells, Drawing::CoarseImages]
+        }
     }
 }
 
@@ -260,11 +313,39 @@ struct Press {
 }
 
 /// Where the time of the start goes, said when the screen ends if `PENCERE_TUI_TRACE` is set: each
-/// mark with the seconds since the screen was entered.
+/// mark with the seconds since the screen was entered and the memory the process holds then, and at
+/// the end where the time of the keys and the frames went and the most memory the process held.
 struct Trace {
     began: Instant,
     marks: Option<Vec<(f64, String)>>,
+    /// When memory was last noted on its own, seconds since the screen was entered.
+    noted: f64,
+    spent: Spent,
 }
+
+/// What the keys and the frames took, in all.
+#[derive(Default)]
+struct Spent {
+    keys: u32,
+    /// Telling the page of the key.
+    told: Duration,
+    /// Waiting for the page to have done what it was told.
+    answered: Duration,
+    /// Giving what the page said to where it goes.
+    pumped: Duration,
+    frames: u32,
+    drawn: Duration,
+    /// The pictures the frames carried, and the bytes of their pixels.
+    pictures: u64,
+    pixels: u64,
+    /// The bytes written to the terminal, in all.
+    written: u64,
+    /// What the program has said to the page.
+    heard: u32,
+}
+
+/// How often the trace notes memory with nothing else to say.
+const MEMORY_EVERY: f64 = 30.0;
 
 /// The frames of the start the trace says the size of.
 const TRACED_FRAMES: usize = 6;
@@ -274,6 +355,8 @@ impl Trace {
         Self {
             began: Instant::now(),
             marks: std::env::var_os("PENCERE_TUI_TRACE").map(|_| Vec::new()),
+            noted: 0.0,
+            spent: Spent::default(),
         }
     }
 
@@ -281,8 +364,54 @@ impl Trace {
     fn mark(&mut self, words: impl FnOnce() -> String) {
         let at = self.began.elapsed().as_secs_f64();
         if let Some(marks) = &mut self.marks {
-            marks.push((at, words()));
+            let (now, most) = (memory::mib(memory::resident()), memory::mib(memory::peak()));
+            marks.push((at, format!("{} (memory {now} MiB, most {most})", words())));
+            self.noted = at;
         }
+    }
+
+    /// Notes that the program said something to the page: the first is a mark, for the memory the
+    /// data takes.
+    fn heard(&mut self) {
+        self.spent.heard += 1;
+        if self.spent.heard == 1 {
+            self.mark(|| "the program's first message heard".to_owned());
+        }
+    }
+
+    /// Notes the memory where it has not been for a while.
+    fn remember(&mut self) {
+        if self.marks.is_some() && self.began.elapsed().as_secs_f64() - self.noted >= MEMORY_EVERY {
+            self.mark(|| "memory".to_owned());
+        }
+    }
+
+    /// What the end says of the time and the memory, where the trace is asked for.
+    fn summary(&self) -> Option<String> {
+        self.marks.as_ref()?;
+        let Spent {
+            keys,
+            told,
+            answered,
+            pumped,
+            frames,
+            drawn,
+            pictures,
+            pixels,
+            written,
+            heard: _,
+        } = &self.spent;
+        Some(format!(
+            "{keys} keys: told the page {:.3} s, waited for it {:.3} s, gave on what it said {:.3} s; \
+             {frames} frames drawn in {:.3} s, {written} bytes written, {pictures} pictures of {:.1} MiB of pixels in all; \
+             the most memory held {} MiB",
+            told.as_secs_f64(),
+            answered.as_secs_f64(),
+            pumped.as_secs_f64(),
+            drawn.as_secs_f64(),
+            *pixels as f64 / (1024.0 * 1024.0),
+            memory::mib(memory::peak()),
+        ))
     }
 
     /// How many marks the frames have.
@@ -294,6 +423,35 @@ impl Trace {
                 .count()
         })
     }
+}
+
+/// Whether `event` is a key of movement (an arrow, a page, the ends) that the page takes as a key,
+/// and `next` is the same key again: a key held down, or sent faster than the page answers. The
+/// page is told each and waited for after the last: what a key of movement asks of the host (the
+/// keyboard for a field) is not asked by the second of them where it was not by the first, and the
+/// page is made once for the run (the engine does it for keys that follow one another, and only
+/// for those the page takes as keys: one it binds to a command is a page each).
+fn held(page: &Page, event: &Event, next: Option<&Event>) -> bool {
+    let (Event::Key(key), Some(Event::Key(again))) = (event, next) else {
+        return false;
+    };
+    key.down
+        && again.down
+        && key.key == again.key
+        && key.mods == again.mods
+        && !(key.mods.control || key.mods.alt || key.mods.command)
+        && matches!(
+            key.key,
+            Key::Up
+                | Key::Down
+                | Key::Left
+                | Key::Right
+                | Key::PageUp
+                | Key::PageDown
+                | Key::Home
+                | Key::End
+        )
+        && !page.binds(key.key, key.mods)
 }
 
 /// The screen: the terminal, the page and the program, and what is known of what is shown.
@@ -350,9 +508,7 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
     let (shown, bundle) = choose(options.views())?;
     tty.enter(ON, OFF)?;
     trace.mark(|| "the alternate screen entered".to_owned());
-    let clock = Arc::new(Clock {
-        started: Instant::now(),
-    });
+    let clock = Arc::new(Clock::new());
     let waker = tty.waker();
     // The page is started before the terminal is asked what it is: its interpreter is made on a
     // thread of its own, while the answers come.
@@ -363,8 +519,12 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
     let guess = Guess::from_environment();
     let found = match probe::ask(&tty, &mut decoder, &mut early, &guess) {
         Ok(found) => found,
-        Err(signal) => return Ok(closed(shown, &Stop::by(EndedBy::Signal(signal)))),
+        Err(signal) => {
+            clock.found(false);
+            return Ok(closed(shown, &Stop::by(EndedBy::Signal(signal))));
+        }
     };
+    clock.found(found.graphics);
     trace.mark(|| {
         let how = if found.fenced {
             "answered to the end"
@@ -481,7 +641,7 @@ impl Live<'_> {
         let mut buffer = vec![0_u8; 16 * 1024];
         let early = std::mem::take(&mut self.early);
         for event in early {
-            if let Err(stop) = self.dispatch(event) {
+            if let Err(stop) = self.dispatch(event, false) {
                 return stop;
             }
         }
@@ -494,6 +654,7 @@ impl Live<'_> {
 
     /// One wait and what it brought.
     fn turn(&mut self, buffer: &mut [u8]) -> Flow {
+        self.trace.remember();
         let waited = self.timeout();
         let ready = self
             .tty
@@ -562,8 +723,10 @@ impl Live<'_> {
             self.decoder
                 .feed(buffer.get(..got).unwrap_or_default(), &mut events);
             self.escape_at = self.decoder.lone_escape().then(|| self.now() + ESCAPE_WAIT);
-            for event in events {
-                self.dispatch(event)?;
+            let mut next = events.into_iter().peekable();
+            while let Some(event) = next.next() {
+                let held = held(&self.page, &event, next.peek());
+                self.dispatch(event, held)?;
             }
             if got < buffer.len() {
                 return Ok(());
@@ -578,16 +741,20 @@ impl Live<'_> {
             let mut events = Vec::new();
             self.decoder.escape(&mut events);
             for event in events {
-                self.dispatch(event)?;
+                self.dispatch(event, false)?;
             }
         }
         Ok(())
     }
 
-    fn dispatch(&mut self, event: Event) -> Flow {
+    /// Does what the person did. `held`: the next event is the same key of movement again, and the
+    /// page is not waited for to answer this one: the last of the run is waited for.
+    fn dispatch(&mut self, event: Event, held: bool) -> Flow {
         // What the person does is done in order, and the page's answer to each is had before the
         // next: a key that asks for the keyboard for a field is answered before the keys typed
         // right after it (a burst, a paste with no brackets, a test) are told to the page.
+        let began = Instant::now();
+        let keyed = matches!(event, Event::Key(_));
         let answered = match event {
             Event::Key(key) => {
                 self.key(key)?;
@@ -609,9 +776,20 @@ impl Live<'_> {
             // The answer to a question that was not waited for.
             Event::Reply(_) => false,
         };
-        if answered {
+        let told = began.elapsed();
+        if answered && !held {
+            let waiting = Instant::now();
             self.page.module().flush(ANSWER);
+            let answered = waiting.elapsed();
+            let pumping = Instant::now();
             self.pump()?;
+            if keyed {
+                let spent = &mut self.trace.spent;
+                spent.keys += 1;
+                spent.told += told;
+                spent.answered += answered;
+                spent.pumped += pumping.elapsed();
+            }
         }
         Ok(())
     }
@@ -981,7 +1159,10 @@ impl Live<'_> {
             };
             any = true;
             match said {
-                Said::Message(text) => self.page.message(&text),
+                Said::Message(text) => {
+                    self.trace.heard();
+                    self.page.message(&text);
+                }
                 Said::Closed => return Err(Stop::by(EndedBy::Program)),
                 Said::Reopened(views) => self.reopen(views.as_deref())?,
                 Said::HandedOff(lent) => {
@@ -1042,6 +1223,7 @@ impl Live<'_> {
     fn frame(&mut self) -> Flow {
         let (cols, rows) = (self.size.cols, self.size.rows);
         let now = self.now();
+        let drawing = Instant::now();
         self.last_frame = now;
         self.dirty = false;
         let mut painted = self.page.frame(FrameAt {
@@ -1096,6 +1278,16 @@ impl Live<'_> {
                 .write_all(&bytes)
                 .map_err(|error| Stop::io(&self.tty, &error))?;
         }
+        let spent = &mut self.trace.spent;
+        spent.frames += 1;
+        spent.drawn += drawing.elapsed();
+        spent.written += bytes.len() as u64;
+        spent.pictures += frame.placements.len() as u64;
+        spent.pixels += frame
+            .placements
+            .iter()
+            .map(|p| p.rgba.len() as u64)
+            .sum::<u64>();
         Ok(())
     }
 
@@ -1144,9 +1336,39 @@ impl Live<'_> {
         for note in notes {
             eprintln!("pencere: {note}");
         }
+        let summary = trace.summary();
         for (at, words) in trace.marks.into_iter().flatten() {
             eprintln!("pencere: trace +{at:.3} s {words}");
         }
+        if let Some(summary) = summary {
+            eprintln!("pencere: trace {summary}");
+        }
         closed(shown, stop)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_screen_says_it_draws_in_cells_and_whether_its_pictures_are_coarse() {
+        let with = Clock::new();
+        with.found(true);
+        assert_eq!(with.draws(), [Drawing::Cells]);
+        let without = Clock::new();
+        without.found(false);
+        assert_eq!(without.draws(), [Drawing::Cells, Drawing::CoarseImages]);
+    }
+
+    #[test]
+    fn a_page_that_asks_before_the_probe_is_over_waits_for_what_it_found() {
+        let clock = Arc::new(Clock::new());
+        let page = Arc::clone(&clock);
+        let asking = std::thread::spawn(move || page.draws());
+        // The probe answers a moment after the page asked.
+        std::thread::sleep(Duration::from_millis(50));
+        clock.found(true);
+        assert_eq!(asking.join().ok(), Some(vec![Drawing::Cells]));
     }
 }

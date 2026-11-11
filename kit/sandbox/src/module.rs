@@ -21,8 +21,8 @@ use std::time::{Duration, Instant};
 
 use pencere_view::edit::TextSnapshot;
 use pencere_view::{
-    Element, Event, GesturePhase, Id, Input, Laid, Panel, Phase, Reply, ScrollTo, Scrolled, Size,
-    copy_key,
+    Element, Event, GesturePhase, Id, Input, Key, Laid, Panel, Phase, Reply, ScrollTo, Scrolled,
+    Size, copy_key,
 };
 use pencere_wire::json::unescaped_len;
 
@@ -815,7 +815,16 @@ fn run<R: Runner>(
                     let reply = wakes.reply(reply, clock(last, program), post);
                     post.say(runner.take_sent(), runner.take_asks());
                     let frame = match (reply.redraw, last) {
+                        // The same key again is what it handles next (one held down, or pressed
+                        // over and over, faster than the page is made): the page is made once, after
+                        // the last of the run, as it is for what the program says.
+                        (true, Some(_)) if repeated_key(&event, later) => {
+                            owed = true;
+                            None
+                        }
                         (true, Some(asked)) => {
+                            // This page is what the events before it changed too.
+                            owed = false;
                             let frame =
                                 runner.render(asked.size, asked.now, asked.reduce_motion)?;
                             let frame = wakes.frame(frame, clock(last, program), post);
@@ -921,6 +930,46 @@ fn run<R: Runner>(
             post.reached(mark);
         }
     }
+}
+
+/// Whether `event` is a key that moves through what the page shows (an arrow, a page key, home or
+/// end, with no chord) and the next event `later` holds to handle is that key again: one held
+/// down, or pressed over and over faster than the page is made. Each is handled in its turn; the
+/// page is made for the last of them, as it is for a run of pointer moves or wheel turns. What comes
+/// between them that is no event (a mark, the page laid out, the texts measured) is no reason to
+/// make the page for the first. A key that does anything else (a tab, an enter, a letter) is made
+/// the page for each time: what it asks of the page it may ask of what the one before made.
+fn repeated_key(event: &Event, later: &[Command]) -> bool {
+    let Event::Input(Input::Key { key, mods }) = event else {
+        return false;
+    };
+    if mods.control || mods.alt || mods.command {
+        return false;
+    }
+    if !matches!(
+        key,
+        Key::Up
+            | Key::Down
+            | Key::Left
+            | Key::Right
+            | Key::PageUp
+            | Key::PageDown
+            | Key::Home
+            | Key::End
+    ) {
+        return false;
+    }
+    let next = later.iter().find(|command| {
+        !matches!(
+            command,
+            Command::Mark(_) | Command::Laid(_) | Command::Texts(_)
+        )
+    });
+    matches!(
+        next,
+        Some(Command::Event(Event::Input(Input::Key { key: again, mods: held }), _))
+            if again == key && held == mods
+    )
 }
 
 /// Each box once, where it stands last.
@@ -1112,6 +1161,11 @@ mod tests {
                     ..Reply::none()
                 },
                 Event::Text { .. } => Reply::redraw(),
+                // A key changes what the page shows.
+                Event::Input(Input::Key {
+                    key: Key::Up | Key::Down | Key::Enter | Key::Character('x'),
+                    ..
+                }) => Reply::redraw(),
                 // Woken, it draws again (to show the time it was woken at) and asks as it does.
                 Event::Wake { .. } => Reply {
                     wake: self.rewake,
@@ -1732,6 +1786,80 @@ mod tests {
         assert!(handled[0].contains("x: 3.0"), "{handled:?}");
         assert!(handled[1].contains("Press"), "{handled:?}");
         assert!(handled[2].contains("x: 4.0"), "{handled:?}");
+    }
+
+    fn arrow(key: Key) -> Event {
+        Event::Input(Input::Key {
+            key,
+            mods: Mods::default(),
+        })
+    }
+
+    /// How many pages the module made after the keys `keys` were told it while it was held in its
+    /// first, and how many of the keys it handled.
+    fn pages_for(keys: &[Key]) -> (usize, usize) {
+        let (open, gate) = mpsc::channel();
+        let rig = rig(Some(gate), None, false);
+        rig.module.render(Size::new(10.0, 10.0), 1.0, false);
+        for key in keys {
+            rig.module.event(arrow(*key));
+        }
+        open.send(()).unwrap();
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        let log = rig.log();
+        let count = |what: &str| log.iter().filter(|line| line.starts_with(what)).count();
+        // The first page is the held one's.
+        (count("render") - 1, count("handle"))
+    }
+
+    #[test]
+    fn a_key_told_again_before_the_page_is_made_is_one_page_after_the_last() {
+        assert_eq!(pages_for(&[Key::Down; 5]), (1, 5));
+    }
+
+    #[test]
+    fn keys_that_differ_are_a_page_each_and_so_is_a_key_that_comes_alone() {
+        assert_eq!(
+            pages_for(&[Key::Down, Key::Up, Key::Down]),
+            (3, 3),
+            "each key is told a page that the one before made"
+        );
+        assert_eq!(pages_for(&[Key::Down]), (1, 1));
+        // A run, then another key: the run's page is made for the key that ends it.
+        assert_eq!(pages_for(&[Key::Down, Key::Down, Key::Up]), (2, 3));
+    }
+
+    #[test]
+    fn only_keys_that_move_are_one_page_for_a_run() {
+        // What an enter or a letter asks of the page it may ask of what the one before made.
+        assert_eq!(pages_for(&[Key::Enter; 3]), (3, 3));
+        assert_eq!(pages_for(&[Key::Character('x'); 3]), (3, 3));
+    }
+
+    #[test]
+    fn a_chord_of_a_key_that_moves_is_a_page_each() {
+        let (open, gate) = mpsc::channel();
+        let rig = rig(Some(gate), None, false);
+        rig.module.render(Size::new(10.0, 10.0), 1.0, false);
+        let chord = Mods {
+            control: true,
+            ..Mods::default()
+        };
+        for _ in 0..3 {
+            rig.module.event(Event::Input(Input::Key {
+                key: Key::Down,
+                mods: chord,
+            }));
+        }
+        open.send(()).unwrap();
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        let renders = rig
+            .log()
+            .iter()
+            .filter(|line| line.starts_with("render"))
+            .count();
+        // The first page is the held one's.
+        assert_eq!(renders - 1, 3);
     }
 
     fn wheel(x: f32, dy: f32) -> Event {

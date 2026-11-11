@@ -8,6 +8,9 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 ### Added
 
+- The screen tells its page what it draws (`Program::draws`): always `cells`, and `coarse_images`
+  where the terminal has no Kitty graphics. The page is started before the terminal is asked what it
+  is, so a page that asks first waits (on its own thread, ten seconds at the most) for the answer.
 - The crate: a draw list drawn into the cells of a terminal (`render`), measured by `Cells` (which
   tells the engine the cells, `Measure::grid`, so that the page is laid out on them), as a
   grid of cells (`Grid`) and the places of the pictures to draw over it (`Placement`), written as
@@ -55,4 +58,12 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   `render`.
 - `PENCERE_TUI_TRACE=1` prints, when the screen ends, when the alternate screen was entered, the page
   started, the terminal finished answering, each of the first frames was written and each time the
-  window changed its size.
+  window changed its size, each with the memory the process holds then (and the most it has held),
+  the first word the program said and, every thirty seconds, the memory again; and the time the
+  keys and the frames took, the bytes and the pictures written, and the most memory held.
+- **A run of one key of movement is told to the page at once.** An arrow, a page key, home or end
+  sent again before the page answered the one before (held down, or in one write) is told the page
+  without waiting for each answer, and the page is made once for the run (the engine's
+  `Module` does that for keys that follow one another), where each key waited for a page of its
+  own and a held key fell behind. A key the page binds to a command (`Page::binds`) still waits for
+  its answer.

@@ -61,6 +61,24 @@ local GLYPHS = {
 	end,
 }
 
+-- Each glyph as a character, where the page is drawn in the cells of a terminal: a character is drawn
+-- exactly as the font has it, where a line on a canvas is drawn in as many blocks as it has room for.
+-- Only characters that the fonts of a terminal have (Menlo and SF Mono, which are the default ones of
+-- macOS, among them): a `✕` or an `ⓘ` is not, and is drawn in another font or not at all.
+local CHARACTERS = {
+	chevron_right = "▸",
+	chevron_down = "▾",
+	chevron_left = "◂",
+	chevron_up = "▴",
+	close = "×",
+	check = "✓",
+	dash = "-",
+	plus = "+",
+	dot = "•",
+	info = "i",
+	warning = "!",
+}
+
 -- The names of the glyphs, sorted.
 look.GLYPHS = {}
 for name in GLYPHS do
@@ -73,8 +91,19 @@ function look.is_glyph(name)
 	return GLYPHS[name] ~= nil
 end
 
--- The glyph `name`, `size` points square, in `color`.
+-- Whether the page is drawn in the cells of a terminal (`pencere.draws().cells`): there what is small
+-- is a character and what a cell would round to nothing is kept off. A page of a host that says
+-- nothing is laid out as it always was.
+function look.in_cells()
+	return pencere.draws().cells == true
+end
+
+-- The glyph `name`, `size` points square, in `color`; in the cells of a terminal, the character that
+-- is it, in `color`, a cell.
 function look.glyph(name, size, color)
+	if look.in_cells() then
+		return pencere.text(CHARACTERS[name]):color(color):no_shrink()
+	end
 	local s = size / 16
 	return pencere.canvas(GLYPHS[name](s, math.max(1.5 * s, 1.2), color)):size(size, size):no_shrink()
 end

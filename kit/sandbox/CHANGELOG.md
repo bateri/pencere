@@ -35,6 +35,15 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   `luau.wasm` is built from it. **Breaking:** `pointer-move` of the interface is a record with
   `mods`, and so are `release`, `scroll` and the pointer an editor is told of.
 
+- **The library follows a host that draws in the cells of a terminal (`pencere.draws().cells`).**
+  `look.glyph` is the character that says the glyph (`▸ ▾ ◂ ▴ × ✓ - + • i !`, all in the fonts a
+  terminal has by default), a grid's head (which centres its cells' words) is a row, with its column
+  lines the whole of it (and two lines of words are three rows), a
+  palette's rows are the theme's row with no inset and it is as tall as the rows it has, and a
+  status bar guesses a word as a column wide. Where the host says nothing the library draws as it did.
+  An item of a status bar can say its `width`, points, where its words are an element.
+- **The interpreter says `cells` and `coarse_images` in `pencere.draws()`** (the interface's
+  `system.drawing` has `cells` and `coarse-images`); `make luau` rebuilt it.
 - **`u:palette` takes `inset`, the points around its rows (4 as before).** A page that is laid out
   on the cells of a terminal gives rows of whole rows (`height`) and an `inset` of 0, which a
   rounding of every written length to a cell does not turn into a row each.
@@ -52,6 +61,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Changed
 
+- **A run of one key of movement is one page.** `Module` handles every key of an arrow, a page
+  key, home or end that is told again while the page is not yet made, each in its turn, and makes
+  the page after the last of them (as for a run of pointer moves or of wheel turns), where it made
+  a page for each: a held key fell behind the page it moved. A key with a chord, and every other
+  key, is a page each as before.
 - **The pixels of an SVG or a page that were not asked for at the host's last frame are let go of
   for room at once**, not after `ImageLimits::idle` (a page scrolled to had to wait for the page
   scrolled away from); and a drawing may take the room of the pixels of the same page that stand in

@@ -35,6 +35,7 @@ mod grid;
 mod input;
 mod live;
 mod measure;
+mod memory;
 mod output;
 mod paint;
 mod pictures;

@@ -661,3 +661,51 @@ fn the_pointer_takes_the_shape_the_page_asks_for_and_gives_it_back() {
         .expect("the alternate screen is left");
     assert!(reset < left);
 }
+
+/// What the list of the page shows, without the panel at its left that moves with the time.
+fn list_of(screen: &Emulator) -> Vec<String> {
+    screen
+        .text()
+        .lines()
+        .map(|line| line.chars().skip(24).take(30).collect::<String>())
+        .collect()
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn keys_of_movement_sent_at_once_end_where_the_same_keys_one_by_one_would() {
+    // A window with room for a few rows of the list only, so that the keys scroll it.
+    let mut terminal = Terminal::start(100, 14, &[], Knows::default());
+    terminal.until("Containers");
+    terminal.until("NAME");
+    terminal.settle(500);
+    let top = list_of(&terminal.screen);
+    // The end, by the one key that goes there: where the cursor of the list is last.
+    terminal.type_bytes(b"\x1b[F");
+    terminal.settle(1500);
+    let end = list_of(&terminal.screen);
+    assert_ne!(
+        end,
+        top,
+        "the end is not the top:\n{}",
+        terminal.screen.text()
+    );
+    // Each of the keys of movement, forty of them in one write (a key held down, a test, a paste
+    // with no brackets): every one is told the page, and the page after the last is where they
+    // lead, as it is for the last of forty one by one.
+    for (what, key) in [("down", &b"\x1b[B"[..]), ("page down", &b"\x1b[6~"[..])] {
+        terminal.type_bytes(b"\x1b[H");
+        terminal.settle(1500);
+        assert_eq!(list_of(&terminal.screen), top, "home, before {what}");
+        terminal.type_bytes(&key.repeat(40));
+        terminal.settle(2500);
+        assert_eq!(
+            list_of(&terminal.screen),
+            end,
+            "forty of {what} in one write:\n{}",
+            terminal.screen.text()
+        );
+    }
+    terminal.type_bytes(b"\x03");
+    assert_eq!(terminal.ended().code(), Some(130));
+}

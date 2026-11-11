@@ -112,19 +112,31 @@ impl TerminalLook {
     }
 }
 
-/// Something a host may draw that not every host does ([`crate::edit::Caret::glow`] asks for one).
-/// A host says which it does; a page can tell what it will not see from what it does not.
+/// Something a host may draw that not every host does ([`crate::edit::Caret::glow`] asks for one),
+/// or a way it draws that a page lays itself out for. A host says which it does; a page can tell what
+/// it will not see from what it does not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Drawing {
     /// A box's soft shadow (`Quad::shadow`), which a caret's glow is.
     Shadow,
+    /// The page is drawn in the character cells of a terminal: boxes stand on cells, a line of text
+    /// is a row, and a line thinner than a cell is a line along the edge of one. A page draws what
+    /// is small (a mark, an arrow) as a character, which is drawn exactly, and keeps off sizes a
+    /// cell would round to nothing.
+    Cells,
+    /// The host draws a picture of the page (`Picture`, and a canvas) in too few pixels to read a
+    /// small one by (the terminal has no graphics protocol, and a picture is half blocks): a page
+    /// says what a picture of an icon says in characters instead.
+    CoarseImages,
 }
 
 impl Drawing {
-    /// The name the kit gives it: `"shadow"`.
+    /// The name the kit gives it: `"shadow"`, `"cells"` or `"coarse_images"`.
     pub fn name(self) -> &'static str {
         match self {
             Self::Shadow => "shadow",
+            Self::Cells => "cells",
+            Self::CoarseImages => "coarse_images",
         }
     }
 }

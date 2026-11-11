@@ -401,15 +401,21 @@ int l_terminal_look(lua_State* state) {
 }
 
 // What the application draws that not every application does, as a table of the names it says, each
-// `true`: `{ shadow = true }`; none, `{}`.
+// `true`: `{ shadow = true, cells = true, coarse_images = true }`; none, `{}`.
 int l_draws(lua_State* state) {
     pencere_view_system_list_drawing_t drawn = {};
     pencere_view_system_draws(&drawn);
-    lua_createtable(state, 0, 1);
+    lua_createtable(state, 0, 3);
     for (size_t at = 0; at < drawn.len; at++) {
-        if (drawn.ptr[at] == PENCERE_VIEW_SYSTEM_DRAWING_SHADOW) {
+        const char* name = nullptr;
+        switch (drawn.ptr[at]) {
+            case PENCERE_VIEW_SYSTEM_DRAWING_SHADOW: name = "shadow"; break;
+            case PENCERE_VIEW_SYSTEM_DRAWING_CELLS: name = "cells"; break;
+            case PENCERE_VIEW_SYSTEM_DRAWING_COARSE_IMAGES: name = "coarse_images"; break;
+        }
+        if (name != nullptr) {
             lua_pushboolean(state, 1);
-            lua_setfield(state, -2, "shadow");
+            lua_setfield(state, -2, name);
         }
     }
     pencere_view_system_list_drawing_free(&drawn);

@@ -11,6 +11,7 @@ use std::process::ExitCode;
 
 use pencere_drive::headless::Headless;
 use pencere_tui::{CanvasMode, Cells, ImageMode, Options, Theme, render};
+use pencere_view::Drawing;
 
 const COLUMN: f32 = 8.0;
 const ROW: f32 = 18.0;
@@ -55,6 +56,13 @@ fn run() -> Result<(), String> {
     let mut page = Headless::app(&folder)
         .size(f32::from(columns) * COLUMN, f32::from(rows) * ROW)
         .measure(Cells::new(COLUMN, ROW))
+        // What the screen tells its page: cells always, and coarse pictures where there are no
+        // Kitty graphics.
+        .draws(if images == ImageMode::Kitty {
+            vec![Drawing::Cells]
+        } else {
+            vec![Drawing::Cells, Drawing::CoarseImages]
+        })
         .open()
         .map_err(|why| format!("{folder}: {why:?}"))?;
     page.advance(1.0).map_err(|why| format!("{why:?}"))?;

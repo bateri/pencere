@@ -92,9 +92,11 @@ function pencere.terminal_look()
 	return host.terminal_look()
 end
 
--- What the host draws that not every host does, as a table of names that are true: `{ shadow = true }`
--- where it draws a box's soft shadow (a caret's `glow`), `{}` where it draws only what every host does.
--- The same every time it is asked.
+-- What the host draws that not every host does, as a table of names that are true: `shadow` where it
+-- draws a box's soft shadow (a caret's `glow`); `cells` where the page is drawn in the character cells
+-- of a terminal (a small mark is best a character, a line thinner than a cell is not a line); and
+-- `coarse_images` where a picture is drawn in too few pixels to read a small one by (an icon is best
+-- said in characters). `{}` where it draws only what every host does. The same every time it is asked.
 local draws = nil
 function pencere.draws()
 	if draws == nil then

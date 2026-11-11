@@ -49,6 +49,7 @@ mod layout;
 mod motion;
 mod paint;
 mod rich;
+mod rowplan;
 mod rows;
 mod scrolls;
 mod style;
@@ -95,6 +96,8 @@ mod carry_tests;
 mod commands_tests;
 #[cfg(test)]
 mod editor_tests;
+#[cfg(test)]
+mod grid_tests;
 #[cfg(test)]
 mod image_tests;
 #[cfg(test)]

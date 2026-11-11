@@ -145,6 +145,25 @@ fn a_host_that_says_some_gives_what_it_says_and_what_it_draws() {
         "#,
     );
     assert_eq!(shown, ["ok"]);
+    // A host that draws in cells says so, and says whether its pictures are coarse.
+    let shown = checked(
+        TerminalLook::default(),
+        vec![Drawing::Cells, Drawing::CoarseImages],
+        r#"
+        check("draws", pencere.draws(), { cells = true, coarse_images = true })
+        "#,
+    );
+    assert_eq!(shown, ["ok"]);
+    let shown = checked(
+        TerminalLook::default(),
+        vec![Drawing::Cells],
+        r#"
+        local drawn = pencere.draws()
+        check("draws", drawn, { cells = true })
+        check("coarse", drawn.coarse_images, nil)
+        "#,
+    );
+    assert_eq!(shown, ["ok"]);
     // A host that says one field says that field alone.
     let some = TerminalLook {
         caret: TerminalCaret {

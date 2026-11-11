@@ -99,13 +99,18 @@ pub fn terminal_look(table: &Table) -> mlua::Result<TerminalLook> {
     Ok(look)
 }
 
-/// What the host draws beyond what every host does, from a test's list of words (`{ "shadow" }`).
+/// What the host draws beyond what every host does, from a test's list of words (`{ "shadow" }`; also
+/// `"cells"` and `"coarse_images"`).
 pub fn draws(names: &[String]) -> mlua::Result<Vec<Drawing>> {
     names
         .iter()
         .map(|name| match name.as_str() {
             "shadow" => Ok(Drawing::Shadow),
-            other => Err(words(format!("draws: \"{other}\" is none of \"shadow\""))),
+            "cells" => Ok(Drawing::Cells),
+            "coarse_images" => Ok(Drawing::CoarseImages),
+            other => Err(words(format!(
+                "draws: \"{other}\" is none of \"shadow\", \"cells\", \"coarse_images\""
+            ))),
         })
         .collect()
 }

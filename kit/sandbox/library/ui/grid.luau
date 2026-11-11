@@ -214,6 +214,13 @@ local Grid = core.component("grid", {
 		local chosen = state.cursor
 
 		local header = pencere.div():row():h(head):w(room):no_shrink():bg(t.surface)
+		if look.in_cells() then
+			-- It centres its cells' words (the cells are as tall as it is), which on the cells of a
+			-- terminal makes it as many rows as the lines in its cells, one for a title and two where a
+			-- column says its type: a box that centres is the nearest number of rows of the oddness of
+			-- what is in it. Only there: a page that is not on cells is laid out as it always was.
+			header:items_center()
+		end
 		-- The head of the numbers only where the rows have numbers: a box of no width still has its
 		-- padding, and would put every head of a column that far to the right of its cells.
 		if number > 0 then

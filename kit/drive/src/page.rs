@@ -700,6 +700,16 @@ impl Page {
         }
     }
 
+    /// Whether the page binds `key`, held with `mods`, to a command. Such a key is told the page as
+    /// that command and not as a key ([`Page::input`]).
+    #[must_use]
+    pub fn binds(&self, key: Key, mods: Mods) -> bool {
+        self.state
+            .laid
+            .as_ref()
+            .is_some_and(|laid| laid.command_for(key, mods).is_some())
+    }
+
     /// A key pressed, and where it went: to the editor with the keyboard first — the page's command
     /// for the key, the editor's own, the text ([`PageEditors::key`]) — and where no editor has the
     /// keyboard, to the page ([`Page::input`]), which is [`Route::NotEditor`]. The rest of the route

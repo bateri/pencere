@@ -485,7 +485,7 @@ return {
 		local look = pencere.terminal_look()
 		local glow = look.caret and look.caret.glow or "none"
 		local shape = look.caret and look.caret.shape or "none"
-		return pencere.text("glow " .. tostring(glow) .. " shape " .. shape .. " told " .. told .. " shadow " .. tostring(pencere.draws().shadow))
+		return pencere.text("glow " .. tostring(glow) .. " shape " .. shape .. " told " .. told .. " shadow " .. tostring(pencere.draws().shadow) .. " cells " .. tostring(pencere.draws().cells) .. " coarse " .. tostring(pencere.draws().coarse_images))
 	end,
 	handle = function(event)
 		if event.type == "terminal_look" then
@@ -503,16 +503,29 @@ local expect = test.expect
 
 test("a host that says nothing", function()
 	local page = test.open({ calls = {} })
-	expect(page):to_say("glow none shape none told 0 shadow true")
+	expect(page):to_say("glow none shape none told 0 shadow true cells nil coarse nil")
 end)
 
 test("a host that says how its terminal draws, and no shadow", function()
 	local page = test.open({ calls = {}, terminal_look = { caret = { glow = 1.5, shape = "block" } }, draws = {} })
-	expect(page):to_say("glow 1.5 shape block told 0 shadow nil")
+	expect(page):to_say("glow 1.5 shape block told 0 shadow nil cells nil coarse nil")
 	page:set_terminal_look({ caret = { glow = 2, shape = "block" } })
-	expect(page):to_say("glow 2 shape block told 1 shadow nil")
+	expect(page):to_say("glow 2 shape block told 1 shadow nil cells nil coarse nil")
 	page:set_terminal_look({ caret = { glow = 2, shape = "block" } })
-	expect(page):to_say("glow 2 shape block told 1 shadow nil")
+	expect(page):to_say("glow 2 shape block told 1 shadow nil cells nil coarse nil")
+end)
+
+test("a host that draws in the cells of a terminal says so, and whether its pictures are coarse", function()
+	local page = test.open({ calls = {}, draws = { "cells" } })
+	expect(page):to_say("glow none shape none told 0 shadow nil cells true coarse nil")
+	local coarse = test.open({ calls = {}, draws = { "cells", "coarse_images" } })
+	expect(coarse):to_say("glow none shape none told 0 shadow nil cells true coarse true")
+end)
+
+test("a word for what the host draws that the kit does not have is the test's mistake", function()
+	local ok, why = pcall(test.open, { calls = {}, draws = { "sparkles" } })
+	expect(ok):to_be(false)
+	expect(why):to_match("coarse_images")
 end)
 
 test("a look the host cannot say is the test's mistake", function()
@@ -532,7 +545,7 @@ end)
     );
     let (code, text) = tap(&app, &[]);
     assert_eq!(code, 0, "{text}");
-    assert!(text.contains("1..4"), "{text}");
+    assert!(text.contains("1..6"), "{text}");
 }
 
 #[test]

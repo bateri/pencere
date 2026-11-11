@@ -10,7 +10,7 @@ use pencere_editor::UNDO_PAUSE;
 use pencere_sandbox::Fault;
 use pencere_view::edit::EditCommand;
 use pencere_view::{
-    Button, Carry, Cursor, Event, Id, Input, MenuEntry, Mods, Paint, Point, Reply, Size, div,
+    Button, Carry, Cursor, Event, Id, Input, Key, MenuEntry, Mods, Paint, Point, Reply, Size, div,
 };
 use serde_json::json;
 
@@ -1380,6 +1380,30 @@ fn what_cannot_be_done_is_an_error_that_says_why() -> Result<(), Error> {
         .open()
         .map(drop);
     assert_eq!(missing, Err(Error::NoFile("page.lua".into())));
+    Ok(())
+}
+
+/// A key the page binds to a command is told as the command: the page says so, laid out, before
+/// the key is pressed (a host that sends keys without waiting asks, to know which are a command).
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_page_says_which_keys_it_binds_to_a_command() -> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"return { render = function()
+            return pencere.div():command("go", "Go", { "down" })
+        end, handle = function() return true end }"#,
+    )
+    .open()?;
+    page.advance(0.1)?;
+    assert!(page.page().binds(Key::Down, Mods::default()));
+    assert!(!page.page().binds(Key::Up, Mods::default()));
+    assert!(!page.page().binds(
+        Key::Down,
+        Mods {
+            shift: true,
+            ..Mods::default()
+        }
+    ));
     Ok(())
 }
 

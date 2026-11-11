@@ -129,6 +129,8 @@ impl pencere::view::system::Host for Host {
             .into_iter()
             .map(|drawing| match drawing {
                 pencere_view::Drawing::Shadow => pencere::view::system::Drawing::Shadow,
+                pencere_view::Drawing::Cells => pencere::view::system::Drawing::Cells,
+                pencere_view::Drawing::CoarseImages => pencere::view::system::Drawing::CoarseImages,
             })
             .collect()
     }

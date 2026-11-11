@@ -365,16 +365,21 @@ structure.split = Split
 -- --- A status bar -------------------------------------------------------------------------------------------
 
 -- How wide an item is as the bar will lay it out, points: the words as a guess (the page cannot
--- measure a text), an icon, and the room around.
+-- measure a text), an icon, and the room around. An item that says its `width` is that wide; a word of
+-- a terminal's cells is a column, which is more than a word of a font is.
 local function width_of(item)
+	if item.width ~= nil then
+		return item.width
+	end
+	local letter = look.in_cells() and 8 or 6.6
 	local width = 16
 	if item.icon ~= nil then
 		width += 18
 	end
 	if type(item.words) == "string" then
-		width += utf8.len(item.words) * 6.6
+		width += utf8.len(item.words) * letter
 	elseif type(item.words) == "number" then
-		width += #tostring(item.words) * 6.6
+		width += #tostring(item.words) * letter
 	else
 		width += 60
 	end
@@ -382,11 +387,12 @@ local function width_of(item)
 end
 
 -- A bar of what stands where: `start` (before), `center` and `finish` (after) are lists of items `{ key,
--- words, icon, tip, keys, priority, press, tone }`. An item with `press` answers the pointer (`press {
+-- words, icon, tip, keys, priority, press, tone, width }`. An item with `press` answers the pointer (`press {
 -- key }`) and is a button to a screen reader. Where the page is too narrow for all of them, the items
 -- of the least `priority` (5 unless said; the higher stays) go first, and then, among those, the
 -- last of `finish`, then `center`, then `start`; how wide an item is is a guess of its words'
--- length until a page can measure text.
+-- length until a page can measure text (an item whose words are an element says its `width`, points,
+-- for the guess to be right).
 local Status = core.component("status", {
 	check = function(props)
 		for _, group in { props.start or {}, props.center or {}, props.finish or {} } do
