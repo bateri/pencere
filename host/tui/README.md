@@ -66,7 +66,14 @@ written with a size keeps at least one cell.
 
 What is written thinner than half a cell (a line, a caret, a rule) is drawn as it was written: an
 eighth block at the edge of its cell. A thin upright line over a letter reverses that cell, so that
-the letter shows under the caret. Two units of the draw list a row (`Cells::new(1.0, 2.0)`) make
+the letter shows under the caret. A box that has a thin border all round, and no text in the cells
+of its edge, has the border as a ring of line characters (`╭─╮│╰╯`, square corners `┌┐└┘` where the
+box is not rounded) in those cells, in the colour of the border over the ground of the box, so that
+the frame closes at the corners. A box with a thin border all round that has no room for a ring (a
+field of one row, a panel with words in its edge) is a bar and has no part of a line: its fill tells
+it from the ground where it can, and where the fill is not far from the ground, or none, the colour
+of the border is laid over it with a share of the border's opacity, so that a field in focus is a
+different bar from one that is not. A border that is not seen is not drawn. Two units of the draw list a row (`Cells::new(1.0, 2.0)`) make
 half of a cell a square, which a half block draws; a row of 18 or 20 units makes the page's own
 spacing, which is written for a screen, fall on whole rows.
 

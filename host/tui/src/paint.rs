@@ -122,10 +122,16 @@ pub fn render(
             2.0
         },
         canvas: Canvas::new(cols, rows, theme.background),
+        texts: vec![0; usize::from(cols) * usize::from(rows)],
         placements: Vec::new(),
         waiting: false,
         overlaps: 0,
     };
+    for (n, item) in list.items.iter().enumerate() {
+        if let Paint::Text(run) = item {
+            painter.note_text(run, n as u32 + 1);
+        }
+    }
     for item in &list.items {
         painter.canvas.tick += 1;
         match item {
@@ -398,6 +404,8 @@ struct Painter<'a> {
     cw: f32,
     rh: f32,
     canvas: Canvas,
+    /// For each cell, the count of the last item of the list that puts text in it (0: none).
+    texts: Vec<u32>,
     placements: Vec<Placement>,
     waiting: bool,
     overlaps: usize,
@@ -417,6 +425,16 @@ const SMALL: f32 = 2.0;
 
 /// How much wider than tall an icon's ink is for it to be drawn in quarter blocks.
 const FLAT: f32 = 1.3;
+
+/// How far a box's fill is from the ground under it, as a share of the way from the ground of the
+/// theme to its foreground, for the box to be told apart by its fill.
+const APART: f32 = 0.07;
+
+/// How much of its border's colour (and opacity) a box that has no ring has laid over it, so that it
+/// reads as a bar of a tone of the border's: where the fill does not tell it from the ground, and
+/// where it does.
+const BAR: f32 = 0.3;
+const BAR_APART: f32 = 0.1;
 
 /// The quarter blocks of a cell, by which of its quarters are covered: 1 the upper left, 2 the upper
 /// right, 4 the lower left, 8 the lower right.
@@ -685,6 +703,119 @@ impl Painter<'_> {
         true
     }
 
+    /// The ground at the middle of `span`.
+    fn ground_in(&self, span: Span) -> Rgb {
+        self.canvas
+            .ground_at((span.x0 + span.x1) / 2, (span.y0 + span.y1) / 2)
+    }
+
+    /// The border of a box that has no ring, as a tone: `rgb` laid over the box with a share of
+    /// `alpha`, `before` being the ground under the box before its fill was drawn. A fill that tells
+    /// the box from the ground has the tone laid over it lightly (the border still says a state: a
+    /// field in focus is not as one that is not); one that does not, as a bar of the border's tone.
+    fn bar(&mut self, span: Span, before: Rgb, (rgb, alpha): (Rgb, f32)) {
+        if alpha < 0.02 || span.is_empty() {
+            return;
+        }
+        let distance = |a: Rgb, b: Rgb| {
+            [(a.r, b.r), (a.g, b.g), (a.b, b.b)]
+                .iter()
+                .map(|(x, y)| f32::from(x.abs_diff(*y)))
+                .sum::<f32>()
+        };
+        let reach = distance(self.theme.background, self.theme.foreground).max(1.0);
+        let apart = distance(before, self.ground_in(span)) / reach >= APART;
+        self.tint(span, rgb, alpha * if apart { BAR_APART } else { BAR });
+    }
+
+    /// Notes the cells a line of text is drawn in, as the item `item` of the list.
+    fn note_text(&mut self, run: &Run, item: u32) {
+        let row = self.row(run.origin.y);
+        let mut col = self.col(run.origin.x);
+        for ch in run.text.chars() {
+            let width = char_width(ch) as i32;
+            if width == 0 {
+                continue;
+            }
+            for taken in col..col + width {
+                if let Some(cell) = self
+                    .canvas
+                    .cell(taken, row)
+                    .and_then(|cell| self.texts.get_mut(cell))
+                {
+                    *cell = item;
+                }
+            }
+            col += width;
+        }
+    }
+
+    /// Whether a cell holds text, or is to hold some of an item after the one being drawn.
+    fn has_text(&self, col: i32, row: i32) -> bool {
+        let Some(cell) = self.canvas.cell(col, row) else {
+            return false;
+        };
+        matches!(
+            self.canvas.slots.get(cell),
+            Some(Slot::Glyph { .. } | Slot::Tail)
+        ) || self
+            .texts
+            .get(cell)
+            .is_some_and(|last| *last > self.canvas.tick)
+    }
+
+    /// The border of a box that has one on every side, drawn as a ring of box-drawing characters in
+    /// the cells along the edge of the box, with the corners the box rounds (`radii`: top left, top
+    /// right, bottom right, bottom left): the one line of them closes where an eighth of a cell, which
+    /// is a line along the edge of a cell, cannot hold a corner. The ring is the colour of the border
+    /// on the ground of the box. A box of a cell on a side, and one with text in a cell of its edge
+    /// (a box with no room inside), has no ring: its border is the lines along the edges. Says whether
+    /// the ring was drawn.
+    fn ring(
+        &mut self,
+        (c0, r0, c1, r1): (i32, i32, i32, i32),
+        radii: [f32; 4],
+        (rgb, alpha): (Rgb, f32),
+        clip: Span,
+    ) -> bool {
+        if c1 <= c0 || r1 <= r0 {
+            return false;
+        }
+        let edge = |col: i32, row: i32| col == c0 || col == c1 || row == r0 || row == r1;
+        let held = (c0..=c1)
+            .flat_map(|col| (r0..=r1).map(move |row| (col, row)))
+            .any(|(col, row)| edge(col, row) && self.has_text(col, row));
+        if held {
+            return false;
+        }
+        if alpha < 0.02 {
+            // A border nobody sees.
+            return true;
+        }
+        let corner = |round: f32, rounded: char, square: char| {
+            if round > 0.0 { rounded } else { square }
+        };
+        let [top_left, top_right, bottom_right, bottom_left] = radii;
+        for row in r0..=r1 {
+            for col in c0..=c1 {
+                if !edge(col, row) || !Self::within(clip, col, row) {
+                    continue;
+                }
+                let ch = match (col == c0, col == c1, row == r0, row == r1) {
+                    (true, _, true, _) => corner(top_left, '\u{256d}', '\u{250c}'),
+                    (_, true, true, _) => corner(top_right, '\u{256e}', '\u{2510}'),
+                    (_, true, _, true) => corner(bottom_right, '\u{256f}', '\u{2518}'),
+                    (true, _, _, true) => corner(bottom_left, '\u{2570}', '\u{2514}'),
+                    (_, _, true, _) | (_, _, _, true) => '\u{2500}',
+                    _ => '\u{2502}',
+                };
+                let color = self.canvas.under(col, row).mix(rgb, alpha);
+                self.canvas.put(col, row, (ch, color, Attrs::NONE), false);
+            }
+        }
+        true
+    }
+
     fn quad(&mut self, quad: &Quad) {
         if self.hairline(quad) {
             return;
@@ -694,6 +825,7 @@ impl Painter<'_> {
         };
         let clip = self.span(&quad.clip);
         let visible = rect.meet(clip);
+        let before = self.ground_in(visible);
         if let Some(fill) = quad.fill {
             let (rgb, alpha) = self.theme.resolve(&fill);
             if alpha < 0.98 {
@@ -726,20 +858,13 @@ impl Painter<'_> {
                 let (r0, r1) = (rect.y0.div_euclid(2), (rect.y1 - 1).div_euclid(2));
                 let (c0, c1) = (rect.x0, rect.x1 - 1);
                 let color = (rgb, alpha);
-                for col in c0..=c1 {
-                    for (row, edge) in [(r0, Edge::Top), (r1, Edge::Bottom)] {
-                        if Self::within(clip, col, row) {
-                            self.mark(col, row, edge, color);
-                        }
-                    }
+                if self.ring((c0, r0, c1, r1), quad.radii, color, clip) {
+                    return;
                 }
-                for row in r0..=r1 {
-                    for (col, edge) in [(c0, Edge::Left), (c1, Edge::Right)] {
-                        if Self::within(clip, col, row) {
-                            self.mark(col, row, edge, color);
-                        }
-                    }
-                }
+                // No ring: a line in part of its edge would be a frame that does not close. The
+                // box is a bar, told from what is under it by its fill, and by the tone of its
+                // border laid over it.
+                self.bar(visible, before, color);
                 return;
             }
             let width = snap(border.width / self.cw).max(1);

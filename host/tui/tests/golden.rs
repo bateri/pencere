@@ -360,6 +360,261 @@ fn a_border_is_a_pixel_wide_inside_the_box() {
     );
 }
 
+/// `items` drawn in cells of 8 by 18 points, as a page laid out on the cells has them.
+fn draw_cells(items: Vec<Paint>, cols: u16, rows: u16) -> pencere_tui::Frame {
+    let options = Options {
+        col: 8.0,
+        row: 18.0,
+        ..Options::default()
+    };
+    render(
+        &DrawList { items },
+        cols,
+        rows,
+        &dark(),
+        &NoPictures,
+        &options,
+    )
+}
+
+/// A box of `cols` by `rows` cells at (`col`, `row`) with a border of a point all round.
+fn bordered(
+    (col, row): (u16, u16),
+    (cols, rows): (u16, u16),
+    radius: f32,
+    border: impl Into<Color>,
+) -> Paint {
+    Paint::Quad(Quad {
+        rect: Rect::new(
+            f32::from(col) * 8.0,
+            f32::from(row) * 18.0,
+            f32::from(cols) * 8.0,
+            f32::from(rows) * 18.0,
+        ),
+        radii: [radius; 4],
+        fill: Some(Role::Raised(1).into()),
+        gradient: None,
+        border: Some(pencere_view::Border {
+            width: 1.0,
+            color: border.into(),
+        }),
+        shadow: None,
+        clip: world(),
+    })
+}
+
+#[test]
+fn a_box_with_a_border_on_every_side_is_a_ring_of_line_characters() {
+    // Room inside (a cell of it before the words): the ring closes at the corners, rounded where the
+    // box is and square where it is not, in the colour of the border on the ground of the box.
+    let list = |radius| {
+        vec![
+            bordered((0, 0), (6, 3), radius, Role::Accent),
+            words(16.0, 18.0, "Hi", Role::Foreground),
+        ]
+    };
+    let frame = draw_cells(list(4.0), 6, 3);
+    assert_eq!(frame.text(), "╭────╮\n│ Hi │\n╰────╯\n");
+    let square = draw_cells(list(0.0), 6, 3);
+    assert_eq!(square.text(), "┌────┐\n│ Hi │\n└────┘\n");
+    for (col, row) in [(0, 0), (3, 0), (5, 0), (0, 1), (5, 1), (0, 2), (5, 2)] {
+        let cell = frame.grid.cell(col, row).expect("a cell");
+        assert_eq!(cell.fg, Rgb::hex(0x58a6ff), "{col}, {row}");
+        assert_eq!(cell.bg, Bg::Rgb(BOX), "{col}, {row}");
+    }
+    // The inside is the box's ground, and the ring holds nothing it was not given.
+    assert_eq!(bg(&frame, 2, 1), Bg::Rgb(BOX));
+}
+
+#[test]
+fn the_ring_of_a_box_is_the_border_with_its_opacity_and_none_where_it_has_none() {
+    let line = |alpha: f32| {
+        draw_cells(
+            vec![bordered(
+                (0, 0),
+                (4, 3),
+                4.0,
+                Color::from(Role::Accent).faded(alpha),
+            )],
+            4,
+            3,
+        )
+    };
+    // Faint over the hover, firm on the one chosen: two colours that tell them apart.
+    let (faint, firm) = (line(0.5), line(0.9));
+    let color = |frame: &pencere_tui::Frame| frame.grid.cell(0, 0).expect("a cell").fg;
+    assert_eq!(color(&faint), BOX.mix(Rgb::hex(0x58a6ff), 0.5));
+    assert_eq!(color(&firm), BOX.mix(Rgb::hex(0x58a6ff), 0.9));
+    assert_ne!(color(&faint), color(&firm));
+    // A border that is not there leaves no character.
+    assert_eq!(line(0.0).text(), "\n\n\n");
+}
+
+#[test]
+fn two_cards_side_by_side_leave_the_column_between_them_alone() {
+    let frame = draw_cells(
+        vec![
+            bordered((0, 0), (4, 3), 4.0, Role::Accent),
+            bordered((5, 0), (4, 3), 4.0, Role::Accent),
+        ],
+        9,
+        3,
+    );
+    assert_eq!(frame.text(), "╭──╮ ╭──╮\n│  │ │  │\n╰──╯ ╰──╯\n");
+}
+
+/// A box of `cols` by `rows` cells at (`col`, `row`) with a border of a point all round, and the
+/// fill it is given.
+fn framed(
+    (col, row): (u16, u16),
+    (cols, rows): (u16, u16),
+    fill: Option<Color>,
+    border: impl Into<Color>,
+) -> Paint {
+    Paint::Quad(Quad {
+        rect: Rect::new(
+            f32::from(col) * 8.0,
+            f32::from(row) * 18.0,
+            f32::from(cols) * 8.0,
+            f32::from(rows) * 18.0,
+        ),
+        radii: [4.0; 4],
+        fill,
+        gradient: None,
+        border: Some(pencere_view::Border {
+            width: 1.0,
+            color: border.into(),
+        }),
+        shadow: None,
+        clip: world(),
+    })
+}
+
+/// The ground of a cell, as a colour.
+fn ground(frame: &pencere_tui::Frame, col: u16, row: u16) -> Rgb {
+    match bg(frame, col, row) {
+        Bg::Rgb(rgb) => rgb,
+        // Not a colour: one that no ground of a test is.
+        _ => Rgb::new(255, 0, 255),
+    }
+}
+
+/// No character of a line along the edge of a cell.
+fn no_part_of_a_line(text: &str) -> bool {
+    !text.contains(['\u{258f}', '\u{2595}', '\u{2581}', '\u{2594}'])
+}
+
+#[test]
+fn a_box_with_words_in_its_edge_is_a_bar_of_the_tone_of_its_border() {
+    // A field of a row, its words in the cells its ring would stand in: no part of a line, and no
+    // gap in a frame; the box is a bar, and the border is the tone it is.
+    let theme = dark();
+    let border = theme.role(Role::Border);
+    let faint = Color::from(Role::Foreground).faded(0.05);
+    let bar = |fill: Option<Color>, border: Color| {
+        draw_cells(
+            vec![
+                framed((0, 0), (6, 1), fill, border),
+                words(0.0, 0.0, "abcd", Role::Foreground),
+            ],
+            6,
+            1,
+        )
+    };
+    // A fill the ground does not tell apart (a twentieth of the way to the foreground): the bar is
+    // the fill with a third of the border's tone over it.
+    let frame = bar(Some(faint), Role::Border.into());
+    assert_eq!(frame.text(), "abcd\n");
+    let want = theme
+        .background
+        .mix(theme.role(Role::Foreground), 0.05)
+        .mix(border, 0.3);
+    for col in 0..6 {
+        assert_eq!(ground(&frame, col, 0), want, "{col}");
+    }
+    // None at all: the ground, with the tone laid over it.
+    let frame = bar(None, Role::Border.into());
+    assert_eq!(ground(&frame, 3, 0), theme.background.mix(border, 0.3));
+    // A fill that does tell it apart (two steps up): that, with a little of the tone.
+    let frame = bar(Some(Role::Raised(2).into()), Role::Border.into());
+    assert_eq!(
+        ground(&frame, 3, 0),
+        theme.role(Role::Raised(2)).mix(border, 0.1)
+    );
+    // A border nobody sees leaves the fill, and no line.
+    let frame = bar(Some(faint), Color::from(Role::Accent).faded(0.0));
+    assert_eq!(frame.text(), "abcd\n");
+    assert_eq!(
+        ground(&frame, 3, 0),
+        theme.background.mix(theme.role(Role::Foreground), 0.05)
+    );
+}
+
+#[test]
+fn a_bar_is_told_from_the_ground_in_256_colours_and_a_field_in_focus_from_one_that_is_not() {
+    for theme in [Theme::dark(), Theme::light()] {
+        let draw_bar = |border: Color| {
+            render(
+                &DrawList {
+                    items: vec![framed(
+                        (0, 0),
+                        (6, 1),
+                        Some(Color::from(Role::Foreground).faded(0.05)),
+                        border,
+                    )],
+                },
+                6,
+                1,
+                &theme,
+                &NoPictures,
+                &Options {
+                    col: 8.0,
+                    row: 18.0,
+                    ..Options::default()
+                },
+            )
+        };
+        let idle = ground(&draw_bar(Role::Border.into()), 2, 0);
+        let focus = ground(&draw_bar(Color::from(Role::Accent).faded(0.8)), 2, 0);
+        // The bar is not the page's ground, in the 256 of the palette as in true colour, and the
+        // focus is not the idle bar in either.
+        assert_ne!(idle.to_indexed(), theme.background.to_indexed());
+        assert_ne!(focus.to_indexed(), idle.to_indexed());
+        assert_ne!(focus, idle);
+    }
+}
+
+#[test]
+fn a_box_of_rows_with_words_in_its_edge_has_no_part_of_a_line_and_one_ground() {
+    // A panel whose last row is words, as the palette's: no ring fits, and it is not lines either.
+    let frame = draw_cells(
+        vec![
+            framed((0, 0), (8, 3), Some(Role::Raised(2).into()), Role::Border),
+            words(8.0, 0.0, "Files", Role::Foreground),
+            words(8.0, 36.0, "Esc close", Role::Foreground),
+        ],
+        8,
+        3,
+    );
+    assert!(no_part_of_a_line(&frame.text()), "{:?}", frame.text());
+    assert_eq!(frame.text(), " Files\n\n Esc clo\n");
+    let corner = ground(&frame, 0, 0);
+    for (col, row) in [(7, 0), (0, 2), (7, 2), (3, 1)] {
+        assert_eq!(ground(&frame, col, row), corner, "{col}, {row}");
+    }
+}
+
+#[test]
+fn a_line_on_one_side_is_a_line_along_the_edge() {
+    // The underline of a tab, the bar of a change: a fill a point thick, as before.
+    let frame = draw_cells(
+        vec![quad(Rect::new(0.0, 35.0, 48.0, 1.0), Role::Accent)],
+        6,
+        2,
+    );
+    assert_eq!(frame.text(), "\n▁▁▁▁▁▁\n");
+}
+
 #[test]
 fn a_character_stands_on_the_ground_of_the_box_in_front() {
     // The box begins in the lower half of the row the words are in.

@@ -14,6 +14,14 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   true-colour escapes with Kitty graphics (`Frame::ansi`) or as plain text (`Frame::text`).
 - Lines thinner than half a cell as eighth blocks at the edge of their cell, a thin upright line over
   a letter as a reversed cell, and a translucent box over a picture as a tint drawn over it.
+- A box with a thin border on every side, and no text in the cells of its edge, is drawn with a ring
+  of line characters (`╭─╮│╰╯`, `┌┐└┘` where its corners are square) in the colour of the border, so
+  that its frame closes; a border that cannot be seen (fully faded) is not drawn. A box with no room
+  for a ring (text in its edge, a row or a column of cells) has no part of a line either: it is a
+  bar, told from the ground by its fill where that is far enough from it, and else by the colour of
+  its border laid over it (three tenths of the border's opacity; a tenth over a fill that tells it
+  apart), so that a field in focus is not the one that is not. A line on one side and a border as
+  thick as a cell are as they were.
 - A light and a dark `Theme`, from the palettes the page's roles are resolved in.
 - Pictures as terminal pictures, as half blocks, or left out (`ImageMode`); canvases as braille dots
   or as pictures (`CanvasMode`). A canvas as characters makes no ground: only the dots a figure
