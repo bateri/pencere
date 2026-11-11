@@ -147,8 +147,9 @@ ones dropped. A reader MUST NOT rely on the order.
 `opens` is a list of strings, each `file` or `folder`: the kinds of path the program takes when it is
 started with one. A terminal that starts the program for a path gives it, after any arguments of its
 own, the absolute path as the last argument, and before it `+LINE` (a plus sign and a decimal line
-number) when it means a line of a file; a program that has a use for the line reads it, and the
-others are not started with it. `file` is the path of a file, `folder` the path of a directory. A
+number) when it means a line of a file. A terminal does not know which programs have a use for the
+line, so a program that lists `file` MUST accept `+LINE` before the path, and MAY ignore it.
+`file` is the path of a file, `folder` the path of a directory. A
 release with no `opens`, or an empty one, takes neither. A value written twice counts once, and a
 reader ignores a value it does not know, so that a later version of this document can add one.
 
