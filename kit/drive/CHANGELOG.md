@@ -37,6 +37,8 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Changed
 
+- The measure the drive hands the page on says the host's grid (`Measure::grid` of the engine).
+
 - The headless host and the screenshot draw a picture with `Images::picture` and the crop of the
   bitmap (`Bitmap::crop_of`): a large SVG or page of a PDF is drawn where it is seen, so a page is
   sharp at every zoom and the pixels held come to the screen.

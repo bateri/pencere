@@ -84,7 +84,7 @@ pub use style::{Anchor, Border, Gradient, Shadow, Side, Track, Zoom};
 pub use system::{
     Drawing, KeyConvention, TerminalCaret, TerminalLook, TerminalSelection, WallTime,
 };
-pub use text::{Align, EditorMetrics, Family, Font, Measure, Metrics};
+pub use text::{Align, EditorMetrics, Family, Font, Grid, Measure, Metrics};
 pub use ui::{DRAG_START, Drag, Dropped, Ui};
 
 #[cfg(test)]

@@ -44,6 +44,25 @@ pub struct Metrics {
     pub height: f32,
 }
 
+/// The cells a host draws a page in: a character cell is `col` pixels across and `row` pixels
+/// down. A host that draws in cells says so ([`Measure::grid`]) and the engine lays the page out on
+/// them: what a page's points come to across is a whole number of columns, and down a whole number
+/// of rows, so that every box stands on cell edges and a line of text is one row.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Grid {
+    pub col: f32,
+    pub row: f32,
+}
+
+impl Grid {
+    /// A grid of cells `col` pixels across and `row` pixels down, or `None` where either is not a
+    /// size (not finite, or not above nothing).
+    pub fn new(col: f32, row: f32) -> Option<Self> {
+        let size = |side: f32| side.is_finite() && side > 0.0;
+        (size(col) && size(row)).then_some(Self { col, row })
+    }
+}
+
 /// The host's side of text: how large one line is.
 ///
 /// A host with no proportional text answers [`Metrics::default`] (nothing): the boxes of the
@@ -109,6 +128,13 @@ pub trait Measure {
     /// none.
     fn anchors(&mut self, _id: Id) -> Vec<(Id, Rect)> {
         Vec::new()
+    }
+
+    /// The cells the host draws the page in, where it draws in cells ([`Grid`]): the page is laid
+    /// out on them and the text it measures is a row high and a column across for each of its
+    /// characters. A host that draws in pixels answers `None` (the default).
+    fn grid(&self) -> Option<Grid> {
+        None
     }
 }
 

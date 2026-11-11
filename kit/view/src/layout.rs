@@ -23,8 +23,8 @@ use crate::style::{
 };
 use crate::text::wrap_lines;
 use crate::{
-    Align, Color, Command, Element, Family, Font, Id, Key, Measure, Metrics, Mods, Path, Point,
-    Rect, Role, Size, Span,
+    Align, Color, Command, Element, Family, Font, Grid, Id, Key, Measure, Metrics, Mods, Path,
+    Point, Rect, Role, Size, Span,
 };
 
 /// The text a page is written in until a box says otherwise: the terminal's face at 12.5
@@ -138,6 +138,10 @@ pub(crate) struct Node {
     /// How far its picture or its canvas is turned, degrees clockwise about its middle: where it
     /// spins ([`crate::Motion::spin`]).
     pub turn: f32,
+    /// On a grid, the pixels a box is thick across and down where it was written thinner than half
+    /// a cell (a hairline): the box takes a cell, and what it is filled with is as thick as it was
+    /// written; `0` where the box is not thin, and on every page that has no grid.
+    pub thin: (f32, f32),
 }
 
 /// A page laid out: every element's box, in the order they are painted.
@@ -216,6 +220,7 @@ struct Pending {
     /// It is an overlay: a child of the page's box in the layout, whatever holds it.
     overlay: bool,
     anchor: Option<Anchor>,
+    thin: (f32, f32),
 }
 
 /// An overlay met on the walk down, laid out after the rest as a child of the page: the element,
@@ -232,6 +237,10 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
     // The root is exactly the page: the percentages below it are the page's.
     root.style.width = Length::Px(viewport.w / scale);
     root.style.height = Length::Px(viewport.h / scale);
+    // The unit the layout is done in: a pixel, or where the host draws in cells ([`Measure::grid`]) a
+    // column across and a row down, so that every length is a whole number of them and every box
+    // stands on the cells' edges. The boxes come out in pixels all the same.
+    let unit = Units::of(measure.grid());
     let mut tree: TaffyTree<Leaf> = TaffyTree::new();
     let mut pending = Vec::new();
     let mut lifted = VecDeque::new();
@@ -242,7 +251,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         root,
         None,
         DEFAULT_TEXT,
-        scale,
+        (scale, unit),
         measure,
     );
     // The overlays, after everything else (so drawn over it), each a child of the page's box: its
@@ -260,7 +269,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             element,
             Some(parent),
             text,
-            scale,
+            (scale, unit),
             measure,
         );
         if let Some(entry) = pending.get_mut(index) {
@@ -271,8 +280,8 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
 
     let mut cache: HashMap<(Font, String), Metrics> = HashMap::new();
     let space = TSize {
-        width: AvailableSpace::Definite(viewport.w),
-        height: AvailableSpace::Definite(viewport.h),
+        width: AvailableSpace::Definite(viewport.w / unit.x),
+        height: AvailableSpace::Definite(viewport.h / unit.y),
     };
     let measured = tree.compute_layout_with_measure(root_id, space, |input, _node, leaf, style| {
         // taffy places a leaf (its padding, border and the sizes its style gives) around the room
@@ -282,7 +291,22 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             input,
             style,
             |_, _| 0.0,
-            |known, available| {
+            |known_units, available_units| {
+                // Taffy speaks in the layout's unit and the host's measure in pixels.
+                let known = TSize {
+                    width: known_units.width.map(|side| side * unit.x),
+                    height: known_units.height.map(|side| side * unit.y),
+                };
+                let available = TSize {
+                    width: match available_units.width {
+                        AvailableSpace::Definite(room) => AvailableSpace::Definite(room * unit.x),
+                        other => other,
+                    },
+                    height: match available_units.height {
+                        AvailableSpace::Definite(room) => AvailableSpace::Definite(room * unit.y),
+                        other => other,
+                    },
+                };
                 let natural = match leaf {
                     Some(Leaf::Text {
                         text,
@@ -356,13 +380,16 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
                             known.height.map(|side| (side - inset.1).max(0.0)),
                             *natural,
                         );
-                        return TSize { width, height };
+                        return TSize {
+                            width: width / unit.x,
+                            height: height / unit.y,
+                        };
                     }
                     None => Metrics::default(),
                 };
                 TSize {
-                    width: known.width.unwrap_or(natural.width),
-                    height: known.height.unwrap_or(natural.height),
+                    width: known_units.width.unwrap_or(natural.width / unit.x),
+                    height: known_units.height.unwrap_or(natural.height / unit.y),
                 }
             },
         )
@@ -415,10 +442,10 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             })
             .unwrap_or((0.0, 0.0, page, false));
         let rect = Rect::new(
-            ox + laid.location.x,
-            oy + laid.location.y,
-            laid.size.width,
-            laid.size.height,
+            ox + laid.location.x * unit.x,
+            oy + laid.location.y * unit.y,
+            laid.size.width * unit.x,
+            laid.size.height * unit.y,
         );
         let hidden = outer_hidden || entry.hidden;
         let own_clip = if entry.overflow == Overflow::Visible {
@@ -474,6 +501,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             overlay: entry.overlay,
             clips: entry.overflow != Overflow::Visible,
             turn: 0.0,
+            thin: entry.thin,
         });
     }
     // `nodes`, `reach` and `inside` get one entry for every element: they are the same length.
@@ -850,6 +878,7 @@ fn empty(page: Rect) -> Node {
         overlay: false,
         clips: false,
         turn: 0.0,
+        thin: (0.0, 0.0),
     }
 }
 
@@ -863,7 +892,7 @@ fn build(
     element: Element,
     parent: Option<usize>,
     outer: TextStyle,
-    scale: f32,
+    (scale, unit): (f32, Units),
     measure: &mut dyn Measure,
 ) -> (usize, NodeId) {
     let Element {
@@ -910,11 +939,14 @@ fn build(
         parent,
         meta,
         overflow: style.overflow,
-        scroll: (px(style.scroll.0), px(style.scroll.1)),
+        scroll: (
+            unit.across(style.scroll.0, scale) * unit.x,
+            unit.down(style.scroll.1, scale) * unit.y,
+        ),
         zoom,
         zoomed,
-        pad_bottom: px(style.padding[2]),
-        pad_right: px(style.padding[1]),
+        pad_bottom: unit.down(style.padding[2], scale) * unit.y,
+        pad_right: unit.across(style.padding[1], scale) * unit.x,
         hidden: style.display == Display::None,
         opacity: style
             .opacity
@@ -929,16 +961,24 @@ fn build(
         }),
         radii: style.radii.map(px),
         shadow: style.shadow.map(|s| Shadow {
-            dx: px(s.dx),
-            dy: px(s.dy),
+            dx: unit.across(s.dx, scale) * unit.x,
+            dy: unit.down(s.dy, scale) * unit.y,
             blur: px(s.blur),
             color: s.color,
         }),
         overlay: false,
         anchor: style.anchor,
+        thin: (
+            unit.thin(style.width, scale, unit.x),
+            unit.thin(style.height, scale, unit.y),
+        ),
     });
 
-    let mut taffy_style = convert(&style, scale, matches!(kind, Kind::Text(_) | Kind::Rich(_)));
+    let mut taffy_style = convert(
+        &style,
+        (scale, unit),
+        matches!(kind, Kind::Text(_) | Kind::Rich(_)),
+    );
     let id = match kind {
         Kind::Text(content) => {
             let leaf = Leaf::Text {
@@ -1010,12 +1050,15 @@ fn build(
             // box and the room it leaves is what the picture is measured for: a box that takes
             // its size from the image is the image's, and the border besides. (The border of any
             // other element is drawn over its box and takes no room.)
-            let border_room = LengthPercentage::length(border);
+            let (border_x, border_y) = (
+                LengthPercentage::length(unit.cells(border, unit.x)),
+                LengthPercentage::length(unit.cells(border, unit.y)),
+            );
             taffy_style.border = TRect {
-                top: border_room,
-                right: border_room,
-                bottom: border_room,
-                left: border_room,
+                top: border_y,
+                right: border_x,
+                bottom: border_y,
+                left: border_x,
             };
             // And the proportions are the box's whatever limits one side: an image held to a
             // largest width keeps its height in proportion. (A ratio is the box's, border and
@@ -1023,7 +1066,8 @@ fn build(
             // sides the style gives are measured as ever and a limit on one is not followed.)
             let bare = border == 0.0 && [top, right, bottom, left].iter().all(|edge| *edge == 0.0);
             if let (Some(natural), true) = (natural, bare) {
-                taffy_style.aspect_ratio = Some(natural.w / natural.h);
+                // The ratio of the sides in the layout's unit, which is not a pixel on a grid.
+                taffy_style.aspect_ratio = Some(natural.w / natural.h * (unit.y / unit.x));
             }
             if let Some(entry) = pending.get_mut(index) {
                 entry.content = Content::Image(Placed {
@@ -1066,7 +1110,7 @@ fn build(
                         child,
                         Some(index),
                         text,
-                        scale * zoomed,
+                        (scale * zoomed, unit),
                         measure,
                     )
                     .1,
@@ -1093,34 +1137,112 @@ pub(crate) fn snap(points: f32, scale: f32) -> f32 {
     (points * scale).round()
 }
 
-fn dimension(length: Length, scale: f32) -> Dimension {
+/// The unit a page is laid out in: a pixel, with no grid, and with one the cell's side on each axis
+/// ([`Grid`]), so that what a page's points come to is a whole number of columns across and of rows
+/// down. `x` and `y` are the pixels a unit is, across and down.
+#[derive(Clone, Copy, Debug)]
+struct Units {
+    x: f32,
+    y: f32,
+    grid: bool,
+}
+
+impl Units {
+    fn of(grid: Option<Grid>) -> Self {
+        grid.map_or(
+            Self {
+                x: 1.0,
+                y: 1.0,
+                grid: false,
+            },
+            |grid| Self {
+                x: grid.col,
+                y: grid.row,
+                grid: true,
+            },
+        )
+    }
+
+    /// `pixels` in units of a side `side` pixels long, rounded to a whole unit (the nearest, half
+    /// away from nothing).
+    fn cells(self, pixels: f32, side: f32) -> f32 {
+        (pixels / side).round()
+    }
+
+    /// `points` as whole units across.
+    fn across(self, points: f32, scale: f32) -> f32 {
+        self.cells(points * scale, self.x)
+    }
+
+    /// `points` as whole units down.
+    fn down(self, points: f32, scale: f32) -> f32 {
+        self.cells(points * scale, self.y)
+    }
+
+    /// The pixels a size is where it is written thinner than half a cell on a grid, else nothing.
+    fn thin(self, length: Length, scale: f32, side: f32) -> f32 {
+        match length {
+            Length::Px(points) if self.grid && points > 0.0 && points * scale < side / 2.0 => {
+                points * scale
+            }
+            _ => 0.0,
+        }
+    }
+
+    /// A size of `points` across: on a grid a size that is any is at least one column, so that a
+    /// box that was written does not vanish between the cells.
+    fn wide(self, points: f32, scale: f32) -> f32 {
+        let units = self.across(points, scale);
+        if self.grid && points > 0.0 {
+            units.max(1.0)
+        } else {
+            units
+        }
+    }
+
+    /// A size of `points` down: at least one row on a grid, where it is any.
+    fn high(self, points: f32, scale: f32) -> f32 {
+        let units = self.down(points, scale);
+        if self.grid && points > 0.0 {
+            units.max(1.0)
+        } else {
+            units
+        }
+    }
+}
+
+fn dimension(length: Length, scale: f32, unit: impl Fn(f32, f32) -> f32) -> Dimension {
     match length {
         Length::Auto => Dimension::auto(),
-        Length::Px(points) => Dimension::length(snap(points, scale)),
+        Length::Px(points) => Dimension::length(unit(points, scale)),
         Length::Percent(percent) => Dimension::percent(percent / 100.0),
     }
 }
 
 /// A least or a most size, which taffy takes as a length, a share or nothing (`auto`).
-fn bound(length: Length, scale: f32) -> LengthPercentageAuto {
+fn bound(length: Length, scale: f32, unit: impl Fn(f32, f32) -> f32) -> LengthPercentageAuto {
     match length {
         Length::Auto => LengthPercentageAuto::auto(),
-        Length::Px(points) => LengthPercentageAuto::length(snap(points, scale)),
+        Length::Px(points) => LengthPercentageAuto::length(unit(points, scale)),
         Length::Percent(percent) => LengthPercentageAuto::percent(percent / 100.0),
     }
 }
 
-fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
-    let px = |points: f32| snap(points, scale);
-    let edge = |points: f32| LengthPercentage::length(snap(points, scale));
-    let margin = |points: f32| LengthPercentageAuto::length(snap(points, scale));
-    let inset = |value: Option<f32>| value.map_or_else(LengthPercentageAuto::auto, margin);
+fn convert(style: &Style, (scale, unit): (f32, Units), is_text: bool) -> TStyle {
+    let across = |points: f32| unit.across(points, scale);
+    let down = |points: f32| unit.down(points, scale);
+    let edge_x = |points: f32| LengthPercentage::length(across(points));
+    let edge_y = |points: f32| LengthPercentage::length(down(points));
+    let margin_x = |points: f32| LengthPercentageAuto::length(across(points));
+    let margin_y = |points: f32| LengthPercentageAuto::length(down(points));
+    let inset_x = |value: Option<f32>| value.map_or_else(LengthPercentageAuto::auto, margin_x);
+    let inset_y = |value: Option<f32>| value.map_or_else(LengthPercentageAuto::auto, margin_y);
     let [top, right, bottom, left] = style.padding;
     let [m_top, m_right, m_bottom, m_left] = style.margin;
     let [i_top, i_right, i_bottom, i_left] = style.inset;
     let mut min_size = TSize {
-        width: bound(style.min_width, scale),
-        height: bound(style.min_height, scale),
+        width: bound(style.min_width, scale, |p, s| unit.across(p, s)),
+        height: bound(style.min_height, scale, |p, s| unit.down(p, s)),
     };
     // A line that may be cut gives its room away down to nothing, as a style sheet's
     // `min-width: 0` on an ellipsis would.
@@ -1153,35 +1275,35 @@ fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
             Position::Relative
         },
         inset: TRect {
-            top: inset(i_top),
-            right: inset(i_right),
-            bottom: inset(i_bottom),
-            left: inset(i_left),
+            top: inset_y(i_top),
+            right: inset_x(i_right),
+            bottom: inset_y(i_bottom),
+            left: inset_x(i_left),
         },
         size: TSize {
-            width: dimension(style.width, scale),
-            height: dimension(style.height, scale),
+            width: dimension(style.width, scale, |p, s| unit.wide(p, s)),
+            height: dimension(style.height, scale, |p, s| unit.high(p, s)),
         },
         min_size,
         max_size: TSize {
-            width: bound(style.max_width, scale),
-            height: bound(style.max_height, scale),
+            width: bound(style.max_width, scale, |p, s| unit.across(p, s)),
+            height: bound(style.max_height, scale, |p, s| unit.down(p, s)),
         },
         margin: TRect {
-            top: margin(m_top),
-            right: margin(m_right),
-            bottom: margin(m_bottom),
-            left: margin(m_left),
+            top: margin_y(m_top),
+            right: margin_x(m_right),
+            bottom: margin_y(m_bottom),
+            left: margin_x(m_left),
         },
         padding: TRect {
-            top: edge(top),
-            right: edge(right),
-            bottom: edge(bottom),
-            left: edge(left),
+            top: edge_y(top),
+            right: edge_x(right),
+            bottom: edge_y(bottom),
+            left: edge_x(left),
         },
         gap: TSize {
-            width: edge(style.gap.0),
-            height: edge(style.gap.1),
+            width: edge_x(style.gap.0),
+            height: edge_y(style.gap.1),
         },
         flex_grow: style.grow,
         flex_shrink: style.shrink.unwrap_or(1.0),
@@ -1200,8 +1322,8 @@ fn convert(style: &Style, scale: f32, is_text: bool) -> TStyle {
                 Justify::End => JustifyContent::FLEX_END,
                 Justify::Between => JustifyContent::SPACE_BETWEEN,
             }),
-        grid_template_columns: style.columns.iter().map(|t| track(*t, px)).collect(),
-        grid_template_rows: style.rows.iter().map(|t| track(*t, px)).collect(),
+        grid_template_columns: style.columns.iter().map(|t| track(*t, across)).collect(),
+        grid_template_rows: style.rows.iter().map(|t| track(*t, down)).collect(),
         grid_column: Line {
             start: GridPlacement::Auto,
             end: if style.column_span > 1 {

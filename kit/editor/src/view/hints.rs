@@ -249,7 +249,7 @@ impl View {
         if row.shaped.widgets.is_empty() {
             return Vec::new();
         }
-        let top = self.pad + self.y_of(row.index);
+        let top = self.pad_y + self.y_of(row.index);
         let origin = self.text_x();
         let mut out = Vec::new();
         // Each boundary's before-widgets from where the characters before it end, then the caret, then
@@ -316,7 +316,7 @@ impl View {
     /// What is under `point` (pixels of the content): a widget, and the part of it.
     pub(crate) fn widget_under(&self, point: Point) -> Option<(WidgetBox, Option<usize>)> {
         let row = self.rows.iter().find(|row| {
-            let top = self.pad + self.y_of(row.index);
+            let top = self.pad_y + self.y_of(row.index);
             point.y >= top && point.y < top + self.row
         })?;
         self.widget_boxes(row).into_iter().find_map(|found| {

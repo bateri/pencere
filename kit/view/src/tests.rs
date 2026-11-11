@@ -854,3 +854,63 @@ fn a_box_inside_padding_stands_in_its_middle_at_a_scale_that_is_not_whole() {
         );
     }
 }
+
+/// A terminal's: a column is 8 pixels, a row 18, and a line of text is a row and each character a
+/// column.
+struct Cells;
+
+impl Measure for Cells {
+    fn measure(&mut self, _font: &Font, text: &str) -> Metrics {
+        Metrics {
+            width: text.chars().count() as f32 * 8.0,
+            height: 18.0,
+        }
+    }
+
+    fn grid(&self) -> Option<crate::Grid> {
+        crate::Grid::new(8.0, 18.0)
+    }
+}
+
+#[test]
+fn on_a_grid_every_box_stands_on_the_cells_and_a_line_of_text_is_a_row() {
+    // Written in points of every size: 22 and 24 down, 6 and 14 across, a gap of 5, a line of text.
+    let root = div()
+        .col()
+        .p(6.0)
+        .gap(5.0)
+        .child(div().h(22.0).child(text("abc")))
+        .child(
+            div()
+                .h(24.0)
+                .row()
+                .gap(14.0)
+                .child(text("x"))
+                .child(text("yz")),
+        )
+        .child(text("last"))
+        .child(div().w(1.0).h(1.0).bg(Role::Border));
+    let laid = layout(root, Size::new(80.0 * 8.0, 24.0 * 18.0), 1.0, &mut Cells);
+    for (index, rect) in laid.rects().enumerate() {
+        for (what, value, cell) in [
+            ("x", rect.x, 8.0),
+            ("width", rect.w, 8.0),
+            ("y", rect.y, 18.0),
+            ("height", rect.h, 18.0),
+        ] {
+            assert!(
+                (value / cell - (value / cell).round()).abs() < 1e-4,
+                "box {index}: {what} is {value}, not a whole number of cells"
+            );
+        }
+    }
+    // A line of text is one row, and a box that was written is not lost between the cells: the
+    // hairline takes a cell and is drawn as thick as it was written.
+    let boxes: Vec<Rect> = laid.rects().collect();
+    assert_eq!(boxes[boxes.len() - 2].h, 18.0);
+    let hairline = boxes[boxes.len() - 1];
+    assert_eq!((hairline.w, hairline.h), (8.0, 18.0));
+    let drawn = laid.paint(&mut Cells);
+    let quad = quads(&drawn).pop().expect("the hairline is drawn");
+    assert_eq!((quad.rect.w, quad.rect.h), (1.0, 1.0));
+}

@@ -32,6 +32,13 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   `precise` and `mods`, `Move` and `Release` have `mods`. **Breaking:** `Input::Move` is `Move { at,
 mods }` and `Input::Release` has `mods`, so a host or a page that builds or matches them names
   the field.
+- **`Grid` and `Measure::grid`**: a host that draws in the cells of a terminal says how many pixels
+  a cell is across and down, and the page is laid out on them: every length a page writes is a whole
+  number of columns across (width, the room to the left and right, the gap between columns, the
+  columns of a grid, how far a box is scrolled across) and of rows down, and a line of text is a row
+  of the measure's height. A box that is written with a size keeps at least a cell, and one written
+  thinner than half a cell is drawn as thick as it was written, in its cell. A host that does not
+  say (the default) is laid out as ever, pixel for pixel.
 
 - **`Picture::shown`**: what of the whole image is inside the picture's clip, as shares of it like
   `crop`. A host that rasterises a large SVG or page draws that part and not all of it

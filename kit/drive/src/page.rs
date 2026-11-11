@@ -357,6 +357,10 @@ impl Measure for Measured<'_> {
     fn editor(&mut self, id: Id) -> Option<EditorMetrics> {
         self.text.editor(id)
     }
+
+    fn grid(&self) -> Option<pencere_view::Grid> {
+        self.text.grid()
+    }
 }
 
 impl Page {

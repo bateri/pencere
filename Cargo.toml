@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["wire", "kit/view", "kit/editor", "kit/sandbox", "kit/drive", "examples/containers-page", "examples/containers-rust", "program", "host/rust", "host/fake", "host/test", "cli"]
+members = ["wire", "kit/view", "kit/editor", "kit/sandbox", "kit/drive", "examples/containers-page", "examples/containers-rust", "program", "host/rust", "host/fake", "host/test", "host/tui", "cli"]
 
 # The tools that build the interpreter's component (`kit/guest/`) are built with another toolchain
 # and have their own workspace and lockfile; this workspace never builds them.

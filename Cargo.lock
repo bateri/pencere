@@ -1273,6 +1273,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pencere-tui"
+version = "0.4.1"
+dependencies = [
+ "pencere-drive",
+ "pencere-sandbox",
+ "pencere-view",
+ "unicode-width",
+]
+
+[[package]]
 name = "pencere-view"
 version = "0.4.1"
 dependencies = [

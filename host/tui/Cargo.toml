@@ -1,0 +1,28 @@
+[package]
+name = "pencere-tui"
+description = "The cells of a terminal as a host of pencere's native views: a page drawn with characters, for a program whose terminal does not host them"
+version = "0.4.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["terminal", "pencere", "tui"]
+categories = ["command-line-interface", "gui"]
+include = ["src/**", "!src/*_tests.rs", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE"]
+
+[dependencies]
+# The page engine's types: the draw list the page hands out, the colours and the text a host measures.
+pencere-view = { path = "../../kit/view", version = "0.4.1" }
+# The sandbox's pictures: the pixels of an image and of a canvas, the one door to the decoders and
+# the rasteriser of every host.
+pencere-sandbox = { path = "../../kit/sandbox", version = "0.4.1" }
+# How many cells of a terminal a character takes (a letter one, a Chinese character or an emoji two).
+unicode-width = "0.2"
+
+[dev-dependencies]
+# The page the `frame` example opens and draws, with no screen.
+pencere-drive = { path = "../../kit/drive", version = "0.4.1" }
+
+[lints]
+workspace = true
