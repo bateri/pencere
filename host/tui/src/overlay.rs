@@ -368,7 +368,10 @@ impl MenuBox {
         if cols < 3 || rows < 2 {
             return;
         }
-        let ground = theme.role(Role::Raised(3));
+        // The ground of the page, so that the card is its frame and what is inside: a raised ground
+        // would show as a band outside the line too, which stands in the middle of the cells of the
+        // frame, and read as a second frame.
+        let ground = theme.role(Role::Background);
         let line = theme.role(Role::Border).mix(theme.foreground, 0.35);
         let text = theme.role(Role::Foreground);
         let dim = theme.role(Role::Dim);
@@ -540,6 +543,9 @@ pub(crate) enum Answered {
     Chose(Saving),
 }
 
+/// The columns of its line that a panel keeps for the path before it says what its keys do.
+const PATH_ROOM: u16 = 24;
+
 /// A panel for the person to give the page files or a place to save in, as one line at the foot of
 /// the screen: the path, which the person types (a Tab completes it), Enter takes and Escape turns
 /// away.
@@ -577,6 +583,14 @@ impl PanelBar {
         match self.panel {
             Panel::Pick { .. } => "Open",
             Panel::Save { .. } => "Save as",
+        }
+    }
+
+    /// What the keys do, said at the right of the line as a link's bar says its Escape.
+    fn keys(&self) -> &'static str {
+        match self.panel {
+            Panel::Pick { .. } => " Enter opens  Esc cancels ",
+            Panel::Save { .. } => " Enter saves  Esc cancels ",
         }
     }
 
@@ -755,13 +769,32 @@ impl PanelBar {
             hint: theme.role(Role::Dim),
             selection: theme.role(Role::Selection),
         };
-        let hint = match self.panel {
-            Panel::Pick { .. } => "a path — Tab completes, Enter takes, Esc turns away",
-            Panel::Save { .. } => "where to — Tab completes, Enter takes, Esc turns away",
+        // The keys are told at the right, as a link's bar tells its Escape, where the path has the
+        // room it needs without them: it is the first to go.
+        let keys = self.keys();
+        let keys_width = width_of(keys) as u16;
+        let told = cols.saturating_sub(after + keys_width) >= PATH_ROOM;
+        let room = if told {
+            cols - after - keys_width
+        } else {
+            cols - after
+        };
+        let hint = match (&self.panel, told) {
+            (Panel::Pick { .. }, true) => "a path (Tab completes)",
+            (Panel::Save { .. }, true) => "where to (Tab completes)",
+            (Panel::Pick { .. }, false) => "a path — Tab completes, Enter takes, Esc turns away",
+            (Panel::Save { .. }, false) => "where to — Tab completes, Enter takes, Esc turns away",
         };
         let caret = self
             .field
-            .draw(grid, (after, row), (cols - after, 1), look, Some(hint));
+            .draw(grid, (after, row), (room, 1), look, Some(hint));
+        if told {
+            let dim = Ink {
+                fg: theme.role(Role::Dim),
+                ..ink
+            };
+            write(grid, cols - keys_width, row, cols, keys, dim);
+        }
         if let Some(note) = &self.note
             && row > 0
         {
@@ -913,6 +946,86 @@ mod tests {
             at: Point::new(0.0, 0.0),
             entries,
             serial: 7,
+        }
+    }
+
+    fn blank(cols: u16, rows: u16) -> Grid {
+        crate::render(
+            &pencere_view::DrawList::default(),
+            cols,
+            rows,
+            &Theme::dark(),
+            &crate::NoPictures,
+            &crate::Options::default(),
+        )
+        .grid
+    }
+
+    #[test]
+    fn a_menu_is_a_frame_on_the_ground_of_the_page_with_no_band_outside_it() {
+        let theme = Theme::dark();
+        let menu = MenuBox::new(
+            &menu(vec![item("Copy", None, true), item("Paste", None, true)]),
+            (4, 2),
+            (30, 10),
+        );
+        let mut grid = blank(30, 10);
+        menu.draw(&mut grid, &theme);
+        let Area {
+            col,
+            row,
+            cols,
+            rows,
+        } = menu.area();
+        let ground = Bg::Rgb(theme.role(Role::Background));
+        // Every cell of the card, the frame's and the inside, has the page's ground, and so has what
+        // is round it: nothing is raised, so that the line is the whole of the card's edge.
+        for at in row.saturating_sub(1)..=row + rows {
+            for across in col.saturating_sub(1)..=col + cols {
+                assert_eq!(
+                    grid.cell(across, at).map(|cell| cell.bg),
+                    Some(ground),
+                    "{across},{at}"
+                );
+            }
+        }
+        assert_eq!(grid.cell(col, row).map(|cell| cell.ch), Some('╭'));
+    }
+
+    #[test]
+    fn a_panel_tells_its_keys_at_the_right_until_the_path_would_have_no_room() {
+        let theme = Theme::dark();
+        for (panel, keys) in [
+            (Panel::Pick { multiple: false }, "Enter opens  Esc cancels"),
+            (
+                Panel::Save {
+                    name: "a.txt".to_owned(),
+                    media_type: None,
+                },
+                "Enter saves  Esc cancels",
+            ),
+        ] {
+            let bar = PanelBar::new(panel);
+            let mut wide = blank(80, 5);
+            bar.draw(&mut wide, &theme);
+            let last = wide.text().lines().nth(4).unwrap_or_default().to_owned();
+            assert!(last.ends_with(keys), "{last:?}");
+            // The link's bar ends its line the same way, in the same ink.
+            let mut linked = blank(80, 5);
+            LinkBar::new("https://example.org/".to_owned()).draw(&mut linked, &theme);
+            assert_eq!(
+                wide.cell(79, 4).map(|cell| cell.fg),
+                linked.cell(79, 4).map(|cell| cell.fg)
+            );
+            // Too narrow for the path and the keys: the keys go.
+            let mut narrow = blank(40, 5);
+            bar.draw(&mut narrow, &theme);
+            let last = narrow.text().lines().nth(4).unwrap_or_default().to_owned();
+            assert!(
+                !last.contains("Enter") || last.contains("Tab completes"),
+                "{last:?}"
+            );
+            assert!(!last.ends_with("cancels"), "{last:?}");
         }
     }
 

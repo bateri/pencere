@@ -24,6 +24,9 @@ pub struct Screen {
     linked: Vec<Link>,
     /// Where the cursor was left, once it is known (`Some(None)`: hidden).
     cursor: Option<Option<(u16, u16)>>,
+    /// The terminal's cursor was made a bar (`CSI 5 SP q`) and not given back to its own shape yet.
+    /// A block would stand over the character a caret is before, and hide it.
+    bar: bool,
 }
 
 impl Screen {
@@ -37,6 +40,7 @@ impl Screen {
             stored: Store::new(),
             linked: Vec::new(),
             cursor: None,
+            bar: false,
         }
     }
 
@@ -44,6 +48,13 @@ impl Screen {
     #[must_use]
     pub fn holds_pictures(&self) -> bool {
         self.stored.used
+    }
+
+    /// Whether the terminal's cursor was made a bar, which is to be given back to its own shape
+    /// when the screen is left.
+    #[must_use]
+    pub fn bars_cursor(&self) -> bool {
+        self.bar
     }
 
     /// What the terminal shows is not what was written (it was resized, or another program had it):
@@ -56,6 +67,8 @@ impl Screen {
         self.stored.forget();
         self.linked.clear();
         self.cursor = None;
+        // The shape is not known to be the one that was set: it is set again with the next cursor.
+        self.bar = false;
     }
 
     /// What is to be written for `frame` (and the cursor at `cursor`, a cell from 0, or hidden):
@@ -109,11 +122,26 @@ impl Screen {
             self.pictures(&mut out, &frame.placements, &layers);
         }
         if let Some((col, row)) = cursor {
+            // The caret is a bar between two characters, as in an editor: the terminal's own
+            // shape, a block, would cover the one it is before. It blinks as the terminal's does.
+            if !self.bar {
+                out.push_str(BAR);
+                self.bar = true;
+            }
             let _ = write!(out, "\x1b[{};{}H\x1b[?25h", row + 1, col + 1);
+        } else if self.bar {
+            out.push_str(OWN_SHAPE);
+            self.bar = false;
         }
         out.into_bytes()
     }
 }
+
+/// The cursor made a blinking bar (`DECSCUSR`).
+const BAR: &str = "\x1b[5 q";
+
+/// The cursor given back to the shape the terminal has of its own (`DECSCUSR`).
+pub(crate) const OWN_SHAPE: &str = "\x1b[0 q";
 
 /// The most pixels the terminal is asked to keep: Kitty's own limit is 320 MiB for a screen, and
 /// what is kept for pictures that are not shown is given up, the least lately shown first, before
@@ -423,6 +451,36 @@ mod tests {
         // The cursor alone moved: it is all that is written.
         let moved = String::from_utf8(screen.draw(&one, Some((2, 1)))).unwrap();
         assert!(moved.ends_with("\x1b[2;3H\x1b[?25h") && !moved.contains("\x1b[2J"));
+    }
+
+    #[test]
+    fn a_cursor_is_a_bar_while_it_is_shown_and_the_terminals_own_shape_after() {
+        let mut screen = Screen::new(Depth::Indexed);
+        let one = frame(10, 3);
+        assert!(!screen.bars_cursor());
+        // Hidden: nothing is said of the shape.
+        let hidden = String::from_utf8(screen.draw(&one, None)).unwrap();
+        assert!(!hidden.contains(" q") && !screen.bars_cursor());
+        // Shown: the bar, once, before it is placed; moving it says no more.
+        let shown = String::from_utf8(screen.draw(&one, Some((1, 1)))).unwrap();
+        assert_eq!(shown.matches("\x1b[5 q").count(), 1, "{shown:?}");
+        assert!(shown.find("\x1b[5 q") < shown.find("\x1b[2;2H"));
+        assert!(screen.bars_cursor());
+        let moved = String::from_utf8(screen.draw(&one, Some((2, 1)))).unwrap();
+        assert!(!moved.contains(" q"), "{moved:?}");
+        // Hidden again: the terminal's own shape.
+        let gone = String::from_utf8(screen.draw(&one, None)).unwrap();
+        assert!(
+            gone.ends_with("\x1b[0 q") && !gone.contains("\x1b[5 q"),
+            "{gone:?}"
+        );
+        assert!(!screen.bars_cursor());
+        // Forgotten while it is a bar (the terminal was resized, or lent): said again with the cursor.
+        let _ = screen.draw(&one, Some((1, 1)));
+        screen.forget();
+        assert!(!screen.bars_cursor());
+        let again = String::from_utf8(screen.draw(&one, Some((1, 1)))).unwrap();
+        assert_eq!(again.matches("\x1b[5 q").count(), 1, "{again:?}");
     }
 
     #[test]

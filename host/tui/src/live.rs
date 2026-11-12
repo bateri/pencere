@@ -77,12 +77,16 @@ const KEYS_OFF: &[u8] = b"\x1b[<u";
 const POINTER_OFF: &[u8] = b"\x1b]22;\x1b\\";
 
 /// What is written, before the screen is left, whenever the terminal is given back: the modes put
-/// back, the keyboard's flags taken back where they were asked for and the pointer's shape where the
-/// page chose one, and the pictures the terminal keeps given up where it was sent some.
-fn off(keys: bool, pointer: bool, pictures: bool) -> Vec<u8> {
+/// back, the keyboard's flags taken back where they were asked for, the pointer's shape where the
+/// page chose one and the cursor's where it was made a bar, and the pictures the terminal keeps
+/// given up where it was sent some.
+fn off(keys: bool, pointer: bool, pictures: bool, bar: bool) -> Vec<u8> {
     let mut bytes = Vec::new();
     if pictures {
         bytes.extend_from_slice(crate::output::FREE_ALL.as_bytes());
+    }
+    if bar {
+        bytes.extend_from_slice(crate::screen::OWN_SHAPE.as_bytes());
     }
     if keys {
         bytes.extend_from_slice(KEYS_OFF);
@@ -527,6 +531,8 @@ struct Live<'t> {
     lent_back: bool,
     /// Pictures were sent to the terminal, which keeps them: they are given up when it is given back.
     pictures: bool,
+    /// The terminal's cursor was made a bar, which is given back to its own shape when it is.
+    bar: bool,
     /// The shape the page last asked for, and where the pointer last was (in the page's points).
     told: Cursor,
     pointer_at: Option<Point>,
@@ -574,7 +580,7 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
     });
     let keys = found.keyboard && tty.write_all(b"\x1b[>1u").is_ok();
     if keys {
-        tty.leaving(&off(true, false, false));
+        tty.leaving(&off(true, false, false, false));
     }
     let conversation = Conversation::waking(options, &waker);
     let size = tty.size();
@@ -606,6 +612,7 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
         escape_at: None,
         lent_back: false,
         pictures: false,
+        bar: false,
         notes: Vec::new(),
         keys,
         pointer: None,
@@ -1380,8 +1387,12 @@ impl Live<'_> {
 
     /// What is written when the terminal is given back, as the screen stands.
     fn leaving(&self) {
-        self.tty
-            .leaving(&off(self.keys, self.pointer.is_some(), self.pictures));
+        self.tty.leaving(&off(
+            self.keys,
+            self.pointer.is_some(),
+            self.pictures,
+            self.bar,
+        ));
     }
 
     /// The pointer takes the shape asked for, where it is not the one it has: written only
@@ -1448,6 +1459,7 @@ impl Live<'_> {
         }
         self.pointer = None;
         self.pictures = false;
+        self.bar = false;
         self.leaving();
         self.decoder = Decoder::new();
         self.escape_at = None;
@@ -1579,6 +1591,10 @@ impl Live<'_> {
         let bytes = self.screen.draw(&frame, cursor);
         if self.screen.holds_pictures() && !self.pictures {
             self.pictures = true;
+            self.leaving();
+        }
+        if self.screen.bars_cursor() && !self.bar {
+            self.bar = true;
             self.leaving();
         }
         if self.trace.frames() < TRACED_FRAMES {

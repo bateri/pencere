@@ -30,14 +30,15 @@ field) and given back with the terminal; a terminal that does not know it ignore
 `PENCERE_TUI_TRACE=1` says, when the program ends, where the time of the start went.
 
 What the page asks of its host is done in cells too. An editor has the terminal's own cursor at its
-caret (it blinks as the person set the terminal to) and takes typing, a selection, and a paste in
+caret (a bar, which the terminal blinks) and takes typing, a selection, and a paste in
 brackets; `Ctrl+Shift+C` copies the selection with `OSC 52` where the terminal tells it from `Ctrl+C`,
 which ends the program. The editor's keys are those of a system with no ⌘ (the screen says `linux`
 to the page): `Ctrl+A` selects all, `Ctrl+Z` and `Ctrl+Y` undo and redo, `Ctrl` with the arrows goes
 by words and `Ctrl+Home` and `Ctrl+End` to the document's ends. There is no cut key, since a
-terminal may not let what is cut reach its pasteboard. A menu is a framed list over the page, a file panel is one line for a path
-(Tab completes it), and a link is an address on the bottom row that the terminal opens (`OSC 8`): no
-browser is started, since the terminal may be on another machine. A program that lends its terminal to
+terminal may not let what is cut reach its pasteboard. A menu is a framed list over the page, a file
+panel is one line for a path (Tab completes it, and it says what Enter and Esc do), and a link is an
+address on the bottom row that the terminal opens (`OSC 8`): no browser is started, since the
+terminal may be on another machine. A program that lends its terminal to
 a command (a shell, an editor) has the screen given back for it, and its view drawn anew after. Where
 the terminal has the Kitty graphics protocol a picture is sent once, and scrolling it only moves where
 it is placed.

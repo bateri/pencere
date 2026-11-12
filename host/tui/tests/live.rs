@@ -827,6 +827,9 @@ fn a_panel_is_a_line_for_a_path_and_what_the_person_gives_is_told_the_page() {
     // Turned away: the page is told that too.
     terminal.type_bytes(F4);
     terminal.until("Open:");
+    // What the keys do is said at the right of the line, and the caret in it is a bar.
+    terminal.until("Enter opens  Esc cancels");
+    terminal.until_written(b"\x1b[5 q", 1);
     terminal.type_bytes(ESCAPE);
     terminal.until("given: turned away");
     // A path that is not there is said so, and the line stays.
@@ -843,6 +846,7 @@ fn a_panel_is_a_line_for_a_path_and_what_the_person_gives_is_told_the_page() {
     terminal.type_bytes(F5);
     terminal.until("Save as:");
     terminal.until("out.txt");
+    terminal.until("Enter saves  Esc cancels");
     terminal.type_bytes(format!("{}\r", dir.display()).as_bytes());
     terminal.until("given: saving out.txt");
     terminal.type_bytes(b"\x03");
@@ -896,6 +900,10 @@ fn an_editor_takes_typing_a_selection_and_a_paste_and_the_terminals_cursor_stand
     terminal.until("hello");
     let (row, col) = terminal.screen.find("hello").expect("the text is drawn");
     until_cursor(&mut terminal, (row, col + 5));
+    // The caret is a bar, said once and not again as it moves; a block would cover the character
+    // it is before.
+    assert_eq!(count(&terminal.raw, b"\x1b[5 q"), 1);
+    assert_eq!(count(&terminal.raw, b"\x1b[0 q"), 0);
     // The page's own caret is not drawn: the terminal's is the only one.
     assert!(
         terminal.screen.find("\u{2502}").is_none(),
@@ -924,6 +932,39 @@ fn an_editor_takes_typing_a_selection_and_a_paste_and_the_terminals_cursor_stand
         "the first line scrolled away:\n{}",
         terminal.screen.text()
     );
+    terminal.type_bytes(b"\x03");
+    assert_eq!(terminal.ended().code(), Some(130));
+    // The terminal's own shape is given back with the modes, before the cursor is shown again.
+    let own = position_of(&terminal.raw, b"\x1b[0 q", 0).expect("the cursor's shape is given back");
+    let shown = position_of(&terminal.raw, b"\x1b[?25h", own).expect("the cursor is shown again");
+    assert!(own < shown);
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn the_cursor_is_a_bar_while_a_caret_is_shown_and_the_terminals_own_where_there_is_none() {
+    let mut terminal = start_page("overlays.lua", 100, 30, Knows::default());
+    terminal.click_on("type here");
+    terminal.type_bytes(b"ab");
+    terminal.until("ab");
+    terminal.until_written(b"\x1b[5 q", 1);
+    // A menu over the page takes the caret away: the shape is given back with it.
+    terminal.type_bytes(F1);
+    terminal.until("Open file");
+    terminal.until_written(b"\x1b[0 q", 1);
+    // And when it is turned away the caret is back, a bar again.
+    terminal.type_bytes(ESCAPE);
+    terminal.until_with("the menu gone", |screen| screen.find("Open file").is_none());
+    terminal.until_written(b"\x1b[5 q", 2);
+    // The path line of a panel has a caret of its own, a bar too: from the editor's to it and back
+    // the shape is not said again.
+    terminal.type_bytes(F4);
+    terminal.until("Open:");
+    terminal.type_bytes(ESCAPE);
+    terminal.until("given: turned away");
+    terminal.settle(200);
+    assert_eq!(count(&terminal.raw, b"\x1b[5 q"), 2);
+    assert_eq!(count(&terminal.raw, b"\x1b[0 q"), 1);
     terminal.type_bytes(b"\x03");
     assert_eq!(terminal.ended().code(), Some(130));
 }
@@ -1009,6 +1050,9 @@ fn the_terminal_is_lent_to_a_command_the_program_runs_and_the_view_is_drawn_anew
         knows,
     );
     terminal.until("note: ready");
+    // The caret of an editor with the keyboard is a bar, which the command must not find.
+    terminal.click_on("type here");
+    terminal.until_written(b"\x1b[5 q", 1);
     terminal.settle(300);
     let before = terminal.raw.len();
     terminal.type_bytes(F1);
@@ -1024,11 +1068,15 @@ fn the_terminal_is_lent_to_a_command_the_program_runs_and_the_view_is_drawn_anew
     let off = position_of(&raw, b"\x1b[<u", before).expect("the keyboard's flags are taken back");
     let mouse = position_of(&raw, b"\x1b[?1003l", before).expect("the mouse is switched off");
     assert!(off < left && mouse < left);
+    let own = position_of(&raw, b"\x1b[0 q", before).expect("the cursor's own shape is given back");
+    assert!(own < left, "{own} < {left}");
     // And switched on again after, with the whole of the view written once more.
     let keys = position_of(&raw, b"\x1b[>1u", back).expect("the keyboard's protocol again");
     let mouse = position_of(&raw, b"\x1b[?1003h", back).expect("the mouse is switched on again");
     let title = position_of(&raw, b"Hand-off", back).expect("the view is drawn anew");
     assert!(keys > back && mouse > back && title > back);
+    // The page was made anew, and its editor has no keyboard: no caret, so no bar either.
+    assert!(position_of(&raw, b"\x1b[5 q", back).is_none());
     // The view takes keys, so the terminal's modes are the protocol's again.
     terminal.type_bytes(F2);
     terminal.until("note: a key after");

@@ -8,16 +8,20 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 ### Added
 
-- **A menu, a panel and a link over the page.** `Host::menu` is a framed list of cells (the arrows,
-  Enter, Escape and the pointer pick, and a press outside turns it away; a Paste line is shown
-  dimmed: a page cannot read the terminal's pasteboard, the person pastes with the terminal's own
-  paste). `Host::panel` is one line for a path, with Tab to complete it, for Open (a file becomes a
-  handle the page draws with `file:<handle>` and has a `path`) and for Save (the page's proposed
-  name goes after a folder). `Host::link` shows an http or https address on the bottom row as a link
+- **A menu, a panel and a link over the page.** `Host::menu` is a framed list of cells on the
+  page's own ground, so that the frame alone is its edge (the arrows, Enter, Escape and the pointer
+  pick, and a press outside turns it away; a Paste line is shown dimmed: a page cannot read the
+  terminal's pasteboard, the person pastes with the terminal's own paste). `Host::panel` is one line
+  for a path, with Tab to complete it, for Open (a file becomes a handle the page draws with
+  `file:<handle>` and has a `path`) and for Save (the page's proposed name goes after a folder); at
+  the right it says what its keys do (`Enter opens  Esc cancels`, `Enter saves  Esc cancels`), and
+  leaves that out where the path would have less than 24 columns. `Host::link` shows an http or https address on the bottom row as a link
   the terminal opens (`OSC 8`); no browser is started. Written as cells over the page, so the screen's
   difference writes them like the rest.
-- **The editor.** The terminal's own cursor stands at the caret of the editor that has the keyboard
-  and blinks as the person set it to; the page does not draw a caret of its own. A paste in brackets
+- **The editor.** The terminal's own cursor stands at the caret of the editor that has the keyboard,
+  as a bar (a block would cover the character it is before) that the terminal blinks; the page does
+  not draw a caret of its own. The cursor is given back to the terminal's own shape when no caret is
+  shown, when the terminal is lent to a command, and when the screen is left, however it is. A paste in brackets
   goes in at the caret, and what an input method composes arrives as the text it makes. `Ctrl+Shift+C`
   copies what is selected to the terminal's pasteboard (`OSC 52`) where the terminal tells it from
   `Ctrl+C`, which ends the program. There is no cut on `Ctrl+X`: a terminal may not let what is cut
