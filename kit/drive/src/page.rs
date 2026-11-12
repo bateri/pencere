@@ -1763,6 +1763,9 @@ impl PageEditors<'_> {
     /// its pasteboard; `Paste`, its pasteboard's text to [`PageEditors::paste`]. `NotEditor`: no
     /// editor has the keyboard, or the page is not laid out yet.
     pub fn key(&mut self, key: Key, mods: Mods) -> Route {
+        // The editors' own keys follow how the host's system makes its shortcuts.
+        let keyboard = self.page.state.clock.program.keyboard();
+        self.page.state.editing.editors.set_keyboard(keyboard);
         let route = self
             .page
             .edit(true, |editors, laid, measure, now| {

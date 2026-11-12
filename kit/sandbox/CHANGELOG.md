@@ -61,6 +61,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Changed
 
+- `pencere.layout.keymap` lists the keys of the host's keyboard: where ⌃ is the main modifier (`"windows"`,
+  `"linux"`) `ctrl+a` is `select_all`, not the line's start, and `ctrl+z`, `ctrl+y`, `ctrl+left`,
+  `ctrl+right`, `ctrl+home`, `ctrl+end` (with `shift` the last four extend) are in it, first, so a menu
+  shows Ctrl+Z for undo; a Mac's list is as it was. The interpreter is built again.
+
 - **A run of one key of movement is one page.** `Module` handles every key of an arrow, a page
   key, home or end that is told again while the page is not yet made, each in its turn, and makes
   the page after the last of them (as for a run of pointer moves or of wheel turns), where it made

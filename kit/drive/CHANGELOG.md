@@ -47,6 +47,10 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Changed
 
+- A page's editors take their own keys from the host's keyboard (`Program::keyboard`), as `pencere.keyboard()`
+  tells the page: where ⌃ is the main modifier ⌃A selects all and ⌃Z, ⌃Y undo and redo (`Editors::set_keyboard`).
+  A host whose keyboard is a Mac's (what one built for macOS says unless it says another) has the keys it had.
+
 - The measure the drive hands the page on says the host's grid (`Measure::grid` of the engine).
 
 - The headless host and the screenshot draw a picture with `Images::picture` and the crop of the

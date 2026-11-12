@@ -27,8 +27,8 @@ use pencere_view::edit::{
     Mark, Movement, Pressing, Range, Refusal, RevealAlign, Selection, TargetEvent, limits,
 };
 use pencere_view::{
-    Button, Cursor, DrawList, EditorMetrics, EditorRoom, Font, Id, Key, Laid, Measure, Metrics,
-    Mods, Paint, Point, Rect, ScrollTo, Size,
+    Button, Cursor, DrawList, EditorMetrics, EditorRoom, Font, Id, Key, KeyConvention, Laid,
+    Measure, Metrics, Mods, Paint, Point, Rect, ScrollTo, Size,
 };
 
 use crate::buffer::{Buffer, Note};
@@ -159,6 +159,9 @@ pub struct Editors {
     chord: Option<keymap::Chord>,
     drag: Option<Drag>,
     scale: f32,
+    /// How the host's system makes its shortcuts: which keys the editor's own table has for what a
+    /// Mac has ⌘ for ([`Editors::set_keyboard`]).
+    keyboard: KeyConvention,
 }
 
 /// A host's measure, with what its editors laid out ([`Measure::editor`]).
@@ -203,6 +206,13 @@ impl Editors {
             scale: 1.0,
             ..Self::default()
         }
+    }
+
+    /// How the host's system makes its shortcuts, which the editors' own keys follow: a Mac's, which
+    /// is what they are until this says otherwise, or Windows's or Linux's, where ⌃ does what ⌘ does
+    /// on a Mac for the keys a terminal can send ([`builtin`]).
+    pub fn set_keyboard(&mut self, keyboard: KeyConvention) {
+        self.keyboard = keyboard;
     }
 
     /// `measure`, saying what the editors laid out: what the page is laid out with.
@@ -856,7 +866,7 @@ impl Editors {
             keymap::Said::Waiting | keymap::Said::Ended => return Route::Done,
             keymap::Said::Does(None) => return Route::Page,
             keymap::Said::Does(Some(action)) => Some(action),
-            keymap::Said::Own => builtin(key, mods),
+            keymap::Said::Own => builtin(key, mods, self.keyboard),
         };
         let Some(action) = own else {
             // ⌥ is how a Mac's keyboards type what is not on a key of its own (`@`, `[`, `{`, `|`,
@@ -1547,9 +1557,53 @@ enum Action {
     DeleteToLineEnd,
 }
 
+/// The keys ⌃ has in the editors of Windows and Linux, where ⌘ is the main modifier of a Mac: ⌃A
+/// selects all, ⌃Z and ⌃Y undo and redo, ⌃← and ⌃→ go by words and ⌃Home and ⌃End to the document's
+/// ends (with ⇧ they extend). `None` where the key is not one of these; `Some(None)` where it is a
+/// key of ⌃ that is no command here, and the Mac's table is not asked for it.
+///
+/// No ⌃C and no ⌃X: ⌃C is the interrupt of a terminal's program and the terminal's own copy is
+/// another key; a cut that the terminal may not let reach its pasteboard (`OSC 52` is often off)
+/// would lose the text. No ⌃V: a paste is the person's own, the terminal's. No ⇧ with a letter: a
+/// terminal that cannot send ⇧ with ⌃ sends ⌃Z for ⌃⇧Z, and redo is ⌃Y. No ⌥: ⌃⌥ is what a keyboard
+/// types with (AltGr) and what a desktop takes. A key a terminal cannot tell from another (⌃[ from
+/// Escape, ⌃I from Tab, ⌃M from Enter, ⌃H from Backspace) is the other's.
+fn by_control(key: Key, mods: Mods) -> Option<Option<Action>> {
+    if !mods.control || mods.alt || mods.command {
+        return None;
+    }
+    let go = |movement: Movement| {
+        Some(Some(Action::Command(EditCommand::Move {
+            movement,
+            extend: mods.shift,
+        })))
+    };
+    let does = |command: EditCommand| Some(Some(Action::Command(command)));
+    match key {
+        Key::Left => go(Movement::WordLeft),
+        Key::Right => go(Movement::WordRight),
+        Key::Home => go(Movement::DocumentStart),
+        Key::End => go(Movement::DocumentEnd),
+        Key::Character(c) => match c.to_ascii_lowercase() {
+            'a' | 'z' | 'y' if mods.shift => Some(None),
+            'a' => does(EditCommand::SelectAll),
+            'z' => does(EditCommand::Undo),
+            'y' => does(EditCommand::Redo),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// The editor's own keys, as a Mac's text views have them (⌘ the command key, ⌥ the option key),
-/// with those of editors for code besides.
-fn builtin(key: Key, mods: Mods) -> Option<Action> {
+/// with those of editors for code besides; for the keyboard of Windows and Linux ⌃ has the keys of
+/// [`by_control`] first, and the rest are as they are (⌘ is the logo key, which a terminal may report).
+fn builtin(key: Key, mods: Mods, keyboard: KeyConvention) -> Option<Action> {
+    if keyboard != KeyConvention::Mac
+        && let Some(own) = by_control(key, mods)
+    {
+        return own;
+    }
     let (shift, alt, command, control) = (mods.shift, mods.alt, mods.command, mods.control);
     let go = |movement: Movement| {
         Some(Action::Command(EditCommand::Move {

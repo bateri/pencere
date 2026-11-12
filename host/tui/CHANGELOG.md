@@ -20,8 +20,11 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   and blinks as the person set it to; the page does not draw a caret of its own. A paste in brackets
   goes in at the caret, and what an input method composes arrives as the text it makes. `Ctrl+Shift+C`
   copies what is selected to the terminal's pasteboard (`OSC 52`) where the terminal tells it from
-  `Ctrl+C`, which ends the program; so does `Ctrl+X`, which cuts. What the page asks to copy on its
-  own is never written to the pasteboard.
+  `Ctrl+C`, which ends the program. There is no cut on `Ctrl+X`: a terminal may not let what is cut
+  reach its pasteboard, and the text would be lost. What the page asks to copy on its own is never
+  written to the pasteboard. The editor's keys are those of a system with no ⌘ (`Ctrl+A` selects
+  all, `Ctrl+Z` and `Ctrl+Y` undo and redo, `Ctrl` with the arrows goes by words, `Ctrl+Home` and
+  `Ctrl+End` to the ends), and the page reads them with `pencere.layout.keymap`.
 - **A terminal lent to a command.** A program's hand-off (`Said::HandedOff`) gives the modes back,
   runs the command as the terminal's foreground job, takes the terminal again and draws the view
   anew.

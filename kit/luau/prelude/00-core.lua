@@ -380,6 +380,25 @@ local DEFAULT_KEYS = {
 	{ "ctrl+e", go("line_end") }, { "ctrl+k", "delete_to_line_end" },
 }
 
+-- Where Ctrl is the main modifier (Windows, Linux) the keys a terminal can send do what they do with
+-- ⌘ on a Mac: Ctrl+A selects all, Ctrl+Z and Ctrl+Y undo and redo, Ctrl with ← → goes by words and
+-- with Home End to the document's ends. Not Ctrl+C or Ctrl+X (the terminal's own, or the
+-- interrupt), nor ⇧ with a letter (a terminal that cannot tell ⌃⇧Z from ⌃Z sends the same key for
+-- both); the rest are as on a Mac, where ⌘ is the logo key (Super) a terminal may report. These come
+-- first, so that a menu that shows the first key of a command shows Ctrl+Z, not Super+Z.
+local OTHER_KEYS = {
+	{ "ctrl+left", go("word_left") }, { "ctrl+shift+left", go("word_left", true) },
+	{ "ctrl+right", go("word_right") }, { "ctrl+shift+right", go("word_right", true) },
+	{ "ctrl+home", go("document_start") }, { "ctrl+shift+home", go("document_start", true) },
+	{ "ctrl+end", go("document_end") }, { "ctrl+shift+end", go("document_end", true) },
+	{ "ctrl+a", "select_all" }, { "ctrl+z", "undo" }, { "ctrl+y", "redo" },
+}
+for _, entry in DEFAULT_KEYS do
+	if entry[1] ~= "ctrl+a" then
+		table.insert(OTHER_KEYS, entry)
+	end
+end
+
 -- The keys of an editor and what they do, as `{ { keys =, does = }, ... }`; `does` is nil where the
 -- page took the key from the editor.
 function layout.keymap(editor)
@@ -399,7 +418,7 @@ function layout.keymap(editor)
 		seen[written] = true
 		table.insert(out, { keys = written, does = changed[words] or nil })
 	end
-	for _, entry in DEFAULT_KEYS do
+	for _, entry in (host.keyboard() == "mac" and DEFAULT_KEYS or OTHER_KEYS) do
 		if not seen[entry[1]] then
 			table.insert(out, { keys = entry[1], does = entry[2] })
 		end

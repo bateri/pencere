@@ -10,7 +10,7 @@ use pencere_view::edit::{
     EditorColors, EditorOptions, Folds, IndentRules, LineHighlight, Mark, Matches, Numbers, Origin,
     SelectionLook, Tint, Whitespace,
 };
-use pencere_view::{Event, Id, Key, Mods, Paint, Point, Role};
+use pencere_view::{Event, Id, Key, KeyConvention, Mods, Paint, Point, Role};
 
 use crate::Route;
 use crate::headless::{Error, Headless};
@@ -3300,6 +3300,145 @@ fn a_paste_line_has_the_kits_words_and_pastes_only_into_the_editor_the_person_is
     assert_eq!(
         page.editor("a").map(|b| b.text()),
         Some("alpha betaalpha".to_owned())
+    );
+    Ok(())
+}
+
+/// A page's editors have the keys of a host whose system has no ⌘: where ⌃ is the main modifier
+/// they select all, undo and redo and go by words, and the keys of a Mac do not change.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_editors_of_a_page_have_the_keys_of_the_hosts_keyboard() -> Result<(), Error> {
+    const SCRIPT: &str = r#"
+        return {
+            render = function()
+                return pencere.div():size_full():child(pencere.editor("e"):grow(1))
+            end,
+            handle = function(event)
+                if event.type == "editor_ready" then
+                    return { editor = { e = { load = "one two" } } }
+                end
+            end,
+        }"#;
+    let opened = |keyboard| {
+        let mut page = Headless::script(SCRIPT)
+            .size(1000.0, 700.0)
+            .keyboard(keyboard)
+            .open()?;
+        page.focus_editor("e")?;
+        Ok::<_, Error>(page)
+    };
+    let selected = |page: &Headless| {
+        let buffer = page.editor("e").expect("the editor");
+        let range = buffer.main();
+        (range.anchor.min(range.head), range.anchor.max(range.head))
+    };
+
+    let mut page = opened(KeyConvention::Linux)?;
+    page.press("ctrl+a")?;
+    assert_eq!(selected(&page), (0, 7));
+    page.type_text("x")?;
+    assert_eq!(text(&page, "e"), "x");
+    page.press("ctrl+z")?;
+    assert_eq!(text(&page, "e"), "one two");
+    page.press("ctrl+y")?;
+    assert_eq!(text(&page, "e"), "x");
+    page.press("ctrl+z")?;
+    page.press("ctrl+home")?;
+    page.press("ctrl+shift+right")?;
+    assert_eq!(selected(&page), (0, 3));
+    page.press("ctrl+end")?;
+    page.press("ctrl+left")?;
+    assert_eq!(selected(&page), (4, 4));
+
+    // A Mac's: ⌃A is what it was (the start of the line), ⌘A selects all.
+    let mut page = opened(KeyConvention::Mac)?;
+    page.press("end")?;
+    page.press("ctrl+a")?;
+    assert_eq!(selected(&page), (0, 0));
+    page.press("cmd+a")?;
+    assert_eq!(selected(&page), (0, 7));
+    Ok(())
+}
+
+/// The keys a page reads for its editors (`pencere.layout.keymap`) are the host's keyboard's: a
+/// Mac's have ⌃A at the start of the line, the others have ⌃A select all, ⌃Z and ⌃Y undo and redo
+/// and ⌃ with the arrows go by words, first in the list, and the list can be given back as the
+/// page's `keymap` there as well.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn the_keys_an_editor_lists_are_those_of_the_hosts_keyboard() -> Result<(), Error> {
+    const SCRIPT: &str = r#"
+        local map, first = {}, {}
+        for _, row in ipairs(pencere.layout.keymap("e")) do
+            map[row.keys] = row.does or false
+            if type(row.does) == "string" and first[row.does] == nil then
+                first[row.does] = row.keys
+            end
+        end
+        local function does(keys)
+            local d = map[keys]
+            if type(d) == "table" then
+                return d.movement .. (d.extend and "+" or "")
+            end
+            return tostring(d)
+        end
+        local said = {}
+        for _, keys in { "ctrl+a", "ctrl+z", "ctrl+y", "ctrl+left", "ctrl+shift+end", "ctrl+c", "ctrl+x",
+            "ctrl+e", "cmd+a" } do
+            said[#said + 1] = keys .. "=" .. does(keys)
+        end
+        said[#said + 1] = "undo:" .. tostring(first.undo)
+        return {
+            render = function()
+                local root = pencere.div():size_full()
+                for _, line in said do
+                    root:child(pencere.text(line))
+                end
+                return root
+                    :child(pencere.editor("e", { gutter = false }):grow(1))
+                    :child(pencere.editor("f", { gutter = false, keymap = map }):grow(1))
+            end,
+        }"#;
+    let said = |keyboard| -> Result<Vec<String>, Error> {
+        let page = Headless::script(SCRIPT)
+            .size(1000.0, 700.0)
+            .keyboard(keyboard)
+            .open()?;
+        Ok(page.words().into_iter().map(str::to_owned).collect())
+    };
+    for keyboard in [KeyConvention::Linux, KeyConvention::Windows] {
+        assert_eq!(
+            said(keyboard)?,
+            [
+                "ctrl+a=select_all",
+                "ctrl+z=undo",
+                "ctrl+y=redo",
+                "ctrl+left=word_left",
+                "ctrl+shift+end=document_end+",
+                "ctrl+c=nil",
+                "ctrl+x=nil",
+                "ctrl+e=line_end",
+                "cmd+a=select_all",
+                "undo:ctrl+z",
+            ],
+            "{keyboard:?}"
+        );
+    }
+    assert_eq!(
+        said(KeyConvention::Mac)?,
+        [
+            "ctrl+a=line_start",
+            "ctrl+z=nil",
+            "ctrl+y=nil",
+            "ctrl+left=nil",
+            "ctrl+shift+end=nil",
+            "ctrl+c=nil",
+            "ctrl+x=nil",
+            "ctrl+e=line_end",
+            "cmd+a=select_all",
+            "undo:cmd+z",
+        ]
     );
     Ok(())
 }

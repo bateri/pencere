@@ -930,6 +930,35 @@ fn an_editor_takes_typing_a_selection_and_a_paste_and_the_terminals_cursor_stand
 
 #[test]
 #[ignore = "heavy: starts a page, which compiles the interpreter"]
+fn an_editor_has_the_keys_of_a_system_with_no_command_key() {
+    let mut terminal = start_page("overlays.lua", 100, 30, Knows::default());
+    terminal.click_on("type here");
+    terminal.type_bytes(b"one two");
+    terminal.until("one two");
+    // Ctrl+A selects all, and typing replaces it; Ctrl+Z undoes that and Ctrl+Y does it again.
+    terminal.type_bytes(b"\x01x");
+    terminal.until_with("only the x", |screen| {
+        screen.find("one two").is_none() && screen.find("x").is_some()
+    });
+    terminal.type_bytes(b"\x1a");
+    terminal.until("one two");
+    terminal.type_bytes(b"\x19");
+    terminal.until_with("only the x again", |screen| {
+        screen.find("one two").is_none()
+    });
+    // Ctrl+Left goes back a word, and Ctrl+Shift+Home selects from there to the start of the
+    // document: typing replaces "one ".
+    terminal.type_bytes(b"\x1a");
+    terminal.until("one two");
+    terminal.type_bytes(b"\x1b[1;5D\x1b[1;6H");
+    terminal.type_bytes(b"z");
+    terminal.until("ztwo");
+    terminal.type_bytes(b"\x03");
+    assert_eq!(terminal.ended().code(), Some(130));
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which compiles the interpreter"]
 fn what_is_selected_in_an_editor_is_copied_to_the_terminals_pasteboard_by_the_person_alone() {
     let knows = Knows {
         kitty_graphics: false,

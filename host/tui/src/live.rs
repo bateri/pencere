@@ -674,14 +674,10 @@ fn open_page(
 }
 
 /// Whether a key that had the editor copy or cut is the person's word for the terminal's pasteboard:
-/// ⌘C and ⌘X (a terminal that reports the Super key), and ⌃X, which is cut where there is no ⌘.
+/// ⌘C and ⌘X, from a terminal that reports the Super key. Another key that the page's own `keymap`
+/// bound to a copy or a cut is the page's word, and goes to the page's own pasteboard only.
 fn by_person(key: Key, mods: Mods) -> bool {
     copy_key(key, mods)
-        || (mods.control
-            && !mods.shift
-            && !mods.alt
-            && !mods.command
-            && matches!(key, Key::Character(c) if c.eq_ignore_ascii_case(&'x')))
 }
 
 fn closed(shown: Shown, stop: &Stop) -> Closed {

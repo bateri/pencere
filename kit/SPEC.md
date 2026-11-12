@@ -762,6 +762,17 @@ command of the page (enabled) and the first key of a chord of the editor's `keym
 fails where it wrote them (a key of the keymap that is one alone is the page's command's, as the
 editor's own keys are).
 
+The list above is a Mac's. Where the host's system has no ⌘ (`pencere.keyboard()` is `"windows"` or
+`"linux"`) Ctrl has the keys ⌘ has there that a terminal can send: `ctrl+a` is `select_all` (not the
+line's start: `ctrl+e` stays the line's end and `ctrl+k` deletes to it), `ctrl+z` and `ctrl+y` are `undo` and
+`redo`, `ctrl+left` and `ctrl+right` go by words and `ctrl+home` and `ctrl+end` to the document's ends
+(with ⇧ they extend), and `layout.keymap` lists them first. No `ctrl+c`, `ctrl+x` or `ctrl+v`: `ctrl+c`
+is the interrupt of a terminal's program, a cut that the terminal may not let reach its pasteboard
+would lose the text, and a paste is the person's own, the terminal's. No ⇧ with a letter (`ctrl+shift+z`
+is not redo: a terminal that cannot tell it from `ctrl+z` sends the same key for both) and no ⌥ with ⌃
+(a keyboard types with it, a desktop takes it). The keys of ⌘ stay for a host that reports the logo key
+(`cmd+x` cuts for a terminal that sends Super), and `alt+left` and the rest are as they are.
+
 The pointer's **rest** is told to a page that asks (`events = { "hover" }`): when it stays `hover.delay`
 (0.3 s) over a word (the run a double click takes; not over spaces, the gutter, a gap, or past the end of
 a line) the page is told `hover` with `kind = "dwell"` and the word's range and box, and the `hits`: the

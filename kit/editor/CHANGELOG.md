@@ -8,6 +8,13 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ### Added
 
+- `Editors::set_keyboard`: how the host's system makes its shortcuts (`KeyConvention`, a Mac's until it
+  is said). For Windows and Linux ⌃ has the keys ⌘ has on a Mac that a terminal can send: ⌃A selects
+  all, ⌃Z and ⌃Y undo and redo, ⌃← and ⌃→ go by words and ⌃Home and ⌃End to the document's ends (with
+  ⇧ they extend); ⌃A is no longer the start of the line there. No ⌃C, ⌃X or ⌃V (the interrupt of a
+  terminal's program, a cut a terminal may not let reach its pasteboard, and the person's own paste),
+  no ⇧ with a letter and no ⌥ with ⌃. A Mac's keys are as they were.
+
 - `Editors::caret_utf16`: the caret of the main selection of the editor that has the keyboard (the end
   that moves), in units of UTF-16.
 

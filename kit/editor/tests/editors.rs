@@ -14,8 +14,8 @@ use pencere_view::edit::{
     TargetSource, TextSnapshot, Tint, Whitespace, Widget, WidgetPart, WidgetSide, Zone, ZoneSide,
 };
 use pencere_view::{
-    Button, Command, Cursor, DrawList, Element, Font, Id, Key, Laid, Measure, Metrics, Mods, Paint,
-    Point, Rect, Role, Scrolls, Shortcut, Side, Size, div, layout,
+    Button, Command, Cursor, DrawList, Element, Font, Id, Key, KeyConvention, Laid, Measure,
+    Metrics, Mods, Paint, Point, Rect, Role, Scrolls, Shortcut, Side, Size, div, layout,
 };
 
 const EDITOR: Id = Id::new(7);
@@ -4468,4 +4468,152 @@ fn on_a_grid_a_gap_is_whole_rows_and_the_text_after_it_stands_on_a_row() {
     assert_eq!(boxes.len(), 1);
     assert_eq!(boxes[0].1.h, 36.0);
     assert_eq!(boxes[0].1.y % 18.0, 0.0);
+}
+
+// --- The keyboard's convention ---------------------------------------------------------------
+
+fn ctrl() -> Mods {
+    with(|m| m.control = true)
+}
+
+fn ctrl_shift() -> Mods {
+    with(|m| {
+        m.control = true;
+        m.shift = true;
+    })
+}
+
+/// A host whose editor has "one two\nthree four" (18 characters) and the keyboard, under
+/// `keyboard`'s convention, the caret at `at`.
+fn typing_on(keyboard: KeyConvention, at: usize) -> Host {
+    let mut host = Host::new(page_with(plain()));
+    host.editors.set_keyboard(keyboard);
+    host.load("one two\nthree four");
+    host.caret_at(at);
+    host
+}
+
+#[test]
+fn where_ctrl_is_the_main_modifier_it_selects_all_undoes_redoes_and_goes_by_words_and_to_the_documents_ends()
+ {
+    for keyboard in [KeyConvention::Windows, KeyConvention::Linux] {
+        let mut host = typing_on(keyboard, 0);
+        assert_eq!(host.key(Key::Right, ctrl()), Route::Done, "{keyboard:?}");
+        assert_eq!(host.ranges(), vec![Range::caret(3)], "{keyboard:?}");
+        host.key(Key::Right, ctrl_shift());
+        assert_eq!(host.ranges(), vec![Range::new(3, 7)], "{keyboard:?}");
+        host.key(Key::Left, ctrl());
+        assert_eq!(host.ranges(), vec![Range::caret(4)], "{keyboard:?}");
+        assert_eq!(host.key(Key::End, ctrl()), Route::Done);
+        assert_eq!(host.ranges(), vec![Range::caret(18)]);
+        host.key(Key::Home, ctrl_shift());
+        assert_eq!(host.ranges(), vec![Range::new(18, 0)]);
+        // The line's ends are Home and End as ever.
+        host.caret_at(2);
+        host.key(Key::End, none());
+        assert_eq!(host.ranges(), vec![Range::caret(7)]);
+        host.key(Key::Home, none());
+        assert_eq!(host.ranges(), vec![Range::caret(0)]);
+        assert_eq!(
+            host.key(Key::Character('a'), ctrl()),
+            Route::Done,
+            "{keyboard:?}"
+        );
+        assert_eq!(host.ranges(), vec![Range::new(0, 18)], "{keyboard:?}");
+        // An edit is undone and done again.
+        host.caret_at(3);
+        host.key(Key::Enter, none());
+        assert_eq!(host.text(), "one\n two\nthree four");
+        host.key(Key::Character('z'), ctrl());
+        assert_eq!(host.text(), "one two\nthree four", "{keyboard:?}");
+        host.key(Key::Character('y'), ctrl());
+        assert_eq!(host.text(), "one\n two\nthree four", "{keyboard:?}");
+        // ⌘, where the terminal reports the Super key, is as it is on a Mac.
+        host.key(Key::Character('a'), with(|m| m.command = true));
+        assert_eq!(host.ranges(), vec![Range::new(0, 19)], "{keyboard:?}");
+    }
+}
+
+#[test]
+fn where_ctrl_is_the_main_modifier_c_and_the_shifted_or_alt_chords_of_the_keys_it_takes_are_not_its_keys()
+ {
+    for keyboard in [KeyConvention::Windows, KeyConvention::Linux] {
+        let mut host = typing_on(keyboard, 3);
+        // ⌃C is the interrupt, and the terminal's copy is its own: the editor has no key for them.
+        for mods in [ctrl(), ctrl_shift()] {
+            assert_eq!(
+                host.key(Key::Character('c'), mods),
+                Route::Page,
+                "{keyboard:?}"
+            );
+        }
+        // A terminal that cannot send ⇧ with ⌃ sends ⌃Z for ⌃⇧Z: it is not redo, and ⌃⇧A is not the
+        // Emacs line start the Mac table has.
+        let before = host.text();
+        for key in ['z', 'a', 'y'] {
+            assert_eq!(
+                host.key(Key::Character(key), ctrl_shift()),
+                Route::Page,
+                "{key} {keyboard:?}"
+            );
+        }
+        assert_eq!(host.text(), before);
+        assert_eq!(host.ranges(), vec![Range::caret(3)]);
+        // ⌃⌥Z is not undo either; ⌥ with a character types, as it does on a Mac.
+        let both = with(|m| {
+            m.control = true;
+            m.alt = true;
+        });
+        assert_eq!(host.key(Key::Character('z'), both), Route::Page);
+        assert_eq!(
+            host.key(Key::Character('@'), with(|m| m.alt = true)),
+            Route::Type,
+            "{keyboard:?}"
+        );
+        // Cut and paste have no key of ⌃: a terminal's own paste is the person's paste, and a cut
+        // that the terminal may not let reach the pasteboard would lose the text.
+        for key in ['x', 'v'] {
+            assert_eq!(
+                host.key(Key::Character(key), ctrl()),
+                Route::Page,
+                "{key} {keyboard:?}"
+            );
+        }
+        // What the Mac table has with no modifier or with ⌥ is as it is.
+        assert_eq!(host.key(Key::Home, none()), Route::Done);
+        assert_eq!(host.ranges(), vec![Range::caret(0)]);
+        host.key(Key::Right, with(|m| m.alt = true));
+        assert_eq!(host.ranges(), vec![Range::caret(3)]);
+    }
+}
+
+#[test]
+fn on_a_mac_ctrl_is_what_it_was_and_command_is_the_main_modifier() {
+    // The default, and `Mac` said: ⌃A and ⌃E are the line's ends, ⌃Z and ⌃Y nothing, ⌃← a character,
+    // ⌘Z undoes and ⌘A selects all.
+    for said in [false, true] {
+        let mut host = Host::new(page_with(plain()));
+        if said {
+            host.editors.set_keyboard(KeyConvention::Mac);
+        }
+        host.load("one two\nthree four");
+        host.caret_at(3);
+        host.key(Key::Character('a'), ctrl());
+        assert_eq!(host.ranges(), vec![Range::caret(0)], "said {said}");
+        host.key(Key::Character('e'), ctrl());
+        assert_eq!(host.ranges(), vec![Range::caret(7)]);
+        assert_eq!(host.key(Key::Character('z'), ctrl()), Route::Page);
+        assert_eq!(host.key(Key::Character('y'), ctrl()), Route::Page);
+        host.key(Key::Left, ctrl());
+        assert_eq!(
+            host.ranges(),
+            vec![Range::caret(6)],
+            "a character, not a word"
+        );
+        host.key(Key::Enter, none());
+        host.key(Key::Character('z'), with(|m| m.command = true));
+        assert_eq!(host.text(), "one two\nthree four");
+        host.key(Key::Character('a'), with(|m| m.command = true));
+        assert_eq!(host.ranges(), vec![Range::new(0, 18)]);
+    }
 }
