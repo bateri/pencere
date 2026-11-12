@@ -138,6 +138,7 @@ pub fn render(
         canvas: Canvas::new(cols, rows, theme.background),
         texts: vec![0; usize::from(cols) * usize::from(rows)],
         placements: Vec::new(),
+        placed_at: Vec::new(),
         waiting: false,
         overlaps: 0,
     };
@@ -249,6 +250,8 @@ struct Canvas {
     ground: Vec<Rgb>,
     /// When each pixel was drawn last: the count of the item.
     stamp: Vec<u32>,
+    /// When each pixel was last given a ground that hides what is under it (the count of the item).
+    solid: Vec<u32>,
     /// The cells a picture the terminal draws shows through.
     hole: Vec<bool>,
     slots: Vec<Slot>,
@@ -263,6 +266,7 @@ impl Canvas {
             rows: rows as i32,
             ground: vec![ground; cols * rows * 2],
             stamp: vec![0; cols * rows * 2],
+            solid: vec![0; cols * rows * 2],
             hole: vec![false; cols * rows],
             slots: vec![Slot::Empty; cols * rows],
             tick: 0,
@@ -305,6 +309,18 @@ impl Canvas {
         }
     }
 
+    /// Whether an item after the `tick`th gave a ground that hides what is under it to any pixel of
+    /// the cells (`col`, `row`, `cols`, `rows`).
+    fn hidden_after(&self, (col, row, cols, rows): (i32, i32, i32, i32), tick: u32) -> bool {
+        (col..col + cols).any(|x| {
+            (row * 2..(row + rows) * 2).any(|y| {
+                self.pixel(x, y)
+                    .and_then(|i| self.solid.get(i))
+                    .is_some_and(|solid| *solid > tick)
+            })
+        })
+    }
+
     /// Lays `color` over the pixel with `alpha` of it.
     fn paint(&mut self, x: i32, y: i32, color: Rgb, alpha: f32) {
         let Some(i) = self.pixel(x, y) else { return };
@@ -321,6 +337,11 @@ impl Canvas {
         }
         if let Some(stamp) = self.stamp.get_mut(i) {
             *stamp = tick;
+        }
+        if alpha >= 0.98
+            && let Some(solid) = self.solid.get_mut(i)
+        {
+            *solid = tick;
         }
         let Some(cell) = self.cell(x, y.div_euclid(2)) else {
             return;
@@ -421,6 +442,8 @@ struct Painter<'a> {
     /// For each cell, the count of the last item of the list that puts text in it (0: none).
     texts: Vec<u32>,
     placements: Vec<Placement>,
+    /// The count of the item each of `placements` was made by.
+    placed_at: Vec<u32>,
     waiting: bool,
     overlaps: usize,
 }
@@ -597,6 +620,7 @@ impl Painter<'_> {
             }
         }
         for (r0, r1, c0, c1) in boxes {
+            self.placed_at.push(self.canvas.tick);
             self.placements.push(Placement {
                 col: c0 as u16,
                 row: r0 as u16,
@@ -1129,6 +1153,7 @@ impl Painter<'_> {
         let x1 = edge(u0.max(u1), raster.width).clamp(x0 + 1, raster.width.max(1));
         let y0 = edge(v0.min(v1), raster.height).min(raster.height.saturating_sub(1));
         let y1 = edge(v0.max(v1), raster.height).clamp(y0 + 1, raster.height.max(1));
+        self.placed_at.push(self.canvas.tick);
         self.placements.push(Placement {
             col: c0 as u16,
             row: r0 as u16,
@@ -1366,10 +1391,31 @@ impl Painter<'_> {
             theme,
             canvas,
             placements,
+            placed_at,
             waiting,
             overlaps,
             ..
         } = self;
+        // A picture the terminal draws over the grounds (an icon, the tint over a picture) is not
+        // hidden by a ground drawn after it, as one under the grounds is: a box laid over it (a
+        // palette, a dialog) leaves it out.
+        let placements: Vec<Placement> = placements
+            .into_iter()
+            .zip(placed_at)
+            .filter(|(placed, at)| {
+                placed.z != BEHIND_TEXT
+                    || !canvas.hidden_after(
+                        (
+                            i32::from(placed.col),
+                            i32::from(placed.row),
+                            i32::from(placed.cols),
+                            i32::from(placed.rows),
+                        ),
+                        *at,
+                    )
+            })
+            .map(|(placed, _)| placed)
+            .collect();
         let mut stats = Stats {
             overlaps,
             ..Stats::default()

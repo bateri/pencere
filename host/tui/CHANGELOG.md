@@ -95,7 +95,7 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   terminal that does not know the sequence ignores it.
 - **The words an empty field says** (its hint) are drawn, dim, in the fields nobody has typed in
   yet; they were only where a field had been pressed. `show_hints` draws them over a frame of
-  `render`.
+  `render`, and `show_texts` draws them with the texts a test or a picture has put in the fields.
 - `PENCERE_TUI_TRACE=1` prints, when the screen ends, when the alternate screen was entered, the page
   started, the terminal finished answering, each of the first frames was written and each time the
   window changed its size, each with the memory the process holds then (and the most it has held),
@@ -110,5 +110,10 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 ### Changed
 
+- **A picture the terminal draws over the grounds** (an icon, the tint laid over a picture) **is left
+  out where a box drawn after it covers it** (a palette, a dialog): it showed through them. A picture
+  that covers its cells altogether was under their grounds already.
+- **A field's text is on the middle row of its room, the lower of two,** where the page centres its own
+  words in the room (a palette's scope beside its query).
 - `Placement` is a part of some `Pixels` (`pixels`, `x`, `y`, `width`, `height`) and not the bytes of
   the part: `Placement::rgba` makes them. `Raster` has an `id`.

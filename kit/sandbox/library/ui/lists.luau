@@ -414,8 +414,12 @@ local Palette = core.component("palette", {
 				select = select_first,
 			}))
 		)
-		body:child(u:rule("x"))
 		local cells = glyphs.in_cells()
+		-- A rule is a row of its own on the cells of a terminal: the padding of the field and the ground of
+		-- the footer part what they are over without one.
+		if not cells then
+			body:child(u:rule("x"))
+		end
 		local row_height = props.height or (cells and t.size.row or 32)
 		local inset = props.inset or (cells and 0 or 4)
 		local list_height = math.min(math.max(#rows, 1), props.rows or 8) * row_height + 2 * inset
@@ -478,7 +482,10 @@ local Palette = core.component("palette", {
 						:child(pencere.text(hint.title):text_size(t.text.small):color(t.ink_dim))
 				)
 			end
-			body:child(u:rule("x")):child(foot)
+			if not cells then
+				body:child(u:rule("x"))
+			end
+			body:child(foot)
 		end
 		return layers.shell(u, id, {
 			width = props.width or 560,

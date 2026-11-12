@@ -331,16 +331,13 @@ local Grid = core.component("grid", {
 			return line
 		end)
 
-		return pencere.div()
-			:id(id)
-			:col()
-			:grow(1)
-			:min_h(0)
-			:min_w(0)
-			:scroll()
-			:child(header)
-			:child(u:rule("x"):w(room))
-			:child(body)
+		local grid = pencere.div():id(id):col():grow(1):min_h(0):min_w(0):scroll():child(header)
+		-- A rule under the head is a row of its own on the cells of a terminal (a point is a row there),
+		-- one a table has not the rows to spare: the head is told from the rows by its words alone.
+		if not look.in_cells() then
+			grid:child(u:rule("x"):w(room))
+		end
+		return grid:child(body)
 	end,
 	press = function(u, id, props, state, part, key, event)
 		if part == "edge" then

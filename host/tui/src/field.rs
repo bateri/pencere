@@ -348,7 +348,8 @@ impl TextField {
         if cols == 0 || rows == 0 {
             return None;
         }
-        let row = at.1 + (rows - 1) / 2;
+        // The middle row, where the page centres its own words in a room of two rows too (the lower).
+        let row = at.1 + rows / 2;
         let secret = matches!(self.kind, FieldKind::Secret);
         let shown = |c: char| if secret { '\u{2022}' } else { c };
         let width_of = |c: char| UnicodeWidthChar::width(shown(c)).unwrap_or(0);
@@ -445,7 +446,31 @@ pub fn draw_fields(
 /// The hints of the page's fields, over their rooms in `frame` (the fields nobody has typed in): for
 /// a look at a frame drawn without a terminal.
 pub fn show_hints(frame: &mut crate::Frame, fields: &[Field], cell: (f32, f32), theme: &Theme) {
-    draw_fields(&mut frame.grid, fields, &HashMap::new(), None, cell, theme);
+    show_texts(frame, fields, &HashMap::new(), cell, theme);
+}
+
+/// The page's fields, over their rooms in `frame`, each holding the text `texts` has for it (what a
+/// test or a picture of the page has typed in it) and, where it has none, its hint: for a look at a
+/// frame drawn without a terminal.
+pub fn show_texts(
+    frame: &mut crate::Frame,
+    fields: &[Field],
+    texts: &HashMap<Id, String>,
+    cell: (f32, f32),
+    theme: &Theme,
+) {
+    let mut typed = HashMap::new();
+    for field in fields {
+        if let Some(text) = texts.get(&field.id) {
+            let mut held = TextField::new(field.kind);
+            held.fill(&Fill {
+                text: Some(text.clone()),
+                select: None,
+            });
+            typed.insert(field.id, held);
+        }
+    }
+    draw_fields(&mut frame.grid, fields, &typed, None, cell, theme);
 }
 
 /// What a field is drawn in.

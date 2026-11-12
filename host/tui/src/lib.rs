@@ -45,7 +45,7 @@ mod screen;
 mod theme;
 
 pub use color::Rgb;
-pub use field::show_hints;
+pub use field::{show_hints, show_texts};
 pub use grid::{Attrs, Bg, Cell, Grid};
 pub use live::{KIT_VERSION, run};
 pub use measure::{Cells, char_width, text_width};

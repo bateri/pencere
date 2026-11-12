@@ -774,6 +774,46 @@ fn an_icon_keeps_the_grounds_under_it_and_is_the_colour_it_is_tinted() {
 }
 
 #[test]
+fn an_icon_under_a_box_drawn_after_it_is_left_out_and_one_beside_it_is_not() {
+    let faint = Raster {
+        id: None,
+        width: 1,
+        height: 1,
+        pixels: vec![64, 0, 0, 128],
+        crop: Rect::new(0.0, 0.0, 1.0, 1.0),
+    };
+    let icon = || picture(Rect::new(1.0, 0.0, 2.0, 2.0), Some(Role::Accent.solid()));
+    // A box the page lays over it (a palette over the page) hides it: a picture the terminal draws
+    // over the grounds would show through.
+    let list = DrawList {
+        items: vec![
+            quad(Rect::new(0.0, 0.0, 8.0, 2.0), Role::Raised(1)),
+            icon(),
+            quad(Rect::new(0.0, 0.0, 4.0, 2.0), Role::Raised(2)),
+        ],
+    };
+    let frame = render(
+        &list,
+        8,
+        1,
+        &dark(),
+        &One(faint.clone()),
+        &Options::default(),
+    );
+    assert!(frame.placements.is_empty());
+    // One the box is not over stays, and so does one whose ground was drawn before it.
+    let list = DrawList {
+        items: vec![
+            quad(Rect::new(0.0, 0.0, 8.0, 2.0), Role::Raised(1)),
+            icon(),
+            quad(Rect::new(4.0, 0.0, 4.0, 2.0), Role::Raised(2)),
+        ],
+    };
+    let frame = render(&list, 8, 1, &dark(), &One(faint), &Options::default());
+    assert_eq!(frame.placements.len(), 1);
+}
+
+#[test]
 fn a_pixel_the_terminal_gets_is_not_premultiplied() {
     let faint = Raster {
         id: None,
