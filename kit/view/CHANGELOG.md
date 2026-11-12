@@ -93,7 +93,7 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 - **Breaking: an element that is no editor holds no room for an editor's options**
   (`wire::Meta::editor` is `Option<Box<EditorOptions>>`; `Element::editor` takes the options as
   before). The options are 928 bytes and were held in every element, of 1728: an element is now
-  808 bytes, and a box of a page laid out 688 where it was 1608. A page of thousands of elements
+  808 bytes, and a box of a page laid out 704 where it was 1608. A page of thousands of elements
   that is built every second asked for that room again each time.
 - **A picture all outside its clip is not in the draw list** (a page of a long document scrolled
   out of the box it is in): what a host asks the pixels of is what it shows, and a picture it does
