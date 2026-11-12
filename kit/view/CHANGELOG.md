@@ -55,8 +55,21 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
   `items_center`, a column that is `justify_center`) is the nearest number of rows to its height that
   has the oddness of what is in it (44 points round 3 rows around one line, 2 around two lines), so
   that a line in it has as many rows above as below. A box that is not written a height, or whose
-  parts are not all written one, is as it was; across, nothing is rounded another way. A host that does
-  not say (the default) is laid out as ever, pixel for pixel.
+  parts are not all written one, is as it was. Across, a box that is written a width gives what is in
+  it its columns: in a column, a box written as wide as the inside of the box it is in is as many
+  columns as that inside, and one written narrower is no more (a card of 26 columns with 14 points of
+  padding has 22 inside, and a graph written the card's width less that padding, 22.5 columns, was 23
+  and stood a column past the words above it, at three widths of a window in five); in a row whose
+  boxes are all written a width, and written no wider than the row, but come to more columns than
+  it has when each is rounded on its own, the row's columns are shared out over the boxes and the
+  gaps by the points each is, equal ones taking a column more together or none (a table's row was a
+  column wider than its view, and its last column cut at the edge). A row whose boxes fit as they
+  round, a box written wider than the one it is in (what a box that scrolls across holds), a box that
+  is not written a width, a grid, and a box that grows, has a margin beside it or a least or a most
+  width, are as they were. A canvas is drawn for the size it was written: where its box is the cells
+  that size rounds to, what is drawn in it is as much wider and taller as the box is, so that it
+  fills the box, none of it is cut off at the box's edge and none of the box is left bare. A host
+  that does not say (the default) is laid out as ever, pixel for pixel.
 
 - **`Picture::shown`**: what of the whole image is inside the picture's clip, as shares of it like
   `crop`. A host that rasterises a large SVG or page draws that part and not all of it

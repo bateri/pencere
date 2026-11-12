@@ -267,8 +267,18 @@ impl Laid {
                         list.items.push(Paint::Image(picture));
                     }
                 }
-                Content::Canvas(paths) => {
+                Content::Canvas(paths, written) => {
                     if !paths.is_empty() {
+                        // On a grid the box is the cells the canvas's size rounds to, and what is
+                        // drawn in it was written for that size: it is drawn as much wider and
+                        // taller as the box is, so that it fills the box and none of it is past
+                        // the box's edge.
+                        let stretch = written
+                            .filter(|size| {
+                                (size.w - node.rect.w).abs() > 0.5
+                                    || (size.h - node.rect.h).abs() > 0.5
+                            })
+                            .map(|size| (node.rect.w / size.w, node.rect.h / size.h));
                         // A canvas that spins is turned here, about its middle in its own points:
                         // the one rasteriser draws it, and a host draws nothing new for it.
                         let scale = self.scale.max(f32::MIN_POSITIVE);
@@ -281,6 +291,10 @@ impl Laid {
                                 .iter()
                                 .map(|path| {
                                     let path = path.faded(opacity);
+                                    let path = match stretch {
+                                        Some((x, y)) => path.stretched(x, y),
+                                        None => path,
+                                    };
                                     if node.turn == 0.0 {
                                         path
                                     } else {

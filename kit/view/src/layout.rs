@@ -13,6 +13,7 @@ use taffy::style::{
 };
 use taffy::{NodeId, TaffyTree, compute_leaf_layout};
 
+use crate::colplan;
 use crate::edit::EditorOptions;
 use crate::element::{Carry, FieldKind, Fit, Kind, Meta, Spark, State};
 use crate::paint::Quad;
@@ -100,7 +101,9 @@ pub(crate) enum Content {
     Rich(Rich),
     Spark(Spark),
     Image(Placed),
-    Canvas(Vec<Path>),
+    /// The paths, and on a grid the size the canvas was written, pixels: the paths are in the
+    /// points of that size, and the box is the cells it rounds to.
+    Canvas(Vec<Path>, Option<Size>),
 }
 
 /// An element after layout: its box on the page, in pixels, and how it is drawn.
@@ -257,7 +260,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
         DEFAULT_TEXT,
         (scale, unit),
         measure,
-        None,
+        (None, None),
     );
     // The overlays, after everything else (so drawn over it), each a child of the page's box: its
     // insets are the page's. An overlay inside an overlay is lifted in its turn.
@@ -276,7 +279,7 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             text,
             (scale, unit),
             measure,
-            None,
+            (None, None),
         );
         if let Some(entry) = pending.get_mut(index) {
             entry.overlay = true;
@@ -911,7 +914,7 @@ fn build(
     outer: TextStyle,
     (scale, unit): (f32, Units),
     measure: &mut dyn Measure,
-    given: Option<f32>,
+    (given, given_columns): (Option<f32>, Option<f32>),
 ) -> (usize, NodeId) {
     let Element {
         kind,
@@ -953,6 +956,8 @@ fn build(
     // On a grid the rows of the box's height, its paddings and gaps, and of what is in it that the box
     // gives, come as a whole (see `rowplan`); off one nothing is planned.
     let plan = rowplan::plan(&style, &children, given, scale, unit);
+    // And the columns of what is in it that the box gives (see `colplan`).
+    let columns = colplan::plan(&style, &children, given_columns, scale, unit);
     let index = pending.len();
     let px = |points: f32| snap(points, scale);
     pending.push(Pending {
@@ -1003,6 +1008,7 @@ fn build(
         (scale, unit),
         matches!(kind, Kind::Text(_) | Kind::Rich(_)),
         &plan,
+        (given_columns, columns.gap),
     );
     let id = match kind {
         Kind::Text(content) => {
@@ -1060,8 +1066,14 @@ fn build(
             tree.new_leaf(taffy_style)
         }
         Kind::Canvas(paths) => {
+            let written = match (style.width, style.height) {
+                (Length::Px(w), Length::Px(h)) if unit.grid && w > 0.0 && h > 0.0 => {
+                    Some(Size::new(w * scale, h * scale))
+                }
+                _ => None,
+            };
             if let Some(entry) = pending.get_mut(index) {
-                entry.content = Content::Canvas(paths);
+                entry.content = Content::Canvas(paths, written);
             }
             tree.new_leaf(taffy_style)
         }
@@ -1137,7 +1149,10 @@ fn build(
                         text,
                         (scale * zoomed, unit),
                         measure,
-                        plan.children.get(place).copied().flatten(),
+                        (
+                            plan.children.get(place).copied().flatten(),
+                            columns.children.get(place).copied().flatten(),
+                        ),
                     )
                     .1,
                 );
@@ -1196,7 +1211,7 @@ impl Units {
     }
 
     /// `points` as whole units across.
-    fn across(self, points: f32, scale: f32) -> f32 {
+    pub(crate) fn across(self, points: f32, scale: f32) -> f32 {
         self.cells(points * scale, self.x)
     }
 
@@ -1217,7 +1232,7 @@ impl Units {
 
     /// A size of `points` across: on a grid a size that is any is at least one column, so that a
     /// box that was written does not vanish between the cells.
-    fn wide(self, points: f32, scale: f32) -> f32 {
+    pub(crate) fn wide(self, points: f32, scale: f32) -> f32 {
         let units = self.across(points, scale);
         if self.grid && points > 0.0 {
             units.max(1.0)
@@ -1257,7 +1272,13 @@ fn bound(length: Length, scale: f32, unit: impl Fn(f32, f32) -> f32) -> LengthPe
 /// A box's style as taffy's, in the layout's unit. `plan` is the rows the box's heights, paddings and
 /// gaps come to on a grid, where they are planned: it is those that are given to taffy then, and not
 /// the points rounded one by one.
-fn convert(style: &Style, (scale, unit): (f32, Units), is_text: bool, plan: &Plan) -> TStyle {
+fn convert(
+    style: &Style,
+    (scale, unit): (f32, Units),
+    is_text: bool,
+    plan: &Plan,
+    (columns, gap_columns): (Option<f32>, Option<f32>),
+) -> TStyle {
     let across = |points: f32| unit.across(points, scale);
     let down = |points: f32| unit.down(points, scale);
     let edge_x = |points: f32| LengthPercentage::length(across(points));
@@ -1312,7 +1333,10 @@ fn convert(style: &Style, (scale, unit): (f32, Units), is_text: bool, plan: &Pla
             left: inset_x(i_left),
         },
         size: TSize {
-            width: dimension(style.width, scale, |p, s| unit.wide(p, s)),
+            width: match columns {
+                Some(columns) => Dimension::length(columns),
+                None => dimension(style.width, scale, |p, s| unit.wide(p, s)),
+            },
             height: match plan.height {
                 Some(rows) => Dimension::length(rows),
                 None => dimension(style.height, scale, |p, s| unit.high(p, s)),
@@ -1336,7 +1360,7 @@ fn convert(style: &Style, (scale, unit): (f32, Units), is_text: bool, plan: &Pla
             left: edge_x(left),
         },
         gap: TSize {
-            width: edge_x(style.gap.0),
+            width: gap_columns.map_or_else(|| edge_x(style.gap.0), LengthPercentage::length),
             height: planned(plan.gap, style.gap.1),
         },
         flex_grow: style.grow,

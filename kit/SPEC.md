@@ -445,7 +445,9 @@ host's terminal looks like. `pencere.draws()` says what the host draws that not 
 table of names that are true: `shadow` where it draws a box's soft shadow (a caret's `glow` is one);
 `cells` where the page is drawn in the character cells of a terminal (boxes stand on cells, a line of
 text is a row, a line thinner than a cell is a line along the edge of one, so what is small is best a
-character and a size a cell would round to nothing is kept off); `coarse_images` where a picture is drawn
+character and a size a cell would round to nothing is kept off; a box written a size gives what is in
+it its rows and its columns, so that what is written as wide as the inside of a box is as wide as it,
+and a canvas is drawn to fill the cells its box comes to); `coarse_images` where a picture is drawn
 in too few pixels to read a small one by (a terminal with no graphics protocol, which draws it in half
 blocks), so that an icon is best said in characters; `{}` where it draws only what every host does; the
 same every time it is asked. The library (`@pencere/ui`) follows `cells` itself (its glyphs are

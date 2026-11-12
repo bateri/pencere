@@ -36,6 +36,7 @@
 
 pub mod bands;
 mod color;
+mod colplan;
 mod command;
 pub mod edit;
 mod element;

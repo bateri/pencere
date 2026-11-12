@@ -578,3 +578,208 @@ fn a_page_with_no_grid_is_laid_out_as_it_was() {
     assert_eq!(of(&laid, BOX).h, 328.0);
     assert_eq!(of(&laid, Id::new(100)).h, 32.0);
 }
+
+// --- Columns ---------------------------------------------------------------------------------------
+
+const INNER: Id = Id::new(20);
+const FIRST: Id = Id::new(21);
+const SECOND: Id = Id::new(22);
+const THIRD: Id = Id::new(23);
+
+/// A card `points` wide with fourteen points of padding, and in it a box written as wide as what
+/// the padding leaves: what a page writes that works a width out from another.
+fn padded(points: f32) -> Element {
+    div()
+        .col()
+        .w(points)
+        .h(180.0)
+        .p(14.0)
+        .no_shrink()
+        .child(div().id(INNER).w(points - 28.0).h(36.0).no_shrink())
+}
+
+/// How many columns `inner` stands from the left of `outer` and from its right.
+fn insets(laid: &crate::Laid, outer: Id, inner: Id) -> (f32, f32) {
+    let (outer, inner) = (of(laid, outer), of(laid, inner));
+    (
+        (inner.x - outer.x) / 8.0,
+        (outer.x + outer.w - inner.x - inner.w) / 8.0,
+    )
+}
+
+#[test]
+fn a_box_written_as_wide_as_the_inside_of_its_box_is_as_wide_as_the_inside() {
+    // Rounded on their own, the padding (1.75 columns, two) and the box inside came to more than the
+    // card at three widths of five, and the box inside stood a column past the card's padding.
+    for points in 120..=360_u16 {
+        let laid = page(padded(f32::from(points)), true);
+        let (left, right) = insets(&laid, BOX, INNER);
+        assert_eq!((left, right), (2.0, 2.0), "a card of {points} points");
+    }
+}
+
+#[test]
+fn a_box_written_narrower_than_the_inside_is_no_wider_than_it() {
+    // A point less than the inside rounds to a column more than the inside has.
+    for points in 120..=360_u16 {
+        let card = div()
+            .col()
+            .w(f32::from(points))
+            .h(180.0)
+            .p(14.0)
+            .no_shrink()
+            .child(
+                div()
+                    .id(INNER)
+                    .w(f32::from(points) - 29.0)
+                    .h(36.0)
+                    .no_shrink(),
+            );
+        let laid = page(card, true);
+        let (left, right) = insets(&laid, BOX, INNER);
+        assert_eq!(left, 2.0, "a card of {points} points");
+        assert!(
+            right >= 2.0,
+            "a card of {points} points: {right} on the right"
+        );
+    }
+}
+
+#[test]
+fn a_box_written_wider_than_the_box_it_is_in_is_as_it_was() {
+    // What a box that scrolls across holds: three hundred points in a box of two hundred.
+    let card = div()
+        .col()
+        .w(200.0)
+        .h(180.0)
+        .scroll()
+        .no_shrink()
+        .child(div().id(INNER).w(300.0).h(36.0).no_shrink());
+    let laid = page(card, true);
+    assert_eq!(of(&laid, INNER).w, (300.0_f32 / 8.0).round() * 8.0);
+}
+
+/// A row `points` wide of three boxes written a third of it each.
+fn thirds(points: f32) -> Element {
+    let third = points / 3.0;
+    div()
+        .row()
+        .w(points)
+        .h(36.0)
+        .no_shrink()
+        .child(div().id(FIRST).w(third).h(36.0).no_shrink())
+        .child(div().id(SECOND).w(third).h(36.0).no_shrink())
+        .child(div().id(THIRD).w(third).h(36.0).no_shrink())
+}
+
+#[test]
+fn the_boxes_of_a_row_are_not_more_columns_than_the_row_and_equal_ones_are_equal() {
+    // Sixty points is seven columns and a half: rounded on their own, three of them are twenty-four
+    // columns in a row of twenty-three.
+    for points in [180.0_f32, 184.0, 188.0, 196.0, 200.0, 250.0] {
+        let laid = page(thirds(points), true);
+        let row = of(&laid, BOX);
+        let widths = [FIRST, SECOND, THIRD].map(|id| of(&laid, id).w);
+        assert!(
+            widths[0] == widths[1] && widths[1] == widths[2],
+            "{points} points: {widths:?}"
+        );
+        let last = of(&laid, THIRD);
+        assert!(
+            last.x + last.w <= row.x + row.w,
+            "{points} points: the last ends at {} and the row at {}",
+            last.x + last.w,
+            row.x + row.w
+        );
+    }
+}
+
+#[test]
+fn a_row_with_a_box_that_grows_is_as_it_was() {
+    let row = |on: bool| {
+        let row = div()
+            .row()
+            .w(200.0)
+            .h(36.0)
+            .no_shrink()
+            .child(div().id(FIRST).w(60.0).h(36.0).no_shrink())
+            .child(div().id(SECOND).grow(1.0).h(36.0));
+        let laid = page(row, on);
+        (of(&laid, FIRST).w, of(&laid, SECOND).w)
+    };
+    // Sixty points is eight columns, and what grows has the rest of twenty-five.
+    assert_eq!(row(true), (64.0, 136.0));
+    assert_eq!(row(false), (60.0, 140.0));
+}
+
+#[test]
+fn the_columns_are_not_shared_out_off_a_grid() {
+    let laid = page(padded(208.0), false);
+    assert_eq!(of(&laid, INNER).w, 180.0);
+    let laid = page(thirds(180.0), false);
+    assert_eq!(of(&laid, THIRD).w, 60.0);
+}
+
+#[test]
+fn a_canvas_is_drawn_to_fill_the_cells_its_box_comes_to() {
+    use crate::{Paint, Role, Segment, canvas, path};
+    // What is drawn was written for a canvas of 180 by 26 points: the far corner of its ground is
+    // the canvas's.
+    let card = |on: bool| {
+        let ground = path().rect(0.0, 0.0, 180.0, 26.0).fill(Role::Accent);
+        let card = div()
+            .col()
+            .w(208.0)
+            .h(180.0)
+            .p(14.0)
+            .no_shrink()
+            .child(canvas([ground]).id(INNER).size(180.0, 26.0).no_shrink());
+        let list = if on {
+            page(card, true).paint(&mut Cells)
+        } else {
+            page(card, false).paint(&mut Points)
+        };
+        let figure = list
+            .items
+            .iter()
+            .find_map(|item| match item {
+                Paint::Figure(figure) => Some(figure.clone()),
+                _ => None,
+            })
+            .expect("the canvas is drawn");
+        let far = figure.paths[0]
+            .segments
+            .iter()
+            .filter_map(|segment| match segment {
+                Segment::Move(at) | Segment::Line(at) => Some((at.x, at.y)),
+                _ => None,
+            })
+            .fold((0.0_f32, 0.0_f32), |far, at| {
+                (far.0.max(at.0), far.1.max(at.1))
+            });
+        ((figure.rect.w, figure.rect.h), far)
+    };
+    // On the cells the canvas is the 22 columns inside the card and whole rows, and what is drawn
+    // ends where it does: none of it is cut off at the box's edge, and none of the box is left bare.
+    let (size, far) = card(true);
+    assert_eq!(size.0, 176.0);
+    assert_eq!(size.1 % 18.0, 0.0);
+    assert_eq!(far, size);
+    // Off a grid the canvas is as it was written, and so is what is drawn in it.
+    assert_eq!(card(false), ((180.0, 26.0), (180.0, 26.0)));
+}
+
+#[test]
+fn a_row_whose_boxes_fit_as_they_round_is_as_it_was() {
+    // Two boxes of sixty points are eight columns each on their own, and a row of twenty-five has
+    // room for both: nothing is taken from either.
+    let row = div()
+        .row()
+        .w(200.0)
+        .h(36.0)
+        .no_shrink()
+        .child(div().id(FIRST).w(60.0).h(36.0).no_shrink())
+        .child(div().id(SECOND).w(60.0).h(36.0).no_shrink());
+    let laid = page(row, true);
+    assert_eq!((of(&laid, FIRST).w, of(&laid, SECOND).w), (64.0, 64.0));
+}
