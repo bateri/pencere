@@ -279,8 +279,10 @@ enum Carrier {
 
 /// Whether what an element carries may be handed to the host's system drag: the rule of
 /// `pencere_wire::carry`, which the sandbox holds a page to as well (a page written in Rust never
-/// went through it).
-pub(crate) fn carriable(carry: &pencere_view::Carry) -> bool {
+/// went through it). The drive holds a drag to it where the pointer begins it; a host that keeps
+/// what it was handed (a [`CarryOut`](crate::CarryOut)) until the drag is let go holds it to the
+/// rule again where it takes it, whatever the system's pasteboard says.
+pub fn carriable(carry: &pencere_view::Carry) -> bool {
     pencere_wire::carry::is_carriable(carry.words())
         && carry
             .url

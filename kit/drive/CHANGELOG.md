@@ -19,7 +19,9 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
   tells it as not done). What is carried is held to `pencere_wire::carry` again before it is handed
   on. `Host::text_size(points)` is how many points larger than the host's own text a reply asked the
   view to be drawn (after the keyboard, before the pasteboard). `Headless` is a host that carries:
-  `drag_out(name, to)`, `carries()`, `finish_carry(done)` and `text_size()`.
+  `drag_out(name, to)`, `carries()`, `finish_carry(done)` and `text_size()`. `carriable(&Carry)` is
+  the rule as the drive holds a drag to it, public: a host that keeps what it was handed until the
+  drag is let go holds it to the rule again where it takes it.
 - **A box that says a `zoom` is zoomed by the host**: a pinch, the wheel with the command key held
   and a double tap with two fingers over it are the box's (no longer the page's: it is told the
   scale with `scrolled`), the page is laid out again at each step of a zoom and at the end of one

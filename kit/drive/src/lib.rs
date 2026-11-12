@@ -28,7 +28,7 @@ mod waking;
 
 pub use host::{CarryOut, Copied, Drained, Held, Host};
 pub use outline::{Field, Outline, Placement, Tip, ZOOM_TEXT};
-pub use page::{FrameAt, NoText, Page, PageEditors, Painted, Setup};
+pub use page::{FrameAt, NoText, Page, PageEditors, Painted, Setup, carriable};
 pub use pencere_editor::Route;
 pub use scrolling::Scrolling;
 
