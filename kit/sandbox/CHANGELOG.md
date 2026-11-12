@@ -66,6 +66,11 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   the page after the last of them (as for a run of pointer moves or of wheel turns), where it made
   a page for each: a held key fell behind the page it moved. A key with a chord, and every other
   key, is a page each as before.
+- **A settle that changed the page and what changes it right after are one page.** `Module` makes
+  the page a settle asked for after the rest of what waited with it, where it made it at once: a
+  page that heard its program, was woken or was told a key as it was laid out was made twice over,
+  the first time for nothing. A settle with nothing after it is a page as before, for the time it
+  was made for last.
 - **The pixels of an SVG or a page that were not asked for at the host's last frame are let go of
   for room at once**, not after `ImageLimits::idle` (a page scrolled to had to wait for the page
   scrolled away from); and a drawing may take the room of the pixels of the same page that stand in

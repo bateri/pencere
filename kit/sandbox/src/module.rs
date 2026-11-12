@@ -655,6 +655,8 @@ fn run<R: Runner>(
         // batch, made after the last of it (a program that pushes fast does not make the
         // module build a page for every push).
         let mut owed = false;
+        // A settle changed the page, and nothing after it in the batch has made it again yet.
+        let mut resettled = false;
         // What the wheel turns that were run into the next one came to, points across and down.
         let mut wheel = (0.0_f32, 0.0_f32);
         // And what the pinches and rotations that were: the factor they made, the degrees they turned.
@@ -692,6 +694,7 @@ fn run<R: Runner>(
                     last = Some(asked);
                     wakes.place(asked.now, post);
                     settled = 0;
+                    resettled = false;
                     let frame = runner.render(*size, *now, *reduce_motion)?;
                     let frame = wakes.frame(frame, clock(last, program), post);
                     post.say(runner.take_sent(), runner.take_asks());
@@ -699,14 +702,12 @@ fn run<R: Runner>(
                 }
                 Command::Settle if later.iter().any(|c| matches!(c, Command::Settle)) => {}
                 Command::Settle => {
-                    if runner.settle()?
-                        && settled < SETTLES
-                        && let Some(asked) = last
-                    {
+                    // The page it changed is made after the rest of the batch, not here: what the
+                    // program said or a key that came as the page was laid out makes it again too,
+                    // and that page is this one.
+                    if runner.settle()? && settled < SETTLES && last.is_some() {
                         settled += 1;
-                        let frame = runner.render(asked.size, asked.now, asked.reduce_motion)?;
-                        let frame = wakes.frame(frame, clock(last, program), post);
-                        post.put(Some((frame, asked.size)), None);
+                        resettled = true;
                     }
                     post.say(runner.take_sent(), runner.take_asks());
                 }
@@ -823,8 +824,9 @@ fn run<R: Runner>(
                             None
                         }
                         (true, Some(asked)) => {
-                            // This page is what the events before it changed too.
+                            // This page is what the events before it changed too, and a settle.
                             owed = false;
+                            resettled = false;
                             let frame =
                                 runner.render(asked.size, asked.now, asked.reduce_motion)?;
                             let frame = wakes.frame(frame, clock(last, program), post);
@@ -922,6 +924,13 @@ fn run<R: Runner>(
                 ..asked
             });
             let frame = wakes.frame(frame, Some(now), post);
+            post.say(runner.take_sent(), runner.take_asks());
+            post.put(Some((frame, asked.size)), None);
+        } else if resettled && let Some(asked) = last {
+            // Nothing else made the page: it is made for the settle, at the time it was made for
+            // last (the same frame, laid out again).
+            let frame = runner.render(asked.size, asked.now, asked.reduce_motion)?;
+            let frame = wakes.frame(frame, clock(last, program), post);
             post.say(runner.take_sent(), runner.take_asks());
             post.put(Some((frame, asked.size)), None);
         }
@@ -2074,6 +2083,58 @@ mod tests {
         let at = |what: &str| log.iter().position(|l| l == what).unwrap();
         assert!(at("laid") < at("settle"));
         assert_eq!(log.iter().filter(|l| l.starts_with("render")).count(), 2);
+    }
+
+    /// How many pages the module made after it was told a layout its settle wants the page again
+    /// for, and then `after`, all while it was held in its first page.
+    fn pages_for_a_settle_and(after: impl FnOnce(&Module)) -> usize {
+        let (open, gate) = mpsc::channel();
+        let rig = rig(Some(gate), None, true);
+        rig.module.render(Size::new(10.0, 10.0), 1.0, false);
+        // Held in its first page, the module takes what follows as one batch.
+        let began = std::time::Instant::now();
+        while !rig.log().contains(&"held".to_owned()) {
+            assert!(began.elapsed() < Duration::from_secs(5), "never held");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let laid = Arc::new(pencere_view::layout(
+            div(),
+            Size::new(10.0, 10.0),
+            1.0,
+            &mut Nothing,
+        ));
+        rig.module.lay_out(laid);
+        after(&rig.module);
+        open.send(()).unwrap();
+        assert!(rig.module.flush(Duration::from_secs(5)));
+        let log = rig.log();
+        assert!(log.contains(&"settle".to_owned()), "{log:?}");
+        // The first page is the held one's.
+        log.iter().filter(|line| line.starts_with("render")).count() - 1
+    }
+
+    #[test]
+    fn a_settle_that_changed_the_page_and_what_changes_it_after_are_one_page() {
+        // The page a settle asks for is the one the program's words, a wake or a key make after it:
+        // a page that hears its program as it is laid out is not made twice over.
+        assert_eq!(
+            pages_for_a_settle_and(|module| module.message("redraw".into())),
+            1
+        );
+        assert_eq!(
+            pages_for_a_settle_and(|module| module.event(arrow(Key::Enter))),
+            1
+        );
+        assert_eq!(
+            pages_for_a_settle_and(|module| module.render(Size::new(20.0, 10.0), 2.0, false)),
+            1
+        );
+        // Alone, or with what changes nothing, it is made for the settle.
+        assert_eq!(pages_for_a_settle_and(|_| {}), 1);
+        assert_eq!(
+            pages_for_a_settle_and(|module| module.message("quiet".into())),
+            1
+        );
     }
 
     #[test]
