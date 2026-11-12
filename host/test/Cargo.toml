@@ -18,7 +18,8 @@ path = "src/main.rs"
 # The runtime an app's program runs in, the Lua of a test file in the same one, and the files of an
 # app: the command's insides, shared with this runner alone. They are released together, so this
 # is no dependency by version, and the runner says the command's version (`pencere_cli::VERSION`).
-pencere-cli = { path = "../../cli" }
+# Without the command's own terminal (`terminal`): this runner hosts the view itself, under no terminal.
+pencere-cli = { path = "../../cli", default-features = false }
 # The page under the host with no screen, with the program of the app in this process (`program`)
 # and the pictures of a failure (`shot`).
 pencere-drive = { path = "../../kit/drive", version = "0.4.1", features = ["program", "shot"] }

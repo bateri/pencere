@@ -327,7 +327,7 @@ pub fn icons_of(files: &Files, list: &Table) -> mlua::Result<Vec<Icon>> {
     Ok(icons)
 }
 
-/// `serve{ page =, web =, views =, assets =, access =, title =, program =, icon =, icons =, filter =, calls =, topics = }`,
+/// `serve{ page =, web =, views =, assets =, access =, title =, program =, icon =, icons =, filter =, tui =, calls =, topics = }`,
 /// from the prelude: starts the library's `serve` on a thread, and calls `done` with how it ended.
 pub fn start(core: &Rc<Core>, options: Table, done: Function) -> mlua::Result<()> {
     if core.serve.borrow().is_some() {
@@ -336,6 +336,10 @@ pub fn start(core: &Rc<Core>, options: Table, done: Function) -> mlua::Result<()
         ));
     }
     let (serving, calls, topics, specs) = prepare(core, &options)?;
+    // Where no terminal hosts the view, this runner draws the app's `lua` view in the terminal itself
+    // (a runner with no terminal in it, and an app that says `tui = false`, leave it to `fallback`).
+    let drawn_here = options.get::<Option<bool>>("tui")?.unwrap_or(true)
+        && serving.views().iter().any(|view| view.kind() == Kind::Lua);
     if let Ok(mut plan) = core.plan.lock() {
         *plan = Some(ServePlan { views: specs });
     }
@@ -350,7 +354,7 @@ pub fn start(core: &Rc<Core>, options: Table, done: Function) -> mlua::Result<()
         .map_err(|_| super::fault("the view cannot be shown: nobody takes it"))?;
         None
     } else {
-        Some(spawn(core, serving)?)
+        Some(spawn(core, serving, drawn_here)?)
     };
     *core.serve.borrow_mut() = Some(ServeRun {
         calls,
@@ -492,19 +496,39 @@ pub(super) fn prepare(
     Ok((serving, calls, topics, specs))
 }
 
+/// The library's `serve`, with the terminal's own screen behind it when this runner has one
+/// (`terminal`) and `drawn_here` asks for it: a terminal that hosts the view is still the one that
+/// shows it, and what no terminal hosts is drawn in the cells of the one the app was started in. Where
+/// that cannot be done (no terminal, no `lua` view, a screen that fails) the outcome is the library's
+/// `NoView` as it always was, and the Lua `fallback` runs on it.
+#[cfg(feature = "terminal")]
+fn serve_view(serving: Options, drawn_here: bool) -> Result<Outcome, pencere::Error> {
+    if drawn_here {
+        pencere_tui::serve(serving)
+    } else {
+        pencere::serve(serving)
+    }
+}
+
+#[cfg(not(feature = "terminal"))]
+fn serve_view(serving: Options, _drawn_here: bool) -> Result<Outcome, pencere::Error> {
+    pencere::serve(serving)
+}
+
 /// Runs the library's `serve` on a thread of its own, and tells the loop how it ended.
-fn spawn(core: &Rc<Core>, serving: Options) -> mlua::Result<JoinHandle<()>> {
+fn spawn(core: &Rc<Core>, serving: Options, drawn_here: bool) -> mlua::Result<JoinHandle<()>> {
     let events = core.events.clone();
     std::thread::Builder::new()
         .name("pencere-serve".into())
         .spawn(move || {
-            let result =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| pencere::serve(serving)))
-                    .unwrap_or_else(|_| {
-                        Err(pencere::Error::Io(std::io::Error::other(
-                            "the view's thread panicked",
-                        )))
-                    });
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                serve_view(serving, drawn_here)
+            }))
+            .unwrap_or_else(|_| {
+                Err(pencere::Error::Io(std::io::Error::other(
+                    "the view's thread panicked",
+                )))
+            });
             events.send(Event::Served(result));
         })
         .map_err(|why| super::fault(format!("the view cannot be started: {why}")))

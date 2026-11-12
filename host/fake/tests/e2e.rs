@@ -129,11 +129,17 @@ impl Run {
 }
 
 fn run(options: &[&str], program: &[&str]) -> Run {
+    run_with(options, program, &[])
+}
+
+/// As [`run`], with `variables` in the environment of the host and so of the program.
+fn run_with(options: &[&str], program: &[&str], variables: &[(&str, &str)]) -> Run {
     let output = Command::new(FAKE_HOST)
         .args(["--limit", "30", "--passthrough"])
         .args(options)
         .arg("--")
         .args(program)
+        .envs(variables.iter().copied())
         .stdin(Stdio::null())
         .output()
         .expect("the fake host starts");
@@ -1357,7 +1363,13 @@ fn a_lua_app_whose_terminal_opens_another_version_tells_the_person_which_to_upda
     let app = dir.join("other");
     let (status, said) = pencere(&dir, &["build", "app", "-o", &app.to_string_lossy()]);
     assert!(status.success(), "pencere build: {said}");
-    let run = run(&["--kit-version", "0.2"], &[&app.to_string_lossy()]);
+    // `PENCERE_TUI=0`: a runner that has the terminal in it would draw the page itself where the
+    // host will not open it, and this is the person who would rather have the sentence.
+    let run = run_with(
+        &["--kit-version", "0.2"],
+        &[&app.to_string_lossy()],
+        &[("PENCERE_TUI", "0")],
+    );
     assert!(run.status.success(), "{}", run.text());
     run.never("program: open");
     let sentence = "pencere: this program is written for lua 0.1; this terminal opens lua 0.2; update the older of the two";
@@ -2132,7 +2144,9 @@ fn the_built_lua_app_opens_its_view_answers_calls_and_feeds_its_page_until_the_i
 #[test]
 fn the_built_lua_app_prints_its_text_where_no_terminal_hosts_pencere() {
     let app = lua_example().to_string_lossy().into_owned();
-    let run = run(&["--no-host"], &[&app]);
+    // `PENCERE_TUI=0`: where the page is not to be drawn in the terminal's cells (the person's
+    // choice here; the app's `tui = false`, or a runner with no terminal in it, are the others).
+    let run = run_with(&["--no-host"], &[&app], &[("PENCERE_TUI", "0")]);
     assert!(run.status.success(), "{}", run.text());
     run.in_order(&["host: does not host pencere: no answer"]);
     // The fallback ran: the list, as text.

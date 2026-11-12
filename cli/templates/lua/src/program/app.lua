@@ -29,7 +29,8 @@ local outcome = pencere.serve {
 		end,
 	},
 
-	-- A terminal that cannot show a view: say it in text.
+	-- Where the page cannot be shown at all (no terminal, or the app was built with
+	-- `pencere build --no-terminal`): say it in text.
 	fallback = function()
 		print("{{name}}: this terminal shows no views, so here is the text.")
 		print("Hello, world!")

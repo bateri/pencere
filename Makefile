@@ -56,6 +56,12 @@ check:
 	cargo clippy -p pencere-tui --no-default-features --features precompile -- -D warnings
 	node tools/cargo-test.mjs -p pencere-sandbox --no-default-features --features precompile --lib
 	if cargo check --quiet -p pencere-sandbox --no-default-features 2>&1 | grep -q "needs the .precompile. feature"; then :; else echo "check: a sandbox with neither \`compiler\` nor \`precompile\` builds, or fails without saying which to turn on"; exit 1; fi
+	# The command built without its terminal (`--no-default-features`: the smaller runner, an app of
+	# which takes its `fallback` where no terminal hosts its view), linted and tested by itself, as it
+	# is built; the other kind is what everything above builds.
+	cargo clippy -p pencere-cli --no-default-features --all-targets -- -D warnings
+	node tools/cargo-test.mjs -p pencere-cli --no-default-features --all-targets
+	cargo build --quiet -p pencere-cli
 	npx prettier --check .
 	npx vitest run --passWithNoTests
 
@@ -81,10 +87,14 @@ check-timing:
 # nothing of a platform or a font. (The fonts of a PDF are the sandbox's alone, past `hayro`: the
 # renderer of its pages, which holds the substitutes for the fonts a PDF does not carry and
 # looks for none on the machine.) The command,
-# which is the runner copied into every app, hosts nothing (the host crate is linked for its
+# which is the runner copied into every app, links the kit through `pencere-tui` alone (its feature
+# `terminal`, on by default: the app's page drawn in the terminal it is started in, with the
+# interpreter compiled by the build and no code generator in the file) and the runner built without it
+# links none of it; it hosts nothing otherwise (the host crate is linked for its
 # `apps` module alone, which does no I/O: `pencere dist` writes an app.json and reads it back by the
 # rule every terminal reads it by); its library (the Lua runtime with the
-# rest of the command) is shared with the runner of an app's tests alone.
+# rest of the command) is shared with the runner of an app's tests alone, which has no terminal of
+# its own to link (it hosts the view under no terminal).
 audit:
 	@fail=0; \
 	if [ "$$(cargo tree -p pencere-view -e normal --depth 1 --prefix none | tail -n +2 | sed 's/ .*//' | sort -u)" != "taffy" ]; then echo "audit: pencere-view depends on something besides the layout crate (taffy) — the page engine depends on its layout crate alone"; fail=1; fi; \
@@ -110,7 +120,10 @@ audit:
 	done; \
 	if cargo tree --workspace -e normal -i image --depth 1 --prefix none | tail -n +2 | grep -vE "^(libsui|hayro) "; then echo "audit: the image crate is linked by something other than libsui and hayro — libsui has it for the icons of a Windows executable, which the command never writes, and hayro for a PNG it does not use; nothing else that shows a picture links it"; fail=1; fi; \
 	if cargo tree --workspace -e normal -i libsui --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-cli "; then echo "audit: libsui is linked by a crate other than pencere-cli — it is how the command writes an app into an executable, and no library has a use for it"; fail=1; fi; \
-	if cargo tree -p pencere-cli -e normal --prefix none | tail -n +2 | grep -E "^(pencere-(sandbox|view)|wasmtime|taffy|objc2|dispatch2|block2|metal|wgpu|winit) "; then echo "audit: the pencere command links a terminal's crate or a platform library — it is a program that uses the program library, and hosts nothing; the host crate alone is let in, for the rule dist reads and checks an app.json by"; fail=1; fi; \
+	if cargo tree -p pencere-cli --no-default-features -e normal --prefix none | tail -n +2 | grep -E "^(pencere-(sandbox|view|drive|tui)|wasmtime|taffy|hayro|objc2|dispatch2|block2|metal|wgpu|winit) "; then echo "audit: the pencere command built without its terminal links the kit, a terminal's crate or a platform library — that runner is the small one, a program that uses the program library and hosts nothing; the host crate alone is let in, for the rule dist reads and checks an app.json by"; fail=1; fi; \
+	if cargo tree -p pencere-cli -e normal --prune pencere-tui --prefix none | tail -n +2 | grep -E "^(pencere-(sandbox|view|drive)|wasmtime|taffy|hayro|objc2|dispatch2|block2|metal|wgpu|winit) "; then echo "audit: the pencere command links the kit or a platform library otherwise than through pencere-tui (its feature terminal) — the terminal's screen is the one door the runner has to them"; fail=1; fi; \
+	if cargo tree -p pencere-cli -e normal --prefix none | tail -n +2 | grep -E "^(cranelift-codegen|wasmtime-internal-cranelift) "; then echo "audit: the pencere command with its terminal links the code generator — the interpreter is compiled by the build (precompile), and the runner is copied into every app: pencere-tui is taken with default-features = false"; fail=1; fi; \
+	if cargo tree -p pencere-test -e normal --prefix none | tail -n +2 | grep -qE "^pencere-tui "; then echo "audit: the runner of an app's tests links the terminal's screen — it hosts the view under no terminal, and takes the command's library without its feature terminal"; fail=1; fi; \
 	if cargo tree -p pencere-cli -e normal --prefix none | tail -n +2 | grep -qE "^pencere-host "; then if grep -rnE "pencere_host::(session|sandbox|theme|icon|bundle)" cli/src | grep -v ":[[:space:]]*//"; then echo "audit: the pencere command uses more of the host crate than its apps module — it hosts no view"; fail=1; fi; fi; \
 	if cargo tree --workspace -e normal -i pencere-cli --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-test "; then echo "audit: a crate other than pencere-test depends on the library of the pencere command — it is the command's insides, which only the runner of an app's tests shares (the two are released together)"; fail=1; fi; \
 	if cargo tree -p pencere-sandbox -e normal --prune hayro --prefix none | tail -n +2 | grep -E "^(fontdb|rustybuzz|ttf-parser|harfrust|skrifa|read-fonts|swash|fontconfig|freetype|font-types)"; then echo "audit: pencere-sandbox links to a font or text-shaping library past hayro — an SVG draws shapes and no words, and no font is loaded for it; a PDF draws words with the fonts it carries and the substitutes hayro holds"; fail=1; fi; \
@@ -131,6 +144,11 @@ GUEST_CARGO = PATH="$(GUEST_BIN):$$PATH" DYLD_FALLBACK_LIBRARY_PATH="$(dir $(GUE
 # examples). `luau` (Docker) is not part of it.
 check-heavy:
 	cargo build --quiet -p containers-rust
+	# The command with and without its terminal, as a person gets either: the tests of the terminal
+	# make an app of each and run it in a pty. The two are one executable of one name, so the second is
+	# kept under a name of its own, and the first built again (it is the command the tests find).
+	cargo build --quiet -p pencere-cli --no-default-features
+	cp target/debug/pencere target/debug/pencere-no-terminal
 	cargo build --quiet -p pencere-cli
 	node tools/cargo-test.mjs --workspace --all-targets -- --ignored
 	node tools/cargo-test.mjs -p pencere-drive --all-features --lib -- --ignored shot_tests in_process_tests
@@ -140,6 +158,7 @@ check-heavy:
 	node tools/cargo-test.mjs -p pencere-sandbox --no-default-features --features precompile --lib -- --ignored
 	node tools/cargo-test.mjs -p pencere-drive --no-default-features --features precompile,program,shot --lib -- --ignored
 	cargo build --quiet -p containers-rust --no-default-features --features precompile
+	cargo build --quiet -p pencere-cli
 	node tools/cargo-test.mjs -p pencere-tui --test live -- --ignored
 	cargo build --quiet -p containers-rust
 	$(GUEST_CARGO) clippy --manifest-path kit/guest/Cargo.toml --all-targets -- -D warnings
@@ -214,10 +233,12 @@ dist-sums:
 # The runner of one target (TARGET, one of the four above), built from this checkout into OUT
 # (target/runners/pencere-<target>), for an app built with a pencere that has no release:
 # `pencere build --target TARGET --runner OUT`. It is built and checked as the executable of a
-# release is (Linux in Docker, macOS on Apple silicon), without the rest of a release.
+# release is (Linux in Docker, macOS on Apple silicon), without the rest of a release. KIND=no-terminal
+# makes the runner without the terminal in it (target/runners/pencere-no-terminal-<target>), for
+# `pencere build --no-terminal --runner OUT`.
 runner:
-	@test -n "$(TARGET)" || { echo "usage: make runner TARGET=<target> [OUT=<file>]"; exit 2; }
-	$(DIST_ENV) tools/dist.sh runner $(TARGET) $(OUT)
+	@test -n "$(TARGET)" || { echo "usage: make runner TARGET=<target> [OUT=<file>] [KIND=no-terminal]"; exit 2; }
+	$(DIST_ENV) tools/dist.sh runner $(TARGET) "$(OUT)" $(KIND)
 
 # Releasing a line (RELEASING.md). LINE is one of the lines in tools/lines.mjs: sdk-typescript
 # (@pencere/sdk), crates (the eight crates, one version) or cli (the pencere command). A release is

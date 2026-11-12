@@ -1,9 +1,11 @@
 //! `pencere test`: runs the tests of the app in this directory with the runner of tests.
 //!
 //! The runner of tests (`pencere-test`) is a program of its own: it links the kit's page engine, its
-//! editors and its interpreter, which the command, copied into every app, must not carry. This
-//! finds it and becomes it (`exec`), so that its output, its status and the signals it gets are the
-//! command's.
+//! editors and its interpreter with its code generator, and hosts the view under no terminal, which
+//! the command, copied into every app, does not carry: the command links the kit through
+//! `pencere-tui` alone (the screen that draws an app's page in the terminal), with the interpreter
+//! compiled by the build. This finds it and becomes it (`exec`), so that its output, its status and
+//! the signals it gets are the command's.
 
 use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};

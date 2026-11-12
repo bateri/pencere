@@ -35,6 +35,7 @@ cd hello
 pencere dev                # run it in this pane; a change to a file under src/ runs it again
 pencere build              # dist/hello, one file
 pencere build --target x86_64-unknown-linux-musl     # the same app for a Linux machine
+pencere build --no-terminal                          # the smaller kind, see "What it is, and is not"
 pencere test               # its tests: the page under a host with no screen (see Testing an app)
 ```
 
@@ -188,7 +189,10 @@ pencere.serve {                                            -- either: the termin
 `dir` default to the `view/page.lua` and `view/` the app has.
 
 A terminal that draws views itself shows the page of the kit in its own font and theme; one that has
-a web view shows the web page; one that has neither runs `fallback`. A web page may reach the
+a web view shows the web page; one that has neither gets the page of the kit drawn by the app itself,
+in the cells of the terminal it was started in (see "What it is, and is not"), and only where that cannot
+be done (no terminal at all, no page of the kit, `tui = false`, an app of the other kind) is
+`fallback` run. A web page may reach the
 network only where `access` says (`connect`, `resources`, `frames`, `base` as lists of origins, and
 `permissions` such as `"camera"`), and the person is asked first. `pencere new <name> --page web`
 makes a Lua program with a web page: `src/program/app.lua`, `src/view/index.html`,
@@ -306,7 +310,8 @@ A test is Lua that opens the page of the app under a host with no screen — the
 editors and the kit's interpreter, laid out and scrolled as a terminal does, with a clock the test
 moves — and does to it what a person does, looking at what it shows. It needs no browser, no
 terminal and no Node. `pencere test` runs the app's tests with `pencere-test`, a program of its own
-(it links the kit, which the command copied into every app does not): the one beside this command, or
+(it hosts the view under no terminal and links the kit with its code generator, which the command
+copied into every app does not): the one beside this command, or
 this version's release file (fetched once, checked against `SHA256SUMS`, kept), or the one
 `PENCERE_TEST` names. `pencere new` makes a project with its first test.
 
@@ -368,6 +373,22 @@ of that form cannot live in a directory of that name.
 - **One file.** `pencere build` copies the runner and writes the app into it as a section of the
   executable, so the file is the interpreter, the script, the page and the pictures. A Mac's file
   is signed ad hoc, in the process; a Linux one is static.
+- **Two kinds of app.** The command comes with the terminal in it or without it, and the app is a
+  copy of the command that built it. With it (the default), an app started in a terminal that hosts
+  no views opens its `lua` page in that terminal's cells: its handlers and its program are the
+  app's, the same page, with the mouse and the keyboard, the colours of the terminal's theme, and
+  pictures where the terminal has the Kitty graphics protocol. The runner carries the interpreter
+  the build compiled (no code generator) and the PDF reader. `serve { tui = false }` keeps an app
+  from this, and `PENCERE_TUI=0` or `1` does the same or forces it for a person. Without it
+  (`pencere build --no-terminal`) the file is smaller and links none of the kit: the app runs
+  `fallback`, as a terminal that hosts no views gets from a program that has nothing of its own.
+  A command is of one kind (a command built with `--no-default-features` is the one without) and
+  copies itself for its own kind, which is what it makes unless `--terminal` or `--no-terminal`
+  says the other: the other kind is `pencere-no-terminal-<version>-<target>` of the release, when the
+  release carries it, or the file `--runner FILE` names (in a checkout,
+  `make runner TARGET=<target> KIND=no-terminal` builds it). The kinds are not for a Cargo package
+  (`--no-terminal` is refused for one): that program has the terminal's screen or not by what it
+  depends on.
 - **Another target without its toolchain.** `--target` fetches the same version's runner of that
   target from the release (`curl`, checked against the release's `SHA256SUMS`, kept in the cache),
   and `--runner FILE` uses one you have. A pencere that is not released, a commit of it, has no

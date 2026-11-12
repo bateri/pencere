@@ -20,6 +20,15 @@ path = "src/lib.rs"
 name = "pencere"
 path = "src/main.rs"
 
+[features]
+default = ["terminal"]
+# The runner draws the app's `lua` view in the terminal it was started in when no terminal hosts it
+# (`pencere-tui`): a built app opens in any terminal, with the interpreter of the kit in it. Two
+# kinds of runner are made of this crate, and so two kinds of app: with it (the default), and
+# without it (`--no-default-features`), which is smaller and takes the app's `fallback` where no
+# terminal hosts the view. `pencere build` makes either (`--no-terminal`).
+terminal = ["dep:pencere-tui"]
+
 [dependencies]
 # The program's side of the protocol: the handshake, the tty, the signals, the way out. The
 # runner is a program like any other that uses it; what Lua adds is the language.
@@ -30,6 +39,11 @@ pencere-wire = { path = "../wire", version = "0.4.1" }
 # with the rule every terminal reads it by, and the earlier release it lists is read the same way.
 # The crate does no I/O and hosts no view; the command links it for this alone (`make audit`).
 pencere-host = { path = "../host/rust", version = "0.4.1" }
+# The terminal's own screen for the app's page (feature `terminal`). Neither the code generator nor
+# anything else the page's interpreter needs at run time is in it: the interpreter is compiled by the
+# build (`precompile`), and a PDF in a page is read (`pdf`) because the runner does not know what an
+# app shows.
+pencere-tui = { path = "../host/tui", version = "0.4.1", default-features = false, features = ["precompile", "pdf"], optional = true }
 serde_json = "1"
 libc = "0.2"
 # Signs the `app.json` of a release with the key `pencere key` makes. The key's bytes come from the

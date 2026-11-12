@@ -9,9 +9,11 @@
 #                            Mac can run them
 #   tools/dist.sh sums       SHA256SUMS, once all eight executables (the command and
 #                            the runner of tests, for four targets) are there
-#   tools/dist.sh runner TARGET [OUT]
+#   tools/dist.sh runner TARGET [OUT] [no-terminal]
 #                            the runner of one target into OUT (target/runners/pencere-TARGET),
-#                            for `pencere build --target TARGET --runner OUT`
+#                            for `pencere build --target TARGET --runner OUT`; `no-terminal` makes
+#                            the runner without the terminal in it (the second kind of app,
+#                            `pencere build --no-terminal`), into target/runners/pencere-no-terminal-TARGET
 #
 # The release workflow runs `linux` on a runner of each architecture (DIST_NATIVE=1 refuses a
 # machine that is not of that architecture: no emulation) and `macos` on a Mac, gathers the files
@@ -19,7 +21,11 @@
 # architecture runs emulated, slow the first time and exact.
 #
 # The executables are the runner `pencere build` copies for a target, so they are named for the
-# release that serves them: pencere-<version>-<target>. dist/ is rebuilt from nothing by `all` and
+# release that serves them: pencere-<version>-<target>. The runner is built with the `dist` profile
+# of Cargo.toml (the release's, with the whole program optimised as one unit) and has its terminal in
+# it, which is what `pencere build` makes an app of unless it is told not to; the one without (the
+# kind `pencere build --no-terminal` copies, pencere-no-terminal-<version>-<target>) is built by
+# `runner`, and is not one of the eight files: its release is a matter of its own. dist/ is rebuilt from nothing by `all` and
 # by `linux` and `macos` on their own, and SHA256SUMS is written last and only when all eight
 # executables are there: a dist/ without SHA256SUMS is a build that did not finish.
 #
@@ -81,13 +87,11 @@ linux_platform() {
     image="$DIST_IMAGE-$1"
 }
 
-# The command for Linux on ARCH, built in the image of tools/linux/Dockerfile and copied to OUT,
-# with the packages named after it (-p NAME) built beside it; then checked in the image: static, of
-# that architecture, and saying this version.
-linux_build() {
+# `cargo build --locked ARGS --target <ARCH's>`, in the image of tools/linux/Dockerfile, with the
+# directory of the target the architecture's own.
+linux_cargo() {
     arch=$1
-    out=$2
-    shift 2
+    shift
     : "${DIST_IMAGE:?}" "${DIST_DOCKERFILE:?}"
     linux_platform "$arch"
     target="$arch-unknown-linux-musl"
@@ -96,7 +100,7 @@ linux_build() {
     fi
     command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 ||
         fail "Docker is missing or the daemon does not answer"
-    echo "==> $target, in a $platform container"
+    echo "==> $target, in a $platform container: cargo build $*"
     docker build -q --platform "$platform" -t "$image" -f "$DIST_DOCKERFILE" tools/linux >/dev/null
     # Each architecture has a target directory of its own: the build scripts of one cannot run in
     # the other. The directory is made here, before the container: one the container makes is
@@ -106,53 +110,70 @@ linux_build() {
         -v "$PWD":/w -v pencere-linux-cargo:/usr/local/cargo/registry \
         -e CARGO_TARGET_DIR="/w/target/dist-$arch" \
         -e RUSTFLAGS="-C target-feature=+crt-static" "$image" \
-        cargo build --release --locked -p pencere-cli "$@" --target "$target"
-    cp "target/dist-$arch/$target/release/pencere" "$out"
-    # The runner of tests, if it was built with the command (-p pencere-test): next to it, by its
-    # own name, and checked the same way below.
-    if [ -f "target/dist-$arch/$target/release/pencere-test" ]; then
-        test_out="$(dirname "$out")/$(test_name_of "$target")"
-        cp "target/dist-$arch/$target/release/pencere-test" "$test_out"
-    fi
+        cargo build --locked "$@" --target "$target"
+}
 
-    held=$(cd "$(dirname "$out")" && pwd)
-    file=$(basename "$out")
-    described=$(docker run --rm --platform "$platform" -v "$held":/out:ro "$image" file "/out/$file")
+# FILE, an executable for ARCH, is checked in the image: static, of that architecture, and saying
+# `NAME VERSION` when asked its version.
+linux_check() {
+    arch=$1
+    file=$2
+    says=$3
+    linux_platform "$arch"
+    held=$(cd "$(dirname "$file")" && pwd)
+    base=$(basename "$file")
+    described=$(docker run --rm --platform "$platform" -v "$held":/out:ro "$image" file "/out/$base")
     echo "$described"
     case $described in
         *"statically linked"* | *"static-pie linked"*) ;;
-        *) fail "$out is not statically linked" ;;
+        *) fail "$file is not statically linked" ;;
     esac
     case $described in
         *"$want"*) ;;
-        *) fail "$out is not a $arch executable" ;;
+        *) fail "$file is not a $arch executable" ;;
     esac
-    shown=$(docker run --rm --platform "$platform" -v "$held":/out:ro "$image" "/out/$file" --version)
+    shown=$(docker run --rm --platform "$platform" -v "$held":/out:ro "$image" "/out/$base" --version)
     echo "$shown"
-    [ "$shown" = "pencere $DIST_VERSION" ] || fail "$out says '$shown', not version $DIST_VERSION"
-    if [ -n "${test_out:-}" ]; then
-        described=$(docker run --rm --platform "$platform" -v "$held":/out:ro "$image" file "/out/$(basename "$test_out")")
-        echo "$described"
-        case $described in
-            *"statically linked"* | *"static-pie linked"*) ;;
-            *) fail "$test_out is not statically linked" ;;
-        esac
-        case $described in
-            *"$want"*) ;;
-            *) fail "$test_out is not a $arch executable" ;;
-        esac
-        shown=$(docker run --rm --platform "$platform" -v "$held":/out:ro "$image" "/out/$(basename "$test_out")" --version)
-        echo "$shown"
-        [ "$shown" = "pencere-test $DIST_VERSION" ] || fail "$test_out says '$shown', not version $DIST_VERSION"
-    fi
+    [ "$shown" = "$says" ] || fail "$file says '$shown', not '$says'"
+}
+
+# The command for Linux on ARCH, built with the `dist` profile and copied to OUT: with its terminal
+# in it, or (KIND no-terminal) without; then checked in the image. It is built by itself: the
+# features of the kit's crates are those of everything cargo is asked to build in one run, and a
+# program built beside the runner of tests, which links the kit with its code generator, would have
+# the code generator too.
+linux_build() {
+    arch=$1
+    out=$2
+    kind=${3:-terminal}
+    case $kind in
+        terminal) set -- ;;
+        no-terminal) set -- --no-default-features ;;
+        *) fail "the kinds of runner are terminal and no-terminal, not '$kind'" ;;
+    esac
+    linux_cargo "$arch" --profile dist -p pencere-cli "$@"
+    cp "target/dist-$arch/$target/dist/pencere" "$out"
+    linux_check "$arch" "$out" "pencere $DIST_VERSION"
+}
+
+# The runner of tests (-p pencere-test) and the stand-in terminal, built with the release profile, the
+# runner copied into DIR by its name in the release and checked.
+linux_tests() {
+    arch=$1
+    dir=$2
+    linux_cargo "$arch" --release -p pencere-fake-host -p pencere-test
+    test_out="$dir/$(test_name_of "$target")"
+    cp "target/dist-$arch/$target/release/pencere-test" "$test_out"
+    linux_check "$arch" "$test_out" "pencere-test $DIST_VERSION"
 }
 
 linux() {
     arch=$1
     target="$arch-unknown-linux-musl"
     name=$(name_of "$target")
-    # The stand-in terminal is built with the command, to try it against.
-    linux_build "$arch" "dist/$name" -p pencere-fake-host -p pencere-test
+    linux_build "$arch" "dist/$name"
+    # The runner of tests, and the stand-in terminal to try the command against.
+    linux_tests "$arch" dist
 
     # What a person does with it: makes an app of the example with this executable, and runs the
     # app in the pane of the stand-in terminal.
@@ -194,18 +215,35 @@ macos_toolchain() {
     done
 }
 
-# The command for TARGET, copied to OUT. After macos_toolchain.
+# The command for TARGET, built with the `dist` profile and copied to OUT: with its terminal in it,
+# or (KIND no-terminal) without. After macos_toolchain. It is built by itself, and the runner of
+# tests beside it only when it is the command with its terminal (`macos_tests`), for the reason
+# `linux_build` gives.
 macos_build() {
     echo "==> $1"
+    case ${3:-terminal} in
+        terminal) set -- "$1" "$2" ;;
+        no-terminal) set -- "$1" "$2" --no-default-features ;;
+        *) fail "the kinds of runner are terminal and no-terminal, not '$3'" ;;
+    esac
     # The toolchain's own compiler, named: `rustup run` leaves a Homebrew rustc that is earlier
     # on PATH in front of it, and that one has no Apple targets but its own.
-    RUSTC="$rustc" "$cargo" build --release --locked -p pencere-cli -p pencere-test --target "$1"
-    cp "target/$1/release/pencere" "$2"
+    target=$1
+    out=$2
+    shift 2
+    RUSTC="$rustc" "$cargo" build --profile dist --locked -p pencere-cli "$@" --target "$target"
+    cp "target/$target/dist/pencere" "$out"
+}
+
+# The runner of tests for TARGET, built with the release profile, beside OUT (the command's file).
+macos_tests() {
+    RUSTC="$rustc" "$cargo" build --release --locked -p pencere-test --target "$1"
     cp "target/$1/release/pencere-test" "$(dirname "$2")/$(test_name_of "$1")"
 }
 
 # What this Mac can run of OUT, the executable for TARGET, is run: its own, and the Intel one if
-# Rosetta is there. The log says which it was; a Mac without Rosetta does not fail the build.
+# Rosetta is there. The log says which it was; a Mac without Rosetta does not fail the build. The
+# runner of tests beside it, if there is one (`tests`), is run the same way.
 macos_try() {
     case $1 in
         aarch64-apple-darwin)
@@ -213,17 +251,21 @@ macos_try() {
             [ "$shown" = "pencere $DIST_VERSION" ] || fail "$2 says '$shown', not version $DIST_VERSION"
             codesign --verify "$2" || fail "$2 does not pass codesign --verify"
             echo "    the Apple silicon executable ran and passes codesign --verify"
-            tested="$(dirname "$2")/$(test_name_of "$1")"
-            shown=$("$tested" --version)
-            [ "$shown" = "pencere-test $DIST_VERSION" ] || fail "$tested says '$shown', not version $DIST_VERSION"
-            echo "    the runner of tests ran"
+            if [ "${3:-}" = tests ]; then
+                tested="$(dirname "$2")/$(test_name_of "$1")"
+                shown=$("$tested" --version)
+                [ "$shown" = "pencere-test $DIST_VERSION" ] || fail "$tested says '$shown', not version $DIST_VERSION"
+                echo "    the runner of tests ran"
+            fi
             ;;
         x86_64-apple-darwin)
             if shown=$(arch -x86_64 "$2" --version 2>/dev/null); then
                 [ "$shown" = "pencere $DIST_VERSION" ] || fail "the Intel Mac executable says '$shown'"
-                tested="$(dirname "$2")/$(test_name_of "$1")"
-                shown=$(arch -x86_64 "$tested" --version 2>/dev/null) || fail "the runner of tests for the Intel Mac did not run"
-                [ "$shown" = "pencere-test $DIST_VERSION" ] || fail "the Intel Mac runner of tests says '$shown'"
+                if [ "${3:-}" = tests ]; then
+                    tested="$(dirname "$2")/$(test_name_of "$1")"
+                    shown=$(arch -x86_64 "$tested" --version 2>/dev/null) || fail "the runner of tests for the Intel Mac did not run"
+                    [ "$shown" = "pencere-test $DIST_VERSION" ] || fail "the Intel Mac runner of tests says '$shown'"
+                fi
                 echo "    the Intel executable ran (under Rosetta)"
             else
                 echo "dist: the Intel Mac executable was not run (this Mac cannot run it)"
@@ -236,9 +278,10 @@ macos() {
     macos_toolchain $MACOS_TARGETS
     for target in $MACOS_TARGETS; do
         macos_build "$target" "dist/$(name_of "$target")"
+        macos_tests "$target" "dist/$(name_of "$target")"
     done
     for target in $MACOS_TARGETS; do
-        macos_try "$target" "dist/$(name_of "$target")"
+        macos_try "$target" "dist/$(name_of "$target")" tests
     done
 }
 
@@ -289,13 +332,18 @@ sums() {
 
 runner() {
     target=$1
-    out=${2:-target/runners/pencere-$target}
+    kind=${3:-terminal}
+    case $kind in
+        terminal) out=${2:-target/runners/pencere-$target} ;;
+        no-terminal) out=${2:-target/runners/pencere-no-terminal-$target} ;;
+        *) fail "the kinds of runner are terminal and no-terminal, not '$kind'" ;;
+    esac
     mkdir -p "$(dirname "$out")"
     case $target in
-        *-unknown-linux-musl) linux_build "${target%%-*}" "$out" ;;
+        *-unknown-linux-musl) linux_build "${target%%-*}" "$out" "$kind" ;;
         aarch64-apple-darwin | x86_64-apple-darwin)
             macos_toolchain "$target"
-            macos_build "$target" "$out"
+            macos_build "$target" "$out" "$kind"
             macos_try "$target" "$out"
             ;;
         *) fail "no runner for '$target': the targets are $LINUX_TARGETS $MACOS_TARGETS" ;;
@@ -324,9 +372,9 @@ case ${1:-all} in
         sums
         ;;
     runner)
-        runner "${2:?usage: tools/dist.sh runner TARGET [OUT]}" ${3:+"$3"}
+        runner "${2:?usage: tools/dist.sh runner TARGET [OUT] [no-terminal]}" "${3:-}" "${4:-}"
         ;;
     *)
-        fail "usage: tools/dist.sh [all | linux ARCH | macos | sums | runner TARGET [OUT]]"
+        fail "usage: tools/dist.sh [all | linux ARCH | macos | sums | runner TARGET [OUT] [no-terminal]]"
         ;;
 esac

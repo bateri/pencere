@@ -4,6 +4,13 @@
 //! app's files in it. For this machine's target the runner is `pencere` itself. For another, it
 //! is the same version's runner from the release, downloaded once and kept; no toolchain of that
 //! target is needed, since nothing is compiled: a section is written into a file.
+//!
+//! There are two kinds of runner, and so of app: with a terminal in it, which draws the app's page
+//! in the terminal it is started in where none hosts the view, and without one, which is smaller and
+//! leaves that to the app's `fallback`. A runner is of one kind (the `terminal` feature of this
+//! crate, on by default, so the command that is released is of the first), and an app is of its
+//! kind unless `--terminal` or `--no-terminal` says the other: a copy of itself makes its own kind,
+//! and the other kind is the other runner, the one of the release or the one `--runner` names.
 
 use std::fs;
 use std::io;
@@ -29,13 +36,27 @@ pub const OWN: &str = env!("PENCERE_TARGET");
 /// The version of this runner: the release it came from names the runners of the other targets.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Whether this runner has a terminal in it: whether an app made of a copy of it draws its page in
+/// the terminal where none hosts the view.
+pub const TERMINAL: bool = cfg!(feature = "terminal");
+
 /// Where the releases are, unless `PENCERE_RELEASES` says otherwise (a mirror, or a directory
 /// for a test).
 const RELEASES: &str = "https://github.com/bateri/pencere/releases/download";
 
-/// The name of the executable of a target, in a release.
+/// The name of the executable of a target, in a release: the runner with a terminal in it.
 pub fn release_file(target: &str) -> String {
     format!("pencere-{VERSION}-{target}")
+}
+
+/// The name of the runner of a kind: that of `release_file` with a terminal, `pencere-no-terminal-…`
+/// without one.
+fn runner_file(target: &str, terminal: bool) -> String {
+    if terminal {
+        release_file(target)
+    } else {
+        format!("pencere-no-terminal-{VERSION}-{target}")
+    }
 }
 
 /// The target if it is one a runner is made for: the four, and this program's own whatever it is
@@ -92,19 +113,42 @@ pub fn fetch(url: &str, to: &Path) -> Result<(), String> {
     }
 }
 
-/// The runner of `target`: from the cache, or fetched from the release and checked against its
-/// `SHA256SUMS`.
-fn download(target: &str) -> Result<Vec<u8>, String> {
+/// The runner of `target` of a kind: from the cache, or fetched from the release and checked against
+/// its `SHA256SUMS`.
+fn download(target: &str, terminal: bool) -> Result<Vec<u8>, String> {
     let base = std::env::var("PENCERE_RELEASES").unwrap_or_else(|_| RELEASES.to_owned());
-    download_from(&base, &cache()?, target)
+    download_from(&base, &cache()?, target, terminal).map_err(|why| {
+        // The kind this program is not is the one it cannot copy from itself, and the release of a
+        // version does not always carry it.
+        if terminal == TERMINAL {
+            return why;
+        }
+        let (kind, how) = if terminal {
+            ("with a terminal", "")
+        } else {
+            ("with no terminal", " no-terminal")
+        };
+        format!(
+            "{why}: this program is not the runner {kind}, and the release does not give it; \
+             --runner FILE names one (tools/dist.sh runner {target} FILE{how} builds it)"
+        )
+    })
 }
 
-fn download_from(base: &str, directory: &Path, target: &str) -> Result<Vec<u8>, String> {
+fn download_from(
+    base: &str,
+    directory: &Path,
+    target: &str,
+    terminal: bool,
+) -> Result<Vec<u8>, String> {
     download_file(
         base,
         directory,
-        &release_file(target),
-        &format!("the runner for {target}"),
+        &runner_file(target, terminal),
+        &format!(
+            "the runner for {target}{}",
+            if terminal { "" } else { ", with no terminal" }
+        ),
     )
 }
 
@@ -169,8 +213,11 @@ pub struct Request<'a> {
     pub name: Option<&'a str>,
     /// The target to make it for (this machine's when it is `None`).
     pub target: Option<&'a str>,
-    /// The program that is the runner (the runner of the target when it is `None`).
+    /// The program that is the runner (the runner of the target and kind when it is `None`).
     pub runner: Option<&'a Path>,
+    /// Whether the runner has a terminal in it (`--terminal`, `--no-terminal`): that of this
+    /// program's own when it is `None`.
+    pub terminal: Option<bool>,
     /// The executable to write (`dist/<name>` for an app with the layout, `<name>` in the simple
     /// form, `-<target>` after the name for another target, when it is `None`).
     pub out: Option<&'a Path>,
@@ -178,6 +225,7 @@ pub struct Request<'a> {
 
 /// Makes the executable of the app in `request.dir`.
 pub fn build(request: &Request) -> Result<(PathBuf, usize, u64), String> {
+    let terminal = request.terminal.unwrap_or(TERMINAL);
     let target = match request.target {
         None => OWN,
         Some(name) => canonical(name)
@@ -211,10 +259,10 @@ pub fn build(request: &Request) -> Result<(PathBuf, usize, u64), String> {
     }
     let bytes = match request.runner {
         Some(path) => fs::read(path).map_err(|why| format!("{}: {why}", path.display()))?,
-        None if target == OWN => std::env::current_exe()
+        None if target == OWN && terminal == TERMINAL => std::env::current_exe()
             .and_then(fs::read)
             .map_err(|why| format!("this program cannot be read to make a copy of it: {why}"))?,
-        None => download(target)?,
+        None => download(target, terminal)?,
     };
     let packed = files::pack(&Meta { name }, &collected);
     let count = collected.len();
@@ -230,9 +278,9 @@ pub fn build(request: &Request) -> Result<(PathBuf, usize, u64), String> {
 /// `dist/<name>-<target>` for another target. The page and the pictures are in it already, carried
 /// by its build script; Cargo compiles, and so needs the toolchain of the target.
 pub fn build_cargo(request: &Request) -> Result<PathBuf, String> {
-    if request.web.is_some() || request.runner.is_some() {
+    if request.web.is_some() || request.runner.is_some() || request.terminal.is_some() {
         return Err(
-            "--web and --runner are for a Lua app; a Rust program is built by Cargo, with its view in src/view/"
+            "--web, --runner, --terminal and --no-terminal are for a Lua app; a Rust program is built by Cargo, with its view in src/view/ and the terminal (or none) in its own dependencies"
                 .to_owned(),
         );
     }
@@ -289,6 +337,7 @@ pub fn command(args: &[String]) -> ExitCode {
     let mut name = None;
     let mut target = None;
     let mut runner = None;
+    let mut terminal = None;
     let mut out = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -314,6 +363,8 @@ pub fn command(args: &[String]) -> ExitCode {
                 Ok(v) => runner = Some(PathBuf::from(v)),
                 Err(why) => return crate::usage(why),
             },
+            "--terminal" => terminal = Some(true),
+            "--no-terminal" => terminal = Some(false),
             "-o" | "--output" => match value("a file") {
                 Ok(v) => out = Some(PathBuf::from(v)),
                 Err(why) => return crate::usage(why),
@@ -332,6 +383,7 @@ pub fn command(args: &[String]) -> ExitCode {
         name: name.as_deref(),
         target: target.as_deref(),
         runner: runner.as_deref(),
+        terminal,
         out: out.as_deref(),
     };
     if crate::dev_cargo::is_project(&dir) {
@@ -419,13 +471,13 @@ mod tests {
         let base = format!("file://{}", releases.display());
         let target = "x86_64-unknown-linux-musl";
         assert_eq!(
-            download_from(&base, &cache, target).expect("fetched"),
+            download_from(&base, &cache, target, true).expect("fetched"),
             runner
         );
         // Kept: the release can be gone and the next build does not need it.
         fs::remove_dir_all(&releases).expect("removed");
         assert_eq!(
-            download_from(&base, &cache, target).expect("from the cache"),
+            download_from(&base, &cache, target, true).expect("from the cache"),
             runner
         );
         let _ = fs::remove_dir_all(cache.parent().expect("the root"));
@@ -439,15 +491,35 @@ mod tests {
         let (releases, cache) =
             release_in("bad", b"\x7fELF a runner", &sha256_hex(b"something else"));
         let base = format!("file://{}", releases.display());
-        let why = download_from(&base, &cache, "x86_64-unknown-linux-musl").expect_err("refused");
+        let why =
+            download_from(&base, &cache, "x86_64-unknown-linux-musl", true).expect_err("refused");
         assert!(why.contains("SHA256SUMS"), "{why}");
         assert!(
             !cache
                 .join(release_file("x86_64-unknown-linux-musl"))
                 .exists()
         );
-        let why =
-            download_from(&base, &cache, "aarch64-apple-darwin").expect_err("not in the release");
+        let why = download_from(&base, &cache, "aarch64-apple-darwin", true)
+            .expect_err("not in the release");
+        assert!(why.contains("could not be fetched"), "{why}");
+        let _ = fs::remove_dir_all(cache.parent().expect("the root"));
+    }
+
+    #[test]
+    fn the_runner_with_no_terminal_is_a_file_of_its_own_in_the_release() {
+        if !curl_is_here() {
+            return;
+        }
+        let target = "x86_64-unknown-linux-musl";
+        assert_eq!(
+            runner_file("aarch64-apple-darwin", false),
+            format!("pencere-no-terminal-{VERSION}-aarch64-apple-darwin")
+        );
+        assert_eq!(runner_file(target, true), release_file(target));
+        let (releases, cache) = release_in("kinds", b"\x7fELF with a terminal", "unused");
+        // The release has the one with a terminal only: the other is not served as that one.
+        let base = format!("file://{}", releases.display());
+        let why = download_from(&base, &cache, target, false).expect_err("not in the release");
         assert!(why.contains("could not be fetched"), "{why}");
         let _ = fs::remove_dir_all(cache.parent().expect("the root"));
     }

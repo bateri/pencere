@@ -195,20 +195,25 @@ pub(crate) enum Chose {
 pub(crate) struct MenuBox {
     serial: u64,
     lines: Vec<Line>,
+    /// The entry of the page's menu each line is (a page picks by the index of its own entries,
+    /// which the lines are not when one of them is not shown).
+    entries: Vec<usize>,
     area: Area,
     selected: Option<usize>,
 }
 
 impl MenuBox {
     /// The box of `menu`, where the page asked (`at`, a cell from 0) as far as the screen of `cols`
-    /// by `rows` lets it: moved left and up to fit, and no taller than the screen. The line of a
-    /// `Paste` is there, and not to be picked: a terminal's pasteboard is read by the person's own
-    /// paste, which the terminal does.
+    /// by `rows` lets it: moved left and up to fit, and no taller than the screen. A `Paste` has no
+    /// line (a terminal's pasteboard is read by the person's own paste, which the terminal does, so
+    /// the line could never be picked), and a separator it leaves at an edge or beside another goes
+    /// with it.
     pub fn new(menu: &Menu, at: (u16, u16), screen: (u16, u16)) -> Self {
-        let lines: Vec<Line> = menu
-            .entries
-            .iter()
-            .map(|entry| match entry {
+        let mut lines: Vec<Line> = Vec::new();
+        let mut entries: Vec<usize> = Vec::new();
+        let mut skipped = false;
+        for (index, entry) in menu.entries.iter().enumerate() {
+            let line = match entry {
                 MenuEntry::Item {
                     title,
                     keys,
@@ -219,13 +224,34 @@ impl MenuBox {
                     enabled: *enabled,
                 },
                 MenuEntry::Separator => Line::Separator,
-                MenuEntry::Paste { title, .. } => Line::Item {
-                    title: title.clone(),
-                    keys: String::new(),
-                    enabled: false,
-                },
-            })
-            .collect();
+                MenuEntry::Paste { .. } => {
+                    skipped = true;
+                    continue;
+                }
+            };
+            lines.push(line);
+            entries.push(index);
+        }
+        if skipped {
+            // Only what the missing line left alone: the page's own separators are as it wrote them.
+            let mut kept: Vec<(Line, usize)> = Vec::new();
+            for (line, entry) in lines.into_iter().zip(entries) {
+                let lone = line == Line::Separator
+                    && kept
+                        .last()
+                        .is_none_or(|(before, _)| *before == Line::Separator);
+                if !lone {
+                    kept.push((line, entry));
+                }
+            }
+            while kept
+                .last()
+                .is_some_and(|(line, _)| *line == Line::Separator)
+            {
+                kept.pop();
+            }
+            (lines, entries) = kept.into_iter().unzip();
+        }
         let widest = lines
             .iter()
             .map(|line| match line {
@@ -254,6 +280,7 @@ impl MenuBox {
         Self {
             serial: menu.serial,
             lines,
+            entries,
             area: Area {
                 col,
                 row,
@@ -293,13 +320,20 @@ impl MenuBox {
         changed
     }
 
+    /// The pick of the line `line`: of the entry of the page's menu it is.
+    fn pick(&self, line: usize) -> Chose {
+        self.entries
+            .get(line)
+            .map_or(Chose::Nothing, |entry| Chose::Pick(*entry))
+    }
+
     /// A press of the main button at `col`, `row`.
     pub fn press(&mut self, col: u16, row: u16) -> Chose {
         if !self.area.contains(col, row) {
             return Chose::Dismissed;
         }
         match self.line_at(col, row) {
-            Some(index) if self.lines.get(index).is_some_and(Line::picks) => Chose::Pick(index),
+            Some(index) if self.lines.get(index).is_some_and(Line::picks) => self.pick(index),
             _ => Chose::Nothing,
         }
     }
@@ -338,12 +372,21 @@ impl MenuBox {
             Key::Home => self.selected = step(None, true),
             Key::End => self.selected = step(None, false),
             Key::Enter => {
-                return (self.selected.map_or(Chose::Nothing, Chose::Pick), false);
+                return (
+                    self.selected
+                        .map_or(Chose::Nothing, |index| self.pick(index)),
+                    false,
+                );
             }
             Key::Escape => return (Chose::Dismissed, false),
             _ => {}
         }
         (Chose::Nothing, before != self.selected)
+    }
+
+    /// Whether there is nothing in it to choose or to see.
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty()
     }
 
     /// The titles of the lines, for a test.
@@ -1089,20 +1132,67 @@ mod tests {
         assert_eq!(open.titles(), ["A long line of a menu"]);
     }
 
-    #[test]
-    fn the_line_of_a_paste_is_there_and_cannot_be_picked() {
-        let menu = menu(vec![MenuEntry::Paste {
+    fn paste() -> MenuEntry {
+        MenuEntry::Paste {
             title: "Paste".to_owned(),
             enabled: true,
             editor: pencere_view::Id::named("doc"),
-        }]);
-        let mut open = MenuBox::new(&menu, (0, 0), (40, 10));
-        assert_eq!(open.titles(), ["Paste"]);
+        }
+    }
+
+    #[test]
+    fn a_paste_has_no_line_and_the_separator_it_leaves_alone_goes_with_it() {
+        let sep = || MenuEntry::Separator;
+        let titles =
+            |entries: Vec<MenuEntry>| MenuBox::new(&menu(entries), (0, 0), (40, 10)).titles();
+        // Nothing of it is shown, and the separator before it was the end of the menu.
         assert_eq!(
-            open.key(Key::Down, Mods::default()),
-            (Chose::Nothing, false)
+            titles(vec![
+                item("Cut", None, true),
+                item("Copy", None, true),
+                sep(),
+                paste()
+            ]),
+            ["Cut", "Copy"]
         );
-        assert_eq!(open.press(2, 1), Chose::Nothing);
+        assert_eq!(
+            titles(vec![sep(), paste(), item("Cut", None, true)]),
+            ["Cut"]
+        );
+        // Two separators that met where it was are one.
+        assert_eq!(
+            titles(vec![
+                item("Cut", None, true),
+                sep(),
+                paste(),
+                sep(),
+                item("Delete", None, true)
+            ]),
+            ["Cut", "-", "Delete"]
+        );
+        // The separators of a menu with no paste are the page's own, as it wrote them.
+        assert_eq!(
+            titles(vec![sep(), item("Cut", None, true), sep()]),
+            ["-", "Cut", "-"]
+        );
+        assert!(MenuBox::new(&menu(vec![paste()]), (0, 0), (40, 10)).is_empty());
+    }
+
+    #[test]
+    fn a_pick_is_the_entry_of_the_pages_menu_whatever_lines_went_before_it() {
+        let menu = menu(vec![
+            item("Cut", None, true),
+            paste(),
+            MenuEntry::Separator,
+            item("Delete", None, true),
+        ]);
+        let mut open = MenuBox::new(&menu, (0, 0), (40, 10));
+        assert_eq!(open.titles(), ["Cut", "-", "Delete"]);
+        open.key(Key::End, Mods::default());
+        assert_eq!(open.key(Key::Enter, Mods::default()).0, Chose::Pick(3));
+        let area = open.area();
+        assert_eq!(open.press(area.col + 2, area.row + 3), Chose::Pick(3));
+        assert_eq!(open.press(area.col + 2, area.row + 1), Chose::Pick(0));
     }
 
     #[test]

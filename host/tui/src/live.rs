@@ -1293,8 +1293,12 @@ impl Live<'_> {
                 (menu.at.x / COLUMN).floor().max(0.0) as u16,
                 (menu.at.y / ROW).floor().max(0.0) as u16,
             );
-            self.overlay = Some(Overlay::Menu(MenuBox::new(&menu, at, size)));
-            self.dirty = true;
+            // A menu that was only a paste has nothing to show: it is as if it had been turned away.
+            let shown = MenuBox::new(&menu, at, size);
+            if !shown.is_empty() {
+                self.overlay = Some(Overlay::Menu(shown));
+                self.dirty = true;
+            }
         } else if let Some(panel) = effects.panel.take() {
             self.overlay = Some(Overlay::Panel(PanelBar::new(panel)));
             self.dirty = true;

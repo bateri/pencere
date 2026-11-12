@@ -3,8 +3,9 @@
 //! A test is Luau that opens the page of an app under the host with no screen — the page engine,
 //! its editors and the kit's interpreter, with a clock the test moves — with the program the app
 //! has, and does to it what a person does, looking at what it shows. `pencere test` finds this
-//! program and runs it; it is a program of its own because it links the kit, which the command that
-//! is copied into every app must not.
+//! program and runs it; it is a program of its own because it hosts the view under no terminal and
+//! links the kit with its code generator, which the command that is copied into every app does not
+//! (it links the kit through `pencere-tui` alone, with the interpreter the build compiled).
 //!
 //! One process runs the files of the app's `test/` on workers, processes of this same program
 //! (`--worker`), so that a test stuck in a call or ended by a crash costs its file and not the run.

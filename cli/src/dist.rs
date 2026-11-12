@@ -239,6 +239,9 @@ fn run(options: &Options) -> Result<String, String> {
                     name: Some(&name),
                     target: Some(target),
                     runner: None,
+                    // A release is of the kind the release of the command has for every target: the
+                    // one with a terminal in it, whichever kind this command is.
+                    terminal: Some(true),
                     out: Some(&out),
                 })?;
                 built.push(describe_file(target, &file, &out)?);

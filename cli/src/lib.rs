@@ -49,10 +49,15 @@ usage:
                                              it again when its files change; a Cargo package (a
                                              program in Rust) is built with Cargo, and its view is
                                              shown again without ending it
-  pencere build [dir] [--web DIR] [--name NAME] [--target T] [--runner FILE] [-o FILE]
-                                             make one executable of the app in dir; a Cargo
-                                             package is built by Cargo (--release, --target passed
-                                             on) and its program copied to dist/
+  pencere build [dir] [--web DIR] [--name NAME] [--target T] [--runner FILE]
+                [--terminal | --no-terminal] [-o FILE]
+                                             make one executable of the app in dir; it draws the
+                                             app's page in the terminal it is started in where none
+                                             hosts the view, or with --no-terminal is a smaller one
+                                             that does not (the app's fallback runs); this command
+                                             makes its own kind unless told; a Cargo package is
+                                             built by Cargo (--release, --target passed on) and its
+                                             program copied to dist/
   pencere key [--key FILE]                   make the key an app's releases are signed with, once
                                              (the secret half in ~/.config/pencere/signing.key,
                                              never overwritten), and print the public half; when

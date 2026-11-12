@@ -49,3 +49,13 @@ opt-level = 2
 # every app `pencere build` makes.
 [profile.release]
 strip = "symbols"
+
+# The command `make dist` ships, which is the runner copied into every app `pencere build` makes
+# (tools/dist.sh builds it with `--profile dist`): the release profile with the whole program
+# optimised as one unit, which makes the file smaller and the build slower, so that a build for the
+# repository's own use is not made with it.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

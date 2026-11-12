@@ -258,3 +258,79 @@ io.write(tostring(ok) .. "\n")
     let _ = fs::remove_dir_all(&dir);
     assert_eq!(said, "false false false\nfalse\n");
 }
+
+/// What `pencere build` says and whether it made the file, for the app in `dir/app`.
+fn build_with(
+    dir: &std::path::Path,
+    args: &[&str],
+    env: &[(&str, &std::path::Path)],
+) -> (bool, String) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pencere"));
+    command
+        .arg("build")
+        .arg(dir.join("app"))
+        .args(args)
+        .arg("-o")
+        .arg(dir.join("made"));
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    let made = command.output().expect("the runner builds");
+    (
+        made.status.success(),
+        String::from_utf8_lossy(&made.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn the_runner_of_the_other_kind_is_the_releases_or_the_one_that_is_named() {
+    let dir = std::env::temp_dir().join(format!("pencere-kind-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("app")).expect("a directory");
+    fs::write(dir.join("app/app.lua"), "print(\"hello\")\n").expect("an app");
+    // No release to be had: a directory that has none, and a cache that is empty.
+    let none = dir.join("releases");
+    let cache = dir.join("cache");
+    let env = [
+        ("PENCERE_RELEASES", none.as_path()),
+        ("PENCERE_CACHE", cache.as_path()),
+    ];
+    // The command makes its own kind of a copy of itself. The other kind is another file: the
+    // release's, which here is nowhere, and which the error says how to name instead.
+    let (own, other, flag) = if cfg!(feature = "terminal") {
+        ("--terminal", "--no-terminal", "no terminal")
+    } else {
+        ("--no-terminal", "--terminal", "with a terminal")
+    };
+    let (made, said) = build_with(&dir, &[], &env);
+    assert!(made, "{said}");
+    let (made, said) = build_with(&dir, &[own], &env);
+    assert!(made, "{said}");
+    let (made, said) = build_with(&dir, &[other], &env);
+    assert!(!made, "the other kind came from nowhere");
+    assert!(said.contains("--runner FILE"), "{said}");
+    assert!(said.contains(flag), "{said}");
+    // A runner that is named is the runner, of whichever kind it is.
+    let named = dir.join("runner");
+    fs::copy(env!("CARGO_BIN_EXE_pencere"), &named).expect("a runner");
+    let (made, said) = build_with(&dir, &[other, "--runner", &named.to_string_lossy()], &env);
+    assert!(made, "{said}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_cargo_package_is_not_built_with_or_without_a_terminal_by_the_command() {
+    let dir = std::env::temp_dir().join(format!("pencere-cargo-kind-test-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("app/src")).expect("a directory");
+    fs::write(
+        dir.join("app/Cargo.toml"),
+        "[package]\nname = \"p\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    )
+    .expect("a package");
+    fs::write(dir.join("app/src/main.rs"), "fn main() {}\n").expect("a program");
+    let (made, said) = build_with(&dir, &["--no-terminal"], &[]);
+    assert!(!made);
+    assert!(said.contains("--no-terminal"), "{said}");
+    let _ = fs::remove_dir_all(&dir);
+}

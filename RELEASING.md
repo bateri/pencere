@@ -82,12 +82,27 @@ from the tag), since a trusted publisher can only be set on an existing crate.
 
 The release is eight files and `SHA256SUMS`: `pencere-<version>-<target>` for macOS and Linux on
 arm64 and x86_64, and beside each the runner of tests, `pencere-test-<version>-<target>`, a program
-of its own because it links the kit, which the command (copied into every app) must not.
-`cli/install.sh` installs the newest command only; `pencere test` fetches the runner of tests of its
-own version from the same release the first time it is run, and `pencere build --target` fetches
-runners from it too. The runner of tests for the Linux targets links the WebAssembly runtime
-statically against musl: `tools/dist.sh linux` is where that is proved, and a target that cannot
-build it is not released for until it can.
+of its own because it links the kit with its code generator and hosts the view under no terminal,
+which the command (copied into every app) does not: the command links the kit through `pencere-tui`
+alone, to draw an app's page in a terminal that hosts no views, with the interpreter compiled by the
+build and no code generator, and the executables are built with the `dist` profile of `Cargo.toml`
+(by themselves, not beside the runner of tests: the features of the kit's crates are those of all
+that one `cargo` run builds). `cli/install.sh` installs the newest command only; `pencere test`
+fetches the runner of tests of its own version from the same release the first time it is run, and
+`pencere build --target` fetches runners from it too.
+
+The command comes in two kinds, which `pencere build` makes apps of: with the terminal in it (the
+release's eight; `cargo build --profile dist -p pencere-cli`), and without it
+(`pencere build --no-terminal`; `--no-default-features`, which links none of the kit and is the
+smaller file). The second is not one of the eight: `make runner TARGET=<target> KIND=no-terminal`
+builds it (`tools/dist.sh runner`), and `pencere build --no-terminal` fetches
+`pencere-no-terminal-<version>-<target>` from a release that carries it, or takes the one `--runner`
+names. Publishing it is a matter of its own: `tools/dist.sh sums`, the release workflow and
+`tools/release.mjs` list the eight files and know no ninth.
+
+The runner of tests for the Linux targets links the WebAssembly runtime statically against musl:
+`tools/dist.sh linux` is where that is proved, and a target that cannot build it is not released for
+until it can.
 
 The command is published after the SDK and the crates, and only once the versions it makes new
 projects with are on npm and crates.io, so that `pencere new` never makes a project that cannot

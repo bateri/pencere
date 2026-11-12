@@ -3,7 +3,9 @@
 //! back as it was.
 //!
 //! The program is the example written against the Rust library (`examples/containers-rust`, which
-//! `make check-heavy` builds first); the terminal is a pty read by a small emulator that follows
+//! `make check-heavy` builds first), and the app `pencere build` makes of `examples/containers-lua`
+//! with each kind of runner (the command, built with and without its terminal, which `make
+//! check-heavy` builds first too); the terminal is a pty read by a small emulator that follows
 //! what is written to it as far as these tests look (where the cursor is put, what is written, what
 //! is cleared, the colours that are asked for, the modes). Heavy: each run compiles the interpreter
 //! the page runs in.
@@ -25,20 +27,27 @@ use std::time::{Duration, Instant};
 
 use pencere_fake_host::pty::{Output, Pty, Size, wait};
 
-/// The example program, built beside the tests.
-fn program() -> String {
+/// A program built beside the tests (in the directory of the target the tests are in).
+fn built(name: &str, how: &str) -> PathBuf {
     let exe = std::env::current_exe().expect("this test's path");
     let dir = exe
         .parent()
         .and_then(std::path::Path::parent)
         .expect("the target directory");
-    let found: PathBuf = dir.join("containers-rust");
+    let found: PathBuf = dir.join(name);
     assert!(
         found.is_file(),
-        "{} is missing: `cargo build -p containers-rust` first (make check-heavy does)",
+        "{} is missing: `{how}` first (make check-heavy does)",
         found.display()
     );
-    found.to_string_lossy().into_owned()
+    found
+}
+
+/// The example program, built beside the tests.
+fn program() -> String {
+    built("containers-rust", "cargo build -p containers-rust")
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// What a terminal that follows the stream knows of the screen.
@@ -297,6 +306,19 @@ impl Terminal {
 
     /// As [`Terminal::start`], with `args` for the program.
     fn start_with(args: &[&str], cols: u16, rows: u16, env: &[(&str, &str)], knows: Knows) -> Self {
+        let mut command = vec![program()];
+        command.extend(args.iter().map(|arg| (*arg).to_owned()));
+        Self::start_command(command, cols, rows, env, knows)
+    }
+
+    /// A program that is not the example, with its arguments.
+    fn start_command(
+        command: Vec<String>,
+        cols: u16,
+        rows: u16,
+        env: &[(&str, &str)],
+        knows: Knows,
+    ) -> Self {
         let mut variables: Vec<(String, String)> = vec![
             ("TERM".to_owned(), "xterm-256color".to_owned()),
             // Neither a terminal that says it has true colour, nor a screen forced.
@@ -308,8 +330,6 @@ impl Terminal {
             variables.retain(|(have, _)| have != name);
             variables.push(((*name).to_owned(), (*value).to_owned()));
         }
-        let mut command = vec![program()];
-        command.extend(args.iter().map(|arg| (*arg).to_owned()));
         let pty = Pty::spawn_in(&command, Size { cols, rows }, &variables, None)
             .expect("the program starts on a pty");
         Self {
@@ -1149,4 +1169,282 @@ fn a_picture_is_sent_to_the_terminal_once_and_scrolling_only_moves_where_it_is_p
         position_of(&terminal.raw, b"\x1b_Ga=d,d=A,", 0).expect("the pictures are given up");
     let left = position_of(&terminal.raw, b"\x1b[?1049l", 0).expect("the screen is left");
     assert!(freed < left);
+}
+
+// --- An app `pencere build` makes -------------------------------------------------------------
+
+/// The command, as it is built with its terminal (the default) and without it: the second under a
+/// name of its own, as `make check-heavy` leaves it.
+fn command(terminal: bool) -> PathBuf {
+    if terminal {
+        built("pencere", "cargo build -p pencere-cli")
+    } else {
+        built(
+            "pencere-no-terminal",
+            "cargo build -p pencere-cli --no-default-features, and the executable copied to target/debug/pencere-no-terminal",
+        )
+    }
+}
+
+/// A directory of this test's own, to put apps in, empty.
+fn scratch(name: &str) -> PathBuf {
+    let exe = std::env::current_exe().expect("this test's path");
+    let dir = exe
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("the target directory")
+        .join(format!("live-apps-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a directory");
+    dir
+}
+
+/// The example app of Lua, made into one executable by `runner` (`args` after `build <dir>`).
+fn app_of(
+    runner: &std::path::Path,
+    dir: &std::path::Path,
+    name: &str,
+    source: &str,
+    args: &[&str],
+) -> PathBuf {
+    let out = dir.join(name);
+    let made = std::process::Command::new(runner)
+        .arg("build")
+        .arg(source)
+        .args(args)
+        .arg("-o")
+        .arg(&out)
+        .output()
+        .expect("the command runs");
+    assert!(
+        made.status.success(),
+        "{}",
+        String::from_utf8_lossy(&made.stderr)
+    );
+    out
+}
+
+fn containers_lua() -> String {
+    format!(
+        "{}/../../examples/containers-lua",
+        env!("CARGO_MANIFEST_DIR")
+    )
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which loads the interpreter"]
+fn an_app_with_a_terminal_in_it_draws_its_page_in_a_terminal_that_hosts_no_view() {
+    let dir = scratch("terminal");
+    let app = app_of(&command(true), &dir, "with", &containers_lua(), &[]);
+    let mut terminal = Terminal::start_command(
+        vec![app.to_string_lossy().into_owned()],
+        100,
+        30,
+        &[],
+        Knows::default(),
+    );
+    // The list is the app's own handler's answer (Lua, on the loop of the app, to a call the page
+    // made), and the readings are the topic it feeds: both are on the screen.
+    up(&mut terminal);
+    terminal.until_with("a reading beside a container", |screen| {
+        screen
+            .text()
+            .lines()
+            .any(|line| line.contains("web") && line.contains('%'))
+    });
+    assert!(terminal.screen.alternate);
+    assert!(!terminal.screen.cursor_shown);
+    terminal.type_bytes(b"\x03");
+    let status = terminal.ended();
+    assert_eq!(status.code(), Some(130), "{status:?}");
+    // Not the text of its `fallback`, which is what this app says where nothing shows its page (and
+    // says after the screen is given back, so that the whole of what was written is looked at).
+    assert_eq!(
+        count(&terminal.raw, b"NAME         IMAGE"),
+        0,
+        "the fallback ran"
+    );
+    // The terminal is the person's again.
+    assert!(!terminal.screen.alternate);
+    assert!(terminal.screen.cursor_shown);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+#[ignore = "heavy: needs the command built without its terminal"]
+fn an_app_with_no_terminal_in_it_takes_its_fallback_in_a_terminal_that_hosts_no_view() {
+    let dir = scratch("no-terminal");
+    // The command with no terminal in it makes the app of a copy of itself.
+    let plain = command(false);
+    let app = app_of(
+        &plain,
+        &dir,
+        "without",
+        &containers_lua(),
+        &["--no-terminal"],
+    );
+    let mut terminal = Terminal::start_command(
+        vec![app.to_string_lossy().into_owned()],
+        100,
+        30,
+        &[],
+        Knows::default(),
+    );
+    // What the app's `fallback` prints, and the end of the app: no screen was ever drawn.
+    terminal.until("NAME");
+    terminal.until("worker");
+    let status = terminal.ended();
+    assert_eq!(status.code(), Some(0), "{status:?}");
+    assert_eq!(
+        count(&terminal.raw, b"\x1b[?1049h"),
+        0,
+        "no alternate screen"
+    );
+    assert!(terminal.screen.find("Filter by name").is_none());
+    // It is the smaller of the two.
+    let with = app_of(&command(true), &dir, "with", &containers_lua(), &[]);
+    let size = |path: &std::path::Path| std::fs::metadata(path).expect("a file").len();
+    assert!(
+        size(&app) < size(&with),
+        "{} bytes, and {} with the terminal",
+        size(&app),
+        size(&with)
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// An app of one Lua file and a page that draws "drawn", in `dir/source`.
+fn small_app(dir: &std::path::Path, app: &str) -> PathBuf {
+    let source = dir.join("source");
+    std::fs::create_dir_all(&source).expect("a directory");
+    std::fs::write(source.join("app.lua"), app).expect("an app");
+    std::fs::write(
+        source.join("page.lua"),
+        "return { render = function() return pencere.div():size_full():child(pencere.text(\"drawn\")) end }",
+    )
+    .expect("a page");
+    source
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which loads the interpreter"]
+fn an_app_that_turns_its_screen_off_takes_its_fallback_with_a_terminal_in_the_runner_too() {
+    let dir = scratch("screen-off");
+    let source = small_app(
+        &dir,
+        r#"
+        local pencere = require("pencere")
+        local outcome = pencere.serve {
+            page = "page.lua",
+            tui = false,
+            fallback = function(why) print("the fallback ran: " .. why.reason) end,
+        }
+        pencere.exit(outcome.status)
+        "#,
+    );
+    let app = app_of(&command(true), &dir, "app", &source.to_string_lossy(), &[]);
+    let mut terminal = Terminal::start_command(
+        vec![app.to_string_lossy().into_owned()],
+        100,
+        30,
+        &[],
+        Knows::default(),
+    );
+    terminal.until("the fallback ran: no-host");
+    let status = terminal.ended();
+    assert_eq!(status.code(), Some(0), "{status:?}");
+    assert_eq!(
+        count(&terminal.raw, b"\x1b[?1049h"),
+        0,
+        "no alternate screen"
+    );
+    assert!(terminal.screen.find("drawn").is_none());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+#[ignore = "heavy: starts a page, which loads the interpreter"]
+fn an_app_that_closes_its_view_or_ends_while_its_page_is_drawn_gives_the_terminal_back() {
+    let dir = scratch("ends");
+    // The page asks the app once it is up, and the app does what it was written to do a second after
+    // it was asked: the page is on the screen by then (it takes a while to start).
+    let source = |app: &str| {
+        let source = small_app(&dir, app);
+        std::fs::write(
+            source.join("page.lua"),
+            "pencere.call(\"ready\", nil, function() return true end)\n\
+             return { render = function() return pencere.div():size_full():child(pencere.text(\"drawn\")) end }",
+        )
+        .expect("a page");
+        source
+    };
+    // The app closes the view itself: `serve` gives how that ended, and the app goes on.
+    let source_of_closing = source(
+        r#"
+        local pencere = require("pencere")
+        local outcome = pencere.serve {
+            page = "page.lua",
+            calls = {
+                ready = function()
+                    pencere.time.after(1, function() pencere.close_view() end)
+                    return {}
+                end,
+            },
+        }
+        print("served: " .. tostring(outcome.shown) .. " " .. tostring(outcome.ended))
+        "#,
+    );
+    let app = app_of(
+        &command(true),
+        &dir,
+        "closes",
+        &source_of_closing.to_string_lossy(),
+        &[],
+    );
+    let mut terminal = Terminal::start_command(
+        vec![app.to_string_lossy().into_owned()],
+        100,
+        30,
+        &[],
+        Knows::default(),
+    );
+    terminal.until("drawn");
+    terminal.until("served: true program");
+    let status = terminal.ended();
+    assert_eq!(status.code(), Some(0), "{status:?}");
+    assert!(!terminal.screen.alternate && terminal.screen.cursor_shown);
+    // The app ends with its status while the page is up: the page goes, and the terminal is back.
+    let source_of_ending = source(
+        r#"
+        local pencere = require("pencere")
+        pencere.serve {
+            page = "page.lua",
+            calls = {
+                ready = function()
+                    pencere.time.after(1, function() pencere.exit(3) end)
+                    return {}
+                end,
+            },
+        }
+        "#,
+    );
+    let app = app_of(
+        &command(true),
+        &dir,
+        "ends",
+        &source_of_ending.to_string_lossy(),
+        &[],
+    );
+    let mut terminal = Terminal::start_command(
+        vec![app.to_string_lossy().into_owned()],
+        100,
+        30,
+        &[],
+        Knows::default(),
+    );
+    terminal.until("drawn");
+    let status = terminal.ended();
+    assert_eq!(status.code(), Some(3), "{status:?}");
+    assert!(!terminal.screen.alternate && terminal.screen.cursor_shown);
+    let _ = std::fs::remove_dir_all(dir);
 }

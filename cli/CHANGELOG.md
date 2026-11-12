@@ -25,6 +25,21 @@ All notable changes to the `pencere` command are recorded here. The format follo
   and the buttons of a mouse beyond the third with their own events (`magnify`, `smart_magnify`,
   `rotate`, `swipe`, `pressure`, `extra_press`, `extra_release`), and `move`, `release` and `wheel`
   carry the modifiers (the kit's specification, Section 2.3).
+- **A built app opens in any terminal.** The command links `pencere-tui` (the new feature
+  `terminal`, on by default): an app started in a terminal that hosts no views draws its `lua` page in
+  the cells of that terminal, with the app's own handlers in the same process, and runs its
+  `fallback` only where that cannot be done (no terminal, no page of the kit). The interpreter is the
+  one the build compiled (no code generator is in the file) and the PDF reader is in.
+  `serve { tui = false }` keeps an app from it, `PENCERE_TUI=0` or `1` does so for a person.
+- **`pencere build --no-terminal`** makes the other kind of app: the file is smaller, links none of
+  the kit, and runs `fallback`, as apps did (`--terminal` is the kind that has the screen). A command
+  is of one kind (`--no-default-features` builds the one without the terminal), copies itself for
+  its own kind, and makes that kind unless told the other; the other kind is
+  `pencere-no-terminal-<version>-<target>` of a release that carries it, or the file `--runner`
+  names (`make runner TARGET=<target> KIND=no-terminal` in a checkout builds one). A Cargo package
+  refuses the flag. The executables of a release are built with the new `dist` profile (fat LTO, one
+  code generation unit, no symbols).
+
 - **`page:spills()` in `pencere test`**: what on the page stands past the inside of the box it is in,
   a list of tables, each with `box`, `inside`, `left`, `above`, `right`, `below` (points), `words`
   and `around` (the first words in the box and in the one it is in). Empty on a page whose sizes come out as

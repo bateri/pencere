@@ -1191,6 +1191,7 @@ dependencies = [
  "mlua",
  "pencere",
  "pencere-host",
+ "pencere-tui",
  "pencere-wire",
  "regex",
  "serde_json",

@@ -16,8 +16,9 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   interpreter to be compiled. With neither `compiler` nor `precompile` the build fails, naming both.
 - **A menu, a panel and a link over the page.** `Host::menu` is a framed list of cells on the
   page's own ground, so that the frame alone is its edge (the arrows, Enter, Escape and the pointer
-  pick, and a press outside turns it away; a Paste line is shown dimmed: a page cannot read the
-  terminal's pasteboard, the person pastes with the terminal's own paste). `Host::panel` is one line
+  pick, and a press outside turns it away; a Paste entry has no line: a page cannot read the
+  terminal's pasteboard, the person pastes with the terminal's own paste, and a separator it leaves
+  at an edge or beside another goes with it). `Host::panel` is one line
   for a path, with Tab to complete it, for Open (a file becomes a handle the page draws with
   `file:<handle>` and has a `path`) and for Save (the page's proposed name goes after a folder); at
   the right it says what its keys do (`Enter opens  Esc cancels`, `Enter saves  Esc cancels`), and
