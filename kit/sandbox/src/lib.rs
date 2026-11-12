@@ -15,11 +15,16 @@
 //! runtime, and moves out of the workspace with the engine.
 
 mod decode;
+mod engine_config;
 mod figure;
 mod images;
 pub mod library;
 mod luau;
 mod module;
+#[cfg(feature = "pdf")]
+mod pdf;
+#[cfg(not(feature = "pdf"))]
+#[path = "pdf_off.rs"]
 mod pdf;
 mod sandbox;
 mod watchdog;
@@ -49,7 +54,7 @@ mod luau_print_tests;
 mod luau_require_tests;
 #[cfg(test)]
 mod luau_tests;
-#[cfg(test)]
+#[cfg(all(test, feature = "pdf"))]
 mod pdf_tests;
 #[cfg(test)]
 mod test_support;

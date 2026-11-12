@@ -57,6 +57,7 @@ pub(crate) enum Failure {
     /// The SVG is made of more than a drawing may be.
     Complex { nodes: usize, most: usize },
     /// The PDF has more pages than a document may.
+    #[cfg_attr(not(feature = "pdf"), allow(dead_code))]
     Pages { count: usize, most: usize },
     /// The view names more images than it may.
     Paths { most: usize },

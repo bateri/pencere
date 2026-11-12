@@ -14,7 +14,6 @@ use pencere_view::{
     Input, Key, Keyboard, Mix, Mods, Motion, Phase, Point, Rgba, Role, Rows, ScrollTo, Scrolled,
     Shift, Source, Tip, image,
 };
-use wasmtime::component::Component;
 
 use crate::test_support::{Open, Rough, SIZE};
 use crate::{Fault, Module, ModuleLimits, Program, Script, TimeLimit, Unbounded, Update};
@@ -87,7 +86,8 @@ pub(crate) fn failed(update: &Update) -> String {
 #[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn the_interpreter_asks_for_nothing_the_page_interface_does_not_give() {
     let engine = crate::sandbox::engine().expect("an engine");
-    let component = Component::new(&engine, crate::LUAU_COMPONENT).expect("a component");
+    // The interpreter as a page loads it: compiled now, or as the build compiled it.
+    let component = crate::luau::component(&engine).expect("a component");
     let imports: Vec<String> = component
         .component_type()
         .imports(&engine)

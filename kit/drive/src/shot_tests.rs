@@ -16,6 +16,7 @@ use tiny_skia::Pixmap;
 use crate::headless::{Error, Headless};
 use crate::shot::{Fonts, Palette, png};
 
+#[cfg(feature = "pdf")]
 fn fixture() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/fixtures/shot.png")
 }
@@ -78,7 +79,9 @@ fn card() -> DrawList {
 }
 
 /// With no font, a list is the same picture, byte for byte, wherever it is drawn: the one checked
-/// in.
+/// in. (The bytes are those of the PNG encoder as the PDF reader's libraries set it up: a build with
+/// no PDF reader compresses the same picture to other bytes, so there it is held to what it shows
+/// alone.)
 #[test]
 fn a_list_drawn_with_no_font_is_the_same_picture_everywhere() {
     let drawn = png(&card(), (120, 60), &Fonts::none(), None, Palette::Dark).expect("a picture");
@@ -87,14 +90,17 @@ fn a_list_drawn_with_no_font_is_the_same_picture_everywhere() {
         png(&card(), (120, 60), &Fonts::none(), None, Palette::Dark).expect("a picture"),
         "the same list, the same bytes"
     );
-    if std::env::var("PENCERE_SHOTS").as_deref() == Ok("write") {
-        std::fs::write(fixture(), &drawn).expect("the picture written");
+    #[cfg(feature = "pdf")]
+    {
+        if std::env::var("PENCERE_SHOTS").as_deref() == Ok("write") {
+            std::fs::write(fixture(), &drawn).expect("the picture written");
+        }
+        let checked_in = std::fs::read(fixture()).expect("the picture checked in");
+        assert!(
+            drawn == checked_in,
+            "the picture is not the one checked in (PENCERE_SHOTS=write writes it again)"
+        );
     }
-    let checked_in = std::fs::read(fixture()).expect("the picture checked in");
-    assert!(
-        drawn == checked_in,
-        "the picture is not the one checked in (PENCERE_SHOTS=write writes it again)"
-    );
     // What it shows: the card's ground, the bar, a box of a word, and nothing of the word cut off
     // past its box.
     let pixmap = Pixmap::decode_png(&drawn).expect("a PNG");

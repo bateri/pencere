@@ -1852,6 +1852,7 @@ fn a_panel_is_shown_for_what_the_person_did_and_one_at_a_time() -> Result<(), Er
 
 /// A PDF whose pages are `(width, height, [red, green, blue])`, points, each a box of its colour
 /// over the whole page.
+#[cfg(feature = "pdf")]
 fn pdf_of_colours(pages: &[(u32, u32, [f32; 3])]) -> Vec<u8> {
     let mut out = b"%PDF-1.4\n".to_vec();
     let mut offsets = Vec::new();
@@ -1905,6 +1906,7 @@ fn pdf_of_colours(pages: &[(u32, u32, [f32; 3])]) -> Vec<u8> {
 
 /// Whether the pixels the host holds for `picture` are as sharp as it is shown: as many to a pixel of
 /// the page as the page has.
+#[cfg(feature = "pdf")]
 fn is_sharp(images: &pencere_sandbox::Images, picture: &pencere_view::Picture) -> bool {
     let full = picture.full();
     images.picture(picture).is_some_and(|bitmap| {
@@ -1914,6 +1916,7 @@ fn is_sharp(images: &pencere_sandbox::Images, picture: &pencere_view::Picture) -
 }
 
 /// The pictures of the draw list that are in view, and whether each is sharp.
+#[cfg(feature = "pdf")]
 fn in_view(page: &Headless) -> Vec<(u32, bool)> {
     let images = page.page().images().expect("the page's images");
     page.list()
@@ -1935,6 +1938,7 @@ fn in_view(page: &Headless) -> Vec<(u32, bool)> {
 /// kept.
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+#[cfg(feature = "pdf")]
 fn what_is_in_view_is_sharp_at_every_zoom_and_a_page_scrolled_to_is_sharp_at_once()
 -> Result<(), Error> {
     let colours = [

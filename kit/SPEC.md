@@ -124,7 +124,9 @@ inside inherit: `text_size`, `weight`, `color`,
 `truncate`. Images: `fit("contain" | "cover")`, `tint(color)`, `page(n)` (a whole number from 1: which page of a PDF the
 picture is; a file that has no pages is its only page, and a page it has not leaves the box empty, with a
 diagnostic that says how many pages the file has. A page that asks whether the terminal draws PDFs asks
-whether `pencere.div().page` exists, as for any later addition). Names and answers: `id`, `press(id)`,
+whether `pencere.div().page` exists, as for any later addition; a host built with no PDF reader
+(`pencere-sandbox` without its `pdf` feature) leaves the box of a PDF empty and says in a diagnostic
+that the build has no PDF reader). Names and answers: `id`, `press(id)`,
 `focusable`, `focused`, `text_field(id, "line" | "lines" | "secret")`, `label(words)`, `tip(words,
 keys)`, `command(id, title, keys, enabled)`, `draggable(id)`, `drop_target(id)`, `carry({ text = | path =, url = })`. To a screen reader:
 `role(name, level)`, `checked(on)`, `selected(chosen)`, `expanded(open)`, `disabled(on)`,

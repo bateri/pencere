@@ -700,14 +700,14 @@ impl Images {
     }
 
     /// The bytes of pixels the view holds, and of the parsed drawings it keeps.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "pdf"))]
     pub(crate) fn held(&self) -> usize {
         self.lock().held
     }
 
     /// When the small whole page that stands in for the parts of `page` of `src` was last asked for,
     /// where it is drawn.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "pdf"))]
     pub(crate) fn small_asked(&self, src: &str, page: u32) -> Option<Instant> {
         let state = self.lock();
         let Some(Entry::Image(drawing)) = state.entries.get(src) else {

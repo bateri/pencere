@@ -34,6 +34,10 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
   modifiers; `Input::Move` and `Input::Release` carry `mods`.
 - **`Headless`** drives them: `pinch`, `pinch_at`, `magnify_at`, `smart_magnify`, `rotate`, `swipe`,
   `force`, `click_extra` and `trackpad_at` (the fingers of a trackpad moving a box or the page).
+- **Features `compiler` and `pdf`, both on by default,** which are those of `pencere-sandbox` (the
+  code generator of the runtime that compiles the interpreter as the first page opens, and the PDF
+  reader). The crate takes the sandbox with `default-features = false` and gives its own on, so a
+  host that takes off what it has no use for takes the drive with `default-features = false` too.
 - `Page::set_host_caret`: a host that draws the caret itself, as a terminal does with its cursor,
   says so, and the page draws none of its own (the selection stays) and asks for no frame to blink
   one. Off unless the host sets it. `PageEditors::caret`: where the main selection's caret is (the end

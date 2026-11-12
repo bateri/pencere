@@ -1517,6 +1517,22 @@ fn the_size_a_png_is_kept_at_is_a_step_above_the_size_it_is_drawn_at() {
 /// words on them are in Helvetica, which the file does not carry.
 const PAGES_PDF: &[u8] = include_bytes!("fixtures/pages.pdf");
 
+/// A build with no PDF reader (no `pdf` feature) refuses a PDF and says so, as it does a file that
+/// is no image.
+#[cfg(not(feature = "pdf"))]
+#[test]
+fn a_pdf_is_refused_in_a_build_with_no_pdf_reader() {
+    let rig = rig(vec![("doc.pdf", PAGES_PDF.to_vec())]);
+    rig.images.size("doc.pdf", 1);
+    let arrived = rig.until(|a| !a.diagnostics.is_empty());
+    let said = arrived
+        .diagnostics
+        .first()
+        .map(|d| d.message.clone())
+        .unwrap_or_default();
+    assert!(said.contains("no PDF reader"), "{said}");
+}
+
 /// The size of page `page` of `src`, asked for until it is known.
 fn page_size(rig: &Rig, src: &str, page: u32) -> Size {
     loop {
@@ -1529,6 +1545,7 @@ fn page_size(rig: &Rig, src: &str, page: u32) -> Size {
 
 /// The pixels of page `page` of `src` for a whole page of `whole`, asked for until a drawing of
 /// that very width is there (another page's is never what stands in for it).
+#[cfg(feature = "pdf")]
 fn page_bitmap(rig: &Rig, src: &str, page: u32, whole: Size) -> Bitmap {
     loop {
         if let Some(bitmap) = rig.images.bitmap(src, page, whole)
@@ -1541,6 +1558,7 @@ fn page_bitmap(rig: &Rig, src: &str, page: u32, whole: Size) -> Bitmap {
 }
 
 #[test]
+#[cfg(feature = "pdf")]
 fn a_pdf_has_the_size_of_each_of_its_pages_and_is_drawn_at_the_size_it_is_asked_at() {
     let rig = rig(vec![("doc.pdf", PAGES_PDF.to_vec())]);
     assert_eq!(rig.images.size("doc.pdf", 1), None, "not yet");
@@ -1582,6 +1600,7 @@ fn a_pdf_has_the_size_of_each_of_its_pages_and_is_drawn_at_the_size_it_is_asked_
 }
 
 #[test]
+#[cfg(feature = "pdf")]
 fn a_page_is_drawn_by_itself_and_no_other_page_stands_in_for_it() {
     let rig = rig(vec![("doc.pdf", PAGES_PDF.to_vec())]);
     page_bitmap(&rig, "doc.pdf", 1, whole(200.0, 100.0));
@@ -1597,6 +1616,7 @@ fn a_page_is_drawn_by_itself_and_no_other_page_stands_in_for_it() {
 /// unasked for the time they are kept, the host is woken with nothing asked, asks, and the page is
 /// drawn at its size.
 #[test]
+#[cfg(feature = "pdf")]
 fn a_page_with_no_room_is_drawn_smaller_and_at_its_size_when_room_comes_with_nothing_asked() {
     // The first two pages at twice their size are 320 000 bytes each, the third 480 000 and at half
     // of that 120 000: two and the half fit, two and the third do not, the second, the third and
@@ -1653,6 +1673,7 @@ fn a_page_with_no_room_is_drawn_smaller_and_at_its_size_when_room_comes_with_not
 /// The three pages of the fixture all shown, two of them holding the room: the host is not woken for
 /// the third, which waits for what it shows to change.
 #[test]
+#[cfg(feature = "pdf")]
 fn a_host_at_rest_is_not_woken_for_a_page_whose_room_what_it_shows_holds() {
     let limits = ImageLimits {
         pixel_bytes: PAGES_PDF.len() + 3 * 256 + 1_000_000,
@@ -1677,9 +1698,11 @@ fn a_host_at_rest_is_not_woken_for_a_page_whose_room_what_it_shows_holds() {
 }
 
 /// Longer than the asking of a frame takes (`RECENT` in images.rs).
+#[cfg(feature = "pdf")]
 const RECENT_ENOUGH: Duration = Duration::from_millis(120);
 
 #[test]
+#[cfg(feature = "pdf")]
 fn a_pdf_is_one_path_however_many_pages_are_shown() {
     let rig = rig_with(
         vec![("doc.pdf", PAGES_PDF.to_vec())],
@@ -1696,6 +1719,7 @@ fn a_pdf_is_one_path_however_many_pages_are_shown() {
 }
 
 #[test]
+#[cfg(feature = "pdf")]
 fn a_page_the_pdf_does_not_have_is_no_image_and_the_page_is_told_once_how_many_it_has() {
     let rig = rig(vec![
         ("doc.pdf", PAGES_PDF.to_vec()),
@@ -1735,6 +1759,7 @@ fn a_page_the_pdf_does_not_have_is_no_image_and_the_page_is_told_once_how_many_i
 }
 
 #[test]
+#[cfg(feature = "pdf")]
 fn a_pdf_is_told_from_its_bytes_and_a_broken_one_leaves_its_box_empty() {
     // Cut before the first page: what is left names no page.
     let cut = PAGES_PDF.len() / 5;
@@ -1792,6 +1817,7 @@ fn a_pdf_is_told_from_its_bytes_and_a_broken_one_leaves_its_box_empty() {
 
 /// A PDF whose pages are `(width, height)` points, each of four boxes, a quarter of the page each:
 /// red at the top left, green at the top right, blue at the bottom left, yellow at the bottom right.
+#[cfg(feature = "pdf")]
 fn quadrants_pdf(pages: &[(u32, u32)]) -> Vec<u8> {
     let mut out = b"%PDF-1.4\n".to_vec();
     let mut offsets = Vec::new();
@@ -1912,6 +1938,7 @@ impl Rig {
 }
 
 #[test]
+#[cfg(feature = "pdf")]
 fn a_large_page_is_drawn_where_it_is_seen_and_only_there() {
     let rig = rig(vec![("doc.pdf", quadrants_pdf(&[(1600, 1200)]))]);
     page_size(&rig, "doc.pdf", 1);
@@ -1981,6 +2008,7 @@ fn a_large_svg_is_drawn_where_it_is_seen_too() {
 }
 
 #[test]
+#[cfg(feature = "pdf")]
 fn a_page_scrolled_a_little_is_not_drawn_again_and_one_scrolled_far_is_never_an_empty_box() {
     let rig = rig(vec![("doc.pdf", quadrants_pdf(&[(1600, 3200)]))]);
     page_size(&rig, "doc.pdf", 1);
@@ -2006,6 +2034,7 @@ fn a_page_scrolled_a_little_is_not_drawn_again_and_one_scrolled_far_is_never_an_
 }
 
 #[test]
+#[cfg(feature = "pdf")]
 fn the_size_a_large_page_is_drawn_at_goes_in_steps_so_that_a_dragged_pane_draws_it_once_for_each() {
     let rig = rig(vec![("doc.pdf", quadrants_pdf(&[(1600, 1200)]))]);
     page_size(&rig, "doc.pdf", 1);
@@ -2037,6 +2066,7 @@ fn the_size_a_large_page_is_drawn_at_goes_in_steps_so_that_a_dragged_pane_draws_
 /// limits. Two pages in view are 79 MB of pixels whole, past the 64 MiB a view may hold; each page
 /// is sharp at once when it comes into view, and what the view holds stays within the budget.
 #[test]
+#[cfg(feature = "pdf")]
 fn pages_that_do_not_fit_whole_are_sharp_as_they_are_scrolled_to_within_the_budget() {
     let pages = [(1536, 1024); 5];
     let rig = rig(vec![("doc.pdf", quadrants_pdf(&pages))]);
@@ -2068,6 +2098,7 @@ fn pages_that_do_not_fit_whole_are_sharp_as_they_are_scrolled_to_within_the_budg
 /// display has (two) times the zoom, up to a step of the size, and a part is never past a side; what
 /// the view holds stays within the budget at every one (at 400% the page is 400 MB whole).
 #[test]
+#[cfg(feature = "pdf")]
 fn the_pixels_to_a_point_are_the_zoom_times_the_display_up_to_four_hundred_percent() {
     let rig = rig(vec![("doc.pdf", quadrants_pdf(&[(1536, 1024)]))]);
     page_size(&rig, "doc.pdf", 1);
@@ -2091,6 +2122,7 @@ fn the_pixels_to_a_point_are_the_zoom_times_the_display_up_to_four_hundred_perce
 }
 
 #[test]
+#[cfg(feature = "pdf")]
 fn the_pixels_of_a_page_no_longer_in_view_give_their_room_up_at_once_and_not_after_two_seconds() {
     // Room for one page's part and not for two; the time they are kept is long.
     let limits = ImageLimits {
@@ -2114,6 +2146,7 @@ fn the_pixels_of_a_page_no_longer_in_view_give_their_room_up_at_once_and_not_aft
 }
 
 #[test]
+#[cfg(feature = "pdf")]
 fn the_small_page_that_stands_in_is_asked_for_as_long_as_the_page_is_seen_sharp_or_not() {
     let rig = rig_with(
         vec![("doc.pdf", quadrants_pdf(&[(1536, 1024)]))],
@@ -2144,6 +2177,7 @@ fn the_small_page_that_stands_in_is_asked_for_as_long_as_the_page_is_seen_sharp_
 }
 
 #[test]
+#[cfg(feature = "pdf")]
 fn a_page_shown_in_two_places_at_two_sizes_is_sharp_in_both() {
     let rig = rig_with(
         vec![("doc.pdf", quadrants_pdf(&[(1536, 1024)]))],

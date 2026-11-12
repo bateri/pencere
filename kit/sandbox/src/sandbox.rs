@@ -417,9 +417,7 @@ impl Host {
 /// ([`crate::luau`]).
 pub(crate) fn engine() -> Result<Engine, Fault> {
     let mut config = Config::new();
-    config.epoch_interruption(true);
-    config.wasm_component_model(true);
-    config.wasm_exceptions(true);
+    crate::engine_config::configure(&mut config);
     Engine::new(&config).map_err(|why| Fault::Load(format!("{why:#}")))
 }
 

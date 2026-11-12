@@ -58,9 +58,46 @@ fn listing(root: &Path) -> Result<String, String> {
     Ok(out)
 }
 
+// How every engine is configured: the file the runtime takes it from.
+include!("src/engine_config.rs");
+
+/// The interpreter compiled to machine code for the target (`luau.cwasm` in the output directory),
+/// for a runtime built with no code generator (no `compiler` feature) to load. The target is the
+/// one the crate is built for, set explicitly so that the code is for the architecture and not for
+/// the CPU of the machine that builds it.
+fn precompile() -> Result<(), String> {
+    let (Some(manifest), Some(out), Some(target)) = (
+        env::var_os("CARGO_MANIFEST_DIR"),
+        env::var_os("OUT_DIR"),
+        env::var("TARGET").ok(),
+    ) else {
+        return Err("no manifest, output directory or target".into());
+    };
+    let wasm = PathBuf::from(manifest).join("luau").join("luau.wasm");
+    let bytes = fs::read(&wasm).map_err(|why| format!("{}: {why}", wasm.display()))?;
+    let mut config = wasmtime::Config::new();
+    configure(&mut config);
+    config
+        .target(&target)
+        .map_err(|why| format!("target {target}: {why:#}"))?;
+    let engine = wasmtime::Engine::new(&config).map_err(|why| format!("{why:#}"))?;
+    let compiled = engine
+        .precompile_component(&bytes)
+        .map_err(|why| format!("compiling the interpreter: {why:#}"))?;
+    fs::write(PathBuf::from(out).join("luau.cwasm"), compiled).map_err(|why| why.to_string())
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=library");
+    println!("cargo:rerun-if-changed=src/engine_config.rs");
+    println!("cargo:rerun-if-changed=luau/luau.wasm");
+    if env::var_os("CARGO_FEATURE_COMPILER").is_none()
+        && let Err(why) = precompile()
+    {
+        eprintln!("the interpreter for the target: {why}");
+        std::process::exit(1);
+    }
     let (Some(manifest), Some(out)) = (env::var_os("CARGO_MANIFEST_DIR"), env::var_os("OUT_DIR"))
     else {
         return;

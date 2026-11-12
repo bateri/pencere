@@ -1592,6 +1592,7 @@ fn a_vector_image_wakes_the_page_for_its_size_then_for_its_pixels() {
 /// A page of a PDF is a picture of its own: its size is the page's, and its pixels are the page's.
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
+#[cfg(feature = "pdf")]
 fn the_page_of_a_pdf_a_script_names_is_the_picture_that_is_laid_out_and_drawn() {
     let pdf = include_bytes!("../../sandbox/src/fixtures/pages.pdf").to_vec();
     let (ImageRig { mut rig, open, .. }, list) =

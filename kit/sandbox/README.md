@@ -25,6 +25,14 @@ diagnostic for the image it refuses. An SVG draws its shapes and reads nothing i
 drawn a page at a time, at the size asked, with no file, network or font of the machine. And it draws the paths of
 a canvas (`draw_figure`), so that a figure is the same pixels in every terminal.
 
+Two of its parts are features, both on by default. `compiler` is the code generator of the WebAssembly
+runtime, which compiles the interpreter as the first page opens; without it the interpreter is
+compiled while the crate is built (`build.rs`, for the target the crate is built for, which is why
+the runtime of the build is given the code generators of every architecture) and loaded as it is, and
+the executable carries no code generator. `pdf` is the PDF reader; without it a PDF is refused as an
+image that cannot be read, with a diagnostic that says the build has no PDF reader. A terminal that
+embeds the crate takes them off with `default-features = false`.
+
 The interface it implements is `wit/view.wit`, the crate's own copy of the kit's (`kit/wit`), which
 `make check` keeps equal.
 

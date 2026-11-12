@@ -32,7 +32,7 @@ pencere-wire = { path = "../../wire", version = "0.4.1" }
 # needs a host that may make executable memory, which a terminal built on this crate asks of
 # the system.
 wasmtime = { version = "38", default-features = false, features = [
-    "runtime", "cranelift", "component-model", "std", "gc", "gc-drc",
+    "runtime", "component-model", "std", "gc", "gc-drc",
 ] }
 
 # The decoders of the images a page shows (`images`): PNG, JPEG, SVG and PDF, each a library in
@@ -45,16 +45,37 @@ wasmtime = { version = "38", default-features = false, features = [
 # holds them, and no font of the machine is read) and with the predefined CMaps (`embed-cmaps`)
 # that most Chinese, Japanese and Korean text is read through.
 png = "0.18"
-zune-jpeg = { version = "0.5.15", default-features = false, features = ["std"] }
+# The JPEG decoder's vector code (`x86`, `neon`) is named, as the PDF reader's libraries ask for it
+# too: a build with no PDF reader (`pdf` off) decodes a JPEG with the same code as one with it.
+zune-jpeg = { version = "0.5.15", default-features = false, features = ["std", "x86", "neon"] }
 zune-core = { version = "0.5", default-features = false, features = ["std"] }
 resvg = { version = "0.48.1", default-features = false }
-hayro = { version = "0.9", default-features = false, features = ["embed-fonts", "embed-cmaps"] }
+hayro = { version = "0.9", default-features = false, features = ["embed-fonts", "embed-cmaps"], optional = true }
 
 # Regular expressions (MIT or Apache-2.0), the same crate and features as the editor's: the rules of
 # an editor's indent a page says are compiled here as the editor compiles them, so that one that is
 # no pattern fails the page that said it, with the option's name, and is never dropped without a
 # word.
 regex = { version = "1", default-features = false, features = ["std", "unicode", "perf"] }
+
+# Without the `compiler` feature the interpreter is compiled for the target here, while the crate is
+# built (`build.rs`), and the runtime above has no code generator: this is that generator. It runs on
+# the machine that builds, for the target the crate is built for, which is another architecture when
+# an executable is built for one (the Intel macOS and Linux executables on an Apple silicon Mac):
+# `all-arch` is the code generators of them all.
+[build-dependencies]
+wasmtime = { version = "38", default-features = false, features = [
+    "runtime", "cranelift", "all-arch", "component-model", "std", "gc", "gc-drc",
+] }
+
+[features]
+default = ["compiler", "pdf"]
+# The Cranelift code generator in the runtime: the interpreter is compiled to machine code as the
+# first page opens. Off, the interpreter comes compiled for the target by the build (`build.rs`)
+# and is loaded as it is; the runtime then cannot compile a module.
+compiler = ["wasmtime/cranelift"]
+# The PDF reader (`hayro`). Off, a PDF a page shows is refused as an image it cannot read.
+pdf = ["dep:hayro"]
 
 [dev-dependencies]
 # Modules written as text for the sandbox's tests (`.wat`), so that `make check` does not need

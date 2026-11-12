@@ -45,6 +45,15 @@ check:
 	cargo clippy -p pencere-drive --features shot --all-targets -- -D warnings
 	cargo clippy -p pencere-drive --all-features --all-targets -- -D warnings
 	node tools/cargo-test.mjs -p pencere-drive --all-features --all-targets
+	# The features `compiler` and `pdf` of the sandbox, the drive and the terminal (`pencere-tui`) are
+	# on by default and a terminal that has no use for them takes them off: both off, linted, and the
+	# sandbox's tests with them off. (A package's tests are built with the features its
+	# dev-dependencies ask for, so the terminal's own are not run so: `check-heavy` runs the example
+	# built with both off in a pty.)
+	cargo clippy -p pencere-sandbox --no-default-features --all-targets -- -D warnings
+	cargo clippy -p pencere-drive --no-default-features --features program,shot --all-targets -- -D warnings
+	cargo clippy -p pencere-tui --no-default-features -- -D warnings
+	node tools/cargo-test.mjs -p pencere-sandbox --no-default-features --lib
 	npx prettier --check .
 	npx vitest run --passWithNoTests
 
@@ -90,6 +99,7 @@ audit:
 	if [ -n "$$(cargo tree -p pencere-tui -e normal --depth 1 --prefix none | tail -n +2 | sed 's/ .*//' | sort -u | grep -vxE 'pencere-view|pencere-sandbox|pencere-drive|pencere|unicode-width')" ]; then echo "audit: pencere-tui depends on something besides the engine, the sandbox (for its image formats), the drive of a page, the program library and the widths of characters (pencere-view, pencere-sandbox, pencere-drive, pencere, unicode-width)"; fail=1; fi; \
 	if cargo tree -p pencere-tui -e normal --prune hayro --prefix none | tail -n +2 | grep -E "^(pencere-host|containers-|objc2|dispatch2|block2|metal|wgpu|winit|fontdb|fontdue|rustybuzz|ttf-parser|harfrust|skrifa|read-fonts|swash|fontconfig|freetype|font-types|cosmic-text) "; then echo "audit: pencere-tui links the session crate (pencere-host), a platform library or a font library — a terminal draws the letters, this crate puts them in cells"; fail=1; fi; \
 	if grep -rnE "objc2|dispatch2|block2|wgpu|winit|pencere_host" host/tui/src | grep -v ":[[:space:]]*//"; then echo "audit: a platform call or the session crate or a platform call is named in the source of pencere-tui"; fail=1; fi; \
+	if cargo tree -p containers-rust --no-default-features -e normal --prefix none | tail -n +2 | grep -E "^(hayro|cranelift-codegen|wasmtime-internal-cranelift) "; then echo "audit: a terminal built with the features compiler and pdf off links the PDF reader or the code generator — the features of pencere-tui, pencere-drive and pencere-sandbox do not reach each other, or a crate takes one of them with its defaults"; fail=1; fi; \
 	if cargo tree --workspace -e normal -i wasmtime --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-sandbox "; then echo "audit: the WebAssembly runtime is linked by a crate other than pencere-sandbox — one door to it"; fail=1; fi; \
 	if cargo tree --workspace -e normal -i hayro --depth 1 --prefix none | tail -n +2 | grep -vE "^pencere-sandbox "; then echo "audit: the PDF renderer (hayro) is linked by a crate other than pencere-sandbox — the formats and limits of images are the sandbox's, the same in every terminal"; fail=1; fi; \
 	for decoder in $$(cargo tree --workspace -e normal --prefix none | grep -E "^(png|zune-jpeg|resvg) v" | sed 's/ (.*//; s/ v/@/' | sort -u); do \
@@ -121,6 +131,14 @@ check-heavy:
 	cargo build --quiet -p pencere-cli
 	node tools/cargo-test.mjs --workspace --all-targets -- --ignored
 	node tools/cargo-test.mjs -p pencere-drive --all-features --lib -- --ignored shot_tests in_process_tests
+	# With `compiler` and `pdf` off: the interpreter is the one the build compiled. The sandbox and the
+	# drive run it in their tests, and the terminal in a pty, in the example built with both off (and
+	# built again with them on after, as the tests above leave it).
+	node tools/cargo-test.mjs -p pencere-sandbox --no-default-features --lib -- --ignored
+	node tools/cargo-test.mjs -p pencere-drive --no-default-features --features program,shot --lib -- --ignored
+	cargo build --quiet -p containers-rust --no-default-features
+	node tools/cargo-test.mjs -p pencere-tui --test live -- --ignored
+	cargo build --quiet -p containers-rust
 	$(GUEST_CARGO) clippy --manifest-path kit/guest/Cargo.toml --all-targets -- -D warnings
 
 # The interpreter of the scripting language (`kit/sandbox/luau/luau.wasm`): Luau, the bridge that

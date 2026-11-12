@@ -21,7 +21,7 @@ pencere-view = { path = "../view", version = "0.4.1" }
 # The editor of text the host puts in each editor's room: the drive keeps the page's editors.
 pencere-editor = { path = "../editor", version = "0.4.1" }
 # The sandbox the page runs in, and its images: the drive tells it and takes what it puts out.
-pencere-sandbox = { path = "../sandbox", version = "0.4.1" }
+pencere-sandbox = { path = "../sandbox", version = "0.4.1", default-features = false }
 # The six messages of a program and its view (`messages::Message`): the program of a page under the
 # headless host (`headless::Calls`) reads and answers them as the program library does. Already in
 # the graph by the sandbox, which depends on the wire.
@@ -41,6 +41,10 @@ fontdue = { version = "0.9", optional = true, default-features = false, features
 # and the caller's fonts read by fontdue (MIT, Apache-2.0 or Zlib, with ttf-parser, MIT or
 # Apache-2.0). A terminal that drives pages has no use for either and links neither (`make check`).
 [features]
+default = ["compiler", "pdf"]
+# What the sandbox is built with (its features of the same names).
+compiler = ["pencere-sandbox/compiler"]
+pdf = ["pencere-sandbox/pdf"]
 shot = ["dep:tiny-skia", "dep:fontdue"]
 program = ["dep:pencere"]
 

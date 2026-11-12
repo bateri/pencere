@@ -69,6 +69,14 @@ cargo run --release --example frame -p pencere-tui -- examples/containers-lua 80
 
 The terminal needs the size of the frame plus one row, because the frame ends below its last row.
 
+## Features
+
+`compiler` and `pdf`, both on by default, are those of `pencere-sandbox`: the code generator that
+compiles the interpreter of a page as the first page opens, and the PDF reader. A program that has no
+use for them takes the crate with `default-features = false`: the interpreter is then compiled while
+the program is built and loaded as it is, and a PDF a page shows is refused as an image that cannot
+be read, the terminal drawing a page of it as it draws any file it cannot decode.
+
 ## The grid
 
 The page is laid out on the cells. The measure says how many pixels a column is across and a row
