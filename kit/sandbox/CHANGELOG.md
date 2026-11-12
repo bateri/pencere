@@ -8,6 +8,13 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **A page says a box that zooms and asks for its scale** (the kit's specification, Section 2.2):
+  `element:zoom({ min =, max =, smart =, wheel = })`,
+  `pencere.layout.zoom_to(id, scale, { at =, animate = })`, `pencere.layout.zoom_of(id)`,
+  `scroll_extent(id).zoom`, and `zoom` on each box of a `scrolled` event. A zoom on a box that does not scroll, a range that is none (a size at 0 or less,
+  `min` above `max`, a wheel below 0) and an editor inside a box that zooms fail the page as
+  malformed; a long list (`:list`) on a box that zooms is refused. The interface (`view.wit`) has `zoom-range`, `style.zoom`, `layout.zoom-to`,
+  `extent.zoom` and `scrolled.zoom`; the interpreter is built again.
 - **A script is told what a trackpad's fingers and a mouse's side buttons do** (the kit's
   specification, Section 2.3): `magnify`, `smart_magnify`, `rotate`, `swipe`, `pressure` and
   `extra_press`/`extra_release` events, `mods` on `move` and `release` (over an editor too), and

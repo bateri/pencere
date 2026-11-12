@@ -19,7 +19,7 @@ use crate::paint::Quad;
 use crate::rich::{Look, RichLine, cut_line, lay_lines};
 use crate::style::{
     Anchor, Border, Direction, Display, Gradient, Items, Justify, Length, Overflow, Shadow, Side,
-    Style, TextStyle, Track,
+    Style, TextStyle, Track, Zoom,
 };
 use crate::text::wrap_lines;
 use crate::{
@@ -127,6 +127,10 @@ pub(crate) struct Node {
     pub extent: Option<(Size, Size)>,
     /// How far the box moves its children up and left, pixels.
     pub scroll: (f32, f32),
+    /// For a box that scrolls and may be zoomed: what it may be zoomed to, and what its content is
+    /// laid out at now.
+    pub zoom: Option<Zoom>,
+    pub zoomed: f32,
     /// It is an overlay: placed against the page and drawn over the rest ([`Element::overlay`]).
     pub overlay: bool,
     /// Nothing inside it is drawn outside it (it clips, or it scrolls).
@@ -194,6 +198,9 @@ struct Pending {
     overflow: Overflow,
     /// Pixels.
     scroll: (f32, f32),
+    zoom: Option<Zoom>,
+    /// What the content is laid out at (1 for a box that is not zoomed).
+    zoomed: f32,
     /// The room inside the box below and to the right of its content, pixels.
     pad_bottom: f32,
     pad_right: f32,
@@ -462,6 +469,8 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             extent: (entry.overflow == Overflow::Scroll)
                 .then_some((Size::new(0.0, 0.0), Size::new(rect.w, rect.h))),
             scroll: entry.scroll,
+            zoom: entry.zoom,
+            zoomed: entry.zoomed,
             overlay: entry.overlay,
             clips: entry.overflow != Overflow::Visible,
             turn: 0.0,
@@ -836,6 +845,8 @@ fn empty(page: Rect) -> Node {
         meta: Meta::default(),
         extent: None,
         scroll: (0.0, 0.0),
+        zoom: None,
+        zoomed: 1.0,
         overlay: false,
         clips: false,
         turn: 0.0,
@@ -857,10 +868,20 @@ fn build(
 ) -> (usize, NodeId) {
     let Element {
         kind,
-        style,
+        mut style,
         children,
         meta,
     } = element;
+    // A box that scrolls and says a zoom lays what it holds out at the scale it is at: the box
+    // itself, with its room, is the page's size, and its padding is part of what is held.
+    let zoom = style.zoom.filter(|_| style.overflow == Overflow::Scroll);
+    let zoomed = zoom
+        .and(style.zoomed)
+        .filter(|zoomed| zoomed.is_finite() && *zoomed > 0.0)
+        .unwrap_or(1.0);
+    if zoomed != 1.0 {
+        style.padding = style.padding.map(|room| room * zoomed);
+    }
     let text = style.text.over(outer);
     let font = Font {
         family: text.family.unwrap_or(Family::Terminal),
@@ -878,6 +899,8 @@ fn build(
         meta,
         overflow: style.overflow,
         scroll: (px(style.scroll.0), px(style.scroll.1)),
+        zoom,
+        zoomed,
         pad_bottom: px(style.padding[2]),
         pad_right: px(style.padding[1]),
         hidden: style.display == Display::None,
@@ -1031,7 +1054,7 @@ fn build(
                         child,
                         Some(index),
                         text,
-                        scale,
+                        scale * zoomed,
                         measure,
                     )
                     .1,
@@ -1412,6 +1435,7 @@ impl Laid {
             content: Size::new(content.w / s, content.h / s),
             view: Size::new(view.w / s, view.h / s),
             offset: Point::new(0.0, 0.0),
+            zoom: node.zoomed,
         };
         // Where the box is pulled past an end, it is at that end.
         extent.offset = Point::new(
@@ -1441,6 +1465,22 @@ impl Laid {
             node.meta.id?,
             self.extent_of(node)?,
             Rect::new(shown.x / s, shown.y / s, shown.w / s, shown.h / s),
+        ))
+    }
+
+    /// What the box that scrolls at `index` may be zoomed to, and where the whole of it is (not
+    /// the part of it that shows), points.
+    pub(crate) fn zoomer_at(&self, index: usize) -> Option<(Zoom, Rect)> {
+        let node = self.nodes.get(index)?;
+        let s = self.scale;
+        Some((
+            node.zoom?,
+            Rect::new(
+                node.rect.x / s,
+                node.rect.y / s,
+                node.rect.w / s,
+                node.rect.h / s,
+            ),
         ))
     }
 
@@ -1985,6 +2025,9 @@ pub struct Extent {
     pub content: Size,
     pub view: Size,
     pub offset: Point,
+    /// How many times the size the page gave it the content is at (1 for a box that does not
+    /// zoom, and until it is zoomed).
+    pub zoom: f32,
 }
 
 impl Extent {

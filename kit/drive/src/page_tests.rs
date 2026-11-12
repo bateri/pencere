@@ -1706,6 +1706,219 @@ fn the_host_scrolls_the_box_under_the_wheel_and_a_turn_no_box_takes_is_the_pages
     assert!(said.contains("scroll 30"), "{said}");
 }
 
+/// A box that says it may be zoomed is zoomed by the host: the pinch, the command key with the wheel
+/// and the double tap with two fingers are its, and the page is told the scale (and is not told
+/// the gesture); the plain wheel scrolls it as it did.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
+fn a_box_that_may_be_zoomed_is_zoomed_by_the_pinch_the_wheel_and_the_double_tap() {
+    let mut rig = script_rig(
+        r#"local said = {}
+        return {
+            render = function()
+                local list = pencere.div():id("list"):h(100):w(200):scroll():zoom()
+                for n = 1, 50 do list:child(pencere.div():h(20):no_shrink():child(pencere.text("row " .. n))) end
+                return pencere.div():size_full()
+                    :child(list)
+                    :child(pencere.text(table.concat(said, "|") .. " z" .. string.format("%.2f", pencere.layout.zoom_of("list"))))
+            end,
+            handle = function(event)
+                local t = event.type
+                if t == "scrolled" then
+                    said[#said + 1] = string.format("scrolled %.2f", event.boxes[1].zoom)
+                elseif t == "magnify" or t == "wheel" or t == "smart_magnify" then
+                    said[#said + 1] = t
+                end
+                return true
+            end,
+        }"#,
+    );
+    rig.page.frame(frame_at(0.0));
+    rig.first();
+    rig.settle();
+    let over = Point::new(50.0, 32.0 + 50.0);
+    let zoom = |rig: &Rig| {
+        rig.page
+            .laid()
+            .and_then(|laid| laid.scroll_extent(Id::named("list")))
+            .map(|extent| extent.zoom)
+            .expect("the list scrolls")
+    };
+    let offset = |rig: &Rig| {
+        rig.page
+            .laid()
+            .and_then(|laid| laid.scroll_extent(Id::named("list")))
+            .map(|extent| extent.offset.y)
+            .expect("the list scrolls")
+    };
+    assert_eq!(zoom(&rig), 1.0);
+    // A pinch: the content twice as large, the point under the fingers where it was (its content
+    // 50 down was 50 down, and the box scrolls to 50).
+    for (by, phase) in [
+        (0.0, pencere_view::GesturePhase::Begin),
+        (1.0, pencere_view::GesturePhase::Move),
+        (0.0, pencere_view::GesturePhase::End),
+    ] {
+        rig.page.magnify(over, by, phase);
+        rig.settle();
+    }
+    assert!((zoom(&rig) - 2.0).abs() < 1e-3, "{}", zoom(&rig));
+    assert!((offset(&rig) - 50.0).abs() < 1.0, "{}", offset(&rig));
+    let said = page_words(&rig.page).join(" ");
+    assert!(said.contains("scrolled 2.00"), "{said}");
+    assert!(said.contains("z2.00"), "{said}");
+    assert!(!said.contains("magnify"), "the pinch is the box's: {said}");
+    // The wheel with the command key: bigger, and not the page's.
+    let command = Mods {
+        command: true,
+        ..Mods::default()
+    };
+    rig.page.input(Input::Mods(command));
+    rig.page
+        .wheel(over, 0.0, -50.0, pencere_view::Phase::Wheel, false);
+    rig.settle();
+    let wanted = 2.0 * (50.0f32 * 0.008).exp();
+    assert!((zoom(&rig) - wanted).abs() < 1e-3, "{}", zoom(&rig));
+    // The plain wheel scrolls the box and leaves its scale.
+    rig.page.input(Input::Mods(Mods::default()));
+    let before = offset(&rig);
+    rig.page
+        .wheel(over, 0.0, 30.0, pencere_view::Phase::Wheel, false);
+    rig.settle();
+    assert!(offset(&rig) > before, "{} after {before}", offset(&rig));
+    assert!((zoom(&rig) - wanted).abs() < 1e-3);
+    let said = page_words(&rig.page).join(" ");
+    assert!(!said.contains("wheel"), "both turns are the box's: {said}");
+    // A double tap: back to the size the page gave, over a moment.
+    rig.page.smart_magnify(over);
+    rig.settle_at(frame_at(10.0));
+    assert!((zoom(&rig) - 1.0).abs() < 1e-3, "{}", zoom(&rig));
+    let said = page_words(&rig.page).join(" ");
+    assert!(!said.contains("smart_magnify"), "{said}");
+    // Where nothing zooms (below the box) the gestures are the page's.
+    let below = Point::new(50.0, 32.0 + 400.0);
+    rig.page
+        .magnify(below, 0.5, pencere_view::GesturePhase::Begin);
+    rig.page.smart_magnify(below);
+    rig.settle_at(frame_at(10.0));
+    let said = page_words(&rig.page).join(" ");
+    assert!(said.contains("magnify|smart_magnify"), "{said}");
+}
+
+/// What a page asks of the scale of a box before the box has ever been laid out is done when it comes,
+/// with no input to ask a frame for it; what it asks past the range, or of a box that does not
+/// zoom, is answered with where the box is, not left as the page thinks it.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
+fn what_a_page_asks_of_the_scale_of_a_box_is_done_when_the_box_comes_and_answered_past_its_range() {
+    let mut rig = script_rig(
+        r#"local asked = false
+        return {
+            render = function()
+                if not asked then
+                    asked = true
+                    pencere.layout.zoom_to("list", 2)
+                    pencere.layout.zoom_to("plain", 5)
+                    pencere.layout.zoom_to("later", 2)
+                end
+                local list = pencere.div():id("list"):h(100):w(200):scroll():zoom({ max = 3 })
+                for n = 1, 50 do list:child(pencere.div():h(20):no_shrink():child(pencere.text("row " .. n))) end
+                local plain = pencere.div():id("plain"):h(40):w(200):scroll():child(pencere.div():h(400):no_shrink())
+                return pencere.div():size_full():child(list):child(plain):child(
+                    pencere.text(string.format("z%.2f p%.2f", pencere.layout.zoom_of("list"), pencere.layout.zoom_of("plain"))))
+            end,
+            handle = function(event)
+                if event.type == "key" then
+                    pencere.layout.zoom_to("list", 40)
+                    return true
+                elseif event.type == "scrolled" then
+                    return true
+                end
+            end,
+        }"#,
+    );
+    rig.page.frame(frame_at(0.0));
+    rig.first();
+    rig.settle();
+    let said = |rig: &Rig| page_words(&rig.page).join(" ");
+    // Asked before the box was on the page, and done with nothing more than frames.
+    assert!(said(&rig).contains("z2.00 p1.00"), "{}", said(&rig));
+    // Past the range: the end of it, and the page is told so.
+    rig.press_key('x');
+    rig.settle();
+    assert!(said(&rig).contains("z3.00 p1.00"), "{}", said(&rig));
+    // Again, at the end already: nothing changes for the box, and the page is still told where it is.
+    rig.press_key('x');
+    rig.settle();
+    assert!(said(&rig).contains("z3.00 p1.00"), "{}", said(&rig));
+    // A page with nothing but frames after it has asked for no more of them.
+    assert!(!rig.page.animating());
+}
+
+/// A pinch keeps the point of the content under the fingers where it is at any scale of the screen
+/// and any zoom of the host's text: the host's points are not the page's.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
+fn a_pinch_keeps_the_point_under_the_fingers_on_a_screen_of_two_pixels_and_a_larger_zoom() {
+    let (wake, woken) = woken();
+    let mut rig = Rig {
+        page: Page::script(
+            script(
+                r#"return {
+                    render = function()
+                        local list = pencere.div():id("list"):h(100):w(200):scroll():zoom()
+                        for n = 0, 29 do
+                            list:child(pencere.div():id("r" .. n):h(20):no_shrink():child(pencere.text("row " .. n)))
+                        end
+                        return pencere.div():size_full():child(list)
+                    end,
+                    handle = function() return true end,
+                }"#,
+                None,
+            ),
+            Setup {
+                placement: Placement {
+                    inset: 32.0,
+                    zoom: 1.5,
+                },
+                measure: Box::new(Even),
+                ..Setup::default()
+            },
+            wake,
+        ),
+        woken,
+    };
+    let at = |now: f64| FrameAt {
+        size: (2400, 1500),
+        scale: 2.0,
+        now,
+        reduce_motion: false,
+    };
+    rig.page.frame(at(0.0));
+    rig.first();
+    rig.settle_at(at(0.0));
+    let top = |rig: &Rig, n: u32| {
+        rig.page
+            .laid()
+            .and_then(|laid| laid.bounds(Id::named(&format!("r{n}"))))
+            .map_or(f32::NAN, |rect| rect.y)
+    };
+    assert!((top(&rig, 2) - 40.0).abs() < 1e-3, "{}", top(&rig, 2));
+    // The fingers at (40, 50) of the page: the host's point is 1.5 times that, under a strip of 32.
+    let fingers = Point::new(40.0 * 1.5, 32.0 + 50.0 * 1.5);
+    for (by, phase) in [
+        (0.0, pencere_view::GesturePhase::Begin),
+        (1.0, pencere_view::GesturePhase::Move),
+        (0.0, pencere_view::GesturePhase::End),
+    ] {
+        rig.page.magnify(fingers, by, phase);
+        rig.settle_at(at(0.0));
+    }
+    // The row 40 down was 10 above the fingers: it is 20 above them now, at twice the size.
+    assert!((top(&rig, 2) - 30.0).abs() < 1e-3, "{}", top(&rig, 2));
+    assert!((top(&rig, 3) - 70.0).abs() < 1e-3, "{}", top(&rig, 3));
+}
+
 /// A gesture no box takes is the page's with what the host said of it: the part of it, whether it is
 /// a trackpad's, the modifiers held; what a trackpad's fingers do besides, and the buttons of a
 /// mouse beyond the third, are told as events of their own, in the page's points. A turn that moves

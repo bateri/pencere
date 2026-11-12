@@ -399,6 +399,11 @@ function pencere.Element:list(rows, make)
 	if id == nil then
 		refuse("a long list is a box with a name: give it one (:id) before :list")
 	end
+	if self.style.zoom then
+		-- Its rows stand where the page's own points put them, and a box that zooms is scrolled
+		-- and measured in the points of what it shows.
+		refuse("a long list does not zoom: the box that zooms holds it (or builds its pages itself)")
+	end
 	local list = lists[id]
 	if list == nil then
 		list = { built = Built.new() }

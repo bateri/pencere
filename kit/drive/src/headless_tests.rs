@@ -953,6 +953,55 @@ return {
     Ok(())
 }
 
+/// A box that says it may be zoomed is zoomed by the fingers of a test as by a person's: the page
+/// is told the scale, a double tap goes over a moment, and a box that does not zoom has none.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_box_that_zooms_is_pinched_and_the_test_says_how_far_it_went() -> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+local said = "nothing"
+return {
+    render = function()
+        local list = pencere.div():id("list"):h(100):w(200):scroll():zoom({ max = 3 })
+        for n = 1, 50 do list:child(pencere.div():h(20):no_shrink():child(pencere.text("row " .. n))) end
+        local plain = pencere.div():id("plain"):h(40):w(200):scroll():child(pencere.div():h(400):no_shrink())
+        return pencere.div():size_full():child(list):child(plain):child(pencere.text(said))
+    end,
+    handle = function(event)
+        if event.type == "scrolled" then
+            said = string.format("scrolled %s %.1f", event.boxes[1].id, event.boxes[1].zoom)
+            return true
+        end
+    end,
+}
+"#,
+    )
+    .open()?;
+    assert_eq!(page.zoom_of("list")?, 1.0);
+    page.pinch("list", 0.5)?;
+    assert!((page.zoom_of("list")? - 1.5).abs() < 1e-3);
+    assert_eq!(
+        page.tree_words().last().map(String::as_str),
+        Some("scrolled list 1.5")
+    );
+    // Past the range the page gave is the end of it.
+    page.pinch("list", 5.0)?;
+    assert!((page.zoom_of("list")? - 3.0).abs() < 1e-3);
+    // A double tap goes where it is going over a moment.
+    page.smart_magnify("list")?;
+    page.idle()?;
+    assert!((page.zoom_of("list")? - 1.0).abs() < 1e-3);
+    // A box that does not zoom is not zoomed, and a box that does not scroll has no scale to ask.
+    page.pinch("plain", 0.5)?;
+    assert_eq!(page.zoom_of("plain")?, 1.0);
+    assert_eq!(
+        page.zoom_of("nothing"),
+        Err(Error::NoSuch("nothing".into()))
+    );
+    Ok(())
+}
+
 /// A test says what went wrong in words: a page that fails, an element that is not there, keys no
 /// person can press, a command the page does not offer.
 #[test]

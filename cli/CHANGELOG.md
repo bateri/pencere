@@ -8,6 +8,10 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`pencere test` drives the zoom of a box**: `locator:zoom_of()` says how many times the size the
+  page gave it the content of a box that zooms is shown at (`pinch`, `smart_magnify` and `wheel`
+  with `page:hold("cmd")` over such a box change it; a double tap goes over a moment, which
+  `page:idle()` moves the clock through).
 - **`pencere test` drives a trackpad's fingers and a mouse's side buttons**: a locator has `pinch(by)`,
   `smart_magnify()`, `rotate(degrees)`, `force(stage, pressure)` and `click_extra(button)`, a page has
   `magnify_at(x, y, by, phase)`, `swipe(dx, dy)` and `trackpad_at(x, y, dx, dy, phase)`, and what is

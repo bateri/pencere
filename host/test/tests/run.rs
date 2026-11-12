@@ -706,6 +706,63 @@ end)
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn a_test_pinches_a_box_that_zooms_and_asks_how_far_it_went() {
+    let app = App::template("trackpad");
+    app.write(
+        "src/view/page.lua",
+        r#"local said = {}
+return {
+	render = function()
+		local pane = pencere.div():id("pane"):size(200, 100):scroll():zoom({ max = 3 })
+		for n = 1, 20 do pane:child(pencere.div():h(20):no_shrink():child(pencere.text("row " .. n))) end
+		return pencere.div():size_full():child(pane):child(pencere.div():id("plain"):size(200, 100):scroll():child(pencere.div():h(400):no_shrink())):child(pencere.text(table.concat(said, "|")))
+	end,
+	handle = function(e)
+		if e.type == "magnify" then
+			said[#said + 1] = "magnify"
+		end
+		return true
+	end,
+}
+"#,
+    );
+    app.write(
+        "test/page_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("a box that zooms is zoomed by the fingers, the double tap and the wheel with the command key", function()
+	local page = test.open()
+	local pane = page:get_by_id("pane")
+	expect(pane:zoom_of()):to_equal(1)
+	pane:pinch(0.5)
+	expect(pane:zoom_of()):to_be_close_to(1.5, 3)
+	-- The range the page gave is the end of it.
+	pane:pinch(5)
+	expect(pane:zoom_of()):to_be_close_to(3, 3)
+	-- The double tap goes over a moment, which the clock is moved through.
+	pane:smart_magnify()
+	page:idle()
+	expect(pane:zoom_of()):to_be_close_to(1, 3)
+	page:hold("cmd")
+	pane:wheel(0, -50)
+	page:release()
+	expect(pane:zoom_of()):to_be_close_to(math.exp(0.4), 3)
+	-- What no box zooms is the page's.
+	local plain = page:get_by_id("plain")
+	expect(plain:zoom_of()):to_equal(1)
+	plain:pinch(0.5)
+	expect(plain:zoom_of()):to_equal(1)
+	expect(table.concat(page:words(), " ")):to_contain("magnify")
+end)
+"#,
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn the_app_runs_in_its_own_environment_and_the_process_of_the_test_is_never_touched() {
     let app = App::template("world");
     let _ = std::fs::remove_file(app.dir.join("test/page_test.lua"));

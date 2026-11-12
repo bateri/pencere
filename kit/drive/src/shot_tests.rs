@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use pencere_sandbox::{Fault, Frame, Runner};
 use pencere_view::{
-    DrawList, Event, Family, Font, Laid, Paint, Point, Quad, Rect, Reply, Role, Run, Size, div,
+    DrawList, Event, Family, Font, Id, Laid, Paint, Point, Quad, Rect, Reply, Role, Run, Size, div,
     text,
 };
 use tiny_skia::Pixmap;
@@ -569,6 +569,71 @@ fn the_example_with_a_server_less_language_is_pictured_at_rest_with_a_card_and_w
         let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
         for (name, bytes) in [("rest", &rest), ("card", &card), ("link", &link)] {
             std::fs::write(target.join(format!("text-{name}.png")), bytes).expect("written");
+        }
+    }
+    Ok(())
+}
+
+/// A box that zooms to the size its page says (a double tap goes to `smart = 3`) and is pinched on
+/// from there is pictured with its words in a face as many times larger and its picture drawn at the
+/// larger size, the box itself the size it was. `PENCERE_SHOTS=zoom` writes them to
+/// `target/zoom-{rest,tapped,pinched}.png` for an eye to check.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_box_zoomed_to_the_size_its_page_says_is_pictured_with_its_words_as_much_larger()
+-> Result<(), Error> {
+    let fonts = Fonts::none();
+    let mut page = Headless::script(
+        r#"
+        return {
+            render = function()
+                return pencere.div():size_full():p(8):child(
+                    pencere.div():id("pane"):size(200, 90):scroll():zoom({ smart = 3, max = 6 }):bg("raised1"):child(
+                        pencere.div():row():gap(6):child(pencere.text("pencere")):child(
+                            pencere.div():size(24, 12):bg("accent")))
+                )
+            end,
+            handle = function() return true end,
+        }
+        "#,
+    )
+    .size(240.0, 110.0)
+    .open()?;
+    let rest = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    let face = |page: &Headless| {
+        page.list()
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Paint::Text(run) => Some(run.font.size),
+                _ => None,
+            })
+            .fold(0.0f32, f32::max)
+    };
+    let at_one = face(&page);
+    assert!(at_one > 0.0);
+    let pane = |page: &Headless| page.laid().and_then(|laid| laid.bounds(Id::named("pane")));
+    let box_at_one = pane(&page).expect("the box");
+    // A double tap goes where the page said, over a moment.
+    page.smart_magnify("pane")?;
+    page.idle()?;
+    let tapped = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    assert!(rest != tapped, "a double tap changes what is drawn");
+    assert!((face(&page) - 3.0 * at_one).abs() < 1e-3, "{}", face(&page));
+    // And a pinch goes on from there, to the end of the range the page gave, and no further.
+    page.pinch("pane", 1.0)?;
+    let pinched = page.shot_in(&fonts, Palette::Dark).expect("a picture");
+    assert!(tapped != pinched);
+    assert!((face(&page) - 6.0 * at_one).abs() < 1e-3, "{}", face(&page));
+    assert_eq!(
+        pane(&page),
+        Some(box_at_one),
+        "the box stays the size it was"
+    );
+    if std::env::var("PENCERE_SHOTS").as_deref() == Ok("zoom") {
+        let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        for (name, bytes) in [("rest", &rest), ("tapped", &tapped), ("pinched", &pinched)] {
+            std::fs::write(target.join(format!("zoom-{name}.png")), bytes).expect("written");
         }
     }
     Ok(())

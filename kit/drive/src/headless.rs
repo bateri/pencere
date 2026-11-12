@@ -1743,6 +1743,20 @@ impl<P: Peer> Headless<P> {
         Ok(())
     }
 
+    /// How many times the size the page gave it the content of the box named `name` is shown at:
+    /// 1 for a box that does not zoom ([`Headless::pinch`] over one that does changes it).
+    ///
+    /// # Errors
+    ///
+    /// No such box, or one that does not scroll ([`Error::NoSuch`]).
+    pub fn zoom_of(&self, name: &str) -> Result<f32, Error> {
+        self.page
+            .laid()
+            .and_then(|laid| laid.scroll_extent(Id::named(name)))
+            .map(|extent| extent.zoom)
+            .ok_or_else(|| Error::NoSuch(name.to_owned()))
+    }
+
     /// The box named `name` scrolled down to `y` points, as the wheel over it takes it there.
     ///
     /// # Errors

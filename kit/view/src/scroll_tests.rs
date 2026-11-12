@@ -5,8 +5,8 @@
 //! stand-in.
 
 use crate::{
-    Bars, Element, Font, Id, Laid, Measure, Metrics, Paint, Phase, Point, Role, ScrollTo, Scrolls,
-    Size, div, layout, text,
+    Bars, Element, Font, Id, Laid, Measure, Metrics, Paint, Phase, Point, Role, ScrollTo, Scrolled,
+    Scrolls, Size, div, layout, text,
 };
 
 struct Fixed;
@@ -70,6 +70,8 @@ fn ask(id: Id, y: f32, animate: bool) -> ScrollTo {
         x: None,
         y: Some(y),
         animate,
+        zoom: None,
+        at: None,
     }
 }
 
@@ -142,7 +144,10 @@ fn the_page_is_told_where_its_boxes_went_once() {
             .wheel(&laid, OVER, 0.0, 10.0, Phase::Wheel, 0.0)
             .took
     );
-    assert_eq!(scrolls.take_moved(), vec![(LIST, Point::new(0.0, 40.0))]);
+    assert_eq!(
+        scrolls.take_moved(),
+        vec![Scrolled::at(LIST, Point::new(0.0, 40.0))]
+    );
     assert!(scrolls.take_moved().is_empty());
     // The rows are moved on the page already laid out, and the page asks of it where they are.
     let mut laid = laid;

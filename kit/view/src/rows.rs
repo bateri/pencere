@@ -444,6 +444,8 @@ impl List {
             x: None,
             y: Some(y),
             animate: false,
+            zoom: None,
+            at: None,
         }
     }
 
@@ -738,6 +740,7 @@ mod tests {
                 content: crate::Size::new(400.0, 32.0 * 10_000.0),
                 view: crate::Size::new(400.0, self.view),
                 offset: Point::new(0.0, self.offset),
+                zoom: 1.0,
             })
         }
         fn focus_order(&self) -> Vec<Id> {
@@ -877,7 +880,9 @@ mod tests {
                 id: LIST,
                 x: None,
                 y: Some(200.0),
-                animate: false
+                animate: false,
+                zoom: None,
+                at: None
             }
         );
         list.settle(&Laid {

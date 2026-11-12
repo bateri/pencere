@@ -779,6 +779,9 @@ impl UserData for Handle {
                 })
             },
         );
+        methods.add_method("zoom_of", |_, this, name: String| {
+            this.act(|page| page.zoom_of(&name).map(f64::from))
+        });
         methods.add_method("scroll_to", |_, this, (name, y): (String, f64)| {
             this.act(|page| page.scroll_to(&name, to_f32(y)))
         });

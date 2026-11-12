@@ -5,7 +5,7 @@
 use crate::edit::EditorOptions;
 use crate::{
     AccessibleRole, EditorMetrics, Font, Id, Laid, Measure, Metrics, Paint, Point, Rect, Role,
-    ScrollTo, Scrolls, Side, Size, div, layout, text,
+    ScrollTo, Scrolled, Scrolls, Side, Size, div, layout, text,
 };
 
 const EDITOR: Id = Id::new(1);
@@ -199,6 +199,8 @@ fn an_editor_scrolls_as_a_box_does_over_what_its_editor_laid_out() {
         x: None,
         y: Some(10.0),
         animate: false,
+        zoom: None,
+        at: None,
     });
     scrolls.place(&mut laid, 0.1, false);
     assert_eq!(
@@ -209,7 +211,10 @@ fn an_editor_scrolls_as_a_box_does_over_what_its_editor_laid_out() {
         laid.bounds(EDITOR.caret()),
         Some(Rect::new(30.0, 50.0, 2.0, 16.0))
     );
-    assert_eq!(scrolls.take_moved(), vec![(EDITOR, Point::new(0.0, 10.0))]);
+    assert_eq!(
+        scrolls.take_moved(),
+        vec![Scrolled::at(EDITOR, Point::new(0.0, 10.0))]
+    );
     assert!(laid.wants_layout(), "the popup stands where the caret was");
     // Laid out again where it is scrolled, the popup is beside the caret.
     let mut root = page(true);
@@ -231,6 +236,8 @@ fn an_editor_scrolled_with_nothing_on_its_caret_asks_for_nothing() {
         x: None,
         y: Some(100.0),
         animate: false,
+        zoom: None,
+        at: None,
     });
     scrolls.place(&mut laid, 0.1, false);
     assert_eq!(laid.scroll_extent(EDITOR).map(|e| e.offset.y), Some(100.0));

@@ -8,6 +8,15 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **A box that scrolls can be zoomed** (`Element::zoom(Zoom)`, `Zoom { min, max, smart, wheel }`):
+  `Scrolls::magnify`, `smart_magnify` and `zoom_wheel` zoom it about the point under the fingers, a
+  scale stays within the range and is pulled past it where the host is elastic, `ScrollTo` has
+  `zoom` and `at` (a page asks for a scale), `Scrolls::advance_zoom` and `zooming` say what a frame
+  owes the zoom, and `Scrolls::zoom_of` reads it. What the box holds is laid out at the scale
+  (`Style::zoomed`, put in by `apply`), so a word is in a larger face and a picture is asked larger.
+  `Extent` has `zoom`. **Breaking:** `Event::Scrolled` carries `Vec<Scrolled>` (`id`, `offset`,
+  `zoom`; `Scrolled::at` for one that does not zoom) and not `Vec<(Id, Point)>`; `ScrollTo` has two
+  fields more, `Extent` one, and `Scrolls::apply` takes `&mut self`.
 - **`Input` carries what a trackpad's fingers and a mouse's side buttons do**: `Magnify`,
   `SmartMagnify`, `Rotate`, `Swipe`, `Pressure` and `Extra` (a button beyond the third, never a
   `Press`), with `GesturePhase` for the part of a pinch or a rotation. `Scroll` has `phase`,

@@ -68,6 +68,20 @@ interface types {
         content: size,
         view: size,
         offset: point,
+        /// How many times the size the page gave it the content is at (1 for a box that does not
+        /// zoom, and until it is zoomed).
+        zoom: f32,
+    }
+
+    /// What a scrolling box lets be done to the size of what it holds: the person pinches it to
+    /// `min` to `max` times the size the page gave, a double tap with two fingers goes between 1
+    /// and `smart`, and the wheel with the command key held makes it `wheel` (as a natural
+    /// logarithm) larger for each point it turns.
+    record zoom-range {
+        min: f32,
+        max: f32,
+        smart: f32,
+        wheel: f32,
     }
 
     /// What a colour is called: the nine roles of the theme, its ANSI palette and its selection,
@@ -349,6 +363,8 @@ interface types {
         /// How many grid columns the element takes (`0` or `1`: one).
         column-span: u16,
         overflow: overflow,
+        /// For a scrolling box: what its content may be zoomed to. An editor may not be inside it.
+        zoom: option<zoom-range>,
         fill: option<color>,
         gradient: option<gradient>,
         border: option<border>,
@@ -1326,6 +1342,8 @@ interface types {
     record scrolled {
         id: id,
         offset: point,
+        /// How many times the size the page gave it the content is at (1 where it does not zoom).
+        zoom: f32,
     }
 
     /// A place in an editor's document: the editor and the place, UTF-8 bytes from the start (at
@@ -2178,6 +2196,11 @@ interface layout {
     /// (and the person has not asked for less motion), before the next frame is laid out. A box
     /// that is not on the page yet is there when it comes.
     scroll-to: func(id: id, x: option<f32>, y: option<f32>, animate: bool);
+    /// Asks for the box named `id`, which says a `zoom`, to be zoomed to `scale` times the size the
+    /// page gave its content (within the range it said), about the point `at` of the page (the
+    /// middle of the box where none), over a moment where `animate` (and the person has not asked
+    /// for less motion), before the next frame is laid out.
+    zoom-to: func(id: id, scale: f32, at: option<point>, animate: bool);
     /// The elements the keyboard can be on, in the order they are written.
     focus-order: func() -> list<id>;
     /// `id` and the named elements that hold it, innermost first.

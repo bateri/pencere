@@ -993,6 +993,36 @@ function Element:scroll(...)
 	return self
 end
 
+-- A box that scrolls (`:scroll()`) that the host lets the person zoom: pinched, by the command key
+-- with the wheel, by a double tap with two fingers. What is inside is laid out larger as it is
+-- zoomed (a text in a larger face, a picture in a larger size), the box stays the size it was
+-- given, and the page is told (`scrolled`, with `zoom`; `pencere.layout.zoom_of`, `zoom_to`).
+-- `{ min =, max =, smart =, wheel = }`: the smallest and the largest scale (1 and 4), the scale a
+-- double tap goes to from 1 (2) and how far one point of the wheel zooms (0.008). Without a
+-- table it is the same as `{}`; `false` takes the zoom off. An editor does not go inside one.
+function Element:zoom(rule)
+	if rule == false then
+		self.style.zoom = nil
+		return self
+	end
+	if rule == nil or rule == true then
+		rule = {}
+	end
+	if type(rule) ~= "table" then
+		refuse("zoom takes { min =, max =, smart =, wheel = }, not a " .. type(rule))
+	end
+	for key, value in pairs(rule) do
+		if key ~= "min" and key ~= "max" and key ~= "smart" and key ~= "wheel" then
+			refuse("zoom has no " .. tostring(key) .. " (min, max, smart, wheel)")
+		end
+		if type(value) ~= "number" then
+			refuse("zoom's " .. key .. " is a number, not a " .. type(value))
+		end
+	end
+	self.style.zoom = { min = rule.min, max = rule.max, smart = rule.smart, wheel = rule.wheel }
+	return self
+end
+
 -- --- Looks ------------------------------------------------------------------------------------
 
 function Element:bg(color) self.style.fill = color return self end

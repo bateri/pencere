@@ -113,7 +113,9 @@ The builders return the element. Layout: `row`, `col`, `wrap`, `grid(columns)`, 
 `gap_x`, `gap_y`, `grow`, `no_shrink`, `w`, `h`, `size`, `w_pct`, `w_full`, `h_full`, `size_full`,
 `min_w`, `min_h`, `max_w`, `max_h`, `p`, `px`, `py`, `pt|pr|pb|pl`, `mt|mr|mb|ml`, `absolute`, `inset`,
 `overlay`, `anchor(id, side, { gap =, align = })`, `clip`, `scroll()` (a box whose content scrolls
-behind it, down and across: the host scrolls it, by its id, Section 2.2).
+behind it, down and across: the host scrolls it, by its id, Section 2.2), `zoom({ min =, max =,
+smart =, wheel = })` (a box that scrolls and lets the person zoom what it holds: the host zooms it,
+Section 2.2; a page's editor does not go inside one).
 Looks: `bg`, `bg_gradient(angle, from, to)`, `border(width, color)`, `rounded`, `rounded_corners`,
 `shadow(dx, dy, blur, color)`, `opacity(0..1)` (the element with all inside it: each thing it draws
 is that much fainter, its words too, past a host's floor of contrast). Text, which the elements
@@ -502,6 +504,26 @@ it (a way not given stays where it is, past the end is the end, `animate` glides
 person asked for less motion), done before the next frame is laid out. A box with no id does not
 scroll.
 
+A box that scrolls can also say `zoom()` (`zoom({ min =, max =, smart =, wheel = })`), and the host
+zooms what it holds: a pinch makes it larger or smaller about the point between the fingers (that
+point of the content stays where it is under them), the wheel with the command key held does the
+same by the turn (`wheel` is how far one point of it goes: the scale is multiplied by `exp(-dy *
+wheel)`), and a double tap with two fingers goes between the size the page gave (1) and `smart`
+(2). The scale stays between `min` (1) and `max` (4); where the system does so, a pinch past them
+is pulled as a box is past its end, and springs back. The box stays the size the page gave it and
+what it holds is **laid out** at the scale, as the page's own points are: a word in a larger face,
+a picture asked at its larger size (so that it is sharp), a click where it is drawn; a host does not
+stretch a drawing of the page. The page is told the scale with where the box went (`scrolled`'s
+`zoom`, 1 for a box that does not zoom) and reads it with `pencere.layout.zoom_of(id)` (and
+`scroll_extent(id).zoom`); `pencere.layout.zoom_to(id, scale, { at = { x =, y = }, animate = })`
+asks for one (`at`, a point of the page, stays where it is: the middle of the box where none is
+given; `animate` as `scroll_to`'s; past the range is its end), done before the next frame is laid
+out. A pinch or a double tap no box that zooms took is the page's (`magnify`, `smart_magnify`). A
+box that zooms scrolls, and an editor is not inside one nor one itself, and a long list (`:list`) is
+not on one: a page that says any of these is refused. The constants that are the page's to say are
+its own (the range, the size a double tap goes to, how far a turn goes); how long a glide takes and
+how a pull past the range comes back are the host's, as they are for a scroll.
+
 A page reads what its `Ui` keeps as fields: `ui.hover`, the id of the pressable element the pointer
 is over; `ui.pressed`, the one a button went down on and is held on (nil when none is); and
 `ui.focus`, the element the keyboard is on (nil before any). It changes them through the methods:
@@ -532,7 +554,7 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 | `rotate`                       | `x`, `y`, `degrees` (since the last event of the gesture, positive counter-clockwise as a person sees the page), `phase` (as `magnify`'s) and `mods`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `swipe`                        | `dx`, `dy`: a swipe of three fingers, one step, each -1, 0 or 1 (`dx` 1 to the right, `dy` 1 down)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `pressure`                     | `x`, `y`, `stage` (0, 1 or 2: no click, a click, a deep click) and `pressure` (0 to 1): the force of a press on a trackpad that feels it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `scrolled`                     | `boxes`: the boxes the host scrolled, each `{ id =, x =, y = }`, how far it is scrolled now                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `scrolled`                     | `boxes`: the boxes the host scrolled or zoomed, each `{ id =, x =, y =, zoom = }`: how far it is scrolled now, and how many times the size the page gave it the content is shown at (1 for a box that does not zoom)                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `key`                          | `key` (`"up"`, `"down"`, `"left"`, `"right"`, `"page_up"`, `"page_down"`, `"home"`, `"end"`, `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"delete"`, `"f1"` to `"f20"`, or the character), `mods`                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `text`                         | `field` (its name) and `text`: what a field holds now, after the person changed it (not after the page's own `fill`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `focus`                        | `field`: the field the person clicked into, or nil when the keyboard went back to the page of itself (not said when it went where the page sent it)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -1546,6 +1568,11 @@ A host:
   so a box pulled past its end springs back), its scroll bars are drawn as the system's are and can
   be dragged, the page's `scroll_to` is done before the page is next laid out, and the page is told
   where its boxes went; a wheel no box took is the page's (`wheel`);
+- zooms the boxes that say a `zoom` (`Scrolls`): a pinch, the wheel with the command key held and a
+  double tap with two fingers are the box's, about the point under the fingers, within the range the
+  page gave, with the page's constants for its range, its double tap and its wheel; what the box holds is laid out again at the scale and
+  not stretched; the page is told the scale (`scrolled`) and asks for one (`zoom_to`); a gesture no
+  such box took is the page's (`magnify`, `smart_magnify`);
 - may draw a point of the page larger than a point of its screen, the page given fewer points for
   the same room: a terminal draws a page as large as its own text is to the kit's (12.5 points), so a
   page's words are the size of the terminal's and grow and shrink with them (`Laid::accessible` and the

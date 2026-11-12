@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use pencere_view::edit::TextSnapshot;
 use pencere_view::{
-    Element, Event, GesturePhase, Id, Input, Laid, Panel, Phase, Point, Reply, ScrollTo, Size,
+    Element, Event, GesturePhase, Id, Input, Laid, Panel, Phase, Reply, ScrollTo, Scrolled, Size,
     copy_key,
 };
 use pencere_wire::json::unescaped_len;
@@ -660,7 +660,7 @@ fn run<R: Runner>(
         // And what the pinches and rotations that were: the factor they made, the degrees they turned.
         let mut pinch = (1.0_f32, 0.0_f32);
         // And the boxes scrolled, of a run of them that was.
-        let mut scrolled: Vec<(Id, Point)> = Vec::new();
+        let mut scrolled: Vec<Scrolled> = Vec::new();
         // The last mark of the application's in the batch: come to once the batch is done.
         let mut marked = None;
         for (at, command) in batch.iter().enumerate() {
@@ -924,13 +924,13 @@ fn run<R: Runner>(
 }
 
 /// Each box once, where it stands last.
-fn newest_of_each(boxes: Vec<(Id, Point)>) -> Vec<(Id, Point)> {
-    let mut out: Vec<(Id, Point)> = Vec::with_capacity(boxes.len());
-    for (id, offset) in boxes {
-        if let Some(seen) = out.iter_mut().find(|(seen, _)| *seen == id) {
-            seen.1 = offset;
+fn newest_of_each(boxes: Vec<Scrolled>) -> Vec<Scrolled> {
+    let mut out: Vec<Scrolled> = Vec::with_capacity(boxes.len());
+    for scrolled in boxes {
+        if let Some(seen) = out.iter_mut().find(|seen| seen.id == scrolled.id) {
+            *seen = scrolled;
         } else {
-            out.push((id, offset));
+            out.push(scrolled);
         }
     }
     out
@@ -1751,10 +1751,14 @@ mod tests {
         rig.module.render(Size::new(10.0, 10.0), 1.0, false);
         let (list, side) = (Id::new(7), Id::new(9));
         let at = |y: f32| Point::new(0.0, y);
-        rig.module.event(Event::Scrolled(vec![(list, at(10.0))]));
         rig.module
-            .event(Event::Scrolled(vec![(side, at(5.0)), (list, at(20.0))]));
-        rig.module.event(Event::Scrolled(vec![(list, at(30.0))]));
+            .event(Event::Scrolled(vec![Scrolled::at(list, at(10.0))]));
+        rig.module.event(Event::Scrolled(vec![
+            Scrolled::at(side, at(5.0)),
+            Scrolled::at(list, at(20.0)),
+        ]));
+        rig.module
+            .event(Event::Scrolled(vec![Scrolled::at(list, at(30.0))]));
         open.send(()).unwrap();
         let began = std::time::Instant::now();
         while rig.log().iter().all(|l| !l.starts_with("handle"))
@@ -1770,7 +1774,10 @@ mod tests {
             .collect();
         let expected = format!(
             "handle {:?}",
-            Event::Scrolled(vec![(list, at(30.0)), (side, at(5.0))])
+            Event::Scrolled(vec![
+                Scrolled::at(list, at(30.0)),
+                Scrolled::at(side, at(5.0))
+            ])
         );
         assert_eq!(handled, [expected]);
     }

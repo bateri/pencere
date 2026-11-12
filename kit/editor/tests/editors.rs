@@ -445,6 +445,8 @@ fn only_the_rows_in_view_are_laid_out_and_the_page_is_told_which_lines_they_are(
         x: None,
         y: Some(100_000.0),
         animate: false,
+        zoom: None,
+        at: None,
     });
     host.settle();
     let viewport = host
@@ -2500,6 +2502,8 @@ fn what_stands_in_a_zone_scrolls_with_the_text_and_is_cut_by_the_room() {
         x: None,
         y: Some(30.0),
         animate: false,
+        zoom: None,
+        at: None,
     });
     host.frame();
     host.frame();
@@ -2510,6 +2514,8 @@ fn what_stands_in_a_zone_scrolls_with_the_text_and_is_cut_by_the_room() {
         x: None,
         y: Some(150.0),
         animate: false,
+        zoom: None,
+        at: None,
     });
     host.frame();
     host.frame();
@@ -2652,6 +2658,8 @@ fn what_the_pointer_is_over_is_found_again_when_the_text_scrolls_under_it() {
         x: None,
         y: Some(3.0 * ROW),
         animate: false,
+        zoom: None,
+        at: None,
     });
     host.settle();
     assert_eq!(
@@ -2830,6 +2838,8 @@ fn a_key_a_press_an_edit_or_a_scroll_ends_the_rest_and_none_comes_before_the_poi
         x: None,
         y: Some(100.0),
         animate: false,
+        zoom: None,
+        at: None,
     });
     host.settle();
     let told = host.wait(0.0);
@@ -2899,6 +2909,8 @@ fn a_range_the_page_named_is_a_box_an_overlay_stands_by_and_follows_the_text_and
         x: None,
         y: Some(600.0),
         animate: false,
+        zoom: None,
+        at: None,
     });
     host.settle();
     assert!(!shown(&mut host));
@@ -2907,6 +2919,8 @@ fn a_range_the_page_named_is_a_box_an_overlay_stands_by_and_follows_the_text_and
         x: None,
         y: Some(0.0),
         animate: false,
+        zoom: None,
+        at: None,
     });
     host.settle();
     assert!(shown(&mut host));

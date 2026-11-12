@@ -464,12 +464,24 @@ end
 -- and leave. smart_magnify(): a double tap with two fingers. rotate(degrees): the fingers turn by
 -- that much, counter-clockwise positive. force(stage, pressure): the force of a press (stage 0, 1
 -- or 2, pressure 0 to 1). click_extra(button): a button of the mouse beyond the third (4 is the
--- first, "back"). The modifiers are those of page:hold().
+-- first, "back"). The modifiers are those of page:hold(). A double tap that zooms a box goes
+-- over a moment, as a scroll that is animated does: page:idle() moves the clock through it.
 by_point("pinch", "pinch_at", "pinch_id")
 by_point("smart_magnify", "smart_magnify_at", "smart_magnify_id")
 by_point("rotate", "rotate_at", "rotate_id")
 by_point("force", "force_at", "force_id")
 by_point("click_extra", "click_extra_at", "click_extra_id")
+
+-- locator:zoom_of(): how many times the size the page gave it the content of the box (found by its
+-- id) is shown at: 1 where it does not zoom, and what a pinch, the wheel with the command key or a
+-- double tap with two fingers made of it where it does (`:zoom()`).
+function Locator:zoom_of()
+	local item = the_one(self, "zoom_of")
+	if item.role ~= "id" then
+		fail("zoom_of: a box that zooms is found by its id (get_by_id)")
+	end
+	return self.page.raw:zoom_of(item.id)
+end
 
 function Locator:scroll_to(y)
 	local item = the_one(self, "scroll_to")

@@ -8,6 +8,11 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **A box that says a `zoom` is zoomed by the host**: a pinch, the wheel with the command key held
+  and a double tap with two fingers over it are the box's (no longer the page's: it is told the
+  scale with `scrolled`), the page is laid out again at each step of a zoom and at the end of one
+  that springs back, and the page's `zoom_to` is done before the next frame. `Headless::zoom_of(name)`
+  says how far a box is zoomed.
 - **`Page::magnify`, `smart_magnify`, `rotate`, `swipe` and `pressure`**, and `Input::Extra` through
   `Page::input`: what a trackpad's fingers and a mouse's side buttons do, told to the page with the
   modifiers the host last said. `Page::mods()` says them. **Breaking:** `Page::wheel` takes

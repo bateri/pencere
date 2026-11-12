@@ -1301,6 +1301,8 @@ impl Editors {
                 x: None,
                 y: Some(((scroll.y + past) / s).max(0.0)),
                 animate: false,
+                zoom: None,
+                at: None,
             });
         }
         let Some(editor) = self.editors.get(&drag.id) else {
@@ -1487,6 +1489,8 @@ fn keep_in_view(
         x: x.map(|x| x / s),
         y: y.map(|y| y / s),
         animate: false,
+        zoom: None,
+        at: None,
     })
 }
 

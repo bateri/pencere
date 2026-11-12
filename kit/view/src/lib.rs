@@ -69,7 +69,7 @@ pub use geometry::{Point, Rect, Size};
 pub use id::Id;
 pub use input::{
     Button, Cursor, Event, FileEntry, FileSource, GesturePhase, Input, Key, Keyboard, Menu,
-    MenuEntry, Mods, Panel, Place, Reply, Saving, copy_key,
+    MenuEntry, Mods, Panel, Place, Reply, Saving, Scrolled, copy_key,
 };
 pub use layout::{Accessible, AccessibleRole, EditorRoom, Extent, Field, Laid, Queries, layout};
 pub use motion::{Ease, Motion, Motions, Shift, Tip};
@@ -77,7 +77,7 @@ pub use paint::{DrawList, EditorSlot, Figure, Paint, Picture, Quad, Run};
 pub use rich::{Span, span};
 pub use rows::{Built, List, Rows};
 pub use scrolls::{Bars, Phase, ScrollTo, Scrolls, Wheeled};
-pub use style::{Anchor, Border, Gradient, Shadow, Side, Track};
+pub use style::{Anchor, Border, Gradient, Shadow, Side, Track, Zoom};
 pub use system::{
     Drawing, KeyConvention, TerminalCaret, TerminalLook, TerminalSelection, WallTime,
 };
@@ -106,3 +106,5 @@ mod rich_tests;
 mod scroll_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod zoom_tests;

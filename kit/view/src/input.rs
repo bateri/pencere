@@ -58,6 +58,27 @@ pub enum Button {
     Middle,
 }
 
+/// A box the host scrolled or zoomed ([`Event::Scrolled`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Scrolled {
+    pub id: Id,
+    /// How far it is scrolled, across and down, points.
+    pub offset: Point,
+    /// How many times the size the page gave it the content is at (1 where it does not zoom).
+    pub zoom: f32,
+}
+
+impl Scrolled {
+    /// A box scrolled to `offset` that is not zoomed.
+    pub fn at(id: Id, offset: Point) -> Self {
+        Self {
+            id,
+            offset,
+            zoom: 1.0,
+        }
+    }
+}
+
 /// What part of a pinch or a rotation an event of it is, as the system says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GesturePhase {
@@ -242,10 +263,11 @@ pub enum Event {
     /// The person chose a place in the Save panel the page asked for ([`Panel::Save`]), or turned
     /// it away (`None`).
     Saving(Option<Saving>),
-    /// The host scrolled these boxes (the wheel, the trackpad, a scroll bar, or what the page
-    /// asked): each one's name and how far it is scrolled now, across and down, points. A page
-    /// that builds only what is in view builds what has come into it.
-    Scrolled(Vec<(Id, Point)>),
+    /// The host scrolled or zoomed these boxes (the wheel, the trackpad, a scroll bar, a pinch, or
+    /// what the page asked): each one's name, how far it is scrolled now, across and down, points,
+    /// and the scale its content is at. A page that builds only what is in view builds what has
+    /// come into it.
+    Scrolled(Vec<Scrolled>),
     /// The pointer over an editor: what it did (a move, a press, a release), and the place in the
     /// editor's document under it — what a page that shows what a word is when the pointer rests
     /// on it, or goes to where a name is defined at a ⌘-click, reads. The press is the editor's

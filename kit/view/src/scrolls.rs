@@ -25,13 +25,15 @@
 //! A box is scrolled by the host only if it has a name ([`crate::Element::id`]): its offset is
 //! kept by that name.
 
+mod zoom;
+
 use std::collections::HashMap;
 
 use crate::element::Element;
 use crate::layout::{Laid, snap};
 use crate::paint::Quad;
 use crate::style::Overflow;
-use crate::{Ease, Extent, Id, Point, Rect, Role};
+use crate::{Ease, Extent, Id, Point, Rect, Role, Scrolled};
 
 /// What part of a gesture a turn of the wheel is, as the system says.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -68,13 +70,17 @@ pub enum Bars {
 }
 
 /// A page's ask to have a box scrolled: to `x` across and `y` down (points; one not given stays
-/// where it is; past the end is the end), at once or `animate`d.
+/// where it is; past the end is the end), at once or `animate`d. Or zoomed: to `zoom` times the size
+/// it gave the content (within the range it said), about the point `at` of the page (the middle of
+/// the box where none is said); the same ask does not scroll.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScrollTo {
     pub id: Id,
     pub x: Option<f32>,
     pub y: Option<f32>,
     pub animate: bool,
+    pub zoom: Option<f32>,
+    pub at: Option<Point>,
 }
 
 /// What a turn of the wheel came to: whether a box took it (the host draws again, by
@@ -97,6 +103,8 @@ const SPRING: f32 = 13.0;
 const REST: f32 = 0.25;
 /// How long an animated ask takes, seconds.
 const GLIDE: f64 = 0.22;
+/// How many asks a host keeps for what is not on the page yet; the oldest go first.
+const MOST_WAITING: usize = 256;
 /// How long overlay bars stay after the box stopped moving, and how long they take to go, seconds.
 const SHOW: f64 = 0.9;
 const FADE: f64 = 0.3;
@@ -141,6 +149,8 @@ struct Scroller {
     moved_at: Option<f64>,
     /// The offset the page was last told.
     told: Point,
+    /// How it is zoomed.
+    zoom: zoom::Zooming,
 }
 
 /// A bar's knob held and moved: the box, which way, where the pointer took it and the offset then.
@@ -170,6 +180,8 @@ pub struct Scrolls {
     pressed: bool,
     /// What is drawn over each box (a dialog, a popup), points: its bars do not answer there.
     covered: HashMap<Id, Vec<Rect>>,
+    /// The box the pinch under way zooms.
+    pinch: Option<Id>,
 }
 
 impl Scrolls {
@@ -204,16 +216,29 @@ impl Scrolls {
 
     /// The page asks for a box to be scrolled: done at the next [`Scrolls::place`].
     pub fn ask(&mut self, ask: ScrollTo) {
+        // The newest ask of a box for a scale is the one that counts.
+        if ask.zoom.is_some() {
+            self.asks
+                .retain(|old| old.id != ask.id || old.zoom.is_none());
+        }
         self.asks.push(ask);
+        // What waits for a box that is not on the page is not kept without end.
+        if self.asks.len() > MOST_WAITING {
+            self.asks.remove(0);
+        }
     }
 
     /// Puts each box of `root` that scrolls and has a name where it is scrolled, before the tree is
     /// laid out.
-    pub fn apply(&self, root: &mut Element) {
+    pub fn apply(&mut self, root: &mut Element) {
         if let (Some(id), Overflow::Scroll) = (root.meta.id, root.style.overflow)
-            && let Some(b) = self.boxes.get(&id)
+            && let Some(b) = self.boxes.get_mut(&id)
         {
             root.style.scroll = (b.offset.x + b.stretch.x, b.offset.y + b.stretch.y);
+            if root.style.zoom.is_some() {
+                root.style.zoomed = Some(b.zoom.shown());
+                b.zoom.laid_out();
+            }
         }
         for child in &mut root.children {
             self.apply(child);
@@ -222,17 +247,22 @@ impl Scrolls {
 
     /// The boxes whose offset the page has not been told, with where they are now: what the host
     /// tells the page ([`crate::Event::Scrolled`]).
-    pub fn take_moved(&mut self) -> Vec<(Id, Point)> {
-        let mut moved: Vec<(Id, Point)> = self
+    pub fn take_moved(&mut self) -> Vec<Scrolled> {
+        let mut moved: Vec<Scrolled> = self
             .boxes
             .iter_mut()
-            .filter(|(_, b)| b.told != b.offset)
+            .filter(|(_, b)| b.told != b.offset || !b.zoom.told())
             .map(|(id, b)| {
                 b.told = b.offset;
-                (*id, b.offset)
+                b.zoom.tell();
+                Scrolled {
+                    id: *id,
+                    offset: b.offset,
+                    zoom: b.zoom.settled(),
+                }
             })
             .collect();
-        moved.sort_by_key(|(id, _)| id.number());
+        moved.sort_by_key(|moved| moved.id.number());
         moved
     }
 
@@ -594,7 +624,12 @@ impl Scrolls {
             };
             let b = self.boxes.entry(id).or_default();
             b.extent = Some(extent);
-            for ask in asks.iter().filter(|ask| ask.id == id) {
+            let zoomer = laid.zoomer_at(index);
+            b.zoom.set_rule(
+                zoomer.map(|(rule, _)| rule),
+                zoomer.map_or(Rect::default(), |(_, frame)| frame),
+            );
+            for ask in asks.iter().filter(|ask| ask.id == id && ask.zoom.is_none()) {
                 let target = Point::new(
                     ask.x
                         .unwrap_or(b.offset.x)
@@ -603,7 +638,14 @@ impl Scrolls {
                 );
                 go(b, target, ask.animate && !reduce_motion, now);
             }
-            asks.retain(|ask| ask.id != id);
+            // An ask for a scale is done before the page is laid out ([`Scrolls::advance_zoom`]),
+            // and kept for a box that was not there until now; a box that says no zoom has no
+            // scale to go to, and the page is told the one it is at (1).
+            if zoomer.is_none() && asks.iter().any(|ask| ask.id == id && ask.zoom.is_some()) {
+                b.zoom.untell();
+                asks.retain(|ask| ask.id != id || ask.zoom.is_none());
+            }
+            asks.retain(|ask| ask.id != id || ask.zoom.is_some());
             step(b, now, reduce_motion);
             b.offset = Point::new(
                 b.offset.x.clamp(0.0, extent.max_offset_x()),
@@ -618,6 +660,10 @@ impl Scrolls {
         }
         // An ask for a box that is not on the page yet waits there: it is where the box will be.
         for ask in asks {
+            if ask.zoom.is_some() {
+                self.asks.push(ask);
+                continue;
+            }
             let b = self.boxes.entry(ask.id).or_default();
             b.offset = Point::new(
                 ask.x.unwrap_or(b.offset.x).max(0.0),
@@ -740,13 +786,15 @@ impl Scrolls {
     /// Whether anything is on its way (a box springing back, going where it was asked, bars
     /// going): the host draws the next frame too, by [`Scrolls::place`] on the same page.
     pub fn moving(&self, now: f64) -> bool {
-        self.boxes.values().any(|b| {
-            b.spring.is_some()
-                || b.glide.is_some()
-                || (self.bars == Bars::Overlay
-                    && b.moved_at
-                        .is_some_and(|at| now - at >= SHOW && now - at < SHOW + FADE))
-        })
+        self.asks.iter().any(|ask| self.zoom_ask_is_due(ask))
+            || self.boxes.values().any(|b| {
+                b.spring.is_some()
+                    || b.glide.is_some()
+                    || b.zoom.moving()
+                    || (self.bars == Bars::Overlay
+                        && b.moved_at
+                            .is_some_and(|at| now - at >= SHOW && now - at < SHOW + FADE))
+            })
     }
 
     /// When a box's bars start to go, if they are showing and nothing else moves: the host draws

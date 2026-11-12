@@ -463,7 +463,10 @@ impl Page {
         let state = &mut self.state;
         let place = state.place;
         let now = state.clock.now();
-        let (took, redraw) = state.scrolls.pointer(&into_page(input, place), now);
+        let (took, redraw) =
+            state
+                .scrolls
+                .pointer(&into_page(input, place), state.laid.as_deref(), now);
         state.redraw |= redraw;
         if took {
             state.tell_scrolled();
@@ -576,7 +579,10 @@ impl Page {
         let now = state.clock.now();
         let left = match state.laid.clone() {
             Some(laid) => {
-                let wheel = state.scrolls.wheel(&laid, page_at, (dx, dy), phase, now);
+                let zoom = state.mods.command;
+                let wheel = state
+                    .scrolls
+                    .wheel(&laid, page_at, (dx, dy), phase, zoom, now);
                 state.redraw |= wheel.took;
                 state.tell_scrolled();
                 wheel.left
@@ -1422,7 +1428,10 @@ impl State {
         let asks = std::mem::take(&mut self.asks);
         self.scrolls.ask(asks);
         // Only the scrolling changed: the boxes move on the page as it was laid out.
-        let still = !self.fresh && self.laid_for == Some((size, scale)) && !self.motions.moving();
+        let still = !self.fresh
+            && self.laid_for == Some((size, scale))
+            && !self.motions.moving()
+            && !self.scrolls.scrolls.zooming();
         let cached = self.laid.clone().filter(|_| still);
         let root = self.root.clone();
         let starting = root.is_none();
@@ -1528,6 +1537,7 @@ impl State {
     ) -> Laid {
         let starting = root.is_none();
         let mut root = root.unwrap_or_else(starting_line);
+        self.scrolls.scrolls.advance_zoom(at.now);
         self.scrolls.scrolls.apply(&mut root);
         let mut measured = self.editing.editors.measure(measure);
         let mut laid = self.motions.layout(

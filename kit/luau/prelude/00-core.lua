@@ -166,7 +166,8 @@ end
 
 -- How far the scrolling box named `id` reaches: { content =, view = } down and { content_w =,
 -- view_w = } across, with how far each way it can be scrolled, `max_offset` and `max_offset_x`,
--- and how far it is scrolled, `offset` and `offset_x`, as it was laid out.
+-- and how far it is scrolled, `offset` and `offset_x`, as it was laid out, and `zoom`: how many
+-- times the size the page gave it the content is shown at (1 for a box that does not zoom).
 function layout.scroll_extent(id)
 	local extent = host.scroll_extent(id)
 	if extent then
@@ -223,10 +224,49 @@ function layout.scroll_to(id, to)
 	host.scroll_to(id, x, y, to.animate and true or false)
 end
 
--- The prelude's: the host scrolled these boxes ({ { id =, x =, y = }, ... }).
+-- How large the host shows each box that zooms, its word (a `scrolled` event, or what the page asked
+-- of it since), by the box's name.
+local zooms = {}
+
+-- How many times the size the page gave it the content of the box named `id` is shown at: 1 for
+-- a box that does not zoom. A person zooms it by a pinch, the command key with the wheel or a
+-- double tap with two fingers (`:zoom()`); the page is told (`scrolled`, with `zoom`). Until the
+-- host says, it is what the page asked of it last (`zoom_to`); the host always says, with the scale
+-- it holds, which is within the range of the box (and 1 for a box that does not zoom).
+function layout.zoom_of(id)
+	local known = zooms[id]
+	if known then
+		return known
+	end
+	local extent = host.scroll_extent(id)
+	return extent and extent.zoom or 1
+end
+
+-- Asks the host to show the content of the box named `id` at `scale` times the size the page gave
+-- it (within what `:zoom()` allows): `to` is { at = { x =, y = }, animate = }; `at` is the point of
+-- the page (as `layout.bounds` says its places) that stays where it is, the middle of the box where
+-- none is given; `animate` glides there, unless the person asked for less motion.
+function layout.zoom_to(id, scale, to)
+	if type(scale) ~= "number" or scale ~= scale or scale <= 0 or scale == math.huge then
+		refuse("zoom_to takes a scale above 0, not " .. tostring(scale))
+	end
+	if to ~= nil and type(to) ~= "table" then
+		refuse("zoom_to takes { at = { x =, y = }, animate = }, not a " .. type(to))
+	end
+	to = to or {}
+	local at = to.at
+	if at ~= nil and (type(at) ~= "table" or type(at.x) ~= "number" or type(at.y) ~= "number") then
+		refuse("zoom_to's at is { x =, y = }")
+	end
+	zooms[id] = scale
+	host.zoom_to(id, scale, at and at.x, at and at.y, to.animate and true or false)
+end
+
+-- The prelude's: the host scrolled these boxes ({ { id =, x =, y =, zoom = }, ... }).
 function internal.heard(boxes)
 	for _, scrolled in ipairs(boxes) do
 		offsets[scrolled.id] = { x = scrolled.x, y = scrolled.y }
+		zooms[scrolled.id] = scrolled.zoom
 		asked[scrolled.id] = nil
 	end
 end

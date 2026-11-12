@@ -772,6 +772,15 @@ impl Element {
         self.set(|s| s.overflow = Overflow::Scroll)
     }
 
+    /// A box that scrolls ([`Element::scroll`]) that the host lets be zoomed: pinched, by the
+    /// command key with the wheel, by a double tap with two fingers ([`crate::Scrolls`]). What is
+    /// inside it is laid out larger as the person zooms, a text in a larger face and a picture in
+    /// a larger size, and the box stays the size it was given.
+    #[must_use]
+    pub fn zoom(self, zoom: crate::Zoom) -> Self {
+        self.set(|s| s.zoom = Some(zoom))
+    }
+
     /// Scrolled `x` across and `y` down, as the host puts it before it lays the page out
     /// ([`crate::Scrolls::apply`]): for the engine's tests.
     #[cfg(test)]

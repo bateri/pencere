@@ -142,6 +142,30 @@ pub struct Anchor {
     pub gap: f32,
 }
 
+/// What a box that scrolls lets its person do to the size of what it holds: the content is at
+/// `min` to `max` times the size the page gave it, a double tap of two fingers goes between 1 and
+/// `smart`, and a turn of the wheel with the command key held makes it `wheel` times its points
+/// larger as the wheel moves them (`exp`: 12 points of a mouse's wheel, a step, make it a tenth
+/// larger at 0.008).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Zoom {
+    pub min: f32,
+    pub max: f32,
+    pub smart: f32,
+    pub wheel: f32,
+}
+
+impl Default for Zoom {
+    fn default() -> Self {
+        Self {
+            min: 1.0,
+            max: 4.0,
+            smart: 2.0,
+            wheel: 0.008,
+        }
+    }
+}
+
 /// The text properties an element sets for itself and the elements under it, as a style
 /// sheet's `font` and `color` are inherited. A property an element does not set is the
 /// nearest ancestor's.
@@ -216,6 +240,12 @@ pub struct Style {
     pub overflow: Overflow,
     /// How far a scrolling box's content is moved up and left, points.
     pub scroll: (f32, f32),
+    /// For a scrolling box: what its content may be zoomed to. The host zooms it ([`crate::Scrolls`]).
+    pub zoom: Option<Zoom>,
+    /// For a box that says a `zoom`: how many times the size it was given its content is laid out
+    /// at now, as the host keeps it (`None`: 1). Its padding and everything inside it are that
+    /// many times as large; the box itself is not.
+    pub zoomed: Option<f32>,
     pub fill: Option<Color>,
     /// A fill that runs from one colour to another, over `fill` where there are both.
     pub gradient: Option<Gradient>,

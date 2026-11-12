@@ -23,7 +23,7 @@ use pencere_view::{
     Extent, Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Key, KeyConvention,
     Keyboard, Laid, Menu, MenuEntry, Mix, Mods, Motion, Panel, Path, Phase, Point, Rect, Reply,
     Rgba, Role, ScrollTo, Segment, Shadow, Shift, Shortcut, Side, Size, Source, Span, State,
-    Stroke, Tip, Track,
+    Stroke, Tip, Track, Zoom,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -251,6 +251,7 @@ impl pencere::view::layout::Host for Host {
             content,
             view,
             offset,
+            zoom,
         } = self.laid()?.scroll_extent(Id::new(id))?;
         let size = |size: Size| wit::Size {
             w: size.w,
@@ -260,7 +261,26 @@ impl pencere::view::layout::Host for Host {
             content: size(content),
             view: size(view),
             offset: point_in(offset),
+            zoom,
         })
+    }
+
+    fn zoom_to(&mut self, id: u64, scale: f32, at: Option<wit::Point>, animate: bool) {
+        // As `scroll_to`: not kept asking, and not for what is no scale.
+        if self.asks.len() >= MOST_ASKS || !(scale.is_finite() && scale > 0.0) {
+            return;
+        }
+        let at = at
+            .filter(|at| at.x.is_finite() && at.y.is_finite())
+            .map(|at| Point::new(at.x, at.y));
+        self.asks.push(ScrollTo {
+            id: Id::new(id),
+            x: None,
+            y: None,
+            animate,
+            zoom: Some(scale),
+            at,
+        });
     }
 
     fn scroll_to(&mut self, id: u64, x: Option<f32>, y: Option<f32>, animate: bool) {
@@ -279,6 +299,8 @@ impl pencere::view::layout::Host for Host {
             x: at(x),
             y: at(y),
             animate,
+            zoom: None,
+            at: None,
         });
     }
 
@@ -582,9 +604,10 @@ fn event_in(event: Event) -> wit::Event {
         Event::Scrolled(boxes) => wit::Event::Scrolled(
             boxes
                 .into_iter()
-                .map(|(id, offset)| wit::Scrolled {
-                    id: id_out(id),
-                    offset: point_in(offset),
+                .map(|scrolled| wit::Scrolled {
+                    id: id_out(scrolled.id),
+                    offset: point_in(scrolled.offset),
+                    zoom: scrolled.zoom,
                 })
                 .collect(),
         ),
@@ -1150,6 +1173,61 @@ fn angle_out(angle: f32) -> f32 {
     }
 }
 
+/// What a box that scrolls lets be zoomed to, as the page said it: a box that does not scroll has
+/// none to say, and a range is a range of sizes.
+fn zoom_out(style: &wit::Style) -> Result<Option<Zoom>, Fault> {
+    let Some(zoom) = &style.zoom else {
+        return Ok(None);
+    };
+    if !matches!(style.overflow, wit::Overflow::Scroll) {
+        return Err(Fault::Malformed(
+            "a box that says a zoom must scroll".to_owned(),
+        ));
+    }
+    let size = |value: f32| value.is_finite() && value > 0.0;
+    if !(size(zoom.min)
+        && size(zoom.max)
+        && size(zoom.smart)
+        && zoom.min <= zoom.max
+        && zoom.wheel.is_finite()
+        && zoom.wheel >= 0.0)
+    {
+        return Err(Fault::Malformed(format!(
+            "a zoom of min {}, max {}, smart {} and wheel {} (sizes above 0, min not above max, a wheel of 0 or more)",
+            zoom.min, zoom.max, zoom.smart, zoom.wheel
+        )));
+    }
+    Ok(Some(Zoom {
+        min: zoom.min,
+        max: zoom.max,
+        smart: zoom.smart,
+        wheel: zoom.wheel,
+    }))
+}
+
+/// Whether an editor is inside a box that zooms (or is one): its text is measured and drawn at the
+/// size of the page's, which a zoom of what is inside it does not move.
+fn editor_in_zoom(nodes: &[Node]) -> bool {
+    // For each node still open: how many of its children are yet to come, and whether it zooms.
+    let mut open: Vec<(u32, bool)> = Vec::new();
+    for node in nodes {
+        while let Some(top) = open.last_mut() {
+            if top.0 == 0 {
+                open.pop();
+            } else {
+                top.0 -= 1;
+                break;
+            }
+        }
+        let zooms = node.style.zoom.is_some();
+        if node.meta.editor.is_some() && (zooms || open.iter().any(|(_, zooms)| *zooms)) {
+            return true;
+        }
+        open.push((node.children, zooms));
+    }
+    false
+}
+
 fn style_out(
     style: &wit::Style,
     limits: &ModuleLimits,
@@ -1217,6 +1295,9 @@ fn style_out(
         },
         // How far a box is scrolled is the application's: put in when it lays the page out.
         scroll: (0.0, 0.0),
+        zoom: zoom_out(style)?,
+        // So is the scale of a box that zooms.
+        zoomed: None,
         fill: style.fill.as_ref().map(color_out),
         gradient: style.gradient.as_ref().map(|gradient| Gradient {
             angle: angle_out(gradient.angle),
@@ -1549,6 +1630,12 @@ fn frame_out(
         .iter()
         .map(|node| node_out(node, limits, &mut lists))
         .collect::<Result<Vec<_>, _>>()?;
+    if editor_in_zoom(&nodes) {
+        return Err(Fault::Malformed(
+            "an editor inside a box that zooms (or one that zooms): a zoom does not reach an editor's text"
+                .to_owned(),
+        ));
+    }
     patterns.check(
         nodes
             .iter()
@@ -2789,6 +2876,7 @@ mod tests {
     /// A style that sets nothing.
     fn style() -> wit::Style {
         wit::Style {
+            zoom: None,
             display: wit::Display::Flex,
             direction: wit::Direction::Column,
             wrap: false,
@@ -2943,6 +3031,175 @@ mod tests {
 
     fn container(children: u32) -> wit::Node {
         node(wit::Content::Box, children)
+    }
+
+    fn wired(children: u32) -> Node {
+        Node {
+            kind: Kind::Box,
+            style: Style::default(),
+            meta: Meta::default(),
+            children,
+        }
+    }
+
+    fn zooms(mut node: Node) -> Node {
+        node.style.zoom = Some(Zoom::default());
+        node
+    }
+
+    fn edits(mut node: Node) -> Node {
+        node.meta.editor = Some(pencere_view::edit::EditorOptions::default());
+        node
+    }
+
+    #[test]
+    fn an_editor_inside_a_box_that_zooms_or_one_that_zooms_is_found_and_one_beside_it_is_not() {
+        // A page of an editor, and of a box that zooms beside it.
+        let beside = [wired(2), edits(wired(0)), zooms(wired(0))];
+        assert!(!editor_in_zoom(&beside));
+        // Inside, however deep.
+        let inside = [wired(2), zooms(wired(1)), wired(1), edits(wired(0))];
+        assert!(editor_in_zoom(&inside));
+        // Inside one that does not zoom, with a box that zooms before it.
+        let after = [
+            wired(2),
+            zooms(wired(1)),
+            wired(0),
+            wired(1),
+            edits(wired(0)),
+        ];
+        assert!(!editor_in_zoom(&after), "an editor that is no child of it");
+        // The box that zooms is the editor.
+        assert!(editor_in_zoom(&[edits(zooms(wired(0)))]));
+        assert!(!editor_in_zoom(&[wired(1), edits(wired(0))]));
+    }
+
+    #[test]
+    fn a_zoom_is_a_range_of_sizes_in_a_box_that_scrolls_and_no_other_is_a_page() {
+        let said = |overflow: wit::Overflow, zoom: Option<wit::ZoomRange>| {
+            let mut style = style();
+            style.overflow = overflow;
+            style.zoom = zoom;
+            zoom_out(&style)
+        };
+        let range = |min: f32, max: f32, smart: f32, wheel: f32| {
+            Some(wit::ZoomRange {
+                min,
+                max,
+                smart,
+                wheel,
+            })
+        };
+        assert_eq!(said(wit::Overflow::Visible, None).unwrap(), None);
+        let zoom = said(wit::Overflow::Scroll, range(0.5, 8.0, 3.0, 0.01))
+            .unwrap()
+            .expect("a zoom");
+        assert_eq!(
+            (zoom.min, zoom.max, zoom.smart, zoom.wheel),
+            (0.5, 8.0, 3.0, 0.01)
+        );
+        // A wheel of nothing is a zoom the wheel does not move.
+        assert!(said(wit::Overflow::Scroll, range(1.0, 1.0, 1.0, 0.0)).is_ok());
+        for (why, overflow, rule) in [
+            (
+                "no scroll",
+                wit::Overflow::Visible,
+                range(1.0, 4.0, 2.0, 0.008),
+            ),
+            (
+                "no scroll, clipped",
+                wit::Overflow::Hidden,
+                range(1.0, 4.0, 2.0, 0.008),
+            ),
+            (
+                "min above max",
+                wit::Overflow::Scroll,
+                range(5.0, 4.0, 2.0, 0.008),
+            ),
+            (
+                "min of 0",
+                wit::Overflow::Scroll,
+                range(0.0, 4.0, 2.0, 0.008),
+            ),
+            (
+                "min below 0",
+                wit::Overflow::Scroll,
+                range(-1.0, 4.0, 2.0, 0.008),
+            ),
+            (
+                "max that is no number",
+                wit::Overflow::Scroll,
+                range(1.0, f32::NAN, 2.0, 0.008),
+            ),
+            (
+                "max of infinity",
+                wit::Overflow::Scroll,
+                range(1.0, f32::INFINITY, 2.0, 0.008),
+            ),
+            (
+                "smart of 0",
+                wit::Overflow::Scroll,
+                range(1.0, 4.0, 0.0, 0.008),
+            ),
+            (
+                "wheel below 0",
+                wit::Overflow::Scroll,
+                range(1.0, 4.0, 2.0, -0.1),
+            ),
+            (
+                "wheel that is no number",
+                wit::Overflow::Scroll,
+                range(1.0, 4.0, 2.0, f32::NAN),
+            ),
+        ] {
+            assert!(
+                matches!(said(overflow, rule), Err(Fault::Malformed(_))),
+                "{why} was taken"
+            );
+        }
+    }
+
+    #[test]
+    fn a_page_asks_for_a_scale_of_a_box_only_for_one_that_is_a_scale() {
+        use pencere::view::layout::Host as _;
+        let mut host = Host::new(&ModuleLimits::default(), Arc::new(Unbounded));
+        host.zoom_to(7, 2.0, Some(wit::Point { x: 3.0, y: 4.0 }), true);
+        host.zoom_to(7, 0.0, None, false);
+        host.zoom_to(7, -1.0, None, false);
+        host.zoom_to(7, f32::NAN, None, false);
+        host.zoom_to(7, f32::INFINITY, None, false);
+        // A place that is no place is the middle of the box.
+        host.zoom_to(
+            8,
+            1.5,
+            Some(wit::Point {
+                x: f32::NAN,
+                y: 1.0,
+            }),
+            false,
+        );
+        let asks = std::mem::take(&mut host.asks);
+        assert_eq!(
+            asks,
+            [
+                ScrollTo {
+                    id: Id::new(7),
+                    x: None,
+                    y: None,
+                    animate: true,
+                    zoom: Some(2.0),
+                    at: Some(Point::new(3.0, 4.0)),
+                },
+                ScrollTo {
+                    id: Id::new(8),
+                    x: None,
+                    y: None,
+                    animate: false,
+                    zoom: Some(1.5),
+                    at: None,
+                },
+            ]
+        );
     }
 
     #[test]

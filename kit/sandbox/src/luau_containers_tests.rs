@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use containers_page::{Containers, FIELD, Reading};
 use pencere_view::{
     Button, Element, Event, Id, Input, Key, Keyboard, Laid, Mods, Phase, Point, Reply, Role,
-    ScrollTo, Scrolls, Size, div, layout, text,
+    ScrollTo, Scrolled, Scrolls, Size, div, layout, text,
 };
 
 use crate::test_support::{Open, Rough, SIZE};
@@ -424,7 +424,7 @@ impl Pair {
         if !moved.is_empty() {
             self.lua.module.event(Event::Scrolled(moved.clone()));
             let lua = self.answer();
-            let native = self.native.scrolled(&moved);
+            let native = self.native.scrolled(&at_of(&moved));
             assert_same_reply("the boxes scrolled", &lua, &native);
             again |= native.redraw;
         }
@@ -536,7 +536,7 @@ impl Pair {
             | Event::Wake { .. }
             | Event::TerminalLook => Reply::none(),
             Event::MenuPick { serial, index } => self.native.pick(serial, index),
-            Event::Scrolled(boxes) => self.native.scrolled(&boxes),
+            Event::Scrolled(boxes) => self.native.scrolled(&at_of(&boxes)),
         };
         assert_same_reply(what, &lua, &native);
         if native.redraw {
@@ -1775,4 +1775,9 @@ fn a_subscription_the_program_had_no_room_for_is_said_when_it_has() {
         [r#"{"subscribe":{"id":1,"topic":"stats"}}"#.to_owned()]
     );
     assert!(page.seen.closed.is_none());
+}
+
+/// Where the boxes the host told of stand, as the native page keeps them.
+fn at_of(boxes: &[Scrolled]) -> Vec<(Id, Point)> {
+    boxes.iter().map(|b| (b.id, b.offset)).collect()
 }

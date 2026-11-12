@@ -213,7 +213,7 @@ int l_scroll_extent(lua_State* state) {
     pencere_view_types_extent_t extent;
     if (pencere_view_layout_scroll_extent(bridge::id_of(state, 1), &extent)) {
         // Down as `content` and `view`, across as `content_w` and `view_w`.
-        lua_createtable(state, 0, 6);
+        lua_createtable(state, 0, 7);
         lua_pushnumber(state, extent.content.h);
         lua_setfield(state, -2, "content");
         lua_pushnumber(state, extent.view.h);
@@ -227,6 +227,9 @@ int l_scroll_extent(lua_State* state) {
         lua_setfield(state, -2, "offset");
         lua_pushnumber(state, extent.offset.x);
         lua_setfield(state, -2, "offset_x");
+        // How many times the size the page gave it the content is shown at (1 where it does not zoom).
+        lua_pushnumber(state, extent.zoom);
+        lua_setfield(state, -2, "zoom");
     } else {
         lua_pushnil(state);
     }
@@ -241,6 +244,20 @@ int l_scroll_to(lua_State* state) {
     if (has_x) x = (float)lua_tonumber(state, 2);
     if (has_y) y = (float)lua_tonumber(state, 3);
     pencere_view_layout_scroll_to(id, has_x ? &x : nullptr, has_y ? &y : nullptr, lua_toboolean(state, 4) != 0);
+    return 0;
+}
+
+// zoom_to(id, scale, x, y, animate): x and y nil keep the middle of the box where it is.
+int l_zoom_to(lua_State* state) {
+    uint64_t id = bridge::id_of(state, 1);
+    float scale = (float)luaL_checknumber(state, 2);
+    pencere_view_types_point_t at = {};
+    bool has_at = lua_type(state, 3) == LUA_TNUMBER && lua_type(state, 4) == LUA_TNUMBER;
+    if (has_at) {
+        at.x = (float)lua_tonumber(state, 3);
+        at.y = (float)lua_tonumber(state, 4);
+    }
+    pencere_view_layout_zoom_to(id, scale, has_at ? &at : nullptr, lua_toboolean(state, 5) != 0);
     return 0;
 }
 
@@ -846,6 +863,7 @@ void host_functions(lua_State* state) {
         {"bounds", l_bounds},
         {"scroll_extent", l_scroll_extent},
         {"scroll_to", l_scroll_to},
+        {"zoom_to", l_zoom_to},
         {"focus_order", l_focus_order},
         {"path_of", l_path_of},
         {"drag_source", l_drag_source},

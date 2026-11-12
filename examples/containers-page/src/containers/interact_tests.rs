@@ -42,7 +42,8 @@ fn lay(page: &mut Containers, height: f32) -> Laid {
             let mut laid = layout(root, size, 1.0, &mut Mono);
             scrolls.place(&mut laid, 0.0, true);
             let moved = scrolls.take_moved();
-            let told = !moved.is_empty() && page.scrolled(&moved).redraw;
+            let boxes: Vec<_> = moved.iter().map(|b| (b.id, b.offset)).collect();
+            let told = !boxes.is_empty() && page.scrolled(&boxes).redraw;
             if !page.settle(&laid) && !told {
                 return laid;
             }
@@ -733,6 +734,8 @@ fn only_the_rows_near_what_is_in_view_are_built_however_long_the_list_is() {
             x: None,
             y: Some(150_000.0),
             animate: false,
+            zoom: None,
+            at: None,
         });
     });
     let deep = lay(&mut page, 600.0);

@@ -3,8 +3,8 @@
 //! The host's measuring is a fixed-width stand-in.
 
 use crate::{
-    Font, Id, Laid, Measure, Metrics, Phase, Point, Rect, ScrollTo, Scrolls, Size, Ui, div, layout,
-    text,
+    Font, Id, Laid, Measure, Metrics, Phase, Point, Rect, ScrollTo, Scrolled, Scrolls, Size, Ui,
+    div, layout, text,
 };
 
 struct Fixed;
@@ -61,6 +61,8 @@ fn down(offset: f32) -> ScrollTo {
         x: None,
         y: Some(offset),
         animate: false,
+        zoom: None,
+        at: None,
     }
 }
 
@@ -172,14 +174,17 @@ fn a_list_that_got_shorter_comes_back_within_its_reach() {
     scrolls.ask(down(120.0));
     scrolls.place(&mut tall, 0.0, false);
     assert_eq!(scrolls.offset(LIST).y, 120.0);
-    assert_eq!(scrolls.take_moved(), vec![(LIST, Point::new(0.0, 120.0))]);
+    assert_eq!(
+        scrolls.take_moved(),
+        vec![Scrolled::at(LIST, Point::new(0.0, 120.0))]
+    );
     // Four rows now: 80 points of content in 80 of box, nothing to scroll.
     let mut short = page(4, 0.0, 1.0);
     scrolls.place(&mut short, 0.0, false);
     assert_eq!(scrolls.offset(LIST).y, 0.0);
     assert_eq!(
         scrolls.take_moved(),
-        vec![(LIST, Point::new(0.0, 0.0))],
+        vec![Scrolled::at(LIST, Point::new(0.0, 0.0))],
         "the page is told"
     );
     assert!(scrolls.take_moved().is_empty(), "and once is enough");

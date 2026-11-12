@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 use pencere_view::wire::{Direction, Display, Kind, Overflow};
 use pencere_view::{
     Built, Button, Color, Cursor, Ease, Element, Event, FieldKind, Fill, Fit, GesturePhase, Id,
-    Input, Key, Keyboard, Mix, Mods, Motion, Phase, Point, Rgba, Role, Rows, ScrollTo, Shift,
-    Source, Tip, image,
+    Input, Key, Keyboard, Mix, Mods, Motion, Phase, Point, Rgba, Role, Rows, ScrollTo, Scrolled,
+    Shift, Source, Tip, image,
 };
 use wasmtime::component::Component;
 
@@ -2295,6 +2295,8 @@ fn a_script_asks_the_application_to_scroll_and_is_told_where_its_boxes_went() {
             x: None,
             y: Some(60.0),
             animate: true,
+            zoom: None,
+            at: None,
         }]
     );
     assert_eq!(
@@ -2304,9 +2306,103 @@ fn a_script_asks_the_application_to_scroll_and_is_told_where_its_boxes_went() {
     );
     tell(
         &mut page,
-        Event::Scrolled(vec![(Id::named("list"), Point::new(0.0, 25.0))]),
+        Event::Scrolled(vec![Scrolled::at(Id::named("list"), Point::new(0.0, 25.0))]),
     );
     assert_eq!(text(&page), "scrolled list 0 25 at 25");
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_script_lets_a_box_be_zoomed_asks_for_a_scale_and_is_told_what_it_went_to() {
+    let mut page = open_script(
+        r##"
+        local said = "nothing"
+        return {
+            render = function()
+                local zoom = pencere.layout.zoom_of("list")
+                return pencere.div()
+                    :child(pencere.text(said .. " at " .. zoom))
+                    :child(pencere.div():id("list"):size(100, 40):scroll():zoom({ max = 3 }):child(pencere.div():size(100, 400):no_shrink()))
+            end,
+            handle = function(e)
+                if e.type == "key" then
+                    pencere.layout.zoom_to("list", 2, { at = { x = 10, y = 5 }, animate = true })
+                    said = "asked"
+                    return true
+                elseif e.type == "scrolled" then
+                    local box = e.boxes[1]
+                    said = "zoomed " .. box.id .. " " .. box.zoom
+                    return true
+                end
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    let root = page.seen.frame.clone().expect("a page").root;
+    // The page says a zoom: the range it gave, and the defaults of the rest.
+    let nodes = root.fold();
+    let zoom = nodes
+        .iter()
+        .find_map(|node| node.style.zoom)
+        .expect("a box that zooms");
+    assert_eq!(
+        zoom,
+        pencere_view::Zoom {
+            min: 1.0,
+            max: 3.0,
+            smart: 2.0,
+            wheel: 0.008
+        }
+    );
+    page.module
+        .lay_out(Arc::new(pencere_view::layout(root, SIZE, 1.0, &mut Rough)));
+    let text = |page: &Open| words(&page.seen.frame.clone().expect("a page").root).join(" ");
+    let tell = |page: &mut Open, event: Event| {
+        page.module.event(event);
+        page.module.render(SIZE, 0.0, false);
+        let before = page.seen.replies.len();
+        until_seen(page, Duration::from_secs(10), |seen| {
+            seen.replies.len() > before
+        });
+        page.take(Duration::from_millis(200));
+    };
+    tell(
+        &mut page,
+        Event::Input(Input::Key {
+            key: Key::Down,
+            mods: Mods::default(),
+        }),
+    );
+    assert_eq!(
+        page.seen.asks,
+        [ScrollTo {
+            id: Id::named("list"),
+            x: None,
+            y: None,
+            animate: true,
+            zoom: Some(2.0),
+            at: Some(Point::new(10.0, 5.0)),
+        }]
+    );
+    assert_eq!(
+        text(&page),
+        "asked at 2",
+        "the page builds at the scale it asked"
+    );
+    tell(
+        &mut page,
+        Event::Scrolled(vec![Scrolled {
+            id: Id::named("list"),
+            offset: Point::new(0.0, 10.0),
+            zoom: 2.5,
+        }]),
+    );
+    assert_eq!(text(&page), "zoomed list 2.5 at 2.5");
 }
 
 #[test]
@@ -2486,11 +2582,11 @@ fn a_long_list_is_built_near_what_is_in_view_and_again_only_when_it_is_scrolled_
     // though the page itself said nothing changed.
     assert!(!tell(
         &mut page,
-        Event::Scrolled(vec![(list, Point::new(0.0, 1000.0))])
+        Event::Scrolled(vec![Scrolled::at(list, Point::new(0.0, 1000.0))])
     ));
     assert!(tell(
         &mut page,
-        Event::Scrolled(vec![(list, Point::new(0.0, 3400.0))])
+        Event::Scrolled(vec![Scrolled::at(list, Point::new(0.0, 3400.0))])
     ));
     page.module.render(SIZE, 0.1, false);
     frame(&mut page);
@@ -3133,6 +3229,14 @@ fn what_the_page_api_refuses_it_refuses_at_the_line_of_the_script_that_gave_it()
                 "pencere.layout.drag_source()",
                 "pencere.layout.drop_target({ x = 1 })",
                 r#"pencere.layout.scroll_to("box", nil)"#,
+                r#"pencere.layout.zoom_to("box", 0)"#,
+                r#"pencere.layout.zoom_to("box", "big")"#,
+                r#"pencere.layout.zoom_to("box", 2, 5)"#,
+                r#"pencere.layout.zoom_to("box", 2, { at = { x = 1 } })"#,
+                "pencere.div():zoom(5)",
+                r#"pencere.div():id("x"):scroll():zoom():list(pencere.Rows.even(3, 10), function() return pencere.div() end)"#,
+                "pencere.div():zoom({ speed = 2 })",
+                r#"pencere.div():zoom({ min = "small" })"#,
                 r#"pencere.layout.line_start("e", -1)"#,
                 r#"pencere.layout.editor_text("e", 0, 1.5)"#,
             ],

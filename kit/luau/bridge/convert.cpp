@@ -595,6 +595,19 @@ void read_style(lua_State* L, int s, pencere_view_types_style_t& out, Arenas& ar
         lua_pop(L, 1);
     }
     lua_pop(L, 1);
+    // A box that scrolls and lets the person zoom it: { min =, max =, smart =, wheel = }.
+    get(L, s, "zoom");
+    if (lua_type(L, -1) == LUA_TTABLE) {
+        int zoom = lua_gettop(L);
+        out.zoom.is_some = true;
+        out.zoom.val.min = number(L, zoom, "min", 1.0f);
+        out.zoom.val.max = number(L, zoom, "max", 4.0f);
+        out.zoom.val.smart = number(L, zoom, "smart", 2.0f);
+        out.zoom.val.wheel = number(L, zoom, "wheel", 0.008f);
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "zoom is { min =, max =, smart =, wheel = }");
+    }
+    lua_pop(L, 1);
     out.opacity = number(L, s, "opacity", 1.0f);
     get(L, s, "text");
     if (lua_type(L, -1) == LUA_TTABLE) {
@@ -2078,16 +2091,17 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_number(L, "serial", (double)event.val.menu_pick.serial);
             break;
         case PENCERE_VIEW_TYPES_EVENT_SCROLLED: {
-            // { boxes = { { id =, x =, y = }, ... } }: each box and how far it is scrolled.
+            // { boxes = { { id =, x =, y =, zoom = }, ... } }: each box, how far it is scrolled and how large it is shown.
             set_word(L, "type", "scrolled");
             const auto& boxes = event.val.scrolled;
             lua_createtable(L, (int)boxes.len, 0);
             for (size_t at = 0; at < boxes.len; at++) {
-                lua_createtable(L, 0, 3);
+                lua_createtable(L, 0, 4);
                 push_id(L, boxes.ptr[at].id);
                 lua_setfield(L, -2, "id");
                 set_number(L, "x", boxes.ptr[at].offset.x);
                 set_number(L, "y", boxes.ptr[at].offset.y);
+                set_number(L, "zoom", boxes.ptr[at].zoom);
                 lua_rawseti(L, -2, (int)at + 1);
             }
             lua_setfield(L, -2, "boxes");

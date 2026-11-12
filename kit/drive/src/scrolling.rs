@@ -47,22 +47,40 @@ impl HostScrolls {
     }
 
     /// The wheel over `at` (the page's points) on the page `laid`, at `now`: whether a box took it,
-    /// and what of it is the page's.
+    /// and what of it is the page's. With `zoom` (the command key is held) a box that may be zoomed
+    /// under it takes it before any scrolls.
     pub(crate) fn wheel(
         &mut self,
         laid: &Laid,
         at: Point,
         (dx, dy): (f32, f32),
         phase: Phase,
+        zoom: bool,
         now: f64,
     ) -> Wheeled {
+        if zoom && self.scrolls.zoom_wheel(laid, at, dy, now) {
+            return Wheeled {
+                took: true,
+                left: Point::new(0.0, 0.0),
+            };
+        }
         self.scrolls.wheel(laid, at, dx, dy, phase, now)
     }
 
     /// A pointer input (the page's points) offered to the bars first, at `now`: whether a bar took
-    /// it (it is not the page's), and whether a frame is worth drawing for what the bars did.
-    pub(crate) fn pointer(&mut self, input: &Input, now: f64) -> (bool, bool) {
+    /// it (it is not the page's), and whether a frame is worth drawing for what the bars did. The
+    /// fingers of a pinch and a double tap with two fingers over a box that may be zoomed
+    /// (`laid`: the page as it was last laid out) are that box's.
+    pub(crate) fn pointer(&mut self, input: &Input, laid: Option<&Laid>, now: f64) -> (bool, bool) {
         match *input {
+            Input::Magnify { at, by, phase, .. } => {
+                let took = laid.is_some_and(|laid| self.scrolls.magnify(laid, at, by, phase, now));
+                (took, took)
+            }
+            Input::SmartMagnify { at } => {
+                let took = laid.is_some_and(|laid| self.scrolls.smart_magnify(laid, at, now));
+                (took, took)
+            }
             Input::Press { at, .. } => {
                 let took = self.scrolls.press(at, now);
                 (took, took)
@@ -81,8 +99,6 @@ impl HostScrolls {
                 (holding, self.scrolls.point(None, now))
             }
             Input::Scroll { .. }
-            | Input::Magnify { .. }
-            | Input::SmartMagnify { .. }
             | Input::Rotate { .. }
             | Input::Swipe { .. }
             | Input::Pressure { .. }
