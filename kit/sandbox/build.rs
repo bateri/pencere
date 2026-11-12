@@ -59,12 +59,14 @@ fn listing(root: &Path) -> Result<String, String> {
 }
 
 // How every engine is configured: the file the runtime takes it from.
+#[cfg(feature = "precompile")]
 include!("src/engine_config.rs");
 
 /// The interpreter compiled to machine code for the target (`luau.cwasm` in the output directory),
 /// for a runtime built with no code generator (no `compiler` feature) to load. The target is the
 /// one the crate is built for, set explicitly so that the code is for the architecture and not for
 /// the CPU of the machine that builds it.
+#[cfg(feature = "precompile")]
 fn precompile() -> Result<(), String> {
     let (Some(manifest), Some(out), Some(target)) = (
         env::var_os("CARGO_MANIFEST_DIR"),
@@ -87,14 +89,30 @@ fn precompile() -> Result<(), String> {
     fs::write(PathBuf::from(out).join("luau.cwasm"), compiled).map_err(|why| why.to_string())
 }
 
+/// What the build does about the interpreter: nothing where the runtime compiles it (`compiler`,
+/// which wins where `precompile` is on too, as a build of the package's tests is both), the
+/// compiled interpreter where `precompile` asks for it, and a failure naming both where neither
+/// is on, which is a runtime with no way to have the interpreter.
+fn interpreter() -> Result<(), String> {
+    if env::var_os("CARGO_FEATURE_COMPILER").is_some() {
+        return Ok(());
+    }
+    #[cfg(feature = "precompile")]
+    {
+        precompile()
+    }
+    #[cfg(not(feature = "precompile"))]
+    {
+        Err("a build with no `compiler` feature needs the `precompile` feature, or the sandbox has no way to have the interpreter: turn one of them on".into())
+    }
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=library");
     println!("cargo:rerun-if-changed=src/engine_config.rs");
     println!("cargo:rerun-if-changed=luau/luau.wasm");
-    if env::var_os("CARGO_FEATURE_COMPILER").is_none()
-        && let Err(why) = precompile()
-    {
+    if let Err(why) = interpreter() {
         eprintln!("the interpreter for the target: {why}");
         std::process::exit(1);
     }

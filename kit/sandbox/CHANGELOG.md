@@ -44,6 +44,19 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   silicon) is built too. Without `pdf` the PDF reader (`hayro`) is not linked and a PDF a page shows
   is refused as an image that cannot be read (`this build has no PDF reader`). A consumer that took
   the crate with `default-features = false` has neither now.
+- **Features `compiler` and `pdf`, both on by default, and `precompile`, off.** Without `compiler`
+  the runtime links no code generator, and the interpreter is compiled while the crate is built
+  (`build.rs`, with `Engine::precompile_component`, for the target the crate is built for, the
+  engine configured by one file (`engine_config.rs`) for the build and for `sandbox::engine`), and a
+  page loads it as it is. That is what `precompile` asks for: the build then compiles the
+  interpreter on the machine that builds it, with a code generator for every architecture, so that
+  an executable for another one (Intel macOS or Linux from Apple silicon) is built too, and the
+  crate has that code generator as a dependency of its build only then. A build with neither
+  `compiler` nor `precompile` fails and says so; where both are on (a build of the crate's tests
+  with another package's features) `compiler` wins. Without `pdf` the PDF reader (`hayro`) is not
+  linked and a PDF a page shows is refused as an image that cannot be read, with the diagnostic
+  `this build has no PDF reader`. A consumer that took the crate with `default-features = false` has
+  neither now, and takes `precompile` to build.
 - **The library follows a host that draws in the cells of a terminal (`pencere.draws().cells`).**
   `look.glyph` is the character that says the glyph (`▸ ▾ ◂ ▴ × ✓ - + • i !`, all in the fonts a
   terminal has by default), a grid's head (which centres its cells' words) is a row, with its column

@@ -58,22 +58,30 @@ hayro = { version = "0.9", default-features = false, features = ["embed-fonts", 
 # word.
 regex = { version = "1", default-features = false, features = ["std", "unicode", "perf"] }
 
-# Without the `compiler` feature the interpreter is compiled for the target here, while the crate is
-# built (`build.rs`), and the runtime above has no code generator: this is that generator. It runs on
-# the machine that builds, for the target the crate is built for, which is another architecture when
-# an executable is built for one (the Intel macOS and Linux executables on an Apple silicon Mac):
-# `all-arch` is the code generators of them all.
+# With the `precompile` feature (and no `compiler`) the interpreter is compiled for the target here,
+# while the crate is built (`build.rs`), and the runtime above has no code generator: this is that
+# generator. It runs on the machine that builds, for the target the crate is built for, which is
+# another architecture when an executable is built for one (the Intel macOS and Linux executables on
+# an Apple silicon Mac): `all-arch` is the code generators of them all. It is optional so that the
+# builds that compile the interpreter as the first page opens (the defaults) do not compile a second
+# code generator they never run. It has the name of the runtime's dependency, as cargo takes no
+# crate twice under two names in one package, and that is why `compiler` says `wasmtime?/cranelift`:
+# without the `?` it would turn this one on too.
 [build-dependencies]
 wasmtime = { version = "38", default-features = false, features = [
     "runtime", "cranelift", "all-arch", "component-model", "std", "gc", "gc-drc",
-] }
+], optional = true }
 
 [features]
 default = ["compiler", "pdf"]
 # The Cranelift code generator in the runtime: the interpreter is compiled to machine code as the
-# first page opens. Off, the interpreter comes compiled for the target by the build (`build.rs`)
-# and is loaded as it is; the runtime then cannot compile a module.
-compiler = ["wasmtime/cranelift"]
+# first page opens. A build that takes it off must take `precompile` instead (the build fails
+# naming both, otherwise): the runtime then cannot compile a module.
+compiler = ["wasmtime?/cranelift"]
+# The interpreter compiled for the target by the build (`build.rs`) and loaded as it is, for a build
+# with no `compiler`. Ignored where `compiler` is on too (a test build that is both, as features
+# of one package are unified, compiles the interpreter as the first page opens).
+precompile = ["dep:wasmtime"]
 # The PDF reader (`hayro`). Off, a PDF a page shows is refused as an image it cannot read.
 pdf = ["dep:hayro"]
 

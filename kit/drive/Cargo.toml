@@ -44,6 +44,7 @@ fontdue = { version = "0.9", optional = true, default-features = false, features
 default = ["compiler", "pdf"]
 # What the sandbox is built with (its features of the same names).
 compiler = ["pencere-sandbox/compiler"]
+precompile = ["pencere-sandbox/precompile"]
 pdf = ["pencere-sandbox/pdf"]
 shot = ["dep:tiny-skia", "dep:fontdue"]
 program = ["dep:pencere"]

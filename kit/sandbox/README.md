@@ -26,12 +26,15 @@ drawn a page at a time, at the size asked, with no file, network or font of the 
 a canvas (`draw_figure`), so that a figure is the same pixels in every terminal.
 
 Two of its parts are features, both on by default. `compiler` is the code generator of the WebAssembly
-runtime, which compiles the interpreter as the first page opens; without it the interpreter is
-compiled while the crate is built (`build.rs`, for the target the crate is built for, which is why
-the runtime of the build is given the code generators of every architecture) and loaded as it is, and
-the executable carries no code generator. `pdf` is the PDF reader; without it a PDF is refused as an
-image that cannot be read, with a diagnostic that says the build has no PDF reader. A terminal that
-embeds the crate takes them off with `default-features = false`.
+runtime, which compiles the interpreter as the first page opens; without it the interpreter has to
+come compiled while the crate is built, which the feature `precompile` (off by default) asks for:
+`build.rs` compiles it for the target the crate is built for, with the code generators of every
+architecture (so that the crate has them as a dependency of its build only with that feature), and
+the pages load it as it is, and the executable carries no code generator. With neither feature the
+build fails and says which to turn on; with both, `compiler` is the one that counts. `pdf` is the
+PDF reader; without it a PDF is refused as an image that cannot be read, with a diagnostic that says
+the build has no PDF reader. A terminal that embeds the crate takes the first off and the second
+with `default-features = false, features = ["precompile"]`.
 
 The interface it implements is `wit/view.wit`, the crate's own copy of the kit's (`kit/wit`), which
 `make check` keeps equal.

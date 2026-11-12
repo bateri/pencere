@@ -8,11 +8,12 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 ### Added
 
-- **Features `compiler` and `pdf`, both on by default,** which are those of `pencere-sandbox`. A
-  program that takes the crate with `default-features = false` has an executable with no code
-  generator for the interpreter (it is compiled when the program is built) and no PDF reader: a PDF
-  a page shows is refused as an image that cannot be read. The terminal draws the same pages; the
-  first page no longer waits for the interpreter to be compiled.
+- **Features `compiler` and `pdf`, both on by default, and `precompile`, off,** which are those of
+  `pencere-sandbox`. A program that takes the crate with `default-features = false` and
+  `features = ["precompile"]` has an executable with no code generator for the interpreter (it is
+  compiled when the program is built) and no PDF reader: a PDF a page shows is refused as an image
+  that cannot be read. The terminal draws the same pages; the first page no longer waits for the
+  interpreter to be compiled. With neither `compiler` nor `precompile` the build fails, naming both.
 - **A menu, a panel and a link over the page.** `Host::menu` is a framed list of cells on the
   page's own ground, so that the frame alone is its edge (the arrows, Enter, Escape and the pointer
   pick, and a press outside turns it away; a Paste line is shown dimmed: a page cannot read the

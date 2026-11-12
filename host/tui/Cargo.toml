@@ -32,6 +32,7 @@ pencere = { path = "../../program", version = "0.4.1" }
 default = ["compiler", "pdf"]
 # What the sandbox and the drive are built with (their features of the same names).
 compiler = ["pencere-sandbox/compiler", "pencere-drive/compiler"]
+precompile = ["pencere-sandbox/precompile", "pencere-drive/precompile"]
 pdf = ["pencere-sandbox/pdf", "pencere-drive/pdf"]
 
 [dev-dependencies]

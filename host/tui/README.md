@@ -71,11 +71,14 @@ The terminal needs the size of the frame plus one row, because the frame ends be
 
 ## Features
 
-`compiler` and `pdf`, both on by default, are those of `pencere-sandbox`: the code generator that
-compiles the interpreter of a page as the first page opens, and the PDF reader. A program that has no
-use for them takes the crate with `default-features = false`: the interpreter is then compiled while
-the program is built and loaded as it is, and a PDF a page shows is refused as an image that cannot
-be read, the terminal drawing a page of it as it draws any file it cannot decode.
+`compiler` and `pdf`, both on by default, and `precompile`, off, are those of `pencere-sandbox`: the
+code generator that compiles the interpreter of a page as the first page opens, the PDF reader, and
+the interpreter compiled while the program is built instead of the code generator. A program that has
+no use for the first two takes the crate with `default-features = false, features = ["precompile"]`:
+the interpreter is then compiled while the program is built and loaded as it is, and a PDF a page
+shows is refused as an image that cannot be read, the terminal drawing a page of it as it draws any
+file it cannot decode. (`default-features = false` with no `precompile` does not build: the build
+says to turn one of `compiler` and `precompile` on.)
 
 ## The grid
 

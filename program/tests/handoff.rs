@@ -14,7 +14,7 @@ use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pencere::{
     Bundle, CloseResult, EndedBy, HandOffResult, Kind, NoViewReason, Options, Outcome,
@@ -659,7 +659,14 @@ struct Program(Child);
 impl Drop for Program {
     fn drop(&mut self) {
         let _ = self.0.kill();
-        let _ = self.0.wait();
+        // Not waited for without end: a process that is killed while it has output for the terminal
+        // may not finish ending until the pty is read or closed, and the test's end of it (`pane`)
+        // is dropped after this one, so a `wait` here would hold the test, and the gate with it,
+        // for good. A test that has failed has said so by now; the child ends when the pty goes.
+        let until = Instant::now() + WITHIN;
+        while !matches!(self.0.try_wait(), Ok(Some(_))) && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
