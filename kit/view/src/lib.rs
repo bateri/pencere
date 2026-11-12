@@ -75,7 +75,7 @@ pub use input::{
     MenuEntry, Mods, Panel, Place, Reply, Saving, Scrolled, copy_key,
 };
 pub use layout::{
-    Accessible, AccessibleRole, Carrying, EditorRoom, Extent, Field, Laid, Queries, layout,
+    Accessible, AccessibleRole, Carrying, EditorRoom, Extent, Field, Laid, Queries, Spill, layout,
 };
 pub use motion::{Ease, Motion, Motions, Shift, Tip};
 pub use paint::{DrawList, EditorSlot, Figure, Paint, Picture, Quad, Run};

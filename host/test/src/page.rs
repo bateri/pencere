@@ -965,6 +965,24 @@ impl UserData for Handle {
                 None => Ok(Value::Nil),
             }
         });
+        methods.add_method("spills", |lua, this, ()| {
+            let spills = this.look(Headless::spills)?;
+            let out = lua.create_table()?;
+            for (at, spill) in spills.into_iter().enumerate() {
+                let [left, above, right, below] = spill.past;
+                let item = lua.create_table()?;
+                item.set("box", rect_table(lua, spill.rect)?)?;
+                item.set("inside", rect_table(lua, spill.inside)?)?;
+                item.set("left", left)?;
+                item.set("above", above)?;
+                item.set("right", right)?;
+                item.set("below", below)?;
+                item.set("words", spill.words)?;
+                item.set("around", spill.around)?;
+                out.set(at + 1, item)?;
+            }
+            Ok(out)
+        });
         methods.add_method("reaches", |_, this, name: String| {
             this.look(|page| {
                 let Some(rect) = page.bounds(&name) else {

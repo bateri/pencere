@@ -146,6 +146,11 @@ pub(crate) struct Node {
     /// a cell (a hairline): the box takes a cell, and what it is filled with is as thick as it was
     /// written; `0` where the box is not thin, and on every page that has no grid.
     pub thin: (f32, f32),
+    /// The room inside the box around what is in it, pixels: left, above, right, below.
+    pub pad: [f32; 4],
+    /// It is put where the page says (laid over the rest, or an overlay), not where the box it is
+    /// in has room for it.
+    pub placed: bool,
 }
 
 /// A page laid out: every element's box, in the order they are painted.
@@ -223,6 +228,8 @@ struct Pending {
     shadow: Option<Shadow>,
     /// It is an overlay: a child of the page's box in the layout, whatever holds it.
     overlay: bool,
+    /// It is laid over the rest of the box it is in, where the page says.
+    absolute: bool,
     anchor: Option<Anchor>,
     thin: (f32, f32),
 }
@@ -511,6 +518,13 @@ pub fn layout(mut root: Element, viewport: Size, scale: f32, measure: &mut dyn M
             clips: entry.overflow != Overflow::Visible,
             turn: 0.0,
             thin: entry.thin,
+            pad: [
+                laid.padding.left * unit.x,
+                laid.padding.top * unit.y,
+                laid.padding.right * unit.x,
+                laid.padding.bottom * unit.y,
+            ],
+            placed: entry.overlay || entry.absolute,
         });
     }
     // `nodes`, `reach` and `inside` get one entry for every element: they are the same length.
@@ -888,6 +902,8 @@ fn empty(page: Rect) -> Node {
         clips: false,
         turn: 0.0,
         thin: (0.0, 0.0),
+        pad: [0.0; 4],
+        placed: false,
     }
 }
 
@@ -914,7 +930,7 @@ fn build(
     outer: TextStyle,
     (scale, unit): (f32, Units),
     measure: &mut dyn Measure,
-    (given, given_columns): (Option<f32>, Option<f32>),
+    (given, given_columns): (Option<f32>, Option<colplan::Given>),
 ) -> (usize, NodeId) {
     let Element {
         kind,
@@ -996,6 +1012,7 @@ fn build(
             color: s.color,
         }),
         overlay: false,
+        absolute: style.absolute,
         anchor: style.anchor,
         thin: (
             unit.thin(style.width, scale, unit.x),
@@ -1008,7 +1025,7 @@ fn build(
         (scale, unit),
         matches!(kind, Kind::Text(_) | Kind::Rich(_)),
         &plan,
-        (given_columns, columns.gap),
+        (given_columns.map(|given| given.columns), columns.gap),
     );
     let id = match kind {
         Kind::Text(content) => {
@@ -1421,7 +1438,124 @@ fn track(track: Track, px: impl Fn(f32) -> f32) -> GridTemplateComponent<String>
     GridTemplateComponent::Single(taffy::MinMax { min, max })
 }
 
+/// A box that stands past the inside of the box it is in ([`Laid::spills`]): what a page that
+/// works a size out from another gets wrong where its lengths are rounded (the cells of a
+/// terminal), and a test of a page looks for at every size of its window.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spill {
+    /// The box, pixels.
+    pub rect: Rect,
+    /// The inside of the box it is in (that box less its padding), pixels.
+    pub inside: Rect,
+    /// How far the box stands past that inside, pixels: to the left, above, to the right, below;
+    /// nothing on a side it does not pass.
+    pub past: [f32; 4],
+    /// The names of the box and of the box it is in, where they have one.
+    pub id: Option<Id>,
+    pub within: Option<Id>,
+    /// What the box says, and what the box it is in says: the first words in each, to find them
+    /// on the page by.
+    pub words: String,
+    pub around: String,
+}
+
+/// As far as a box may stand past the inside of the one it is in and not be said to
+/// ([`Laid::spills`]), pixels: what the rounding of a pixel comes to.
+const SPILL: f32 = 0.5;
+
+/// The most letters of what a box says that a [`Spill`] carries.
+const SPILL_WORDS: usize = 48;
+
 impl Laid {
+    /// The boxes that stand past the inside of the box they are in: a box that is drawn, takes
+    /// room in the box it is in (it is not laid over the rest, and is no overlay) and reaches
+    /// further than that box's padding lets what is in it reach, by more than half a pixel. What a
+    /// box that scrolls holds is not looked at (it is as far past the box as it is scrolled to),
+    /// nor what stands in an editor's room (the host's editor places it).
+    pub fn spills(&self) -> Vec<Spill> {
+        let mut out = Vec::new();
+        for (index, node) in self.nodes.iter().enumerate() {
+            if node.hidden || node.placed || node.rect.w <= 0.0 || node.rect.h <= 0.0 {
+                continue;
+            }
+            let Some((place, parent)) = node
+                .parent
+                .and_then(|place| self.nodes.get(place).map(|parent| (place, parent)))
+            else {
+                continue;
+            };
+            if parent.extent.is_some() || matches!(parent.content, Content::Editor(_)) {
+                continue;
+            }
+            let [left, top, right, bottom] = parent.pad;
+            let inside = Rect::new(
+                parent.rect.x + left,
+                parent.rect.y + top,
+                (parent.rect.w - left - right).max(0.0),
+                (parent.rect.h - top - bottom).max(0.0),
+            );
+            let past = [
+                inside.x - node.rect.x,
+                inside.y - node.rect.y,
+                node.rect.right() - inside.right(),
+                node.rect.bottom() - inside.bottom(),
+            ]
+            .map(|far| if far > SPILL { far } else { 0.0 });
+            if past.iter().any(|far| *far > 0.0) {
+                out.push(Spill {
+                    rect: node.rect,
+                    inside,
+                    past,
+                    id: node.meta.id,
+                    within: parent.meta.id,
+                    words: self.words(index),
+                    around: self.words(place),
+                });
+            }
+        }
+        out
+    }
+
+    /// The first words the element at `index` says, or what is in it says.
+    fn words(&self, index: usize) -> String {
+        let mut out = String::new();
+        // The elements are in the order they are written: what is in one comes after it, until an
+        // element that is not in it.
+        for (place, node) in self.nodes.iter().enumerate().skip(index) {
+            if place != index && !self.holds(index, place) {
+                break;
+            }
+            let said = match &node.content {
+                Content::Text(line) => line.text.as_str(),
+                Content::Rich(rich) => rich.spans.first().map_or("", |span| span.text.as_str()),
+                _ => "",
+            };
+            if said.is_empty() {
+                continue;
+            }
+            if !out.is_empty() {
+                out.push_str(" | ");
+            }
+            out.push_str(said);
+            if out.chars().count() >= SPILL_WORDS {
+                return out.chars().take(SPILL_WORDS).collect();
+            }
+        }
+        out
+    }
+
+    /// Whether the element at `inner` is in the one at `outer`.
+    fn holds(&self, outer: usize, inner: usize) -> bool {
+        let mut at = inner;
+        while let Some(parent) = self.nodes.get(at).and_then(|node| node.parent) {
+            if parent == outer {
+                return true;
+            }
+            at = parent;
+        }
+        false
+    }
+
     /// The number of elements on the page.
     pub fn len(&self) -> usize {
         self.nodes.len()

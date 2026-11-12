@@ -19,22 +19,35 @@
 //!   has and they do not take stays where the row puts it. A row whose boxes fit as they round, and
 //!   one whose boxes are written wider than it, are as they were.
 //!
-//! A box that is not written a width, one that is a grid, a row that wraps, and a box inside one
+//! A box that is not written a width has the width of the inside of the column it is stretched
+//! across (a column stretches what is in it unless it says where its items stand), in points and
+//! in columns, and gives what is in it its columns as one that is written does: a page writes the
+//! width of a box as the page's less the padding of the box around it, which is not written one.
+//!
+//! A box whose width is not known so, one that is a grid, a row that wraps, and a box inside one
 //! of these that has a margin beside it, a least or a most width, or grows, is as it was: a length
 //! rounded on its own. The columns come out in the layout ([`crate::layout`]); a page that is not
 //! laid out on a grid has no plan at all.
 
 use std::collections::BTreeMap;
 
-use crate::element::Element;
+use crate::element::{Element, Kind};
 use crate::layout::Units;
-use crate::style::{Direction, Display, Length, Style};
+use crate::style::{Direction, Display, Items, Length, Style};
 
-/// The columns a box gives each of the boxes in it, by their places among them; `None` where it
+/// How wide a box is known to be: the columns it has, and the points it was written, or the
+/// inside of the box it is stretched across was.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Given {
+    pub(crate) columns: f32,
+    pub(crate) points: f32,
+}
+
+/// The width a box gives each of the boxes in it, by their places among them; `None` where it
 /// gives none (the box's width is then its points, rounded on its own).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Plan {
-    pub(crate) children: Vec<Option<f32>>,
+    pub(crate) children: Vec<Option<Given>>,
     /// The columns of a gap of a row that was shared out.
     pub(crate) gap: Option<f32>,
 }
@@ -45,11 +58,11 @@ const SAME: f32 = 0.5;
 /// What one rounds a share to a whole column within.
 const EPSILON: f32 = 1e-3;
 
-/// The plan of a box on a grid: `given` is the columns the box it is in gives it.
+/// The plan of a box on a grid: `given` is the width the box it is in gives it.
 pub(crate) fn plan(
     style: &Style,
     children: &[Element],
-    given: Option<f32>,
+    given: Option<Given>,
     scale: f32,
     unit: Units,
 ) -> Plan {
@@ -57,24 +70,29 @@ pub(crate) fn plan(
     if !unit.grid || style.display != Display::Flex || style.wrap {
         return none();
     }
-    let Length::Px(width) = style.width else {
-        return none();
+    let (columns, width) = match (given, style.width) {
+        (Some(given), _) => (given.columns, given.points),
+        (None, Length::Px(width)) => (unit.wide(width, scale), width),
+        (None, _) => return none(),
     };
     let [_, right, _, left] = style.padding;
-    let columns = given.unwrap_or_else(|| unit.wide(width, scale));
     let inside = columns - unit.across(left, scale) - unit.across(right, scale);
     let points = width - left - right;
     if inside < 1.0 || points <= 0.0 {
         return none();
     }
     match style.direction {
-        Direction::Column => Plan {
-            children: children
-                .iter()
-                .map(|child| across(child, points, inside, scale, unit))
-                .collect(),
-            gap: None,
-        },
+        Direction::Column => {
+            // A column stretches what is in it across itself unless it says where its items stand.
+            let stretches = matches!(style.items, None | Some(Items::Stretch));
+            Plan {
+                children: children
+                    .iter()
+                    .map(|child| across(child, points, inside, stretches, scale, unit))
+                    .collect(),
+                gap: None,
+            }
+        }
         Direction::Row => along(style, children, points, inside, scale, unit).unwrap_or_default(),
     }
 }
@@ -99,17 +117,43 @@ fn written(element: &Element) -> Option<f32> {
     (points > 0.0 && free).then_some(points)
 }
 
-/// The columns a box of a column is given: those inside the box it is in where it is written as
-/// wide as that, no more than them where it is written narrower.
-fn across(child: &Element, points: f32, inside: f32, scale: f32, unit: Units) -> Option<f32> {
+/// Whether a box that is not written a width is as wide as the inside of the column that
+/// stretches it: a box of boxes, with no least and no most width and no margin beside it.
+fn stretched(element: &Element) -> bool {
+    let style = &element.style;
+    matches!(element.kind, Kind::Box)
+        && style.width == Length::Auto
+        && style.min_width == Length::Auto
+        && style.max_width == Length::Auto
+        && style.margin[1] == 0.0
+        && style.margin[3] == 0.0
+}
+
+/// The width a box of a column is given: the inside of the box it is in where it is written as
+/// wide as that or is stretched across it, no more columns than it where it is written narrower.
+fn across(
+    child: &Element,
+    points: f32,
+    inside: f32,
+    stretches: bool,
+    scale: f32,
+    unit: Units,
+) -> Option<Given> {
     if !in_flow(child) {
         return None;
     }
-    let own = written(child)?;
-    if (own - points).abs() <= SAME {
-        return Some(inside);
+    if stretches && stretched(child) {
+        return Some(Given {
+            columns: inside,
+            points,
+        });
     }
-    (own < points && unit.wide(own, scale) > inside).then_some(inside)
+    let own = written(child)?;
+    let fills = (own - points).abs() <= SAME;
+    (fills || (own < points && unit.wide(own, scale) > inside)).then_some(Given {
+        columns: inside,
+        points: own,
+    })
 }
 
 /// One part of a row: a box or the gaps between the boxes.
@@ -216,7 +260,10 @@ fn along(
             // A box that was written is not lost between the cells.
             Some(index) => {
                 if let Some(entry) = plan.children.get_mut(index) {
-                    *entry = Some(part.columns.max(1.0));
+                    *entry = Some(Given {
+                        columns: part.columns.max(1.0),
+                        points: part.points,
+                    });
                 }
             }
             None => plan.gap = Some(part.columns),
@@ -225,7 +272,13 @@ fn along(
     // The boxes that were kept from vanishing may have taken a column the row has not.
     let gaps = parts.iter().filter(|part| part.child.is_none()).count();
     #[allow(clippy::cast_precision_loss)]
-    let all = plan.children.iter().flatten().sum::<f32>() + plan.gap.unwrap_or(0.0) * gaps as f32;
+    let boxes: f32 = plan
+        .children
+        .iter()
+        .flatten()
+        .map(|given| given.columns)
+        .sum();
+    let all = boxes + plan.gap.unwrap_or(0.0) * gaps as f32;
     (all <= inside).then_some(plan)
 }
 

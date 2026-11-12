@@ -36,6 +36,10 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
   `force`, `click_extra` and `trackpad_at` (the fingers of a trackpad moving a box or the page).
 - `Page::binds` says whether a key with its modifiers is one the page binds to a command, so a
   host can tell a key that moves a view from one the page answers with a command.
+- `Headless::spills`: the boxes of the last frame that stand past the inside of the box they are
+  in (`Laid::spills` of `pencere-view`), in the host's points, for a test that looks at a page at
+  every size of its window. `pencere test` has it as `page:spills()`: a list of tables, each with
+  `box`, `inside`, `left`, `above`, `right`, `below`, `words` and `around`.
 
 ### Changed
 

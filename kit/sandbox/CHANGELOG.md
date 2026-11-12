@@ -66,6 +66,12 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
   the page after the last of them (as for a run of pointer moves or of wheel turns), where it made
   a page for each: a held key fell behind the page it moved. A key with a chord, and every other
   key, is a page each as before.
+- **The card of a modal is no taller than the page under its top** (`@pencere/ui`: `u:modal`,
+  `u:dialog`, a palette): the page's height less the card's top and the page's edge, and what is in
+  it may be shorter than it would be on its own, so that the part of it that scrolls gives way. A
+  page had to work out how tall its list may be from the points of the card's other parts, which on
+  the cells of a terminal are not the rows they come to: a help of 47 rows stood a row under a
+  window of 48. A card that fits is as it was.
 - **A settle that changed the page and what changes it right after are one page.** `Module` makes
   the page a settle asked for after the rest of what waited with it, where it made it at once: a
   page that heard its program, was woken or was told a key as it was laid out was made twice over,

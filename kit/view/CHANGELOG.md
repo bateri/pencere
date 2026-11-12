@@ -66,10 +66,21 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
   column wider than its view, and its last column cut at the edge). A row whose boxes fit as they
   round, a box written wider than the one it is in (what a box that scrolls across holds), a box that
   is not written a width, a grid, and a box that grows, has a margin beside it or a least or a most
-  width, are as they were. A canvas is drawn for the size it was written: where its box is the cells
+  width, are as they were. A box that is not written a width has the width of the inside of the
+  column it is stretched across, in points and in columns, and gives what is in it its columns as one
+  that is written does (a band with padding that the page stretches, and in it a box written the
+  page's width less that padding). A canvas is drawn for the size it was written: where its box is the cells
   that size rounds to, what is drawn in it is as much wider and taller as the box is, so that it
   fills the box, none of it is cut off at the box's edge and none of the box is left bare. A host
   that does not say (the default) is laid out as ever, pixel for pixel.
+
+- **`Laid::spills` and `Spill`**: the boxes of a page laid out that stand past the inside of the
+  box they are in (that box less its padding) by more than half a pixel: each with its box, that
+  inside, how far it stands past it on each side, the names of the two and the first words in each.
+  What a box that scrolls holds, what is laid over a box (`absolute`, an overlay), what is hidden or
+  has no size and what stands in an editor's room are not looked at. None on a page whose sizes come
+  out as they were written: what a test of a page looks at for every size of its window, on the cells
+  of a terminal above all, where a size worked out from another in points is a column or a row out.
 
 - **`Picture::shown`**: what of the whole image is inside the picture's clip, as shares of it like
   `crop`. A host that rasterises a large SVG or page draws that part and not all of it

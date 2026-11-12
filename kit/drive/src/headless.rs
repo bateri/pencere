@@ -2347,6 +2347,35 @@ impl<P: Peer> Headless<P> {
         self.page.laid()
     }
 
+    /// The boxes of the last frame that stand past the inside of the box they are in
+    /// ([`Laid::spills`]), in the host's points as [`Headless::bounds`] is: none on a page whose
+    /// sizes come out as they were written. What a test looks at for every size of the window a page
+    /// is to be drawn in, where the page is laid out on the cells of a terminal above all.
+    pub fn spills(&self) -> Vec<pencere_view::Spill> {
+        let Some(laid) = self.page.laid() else {
+            return Vec::new();
+        };
+        let place = self.page.placement();
+        let scale = laid.scale().max(f32::MIN_POSITIVE);
+        let points = |rect: Rect| {
+            Rect::new(
+                rect.x / scale,
+                rect.y / scale,
+                rect.w / scale,
+                rect.h / scale,
+            )
+        };
+        laid.spills()
+            .into_iter()
+            .map(|spill| pencere_view::Spill {
+                rect: place.to_host(points(spill.rect)),
+                inside: place.to_host(points(spill.inside)),
+                past: spill.past.map(|far| far / scale * place.zoom),
+                ..spill
+            })
+            .collect()
+    }
+
     /// The page as the module last made it.
     pub fn root(&self) -> Option<&Element> {
         self.page.root()

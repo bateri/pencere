@@ -25,6 +25,10 @@ All notable changes to the `pencere` command are recorded here. The format follo
   and the buttons of a mouse beyond the third with their own events (`magnify`, `smart_magnify`,
   `rotate`, `swipe`, `pressure`, `extra_press`, `extra_release`), and `move`, `release` and `wheel`
   carry the modifiers (the kit's specification, Section 2.3).
+- **`page:spills()` in `pencere test`**: what on the page stands past the inside of the box it is in,
+  a list of tables, each with `box`, `inside`, `left`, `above`, `right`, `below` (points), `words`
+  and `around` (the first words in the box and in the one it is in). Empty on a page whose sizes come out as
+  they were written: a test that resizes its page and asks finds a part a column or a row out.
 
 - **`pencere key` and `pencere dist`**, the release step of an app (specification `apps.md`).
   `pencere key` makes the key a release is signed with, once, and prints its public half.

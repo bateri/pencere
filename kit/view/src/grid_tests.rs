@@ -783,3 +783,85 @@ fn a_row_whose_boxes_fit_as_they_round_is_as_it_was() {
     let laid = page(row, true);
     assert_eq!((of(&laid, FIRST).w, of(&laid, SECOND).w), (64.0, 64.0));
 }
+
+#[test]
+fn a_box_in_a_box_that_is_stretched_across_the_page_is_as_wide_as_its_inside() {
+    // What a page writes: a band with twelve points of padding that is not written a width (the
+    // page stretches it), and in it a box written the page's width less that padding. The padding is
+    // a column and a half, two on each side, and the box rounded on its own stood a column past.
+    for points in (400..=720_u16).step_by(8) {
+        let width = f32::from(points);
+        let band = div()
+            .id(BOX)
+            .px(12.0)
+            .no_shrink()
+            .child(div().id(INNER).w(width - 24.0).h(36.0).no_shrink());
+        let root = div().col().child(band);
+        let laid = layout(root, Size::new(width, 600.0), 1.0, &mut Cells);
+        assert_eq!(
+            insets(&laid, BOX, INNER),
+            (2.0, 2.0),
+            "a page of {points} points"
+        );
+        assert_eq!(laid.spills(), [], "a page of {points} points");
+    }
+}
+
+#[test]
+fn a_column_that_says_where_its_items_stand_does_not_stretch_them() {
+    // The band is as wide as what is in it, at the start of the page: nothing gives it the page's
+    // columns.
+    let band = div()
+        .id(BOX)
+        .px(12.0)
+        .child(div().id(INNER).w(100.0).h(36.0).no_shrink());
+    let root = div().col().items_start().child(band);
+    let laid = layout(root, Size::new(640.0, 600.0), 1.0, &mut Cells);
+    assert_eq!(of(&laid, BOX).w, (2.0 + 13.0 + 2.0) * 8.0);
+}
+
+// --- What stands past the box it is in ----------------------------------------------------------------
+
+#[test]
+fn a_box_that_stands_past_the_inside_of_its_box_is_said_and_one_that_does_not_is_not() {
+    // Two hundred points in a card that has 180 inside: three columns past the padding (and so one
+    // past the card).
+    let wide = div().col().w(208.0).h(180.0).p(14.0).no_shrink().child(
+        div()
+            .id(INNER)
+            .w(200.0)
+            .h(36.0)
+            .no_shrink()
+            .child(text("wide")),
+    );
+    let spills = page(wide, true).spills();
+    assert_eq!(spills.len(), 1, "{spills:?}");
+    let spill = &spills[0];
+    assert_eq!(spill.id, Some(INNER));
+    assert_eq!(spill.within, Some(BOX));
+    assert_eq!(spill.past, [0.0, 0.0, 24.0, 0.0]);
+    assert_eq!(spill.words, "wide");
+    // A card whose parts are as wide as its inside has none, on the grid and off it.
+    assert_eq!(page(padded(208.0), true).spills(), []);
+    assert_eq!(page(padded(208.0), false).spills(), []);
+}
+
+#[test]
+fn what_a_box_that_scrolls_holds_and_what_is_laid_over_a_box_are_not_said_to_stand_past_it() {
+    let scrolls = div()
+        .col()
+        .w(200.0)
+        .h(180.0)
+        .scroll()
+        .no_shrink()
+        .child(div().w(300.0).h(400.0).no_shrink());
+    assert_eq!(page(scrolls, true).spills(), []);
+    let over = div().col().w(200.0).h(180.0).p(14.0).no_shrink().child(
+        div()
+            .absolute()
+            .inset(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
+            .w(200.0)
+            .h(180.0),
+    );
+    assert_eq!(page(over, true).spills(), []);
+}

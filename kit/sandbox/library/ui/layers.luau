@@ -26,15 +26,24 @@ local EDGE = 16
 -- (`<id>/scrim`), and a card in it that answers it too, so that a click on the card is not one on the
 -- scrim (`<id>/card`). `options`: `width`, `top` (how far the card stands from the page's top: by
 -- default it is centred in the upper third), `label`, `initial` (where the keyboard goes when it
--- opens). The layer is `id`'s: while it is in front the keyboard steps among what is in it.
+-- opens). The layer is `id`'s: while it is in front the keyboard steps among what is in it. The card is
+-- no taller than the page has under its top, less the page's edge: what is in it that scrolls has
+-- what the rest leaves, so that a page need not work out how tall its list may be (a sum of the
+-- card's parts in points is not their sum on the cells of a terminal).
 function layers.shell(u, id, options, body)
 	local t = u.theme
 	u:layer(id, { initial = options.initial })
 	local width = math.min(options.width or 480, math.max(u.size.w - 2 * EDGE, 120))
 	local top = options.top or math.max(math.min(u.size.h * 0.18, 140), EDGE)
+	-- What is in the card may be shorter than it would be on its own, so that the part of it that
+	-- scrolls is the part that gives way where the card is as tall as the page lets it be.
+	if body ~= nil and body.style.min_height == nil then
+		body:min_h(0)
+	end
 	local card = pencere.div()
 		:id(u:part(id, "card"))
 		:w(width)
+		:max_h(math.max(u.size.h - top - EDGE, 120))
 		:no_shrink()
 		:bg(t.popup)
 		:rounded(t.radius.card)

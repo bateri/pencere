@@ -616,6 +616,44 @@ end)
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn a_test_is_told_what_stands_past_the_box_it_is_in() {
+    let app = App::template("spills");
+    // A card with ten points of padding and, in it, a box written wider than what the padding leaves.
+    app.write(
+        "src/view/page.lua",
+        r#"return {
+	render = function()
+		return pencere.div():size_full():child(
+			pencere.div():w(200):h(80):p(10):no_shrink():child(
+				pencere.div():w(196):h(20):no_shrink():child(pencere.text("too wide"))
+			)
+		)
+	end,
+}
+"#,
+    );
+    app.write(
+        "test/page_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("the box that is too wide is said", function()
+	local page = test.open({ calls = {} })
+	local spills = page:spills()
+	expect(#spills):to_be(1)
+	expect(spills[1].words):to_be("too wide")
+	expect(spills[1].right):to_be(16)
+	expect(spills[1].left):to_be(0)
+	expect(spills[1].inside.w):to_be(180)
+end)
+"#,
+    );
+    let (code, text) = app.run(&[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn what_the_page_prints_is_logged_for_the_test_and_in_the_log_of_the_program_it_has() {
     let app = App::template("page-prints");
     app.write(

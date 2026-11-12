@@ -658,6 +658,47 @@ fn tabs_move_among_themselves_with_the_arrow_keys() -> Result<(), Error> {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_modal_with_more_than_the_page_is_tall_stays_on_the_page_and_its_list_gives_way()
+-> Result<(), Error> {
+    // A card of a title and a list that scrolls, whose rows come to more than the page: the page
+    // has not worked out how tall the list may be (a sum of the card's parts in points is not their
+    // sum on the cells of a terminal).
+    let mut page = open(
+        r#"
+view = function(u)
+    local list = pencere.div():gap(2)
+    for index = 1, 60 do
+        list:child(pencere.text("row " .. index):h(18):no_shrink())
+    end
+    return pencere.div():child(u:modal("long", { width = 400, label = "Long", top = 40 },
+        pencere.div():p(16):gap(8)
+            :child(pencere.text("A long list"))
+            :child(pencere.div():id("rows"):scroll():child(list))))
+end
+"#,
+    )?;
+    // The card has come in.
+    page.advance(0.5)?;
+    let card = page.bounds("long/card").expect("the card");
+    assert_eq!(card.y, 40.0);
+    assert!(
+        card.y + card.h <= 500.0,
+        "the card ends at {} on a page of 500",
+        card.y + card.h
+    );
+    let rows = page.bounds("rows").expect("the list");
+    assert!(
+        rows.y + rows.h <= card.y + card.h,
+        "the list ends at {} and the card at {}",
+        rows.y + rows.h,
+        card.y + card.h
+    );
+    assert_eq!(page.spills(), [], "nothing stands past the card");
+    Ok(())
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
 fn a_modal_is_closed_by_its_scrim_and_by_escape_and_not_by_a_click_on_its_card() -> Result<(), Error>
 {
     let mut page = open(

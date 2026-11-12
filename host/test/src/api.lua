@@ -647,7 +647,7 @@ for _, name in ipairs({
 	"trackpad_at", "magnify_at", "swipe",
 	"click_at", "double_click_at", "right_click_at", "focus_editor", "select", "caret_to", "edit",
 	"command", "pick", "resize", "zoom", "set_active", "set_terminal_look", "refresh", "advance", "step", "idle", "hide",
-	"now", "asks_at", "settle", "tell", "words", "says", "words_in", "tree_words", "bounds",
+	"now", "asks_at", "settle", "tell", "words", "says", "words_in", "tree_words", "bounds", "spills",
 	"editor", "editor_text", "focus", "field", "outline", "cursor", "pasteboard", "links", "text_size", "menu",
 	"closed", "diagnostics", "ended", "sent", "received", "push", "answer", "fail", "lent",
 	"give_back", "log", "fill", "scroll_to", "wheel", "drop_files", "click_gutter", "hover_gutter",
