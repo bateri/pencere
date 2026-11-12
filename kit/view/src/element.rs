@@ -104,8 +104,10 @@ pub struct Meta {
     pub focusable: bool,
     /// The host puts a text field of its own, of this kind, over this box ([`Element::field`]).
     pub field: Option<FieldKind>,
-    /// The box is the room of an editor of the host's, set up so ([`Element::editor`]).
-    pub editor: Option<EditorOptions>,
+    /// The box is the room of an editor of the host's, set up so ([`Element::editor`]). Kept
+    /// apart from the element: an editor's options are several times what the rest of an element
+    /// is, and nearly no element of a page is an editor.
+    pub editor: Option<Box<EditorOptions>>,
     /// What the element is in words, for a person who does not see it ([`Element::label`]).
     pub label: Option<String>,
     /// The element is the content of the zone of this name in the editor it is a child of
@@ -339,7 +341,7 @@ impl Element {
     #[must_use]
     pub fn editor(mut self, id: Id, options: EditorOptions) -> Self {
         self.meta.id = Some(id);
-        self.meta.editor = Some(options);
+        self.meta.editor = Some(Box::new(options));
         self.set(|s| s.overflow = Overflow::Scroll)
     }
 

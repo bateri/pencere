@@ -251,3 +251,20 @@ fn a_caret_folded_away_has_no_box() {
     // The popup stands where its inset puts it.
     assert_eq!(laid.bounds(POPUP).map(|r| (r.x, r.y)), Some((0.0, 0.0)));
 }
+
+#[test]
+fn an_element_that_is_no_editor_has_no_room_for_an_editors_options() {
+    // A page is thousands of elements and a few editors at most, and what an editor is set up
+    // with is several times the rest of an element: held in every element, it was most of the
+    // memory of every page built and of every layout.
+    assert!(
+        std::mem::size_of::<crate::element::Meta>() < std::mem::size_of::<EditorOptions>(),
+        "an element's meta is {} bytes and an editor's options {}",
+        std::mem::size_of::<crate::element::Meta>(),
+        std::mem::size_of::<EditorOptions>()
+    );
+    // The room of an editor still says how it is set up.
+    let options = EditorOptions::default();
+    let room = div().editor(EDITOR, options.clone());
+    assert_eq!(room.meta.editor.as_deref(), Some(&options));
+}

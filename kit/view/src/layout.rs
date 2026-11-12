@@ -1848,7 +1848,7 @@ impl Laid {
             .enumerate()
             .filter_map(|(index, node)| {
                 let (Some(id), Some(options), Content::Editor(look)) =
-                    (node.meta.id, node.meta.editor.as_ref(), &node.content)
+                    (node.meta.id, node.meta.editor.as_deref(), &node.content)
                 else {
                     return None;
                 };

@@ -1570,7 +1570,7 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
                 .editor
                 .map(|index| {
                     let options = lists.editor(index)?;
-                    editor_options_out(options, limits, lists)
+                    editor_options_out(options, limits, lists).map(Box::new)
                 })
                 .transpose()?,
             label: node
@@ -1700,7 +1700,7 @@ fn frame_out(
     patterns.check(
         nodes
             .iter()
-            .filter_map(|node| node.meta.editor.as_ref())
+            .filter_map(|node| node.meta.editor.as_deref())
             .map(|options| &options.indent),
     )?;
     // A key that is a command of the page (done wherever the keyboard is, before the editor's own) and
@@ -1711,7 +1711,7 @@ fn frame_out(
         .flat_map(|node| node.meta.commands.iter())
         .filter(|command| command.enabled)
         .collect();
-    for options in nodes.iter().filter_map(|node| node.meta.editor.as_ref()) {
+    for options in nodes.iter().filter_map(|node| node.meta.editor.as_deref()) {
         // Only the first key of a chord: a key that is a command of the page alone is the page's to do,
         // and a library's own commands for a moment (a popup's) are among them.
         for binding in options
@@ -3112,7 +3112,7 @@ mod tests {
     }
 
     fn edits(mut node: Node) -> Node {
-        node.meta.editor = Some(pencere_view::edit::EditorOptions::default());
+        node.meta.editor = Some(Box::new(pencere_view::edit::EditorOptions::default()));
         node
     }
 
