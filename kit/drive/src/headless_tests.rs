@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use pencere_editor::UNDO_PAUSE;
 use pencere_sandbox::Fault;
 use pencere_view::edit::EditCommand;
-use pencere_view::{Cursor, Event, Id, MenuEntry, Paint, Point};
+use pencere_view::{Cursor, Event, Id, MenuEntry, Mods, Paint, Point};
 use serde_json::json;
 
 use crate::headless::{Calls, Error, Failure, Files, Focus, Headless, Logged};
@@ -1120,6 +1120,7 @@ fn a_page_reads_what_its_ui_keeps_of_the_pointer_and_the_keyboard() -> Result<()
     page.pointer(pencere_view::Input::Release {
         at,
         button: pencere_view::Button::Left,
+        mods: Mods::default(),
     })?;
     assert_eq!(shown(&page), "hover b pressed nil focus b");
     page.press("tab")?;

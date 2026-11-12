@@ -360,7 +360,7 @@ impl Containers {
     /// What the person did, with the page as it was last laid out (`laid`).
     pub fn input(&mut self, input: Input, laid: &dyn Queries) -> Reply {
         match input {
-            Input::Move(at) => {
+            Input::Move { at, .. } => {
                 self.pointer = Some(at);
                 let changed = self.hover_to(laid, Some(at));
                 self.reply(changed)
@@ -373,7 +373,7 @@ impl Containers {
             Input::Press {
                 at, button, mods, ..
             } => self.press(laid, at, button, mods),
-            Input::Release { at, button } => match button {
+            Input::Release { at, button, .. } => match button {
                 Button::Left => self.release(laid, at),
                 Button::Right | Button::Middle => self.reply(false),
             },
@@ -383,8 +383,16 @@ impl Containers {
                 self.reply(false)
             }
             Input::Key { key, mods } => self.key(key, mods, laid),
-            // The list reads no key that goes up, nor the modifiers alone.
-            Input::KeyUp { .. } | Input::Mods(_) => self.reply(false),
+            // The list reads no key that goes up, nor the modifiers alone, nor what a trackpad's
+            // fingers or a mouse's side buttons do.
+            Input::KeyUp { .. }
+            | Input::Mods(_)
+            | Input::Extra { .. }
+            | Input::Magnify { .. }
+            | Input::SmartMagnify { .. }
+            | Input::Rotate { .. }
+            | Input::Swipe { .. }
+            | Input::Pressure { .. } => self.reply(false),
         }
     }
 

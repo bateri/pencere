@@ -8,6 +8,13 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **`Input` carries what a trackpad's fingers and a mouse's side buttons do**: `Magnify`,
+  `SmartMagnify`, `Rotate`, `Swipe`, `Pressure` and `Extra` (a button beyond the third, never a
+  `Press`), with `GesturePhase` for the part of a pinch or a rotation. `Scroll` has `phase`,
+  `precise` and `mods`, `Move` and `Release` have `mods`. **Breaking:** `Input::Move` is `Move { at,
+mods }` and `Input::Release` has `mods`, so a host or a page that builds or matches them names
+  the field.
+
 - **`Picture::shown`**: what of the whole image is inside the picture's clip, as shares of it like
   `crop`. A host that rasterises a large SVG or page draws that part and not all of it
   (`pencere-sandbox`'s `Images::picture`).

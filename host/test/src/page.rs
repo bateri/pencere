@@ -163,6 +163,54 @@ fn mods_of(written: &str) -> Result<pencere_view::Mods, mlua::Error> {
     Ok(mods)
 }
 
+/// A turn of a trackpad's gesture, written as the page is told it: `"begin"`, `"move"`, `"end"` or
+/// `"coast"` (a wheel that turns in steps is `wheel_at`'s).
+fn scroll_phase_of(written: &str) -> Result<pencere_view::Phase, mlua::Error> {
+    match written {
+        "begin" => Ok(pencere_view::Phase::Begin),
+        "move" => Ok(pencere_view::Phase::Move),
+        "end" => Ok(pencere_view::Phase::Lift),
+        "coast" => Ok(pencere_view::Phase::Coast),
+        other => Err(words(format!(
+            "\"{other}\" is no phase of a trackpad's gesture (\"begin\", \"move\", \"end\" or \"coast\")"
+        ))),
+    }
+}
+
+/// The part of a pinch, written as the page is told it: `"begin"`, `"move"` or `"end"`.
+fn gesture_phase_of(written: &str) -> Result<pencere_view::GesturePhase, mlua::Error> {
+    match written {
+        "begin" => Ok(pencere_view::GesturePhase::Begin),
+        "move" => Ok(pencere_view::GesturePhase::Move),
+        "end" => Ok(pencere_view::GesturePhase::End),
+        other => Err(words(format!(
+            "\"{other}\" is no part of a pinch (\"begin\", \"move\" or \"end\")"
+        ))),
+    }
+}
+
+/// A button of the pointer beyond the third, counted from 1 as the system does (4 is the first).
+fn extra_button_of(button: f64) -> Result<u8, mlua::Error> {
+    if (4.0..=255.0).contains(&button) && button.fract() == 0.0 {
+        Ok(button as u8)
+    } else {
+        Err(words(format!(
+            "button {button} is none beyond the third: they are counted from 1, so the first of them is 4"
+        )))
+    }
+}
+
+/// The step a swipe takes: -1, 0 or 1 (by the sign of what the test says).
+fn step_of(n: f64) -> i32 {
+    if n > 0.0 {
+        1
+    } else if n < 0.0 {
+        -1
+    } else {
+        0
+    }
+}
+
 fn point(x: f32, y: f32) -> Point {
     Point::new(x, y)
 }
@@ -613,6 +661,7 @@ impl UserData for Handle {
                     page.pointer(Input::Release {
                         at,
                         button: Button::Left,
+                        mods: Mods::default(),
                     })?;
                 }
                 Ok(())
@@ -631,6 +680,7 @@ impl UserData for Handle {
                 page.pointer(Input::Release {
                     at,
                     button: Button::Right,
+                    mods: Mods::default(),
                 })
             })
         });
@@ -656,6 +706,77 @@ impl UserData for Handle {
             "wheel_at",
             |_, this, (x, y, dx, dy): (f64, f64, f64, f64)| {
                 this.act(|page| page.wheel_at(point(to_f32(x), to_f32(y)), to_f32(dx), to_f32(dy)))
+            },
+        );
+        // What a trackpad's fingers and a mouse's side buttons do (specification of the kit, §2.3):
+        // over the thing named, or over a point.
+        methods.add_method("pinch_id", |_, this, (name, by): (String, f64)| {
+            this.act(|page| page.pinch(&name, to_f32(by)))
+        });
+        methods.add_method("pinch_at", |_, this, (x, y, by): (f64, f64, f64)| {
+            this.act(|page| page.pinch_at(point(to_f32(x), to_f32(y)), to_f32(by)))
+        });
+        methods.add_method(
+            "magnify_at",
+            |_, this, (x, y, by, phase): (f64, f64, f64, String)| {
+                let phase = gesture_phase_of(&phase)?;
+                this.act(|page| page.magnify_at(point(to_f32(x), to_f32(y)), to_f32(by), phase))
+            },
+        );
+        methods.add_method("smart_magnify_id", |_, this, name: String| {
+            this.act(|page| page.smart_magnify(&name))
+        });
+        methods.add_method("smart_magnify_at", |_, this, (x, y): (f64, f64)| {
+            this.act(|page| page.smart_magnify_at(point(to_f32(x), to_f32(y))))
+        });
+        methods.add_method("rotate_id", |_, this, (name, degrees): (String, f64)| {
+            this.act(|page| page.rotate(&name, to_f32(degrees)))
+        });
+        methods.add_method("rotate_at", |_, this, (x, y, degrees): (f64, f64, f64)| {
+            this.act(|page| page.rotate_at(point(to_f32(x), to_f32(y)), to_f32(degrees)))
+        });
+        methods.add_method("swipe", |_, this, (dx, dy): (f64, f64)| {
+            this.act(|page| page.swipe(step_of(dx), step_of(dy)))
+        });
+        methods.add_method(
+            "force_id",
+            |_, this, (name, stage, pressure): (String, f64, f64)| {
+                this.act(|page| page.force(&name, stage.clamp(0.0, 2.0) as u8, to_f32(pressure)))
+            },
+        );
+        methods.add_method(
+            "force_at",
+            |_, this, (x, y, stage, pressure): (f64, f64, f64, f64)| {
+                this.act(|page| {
+                    page.force_at(
+                        point(to_f32(x), to_f32(y)),
+                        stage.clamp(0.0, 2.0) as u8,
+                        to_f32(pressure),
+                    )
+                })
+            },
+        );
+        methods.add_method(
+            "click_extra_id",
+            |_, this, (name, button): (String, f64)| {
+                let button = extra_button_of(button)?;
+                this.act(|page| page.click_extra(&name, button))
+            },
+        );
+        methods.add_method(
+            "click_extra_at",
+            |_, this, (x, y, button): (f64, f64, f64)| {
+                let button = extra_button_of(button)?;
+                this.act(|page| page.click_extra_at(point(to_f32(x), to_f32(y)), button))
+            },
+        );
+        methods.add_method(
+            "trackpad_at",
+            |_, this, (x, y, dx, dy, phase): (f64, f64, f64, f64, String)| {
+                let phase = scroll_phase_of(&phase)?;
+                this.act(|page| {
+                    page.trackpad_at(point(to_f32(x), to_f32(y)), to_f32(dx), to_f32(dy), phase)
+                })
             },
         );
         methods.add_method("scroll_to", |_, this, (name, y): (String, f64)| {

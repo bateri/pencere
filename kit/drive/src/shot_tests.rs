@@ -277,6 +277,7 @@ fn the_gallerys_editor_opens_the_editor_menu_on_a_right_press() -> Result<(), Er
     page.pointer(Input::Release {
         at,
         button: Button::Right,
+        mods: Mods::default(),
     })?;
     let titles: Vec<String> = page
         .menu()

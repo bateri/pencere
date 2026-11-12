@@ -2702,6 +2702,7 @@ return {
     page.pointer(pencere_view::Input::Release {
         at: Point::new(12.0, 12.0),
         button: pencere_view::Button::Left,
+        mods: Mods::default(),
     })?;
     let selected = page.editor("code").map(|b| b.ranges()[0]);
     assert_eq!(selected.map(|r| (r.start(), r.end())), Some((0, 11)));
@@ -3084,6 +3085,7 @@ fn right_press(page: &mut Headless, at: Point) -> Result<(), Error> {
     page.pointer(pencere_view::Input::Release {
         at,
         button: pencere_view::Button::Right,
+        mods: Mods::default(),
     })
 }
 
@@ -3140,6 +3142,7 @@ fn a_right_press_puts_the_caret_by_the_text_views_rule_and_the_page_opens_its_me
     page.pointer(pencere_view::Input::Release {
         at: Point::new(12.0, 12.0),
         button: pencere_view::Button::Left,
+        mods: Mods::default(),
     })?;
     assert_eq!(
         page.editor("e").map(|b| b.ranges().to_vec()),

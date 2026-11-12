@@ -10,8 +10,9 @@ use std::time::{Duration, Instant};
 
 use pencere_view::wire::{Direction, Display, Kind, Overflow};
 use pencere_view::{
-    Built, Button, Color, Cursor, Ease, Element, Event, FieldKind, Fill, Fit, Id, Input, Key,
-    Keyboard, Mix, Mods, Motion, Point, Rgba, Role, Rows, ScrollTo, Shift, Source, Tip, image,
+    Built, Button, Color, Cursor, Ease, Element, Event, FieldKind, Fill, Fit, GesturePhase, Id,
+    Input, Key, Keyboard, Mix, Mods, Motion, Phase, Point, Rgba, Role, Rows, ScrollTo, Shift,
+    Source, Tip, image,
 };
 use wasmtime::component::Component;
 
@@ -244,8 +245,10 @@ fn an_error_in_a_handler_closes_the_page_with_its_line() {
     );
     page.module.render(SIZE, 0.0, false);
     page.until(Duration::from_secs(20), |u| u.frame.is_some());
-    page.module
-        .event(Event::Input(Input::Move(Point::new(1.0, 1.0))));
+    page.module.event(Event::Input(Input::Move {
+        at: Point::new(1.0, 1.0),
+        mods: Mods::default(),
+    }));
     let update = page.until(Duration::from_secs(5), |u| u.closed.is_some());
     let why = failed(&update);
     assert!(why.starts_with("script.lua:4: no move"), "{why}");
@@ -1067,7 +1070,10 @@ fn the_example_page_counts_clicks() {
         .expect("the button is laid out");
     let at = Point::new(button.x + button.w / 2.0, button.y + button.h / 2.0);
     for input in [
-        Input::Move(at),
+        Input::Move {
+            at,
+            mods: Mods::default(),
+        },
         Input::Press {
             at,
             button: Button::Left,
@@ -1077,6 +1083,7 @@ fn the_example_page_counts_clicks() {
         Input::Release {
             at,
             button: Button::Left,
+            mods: Mods::default(),
         },
     ] {
         page.module.event(Event::Input(input));
@@ -1325,6 +1332,9 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
             at,
             dx: 3.0,
             dy: -4.0,
+            phase: Phase::Wheel,
+            precise: false,
+            mods: Mods::default(),
         }),
         Event::Input(Input::Key {
             key: Key::Backspace,
@@ -1381,6 +1391,180 @@ fn a_script_is_told_the_new_events_and_answers_with_fields_and_cursors() {
         [
             (Id::named("name"), Fill::text("draft.md").select(0..5)),
             (Id::named("notes"), Fill::selection(0..u32::MAX as usize)),
+        ]
+    );
+}
+
+/// Everything the trackpad and the mouse say reaches the script with its fields, and a button
+/// beyond the third is not a press.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_script_is_told_every_gesture_of_the_trackpad_and_every_button_of_the_mouse() {
+    let mut page = open_script(
+        r##"
+        local said = "nothing"
+        local fields = {
+            move = { "x", "y", "mods" },
+            release = { "x", "y", "button", "mods" },
+            wheel = { "x", "y", "dx", "dy", "phase", "precise", "mods" },
+            magnify = { "x", "y", "by", "phase", "mods" },
+            smart_magnify = { "x", "y" },
+            rotate = { "x", "y", "degrees", "phase", "mods" },
+            swipe = { "dx", "dy" },
+            pressure = { "x", "y", "stage", "pressure" },
+            extra_press = { "x", "y", "button", "mods" },
+            extra_release = { "x", "y", "button", "mods" },
+        }
+        local function held(m)
+            local s = ""
+            if m.shift then s = s .. "S" end
+            if m.control then s = s .. "C" end
+            if m.alt then s = s .. "A" end
+            if m.command then s = s .. "M" end
+            return s
+        end
+        return {
+            render = function() return pencere.div():child(pencere.text(said)) end,
+            handle = function(e)
+                if e.type == "press" then
+                    said = "a press"
+                    return true
+                end
+                local names = fields[e.type]
+                if not names then return end
+                local parts = { e.type }
+                for _, name in ipairs(names) do
+                    local value = e[name]
+                    if name == "mods" then value = held(value) end
+                    parts[#parts + 1] = tostring(value)
+                end
+                said = table.concat(parts, " ")
+                return true
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    let at = Point::new(1.0, 2.0);
+    let cmd = Mods {
+        command: true,
+        ..Mods::default()
+    };
+    let all = Mods {
+        shift: true,
+        control: true,
+        alt: true,
+        command: true,
+    };
+    let events = [
+        Input::Move { at, mods: cmd },
+        Input::Release {
+            at,
+            button: Button::Middle,
+            mods: all,
+        },
+        Input::Scroll {
+            at,
+            dx: 3.0,
+            dy: -4.0,
+            phase: Phase::Move,
+            precise: true,
+            mods: cmd,
+        },
+        Input::Scroll {
+            at,
+            dx: 1.0,
+            dy: 0.0,
+            phase: Phase::Wheel,
+            precise: false,
+            mods: Mods::default(),
+        },
+        Input::Scroll {
+            at,
+            dx: 1.0,
+            dy: 0.0,
+            phase: Phase::Coast,
+            precise: true,
+            mods: Mods::default(),
+        },
+        Input::Scroll {
+            at,
+            dx: 0.0,
+            dy: 2.0,
+            phase: Phase::Lift,
+            precise: true,
+            mods: Mods::default(),
+        },
+        Input::Magnify {
+            at,
+            by: 0.5,
+            phase: GesturePhase::Begin,
+            mods: cmd,
+        },
+        Input::Magnify {
+            at,
+            by: -0.25,
+            phase: GesturePhase::End,
+            mods: Mods::default(),
+        },
+        Input::SmartMagnify { at },
+        Input::Rotate {
+            at,
+            degrees: 15.0,
+            phase: GesturePhase::Move,
+            mods: all,
+        },
+        Input::Swipe { dx: -1, dy: 0 },
+        Input::Pressure {
+            at,
+            stage: 2,
+            pressure: 0.5,
+        },
+        Input::Extra {
+            at,
+            button: 4,
+            down: true,
+            mods: cmd,
+        },
+        Input::Extra {
+            at,
+            button: 5,
+            down: false,
+            mods: Mods::default(),
+        },
+    ];
+    let mut heard = Vec::new();
+    for input in events {
+        page.module.event(Event::Input(input));
+        page.module.render(SIZE, 0.0, false);
+        let before = page.seen.replies.len();
+        until_seen(&mut page, Duration::from_secs(10), |seen| {
+            seen.replies.len() > before
+        });
+        page.take(Duration::from_millis(200));
+        heard.push(words(&page.seen.frame.clone().expect("a page").root).join(" "));
+    }
+    assert_eq!(
+        heard,
+        [
+            "move 1 2 M",
+            "release 1 2 middle SCAM",
+            "wheel 1 2 3 -4 move true M",
+            "wheel 1 2 1 0 wheel false ",
+            "wheel 1 2 1 0 coast true ",
+            "wheel 1 2 0 2 end true ",
+            "magnify 1 2 0.5 begin M",
+            "magnify 1 2 -0.25 end ",
+            "smart_magnify 1 2",
+            "rotate 1 2 15 move SCAM",
+            "swipe -1 0",
+            "pressure 1 2 2 0.5",
+            "extra_press 1 2 4 M",
+            "extra_release 1 2 5 ",
         ]
     );
 }
@@ -1982,14 +2166,21 @@ fn a_script_drags_and_is_told_commands_keys_that_go_up_modifiers_and_dropped_fil
     };
     told(press(5.0, 5.0), &mut page);
     assert_eq!(
-        told(Event::Input(Input::Move(Point::new(60.0, 10.0))), &mut page),
+        told(
+            Event::Input(Input::Move {
+                at: Point::new(60.0, 10.0),
+                mods: Mods::default()
+            }),
+            &mut page
+        ),
         "dragging card over done"
     );
     assert_eq!(
         told(
             Event::Input(Input::Release {
                 at: Point::new(60.0, 10.0),
-                button: Button::Left
+                button: Button::Left,
+                mods: Mods::default()
             }),
             &mut page
         ),
@@ -1999,7 +2190,8 @@ fn a_script_drags_and_is_told_commands_keys_that_go_up_modifiers_and_dropped_fil
         told(
             Event::Input(Input::Release {
                 at: Point::new(1.0, 1.0),
-                button: Button::Middle
+                button: Button::Middle,
+                mods: Mods::default()
             }),
             &mut page
         ),

@@ -6,7 +6,7 @@
 //! host can do: pop up a menu, move the keyboard into a text field, copy, close the page.
 
 use crate::edit::{Edited, EditorAsk, Found, Refusal, Selection};
-use crate::{Fill, Id, Point, Shortcut};
+use crate::{Fill, Id, Phase, Point, Shortcut};
 
 /// A key the page reads. Letters, symbols and the space bar come as [`Key::Character`] — the
 /// character the key makes.
@@ -32,7 +32,7 @@ pub enum Key {
     Character(char),
 }
 
-/// The modifiers held with a key or a press.
+/// The modifiers held with a key or a pointer event.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Mods {
     pub shift: bool,
@@ -58,11 +58,28 @@ pub enum Button {
     Middle,
 }
 
+/// What part of a pinch or a rotation an event of it is, as the system says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GesturePhase {
+    /// The fingers came to it.
+    Begin,
+    /// The fingers move.
+    Move,
+    /// The fingers left, or the system gave it up.
+    End,
+}
+
 /// One thing the person did, in the page's points (the page's top-left corner is the origin).
+///
+/// A pointer event carries the modifiers held with it, and the host says them again with
+/// [`Input::Mods`] when they change with no other event.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Input {
     /// The pointer moved over the page.
-    Move(Point),
+    Move {
+        at: Point,
+        mods: Mods,
+    },
     /// The pointer left the page.
     Leave,
     Press {
@@ -76,15 +93,68 @@ pub enum Input {
     Release {
         at: Point,
         button: Button,
+        mods: Mods,
+    },
+    /// A button of the pointer beyond the third (the ones a mouse has at its side) went down or
+    /// came up. `button` counts from 1 as the system does, left, right and middle being 1 to 3: 4
+    /// is the first of the others, a mouse's "back", and 5 its "forward". The page is told of it by
+    /// its own event, never as a press, so that a page that takes every button but the left for
+    /// the one that opens a menu does not open one for these.
+    Extra {
+        at: Point,
+        button: u8,
+        down: bool,
+        mods: Mods,
     },
     /// The wheel or the trackpad, where no box the host scrolls took it ([`crate::Scrolls`]):
     /// `dx` points the content would move *left* by and `dy` points it would move *up* by
     /// (positive scrolls across and down the page). A page that does something of its own with
-    /// the wheel (a zoom, a value that steps) reads it here.
+    /// the wheel (a zoom, a value that steps) reads it here. `phase` is the part of a gesture it
+    /// is, as the system says (a wheel that turns in steps has none: [`Phase::Wheel`]) and
+    /// `precise` whether it is a trackpad's, whose points are the fingers' and not a wheel's steps.
     Scroll {
         at: Point,
         dx: f32,
         dy: f32,
+        phase: Phase,
+        precise: bool,
+        mods: Mods,
+    },
+    /// The fingers of a pinch: the content is to be `1 + by` times as large as it was at the
+    /// last event of this gesture (`by` is negative when they come together). `at` is where they
+    /// are, the point to keep in place.
+    Magnify {
+        at: Point,
+        by: f32,
+        phase: GesturePhase,
+        mods: Mods,
+    },
+    /// A double tap with two fingers, what a trackpad says is a request for the content to be
+    /// shown larger or at its size.
+    SmartMagnify {
+        at: Point,
+    },
+    /// The fingers of a rotation, by `degrees` since the last event of this gesture, positive
+    /// counter-clockwise as a person sees the page.
+    Rotate {
+        at: Point,
+        degrees: f32,
+        phase: GesturePhase,
+        mods: Mods,
+    },
+    /// A swipe of three fingers, one step: `dx` is 1 for one to the right and −1 for one to the
+    /// left, `dy` 1 down and −1 up (the other is 0). A system that gives the gesture another meaning
+    /// of its own (back and forward in a browser) is the host's to decide.
+    Swipe {
+        dx: i32,
+        dy: i32,
+    },
+    /// The force of a press on a trackpad that feels it: `stage` is 0 (no click), 1 (a click) or
+    /// 2 (a deep click) and `pressure` how hard it is, from 0 to 1.
+    Pressure {
+        at: Point,
+        stage: u8,
+        pressure: f32,
     },
     Key {
         key: Key,
@@ -532,6 +602,7 @@ mod tests {
             Event::Input(Input::Release {
                 at,
                 button: Button::Left,
+                mods: Mods::default(),
             }),
             Event::MenuPick {
                 serial: 1,
@@ -542,8 +613,44 @@ mod tests {
             assert!(Panel::follows(&gesture), "{gesture:?}");
         }
         for not in [
-            Event::Input(Input::Move(at)),
+            Event::Input(Input::Move {
+                at,
+                mods: Mods::default(),
+            }),
             Event::Input(Input::Leave),
+            // A button beyond the third and what a trackpad's fingers do are not a press: a page
+            // that opens a menu for them has none shown.
+            Event::Input(Input::Extra {
+                at,
+                button: 4,
+                down: true,
+                mods,
+            }),
+            Event::Input(Input::Extra {
+                at,
+                button: 4,
+                down: false,
+                mods,
+            }),
+            Event::Input(Input::Magnify {
+                at,
+                by: 0.5,
+                phase: GesturePhase::End,
+                mods,
+            }),
+            Event::Input(Input::SmartMagnify { at }),
+            Event::Input(Input::Rotate {
+                at,
+                degrees: 1.0,
+                phase: GesturePhase::End,
+                mods,
+            }),
+            Event::Input(Input::Swipe { dx: 1, dy: 0 }),
+            Event::Input(Input::Pressure {
+                at,
+                stage: 2,
+                pressure: 1.0,
+            }),
             Event::Wake { now: 1.0 },
             Event::FilesOver { at, count: 1 },
             Event::Focus(None),
@@ -570,11 +677,18 @@ mod tests {
         let release = Input::Release {
             at,
             button: Button::Right,
+            mods: Mods::default(),
         };
         for input in [press, release] {
             assert!(Panel::follows(&Event::Pointer { input, place }));
         }
-        for input in [Input::Move(at), Input::Leave] {
+        for input in [
+            Input::Move {
+                at,
+                mods: Mods::default(),
+            },
+            Input::Leave,
+        ] {
             assert!(!Panel::follows(&Event::Pointer { input, place }));
         }
     }
@@ -624,6 +738,14 @@ mod tests {
             Event::Input(Input::Release {
                 at,
                 button: Button::Right,
+                mods: Mods::default(),
+            }),
+            // The right button beyond the third is no right button.
+            Event::Input(Input::Extra {
+                at,
+                button: 4,
+                down: true,
+                mods: Mods::default(),
             }),
             Event::Input(Input::Key {
                 key: Key::Enter,

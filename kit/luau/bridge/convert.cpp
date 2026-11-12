@@ -1790,6 +1790,35 @@ const char* button_name(pencere_view_types_button_t button) {
     }
 }
 
+// The part of a turn of the wheel the script is told it is: "wheel" (a wheel that turns in
+// steps), "begin", "move", "end" or "coast".
+const char* scroll_phase_name(pencere_view_types_scroll_phase_t phase) {
+    switch (phase) {
+        case PENCERE_VIEW_TYPES_SCROLL_PHASE_BEGIN:
+            return "begin";
+        case PENCERE_VIEW_TYPES_SCROLL_PHASE_MOVE:
+            return "move";
+        case PENCERE_VIEW_TYPES_SCROLL_PHASE_END:
+            return "end";
+        case PENCERE_VIEW_TYPES_SCROLL_PHASE_COAST:
+            return "coast";
+        default:
+            return "wheel";
+    }
+}
+
+// The part of a pinch or a rotation the script is told it is: "begin", "move" or "end".
+const char* gesture_phase_name(pencere_view_types_gesture_phase_t phase) {
+    switch (phase) {
+        case PENCERE_VIEW_TYPES_GESTURE_PHASE_BEGIN:
+            return "begin";
+        case PENCERE_VIEW_TYPES_GESTURE_PHASE_END:
+            return "end";
+        default:
+            return "move";
+    }
+}
+
 void push_character(lua_State* L, uint32_t cp);
 
 // The name of a key the page reads, as the script is told it.
@@ -1861,8 +1890,9 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
     switch (event.tag) {
         case PENCERE_VIEW_TYPES_EVENT_POINTER_MOVE:
             set_word(L, "type", "move");
-            set_number(L, "x", event.val.pointer_move.x);
-            set_number(L, "y", event.val.pointer_move.y);
+            set_number(L, "x", event.val.pointer_move.at.x);
+            set_number(L, "y", event.val.pointer_move.at.y);
+            set_mods(L, event.val.pointer_move.mods);
             break;
         case PENCERE_VIEW_TYPES_EVENT_POINTER_LEAVE:
             set_word(L, "type", "leave");
@@ -1883,13 +1913,65 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             set_number(L, "x", event.val.release.at.x);
             set_number(L, "y", event.val.release.at.y);
             set_word(L, "button", button_name(event.val.release.button));
+            set_mods(L, event.val.release.mods);
             break;
+        case PENCERE_VIEW_TYPES_EVENT_EXTRA_PRESS:
+        case PENCERE_VIEW_TYPES_EVENT_EXTRA_RELEASE: {
+            // A button beyond the third: { type = "extra_press" | "extra_release", x =, y =,
+            // button = 4 (the first of them) and up, mods = }. Never a "press".
+            const bool down = event.tag == PENCERE_VIEW_TYPES_EVENT_EXTRA_PRESS;
+            const auto& extra = down ? event.val.extra_press : event.val.extra_release;
+            set_word(L, "type", down ? "extra_press" : "extra_release");
+            set_number(L, "x", extra.at.x);
+            set_number(L, "y", extra.at.y);
+            set_number(L, "button", (double)extra.button);
+            set_mods(L, extra.mods);
+            break;
+        }
         case PENCERE_VIEW_TYPES_EVENT_SCROLL:
             set_word(L, "type", "wheel");
             set_number(L, "x", event.val.scroll.at.x);
             set_number(L, "y", event.val.scroll.at.y);
             set_number(L, "dx", event.val.scroll.dx);
             set_number(L, "dy", event.val.scroll.dy);
+            set_word(L, "phase", scroll_phase_name(event.val.scroll.phase));
+            lua_pushboolean(L, event.val.scroll.precise);
+            lua_setfield(L, -2, "precise");
+            set_mods(L, event.val.scroll.mods);
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_MAGNIFY:
+            // { type = "magnify", x =, y =, by =, phase = "begin" | "move" | "end", mods = }
+            set_word(L, "type", "magnify");
+            set_number(L, "x", event.val.magnify.at.x);
+            set_number(L, "y", event.val.magnify.at.y);
+            set_number(L, "by", event.val.magnify.by);
+            set_word(L, "phase", gesture_phase_name(event.val.magnify.phase));
+            set_mods(L, event.val.magnify.mods);
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_SMART_MAGNIFY:
+            set_word(L, "type", "smart_magnify");
+            set_number(L, "x", event.val.smart_magnify.x);
+            set_number(L, "y", event.val.smart_magnify.y);
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_ROTATE:
+            set_word(L, "type", "rotate");
+            set_number(L, "x", event.val.rotate.at.x);
+            set_number(L, "y", event.val.rotate.at.y);
+            set_number(L, "degrees", event.val.rotate.degrees);
+            set_word(L, "phase", gesture_phase_name(event.val.rotate.phase));
+            set_mods(L, event.val.rotate.mods);
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_SWIPE:
+            set_word(L, "type", "swipe");
+            set_number(L, "dx", (double)event.val.swipe.dx);
+            set_number(L, "dy", (double)event.val.swipe.dy);
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_PRESSURE:
+            set_word(L, "type", "pressure");
+            set_number(L, "x", event.val.pressure.at.x);
+            set_number(L, "y", event.val.pressure.at.y);
+            set_number(L, "stage", (double)event.val.pressure.stage);
+            set_number(L, "pressure", event.val.pressure.pressure);
             break;
         case PENCERE_VIEW_TYPES_EVENT_KEY:
             set_word(L, "type", "key");
@@ -2028,10 +2110,12 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
                 set_number(L, "x", input.val.release.at.x);
                 set_number(L, "y", input.val.release.at.y);
                 set_word(L, "button", button_name(input.val.release.button));
+                set_mods(L, input.val.release.mods);
             } else {
                 set_word(L, "type", "move");
-                set_number(L, "x", input.val.move.x);
-                set_number(L, "y", input.val.move.y);
+                set_number(L, "x", input.val.move.at.x);
+                set_number(L, "y", input.val.move.at.y);
+                set_mods(L, input.val.move.mods);
             }
             lua_createtable(L, 0, 2);
             push_id(L, pointer.place.editor);

@@ -118,7 +118,7 @@ its own.
 - **What a person does:** `key`, `press("cmd+shift+k")`, `type_text` (a key at a time), `insert_text`
   (what an input method commits), `paste`, `compose`, `unmark`; `click`, `double_click`,
   `right_click`, `click_in(id, x, y)`, `click_at`, `hover`, `move_to`, `leave`, `drag`,
-  `drag_between`, `wheel`, `wheel_at`, `scroll_to`, `pointer` (any input); `focus_editor`, `select`,
+  `drag_between`, `wheel`, `wheel_at`, `trackpad_at`, `pinch`, `magnify_at`, `smart_magnify`, `rotate`, `swipe`, `force`, `click_extra`, `scroll_to`, `pointer` (any input); `focus_editor`, `select`,
   `caret_to`, `edit(EditCommand)`; `click_gutter(editor, column, line, button)`,
   `hover_gutter(editor, column, line)`, `dwell(id, x, y)` (the pointer rests over a word of an editor that
   hears of it, as long as it takes to be told), `hold(mods)`, `release()` and `click_holding(at, mods)` and, for where things are, `gutter_cell`, `zone` and

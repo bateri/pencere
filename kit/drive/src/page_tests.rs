@@ -155,6 +155,7 @@ impl Rig {
         self.page.input(Input::Release {
             at,
             button: Button::Left,
+            mods: Mods::default(),
         });
     }
 
@@ -372,7 +373,10 @@ fn a_scripts_container_list_is_drawn_then_at_rest_and_answers_the_pointer() {
     );
 
     // The pointer over a row: the page answers, changes, and the host is told.
-    rig.page.input(Input::Move(Point::new(300.0, 32.0 + 150.0)));
+    rig.page.input(Input::Move {
+        at: Point::new(300.0, 32.0 + 150.0),
+        mods: Mods::default(),
+    });
     assert!(rig.page.module().flush(Duration::from_secs(30)));
     let drained = rig.page.drain();
     assert!(drained.redraw);
@@ -1677,6 +1681,7 @@ fn the_host_scrolls_the_box_under_the_wheel_and_a_turn_no_box_takes_is_the_pages
         0.0,
         60.0,
         pencere_view::Phase::Wheel,
+        false,
     );
     rig.settle();
     let offset = rig
@@ -1694,10 +1699,107 @@ fn the_host_scrolls_the_box_under_the_wheel_and_a_turn_no_box_takes_is_the_pages
         0.0,
         30.0,
         pencere_view::Phase::Wheel,
+        false,
     );
     rig.settle();
     let said = page_words(&rig.page).join(" ");
     assert!(said.contains("scroll 30"), "{said}");
+}
+
+/// A gesture no box takes is the page's with what the host said of it: the part of it, whether it is
+/// a trackpad's, the modifiers held; what a trackpad's fingers do besides, and the buttons of a
+/// mouse beyond the third, are told as events of their own, in the page's points. A turn that moves
+/// nothing is told to no one.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it; make check-heavy"]
+fn what_a_trackpad_and_a_mouse_do_is_the_pages_with_what_the_host_said_of_it() {
+    let mut rig = script_rig(
+        r#"local said = {}
+        local function mods(m)
+            return (m.shift and "S" or "") .. (m.command and "M" or "")
+        end
+        return {
+            render = function()
+                local list = pencere.div():id("list"):h(100):w(200):scroll()
+                for n = 1, 50 do list:child(pencere.div():h(20):child(pencere.text("row " .. n))) end
+                return pencere.div():size_full()
+                    :child(list)
+                    :child(pencere.text(table.concat(said, "|")))
+            end,
+            handle = function(event)
+                local t = event.type
+                if t == "wheel" then
+                    said[#said + 1] = string.format("wheel %g %g %s %s %s", event.x, event.y, event.phase, tostring(event.precise), mods(event.mods))
+                elseif t == "magnify" then
+                    said[#said + 1] = string.format("magnify %g %g %g %s %s", event.x, event.y, event.by, event.phase, mods(event.mods))
+                elseif t == "smart_magnify" then
+                    said[#said + 1] = string.format("smart %g %g", event.x, event.y)
+                elseif t == "rotate" then
+                    said[#said + 1] = string.format("rotate %g %s", event.degrees, event.phase)
+                elseif t == "swipe" then
+                    said[#said + 1] = string.format("swipe %d %d", event.dx, event.dy)
+                elseif t == "pressure" then
+                    said[#said + 1] = string.format("pressure %d %g", event.stage, event.pressure)
+                elseif t == "extra_press" or t == "extra_release" then
+                    said[#said + 1] = string.format("%s %d", t, event.button)
+                elseif t == "press" or t == "release" then
+                    said[#said + 1] = t
+                end
+                return true
+            end,
+        }"#,
+    );
+    rig.page.frame(frame_at(0.0));
+    rig.first();
+    rig.settle();
+    let below = Point::new(50.0, 32.0 + 400.0);
+    let command = Mods {
+        command: true,
+        ..Mods::default()
+    };
+    // The modifiers the host said last are the ones a gesture has.
+    rig.page.input(Input::Mods(command));
+    rig.page
+        .wheel(below, 0.0, 0.0, pencere_view::Phase::Begin, true);
+    rig.settle();
+    rig.page
+        .wheel(below, 0.0, 30.0, pencere_view::Phase::Move, true);
+    rig.settle();
+    rig.page.input(Input::Mods(Mods::default()));
+    rig.page
+        .magnify(below, 0.5, pencere_view::GesturePhase::Begin);
+    rig.page.smart_magnify(below);
+    rig.page
+        .rotate(below, 15.0, pencere_view::GesturePhase::End);
+    rig.page.swipe(-1, 0);
+    rig.page.pressure(below, 2, 0.5);
+    rig.page.input(Input::Extra {
+        at: below,
+        button: 4,
+        down: true,
+        mods: Mods::default(),
+    });
+    rig.page.input(Input::Extra {
+        at: below,
+        button: 4,
+        down: false,
+        mods: Mods::default(),
+    });
+    rig.settle();
+    let said = page_words(&rig.page).join(" ");
+    // The strip above the page is not the page's: its points are 32 less (432 is 400).
+    assert!(
+        said.contains(
+            "wheel 50 400 move true M|magnify 50 400 0.5 begin |smart 50 400|rotate 15 end|swipe -1 0|pressure 2 0.5|extra_press 4|extra_release 4"
+        ),
+        "{said}"
+    );
+    // None of the extra button's two events was a press or a release.
+    assert!(
+        said.split('|')
+            .all(|told| told != "press" && told != "release"),
+        "{said}"
+    );
 }
 
 /// What replies ask of a field the host does not have yet (the texts and the keyboard) is held, in
@@ -1830,7 +1932,10 @@ fn the_pointer_coming_to_a_word_an_editor_hears_of_tells_the_host_to_arm_its_clo
     rig.settle();
     let _ = rig.page.drain();
     assert_eq!(rig.page.wake_at(), None);
-    rig.page.input(Input::Move(Point::new(12.0, 32.0 + 10.0)));
+    rig.page.input(Input::Move {
+        at: Point::new(12.0, 32.0 + 10.0),
+        mods: Mods::default(),
+    });
     let drained = rig.page.drain();
     assert!(drained.wake && !drained.redraw, "{drained:?}");
     assert!(rig.page.wake_at().is_some(), "the time the rest is told at");

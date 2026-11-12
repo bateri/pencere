@@ -50,9 +50,9 @@ use pencere_sandbox::{
 };
 use pencere_view::edit::{EditCommand, EditorAsk, Range};
 use pencere_view::{
-    Button, Cursor, DrawList, EditorMetrics, Element, Event, FileEntry, FileSource, Font, Id,
-    Input, Key, KeyConvention, Keyboard, Laid, Measure, MenuEntry, Metrics, Mods, Motions, Phase,
-    Place, Point, Rect, Reply, Role, Saving, ScrollTo, Size, div, text,
+    Button, Cursor, DrawList, EditorMetrics, Element, Event, FileEntry, FileSource, Font,
+    GesturePhase, Id, Input, Key, KeyConvention, Keyboard, Laid, Measure, MenuEntry, Metrics, Mods,
+    Motions, Phase, Place, Point, Rect, Reply, Role, Saving, ScrollTo, Size, div, text,
 };
 
 use crate::editing::{Editing, Told, in_a_room};
@@ -448,8 +448,17 @@ impl Page {
             Input::Mods(mods)
             | Input::Key { mods, .. }
             | Input::KeyUp { mods, .. }
-            | Input::Press { mods, .. } => self.track_mods(mods),
-            _ => {}
+            | Input::Move { mods, .. }
+            | Input::Press { mods, .. }
+            | Input::Release { mods, .. }
+            | Input::Extra { mods, .. }
+            | Input::Scroll { mods, .. }
+            | Input::Magnify { mods, .. }
+            | Input::Rotate { mods, .. } => self.track_mods(mods),
+            Input::Leave
+            | Input::SmartMagnify { .. }
+            | Input::Swipe { .. }
+            | Input::Pressure { .. } => {}
         }
         let state = &mut self.state;
         let place = state.place;
@@ -481,7 +490,7 @@ impl Page {
         }
         let state = &mut self.state;
         state.cursor_over = match input {
-            Input::Move(at) | Input::Press { at, .. } | Input::Release { at, .. } => state
+            Input::Move { at, .. } | Input::Press { at, .. } | Input::Release { at, .. } => state
                 .laid
                 .as_ref()
                 .and_then(|laid| state.editing.editors.cursor_at(laid, at)),
@@ -495,6 +504,11 @@ impl Page {
             Some(place) => Event::Pointer { input, place },
             None => Event::Input(input),
         });
+    }
+
+    /// The modifiers held, as far as the host has said.
+    pub fn mods(&self) -> Mods {
+        self.state.mods
     }
 
     /// The modifiers held are `mods` (as far as the host says): what the editors draw by them is drawn
@@ -548,10 +562,13 @@ impl Page {
     }
 
     /// The wheel or the trackpad over `at`, in the host's points, by `dx` and `dy` (positive: the
-    /// content moves left and up), `phase` the part of the gesture the system says it is. The drive
-    /// scrolls the box under the pointer itself, on the page as it was last laid out; a turn no box
-    /// took is the page's, as [`Input::Scroll`].
-    pub fn wheel(&mut self, at: Point, dx: f32, dy: f32, phase: Phase) {
+    /// content moves left and up), `phase` the part of the gesture the system says it is and
+    /// `precise` whether the device says its points as fingers do and not as steps of a wheel. The
+    /// drive scrolls the box under the pointer itself, on the page as it was last laid out; a turn no
+    /// box took is the page's, as [`Input::Scroll`], with the modifiers held ([`Input::Mods`]). A
+    /// turn that moves nothing (the fingers that came down, the ones that left) is told to no box
+    /// and no page: the gesture is told when it moves.
+    pub fn wheel(&mut self, at: Point, dx: f32, dy: f32, phase: Phase, precise: bool) {
         let state = &mut self.state;
         let place = state.place;
         let (page_at, zoom) = (place.to_page(at), place.zoom);
@@ -568,12 +585,60 @@ impl Page {
         };
         // What no box took is the page's.
         if left.x != 0.0 || left.y != 0.0 {
+            let mods = state.mods;
             state.event(Event::Input(Input::Scroll {
                 at: page_at,
                 dx: left.x,
                 dy: left.y,
+                phase,
+                precise,
+                mods,
             }));
         }
+    }
+
+    /// A pinch over `at`, in the host's points: the content is to be `1 + by` times as large as it
+    /// was at the gesture's last event, `phase` the part of the gesture it is.
+    pub fn magnify(&mut self, at: Point, by: f32, phase: GesturePhase) {
+        let mods = self.state.mods;
+        self.input(Input::Magnify {
+            at,
+            by,
+            phase,
+            mods,
+        });
+    }
+
+    /// A double tap with two fingers over `at`, in the host's points.
+    pub fn smart_magnify(&mut self, at: Point) {
+        self.input(Input::SmartMagnify { at });
+    }
+
+    /// A rotation over `at`, in the host's points, by `degrees` (counter-clockwise is positive)
+    /// since the gesture's last event.
+    pub fn rotate(&mut self, at: Point, degrees: f32, phase: GesturePhase) {
+        let mods = self.state.mods;
+        self.input(Input::Rotate {
+            at,
+            degrees,
+            phase,
+            mods,
+        });
+    }
+
+    /// A swipe of three fingers, one step in the direction `dx` and `dy` say (−1, 0 or 1).
+    pub fn swipe(&mut self, dx: i32, dy: i32) {
+        self.input(Input::Swipe { dx, dy });
+    }
+
+    /// A press on a trackpad that feels its force, over `at`, in the host's points: `stage` is 0, 1
+    /// or 2 and `pressure` from 0 to 1.
+    pub fn pressure(&mut self, at: Point, stage: u8, pressure: f32) {
+        self.input(Input::Pressure {
+            at,
+            stage,
+            pressure,
+        });
     }
 
     /// The text of the host's field named `field` changed: the person typed, pasted or deleted.
@@ -1049,9 +1114,14 @@ impl Page {
             Input::Release {
                 at,
                 button: Button::Left,
+                mods,
             } if std::mem::take(&mut self.state.control_menu) => Input::Release {
                 at,
                 button: Button::Right,
+                mods: Mods {
+                    control: false,
+                    ..mods
+                },
             },
             other => other,
         }
@@ -1070,7 +1140,7 @@ impl Page {
         }
         if !matches!(
             input,
-            Input::Press { .. } | Input::Move(_) | Input::Release { .. }
+            Input::Press { .. } | Input::Move { .. } | Input::Release { .. }
         ) {
             return (None, false);
         }
@@ -1104,19 +1174,25 @@ impl Page {
                     editors.press_other(laid, at, (button, mods, count), measure);
                     at
                 }
-                Input::Move(at) => {
+                Input::Move { at, .. } => {
                     editors.drag_to(laid, at, measure);
                     editors.hover(laid, Some(at));
                     editors.rest(laid, Some(at), mods, now, measure);
                     at
                 }
-                Input::Release { at, button } => {
+                Input::Release { at, button, .. } => {
                     if button == Button::Left {
                         editors.release();
                     }
                     at
                 }
                 Input::Scroll { .. }
+                | Input::Magnify { .. }
+                | Input::SmartMagnify { .. }
+                | Input::Rotate { .. }
+                | Input::Swipe { .. }
+                | Input::Pressure { .. }
+                | Input::Extra { .. }
                 | Input::Leave
                 | Input::Key { .. }
                 | Input::KeyUp { .. }
@@ -1662,7 +1738,7 @@ fn starting_line() -> Element {
 fn into_page(input: Input, place: Placement) -> Input {
     let at = |at: Point| place.to_page(at);
     match input {
-        Input::Move(here) => Input::Move(at(here)),
+        Input::Move { at: here, mods } => Input::Move { at: at(here), mods },
         Input::Press {
             at: here,
             button,
@@ -1674,16 +1750,78 @@ fn into_page(input: Input, place: Placement) -> Input {
             mods,
             count,
         },
-        Input::Release { at: here, button } => Input::Release {
+        Input::Release {
+            at: here,
+            button,
+            mods,
+        } => Input::Release {
             at: at(here),
             button,
+            mods,
         },
-        Input::Scroll { at: here, dx, dy } => Input::Scroll {
+        Input::Extra {
+            at: here,
+            button,
+            down,
+            mods,
+        } => Input::Extra {
+            at: at(here),
+            button,
+            down,
+            mods,
+        },
+        Input::Scroll {
+            at: here,
+            dx,
+            dy,
+            phase,
+            precise,
+            mods,
+        } => Input::Scroll {
             at: at(here),
             dx: dx / place.zoom,
             dy: dy / place.zoom,
+            phase,
+            precise,
+            mods,
         },
-        other @ (Input::Leave | Input::Key { .. } | Input::KeyUp { .. } | Input::Mods(_)) => other,
+        Input::Magnify {
+            at: here,
+            by,
+            phase,
+            mods,
+        } => Input::Magnify {
+            at: at(here),
+            by,
+            phase,
+            mods,
+        },
+        Input::SmartMagnify { at: here } => Input::SmartMagnify { at: at(here) },
+        Input::Rotate {
+            at: here,
+            degrees,
+            phase,
+            mods,
+        } => Input::Rotate {
+            at: at(here),
+            degrees,
+            phase,
+            mods,
+        },
+        Input::Pressure {
+            at: here,
+            stage,
+            pressure,
+        } => Input::Pressure {
+            at: at(here),
+            stage,
+            pressure,
+        },
+        other @ (Input::Leave
+        | Input::Swipe { .. }
+        | Input::Key { .. }
+        | Input::KeyUp { .. }
+        | Input::Mods(_)) => other,
     }
 }
 

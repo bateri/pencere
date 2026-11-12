@@ -8,6 +8,15 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **A script is told what a trackpad's fingers and a mouse's side buttons do** (the kit's
+  specification, Section 2.3): `magnify`, `smart_magnify`, `rotate`, `swipe`, `pressure` and
+  `extra_press`/`extra_release` events, `mods` on `move` and `release` (over an editor too), and
+  `phase`, `precise` and `mods` on `wheel`. A run of pinches or rotations one gesture makes that the
+  page is too slow to hear one by one is one event (a factor of them all, a turn by all of them); a
+  gesture's beginning and end are told as they were. The interface (`view.wit`) has them, and
+  `luau.wasm` is built from it. **Breaking:** `pointer-move` of the interface is a record with
+  `mods`, and so are `release`, `scroll` and the pointer an editor is told of.
+
 - **`Images::picture(&Picture)`, `Bitmap::part` and `Bitmap::crop_of(&Picture)`: a large SVG or page
   of a PDF is drawn only where it is seen.** A page whose whole is more than 512 by 512 pixels at the
   size it is shown at is drawn in the part that is seen (`Picture::shown` of `pencere-view`), 128

@@ -15,13 +15,24 @@
 --       by the kit, which has the page rendered again for it.)
 --   handle(event) -> reply         (optional)
 --       The person did something. `event` is { type = "move" | "leave" | "press" | "release" |
---       "wheel" | "scrolled" | "key" | "key_up" | "mods" | "text" | "focus" | "menu" | "command" |
---       "files" | "files_over" | "files_left" | "saving" | "terminal_look",
+--       "extra_press" | "extra_release" | "wheel" | "magnify" | "smart_magnify" | "rotate" |
+--       "swipe" | "pressure" | "scrolled" | "key" | "key_up" | "mods" | "text" | "focus" | "menu" |
+--       "command" | "files" | "files_over" | "files_left" | "saving" | "terminal_look",
 --       ... } in the page's points: move/press/release/wheel/files have x and y (press and
 --       release a button, "left", "right" or "middle"; press its `count`, 2 for the second of a
---       double click; press, key, key_up and mods have mods = { shift =, control =, alt =,
---       command = }; wheel dx and dy, the points the content would move left and up by, for a
---       wheel no box the host scrolls took; scrolled the `boxes` the host scrolled, each
+--       double click; move, press, release, wheel, key, key_up and mods have mods = { shift =,
+--       control =, alt =, command = }; wheel dx and dy, the points the content would move left and
+--       up by, for a wheel no box the host scrolls took, its `phase` ("wheel": a wheel that turns
+--       in steps, or "begin", "move", "end", "coast": the part of a trackpad's gesture) and
+--       `precise` (a trackpad's points, not a wheel's steps); a button beyond the third is never a
+--       "press": it is "extra_press" or "extra_release", with x, y, `button` (4 is the first
+--       of them, a mouse's "back", 5 "forward") and mods; magnify (a pinch, no box that zooms
+--       took) has x, y, `by` (the content is to be `1 + by` times as large as at the gesture's
+--       last event), `phase` ("begin", "move", "end") and mods; smart_magnify (a double tap with two
+--       fingers) has x and y; rotate x, y, `degrees` (since the gesture's last event, counter-
+--       clockwise positive), `phase` and mods; swipe (three fingers, one step) `dx` and `dy`
+--       (-1, 0 or 1); pressure (the force of a press) x, y, `stage` (0, 1 or 2) and `pressure`
+--       (0 to 1); scrolled the `boxes` the host scrolled, each
 --       { id =, x =, y = }, for a page that builds only what is in view), key and
 --       key_up have `key` ("up", "down", "left", "right", "page_up", "page_down", "home", "end",
 --       "enter", "escape", "tab", "backspace", "delete", "f1" to "f20", or the character), text

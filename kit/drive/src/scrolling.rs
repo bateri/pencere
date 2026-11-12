@@ -67,7 +67,7 @@ impl HostScrolls {
                 let took = self.scrolls.press(at, now);
                 (took, took)
             }
-            Input::Move(at) => {
+            Input::Move { at, .. } => {
                 let holding = self.scrolls.holding();
                 let moved = self.scrolls.point(Some(at), now);
                 (holding, moved)
@@ -80,9 +80,16 @@ impl HostScrolls {
                 let holding = self.scrolls.holding();
                 (holding, self.scrolls.point(None, now))
             }
-            Input::Scroll { .. } | Input::Key { .. } | Input::KeyUp { .. } | Input::Mods(_) => {
-                (false, false)
-            }
+            Input::Scroll { .. }
+            | Input::Magnify { .. }
+            | Input::SmartMagnify { .. }
+            | Input::Rotate { .. }
+            | Input::Swipe { .. }
+            | Input::Pressure { .. }
+            | Input::Extra { .. }
+            | Input::Key { .. }
+            | Input::KeyUp { .. }
+            | Input::Mods(_) => (false, false),
         }
     }
 

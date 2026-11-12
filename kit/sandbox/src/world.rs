@@ -20,9 +20,10 @@ use pencere_view::wire::{
 };
 use pencere_view::{
     AccessibleRole, Align, Anchor, Border, Button, Color, Command, Cursor, Ease, Element, Event,
-    Extent, Family, FileSource, Fill, Gradient, Id, Input, Key, KeyConvention, Keyboard, Laid,
-    Menu, MenuEntry, Mix, Mods, Motion, Panel, Path, Point, Rect, Reply, Rgba, Role, ScrollTo,
-    Segment, Shadow, Shift, Shortcut, Side, Size, Source, Span, State, Stroke, Tip, Track,
+    Extent, Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Key, KeyConvention,
+    Keyboard, Laid, Menu, MenuEntry, Mix, Mods, Motion, Panel, Path, Phase, Point, Rect, Reply,
+    Rgba, Role, ScrollTo, Segment, Shadow, Shift, Shortcut, Side, Size, Source, Span, State,
+    Stroke, Tip, Track,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
 use pencere_wire::json::unescaped_len;
@@ -394,6 +395,14 @@ fn button_in(button: Button) -> wit::Button {
     }
 }
 
+fn gesture_phase_in(phase: GesturePhase) -> wit::GesturePhase {
+    match phase {
+        GesturePhase::Begin => wit::GesturePhase::Begin,
+        GesturePhase::Move => wit::GesturePhase::Move,
+        GesturePhase::End => wit::GesturePhase::End,
+    }
+}
+
 fn mods_in(mods: Mods) -> wit::Mods {
     wit::Mods {
         shift: mods.shift,
@@ -425,7 +434,10 @@ fn key_in(key: Key) -> wit::Key {
 
 fn event_in(event: Event) -> wit::Event {
     match event {
-        Event::Input(Input::Move(at)) => wit::Event::PointerMove(point_in(at)),
+        Event::Input(Input::Move { at, mods }) => wit::Event::PointerMove(wit::PointerMove {
+            at: point_in(at),
+            mods: mods_in(mods),
+        }),
         Event::Input(Input::Leave) => wit::Event::PointerLeave,
         Event::Input(Input::Press {
             at,
@@ -438,14 +450,81 @@ fn event_in(event: Event) -> wit::Event {
             mods: mods_in(mods),
             count,
         }),
-        Event::Input(Input::Release { at, button }) => wit::Event::Release(wit::Release {
+        Event::Input(Input::Release { at, button, mods }) => wit::Event::Release(wit::Release {
             at: point_in(at),
             button: button_in(button),
+            mods: mods_in(mods),
         }),
-        Event::Input(Input::Scroll { at, dx, dy }) => wit::Event::Scroll(wit::Scroll {
+        Event::Input(Input::Extra {
+            at,
+            button,
+            down,
+            mods,
+        }) => {
+            let extra = wit::ExtraButton {
+                at: point_in(at),
+                button,
+                mods: mods_in(mods),
+            };
+            if down {
+                wit::Event::ExtraPress(extra)
+            } else {
+                wit::Event::ExtraRelease(extra)
+            }
+        }
+        Event::Input(Input::Scroll {
+            at,
+            dx,
+            dy,
+            phase,
+            precise,
+            mods,
+        }) => wit::Event::Scroll(wit::Scroll {
             at: point_in(at),
             dx,
             dy,
+            phase: match phase {
+                Phase::Wheel => wit::ScrollPhase::Wheel,
+                Phase::Begin => wit::ScrollPhase::Begin,
+                Phase::Move => wit::ScrollPhase::Move,
+                Phase::Lift | Phase::Stop => wit::ScrollPhase::End,
+                Phase::Coast => wit::ScrollPhase::Coast,
+            },
+            precise,
+            mods: mods_in(mods),
+        }),
+        Event::Input(Input::Magnify {
+            at,
+            by,
+            phase,
+            mods,
+        }) => wit::Event::Magnify(wit::Magnify {
+            at: point_in(at),
+            by,
+            phase: gesture_phase_in(phase),
+            mods: mods_in(mods),
+        }),
+        Event::Input(Input::SmartMagnify { at }) => wit::Event::SmartMagnify(point_in(at)),
+        Event::Input(Input::Rotate {
+            at,
+            degrees,
+            phase,
+            mods,
+        }) => wit::Event::Rotate(wit::Rotate {
+            at: point_in(at),
+            degrees,
+            phase: gesture_phase_in(phase),
+            mods: mods_in(mods),
+        }),
+        Event::Input(Input::Swipe { dx, dy }) => wit::Event::Swipe(wit::Swipe { dx, dy }),
+        Event::Input(Input::Pressure {
+            at,
+            stage,
+            pressure,
+        }) => wit::Event::Pressure(wit::Pressure {
+            at: point_in(at),
+            stage,
+            pressure,
         }),
         Event::Input(Input::Key { key, mods }) => wit::Event::Key(wit::KeyPress {
             key: key_in(key),
@@ -528,11 +607,15 @@ fn event_in(event: Event) -> wit::Event {
                     mods: mods_in(mods),
                     count,
                 }),
-                Input::Release { at, button } => wit::PointerInput::Release(wit::Release {
+                Input::Release { at, button, mods } => wit::PointerInput::Release(wit::Release {
                     at: point_in(at),
                     button: button_in(button),
+                    mods: mods_in(mods),
                 }),
-                Input::Move(at) => wit::PointerInput::Move(point_in(at)),
+                Input::Move { at, mods } => wit::PointerInput::Move(wit::PointerMove {
+                    at: point_in(at),
+                    mods: mods_in(mods),
+                }),
                 // Nothing else of the pointer's has a place: it is the page's as it is.
                 other => return event_in(Event::Input(other)),
             };
@@ -3655,11 +3738,144 @@ mod tests {
     }
 
     #[test]
+    fn what_a_trackpad_and_a_mouse_did_reaches_the_module_as_what_it_was() {
+        use pencere_view::GesturePhase;
+        let at = Point::new(3.0, 4.0);
+        let held = Mods {
+            command: true,
+            ..Mods::default()
+        };
+        assert!(matches!(
+            event_in(Event::Input(Input::Magnify {
+                at,
+                by: -0.5,
+                phase: GesturePhase::Begin,
+                mods: held,
+            })),
+            wit::Event::Magnify(wit::Magnify {
+                by,
+                phase: wit::GesturePhase::Begin,
+                mods: wit::Mods { command: true, .. },
+                ..
+            }) if by == -0.5
+        ));
+        assert!(matches!(
+            event_in(Event::Input(Input::Rotate {
+                at,
+                degrees: 12.0,
+                phase: GesturePhase::End,
+                mods: Mods::default(),
+            })),
+            wit::Event::Rotate(wit::Rotate {
+                degrees,
+                phase: wit::GesturePhase::End,
+                ..
+            }) if degrees == 12.0
+        ));
+        assert!(matches!(
+            event_in(Event::Input(Input::SmartMagnify { at })),
+            wit::Event::SmartMagnify(wit::Point { x, y }) if (x, y) == (3.0, 4.0)
+        ));
+        assert!(matches!(
+            event_in(Event::Input(Input::Swipe { dx: -1, dy: 0 })),
+            wit::Event::Swipe(wit::Swipe { dx: -1, dy: 0 })
+        ));
+        assert!(matches!(
+            event_in(Event::Input(Input::Pressure {
+                at,
+                stage: 2,
+                pressure: 0.75,
+            })),
+            wit::Event::Pressure(wit::Pressure { stage: 2, pressure, .. }) if pressure == 0.75
+        ));
+        // A button beyond the third is its own event, down and up, and never a press or a release.
+        for (down, told) in [(true, "press"), (false, "release")] {
+            let event = event_in(Event::Input(Input::Extra {
+                at,
+                button: 5,
+                down,
+                mods: held,
+            }));
+            match event {
+                wit::Event::ExtraPress(extra) | wit::Event::ExtraRelease(extra) => {
+                    assert_eq!(extra.button, 5);
+                    assert!(extra.mods.command);
+                    assert_eq!(told == "press", down);
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        // Every phase of a turn of the wheel is told, the end of the fingers and of the coasting both
+        // as the end.
+        for (phase, told) in [
+            (Phase::Wheel, wit::ScrollPhase::Wheel),
+            (Phase::Begin, wit::ScrollPhase::Begin),
+            (Phase::Move, wit::ScrollPhase::Move),
+            (Phase::Lift, wit::ScrollPhase::End),
+            (Phase::Stop, wit::ScrollPhase::End),
+            (Phase::Coast, wit::ScrollPhase::Coast),
+        ] {
+            let event = event_in(Event::Input(Input::Scroll {
+                at,
+                dx: 1.0,
+                dy: 2.0,
+                phase,
+                precise: true,
+                mods: held,
+            }));
+            let wit::Event::Scroll(scroll) = event else {
+                panic!("{event:?}")
+            };
+            assert!(scroll.phase == told && scroll.precise && scroll.mods.command);
+        }
+        // Over an editor the pointer carries its modifiers too.
+        let place = pencere_view::Place {
+            editor: Id::named("e"),
+            at: 0,
+            inside: false,
+            version: 0,
+        };
+        let event = event_in(Event::Pointer {
+            input: Input::Move { at, mods: held },
+            place,
+        });
+        assert!(matches!(
+            event,
+            wit::Event::EditorPointer(wit::EditorPointer {
+                input: wit::PointerInput::Move(wit::PointerMove {
+                    mods: wit::Mods { command: true, .. },
+                    ..
+                }),
+                ..
+            })
+        ));
+        let event = event_in(Event::Pointer {
+            input: Input::Release {
+                at,
+                button: Button::Left,
+                mods: held,
+            },
+            place,
+        });
+        assert!(matches!(
+            event,
+            wit::Event::EditorPointer(wit::EditorPointer {
+                input: wit::PointerInput::Release(wit::Release {
+                    mods: wit::Mods { command: true, .. },
+                    ..
+                }),
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn what_the_person_did_reaches_the_module_as_what_it_was() {
         let at = Point::new(3.0, 4.0);
         assert!(matches!(
-            event_in(Event::Input(Input::Move(at))),
-            wit::Event::PointerMove(wit::Point { x, y }) if (x, y) == (3.0, 4.0)
+            event_in(Event::Input(Input::Move { at, mods: Mods::default() })),
+            wit::Event::PointerMove(wit::PointerMove { at: wit::Point { x, y }, .. })
+                if (x, y) == (3.0, 4.0)
         ));
         assert!(matches!(
             event_in(Event::Input(Input::Press {
@@ -3707,7 +3923,10 @@ mod tests {
             event_in(Event::Input(Input::Scroll {
                 at,
                 dx: 5.0,
-                dy: -2.0
+                dy: -2.0,
+                phase: Phase::Wheel,
+                precise: false,
+                mods: Mods::default(),
             })),
             wit::Event::Scroll(wit::Scroll { dx, dy, .. }) if (dx, dy) == (5.0, -2.0)
         ));
@@ -3735,6 +3954,7 @@ mod tests {
             event_in(Event::Input(Input::Release {
                 at,
                 button: Button::Middle,
+                mods: Mods::default(),
             })),
             wit::Event::Release(wit::Release {
                 button: wit::Button::Middle,

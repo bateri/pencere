@@ -440,7 +440,18 @@ impl Pair {
             .wheel(&laid, at, 0.0, dy, Phase::Wheel, self.now);
         if !wheel.took {
             let (dx, dy) = (wheel.left.x, wheel.left.y);
-            self.input(what, Input::Scroll { at, dx, dy });
+            let (phase, precise, mods) = (Phase::Wheel, false, Mods::default());
+            self.input(
+                what,
+                Input::Scroll {
+                    at,
+                    dx,
+                    dy,
+                    phase,
+                    precise,
+                    mods,
+                },
+            );
             return;
         }
         self.scrolls.place(&mut laid, self.now, true);
@@ -580,6 +591,7 @@ impl Pair {
             Input::Release {
                 at,
                 button: Button::Left,
+                mods: Mods::default(),
             },
         );
     }
@@ -950,7 +962,13 @@ fn the_wheel_scrolls_the_list_and_the_keys_keep_the_cursor_in_view() {
 fn the_pointer_lights_the_row_it_is_over_and_the_light_comes_and_goes_with_time() {
     let mut pair = Pair::open(SIZE);
     let db = pair.middle("containers container db");
-    let reply = pair.input("over db", Input::Move(db));
+    let reply = pair.input(
+        "over db",
+        Input::Move {
+            at: db,
+            mods: Mods::default(),
+        },
+    );
     assert!(reply.redraw);
     assert!(pair.animating, "a highlight on its way is a moving page");
     // A step of time, and another: the highlight comes up.
@@ -958,7 +976,13 @@ fn the_pointer_lights_the_row_it_is_over_and_the_light_comes_and_goes_with_time(
     pair.at(0.10);
     // The pointer moving inside the row it is over changes nothing.
     let inside = Point::new(db.x + 20.0, db.y + 3.0);
-    let reply = pair.input("inside db", Input::Move(inside));
+    let reply = pair.input(
+        "inside db",
+        Input::Move {
+            at: inside,
+            mods: Mods::default(),
+        },
+    );
     assert!(!reply.redraw);
     pair.at(0.15);
     // Onto another row while the first is still on its way up, and onto the filter's box, a tab,
@@ -972,12 +996,30 @@ fn the_pointer_lights_the_row_it_is_over_and_the_light_comes_and_goes_with_time(
         "containers container worker",
     ] {
         let at = pair.middle(name);
-        pair.input(name, Input::Move(at));
+        pair.input(
+            name,
+            Input::Move {
+                at,
+                mods: Mods::default(),
+            },
+        );
         pair.at(pair.now + 0.05);
     }
-    pair.input("over nothing", Input::Move(Point::new(1.0, 1.0)));
+    pair.input(
+        "over nothing",
+        Input::Move {
+            at: Point::new(1.0, 1.0),
+            mods: Mods::default(),
+        },
+    );
     pair.rest(30);
-    pair.input("away", Input::Move(db));
+    pair.input(
+        "away",
+        Input::Move {
+            at: db,
+            mods: Mods::default(),
+        },
+    );
     pair.input("the pointer left", Input::Leave);
     pair.rest(30);
     // The pointer leaving a page it was not on changes nothing.
@@ -990,7 +1032,13 @@ fn the_pointer_lights_the_row_it_is_over_and_the_light_comes_and_goes_with_time(
 fn a_page_that_moves_under_the_pointer_lights_the_row_that_comes_under_it() {
     let mut pair = Pair::open(Size::new(1000.0, 300.0));
     let at = Point::new(600.0, 150.0);
-    pair.input("the pointer", Input::Move(at));
+    pair.input(
+        "the pointer",
+        Input::Move {
+            at,
+            mods: Mods::default(),
+        },
+    );
     pair.rest(30);
     // The wheel moves the list under a pointer that has not moved: the hover is asked again
     // where the pointer stands, once the page is laid out.
@@ -1015,7 +1063,13 @@ fn under_reduce_motion_a_highlight_is_at_its_end_at_once() {
     let db = pair.middle("containers container db");
     pair.key(Key::Down);
     assert!(!pair.animating, "a key moved the highlight slowly");
-    pair.input("over db", Input::Move(db));
+    pair.input(
+        "over db",
+        Input::Move {
+            at: db,
+            mods: Mods::default(),
+        },
+    );
     assert!(!pair.animating, "the pointer lit a row slowly");
     pair.click("containers status stopped", Mods::default());
     pair.click("containers group", Mods::default());
@@ -1093,6 +1147,7 @@ fn a_click_folds_a_project_and_chooses_the_status_the_grouping_and_a_row() {
         Input::Release {
             at,
             button: Button::Left,
+            mods: Mods::default(),
         },
     );
     // A press on nothing, and a release somewhere else than the press.
@@ -1111,6 +1166,7 @@ fn a_click_folds_a_project_and_chooses_the_status_the_grouping_and_a_row() {
         Input::Release {
             at: nowhere,
             button: Button::Left,
+            mods: Mods::default(),
         },
     );
     let down = pair.middle("containers container api");
@@ -1129,6 +1185,7 @@ fn a_click_folds_a_project_and_chooses_the_status_the_grouping_and_a_row() {
         Input::Release {
             at: elsewhere,
             button: Button::Left,
+            mods: Mods::default(),
         },
     );
     pair.rest(30);
@@ -1175,6 +1232,7 @@ fn a_right_click_opens_the_menu_of_the_row_and_what_is_picked_is_done() {
     let release = |at| Input::Release {
         at,
         button: Button::Right,
+        mods: Mods::default(),
     };
     // A container that runs.
     let at = pair.middle("containers container api");

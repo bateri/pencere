@@ -642,6 +642,70 @@ end)
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn a_test_drives_the_fingers_of_a_trackpad_and_the_side_buttons_of_a_mouse() {
+    let app = App::template("trackpad");
+    app.write(
+        "src/view/page.lua",
+        r#"local said = {}
+local function mods(m)
+	return (m.command and "M" or "") .. (m.shift and "S" or "")
+end
+return {
+	render = function()
+		return pencere.div():size_full():child(pencere.div():id("target"):w(100):h(100)):child(pencere.text(table.concat(said, "|")))
+	end,
+	handle = function(e)
+		local t = e.type
+		if t == "magnify" then
+			said[#said + 1] = string.format("magnify %g %s %s", e.by, e.phase, mods(e.mods))
+		elseif t == "smart_magnify" then
+			said[#said + 1] = "smart"
+		elseif t == "rotate" then
+			said[#said + 1] = string.format("rotate %g %s", e.degrees, e.phase)
+		elseif t == "swipe" then
+			said[#said + 1] = string.format("swipe %d %d", e.dx, e.dy)
+		elseif t == "pressure" then
+			said[#said + 1] = string.format("pressure %d %g", e.stage, e.pressure)
+		elseif t == "extra_press" or t == "extra_release" then
+			said[#said + 1] = string.format("%s %d %s", t, e.button, mods(e.mods))
+		elseif t == "wheel" then
+			said[#said + 1] = string.format("wheel %g %s %s", e.dy, e.phase, tostring(e.precise))
+		end
+		return true
+	end,
+}
+"#,
+    );
+    app.write(
+        "test/page_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("the fingers and the side buttons are the page's, with the modifiers held", function()
+	local page = test.open()
+	local target = page:get_by_id("target")
+	page:hold("cmd")
+	target:pinch(0.5)
+	page:release()
+	target:smart_magnify()
+	target:rotate(15)
+	page:swipe(-3, 0)
+	target:force(2, 0.5)
+	page:hold("cmd")
+	target:click_extra(4)
+	page:release()
+	page:trackpad_at(50, 50, 0, 30, "move")
+	local said = table.concat(page:words(), " ")
+	expect(said):to_contain("magnify 0 begin M|magnify 0.5 move M|magnify 0 end M|smart|rotate 0 begin|rotate 15 move|rotate 0 end|swipe -1 0|pressure 2 0.5|extra_press 4 M|extra_release 4 M|wheel 30 move true")
+end)
+"#,
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn the_app_runs_in_its_own_environment_and_the_process_of_the_test_is_never_touched() {
     let app = App::template("world");
     let _ = std::fs::remove_file(app.dir.join("test/page_test.lua"));

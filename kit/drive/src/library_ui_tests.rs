@@ -5,7 +5,7 @@
 //! and run (`make check-heavy`).
 
 use pencere_sandbox::Fault;
-use pencere_view::AccessibleRole;
+use pencere_view::{AccessibleRole, Mods};
 
 use crate::headless::{Error, Focus, Headless};
 
@@ -2112,6 +2112,7 @@ fn right_press_in(page: &mut Headless, editor: &str) -> Result<(), Error> {
     page.pointer(pencere_view::Input::Release {
         at,
         button: pencere_view::Button::Right,
+        mods: Mods::default(),
     })
 }
 

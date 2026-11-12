@@ -51,8 +51,9 @@ use pencere_sandbox::{Answer, Assets, Fault, Images, ModuleLimits, Program, Runn
 use pencere_view::wire::Kind;
 use pencere_view::{
     Button, Cursor, DrawList, Drawing, Element, Event, FieldKind, FileEntry, FileSource, Fill,
-    Font, Id, Input, Key, KeyConvention, Keyboard, Laid, Measure, Menu, MenuEntry, Metrics, Mods,
-    Paint, Panel, Phase, Point, Rect, Saving, Shortcut, Size, TerminalLook, WallTime,
+    Font, GesturePhase, Id, Input, Key, KeyConvention, Keyboard, Laid, Measure, Menu, MenuEntry,
+    Metrics, Mods, Paint, Panel, Phase, Point, Rect, Saving, Shortcut, Size, TerminalLook,
+    WallTime,
 };
 
 use field::{Done, Held};
@@ -1363,10 +1364,10 @@ impl<P: Peer> Headless<P> {
         let cell = self
             .gutter_cell(editor, column, line)
             .ok_or_else(|| Error::NoSuch(format!("{column} at line {line} of {editor}")))?;
-        self.pointer(Input::Move(Point::new(
-            cell.x + cell.w / 2.0,
-            cell.y + cell.h / 2.0,
-        )))
+        self.pointer(Input::Move {
+            at: Point::new(cell.x + cell.w / 2.0, cell.y + cell.h / 2.0),
+            mods: self.page.mods(),
+        })
     }
 
     /// Where the cell of column `column` at line `line` of the editor named `editor` is, the host's
@@ -1427,6 +1428,7 @@ impl<P: Peer> Headless<P> {
         self.pointer(Input::Release {
             at,
             button: Button::Left,
+            mods,
         })
     }
 
@@ -1441,7 +1443,10 @@ impl<P: Peer> Headless<P> {
         let bounds = self
             .bounds(name)
             .ok_or_else(|| Error::NoSuch(name.to_owned()))?;
-        self.pointer(Input::Move(Point::new(bounds.x + x, bounds.y + y)))?;
+        self.pointer(Input::Move {
+            at: Point::new(bounds.x + x, bounds.y + y),
+            mods: self.page.mods(),
+        })?;
         match self.page.rest_due() {
             Some(due) => self.advance((due - self.now()).max(0.0)),
             None => Ok(()),
@@ -1482,7 +1487,11 @@ impl<P: Peer> Headless<P> {
             mods: Mods::default(),
             count,
         })?;
-        self.pointer(Input::Release { at, button })
+        self.pointer(Input::Release {
+            at,
+            button,
+            mods: Mods::default(),
+        })
     }
 
     /// The pointer moves to the middle of the element named `name`.
@@ -1492,7 +1501,10 @@ impl<P: Peer> Headless<P> {
     /// As [`Headless::click`].
     pub fn hover(&mut self, name: &str) -> Result<(), Error> {
         let at = self.reach(name)?;
-        self.pointer(Input::Move(at))
+        self.pointer(Input::Move {
+            at,
+            mods: self.page.mods(),
+        })
     }
 
     /// The pointer moves to `at`, the host's points.
@@ -1501,7 +1513,10 @@ impl<P: Peer> Headless<P> {
     ///
     /// As [`Headless::settle`].
     pub fn move_to(&mut self, at: Point) -> Result<(), Error> {
-        self.pointer(Input::Move(at))
+        self.pointer(Input::Move {
+            at,
+            mods: self.page.mods(),
+        })
     }
 
     /// The pointer leaves the page.
@@ -1543,14 +1558,18 @@ impl<P: Peer> Headless<P> {
         })?;
         for step in 1..=STEPS {
             let part = f32::from(step) / f32::from(STEPS);
-            self.pointer(Input::Move(Point::new(
-                from.x + (to.x - from.x) * part,
-                from.y + (to.y - from.y) * part,
-            )))?;
+            self.pointer(Input::Move {
+                at: Point::new(
+                    from.x + (to.x - from.x) * part,
+                    from.y + (to.y - from.y) * part,
+                ),
+                mods: self.page.mods(),
+            })?;
         }
         self.pointer(Input::Release {
             at: to,
             button: Button::Left,
+            mods: self.page.mods(),
         })
     }
 
@@ -1571,8 +1590,157 @@ impl<P: Peer> Headless<P> {
     ///
     /// As [`Headless::settle`].
     pub fn wheel_at(&mut self, at: Point, dx: f32, dy: f32) -> Result<(), Error> {
-        self.page.wheel(at, dx, dy, Phase::Wheel);
+        self.page.wheel(at, dx, dy, Phase::Wheel, false);
         self.settle()
+    }
+
+    /// The fingers of a trackpad move over `at`, the host's points, by `dx` and `dy` points (as
+    /// [`Headless::wheel_at`]), `phase` the part of the gesture it is.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn trackpad_at(&mut self, at: Point, dx: f32, dy: f32, phase: Phase) -> Result<(), Error> {
+        self.page.wheel(at, dx, dy, phase, true);
+        self.settle()
+    }
+
+    /// A whole pinch over the middle of the element named `name`: the fingers come to the trackpad,
+    /// move so that the content is `1 + by` times as large, and leave.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::click`].
+    pub fn pinch(&mut self, name: &str, by: f32) -> Result<(), Error> {
+        let at = self.reach(name)?;
+        self.pinch_at(at, by)
+    }
+
+    /// A whole pinch over `at`, the host's points: [`Headless::pinch`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn pinch_at(&mut self, at: Point, by: f32) -> Result<(), Error> {
+        self.magnify_at(at, 0.0, GesturePhase::Begin)?;
+        self.magnify_at(at, by, GesturePhase::Move)?;
+        self.magnify_at(at, 0.0, GesturePhase::End)
+    }
+
+    /// One event of a pinch over `at`, the host's points: the content `1 + by` times as large as at
+    /// the last, `phase` the part of the gesture it is.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn magnify_at(&mut self, at: Point, by: f32, phase: GesturePhase) -> Result<(), Error> {
+        self.page.magnify(at, by, phase);
+        self.settle()
+    }
+
+    /// A double tap with two fingers over the middle of the element named `name`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::click`].
+    pub fn smart_magnify(&mut self, name: &str) -> Result<(), Error> {
+        let at = self.reach(name)?;
+        self.smart_magnify_at(at)
+    }
+
+    /// A double tap with two fingers over `at`, the host's points.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn smart_magnify_at(&mut self, at: Point) -> Result<(), Error> {
+        self.page.smart_magnify(at);
+        self.settle()
+    }
+
+    /// A rotation by `degrees` (counter-clockwise is positive) over the middle of the element named
+    /// `name`: the fingers come, turn and leave.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::click`].
+    pub fn rotate(&mut self, name: &str, degrees: f32) -> Result<(), Error> {
+        let at = self.reach(name)?;
+        self.rotate_at(at, degrees)
+    }
+
+    /// A rotation over `at`, the host's points: [`Headless::rotate`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn rotate_at(&mut self, at: Point, degrees: f32) -> Result<(), Error> {
+        self.page.rotate(at, 0.0, GesturePhase::Begin);
+        self.settle()?;
+        self.page.rotate(at, degrees, GesturePhase::Move);
+        self.settle()?;
+        self.page.rotate(at, 0.0, GesturePhase::End);
+        self.settle()
+    }
+
+    /// A swipe of three fingers, one step: `dx` and `dy` are −1, 0 or 1.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn swipe(&mut self, dx: i32, dy: i32) -> Result<(), Error> {
+        self.page.swipe(dx, dy);
+        self.settle()
+    }
+
+    /// The force of a press on a trackpad over the middle of the element named `name`: `stage` 0, 1
+    /// or 2 and `pressure` from 0 to 1.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::click`].
+    pub fn force(&mut self, name: &str, stage: u8, pressure: f32) -> Result<(), Error> {
+        let at = self.reach(name)?;
+        self.force_at(at, stage, pressure)
+    }
+
+    /// The force of a press over `at`, the host's points: [`Headless::force`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn force_at(&mut self, at: Point, stage: u8, pressure: f32) -> Result<(), Error> {
+        self.page.pressure(at, stage, pressure);
+        self.settle()
+    }
+
+    /// The person clicks the element named `name` with a button of the pointer beyond the third
+    /// (`button` 4 is the first of them, a mouse's "back"): it goes down and comes up.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::click`].
+    pub fn click_extra(&mut self, name: &str, button: u8) -> Result<(), Error> {
+        let at = self.reach(name)?;
+        self.click_extra_at(at, button)
+    }
+
+    /// The same at `at`, the host's points.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn click_extra_at(&mut self, at: Point, button: u8) -> Result<(), Error> {
+        for down in [true, false] {
+            let mods = self.page.mods();
+            self.pointer(Input::Extra {
+                at,
+                button,
+                down,
+                mods,
+            })?;
+        }
+        Ok(())
     }
 
     /// The box named `name` scrolled down to `y` points, as the wheel over it takes it there.
@@ -1606,7 +1774,7 @@ impl<P: Peer> Headless<P> {
                     self.seen.taken = false;
                     return self.settle();
                 }
-                Input::Move(_) | Input::Leave => return self.settle(),
+                Input::Move { .. } | Input::Leave => return self.settle(),
                 _ => self.seen.taken = false,
             }
         }

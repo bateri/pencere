@@ -1145,15 +1145,92 @@ interface types {
     record release {
         at: point,
         button: button,
+        mods: mods,
+    }
+
+    /// The pointer moved, with the modifiers held.
+    record pointer-move {
+        at: point,
+        mods: mods,
+    }
+
+    /// A button of the pointer beyond the third (the ones at a mouse's side) went down or came up.
+    /// `button` counts from 1 as the system does, left, right and middle being 1 to 3: 4 is the
+    /// first of the others, a mouse's "back", and 5 its "forward".
+    record extra-button {
+        at: point,
+        button: u8,
+        mods: mods,
+    }
+
+    /// What part of a gesture a turn of the wheel or the trackpad is.
+    enum scroll-phase {
+        /// A wheel that turns in steps, or a device that says no more than the points.
+        wheel,
+        /// The fingers came to the trackpad.
+        begin,
+        /// The fingers move.
+        move,
+        /// The fingers left, or the momentum they gave the motion ran out.
+        end,
+        /// The momentum the system gives the motion after the fingers left.
+        coast,
     }
 
     /// The wheel or the trackpad where no box the application scrolls took it: the points the
     /// content would move left by (`dx`) and up by (`dy`). For a page that does something of its
-    /// own with the wheel (a zoom, a value that steps).
+    /// own with the wheel (a zoom, a value that steps). `precise`: the points are a trackpad's,
+    /// the fingers', and not a wheel's steps.
     record scroll {
         at: point,
         dx: f32,
         dy: f32,
+        phase: scroll-phase,
+        precise: bool,
+        mods: mods,
+    }
+
+    /// What part of a pinch or a rotation an event of it is.
+    enum gesture-phase {
+        /// The fingers came to it.
+        begin,
+        /// The fingers move.
+        move,
+        /// The fingers left, or the system gave it up.
+        end,
+    }
+
+    /// The fingers of a pinch: the content is to be `1 + by` times as large as it was at the last
+    /// event of the gesture (`by` is negative as they come together). `at` is where they are.
+    record magnify {
+        at: point,
+        by: f32,
+        phase: gesture-phase,
+        mods: mods,
+    }
+
+    /// The fingers of a rotation, by `degrees` since the last event of the gesture, positive
+    /// counter-clockwise as a person sees the page.
+    record rotate {
+        at: point,
+        degrees: f32,
+        phase: gesture-phase,
+        mods: mods,
+    }
+
+    /// A swipe of three fingers, one step: `dx` is 1 for one to the right and -1 for one to the
+    /// left, `dy` 1 down and -1 up (the other is 0).
+    record swipe {
+        dx: s32,
+        dy: s32,
+    }
+
+    /// The force of a press on a trackpad that feels it: `stage` is 0 (no click), 1 (a click) or 2
+    /// (a deep click) and `pressure` how hard it is, from 0 to 1.
+    record pressure {
+        at: point,
+        stage: u8,
+        pressure: f32,
     }
 
     /// The text a field of the application's holds.
@@ -1265,7 +1342,7 @@ interface types {
 
     /// What the pointer did over an editor.
     variant pointer-input {
-        move(point),
+        move(pointer-move),
         press(press),
         release(release),
     }
@@ -1371,11 +1448,28 @@ interface types {
 
     /// One thing the person did, in the page's points (its top-left corner is the origin).
     variant event {
-        pointer-move(point),
+        pointer-move(pointer-move),
         pointer-leave,
         press(press),
         release(release),
+        /// A button of the pointer beyond the third went down: told as its own event, never as a
+        /// `press`, so that a page that takes every button but the left for the one that opens a
+        /// menu does not open one for these.
+        extra-press(extra-button),
+        /// A button of the pointer beyond the third came up.
+        extra-release(extra-button),
         scroll(scroll),
+        /// The fingers of a pinch, where no box that zooms took it.
+        magnify(magnify),
+        /// A double tap with two fingers: a trackpad's request to show the content larger or at its
+        /// size.
+        smart-magnify(point),
+        /// The fingers of a rotation.
+        rotate(rotate),
+        /// A swipe of three fingers.
+        swipe(swipe),
+        /// The force of a press on a trackpad that feels it.
+        pressure(pressure),
         key(key-press),
         /// The text of one of the application's fields changed: the person typed, pasted or
         /// deleted. Not said for a text the page itself put in (`reply.fill`).

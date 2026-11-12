@@ -6,6 +6,16 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ## [Unreleased]
 
+### Added
+
+- **`Page::magnify`, `smart_magnify`, `rotate`, `swipe` and `pressure`**, and `Input::Extra` through
+  `Page::input`: what a trackpad's fingers and a mouse's side buttons do, told to the page with the
+  modifiers the host last said. `Page::mods()` says them. **Breaking:** `Page::wheel` takes
+  `precise` (the device says points as fingers do), and the page's `wheel` carries the phase and the
+  modifiers; `Input::Move` and `Input::Release` carry `mods`.
+- **`Headless`** drives them: `pinch`, `pinch_at`, `magnify_at`, `smart_magnify`, `rotate`, `swipe`,
+  `force`, `click_extra` and `trackpad_at` (the fingers of a trackpad moving a box or the page).
+
 ### Changed
 
 - The headless host and the screenshot draw a picture with `Images::picture` and the crop of the

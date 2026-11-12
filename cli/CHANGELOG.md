@@ -8,6 +8,14 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`pencere test` drives a trackpad's fingers and a mouse's side buttons**: a locator has `pinch(by)`,
+  `smart_magnify()`, `rotate(degrees)`, `force(stage, pressure)` and `click_extra(button)`, a page has
+  `magnify_at(x, y, by, phase)`, `swipe(dx, dy)` and `trackpad_at(x, y, dx, dy, phase)`, and what is
+  held with `page:hold("cmd")` is what a gesture carries. A page is told the fingers of a trackpad
+  and the buttons of a mouse beyond the third with their own events (`magnify`, `smart_magnify`,
+  `rotate`, `swipe`, `pressure`, `extra_press`, `extra_release`), and `move`, `release` and `wheel`
+  carry the modifiers (the kit's specification, Section 2.3).
+
 - **`pencere key` and `pencere dist`**, the release step of an app (specification `apps.md`).
   `pencere key` makes the key a release is signed with, once, and prints its public half.
   `pencere dist VERSION` writes `SHA256SUMS`, an `app.json` and its signature beside the

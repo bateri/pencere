@@ -460,6 +460,17 @@ function Locator:wheel(dx, dy)
 	return self.page.raw:wheel_at(x, y, dx or 0, dy or 0)
 end
 
+-- locator:pinch(by): the fingers of a trackpad come to the thing, make it `1 + by` times as large
+-- and leave. smart_magnify(): a double tap with two fingers. rotate(degrees): the fingers turn by
+-- that much, counter-clockwise positive. force(stage, pressure): the force of a press (stage 0, 1
+-- or 2, pressure 0 to 1). click_extra(button): a button of the mouse beyond the third (4 is the
+-- first, "back"). The modifiers are those of page:hold().
+by_point("pinch", "pinch_at", "pinch_id")
+by_point("smart_magnify", "smart_magnify_at", "smart_magnify_id")
+by_point("rotate", "rotate_at", "rotate_id")
+by_point("force", "force_at", "force_id")
+by_point("click_extra", "click_extra_at", "click_extra_id")
+
 function Locator:scroll_to(y)
 	local item = the_one(self, "scroll_to")
 	if item.role ~= "id" then
@@ -608,6 +619,7 @@ Page.__index = Page
 -- What a page does, passed on to the page of the runner as it is.
 for _, name in ipairs({
 	"press", "insert", "paste", "compose", "unmark", "move_to", "leave", "drag_between", "wheel_at",
+	"trackpad_at", "magnify_at", "swipe",
 	"click_at", "double_click_at", "right_click_at", "focus_editor", "select", "caret_to", "edit",
 	"command", "pick", "resize", "zoom", "set_active", "set_terminal_look", "refresh", "advance", "step", "idle", "hide",
 	"now", "asks_at", "settle", "tell", "words", "says", "words_in", "tree_words", "bounds",

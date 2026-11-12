@@ -196,7 +196,10 @@ fn a_page_split_into_three_files_loads_draws_and_answers_input() {
         .expect("the button is laid out");
     let at = Point::new(button.x + button.w / 2.0, button.y + button.h / 2.0);
     for input in [
-        Input::Move(at),
+        Input::Move {
+            at,
+            mods: Mods::default(),
+        },
         Input::Press {
             at,
             button: Button::Left,
@@ -206,6 +209,7 @@ fn a_page_split_into_three_files_loads_draws_and_answers_input() {
         Input::Release {
             at,
             button: Button::Left,
+            mods: Mods::default(),
         },
     ] {
         page.module.event(Event::Input(input));

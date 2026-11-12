@@ -21,7 +21,8 @@ use std::time::{Duration, Instant};
 
 use pencere_view::edit::TextSnapshot;
 use pencere_view::{
-    Element, Event, Id, Input, Laid, Panel, Point, Reply, ScrollTo, Size, copy_key,
+    Element, Event, GesturePhase, Id, Input, Laid, Panel, Phase, Point, Reply, ScrollTo, Size,
+    copy_key,
 };
 use pencere_wire::json::unescaped_len;
 
@@ -656,6 +657,8 @@ fn run<R: Runner>(
         let mut owed = false;
         // What the wheel turns that were run into the next one came to, points across and down.
         let mut wheel = (0.0_f32, 0.0_f32);
+        // And what the pinches and rotations that were: the factor they made, the degrees they turned.
+        let mut pinch = (1.0_f32, 0.0_f32);
         // And the boxes scrolled, of a run of them that was.
         let mut scrolled: Vec<(Id, Point)> = Vec::new();
         // The last mark of the application's in the batch: come to once the batch is done.
@@ -708,20 +711,28 @@ fn run<R: Runner>(
                     post.say(runner.take_sent(), runner.take_asks());
                 }
                 // A run of pointer moves is the last of them.
-                Command::Event(Event::Input(Input::Move(_)), _)
+                Command::Event(Event::Input(Input::Move { .. }), _)
                     if matches!(
                         later.first(),
-                        Some(Command::Event(Event::Input(Input::Move(_)), _))
+                        Some(Command::Event(Event::Input(Input::Move { .. }), _))
                     ) => {}
-                // A run of wheel turns over one point is one turn by all of them: a page slower
-                // to make than the wheel turns does not fall behind it, a page for each turn.
-                Command::Event(Event::Input(Input::Scroll { at: here, dx, dy }), _)
+                // A run of wheel turns of one gesture over one point is one turn by all of them: a
+                // page slower to make than the wheel turns does not fall behind it, a page for each
+                // turn. The pinches and the rotations that the fingers move are one the same way
+                // (a factor of all of them, a turn by all of them), their beginning and their end
+                // never.
+                Command::Event(Event::Input(input), _)
                     if matches!(
                         later.first(),
-                        Some(Command::Event(Event::Input(Input::Scroll { at, .. }), _)) if at == here
+                        Some(Command::Event(Event::Input(next), _)) if runs_into(input, next)
                     ) =>
                 {
-                    wheel = (wheel.0 + dx, wheel.1 + dy);
+                    match *input {
+                        Input::Scroll { dx, dy, .. } => wheel = (wheel.0 + dx, wheel.1 + dy),
+                        Input::Magnify { by, .. } => pinch.0 *= 1.0 + by,
+                        Input::Rotate { degrees, .. } => pinch.1 += degrees,
+                        _ => {}
+                    }
                 }
                 // A run of the boxes the application scrolled is where they stand after the last.
                 Command::Event(Event::Scrolled(boxes), _)
@@ -737,12 +748,50 @@ fn run<R: Runner>(
                             all.extend(boxes.iter().copied());
                             Event::Scrolled(newest_of_each(all))
                         }
-                        Event::Input(Input::Scroll { at, dx, dy }) => {
+                        Event::Input(Input::Scroll {
+                            at,
+                            dx,
+                            dy,
+                            phase,
+                            precise,
+                            mods,
+                        }) => {
                             let (before_x, before_y) = std::mem::take(&mut wheel);
                             Event::Input(Input::Scroll {
                                 at: *at,
                                 dx: before_x + dx,
                                 dy: before_y + dy,
+                                phase: *phase,
+                                precise: *precise,
+                                mods: *mods,
+                            })
+                        }
+                        Event::Input(Input::Magnify {
+                            at,
+                            by,
+                            phase,
+                            mods,
+                        }) => {
+                            let (factor, _) = std::mem::replace(&mut pinch, (1.0, 0.0));
+                            Event::Input(Input::Magnify {
+                                at: *at,
+                                by: factor * (1.0 + by) - 1.0,
+                                phase: *phase,
+                                mods: *mods,
+                            })
+                        }
+                        Event::Input(Input::Rotate {
+                            at,
+                            degrees,
+                            phase,
+                            mods,
+                        }) => {
+                            let (_, before) = std::mem::replace(&mut pinch, (1.0, 0.0));
+                            Event::Input(Input::Rotate {
+                                at: *at,
+                                degrees: before + degrees,
+                                phase: *phase,
+                                mods: *mods,
                             })
                         }
                         event => event.clone(),
@@ -780,11 +829,17 @@ fn run<R: Runner>(
                     let pointer = matches!(
                         event,
                         Event::Input(
-                            Input::Move(_)
+                            Input::Move { .. }
                                 | Input::Leave
                                 | Input::Press { .. }
                                 | Input::Release { .. }
+                                | Input::Extra { .. }
                                 | Input::Scroll { .. }
+                                | Input::Magnify { .. }
+                                | Input::SmartMagnify { .. }
+                                | Input::Rotate { .. }
+                                | Input::Swipe { .. }
+                                | Input::Pressure { .. }
                         ) | Event::Pointer { .. }
                     );
                     post.put(
@@ -929,6 +984,62 @@ fn answered(mut reply: Reply, post: &Post<'_>) -> bool {
 /// The most pages in a row a settle may ask for: the first settles what depends on the layout,
 /// the second what the first changed — the way a page is laid out up to three times for a frame.
 const SETTLES: u8 = 3;
+
+/// Whether the input `input` is one of a run that `next` carries on, so that the page is told of
+/// them as one: turns of the wheel of one gesture, over one point, with the same modifiers; the
+/// moves of the fingers of a pinch, or of a rotation, with the same modifiers. A gesture's
+/// beginning and its end are told as they were.
+fn runs_into(input: &Input, next: &Input) -> bool {
+    match (input, next) {
+        (
+            Input::Scroll {
+                at,
+                phase,
+                precise,
+                mods,
+                ..
+            },
+            Input::Scroll {
+                at: next_at,
+                phase: next_phase,
+                precise: next_precise,
+                mods: next_mods,
+                ..
+            },
+        ) => {
+            at == next_at
+                && phase == next_phase
+                && precise == next_precise
+                && mods == next_mods
+                && !matches!(phase, Phase::Begin | Phase::Lift | Phase::Stop)
+        }
+        (
+            Input::Magnify {
+                phase: GesturePhase::Move,
+                mods,
+                ..
+            },
+            Input::Magnify {
+                phase: GesturePhase::Move,
+                mods: next_mods,
+                ..
+            },
+        )
+        | (
+            Input::Rotate {
+                phase: GesturePhase::Move,
+                mods,
+                ..
+            },
+            Input::Rotate {
+                phase: GesturePhase::Move,
+                mods: next_mods,
+                ..
+            },
+        ) => mods == next_mods,
+        _ => false,
+    }
+}
 
 fn is_render(command: &Command) -> bool {
     matches!(command, Command::Render { .. })
@@ -1222,7 +1333,10 @@ mod tests {
     }
 
     fn move_to(x: f32) -> Event {
-        Event::Input(Input::Move(Point::new(x, 1.0)))
+        Event::Input(Input::Move {
+            at: Point::new(x, 1.0),
+            mods: Mods::default(),
+        })
     }
 
     #[test]
@@ -1517,6 +1631,7 @@ mod tests {
             Event::Input(Input::Release {
                 at,
                 button: pencere_view::Button::Left,
+                mods: Mods::default(),
             }),
             Event::MenuPick {
                 serial: 0,
@@ -1535,7 +1650,25 @@ mod tests {
             key(pencere_view::Key::Character('c'), false),
             key(pencere_view::Key::Character('y'), true),
             key(pencere_view::Key::Enter, false),
-            Event::Input(Input::Move(at)),
+            Event::Input(Input::Move {
+                at,
+                mods: Mods::default(),
+            }),
+            // What a trackpad's fingers do and a mouse's side buttons are no word for the pasteboard.
+            Event::Input(Input::Extra {
+                at,
+                button: 4,
+                down: false,
+                mods: Mods::default(),
+            }),
+            Event::Input(Input::Magnify {
+                at,
+                by: 0.5,
+                phase: GesturePhase::End,
+                mods: Mods::default(),
+            }),
+            Event::Input(Input::SmartMagnify { at }),
+            Event::Input(Input::Swipe { dx: 1, dy: 0 }),
             Event::Wake { now: 1.0 },
             Event::Focus(None),
         ] {
@@ -1550,7 +1683,10 @@ mod tests {
         rig.woken();
         let _ = rig.module.poll();
         rig.module.event(Event::Pointer {
-            input: Input::Move(Point::new(2.0, 2.0)),
+            input: Input::Move {
+                at: Point::new(2.0, 2.0),
+                mods: Mods::default(),
+            },
             place: pencere_view::Place {
                 editor: pencere_view::Id::named("sql"),
                 at: 0,
@@ -1602,6 +1738,9 @@ mod tests {
             at: Point::new(x, 1.0),
             dx: 0.0,
             dy,
+            phase: Phase::Wheel,
+            precise: false,
+            mods: Mods::default(),
         })
     }
 
@@ -1665,6 +1804,116 @@ mod tests {
         );
         assert!(
             handled[1].contains("x: 5.0") && handled[1].contains("dy: 4.0"),
+            "{handled:?}"
+        );
+    }
+
+    /// The log's `handle` lines, once `count` of them are there (or the patience ran out).
+    fn handled(rig: &Rig, count: usize) -> Vec<String> {
+        let began = std::time::Instant::now();
+        while rig.log().iter().filter(|l| l.starts_with("handle")).count() < count
+            && began.elapsed() < Duration::from_secs(5)
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        rig.log()
+            .into_iter()
+            .filter(|l| l.starts_with("handle"))
+            .collect()
+    }
+
+    fn pinch(by: f32, phase: GesturePhase, mods: Mods) -> Event {
+        Event::Input(Input::Magnify {
+            at: Point::new(2.0, 3.0),
+            by,
+            phase,
+            mods,
+        })
+    }
+
+    #[test]
+    fn a_run_of_pinches_is_one_pinch_by_the_product_of_them_and_its_ends_are_told_as_they_were() {
+        let (open, gate) = mpsc::channel();
+        let rig = rig(Some(gate), None, false);
+        rig.module.render(Size::new(10.0, 10.0), 1.0, false);
+        let none = Mods::default();
+        let held = Mods {
+            command: true,
+            ..none
+        };
+        rig.module.event(pinch(0.0, GesturePhase::Begin, none));
+        for by in [0.5, 1.0, -0.5] {
+            rig.module.event(pinch(by, GesturePhase::Move, none));
+        }
+        // Other modifiers held: a pinch of its own, and the one after it too.
+        rig.module.event(pinch(0.25, GesturePhase::Move, held));
+        rig.module.event(pinch(0.0, GesturePhase::End, held));
+        open.send(()).unwrap();
+        let handled = handled(&rig, 4);
+        assert_eq!(handled.len(), 4, "{handled:?}");
+        assert!(handled[0].contains("Begin"), "{handled:?}");
+        // 1.5 * 2.0 * 0.5 = 1.5: `by` 0.5.
+        assert!(
+            handled[1].contains("by: 0.5") && handled[1].contains("Move"),
+            "{handled:?}"
+        );
+        assert!(
+            handled[2].contains("by: 0.25") && handled[2].contains("command: true"),
+            "{handled:?}"
+        );
+        assert!(handled[3].contains("End"), "{handled:?}");
+    }
+
+    #[test]
+    fn a_run_of_rotations_is_one_turn_by_the_sum_and_a_wheel_gesture_is_run_only_within_a_phase() {
+        let (open, gate) = mpsc::channel();
+        let rig = rig(Some(gate), None, false);
+        rig.module.render(Size::new(10.0, 10.0), 1.0, false);
+        let turn = |degrees: f32| {
+            Event::Input(Input::Rotate {
+                at: Point::new(1.0, 1.0),
+                degrees,
+                phase: GesturePhase::Move,
+                mods: Mods::default(),
+            })
+        };
+        for degrees in [10.0, 20.0, -5.0] {
+            rig.module.event(turn(degrees));
+        }
+        let trackpad = |phase: Phase, dy: f32| {
+            Event::Input(Input::Scroll {
+                at: Point::new(1.0, 1.0),
+                dx: 0.0,
+                dy,
+                phase,
+                precise: true,
+                mods: Mods::default(),
+            })
+        };
+        // The fingers' beginning is a turn of its own, the moves after it are one, the coasting
+        // after them another.
+        rig.module.event(trackpad(Phase::Begin, 1.0));
+        for dy in [2.0, 3.0] {
+            rig.module.event(trackpad(Phase::Move, dy));
+        }
+        rig.module.event(trackpad(Phase::Coast, 4.0));
+        open.send(()).unwrap();
+        let handled = handled(&rig, 4);
+        assert_eq!(handled.len(), 4, "{handled:?}");
+        assert!(handled[0].contains("degrees: 25.0"), "{handled:?}");
+        assert!(
+            handled[1].contains("dy: 1.0") && handled[1].contains("Begin"),
+            "{handled:?}"
+        );
+        assert!(
+            handled[2].contains("dy: 5.0") && handled[2].contains("Move"),
+            "{handled:?}"
+        );
+        assert!(
+            handled[3].contains("dy: 4.0")
+                && handled[3].contains("Coast")
+                && handled[3].contains("precise: true"),
             "{handled:?}"
         );
     }
