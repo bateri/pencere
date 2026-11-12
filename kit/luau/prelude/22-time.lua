@@ -80,8 +80,8 @@ end
 
 -- Two replies (nil, true, false or a table) as one: everything both ask, the first's asks of an
 -- editor before the second's; a frame where either wants one, the page closed where either asks;
--- where both say the one thing (the keyboard, the pasteboard, a menu, a link, a panel — `pick` and
--- `save` are one — the pointer's shape) the second's; and the earlier of two wakes. Neither is
+-- where both say the one thing (the keyboard, the pasteboard, a menu, a link, the size of the text, a
+-- panel — `pick` and `save` are one — the pointer's shape) the second's; and the earlier of two wakes. Neither is
 -- changed. (A menu or a panel in the reply to a wake or a timer is passed over by the host: they
 -- are the person's.)
 local function merge_two(first, second)

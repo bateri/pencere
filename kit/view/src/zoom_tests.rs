@@ -487,3 +487,101 @@ fn an_ask_of_a_box_that_says_no_zoom_is_answered_where_it_is_first_laid_out() {
     assert_eq!(told.len(), 1);
     assert_eq!((told[0].id, told[0].zoom), (OTHER, 1.0));
 }
+
+/// Three rows of 20 points with a gap of 10 between them, in a box that may be zoomed.
+fn gapped(rule: Option<Zoom>) -> Element {
+    let mut inner = div().id(BOX).col().size(200.0, 100.0).scroll().gap(10.0);
+    if let Some(rule) = rule {
+        inner = inner.zoom(rule);
+    }
+    div()
+        .size(200.0, 100.0)
+        .child(inner.children((0..3).map(|n| div().h(20.0).no_shrink().press(Id::new(100 + n)))))
+}
+
+#[test]
+fn the_gap_between_what_a_zoomed_box_holds_is_as_large_as_what_it_holds() {
+    let rule = Zoom::default();
+    let mut scrolls = Scrolls::new();
+    let laid = placed(&mut scrolls, gapped(Some(rule)), 0.0);
+    assert!(near(row_y(&laid, 2) - row_y(&laid, 1), 30.0));
+    pinch(&mut scrolls, &laid, OVER, &[1.0]);
+    scrolls.advance_zoom(0.0);
+    let laid = placed(&mut scrolls, gapped(Some(rule)), 0.0);
+    // Twice as large: the rows 40 tall and the gap 20.
+    assert!(near(scrolls.zoom_of(BOX), 2.0));
+    assert!(
+        near(row_y(&laid, 2) - row_y(&laid, 1), 60.0),
+        "{}",
+        row_y(&laid, 2) - row_y(&laid, 1)
+    );
+}
+
+#[test]
+fn a_range_that_is_not_where_the_box_is_brings_it_in_and_the_page_is_told() {
+    // A least of two: the box is first laid out at one, and comes up to its least.
+    let rule = Zoom {
+        min: 2.0,
+        max: 4.0,
+        ..Zoom::default()
+    };
+    let mut scrolls = Scrolls::new();
+    placed(&mut scrolls, page(rule), 0.0);
+    assert!(near(scrolls.zoom_of(BOX), 2.0), "{}", scrolls.zoom_of(BOX));
+    assert!(scrolls.zooming(), "laid out again at the scale it came to");
+    let moved = scrolls.take_moved();
+    assert_eq!(moved.len(), 1, "{moved:?}");
+    assert!(near(moved[0].zoom, 2.0));
+    let laid = frame(&mut scrolls, rule, 0.0);
+    assert!(near(row_y(&laid, 2) - row_y(&laid, 1), 40.0));
+    // The most comes down to a smaller one the same way.
+    let narrower = Zoom {
+        min: 1.0,
+        max: 1.5,
+        ..Zoom::default()
+    };
+    frame(&mut scrolls, narrower, 0.0);
+    assert!(near(scrolls.zoom_of(BOX), 1.5), "{}", scrolls.zoom_of(BOX));
+}
+
+#[test]
+fn a_box_that_stops_saying_a_zoom_is_at_its_size_and_the_page_is_told() {
+    let rule = Zoom::default();
+    let mut scrolls = Scrolls::new();
+    let laid = placed(&mut scrolls, page(rule), 0.0);
+    pinch(&mut scrolls, &laid, OVER, &[1.0]);
+    frame(&mut scrolls, rule, 0.0);
+    scrolls.take_moved();
+    assert!(near(scrolls.zoom_of(BOX), 2.0));
+    let mut plain = page(rule);
+    plain.children[0].style.zoom = None;
+    scrolls.advance_zoom(0.0);
+    placed(&mut scrolls, plain, 0.0);
+    assert!(near(scrolls.zoom_of(BOX), 1.0));
+    let moved = scrolls.take_moved();
+    assert_eq!(moved.len(), 1, "{moved:?}");
+    assert!(near(moved[0].zoom, 1.0));
+}
+
+#[test]
+fn a_wheel_that_does_not_turn_up_or_down_with_the_command_key_zooms_nothing() {
+    let rule = Zoom::default();
+    let mut scrolls = Scrolls::new();
+    let laid = placed(&mut scrolls, page(rule), 0.0);
+    assert!(!scrolls.zoom_wheel(&laid, OVER, 0.0, 0.0));
+}
+
+#[test]
+fn a_pinch_that_began_where_no_box_zooms_is_the_pages_to_its_end() {
+    let rule = Zoom::default();
+    let mut scrolls = Scrolls::new();
+    let laid = placed(&mut scrolls, page(rule), 0.0);
+    let outside = Point::new(500.0, 500.0);
+    assert!(!scrolls.magnify(&laid, outside, 0.0, GesturePhase::Begin, 0.0));
+    // The fingers came over the box that zooms: the pinch is still the page's.
+    assert!(!scrolls.magnify(&laid, OVER, 0.5, GesturePhase::Move, 0.0));
+    assert!(!scrolls.magnify(&laid, OVER, 0.0, GesturePhase::End, 0.0));
+    assert!(near(scrolls.zoom_of(BOX), 1.0));
+    // The next one is the box's.
+    assert!(scrolls.magnify(&laid, OVER, 0.0, GesturePhase::Begin, 0.0));
+}

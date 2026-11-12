@@ -96,8 +96,29 @@ impl Zooming {
     pub(super) fn set_rule(&mut self, rule: Option<Zoom>, frame: Rect) {
         self.rule = rule;
         self.frame = frame;
-        if rule.is_none() && *self != Self::default() {
-            *self = Self::default();
+        if rule.is_none() {
+            if *self != Self::default() {
+                // A box that says no zoom is at its size again, and the page is told so.
+                let was = self.log != 0.0 || self.stretch != 0.0;
+                *self = Self::default();
+                if was {
+                    self.untell();
+                    self.dirty = true;
+                }
+            }
+            return;
+        }
+        // A range that came or moved holds the scale: a box that may not be as small as it is
+        // comes up to its least (the page is told, and laid out again at it).
+        let log = self.within(self.log);
+        if log != self.log {
+            self.log = log;
+            self.pull = 0.0;
+            self.stretch = 0.0;
+            self.spring = None;
+            self.glide = None;
+            self.dirty = true;
+            self.untell();
         }
     }
 
@@ -247,6 +268,7 @@ impl Scrolls {
         match phase {
             GesturePhase::Begin => {
                 self.pinch = self.zoomable(laid, at);
+                self.pinch_is_the_pages = self.pinch.is_none();
                 let Some(id) = self.pinch else {
                     return false;
                 };
@@ -261,7 +283,9 @@ impl Scrolls {
                 true
             }
             GesturePhase::Move => {
-                if self.pinch.is_none() {
+                // A pinch that began where no box zooms is the page's to its end, though a box
+                // came under the fingers since.
+                if self.pinch.is_none() && !self.pinch_is_the_pages {
                     self.pinch = self.zoomable(laid, at);
                 }
                 let Some(id) = self.pinch else {
@@ -289,6 +313,7 @@ impl Scrolls {
             }
             GesturePhase::End => {
                 let Some(id) = self.pinch.take() else {
+                    self.pinch_is_the_pages = false;
                     return false;
                 };
                 if let Some(b) = self.boxes.get_mut(&id) {
@@ -348,7 +373,9 @@ impl Scrolls {
             });
             b.moved_at = Some(now);
         }
-        true
+        // A wheel that does not turn up or down (a touch of the fingers, the sideways of a
+        // trackpad) zooms nothing, and is the box's to scroll or lift from.
+        dy != 0.0
     }
 
     /// The scale of the box named `id`: how many times the size the page gave it the content is

@@ -8,6 +8,18 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
 
 ### Added
 
+- **A drag out of the view, and the view's text size**: a host that says it carries
+  (`Page::set_carry(true)`) is given, in the `input` that moved the pointer, the system's drag of
+  what an element says it carries: pressed on it with the main button and moved `DRAG_START` points
+  (an element the page also drags: moved out of the view), `Drained::carry` is a `CarryOut` (the
+  element's id, what it carries, where the pointer is and the element's room, in the host's points)
+  that `Drained::deliver` hands to `Host::carry`, after the
+  replies and the pasteboard. The page hears none of the pointer's moves and its release from then
+  on; `Page::carried(done)` ends the system's drag and tells it `carried` (a press while one goes
+  tells it as not done). What is carried is held to `pencere_wire::carry` again before it is handed
+  on. `Host::text_size(points)` is how many points larger than the host's own text a reply asked the
+  view to be drawn (after the keyboard, before the pasteboard). `Headless` is a host that carries:
+  `drag_out(name, to)`, `carries()`, `finish_carry(done)` and `text_size()`.
 - **A box that says a `zoom` is zoomed by the host**: a pinch, the wheel with the command key held
   and a double tap with two fingers over it are the box's (no longer the page's: it is told the
   scale with `scrolled`), the page is laid out again at each step of a zoom and at the end of one

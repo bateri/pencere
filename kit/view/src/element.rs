@@ -127,6 +127,61 @@ pub struct Meta {
     pub draggable: bool,
     /// What is moved can be put down on it.
     pub drop_target: bool,
+    /// What a person who drags it out of the view takes with them ([`Element::carry`]).
+    pub carry: Option<Carry>,
+}
+
+/// What is handed to the host's system drag, and is what the person drags out of the view
+/// ([`Element::carry`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Payload {
+    /// Words: what a terminal pane or a text field is given as they are.
+    Text(String),
+    /// A path of a file or a folder, as words: a terminal quotes it for its shell, and a host
+    /// never reads it (a view reaches no file of its own, only those it is given by handle).
+    Path(String),
+}
+
+/// What a drag out of the view carries: the payload, and an address that goes with it for the
+/// applications that take one. The rule of both is `pencere_wire::carry`'s (one line, no control
+/// character, at most 64 KiB; an address only of the kind a `link` may be): a host never hands on
+/// what breaks it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Carry {
+    pub payload: Payload,
+    pub url: Option<String>,
+}
+
+impl Carry {
+    /// A drag that carries `words`.
+    pub fn text(words: impl Into<String>) -> Self {
+        Self {
+            payload: Payload::Text(words.into()),
+            url: None,
+        }
+    }
+
+    /// A drag that carries the path `path`.
+    pub fn path(path: impl Into<String>) -> Self {
+        Self {
+            payload: Payload::Path(path.into()),
+            url: None,
+        }
+    }
+
+    /// With an address that goes with it.
+    #[must_use]
+    pub fn url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into());
+        self
+    }
+
+    /// The words of the payload, whichever it is.
+    pub fn words(&self) -> &str {
+        match &self.payload {
+            Payload::Text(words) | Payload::Path(words) => words,
+        }
+    }
 }
 
 /// One element of a page, and the elements inside it.
@@ -402,6 +457,18 @@ impl Element {
     pub fn draggable(mut self, id: Id) -> Self {
         self.meta.id = Some(id);
         self.meta.draggable = true;
+        self
+    }
+
+    /// Makes the element something a person can drag out of the view, to a terminal pane or another
+    /// application: pressed on and moved past [`crate::DRAG_START`] points, the host's system drag
+    /// begins with `carry` ([`crate::Laid::carry_at`], and the page is told when it ends:
+    /// [`crate::Event::Carried`]). An element that is also [`Element::draggable`] is the page's own
+    /// drag while the pointer is in the view, and the system's from the moment it leaves it. The
+    /// element needs a name ([`Element::id`]): one with none does not carry.
+    #[must_use]
+    pub fn carry(mut self, carry: Carry) -> Self {
+        self.meta.carry = Some(carry);
         self
     }
 

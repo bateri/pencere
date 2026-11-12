@@ -1022,6 +1022,24 @@ interface types {
         keys: option<slice>,
     }
 
+    /// What a drag out of the view takes with it: a payload, and an address that goes with it for
+    /// the applications that take one. Each is a part of the frame's `text`. The payload is one
+    /// line (no line break, no control character: a tab, an escape and the like are among them),
+    /// at least one byte and at most 65536; the address is one a `link` may be (an `http` or
+    /// `https` address of printable ASCII without the space, at most 8192 bytes). A page that
+    /// breaks either is not a page.
+    record carry {
+        payload: carry-payload,
+        url: option<slice>,
+    }
+
+    /// What a drag takes: words, or a path as words (a terminal quotes it for its shell; the
+    /// application never reads it).
+    variant carry-payload {
+        text(slice),
+        path(slice),
+    }
+
     /// One element of the tree. The tree is a flat list in depth-first order: an element is
     /// followed by its children, each followed by its own.
     record node {
@@ -1064,6 +1082,14 @@ interface types {
         draggable: bool,
         /// What is moved can be put down on it.
         drop-target: bool,
+        /// A person who presses on it and moves past 4 points drags what it says out of the view,
+        /// to a terminal pane or another application: the application's system drag begins with
+        /// it, at the move that makes the drag (not a frame later). The element is named by its
+        /// `id` (one with none does not carry). An element that is also `draggable` is the page's
+        /// own drag while the pointer is in the view, and the system's from the moment it leaves
+        /// it. The pointer's moves and its release are not told to the page while the system
+        /// carries: it is told `carried`, with the id, when that is over.
+        carry: option<carry>,
         /// How many elements that follow are this one's children (not grandchildren).
         children: u32,
     }
@@ -1337,6 +1363,14 @@ interface types {
         name: string,
     }
 
+    /// What became of a drag out of the view.
+    record carried {
+        /// The element that carried.
+        id: id,
+        /// Where the person let it go, and something took it there.
+        done: bool,
+    }
+
     /// Where a box the application scrolls stands now: its id and how far it is scrolled across
     /// and down, points.
     record scrolled {
@@ -1513,6 +1547,9 @@ interface types {
         files-left,
         /// The person chose a place in the Save panel the page asked for, or turned it away (none).
         saving(option<saving>),
+        /// The system drag of what an element carried out of the view is over: where the person
+        /// let it go (`done`) or nowhere (they gave it up, or let it go where nothing takes it).
+        carried(carried),
         /// The application scrolled these boxes (the wheel, the trackpad, a scroll bar, or what
         /// the page asked): a page that builds only what is in view builds what came into it.
         scrolled(list<scrolled>),
@@ -2170,6 +2207,11 @@ interface types {
         /// wake that came is gone: a page that wants another asks again. A value that is not a
         /// number of seconds (below 0, not a number, infinite) is not a reply.
         wake: option<f64>,
+        /// How many points larger than the host's own text the page is to be drawn (0: as large as
+        /// the text; below 0: smaller): the size of this view, which the host puts into the size
+        /// it draws it at, within what it can draw. The host's own text is not changed, and the
+        /// page is not told what came of it. Not the person's act: any reply may carry it.
+        text-size: option<s32>,
         /// A panel the page asks the application to show. Shown only for a reply to something the
         /// person did (a press or its release, a key, a pick in a menu, a command): asked for in a
         /// reply to anything else (the pointer moving, a wake, a message of the program), it is

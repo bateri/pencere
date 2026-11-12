@@ -1601,7 +1601,8 @@ The first is put to the person; the second is dropped.
 This section is to the kind `lua` what Sections 9.4 to 9.7 are to `web`: what the kind means,
 and what the host does for it. A kit view has no bridge of the host's own; it talks to its program in the
 six messages (Section 9.2) and nothing else. What it asks of the host itself (to be closed, text for the
-pasteboard, a link to open, to be woken at a time) is not among those messages: it is in what the view
+pasteboard, a link to open, to be woken at a time, a size for its text, what its elements carry
+when the person drags one out of the view) is not among those messages: it is in what the view
 answers the host, by the rule of the kit, and never reaches the program. A view of the kind `lua`
 (Section 5.5) is one the host draws itself, in the terminal's font and theme, without a web view.
 
@@ -2204,8 +2205,21 @@ and is allowed, and the loading of a frame that the policy lets the page nest (S
 top-level navigation. `form-action 'none'` in the
 policy (Section 12.1) says the same of forms to the web view itself. The `link` message of the
 page is the only way out; what the host accepts and what it does with it is in Section 9.7. A view the
-host draws itself has no document to leave, and its only way out is the `link` of its reply, held to
-the same rule (Section 9.8).
+host draws itself has no document to leave, and its only ways out are the `link` of its reply, held to
+the same rule (Section 9.8), and the person's own drag.
+
+A kit view can say of an element what it **carries** (`carry`, a text or a path, and an address),
+and the host starts the system's drag of it only when the person presses on the element and moves
+the pointer, the host's act of the person's own and never the page's: a copy that goes by a hand
+instead of a key, and the same class of act as the `copy` of a reply. What is carried is one line of
+at most 64 KiB with no line break, no control character and no control of the direction of text (a
+terminal that takes it as text cannot be made to run a line the person did not see, nor the person
+to read other words than the ones it inserts); its address is one the host opens for a `link`
+(Section 9.7) and no other; the host checks both again where it takes them from the view, and drops
+what fails without telling the page. The host shows the person the text it will insert and not a
+label the page chose, never reads a path (to the host it is text, quoted for the shell where a
+terminal takes it as a dropped file would be), and a terminal pane takes only a carry of the host's
+own, never text another application drops on it.
 
 A file moves between the person's machine and a program only by the person's own act: a drop, a paste,
 a choice in an Open or a Save panel. A view asks for a panel only in what it answers something the

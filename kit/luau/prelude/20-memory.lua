@@ -404,6 +404,8 @@ function pencere.Element:list(rows, make)
 		-- and measured in the points of what it shows.
 		refuse("a long list does not zoom: the box that zooms holds it (or builds its pages itself)")
 	end
+	-- (`:zoom` after `:list` is refused the same way.)
+	self.listed = true
 	local list = lists[id]
 	if list == nil then
 		list = { built = Built.new() }
@@ -522,8 +524,12 @@ local Ui = {}
 Ui.__index = Ui
 pencere.Ui = Ui
 
+-- Every `Ui` the page made that is still kept: the system's drag out of the view ends what the
+-- pointer held in all of them (`internal.carried`).
+local uis = setmetatable({}, { __mode = "k" })
+
 function Ui.new()
-	return setmetatable({
+	local ui = setmetatable({
 		-- The pressable element the pointer is over, the one a button is held on, and the
 		-- element the keyboard is on.
 		hover = nil,
@@ -536,6 +542,8 @@ function Ui.new()
 		-- The highlights coming and going.
 		fades = Fades.new(),
 	}, Ui)
+	uis[ui] = true
+	return ui
 end
 
 -- The pointer is at `at` (nil: it left the page). Whether the element it is over changed, or —
@@ -646,6 +654,32 @@ function Ui:cancel_drag()
 		return true
 	end
 	return false
+end
+
+-- The system's drag of what was carried out of the view is over (the `carried` event, which the
+-- page need not pass on: every `Ui` is told): the pointer's moves and its release did not reach the
+-- page while it went, so what the pointer held (a drag of the page's own, the element pressed) is
+-- let go, nothing dropped and no click, and the element the pointer was over is not known to be that
+-- any more (it moved where the system took it). Whether there was anything.
+function Ui:carried()
+	local was = self.drag ~= nil or self.pressed ~= nil or self.hover ~= nil
+	self.drag = nil
+	self.pressed = nil
+	self.hover = nil
+	self.dropped = nil
+	return was
+end
+
+-- The prelude's: the system's drag out of the view is over; every `Ui` of the page lets go of what
+-- it held. Whether any had something (the page is drawn again).
+function internal.carried()
+	local again = false
+	for ui in next, uis do
+		if ui:carried() then
+			again = true
+		end
+	end
+	return again
 end
 
 -- Puts the keyboard on `id`. Whether it moved.

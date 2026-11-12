@@ -8,12 +8,23 @@ All notable changes to the `pencere-sandbox` crate are recorded here. The format
 
 ### Added
 
+- **A page says how large its text is to be drawn, and what an element carries**: a reply's
+  `text_size = points` (a whole number, below 0 for smaller; the later of two replies in one answer
+  stands), `element:carry({ text = | path =, url = })` and the `carried` event
+  (`{ type = "carried", id =, done = }`; the page's `Ui`s let go of what the pointer held without
+  the page passing it on). A carry that is not one line of at most 64 KiB without a control character,
+  one that has both a text and a path, an element with no name and a `url` that is no web address are
+  the script's mistake at the script's line, and again, from a module that did not make them with the
+  prelude, a malformed frame (`pencere_wire::carry` holds the rule). `pencere.DRAG_START` is the
+  number the host starts a drag at. The WIT interface has `text-size` in a reply, `carry` on a node
+  and `carried` among the events: a `luau.wasm` of an earlier build does not run (`make luau`).
 - **A page says a box that zooms and asks for its scale** (the kit's specification, Section 2.2):
   `element:zoom({ min =, max =, smart =, wheel = })`,
   `pencere.layout.zoom_to(id, scale, { at =, animate = })`, `pencere.layout.zoom_of(id)`,
   `scroll_extent(id).zoom`, and `zoom` on each box of a `scrolled` event. A zoom on a box that does not scroll, a range that is none (a size at 0 or less,
   `min` above `max`, a wheel below 0) and an editor inside a box that zooms fail the page as
-  malformed; a long list (`:list`) on a box that zooms is refused. The interface (`view.wit`) has `zoom-range`, `style.zoom`, `layout.zoom-to`,
+  malformed; a long list (`:list`) on a box that zooms is refused, in either order, as is a range that is none
+  (the line of the script that said it). The interface (`view.wit`) has `zoom-range`, `style.zoom`, `layout.zoom-to`,
   `extent.zoom` and `scrolled.zoom`; the interpreter is built again.
 - **A script is told what a trackpad's fingers and a mouse's side buttons do** (the kit's
   specification, Section 2.3): `magnify`, `smart_magnify`, `rotate`, `swipe`, `pressure` and

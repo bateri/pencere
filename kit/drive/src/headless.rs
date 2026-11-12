@@ -64,7 +64,7 @@ pub use peer::{Calls, Heard, LOG_METHOD, Logged, Peer, Subscription};
 pub use pencere_wire::messages::Error as Failure;
 pub use serde_json::Value;
 
-use crate::{Copied, Field, FrameAt, Host, Outline, Page, Route, Setup};
+use crate::{CarryOut, Copied, Field, FrameAt, Host, Outline, Page, Route, Setup};
 
 /// A frame of a host that draws sixty a second: how far apart [`Headless::advance`] draws the
 /// frames of a page that moves, and the soonest after one that the next is drawn.
@@ -354,6 +354,11 @@ struct Seen {
     /// Every write to the pasteboard that a page or the person's copy key made, oldest first.
     copies: Vec<Copied>,
     links: Vec<String>,
+    /// How many points larger than the host's text the page last asked to be drawn.
+    text_size: i32,
+    /// Every drag out of the view the person began, oldest first: the system's drag of what an
+    /// element carries, which goes on until the test ends it ([`Headless::finish_carry`]).
+    carries: Vec<CarryOut>,
     menu: Option<Menu>,
     closed: bool,
     /// The host's field that has the keyboard, where one has it.
@@ -486,6 +491,14 @@ impl<P: Peer> Host for Deliver<'_, P> {
             Keyboard::Field(id) if self.fields.iter().any(|laid| laid.id == id) => Some(id),
             Keyboard::Field(_) | Keyboard::Page => None,
         };
+    }
+
+    fn text_size(&mut self, points: i32) {
+        self.seen.text_size = points;
+    }
+
+    fn carry(&mut self, carry: CarryOut) {
+        self.seen.carries.push(carry);
     }
 
     fn copy(&mut self, text: String, by_person: bool) {
@@ -747,6 +760,7 @@ impl<P: Peer> Opening<P> {
             }
         };
         page.record(true);
+        page.set_carry(true);
         let mut headless = Headless {
             page,
             clock,
@@ -1549,6 +1563,16 @@ impl<P: Peer> Headless<P> {
     ///
     /// As [`Headless::settle`].
     pub fn drag_between(&mut self, from: Point, to: Point) -> Result<(), Error> {
+        self.press_and_move(from, to)?;
+        self.pointer(Input::Release {
+            at: to,
+            button: Button::Left,
+            mods: self.page.mods(),
+        })
+    }
+
+    /// The button goes down at `from` and the pointer moves to `to` in steps, the button held.
+    fn press_and_move(&mut self, from: Point, to: Point) -> Result<(), Error> {
         const STEPS: u8 = 8;
         self.pointer(Input::Press {
             at: from,
@@ -1566,11 +1590,50 @@ impl<P: Peer> Headless<P> {
                 mods: self.page.mods(),
             })?;
         }
-        self.pointer(Input::Release {
-            at: to,
-            button: Button::Left,
-            mods: self.page.mods(),
-        })
+        Ok(())
+    }
+
+    /// The person drags the element named `from` out of the view, to `to` (the host's points,
+    /// where the view ends and the terminal's other panes or another application begin): pressed at
+    /// its middle and moved there in steps. An element that says what it carries
+    /// ([`Headless::carries`]) hands the drag to the system once the pointer has moved far enough
+    /// (or, if the page also drags it, once it is outside the view), and the page hears no more of
+    /// the pointer until the test ends the drag ([`Headless::finish_carry`]); any other is let go
+    /// at `to` as a drag of the page's is.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::click`].
+    pub fn drag_out(&mut self, from: &str, to: Point) -> Result<(), Error> {
+        let start = self.reach(from)?;
+        let before = self.seen.carries.len();
+        self.press_and_move(start, to)?;
+        if self.seen.carries.len() == before {
+            self.pointer(Input::Release {
+                at: to,
+                button: Button::Left,
+                mods: self.page.mods(),
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Every drag out of the view the person began, oldest first (what the host starts the system's
+    /// drag with: the words or the path, the address, where the pointer was and the element's
+    /// room).
+    pub fn carries(&self) -> &[CarryOut] {
+        &self.seen.carries
+    }
+
+    /// The system's drag out of the view is over, `done` where something took what it carried: the
+    /// page is told ([`Page::carried`]) and hears the pointer again.
+    ///
+    /// # Errors
+    ///
+    /// As [`Headless::settle`].
+    pub fn finish_carry(&mut self, done: bool) -> Result<(), Error> {
+        self.page.carried(done);
+        self.settle()
     }
 
     /// The wheel turns over the middle of the element named `name`, by `dx` and `dy` points
@@ -2348,6 +2411,12 @@ impl<P: Peer> Headless<P> {
     /// own key always is). What the test pastes with [`Headless::paste`] is not among them.
     pub fn copies(&self) -> &[Copied] {
         &self.seen.copies
+    }
+
+    /// How many points larger than the host's own text the page last asked to be drawn (0: as
+    /// large; below 0: smaller), in whatever reply it said it.
+    pub fn text_size(&self) -> i32 {
+        self.seen.text_size
     }
 
     /// The links the page asked to open, in order (each one the sandbox let through).

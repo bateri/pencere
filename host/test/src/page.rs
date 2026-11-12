@@ -10,7 +10,7 @@ use pencere_cli::{from_json, to_json};
 use pencere_drive::headless::{Error, Focus, Headless};
 use pencere_drive::shot::{Fonts, Palette};
 use pencere_view::edit::EditCommand;
-use pencere_view::{AccessibleRole, FieldKind, Id, Point, Rect};
+use pencere_view::{AccessibleRole, FieldKind, Id, Payload, Point, Rect};
 use serde_json::Value as Json;
 
 use crate::peer::Any;
@@ -699,6 +699,34 @@ impl UserData for Handle {
                 })
             },
         );
+        methods.add_method(
+            "drag_out_id",
+            |_, this, (name, x, y): (String, f64, f64)| {
+                this.act(|page| page.drag_out(&name, point(to_f32(x), to_f32(y))))
+            },
+        );
+        methods.add_method("carries", |lua, this, ()| {
+            let carries = this.look(|page| page.carries().to_vec())?;
+            let list = lua.create_table()?;
+            for (index, carry) in carries.iter().enumerate() {
+                let item = lua.create_table()?;
+                match &carry.carry.payload {
+                    Payload::Text(words) => item.set("text", words.as_str())?,
+                    Payload::Path(path) => item.set("path", path.as_str())?,
+                }
+                if let Some(url) = &carry.carry.url {
+                    item.set("url", url.as_str())?;
+                }
+                item.set("x", carry.at.x)?;
+                item.set("y", carry.at.y)?;
+                item.set("rect", rect_table(lua, carry.rect)?)?;
+                list.set(index + 1, item)?;
+            }
+            Ok(list)
+        });
+        methods.add_method("finish_carry", |_, this, done: Option<bool>| {
+            this.act(|page| page.finish_carry(done.unwrap_or(true)))
+        });
         methods.add_method("wheel_id", |_, this, (name, dx, dy): (String, f64, f64)| {
             this.act(|page| page.wheel(&name, to_f32(dx), to_f32(dy)))
         });
@@ -779,6 +807,9 @@ impl UserData for Handle {
                 })
             },
         );
+        methods.add_method("text_size", |_, this, ()| {
+            this.act(|page| Ok(page.text_size()))
+        });
         methods.add_method("zoom_of", |_, this, name: String| {
             this.act(|page| page.zoom_of(&name).map(f64::from))
         });

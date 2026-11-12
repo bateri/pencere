@@ -483,6 +483,19 @@ function Locator:zoom_of()
 	return self.page.raw:zoom_of(item.id)
 end
 
+-- locator:drag_out(x, y): the person drags the element (found by its id) out of the view, to the
+-- point x, y of the page's view: pressed at its middle and moved there. An element that carries
+-- something (`:carry`) is then handed to the system once the pointer has moved far enough, and the
+-- page hears no more of the pointer until `page:finish_carry(done)` ends the system's drag;
+-- `page:carries()` lists what was handed over: `{ text = | path =, url =, x =, y =, rect = }`.
+function Locator:drag_out(x, y)
+	local item = the_one(self, "drag_out")
+	if item.role ~= "id" then
+		fail("drag_out: the thing dragged out is found by its id (get_by_id)")
+	end
+	return self.page.raw:drag_out_id(item.id, x, y)
+end
+
 function Locator:scroll_to(y)
 	local item = the_one(self, "scroll_to")
 	if item.role ~= "id" then
@@ -635,12 +648,12 @@ for _, name in ipairs({
 	"click_at", "double_click_at", "right_click_at", "focus_editor", "select", "caret_to", "edit",
 	"command", "pick", "resize", "zoom", "set_active", "set_terminal_look", "refresh", "advance", "step", "idle", "hide",
 	"now", "asks_at", "settle", "tell", "words", "says", "words_in", "tree_words", "bounds",
-	"editor", "editor_text", "focus", "field", "outline", "cursor", "pasteboard", "links", "menu",
+	"editor", "editor_text", "focus", "field", "outline", "cursor", "pasteboard", "links", "text_size", "menu",
 	"closed", "diagnostics", "ended", "sent", "received", "push", "answer", "fail", "lent",
 	"give_back", "log", "fill", "scroll_to", "wheel", "drop_files", "click_gutter", "hover_gutter",
 	"gutter_cell", "zone", "anchor_rect", "dwell", "hold", "release", "click_holding",
 	"give_files", "drag_files_over", "drag_files_away", "panel", "choose_files", "choose_place",
-	"attach",
+	"attach", "carries", "finish_carry",
 }) do
 	Page[name] = function(self, ...)
 		return self.raw[name](self.raw, ...)

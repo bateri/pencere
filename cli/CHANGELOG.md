@@ -8,6 +8,12 @@ All notable changes to the `pencere` command are recorded here. The format follo
 
 ### Added
 
+- **`pencere test` drives a drag out of the view and reads the text size**: `locator:drag_out(x, y)`
+  presses on an element (found by its id) and moves to a point of the view; an element that says
+  what it carries (`:carry`) is handed to the system, and `page:carries()` lists what was handed over
+  (`{ text = | path =, url =, x =, y =, rect = }`) until `page:finish_carry(done)` ends the system's
+  drag (the page is told `carried`). `page:text_size()` is how many points larger than the host's text
+  the page last asked to be drawn.
 - **`pencere test` drives the zoom of a box**: `locator:zoom_of()` says how many times the size the
   page gave it the content of a box that zooms is shown at (`pinch`, `smart_magnify` and `wheel`
   with `page:hold("cmd")` over such a box change it; a double tap goes over a moment, which

@@ -782,6 +782,64 @@ function Element:draggable(id)
 	return self
 end
 
+-- What a drag out of the view may take (the rule of the kit's specification, Section 2.1): one line,
+-- never empty, at most 64 KiB, no control character (the C0 ones, the delete character, the C1
+-- ones), no separator of lines or paragraphs, no control of the direction of text (the embeddings,
+-- overrides and isolates that make words look other than they are); an address only of the kind a
+-- `link` may be. The
+-- host holds a page to the same rule when it takes the frame.
+local function carriable(words)
+	return type(words) == "string"
+		and #words >= 1
+		and #words <= 65536
+		and not string.find(words, "%c")
+		and not string.find(words, "\xC2[\x80-\x9F]")
+		and not string.find(words, "\xE2\x80[\xA8\xA9]")
+		and not string.find(words, "\xE2\x80[\xAA-\xAE]")
+		and not string.find(words, "\xE2\x81[\xA6-\xA9]")
+		and not string.find(words, "\xEF\xBB\xBF")
+end
+
+local function carriable_url(url)
+	return type(url) == "string"
+		and #url <= 8192
+		and string.find(url, "^[Hh][Tt][Tt][Pp][Ss]?://") ~= nil
+		and not string.find(url, "[^\x21-\x7E]")
+end
+
+-- Makes the element something a person drags out of the view, to a terminal pane or another
+-- application: pressed on and moved past `pencere.DRAG_START` points, the host's system drag
+-- begins with what it carries, `{ text = "words" }` or `{ path = "/a/file" }` (a terminal quotes a
+-- path for its shell), and `url = "https://..."` for the applications that take an address. The
+-- element has a name already (`:id`, or `:draggable(id)` first); one that is also `draggable` is the
+-- page's own drag while the pointer is in the view and the system's from the moment it leaves. The
+-- page does not hear the pointer move or let go while the system carries: it is told `carried`
+-- (`{ type = "carried", id =, done = }`) when that is over, and its `Ui` lets go of what it held.
+function Element:carry(spec)
+	if type(spec) ~= "table" then
+		refuse("carry takes { text = | path =, url = }, not a " .. type(spec))
+	end
+	for key in pairs(spec) do
+		if key ~= "text" and key ~= "path" and key ~= "url" then
+			refuse("carry has no " .. tostring(key) .. " (text, path, url)")
+		end
+	end
+	if (spec.text ~= nil) == (spec.path ~= nil) then
+		refuse("carry says its text or its path, one of them")
+	end
+	if self.meta.id == nil then
+		refuse("an element that carries is a box with a name: give it one (:id) before :carry")
+	end
+	if not carriable(spec.text or spec.path) then
+		refuse("a carry is one line (a string of at least 1 byte and at most 65536, with no line break and no control character)")
+	end
+	if spec.url ~= nil and not carriable_url(spec.url) then
+		refuse("the url of a carry is an http or https address of printable ASCII without spaces, at most 8192 bytes")
+	end
+	self.meta.carry = { text = spec.text, path = spec.path, url = spec.url }
+	return self
+end
+
 -- Names the element and makes it a place what is dragged can be put down on.
 function Element:drop_target(id)
 	self.meta.id = id
@@ -1011,6 +1069,10 @@ function Element:zoom(rule)
 	if type(rule) ~= "table" then
 		refuse("zoom takes { min =, max =, smart =, wheel = }, not a " .. type(rule))
 	end
+	if self.listed then
+		-- The rows of a long list stand where the page's own points put them (see `Element:list`).
+		refuse("a long list does not zoom: the box that zooms holds it (or builds its pages itself)")
+	end
 	for key, value in pairs(rule) do
 		if key ~= "min" and key ~= "max" and key ~= "smart" and key ~= "wheel" then
 			refuse("zoom has no " .. tostring(key) .. " (min, max, smart, wheel)")
@@ -1018,6 +1080,13 @@ function Element:zoom(rule)
 		if type(value) ~= "number" then
 			refuse("zoom's " .. key .. " is a number, not a " .. type(value))
 		end
+		-- A scale is more than nothing and not unbounded; the wheel's is nothing or more.
+		if value ~= value or value == math.huge or value == -math.huge or value < 0 or (value == 0 and key ~= "wheel") then
+			refuse("zoom's " .. key .. " is a finite number of times the size" .. (key == "wheel" and " (0 or more)" or " (more than 0)"))
+		end
+	end
+	if (rule.min or 1) > (rule.max or 4) then
+		refuse("zoom's min is more than its max (a range of scales, 1 to 4 where it is not said)")
 	end
 	self.style.zoom = { min = rule.min, max = rule.max, smart = rule.smart, wheel = rule.wheel }
 	return self

@@ -153,6 +153,19 @@ impl Ui {
         was
     }
 
+    /// The system drag of what was carried out of the view is over ([`crate::Event::Carried`]): the
+    /// pointer's moves and its release did not reach the page while it went, so what the pointer
+    /// held (a drag of the page's own, the element pressed) is let go, nothing dropped and no click,
+    /// and where the pointer is over the page is not known now (it moved where the system took it).
+    /// Returns whether there was anything.
+    pub fn carried(&mut self) -> bool {
+        let was = self.drag.is_some() || self.pressed.is_some() || self.hover.is_some();
+        self.drag = None;
+        self.pressed = None;
+        self.hover = None;
+        was
+    }
+
     // --- The keyboard --------------------------------------------------------------------
 
     fn takes_focus(&self, laid: &dyn Queries, id: Id) -> bool {

@@ -253,6 +253,15 @@ pub enum Event {
         entries: Vec<FileEntry>,
         paths: Vec<String>,
     },
+    /// The system drag of what the page let be carried out of the view ([`crate::Element::carry`])
+    /// of the element named `id` is over: it went where the person let it go (`done`) or came to
+    /// nothing (they gave it up, or let it go where nothing takes it). The page does not hear the
+    /// pointer's moves nor its release while the system carries it, so a page that kept what it
+    /// pressed (a drag of its own, an element held down) ends it here.
+    Carried {
+        id: Id,
+        done: bool,
+    },
     /// `count` files dragged from outside the page are over it, at `at`.
     FilesOver {
         at: Point,
@@ -559,6 +568,13 @@ pub struct Reply {
     /// stands, so that what one part of it asks is not put off by another; a wake that came is
     /// gone, and the page asks again for another. A number of seconds: 0 or more, finite.
     pub wake: Option<f64>,
+    /// How many points larger than the host's own text (a terminal's) the page is to be drawn, as
+    /// the page asks (0: as large as the text; negative: smaller). The host puts it into the size
+    /// it draws this view at, within what it can draw, and leaves its own text as it was: it is the
+    /// view's size and not the terminal's. The page says it when it wants it (a code editor
+    /// larger for a person who reads small print) and is not told what came of it; a host that
+    /// has no such size ignores it. Not the person's act: any reply may carry it.
+    pub text_size: Option<i32>,
     /// A panel the page asks the host to show ([`Panel`]): only for a reply to something the person
     /// did ([`Panel::follows`]: a press or its release, a key, a pick in a menu, a command); asked
     /// for in another, it is passed over. One is shown at a time.

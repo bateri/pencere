@@ -52,6 +52,11 @@ impl Placement {
         Rect::new(rect.x * z, rect.y * z + self.inset, rect.w * z, rect.h * z)
     }
 
+    /// A point of the page in the host's points.
+    pub fn point_to_host(self, at: Point) -> Point {
+        Point::new(at.x * self.zoom, at.y * self.zoom + self.inset)
+    }
+
     /// A point of the host's as the page's.
     pub fn to_page(self, at: Point) -> Point {
         Point::new(at.x / self.zoom, (at.y - self.inset) / self.zoom)

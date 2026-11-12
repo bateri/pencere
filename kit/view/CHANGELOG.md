@@ -8,6 +8,13 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
 
 ### Added
 
+- **An element can say what it carries out of the view** (`Element::carry(Carry)`, with
+  `Carry::text`, `Carry::path` and `Carry::url`): `Laid::carry_at(point)` gives the
+  topmost element with a name that carries (`Carrying { id, carry, rect, draggable }`; one above it that
+  answers the pointer (a text field and an editor too), is hidden or is disabled hides it), `Event::Carried { id, done }` is the end of the
+  system's drag, and `Ui::carried()` lets go of what the pointer held. `DRAG_START` (the distance
+  that starts a drag, 4 points) is exported. `Reply::text_size` is how many points larger than the host's
+  text the view is to be drawn.
 - **A box that scrolls can be zoomed** (`Element::zoom(Zoom)`, `Zoom { min, max, smart, wheel }`):
   `Scrolls::magnify`, `smart_magnify` and `zoom_wheel` zoom it about the point under the fingers, a
   scale stays within the range and is pulled past it where the host is elastic, `ScrollTo` has
@@ -16,7 +23,9 @@ All notable changes to the `pencere-view` crate are recorded here. The format fo
   (`Style::zoomed`, put in by `apply`), so a word is in a larger face and a picture is asked larger.
   `Extent` has `zoom`. **Breaking:** `Event::Scrolled` carries `Vec<Scrolled>` (`id`, `offset`,
   `zoom`; `Scrolled::at` for one that does not zoom) and not `Vec<(Id, Point)>`; `ScrollTo` has two
-  fields more, `Extent` one, and `Scrolls::apply` takes `&mut self`.
+  fields more, `Extent` one, and `Scrolls::apply` takes `&mut self`. The gap and the fixed tracks of
+  the box are what it holds too (they are laid out at the scale), a range that comes or moves holds the
+  scale (the page is told), and a box that stops saying a zoom is at its size again.
 - **`Input` carries what a trackpad's fingers and a mouse's side buttons do**: `Magnify`,
   `SmartMagnify`, `Rotate`, `Swipe`, `Pressure` and `Extra` (a button beyond the third, never a
   `Press`), with `GesturePhase` for the part of a pinch or a rotation. `Scroll` has `phase`,

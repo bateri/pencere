@@ -182,6 +182,8 @@ pub struct Scrolls {
     covered: HashMap<Id, Vec<Rect>>,
     /// The box the pinch under way zooms.
     pinch: Option<Id>,
+    /// The pinch under way began where no box zooms: it is the page's to its end.
+    pinch_is_the_pages: bool,
 }
 
 impl Scrolls {

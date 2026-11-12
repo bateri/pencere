@@ -19,6 +19,7 @@
 //! * [`messages`]: the six messages of a program and its view, that a terminal only carries.
 //! * [`base64`]: the two forms of base64 the wire uses.
 //! * [`link`]: which links a view may ask its host to open, a page's or a kit view's.
+//! * [`carry`]: what a view may hand to its host's system drag, which is the person's own act.
 //!
 //! The specification is `spec/draft/pencere.md`; its fixtures are the tests of this crate and
 //! of the TypeScript SDK.
@@ -28,6 +29,7 @@
 
 pub mod base64;
 pub mod bundle;
+pub mod carry;
 pub mod frame;
 pub mod json;
 pub mod link;

@@ -1859,6 +1859,71 @@ fn a_script_asks_to_open_a_link_and_only_one_the_host_may_open_reaches_it() {
 
 #[test]
 #[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn a_script_says_how_much_larger_than_the_hosts_text_it_is_to_be_drawn_in_any_reply() {
+    let mut page = open_script(
+        r##"
+        return {
+            render = function() return pencere.div() end,
+            handle = function(e)
+                if e.type == "key" and e.key == "l" then
+                    return { text_size = 3 }
+                elseif e.type == "key" and e.key == "s" then
+                    return { redraw = true, text_size = -2 }
+                elseif e.type == "key" and e.key == "z" then
+                    return { text_size = 0 }
+                elseif e.type == "key" and e.key == "f" then
+                    return { text_size = 1.5 }
+                end
+            end,
+            message = function(message) return { text_size = message.size } end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    let key = |page: &mut Open, character: char| {
+        let before = page.seen.replies.len();
+        page.module.event(Event::Input(Input::Key {
+            key: Key::Character(character),
+            mods: Mods::default(),
+        }));
+        until_seen(page, Duration::from_secs(10), |seen| {
+            seen.replies.len() > before
+        });
+        page.seen.replies.last().expect("an answer").reply.clone()
+    };
+    // Larger, smaller, and as large as the text (which is a size said, not none).
+    assert_eq!(key(&mut page, 'l').text_size, Some(3));
+    let smaller = key(&mut page, 's');
+    assert_eq!(smaller.text_size, Some(-2));
+    assert!(smaller.redraw);
+    assert_eq!(key(&mut page, 'z').text_size, Some(0));
+    // A reply to what the program said is the person's no more than it needs to be: it arrives.
+    let before = page.seen.replies.len();
+    page.module.message(r#"{"size":4}"#.into());
+    until_seen(&mut page, Duration::from_secs(10), |seen| {
+        seen.replies.len() > before
+    });
+    assert_eq!(
+        page.seen.replies.last().expect("an answer").reply.text_size,
+        Some(4)
+    );
+    assert!(page.seen.sent.is_empty(), "{:?}", page.seen.sent);
+    // A size that is no whole number of points is the script's mistake.
+    page.module.event(Event::Input(Input::Key {
+        key: Key::Character('f'),
+        mods: Mods::default(),
+    }));
+    let update = page.until(Duration::from_secs(5), |u| u.closed.is_some());
+    let why = failed(&update);
+    assert!(why.contains("text_size is a whole number"), "{why}");
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
 fn a_script_says_texts_of_many_looks_canvases_overlays_commands_and_roles_as_the_engine_does() {
     use pencere_view::{
         AccessibleRole, Align, Command, Family, Shortcut, Side, rich, span, wire::Length,
@@ -3099,6 +3164,125 @@ fn a_message_of_the_program_hundreds_of_kib_long_is_read_as_a_short_one_is() {
     );
 }
 
+/// The distance a press is moved before the page's own drag begins is the host's too: one number
+/// for the page's `Ui` and for the drive's system drag.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn the_distance_that_starts_a_drag_is_the_one_the_view_kit_and_the_host_use() {
+    let update = first(
+        "return { render = function() return pencere.text(tostring(pencere.DRAG_START)) end }",
+        ModuleLimits::default(),
+    );
+    let frame = update.frame.expect("a page");
+    assert_eq!(
+        words(&frame.root),
+        [(pencere_view::DRAG_START as i32).to_string()]
+    );
+    assert_eq!(pencere_view::DRAG_START.fract(), 0.0, "a whole number");
+}
+
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives it for seconds; make check-heavy"]
+fn an_element_that_carries_says_it_in_the_frame_and_the_end_of_the_system_drag_lets_go_of_what_the_pointer_held()
+ {
+    let mut page = open_script(
+        r##"
+        local ui = pencere.Ui.new()
+        local last = "none"
+        return {
+            render = function()
+                return pencere.div()
+                    :child(pencere.div():draggable("card"):size(40, 20)
+                        :carry({ text = "hello world", url = "https://example.com/x" }))
+                    :child(pencere.div():id("file"):size(40, 20):carry({ path = "/Users/ayşe/a b.txt" }))
+                    :child(pencere.text(ui:dragging() and "dragging" or ("free " .. last)))
+            end,
+            handle = function(event)
+                local at = event.x and { x = event.x, y = event.y }
+                if event.type == "press" then
+                    ui:press(pencere.layout, at)
+                elseif event.type == "move" then
+                    ui:point(pencere.layout, at)
+                elseif event.type == "carried" then
+                    last = event.id .. " " .. tostring(event.done)
+                end
+                return true
+            end,
+        }
+        "##,
+        ModuleLimits::default(),
+    );
+    page.module.render(SIZE, 0.0, false);
+    let update = page.until(Duration::from_secs(20), |u| {
+        u.frame.is_some() || u.closed.is_some()
+    });
+    assert_eq!(update.closed, None, "{:?}", update.closed);
+    let root = update.frame.expect("a page").root;
+    let carries: Vec<_> = root
+        .fold()
+        .into_iter()
+        .filter_map(|node| node.meta.carry.map(|carry| (node.meta.id, carry)))
+        .collect();
+    assert_eq!(
+        carries,
+        [
+            (
+                Some(Id::named("card")),
+                pencere_view::Carry::text("hello world").url("https://example.com/x")
+            ),
+            (
+                Some(Id::named("file")),
+                pencere_view::Carry::path("/Users/ayşe/a b.txt")
+            ),
+        ]
+    );
+    page.module
+        .lay_out(Arc::new(pencere_view::layout(root, SIZE, 1.0, &mut Rough)));
+    let told = |event: Event, page: &mut Open| -> String {
+        page.module.event(event);
+        page.module.render(SIZE, 0.0, false);
+        let replies = page.seen.replies.len();
+        until_seen(page, Duration::from_secs(10), |seen| {
+            seen.replies.len() > replies
+        });
+        page.take(Duration::from_millis(200));
+        let frame = page.seen.frame.clone().expect("a page");
+        words(&frame.root).last().cloned().unwrap_or_default()
+    };
+    told(
+        Event::Input(Input::Press {
+            at: Point::new(5.0, 5.0),
+            button: Button::Left,
+            mods: Mods::default(),
+            count: 1,
+        }),
+        &mut page,
+    );
+    assert_eq!(
+        told(
+            Event::Input(Input::Move {
+                at: Point::new(60.0, 10.0),
+                mods: Mods::default()
+            }),
+            &mut page
+        ),
+        "dragging",
+        "the page's own drag, until the system's takes it"
+    );
+    // The system's drag ends: the page is told, and what its `Ui` held is let go though the page
+    // did not pass the event on.
+    assert_eq!(
+        told(
+            Event::Carried {
+                id: Id::named("card"),
+                done: true
+            },
+            &mut page
+        ),
+        "free card true"
+    );
+}
+
 /// Each line of a script that gives the page API something it refuses names the script's own line
 /// in the error (`script.lua:3:`), however many helpers of the prelude lie between that line and
 /// the refusal; the families are those of the prelude's parts.
@@ -3161,6 +3345,36 @@ fn what_the_page_api_refuses_it_refuses_at_the_line_of_the_script_that_gave_it()
                 r#"pencere.div():bg_gradient("x")"#,
                 r#"pencere.div():grid("x")"#,
                 "pencere.div():grid_rows(5)",
+            ],
+        ),
+        (
+            "what an element carries out of the view",
+            &[
+                r#"pencere.div():id("a"):carry(5)"#,
+                r#"pencere.div():id("a"):carry({})"#,
+                r#"pencere.div():id("a"):carry({ text = "x", path = "/y" })"#,
+                r#"pencere.div():id("a"):carry({ text = "x", nope = 1 })"#,
+                r#"pencere.div():carry({ text = "x" })"#,
+                r#"pencere.div():id("a"):carry({ text = "a\nb" })"#,
+                r#"pencere.div():id("a"):carry({ path = "/a\rb" })"#,
+                r#"pencere.div():id("a"):carry({ text = "\27[31mred" })"#,
+                r#"pencere.div():id("a"):carry({ text = "a\tb" })"#,
+                r#"pencere.div():id("a"):carry({ text = "a\127b" })"#,
+                r#"pencere.div():id("a"):carry({ text = "a\194\133b" })"#,
+                r#"pencere.div():id("a"):carry({ text = "\194\15531m" })"#,
+                r#"pencere.div():id("a"):carry({ text = "a\226\128\168b" })"#,
+                r#"pencere.div():id("a"):carry({ path = "a\226\128\169b" })"#,
+                r#"pencere.div():id("a"):carry({ text = "\239\187\191a" })"#,
+                r#"pencere.div():id("a"):carry({ text = "a\0b" })"#,
+                r#"pencere.div():id("a"):carry({ path = "\226\128\174gnp.exe" })"#,
+                r#"pencere.div():id("a"):carry({ text = "a\226\129\166b" })"#,
+                r#"pencere.div():id("a"):carry({ text = "" })"#,
+                r#"pencere.div():id("a"):carry({ text = string.rep("a", 65537) })"#,
+                r#"pencere.div():id("a"):carry({ text = 5 })"#,
+                r#"pencere.div():id("a"):carry({ text = "x", url = "file:///etc/passwd" })"#,
+                r#"pencere.div():id("a"):carry({ text = "x", url = "javascript:alert(1)" })"#,
+                r#"pencere.div():id("a"):carry({ text = "x", url = "https://a.b/\n" })"#,
+                r#"pencere.div():id("a"):carry({ text = "x", url = 5 })"#,
             ],
         ),
         (
@@ -3234,6 +3448,13 @@ fn what_the_page_api_refuses_it_refuses_at_the_line_of_the_script_that_gave_it()
                 r#"pencere.layout.zoom_to("box", 2, 5)"#,
                 r#"pencere.layout.zoom_to("box", 2, { at = { x = 1 } })"#,
                 "pencere.div():zoom(5)",
+                "pencere.div():zoom({ min = 0 })",
+                "pencere.div():zoom({ max = 0 / 0 })",
+                "pencere.div():zoom({ smart = 1 / 0 })",
+                "pencere.div():zoom({ wheel = -1 })",
+                "pencere.div():zoom({ min = 3, max = 2 })",
+                "pencere.div():zoom({ min = 5 })",
+                r#"pencere.div():id("x"):scroll():list(pencere.Rows.even(3, 10), function() return pencere.div() end):zoom()"#,
                 r#"pencere.div():id("x"):scroll():zoom():list(pencere.Rows.even(3, 10), function() return pencere.div() end)"#,
                 "pencere.div():zoom({ speed = 2 })",
                 r#"pencere.div():zoom({ min = "small" })"#,

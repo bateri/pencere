@@ -951,7 +951,7 @@ fn by_person(event: &Event, by_key: Option<bool>) -> bool {
 
 /// What the page said back to something the program did, or to a wake: whether it wants to be
 /// drawn again (the page that follows the batch), and the rest of the reply (a menu, the keyboard,
-/// the pasteboard, a link, the end), which is told now.
+/// the pasteboard, a link, the size of its text, the end), which is told now.
 fn answered(mut reply: Reply, post: &Post<'_>) -> bool {
     let redraw = reply.redraw;
     // Nothing the person did: a panel or a menu asked for here is passed over. A menu is the
@@ -966,6 +966,7 @@ fn answered(mut reply: Reply, post: &Post<'_>) -> bool {
         || reply.keyboard.is_some()
         || reply.copy.is_some()
         || reply.link.is_some()
+        || reply.text_size.is_some()
         || !reply.fill.is_empty()
         || !reply.editor.is_empty();
     if asks {

@@ -126,7 +126,7 @@ picture is; a file that has no pages is its only page, and a page it has not lea
 diagnostic that says how many pages the file has. A page that asks whether the terminal draws PDFs asks
 whether `pencere.div().page` exists, as for any later addition). Names and answers: `id`, `press(id)`,
 `focusable`, `focused`, `text_field(id, "line" | "lines" | "secret")`, `label(words)`, `tip(words,
-keys)`, `command(id, title, keys, enabled)`, `draggable(id)`, `drop_target(id)`. To a screen reader:
+keys)`, `command(id, title, keys, enabled)`, `draggable(id)`, `drop_target(id)`, `carry({ text = | path =, url = })`. To a screen reader:
 `role(name, level)`, `checked(on)`, `selected(chosen)`, `expanded(open)`, `disabled(on)`,
 `value(words)`. Motion: `motion({...})`. Children: `child`, `children`. A grid track is a number
 (points), `pencere.fr(n)`, `pencere.range(least, n)` or `"auto"`.
@@ -238,6 +238,19 @@ An element that can be **dragged** (`draggable(id)`) answers the pointer as a pr
 **drop target** (`drop_target(id)`) is where what is dragged can be put down. The page's `Ui` keeps the
 drag (Section 2.2): what the page draws of it while it goes (an overlay at the pointer, the target
 marked) is the page's.
+
+An element can be **carried** out of the view: `carry({ text = "words" })` or `carry({ path =
+"/a/file" })`, and `url = "https://..."` besides for the applications that take an address. The
+element has a name already (`id`, or `draggable(id)` first), and a person who presses on it and moves
+the pointer `pencere.DRAG_START` points (the host's own number) hands it to the host's system drag, to
+a terminal pane or another application. An element that is also `draggable` is the page's own drag
+while the pointer is in the view and the system's from the moment it leaves. The page does not hear
+the pointer move or let go while the system carries; it is told `carried` when that is over (Section
+2.3). What a page says to carry is one line: at least 1 byte and at most 64 KiB, with no line break
+and no control character (the C0 characters, DEL, the C1 characters, U+2028, U+2029, U+FEFF and the
+controls of the direction of text, U+202A to U+202E and U+2066 to U+2069), and
+its `url` is a link a host opens (Section 4). Anything else is the script's mistake where `carry` is
+called (the protocol, Section 12.3, has why).
 
 An element says what it is to a **screen reader** where its look says it and its answers do not:
 `role("checkbox" | "switch" | "radio" | "tab" | "menu_item" | "link" | "heading" | "image" |
@@ -537,7 +550,11 @@ whether anything it keeps changed, so a page draws a frame only for what it sees
 the pointer has moved `pencere.DRAG_START` (4) points and follows it, `dragging()` is
 `{ source =, at =, target = }` while it goes (`target`, the drop target under the pointer, is never the
 element dragged), `release` puts it down (it is no click) and `take_drop()` then gives
-`{ source =, target =, at = }` once, and `cancel_drag()` gives it up (the escape key).
+`{ source =, target =, at = }` once, and `cancel_drag()` gives it up (the escape key). When the
+system's drag of a `carry` ends (the `carried` event, Section 2.3) every `Ui` of the page lets go of
+what the pointer held, whether the page passes the event on or not: the drag and the element pressed
+are gone, nothing is dropped and no click is made, and `carried()` says whether there was
+anything.
 
 ### 2.3 Events and replies
 
@@ -565,6 +582,7 @@ element dragged), `release` puts it down (it is no click) and `take_drop()` then
 | `files`                        | `x`, `y`, `source` (`"drop"` on the page at `x`, `y`; `"paste"` at the caret; `"pick"` in the Open panel the page asked for, with none when the person turned it away), `files` (each `{ handle =, name =, size =, type =, path =, kind = }`, below) and `paths` (those the files have)                                                                                                                                                                                                                                                                                                                                                     |
 | `files_over`                   | `x`, `y`, `count`: files dragged from outside the page are over it, for showing where they would go                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `files_left`                   | (no field) they went from it without being dropped                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `carried`                      | `id` (the element whose `carry` the system dragged out of the view) and `done` (it was let go where something took it): the system's drag is over. The pointer's moves and its release did not reach the page while it went, so neither a `release` nor a drop follows                                                                                                                                                                                                                                                                                                                                                                      |
 | `saving`                       | `handle` and `name`: the place the person chose in the Save panel the page asked for (neither: turned away)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `edit`                         | `editor`, `version` (what the document came to), `origin` (`"person"`, `"compose"`, `"page"`, `"undo"`, `"redo"`, `"load"`), `tag` (the page's name for a change it asked for with one), `changes` (`{ { from =, to =, insert = }, ... }`, in the places of the version before, in order)                                                                                                                                                                                                                                                                                                                                                   |
 | `selection`                    | `editor`, `version`, `ranges` (`{ { anchor =, head = }, ... }`), `main` (from 1), `composing` (an input method is composing at the main caret; the host does none of the page's commands then)                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -600,7 +618,7 @@ puts in its table: a `key` of its own is the page's and is not read as keys), an
 entry may be is `"-"`, a line between entries; a menu without `entries` is an error; an entry with `paste` is one the host performs itself when it is picked, below; the table of an
 entry is told back with its pick, so a function or a field the page put in it is there when it is picked:
 `menu` below), `link` (an address to open in the person's browser, below), `wake` (in how many seconds to wake the
-page, below), and `editor = { [name] = ask, or { ask, ... } }`, what the page asks of its editors,
+page, below), `text_size` (how many points larger than the host's own text the view is drawn, below), and `editor = { [name] = ask, or { ask, ... } }`, what the page asks of its editors,
 each ask one of:
 
 | Ask                                                                                  | What                                                                                                                                                                                                                                                                                                                                                                  |
@@ -906,13 +924,23 @@ that wants another asks again. The host wakes a page at most once a frame: a pag
 `wake_at`, which draws a page at rest again at a time: a wake calls `handle`, and its reply can ask
 what a frame cannot. In Lua the kit's timers ask it for the page (Section 2.2).
 
+A reply's **`text_size`** asks the host to draw this view that many points larger than its own text
+(a whole number: 0 is as large as the host's text, below 0 smaller). It is the size of the view, not of
+the host: the host puts it into the size it draws the view at, within what it can draw, and leaves its
+own text as it was, so that nothing of the person's terminal stays larger when the view is gone. The
+page says it when it wants it, and again to change it (a code editor made larger by a person who reads
+small print, kept in its settings and said when it opens), and is not told what came of it. It is not
+the person's act: any reply may carry it, a wake's or a program's message's as well as a press's. A host
+that has no such size ignores it. A `text_size` that is not a whole number is an error of the script. It
+is not the element's `text_size` (the size in points of that element's text).
+
 **Replies put together.** A page made of parts that answer apart (its timers, a module of the
 library, its own `handle`) answers with one reply: `pencere.merge(first, second, …)` is that reply,
 the replies (each nil, `true`, `false` or a table) put together in the order given and none of them
 changed. It asks everything they ask: the asks of an editor, of each editor in the order of the
 replies; the texts of `fill`, by name, the later's where two name one field; a frame where any
 wants one (`true`, `redraw`) and the page closed where any asks; of what says one thing (`keyboard`,
-`copy`, `cursor`, `menu`, `link`) the last that says it; and the earliest `wake`. Of replies none of
+`copy`, `cursor`, `menu`, `link`, `text_size`) the last that says it; and the earliest `wake`. Of replies none of
 which is a table, it is `true` where any is `true`, nil where every one is nil, and `false`
 otherwise. This is how the kit puts together what its timers and the page answer (Section 2.2).
 
@@ -1573,6 +1601,20 @@ A host:
   page gave, with the page's constants for its range, its double tap and its wheel; what the box holds is laid out again at the scale and
   not stretched; the page is told the scale (`scrolled`) and asks for one (`zoom_to`); a gesture no
   such box took is the page's (`magnify`, `smart_magnify`);
+- draws the page's words as many points larger than its own text as a reply says (`text_size`,
+  Section 2.3; `Host::text_size`): a whole number, below 0 for smaller, held within what the host can
+  draw, its own text as it was, and it tells the page nothing of what came of it;
+- carries out of the view what a page's element says it carries (`carry`, Section 2.1) as its
+  system's drag, from the press and the move past `DRAG_START` page points (for an element that is
+  also `draggable`, from the pointer's leaving the view), in the same `input` that moved the pointer
+  (`Host::carry`: the words or the path, the url, where the pointer is and the element's room), and
+  holds the page's pointer events back until it is over, when it tells the page `carried`
+  (`Page::carried`); a host that does not carry says nothing (`Page::set_carry`) and the page hears
+  every move and the release of an element that carries as of any other. It re-checks what it carries as the sandbox did (`pencere_wire::carry`), shows
+  the person the words it will insert and not a label the page chose, never reads a `path` (to the
+  host it is words, and a terminal quotes it for its shell as it does a dropped file's), and puts a
+  carry into a pane that accepts only its own (a pasteboard type of the host's, never text from
+  another application);
 - may draw a point of the page larger than a point of its screen, the page given fewer points for
   the same room: a terminal draws a page as large as its own text is to the kit's (12.5 points), so a
   page's words are the size of the terminal's and grow and shrink with them (`Laid::accessible` and the

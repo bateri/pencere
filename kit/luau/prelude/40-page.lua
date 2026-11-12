@@ -17,7 +17,7 @@
 --       The person did something. `event` is { type = "move" | "leave" | "press" | "release" |
 --       "extra_press" | "extra_release" | "wheel" | "magnify" | "smart_magnify" | "rotate" |
 --       "swipe" | "pressure" | "scrolled" | "key" | "key_up" | "mods" | "text" | "focus" | "menu" |
---       "command" | "files" | "files_over" | "files_left" | "saving" | "terminal_look",
+--       "command" | "files" | "files_over" | "files_left" | "carried" | "saving" | "terminal_look",
 --       ... } in the page's points: move/press/release/wheel/files have x and y (press and
 --       release a button, "left", "right" or "middle"; press its `count`, 2 for the second of a
 --       double click; move, press, release, wheel, key, key_up and mods have mods = { shift =,
@@ -32,8 +32,10 @@
 --       fingers) has x and y; rotate x, y, `degrees` (since the gesture's last event, counter-
 --       clockwise positive), `phase` and mods; swipe (three fingers, one step) `dx` and `dy`
 --       (-1, 0 or 1); pressure (the force of a press) x, y, `stage` (0, 1 or 2) and `pressure`
---       (0 to 1); scrolled the `boxes` the host scrolled, each
---       { id =, x =, y = }, for a page that builds only what is in view), key and
+--       (0 to 1); scrolled the `boxes` the host scrolled or zoomed, each
+--       { id =, x =, y =, zoom = }, for a page that builds only what is in view; carried the `id`
+--       of the element whose `:carry` the system dragged out of the view and `done`, whether it
+--       was let go where something took it: its `Ui`s have let go of what they held), key and
 --       key_up have `key` ("up", "down", "left", "right", "page_up", "page_down", "home", "end",
 --       "enter", "escape", "tab", "backspace", "delete", "f1" to "f20", or the character), text
 --       has the `field` (its name) and the `text` it holds, focus the `field` the person clicked
@@ -110,6 +112,7 @@
 --     and several carets; the page is told the pick as any and never reads the pasteboard, nor can
 --     it ask an editor to paste; it has no keys: no key picks it), ... } (a line's table is told back with its pick, as `entry`, with
 --     whatever else the page put in it) }, editor = { [name] = ask, or { ask, ... } }, link = "https://...", wake = seconds,
+--     text_size = points,
 --     pick = true or { multiple = true } (the Open panel), save = "name" or { name =, type = } (the
 --     Save panel) }
 -- A panel and a menu are shown only for a reply to something the person did (a press or its
@@ -168,6 +171,11 @@
 -- `wake` asks the host to wake the page that many seconds from now (0 or more; 0: at the next
 -- frame): its `handle` is told { type = "wake", now = } then. The earliest of the times asked
 -- stands, and one that came is gone (`pencere.time` has the timers made on it).
+-- `text_size` asks the host to draw this view that many points larger than its own text (0: as
+-- large; below 0: smaller; a whole number): the host holds it within what it can draw, leaves its
+-- own text as it was, and does not tell the page what came of it. Any reply may carry it, the
+-- person's act or not (a page says it when it opens, from what it kept). It is not the
+-- `text_size` of an element (a size in points of that element's text).
 --
 -- What the page says to its program is JSON objects, messages of a view and its program:
 -- `pencere.call` asks the program to do something and answers once, `pencere.subscribe` asks to hear
@@ -543,6 +551,8 @@ function entry.handle(event)
 		if event.type == "scrolled" then
 			internal.heard(event.boxes)
 			long = lists.scrolled(event.boxes)
+		elseif event.type == "carried" then
+			long = internal.carried()
 		end
 		if page.handle then
 			reply = time.taken(page.handle(event))

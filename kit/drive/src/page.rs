@@ -50,13 +50,14 @@ use pencere_sandbox::{
 };
 use pencere_view::edit::{EditCommand, EditorAsk, Range};
 use pencere_view::{
-    Button, Cursor, DrawList, EditorMetrics, Element, Event, FileEntry, FileSource, Font,
-    GesturePhase, Id, Input, Key, KeyConvention, Keyboard, Laid, Measure, MenuEntry, Metrics, Mods,
-    Motions, Phase, Place, Point, Rect, Reply, Role, Saving, ScrollTo, Size, div, text,
+    Button, Carrying, Cursor, DRAG_START, DrawList, EditorMetrics, Element, Event, FileEntry,
+    FileSource, Font, GesturePhase, Id, Input, Key, KeyConvention, Keyboard, Laid, Measure,
+    MenuEntry, Metrics, Mods, Motions, Phase, Place, Point, Rect, Reply, Role, Saving, ScrollTo,
+    Size, div, text,
 };
 
 use crate::editing::{Editing, Told, in_a_room};
-use crate::host::{Copied, Drained, Held, Host};
+use crate::host::{CarryOut, Copied, Drained, Held, Host};
 use crate::outline::{Field, Outline, Placement};
 use crate::scrolling::{HostScrolls, Scrolling};
 use crate::waking::Wakes;
@@ -255,6 +256,36 @@ struct State {
     /// Where the elements of the page that move were: the host moves them between the module's
     /// frames, laying the same page out again at each frame while one moves.
     motions: Motions,
+    /// The host starts the system's drag of what an element carries ([`Page::set_carry`]).
+    can_carry: bool,
+    /// Where the pointer stands in what an element that carries asks of it.
+    carrier: Carrier,
+    /// The system's drag the pointer began that the host has not taken ([`Drained::carry`]).
+    carry_out: Option<CarryOut>,
+}
+
+/// What the main button, pressed on an element that carries, is on its way to ([`Page::input`]).
+#[derive(Clone, Debug, Default)]
+enum Carrier {
+    #[default]
+    Idle,
+    /// Pressed on an element that carries, at `from` (the page's points), and not yet moved far
+    /// enough (or, for an element that is also dragged by the page, not yet out of the view).
+    Pressed { from: Point, held: Carrying },
+    /// The system's drag is going: the pointer's moves and its release are its, and the page is
+    /// told none of them. It ends with [`Page::carried`].
+    Going { id: Id },
+}
+
+/// Whether what an element carries may be handed to the host's system drag: the rule of
+/// `pencere_wire::carry`, which the sandbox holds a page to as well (a page written in Rust never
+/// went through it).
+pub(crate) fn carriable(carry: &pencere_view::Carry) -> bool {
+    pencere_wire::carry::is_carriable(carry.words())
+        && carry
+            .url
+            .as_deref()
+            .is_none_or(pencere_wire::carry::is_carriable_url)
 }
 
 /// The drive's clock: the host's reading where its program has one, else the last frame's time and
@@ -422,6 +453,9 @@ impl Page {
                 blink_at: None,
                 mods: Mods::default(),
                 motions: Motions::default(),
+                can_carry: false,
+                carrier: Carrier::Idle,
+                carry_out: None,
             },
         }
     }
@@ -482,6 +516,9 @@ impl Page {
             return;
         }
         let input = self.menu_press_of(into_page(input, place));
+        let Some(input) = self.carrying(input) else {
+            return;
+        };
         // Over an editor, the pointer is the editor's as well, and the page is told the place under
         // it; after what the editor told (the keyboard it took, the caret it put).
         let due = self.state.editing.editors.rest_due();
@@ -507,6 +544,123 @@ impl Page {
             Some(place) => Event::Pointer { input, place },
             None => Event::Input(input),
         });
+    }
+
+    /// The host starts the system's drag of what an element carries ([`Host::carry`], and it ends
+    /// the drag with [`Page::carried`]): `on` makes the pointer's moves of an element that carries
+    /// begin one. A host that does not says nothing (it is off), and an element that carries is
+    /// then like any other: the page is told every move and the release.
+    ///
+    /// A host that carries keeps the contract of the pointer: the moves of a held button come to
+    /// the page whether the pointer is over it or not, and the release of it always; a `Leave`
+    /// comes only where no button is held (one that comes while a press is waiting to become a drag
+    /// ends the wait). The drag begins in the `input` that moved the pointer, so the host drains the
+    /// page and delivers what it said ([`Drained::deliver`]) at once, in that same event: it is
+    /// the system's event it opens the drag with. The view an element that is also dragged by the
+    /// page leaves is the page's room, not the strip a host keeps over it ([`Placement::inset`]).
+    pub fn set_carry(&mut self, on: bool) {
+        let state = &mut self.state;
+        state.can_carry = on;
+        if !on {
+            // A drag that was going has no host to end it: it is over, not done.
+            if let Carrier::Going { id } = state.carrier {
+                state.event(Event::Carried { id, done: false });
+            }
+            state.carrier = Carrier::Idle;
+            state.carry_out = None;
+        }
+    }
+
+    /// Where the pointer is, in the page's points, about what an element that carries asks of it:
+    /// pressed on one with the main button, it is a drag out of the view once it has moved
+    /// [`DRAG_START`] points (one that the page also drags, once it is out of the view); from then
+    /// on the page is told none of the pointer's moves nor its release, and `Drained::carry` has
+    /// what the host starts the system's drag with. The input, or none where it is the system's now.
+    fn carrying(&mut self, input: Input) -> Option<Input> {
+        let state = &mut self.state;
+        if !state.can_carry {
+            return Some(input);
+        }
+        if let Carrier::Going { id } = state.carrier {
+            match input {
+                Input::Move { .. } | Input::Release { .. } | Input::Leave => return None,
+                // A press says the host lost the end of the drag: it is over.
+                Input::Press { .. } => {
+                    state.carrier = Carrier::Idle;
+                    state.event(Event::Carried { id, done: false });
+                }
+                _ => {}
+            }
+        }
+        match input {
+            Input::Press {
+                at,
+                button: Button::Left,
+                ..
+            } => {
+                state.carrier = match state.laid.as_ref().and_then(|laid| laid.carry_at(at)) {
+                    Some(held) => Carrier::Pressed { from: at, held },
+                    None => Carrier::Idle,
+                };
+            }
+            // The host sends no leave while the button is held: one that comes means the release
+            // was lost, and a move after it is no drag.
+            Input::Release {
+                button: Button::Left,
+                ..
+            }
+            | Input::Leave => state.carrier = Carrier::Idle,
+            Input::Move { at, .. } => {
+                let Carrier::Pressed { from, held } = &state.carrier else {
+                    return Some(input);
+                };
+                let begins = if held.draggable {
+                    state.laid_for.is_some_and(|(size, _)| {
+                        at.x < 0.0 || at.y < 0.0 || at.x > size.w || at.y > size.h
+                    })
+                } else {
+                    let (dx, dy) = (at.x - from.x, at.y - from.y);
+                    dx * dx + dy * dy >= DRAG_START * DRAG_START
+                };
+                if !begins {
+                    return Some(input);
+                }
+                let (id, carry, rect) = (held.id, held.carry.clone(), held.rect);
+                // The sandbox held what a page says to the rule already; a host does not hand on
+                // what breaks it whatever the page was made of.
+                if !carriable(&carry) {
+                    state.carrier = Carrier::Idle;
+                    return Some(input);
+                }
+                let place = state.place;
+                state.carry_out = Some(CarryOut {
+                    id,
+                    carry,
+                    at: place.point_to_host(at),
+                    rect: place.to_host(rect),
+                });
+                state.carrier = Carrier::Going { id };
+                state.redraw = true;
+                return None;
+            }
+            _ => {}
+        }
+        Some(input)
+    }
+
+    /// The system's drag that [`Host::carry`] began is over, `done` where something took what was
+    /// carried: the page is told ([`Event::Carried`], which lets go of what the pointer held in its
+    /// `Ui`s) and hears the pointer again. Nothing happens where no drag is going (a host that
+    /// tells the end twice, or of a drag the drive never began).
+    pub fn carried(&mut self, done: bool) {
+        let state = &mut self.state;
+        let Carrier::Going { id } = state.carrier else {
+            return;
+        };
+        state.carrier = Carrier::Idle;
+        // The pointer went where the system took it: where it was over the page is not known now.
+        state.cursor_over = None;
+        state.event(Event::Carried { id, done });
     }
 
     /// The modifiers held, as far as the host has said.
@@ -950,6 +1104,7 @@ impl Page {
             sent: std::mem::take(&mut state.sent),
             wake: std::mem::take(&mut state.rewake),
             cursor: state.cursor_told.take(),
+            carry: state.carry_out.take(),
         }
     }
 

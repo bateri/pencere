@@ -19,10 +19,10 @@ use pencere_view::wire::{
     Overflow, Spark, Style, TextStyle,
 };
 use pencere_view::{
-    AccessibleRole, Align, Anchor, Border, Button, Color, Command, Cursor, Ease, Element, Event,
-    Extent, Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Key, KeyConvention,
-    Keyboard, Laid, Menu, MenuEntry, Mix, Mods, Motion, Panel, Path, Phase, Point, Rect, Reply,
-    Rgba, Role, ScrollTo, Segment, Shadow, Shift, Shortcut, Side, Size, Source, Span, State,
+    AccessibleRole, Align, Anchor, Border, Button, Carry, Color, Command, Cursor, Ease, Element,
+    Event, Extent, Family, FileSource, Fill, GesturePhase, Gradient, Id, Input, Key, KeyConvention,
+    Keyboard, Laid, Menu, MenuEntry, Mix, Mods, Motion, Panel, Path, Payload, Phase, Point, Rect,
+    Reply, Rgba, Role, ScrollTo, Segment, Shadow, Shift, Shortcut, Side, Size, Source, Span, State,
     Stroke, Tip, Track, Zoom,
 };
 use pencere_wire::bundle::{LUA_MEDIA_TYPE, is_path};
@@ -597,6 +597,10 @@ fn event_in(event: Event) -> wit::Event {
             count: u32::try_from(count).unwrap_or(u32::MAX),
         }),
         Event::FilesLeft => wit::Event::FilesLeft,
+        Event::Carried { id, done } => wit::Event::Carried(wit::Carried {
+            id: id_out(id),
+            done,
+        }),
         Event::Saving(saving) => wit::Event::Saving(saving.map(|saving| wit::Saving {
             handle: saving.handle,
             name: saving.name,
@@ -1605,8 +1609,61 @@ fn node_out(node: &wit::Node, limits: &ModuleLimits, lists: &mut Lists<'_>) -> R
             focused: node.focused,
             draggable: node.draggable,
             drop_target: node.drop_target,
+            carry: node
+                .carry
+                .as_ref()
+                .map(|carry| carry_out(carry, limits, lists))
+                .transpose()?,
         },
         children: node.children,
+    })
+}
+
+/// What a drag out of the view takes, as the page said it: a payload of one line with no control
+/// character, within 64 KiB, and an address only of the kind a `link` may be. A page that says more
+/// is not a page: what leaves the view by a drag is the person's own act (as a `copy`), and a
+/// terminal pane is handed it as it is (`pencere_wire::carry`).
+fn carry_out(
+    carry: &wit::Carry,
+    limits: &ModuleLimits,
+    lists: &mut Lists<'_>,
+) -> Result<Carry, Fault> {
+    let (part, text) = match &carry.payload {
+        wit::CarryPayload::Text(part) => (part, true),
+        wit::CarryPayload::Path(part) => (part, false),
+    };
+    let words = lists.words(part, limits.text, "a carry")?.to_owned();
+    if !pencere_wire::carry::is_carriable(&words) {
+        return Err(Fault::Malformed(format!(
+            "a carry of {} bytes that is not one line of at most {} bytes with no control character",
+            words.len(),
+            pencere_wire::carry::MAX_CARRY
+        )));
+    }
+    let url = carry
+        .url
+        .as_ref()
+        .map(|part| {
+            lists
+                .words(part, limits.text, "a carry's address")
+                .map(str::to_owned)
+        })
+        .transpose()?;
+    if let Some(url) = &url
+        && !pencere_wire::carry::is_carriable_url(url)
+    {
+        return Err(Fault::Malformed(
+            "the address of a carry is an http or https address of printable ASCII without spaces, at most 8192 bytes"
+                .to_owned(),
+        ));
+    }
+    Ok(Carry {
+        payload: if text {
+            Payload::Text(words)
+        } else {
+            Payload::Path(words)
+        },
+        url,
     })
 }
 
@@ -1783,6 +1840,8 @@ fn reply_out(reply: wit::Reply, limits: &ModuleLimits) -> Result<Reply, Fault> {
             .link
             .filter(|url| pencere_wire::link::is_openable(url)),
         wake: wake_out(reply.wake, "a reply")?,
+        // A number of points more than the host's text: the host holds it within what it draws.
+        text_size: reply.text_size,
         panel: reply
             .panel
             .map(|panel| -> Result<Panel, Fault> {
@@ -2957,6 +3016,7 @@ mod tests {
             focused: false,
             draggable: false,
             drop_target: false,
+            carry: None,
             children,
         }
     }
@@ -3200,6 +3260,104 @@ mod tests {
                 },
             ]
         );
+    }
+
+    /// A page whose one element, named 7, carries what is said: the payload (words or a path) and
+    /// the address that goes with it.
+    fn carrying(payload: &str, path: bool, url: Option<&str>) -> wit::Frame {
+        let mut lists = Lists::default();
+        let words = lists.words(payload);
+        let url = url.map(|url| lists.words(url));
+        let mut node = container(0);
+        node.id = Some(7);
+        node.carry = Some(wit::Carry {
+            payload: if path {
+                wit::CarryPayload::Path(words)
+            } else {
+                wit::CarryPayload::Text(words)
+            },
+            url,
+        });
+        lists.frame(vec![node])
+    }
+
+    #[test]
+    fn what_an_element_says_it_carries_is_read_as_it_says_it() {
+        let made = frame_out(
+            carrying("/tmp/a b.txt", true, Some("https://example.com/a")),
+            &ModuleLimits::default(),
+        )
+        .expect("a page");
+        let nodes = made.root.fold();
+        assert_eq!(
+            nodes[0].meta.carry,
+            Some(Carry::path("/tmp/a b.txt").url("https://example.com/a"))
+        );
+        let made =
+            frame_out(carrying("a tab", false, None), &ModuleLimits::default()).expect("a page");
+        assert_eq!(made.root.fold()[0].meta.carry, Some(Carry::text("a tab")));
+        // Past what a text of a page may be, it is the page's text that is refused first.
+        let most = "a".repeat(pencere_wire::carry::MAX_CARRY);
+        assert!(frame_out(carrying(&most, false, None), &ModuleLimits::default()).is_ok());
+    }
+
+    #[test]
+    fn a_carry_of_more_than_one_line_or_with_a_control_character_or_a_far_address_is_not_a_page() {
+        let limits = ModuleLimits::default();
+        let too_long = "a".repeat(pencere_wire::carry::MAX_CARRY + 1);
+        for (why, frame) in [
+            ("a line break", carrying("rm -rf ~\nls", false, None)),
+            ("a carriage return", carrying("a\rb", true, None)),
+            ("an escape", carrying("\u{1b}[31m", false, None)),
+            ("a tab", carrying("a\tb", false, None)),
+            ("a line separator", carrying("a\u{2028}b", false, None)),
+            ("a paragraph separator", carrying("a\u{2029}b", false, None)),
+            ("a byte order mark", carrying("\u{feff}a", false, None)),
+            ("a delete", carrying("a\u{7f}b", false, None)),
+            ("a next line", carrying("a\u{85}b", true, None)),
+            ("an eight-bit CSI", carrying("\u{9b}31m", false, None)),
+            ("a NUL", carrying("a\0b", false, None)),
+            (
+                "a right-to-left override",
+                carrying("\u{202e}gnp.exe", true, None),
+            ),
+            (
+                "a left-to-right isolate",
+                carrying("a\u{2066}b", false, None),
+            ),
+            ("nothing", carrying("", false, None)),
+            ("too many bytes", carrying(&too_long, false, None)),
+            (
+                "a file address",
+                carrying("x", false, Some("file:///etc/passwd")),
+            ),
+            (
+                "a script address",
+                carrying("x", false, Some("javascript:alert(1)")),
+            ),
+            (
+                "an address with a line break",
+                carrying("x", false, Some("https://a.b/\n")),
+            ),
+        ] {
+            let result = frame_out(frame, &limits);
+            assert!(
+                matches!(&result, Err(Fault::Malformed(_))),
+                "{why} was taken: {:?}",
+                result.map(|_| ())
+            );
+        }
+    }
+
+    #[test]
+    fn the_end_of_a_system_drag_reaches_the_module_as_what_it_was() {
+        assert!(matches!(
+            event_in(Event::Carried {
+                id: Id::new(7),
+                done: true
+            }),
+            wit::Event::Carried(wit::Carried { id: 7, done: true })
+        ));
     }
 
     #[test]
@@ -3617,6 +3775,8 @@ mod tests {
             editor,
             link: None,
             wake: None,
+            text_size: None,
+
             panel: None,
         };
         let ask = |ask: wit::EditorAskKind| wit::EditorAsk { editor: 3, ask };
@@ -3749,6 +3909,8 @@ mod tests {
             editor: Vec::new(),
             link: None,
             wake: None,
+            text_size: None,
+
             panel: None,
         };
         // A menu as a module writes it: the titles are one string and each entry names its part.
@@ -3849,6 +4011,7 @@ mod tests {
             editor: Vec::new(),
             link: None,
             wake: None,
+            text_size: None,
             panel,
         };
         // A text of a reply is at most sixteen lines' worth.
@@ -3912,6 +4075,8 @@ mod tests {
             editor: Vec::new(),
             link,
             wake: None,
+            text_size: None,
+
             panel: None,
         };
         let read = |link: &str| {
@@ -3958,6 +4123,8 @@ mod tests {
             editor: Vec::new(),
             link: None,
             wake,
+            text_size: None,
+
             panel: None,
         };
         let limits = ModuleLimits::default();

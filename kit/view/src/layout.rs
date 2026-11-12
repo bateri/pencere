@@ -14,7 +14,7 @@ use taffy::style::{
 use taffy::{NodeId, TaffyTree, compute_leaf_layout};
 
 use crate::edit::EditorOptions;
-use crate::element::{FieldKind, Fit, Kind, Meta, Spark, State};
+use crate::element::{Carry, FieldKind, Fit, Kind, Meta, Spark, State};
 use crate::paint::Quad;
 use crate::rich::{Look, RichLine, cut_line, lay_lines};
 use crate::style::{
@@ -881,6 +881,18 @@ fn build(
         .unwrap_or(1.0);
     if zoomed != 1.0 {
         style.padding = style.padding.map(|room| room * zoomed);
+        // The gaps between what it holds and its fixed tracks are part of what is held too.
+        style.gap = (style.gap.0 * zoomed, style.gap.1 * zoomed);
+        for track in style.columns.iter_mut().chain(style.rows.iter_mut()) {
+            *track = match *track {
+                Track::Px(points) => Track::Px(points * zoomed),
+                Track::Range { min, fr } => Track::Range {
+                    min: min * zoomed,
+                    fr,
+                },
+                other => other,
+            };
+        }
     }
     let text = style.text.over(outer);
     let font = Font {
@@ -1342,6 +1354,45 @@ impl Laid {
             .iter()
             .any(|node| node.meta.id == Some(hit) && node.meta.draggable && !node.hidden)
             .then_some(hit)
+    }
+
+    /// What a drag out of the view picks up at `at`: the topmost element there that says what it
+    /// carries ([`crate::Element::carry`], and a name), when nothing that answers the pointer lies
+    /// over it (a button in a row that is carried is the button's, as a text field or an editor
+    /// is). One that is [`crate::Element::disabled`] or hidden does not.
+    pub fn carry_at(&self, at: Point) -> Option<Carrying> {
+        let (x, y) = (at.x * self.scale, at.y * self.scale);
+        let under = |node: &Node| {
+            !node.hidden && !node.meta.state.disabled && Self::shown(node).contains(x, y)
+        };
+        for node in self.nodes.iter().rev().filter(|node| under(node)) {
+            // A text field and an editor take the pointer for their own (a selection is dragged),
+            // whether or not they are what carries.
+            if node.meta.field.is_some()
+                || node.meta.editor.is_some()
+                || matches!(node.content, Content::Editor(_))
+            {
+                return None;
+            }
+            if let (Some(carry), Some(id)) = (&node.meta.carry, node.meta.id) {
+                return Some(Carrying {
+                    id,
+                    carry: carry.clone(),
+                    rect: self.bounds(id)?,
+                    draggable: node.meta.draggable,
+                });
+            }
+            if node.meta.pressable
+                || node.meta.draggable
+                || self
+                    .links_of(node)
+                    .iter()
+                    .any(|(rect, _)| rect.contains(x, y))
+            {
+                return None;
+            }
+        }
+        None
     }
 
     /// The element under `at` that what is dragged can be put down on
@@ -2016,6 +2067,20 @@ impl Queries for Laid {
     fn drop_target(&self, at: Point) -> Option<Id> {
         Laid::drop_target(self, at)
     }
+}
+
+/// What a drag out of the view picks up ([`Laid::carry_at`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Carrying {
+    /// The element that carries.
+    pub id: Id,
+    /// What it carries.
+    pub carry: Carry,
+    /// Its box on the page, points: the host draws what the person holds from it.
+    pub rect: Rect,
+    /// It is also the page's own to drag ([`crate::Element::draggable`]): the page's drag while
+    /// the pointer is in the view.
+    pub draggable: bool,
 }
 
 /// The size of what a scrolling box holds against the box's own, and how far it is scrolled

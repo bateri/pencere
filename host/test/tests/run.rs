@@ -763,6 +763,61 @@ end)
 
 #[test]
 #[ignore = "heavy: opens pages, which compiles the interpreter"]
+fn a_test_drags_an_element_that_carries_out_of_the_view_and_ends_the_systems_drag() {
+    let app = App::template("trackpad");
+    app.write(
+        "src/view/page.lua",
+        r#"local heard = "nothing"
+local releases = 0
+return {
+	render = function()
+		return pencere.div():size_full():row()
+			:child(pencere.div():id("card"):size(100, 50):carry({ path = "/tmp/a b.txt", url = "https://example.com/a" }))
+			:child(pencere.div():id("plain"):size(100, 50))
+			:child(pencere.text(heard))
+	end,
+	handle = function(e)
+		if e.type == "carried" then
+			heard = "carried " .. tostring(e.done)
+		elseif e.type == "release" then
+			releases = releases + 1
+			heard = "released " .. releases
+		end
+		return true
+	end,
+}
+"#,
+    );
+    app.write(
+        "test/page_test.lua",
+        r#"local test = require("pencere.test")
+local expect = test.expect
+
+test("an element that carries is handed to the system by a drag out of the view", function()
+	local page = test.open()
+	page:get_by_id("plain"):drag_out(300, 200)
+	expect(#page:carries()):to_equal(0)
+	expect(table.concat(page:words(), " ")):to_contain("released 1")
+	page:get_by_id("card"):drag_out(300, 200)
+	local carries = page:carries()
+	expect(#carries):to_equal(1)
+	expect(carries[1].path):to_equal("/tmp/a b.txt")
+	expect(carries[1].text):to_be_nil()
+	expect(carries[1].url):to_equal("https://example.com/a")
+	expect(carries[1].rect.w):to_equal(100)
+	-- The page hears nothing of the pointer while the system carries: no release of this drag.
+	expect(table.concat(page:words(), " ")):to_contain("released 1")
+	page:finish_carry(true)
+	expect(table.concat(page:words(), " ")):to_contain("carried true")
+end)
+"#,
+    );
+    let (code, text) = tap(&app, &[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+#[test]
+#[ignore = "heavy: opens pages, which compiles the interpreter"]
 fn the_app_runs_in_its_own_environment_and_the_process_of_the_test_is_never_touched() {
     let app = App::template("world");
     let _ = std::fs::remove_file(app.dir.join("test/page_test.lua"));

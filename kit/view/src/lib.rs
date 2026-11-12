@@ -60,7 +60,8 @@ pub mod wire;
 pub use color::{Color, Mix, Rgba, Role, Source};
 pub use command::{Command, Shortcut};
 pub use element::{
-    Element, FieldKind, Fit, Image, State, canvas, div, image, rich, spacer, spark, text,
+    Carry, Element, FieldKind, Fit, Image, Payload, State, canvas, div, image, rich, spacer, spark,
+    text,
 };
 pub use fades::{FADE_SECONDS, Fades};
 pub use field::{FieldState, Fill};
@@ -71,7 +72,9 @@ pub use input::{
     Button, Cursor, Event, FileEntry, FileSource, GesturePhase, Input, Key, Keyboard, Menu,
     MenuEntry, Mods, Panel, Place, Reply, Saving, Scrolled, copy_key,
 };
-pub use layout::{Accessible, AccessibleRole, EditorRoom, Extent, Field, Laid, Queries, layout};
+pub use layout::{
+    Accessible, AccessibleRole, Carrying, EditorRoom, Extent, Field, Laid, Queries, layout,
+};
 pub use motion::{Ease, Motion, Motions, Shift, Tip};
 pub use paint::{DrawList, EditorSlot, Figure, Paint, Picture, Quad, Run};
 pub use rich::{Span, span};
@@ -82,10 +85,12 @@ pub use system::{
     Drawing, KeyConvention, TerminalCaret, TerminalLook, TerminalSelection, WallTime,
 };
 pub use text::{Align, EditorMetrics, Family, Font, Measure, Metrics};
-pub use ui::{Drag, Dropped, Ui};
+pub use ui::{DRAG_START, Drag, Dropped, Ui};
 
 #[cfg(test)]
 mod bands_tests;
+#[cfg(test)]
+mod carry_tests;
 #[cfg(test)]
 mod commands_tests;
 #[cfg(test)]

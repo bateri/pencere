@@ -6,6 +6,12 @@ All notable changes to the `pencere-wire` crate are recorded here. The format fo
 
 ## [Unreleased]
 
+### Added
+
+- **`carry`**: the rule of what a view may hand to its host's system drag (`is_carriable`, `is_carriable_url`,
+  `MAX_CARRY`): one line, no control characters (nor the separators of lines, the byte order mark, or the
+  controls of the direction of text), at most 64 KiB, and an address only of the kind a `link` may be. The one copy, as `link`'s.
+
 ## [0.4.1] - 2026-11-05
 
 Released with the other crates; no change of its own.

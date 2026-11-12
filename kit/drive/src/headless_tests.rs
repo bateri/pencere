@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use pencere_editor::UNDO_PAUSE;
 use pencere_sandbox::Fault;
 use pencere_view::edit::EditCommand;
-use pencere_view::{Cursor, Event, Id, MenuEntry, Mods, Paint, Point};
+use pencere_view::{
+    Button, Carry, Cursor, Event, Id, Input, MenuEntry, Mods, Paint, Point, Reply, Size, div,
+};
 use serde_json::json;
 
 use crate::headless::{Calls, Error, Failure, Files, Focus, Headless, Logged};
@@ -998,6 +1000,354 @@ return {
     assert_eq!(
         page.zoom_of("nothing"),
         Err(Error::NoSuch("nothing".into()))
+    );
+    Ok(())
+}
+
+/// The size the page asks to be drawn at is the host's to take, in any reply: the headless host says
+/// what it last asked, and the host's own text is not part of it.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_page_says_how_much_larger_than_the_hosts_text_it_is_to_be_drawn() -> Result<(), Error> {
+    let mut page = Headless::script(
+        r#"
+return {
+    render = function() return pencere.div():child(pencere.text("code")) end,
+    handle = function(event)
+        if event.type == "key" and event.key == "a" then
+            return { text_size = 3 }
+        elseif event.type == "key" and event.key == "b" then
+            return { text_size = -1, redraw = true }
+        end
+    end,
+}
+"#,
+    )
+    .open()?;
+    assert_eq!(page.text_size(), 0);
+    page.press("a")?;
+    assert_eq!(page.text_size(), 3);
+    page.press("b")?;
+    assert_eq!(page.text_size(), -1);
+    Ok(())
+}
+
+/// A page whose boxes say what they carry out of the view, and that counts what the pointer did to
+/// it: one that only carries, one that is no carrier, and one the page also drags.
+const CARRIERS: &str = r#"
+local ui = pencere.Ui.new()
+local n = { press = 0, move = 0, release = 0 }
+local last = "-"
+return {
+    render = function()
+        return pencere.div():row()
+            :child(pencere.div():id("tab"):size(60, 30):carry({ text = "hello", url = "https://example.com/a" }))
+            :child(pencere.div():id("plain"):size(60, 30))
+            :child(pencere.div():draggable("both"):size(60, 30):carry({ path = "/tmp/a b" }))
+            :child(pencere.text(string.format("press:%d move:%d release:%d %s %s",
+                n.press, n.move, n.release, ui:dragging() and "dragging" or "free", last)))
+    end,
+    handle = function(event)
+        local at = event.x and { x = event.x, y = event.y }
+        if event.type == "press" then
+            n.press = n.press + 1
+            ui:press(pencere.layout, at)
+        elseif event.type == "move" then
+            n.move = n.move + 1
+            ui:point(pencere.layout, at)
+        elseif event.type == "release" then
+            n.release = n.release + 1
+            ui:release(pencere.layout, at)
+        elseif event.type == "carried" then
+            last = "carried " .. event.id .. " " .. tostring(event.done)
+        end
+        return true
+    end,
+}
+"#;
+
+/// What the page was told: the line it draws of what the pointer did to it.
+fn heard(page: &Headless) -> String {
+    page.words()
+        .into_iter()
+        .find(|words| words.starts_with("press:"))
+        .expect("the page's line")
+        .to_owned()
+}
+
+fn left(at: Point) -> Input {
+    Input::Press {
+        at,
+        button: Button::Left,
+        mods: Mods::default(),
+        count: 1,
+    }
+}
+
+fn moved(at: Point) -> Input {
+    Input::Move {
+        at,
+        mods: Mods::default(),
+    }
+}
+
+/// The person presses on an element that carries and moves the pointer away: once it has moved
+/// `DRAG_START` points the host is given the drag (what is carried, where the pointer is, the
+/// element's room), and the page is told none of the pointer from then on, its release included,
+/// until the system's drag is over, and then it is told so and hears the pointer again.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_element_that_carries_is_given_to_the_system_once_the_pointer_has_moved_far_enough()
+-> Result<(), Error> {
+    let mut page = Headless::script(CARRIERS).open()?;
+    let room = page.bounds("tab").expect("the element's room");
+    let middle = Point::new(room.x + room.w / 2.0, room.y + room.h / 2.0);
+    page.pointer(left(middle))?;
+    // Short of the distance, it is the page's pointer.
+    page.pointer(moved(Point::new(middle.x + 2.0, middle.y)))?;
+    assert!(page.carries().is_empty());
+    assert_eq!(heard(&page), "press:1 move:1 release:0 free -");
+    let past = Point::new(middle.x + 6.0, middle.y);
+    page.pointer(moved(past))?;
+    let [carry] = page.carries() else {
+        panic!("one drag out of the view: {:?}", page.carries());
+    };
+    assert_eq!(carry.id, Id::named("tab"));
+    assert_eq!(
+        carry.carry,
+        Carry::text("hello").url("https://example.com/a")
+    );
+    assert_eq!((carry.at, carry.rect), (past, room));
+    // The page hears no more of it: not a move, not the release the system took.
+    page.pointer(moved(Point::new(300.0, 200.0)))?;
+    page.pointer(Input::Release {
+        at: Point::new(300.0, 200.0),
+        button: Button::Left,
+        mods: Mods::default(),
+    })?;
+    assert_eq!(heard(&page), "press:1 move:1 release:0 free -");
+    assert_eq!(page.carries().len(), 1, "told once");
+    // The drag is over: the page is told, and hears the pointer again (a click is a click).
+    page.finish_carry(true)?;
+    assert_eq!(
+        heard(&page),
+        "press:1 move:1 release:0 free carried tab true"
+    );
+    page.finish_carry(true)?;
+    page.click("plain")?;
+    assert_eq!(
+        heard(&page),
+        "press:2 move:1 release:1 free carried tab true"
+    );
+    Ok(())
+}
+
+/// A click on an element that carries is a click, an element that does not carry is never given to
+/// the system however far the pointer goes, and a host that did not say it carries is not asked.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_click_or_a_drag_of_what_does_not_carry_stays_the_pages_and_a_host_that_does_not_carry_is_not_asked()
+-> Result<(), Error> {
+    let mut page = Headless::script(CARRIERS).open()?;
+    page.click("tab")?;
+    assert_eq!(heard(&page), "press:1 move:0 release:1 free -");
+    page.drag_out("plain", Point::new(500.0, 300.0))?;
+    assert!(page.carries().is_empty());
+    assert_eq!(heard(&page), "press:2 move:8 release:2 free -");
+    page.page_mut().set_carry(false);
+    page.drag_out("tab", Point::new(500.0, 300.0))?;
+    assert!(page.carries().is_empty());
+    assert_eq!(heard(&page), "press:3 move:16 release:3 free -");
+    Ok(())
+}
+
+/// An element the page also drags is the page's drag while the pointer is in the view, and the
+/// system's from the moment it leaves; the end of the system's drag lets go of what the page's `Ui`
+/// held, though the page never heard the release.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn an_element_the_page_also_drags_is_the_systems_once_the_pointer_has_left_the_view()
+-> Result<(), Error> {
+    let mut page = Headless::script(CARRIERS).open()?;
+    page.drag_out("both", Point::new(900.0, 100.0))?;
+    let [carry] = page.carries() else {
+        panic!("one drag out of the view: {:?}", page.carries());
+    };
+    assert_eq!(carry.carry, Carry::path("/tmp/a b"));
+    assert!(carry.at.x > 800.0, "{:?}", carry.at);
+    // It went on in the page while the pointer was in the view: six moves heard, a drag under way.
+    assert_eq!(heard(&page), "press:1 move:6 release:0 dragging -");
+    page.finish_carry(false)?;
+    assert_eq!(
+        heard(&page),
+        "press:1 move:6 release:0 free carried both false",
+        "the drag the page held is gone"
+    );
+    Ok(())
+}
+
+/// A host that stops carrying while a drag goes ends it: the page is told it is over, not done.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_host_that_stops_carrying_ends_the_drag_that_goes() -> Result<(), Error> {
+    let mut page = Headless::script(CARRIERS).open()?;
+    page.drag_out("tab", Point::new(400.0, 200.0))?;
+    assert_eq!(page.carries().len(), 1);
+    page.page_mut().set_carry(false);
+    page.settle()?;
+    assert_eq!(
+        heard(&page),
+        "press:1 move:0 release:0 free carried tab false"
+    );
+    Ok(())
+}
+
+/// A page drawn twice as large as its own points: the distance that starts a drag and the edge of
+/// the view are counted in the page's points, and what the host is given is in its own.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_drag_out_is_counted_in_the_pages_points_and_handed_to_the_host_in_its_own() -> Result<(), Error>
+{
+    let mut page = Headless::script(CARRIERS).open()?;
+    page.zoom(2.0)?;
+    let room = page.bounds("tab").expect("the element's room");
+    assert_eq!(room.w, 120.0, "in the host's points");
+    let middle = Point::new(room.x + room.w / 2.0, room.y + room.h / 2.0);
+    page.pointer(left(middle))?;
+    // Five of the host's points are two and a half of the page's: not far enough.
+    page.pointer(moved(Point::new(middle.x + 5.0, middle.y)))?;
+    assert!(page.carries().is_empty());
+    // Nine are four and a half.
+    let past = Point::new(middle.x + 9.0, middle.y);
+    page.pointer(moved(past))?;
+    let [carry] = page.carries() else {
+        panic!("one drag out of the view: {:?}", page.carries());
+    };
+    assert_eq!((carry.at, carry.rect), (past, room));
+    page.finish_carry(false)?;
+    // The view is 400 of the page's points wide, 800 of the host's: an element the page also drags
+    // is the system's beyond the first.
+    let room = page.bounds("both").expect("the element's room");
+    let middle = Point::new(room.x + room.w / 2.0, room.y + room.h / 2.0);
+    page.pointer(left(middle))?;
+    page.pointer(moved(Point::new(790.0, middle.y)))?;
+    assert_eq!(page.carries().len(), 1, "still in the view");
+    page.pointer(moved(Point::new(810.0, middle.y)))?;
+    assert_eq!(page.carries().len(), 2, "out of it");
+    assert_eq!(page.carries()[1].rect, room);
+    Ok(())
+}
+
+/// A press that was never let go of (the host lost the release) is not a drag out of the view when
+/// the pointer comes back and moves: a move alone starts none, and the pointer's leaving ends what
+/// the press began.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_move_that_follows_no_press_starts_no_drag_out_of_the_view() -> Result<(), Error> {
+    let mut page = Headless::script(CARRIERS).open()?;
+    let room = page.bounds("tab").expect("the element's room");
+    let middle = Point::new(room.x + room.w / 2.0, room.y + room.h / 2.0);
+    page.pointer(left(middle))?;
+    page.pointer(Input::Leave)?;
+    page.pointer(moved(Point::new(middle.x + 20.0, middle.y)))?;
+    assert!(page.carries().is_empty(), "{:?}", page.carries());
+    Ok(())
+}
+
+/// A page written in Rust, which the sandbox never held to the rule of what is carried: four
+/// boxes that carry what no host may hand on, and one that carries a line. It counts the moves
+/// it is told.
+struct Careless(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl pencere_sandbox::Runner for Careless {
+    fn render(
+        &mut self,
+        _size: Size,
+        _now: f64,
+        _reduce: bool,
+    ) -> Result<pencere_sandbox::Frame, pencere_sandbox::Fault> {
+        let carrier = |name: &str, carry: Carry| {
+            div()
+                .id(Id::named(name))
+                .size(60.0, 30.0)
+                .no_shrink()
+                .carry(carry)
+        };
+        Ok(pencere_sandbox::Frame {
+            root: div()
+                .row()
+                .size(800.0, 600.0)
+                .child(carrier("lines", Carry::text("rm -rf ~\nls")))
+                .child(carrier("escape", Carry::path("\u{1b}]0;x\u{7}")))
+                .child(carrier("far", Carry::text("x").url("file:///etc/passwd")))
+                .child(carrier(
+                    "long",
+                    Carry::text("a".repeat(pencere_wire::carry::MAX_CARRY + 1)),
+                ))
+                .child(carrier("fine", Carry::text("a line"))),
+            animating: false,
+            wake_at: None,
+            wake: None,
+        })
+    }
+
+    fn settle(&mut self) -> Result<bool, pencere_sandbox::Fault> {
+        Ok(false)
+    }
+
+    fn handle(&mut self, event: Event) -> Result<Reply, pencere_sandbox::Fault> {
+        if matches!(
+            event,
+            Event::Input(Input::Move { .. })
+                | Event::Pointer {
+                    input: Input::Move { .. },
+                    ..
+                }
+        ) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        Ok(Reply::none())
+    }
+
+    fn lay_out(&mut self, _laid: std::sync::Arc<pencere_view::Laid>) {}
+}
+
+/// What a page written in Rust says to carry is held to the rule again where the pointer begins the
+/// drag: none of what no host may hand on is given to the host, and the page is told the whole
+/// of that drag as of any other.
+#[test]
+fn a_carry_that_breaks_the_rule_is_never_given_to_the_host_whatever_made_the_page()
+-> Result<(), Error> {
+    let moves = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let heard = std::sync::Arc::clone(&moves);
+    let mut page = Headless::spawn(move || Ok(Careless(heard))).open()?;
+    for name in ["lines", "escape", "far", "long"] {
+        let before = moves.load(std::sync::atomic::Ordering::SeqCst);
+        page.drag_out(name, Point::new(500.0, 400.0))?;
+        assert!(page.carries().is_empty(), "{name}: {:?}", page.carries());
+        assert!(
+            moves.load(std::sync::atomic::Ordering::SeqCst) >= before + 8,
+            "{name}: the page heard the drag"
+        );
+    }
+    page.drag_out("fine", Point::new(500.0, 400.0))?;
+    assert_eq!(page.carries().len(), 1);
+    Ok(())
+}
+
+/// A press while the drive thinks the system's drag is going says the host lost its end: the page
+/// is told it is over (it was not done), and the press is the page's.
+#[test]
+#[ignore = "heavy: compiles the interpreter and drives a page; make check-heavy"]
+fn a_press_while_a_drag_out_is_going_ends_it_for_a_host_that_did_not_say_so() -> Result<(), Error> {
+    let mut page = Headless::script(CARRIERS).open()?;
+    page.drag_out("tab", Point::new(400.0, 200.0))?;
+    assert_eq!(page.carries().len(), 1);
+    let plain = page.bounds("plain").expect("the element's room");
+    page.pointer(left(Point::new(plain.x + 5.0, plain.y + 5.0)))?;
+    assert_eq!(
+        heard(&page),
+        "press:2 move:0 release:0 free carried tab false"
     );
     Ok(())
 }

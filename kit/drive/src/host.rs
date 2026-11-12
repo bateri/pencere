@@ -10,7 +10,7 @@
 //! the drive holds it and gives it with the frame ([`crate::Painted::held`]).
 
 use pencere_sandbox::{Answer, Fault};
-use pencere_view::{Cursor, Fill, Id, Keyboard, Menu, Panel};
+use pencere_view::{Carry, Cursor, Fill, Id, Keyboard, Menu, Panel, Point, Rect};
 
 /// What a page had besides its replies, since the host last looked ([`crate::Page::drain`]).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -41,6 +41,27 @@ pub struct Drained {
     /// under it) and nothing the pointer did says so: the host takes it while the pointer is over the
     /// page, as it takes the shape of a reply to the pointer.
     pub cursor: Option<Cursor>,
+    /// The person began to drag an element out of the view ([`crate::Page::set_carry`]): the host
+    /// starts its system's drag with what the element carries, and ends it with
+    /// [`crate::Page::carried`]. The page hears none of the pointer's moves nor its release until
+    /// then.
+    pub carry: Option<CarryOut>,
+}
+
+/// A drag out of the view the person began with what an element carries ([`Host::carry`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CarryOut {
+    /// The element that carries: [`crate::Page::carried`] says when its drag is over.
+    pub id: Id,
+    /// What it carries: words or a path, and an address. It has been held to the rule of
+    /// `pencere_wire::carry` (one line, at most 64 KiB, no control character; an address only of the
+    /// kind a `link` may be), twice: where the sandbox took the page and where the pointer began
+    /// the drag.
+    pub carry: Carry,
+    /// Where the pointer is, in the host's points.
+    pub at: Point,
+    /// The element's room, in the host's points: what the person holds is drawn from it.
+    pub rect: Rect,
 }
 
 /// Text for the host's pasteboard that a page had an editor copy or cut, and whose act it was.
@@ -103,6 +124,12 @@ pub trait Host {
     /// frame ([`crate::Painted::held`]), after its texts; a name the page still does not have then
     /// sends the keyboard to the page.
     fn keyboard(&mut self, _to: Keyboard) {}
+    /// How many points larger than the host's own text the page asks to be drawn (below 0: smaller):
+    /// the size of this view, which the host puts into the size it draws it at, within what it can
+    /// draw ([`crate::Placement::zoom_for`]), and leaves its own text as it was. The page says it
+    /// when it wants it and is not told what came of it. It is not the person's act: any reply says
+    /// it, a wake's and a program's message's included.
+    fn text_size(&mut self, _points: i32) {}
     /// Text for the pasteboard, and whether the person's own word asked for it (`by_person`): a
     /// reply to a press or its release, a pick in a menu or a command, and of the keys only the
     /// system's copy and cut ([`pencere_view::copy_key`]); the copy or cut an editor makes of what
@@ -138,6 +165,11 @@ pub trait Host {
     /// shows one at a time, and drops one asked for while another is up (the session of a terminal
     /// that hosts pencere holds it to that, `Session::module_pick`).
     fn panel(&mut self, _panel: Panel) {}
+    /// The person began to drag an element out of the view: the host starts its system's drag with
+    /// what the element carries and shows the person the words it will insert, never a label the
+    /// page chose (a `path` is words to it: it never reads one). It ends the drag with
+    /// [`crate::Page::carried`]. Told only to a host that said it carries ([`crate::Page::set_carry`]).
+    fn carry(&mut self, _carry: CarryOut) {}
     /// A sentence for the page's author: an image that could not be shown.
     fn diagnostic(&mut self, _words: String) {}
     /// The page is gone, and why: the host takes it down. Nothing is told after it.
@@ -150,8 +182,8 @@ pub trait Host {
 impl Drained {
     /// Hands what the page said to `host`, in the order a host does it: what was said to the program
     /// first; then each reply in turn — its wish to close, its redraw, the pointer's shape (a reply
-    /// to the pointer only), the fields' texts, the keyboard, the pasteboard, the link, the panel,
-    /// and the menu last; then the images' diagnostics; then the end, after which nothing; and last the frame or
+    /// to the pointer only), the fields' texts, the keyboard, the size of its text, the pasteboard, the link, the panel,
+    /// and the menu last; then the drag out of the view the person began; then the images' diagnostics; then the end, after which nothing; and last the frame or
     /// the clock it wants. A reply's texts and keyboard that name a field the page has not laid out
     /// yet are not among them: the drive held them ([`crate::Page::drain`]) for the frame that lays
     /// it out ([`crate::Painted::held`], [`Held::deliver`]).
@@ -181,6 +213,9 @@ impl Drained {
             if let Some(to) = reply.keyboard {
                 host.keyboard(to);
             }
+            if let Some(points) = reply.text_size {
+                host.text_size(points);
+            }
             if let Some(text) = reply.copy {
                 host.copy(text, person);
             }
@@ -196,6 +231,9 @@ impl Drained {
         }
         for Copied { text, by_person } in self.copied {
             host.copy(text, by_person);
+        }
+        if let Some(carry) = self.carry {
+            host.carry(carry);
         }
         for words in self.diagnostics {
             host.diagnostic(words);
@@ -218,7 +256,7 @@ impl Drained {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pencere_view::{MenuEntry, Point, Reply};
+    use pencere_view::{MenuEntry, Point, Rect, Reply};
 
     #[derive(Default)]
     struct Log(Vec<String>);
@@ -244,6 +282,9 @@ mod tests {
         fn keyboard(&mut self, to: Keyboard) {
             self.0.push(format!("keyboard {to:?}"));
         }
+        fn text_size(&mut self, points: i32) {
+            self.0.push(format!("text_size {points}"));
+        }
         fn copy(&mut self, text: String, by_person: bool) {
             self.0.push(format!("copy {text} {by_person}"));
         }
@@ -255,6 +296,9 @@ mod tests {
         }
         fn panel(&mut self, panel: Panel) {
             self.0.push(format!("panel {panel:?}"));
+        }
+        fn carry(&mut self, carry: CarryOut) {
+            self.0.push(format!("carry {}", carry.carry.words()));
         }
         fn diagnostic(&mut self, words: String) {
             self.0.push(format!("diagnostic {words}"));
@@ -283,6 +327,7 @@ mod tests {
             keyboard: Some(Keyboard::Page),
             fill: vec![(Id::named("f"), Fill::text("text"))],
             copy: Some("copied".into()),
+            text_size: Some(-2),
             cursor: Cursor::Text,
             link: Some("https://example.com".into()),
             panel: Some(Panel::Pick { multiple: true }),
@@ -318,6 +363,12 @@ mod tests {
                 text: "cut".into(),
                 by_person: false,
             }],
+            carry: Some(CarryOut {
+                id: Id::named("tab"),
+                carry: Carry::text("hello"),
+                at: Point::new(3.0, 4.0),
+                rect: Rect::new(0.0, 0.0, 10.0, 10.0),
+            }),
         }
         .deliver(&mut log);
         assert_eq!(
@@ -328,12 +379,14 @@ mod tests {
                 "redraw",
                 "fill f text",
                 "keyboard Page",
+                "text_size -2",
                 "copy copied true",
                 "link https://example.com",
                 "panel Pick { multiple: true }",
                 "menu 1",
                 "cursor Pointer",
                 "copy cut false",
+                "carry hello",
                 "diagnostic image \"x\" is not one",
                 "redraw",
             ]

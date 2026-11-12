@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <string>
 
 #include <unordered_map>
@@ -1581,6 +1582,38 @@ void flatten(lua_State* L, int element, Flat& flat, int depth) {
         lua_pop(L, 1);
         nodes.ptr[at].focused = flag(L, meta, "focused");
         nodes.ptr[at].draggable = flag(L, meta, "draggable");
+        // What a drag out of the view takes: { text = | path =, url = }, parts of the frame's text.
+        get(L, meta, "carry");
+        if (lua_type(L, -1) == LUA_TTABLE) {
+            int carry = lua_gettop(L);
+            auto& out = nodes.ptr[at].carry;
+            out.is_some = true;
+            const char* kinds[2] = {"text", "path"};
+            bool said = false;
+            for (int which = 0; which < 2 && !said; which++) {
+                get(L, carry, kinds[which]);
+                if (lua_type(L, -1) == LUA_TSTRING) {
+                    size_t length = 0;
+                    const char* bytes = lua_tolstring(L, -1, &length);
+                    out.val.payload.tag = which == 0 ? PENCERE_VIEW_TYPES_CARRY_PAYLOAD_TEXT : PENCERE_VIEW_TYPES_CARRY_PAYLOAD_PATH;
+                    auto words = add_words(flat.arenas, bytes, length);
+                    if (which == 0) out.val.payload.val.text = words;
+                    else out.val.payload.val.path = words;
+                    said = true;
+                }
+                lua_pop(L, 1);
+            }
+            if (!said) luaL_error(L, "a carry says its text or its path");
+            get(L, carry, "url");
+            if (lua_type(L, -1) == LUA_TSTRING) {
+                size_t length = 0;
+                const char* bytes = lua_tolstring(L, -1, &length);
+                out.val.url.is_some = true;
+                out.val.url.val = add_words(flat.arenas, bytes, length);
+            }
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
         nodes.ptr[at].drop_target = flag(L, meta, "drop_target");
     }
     lua_pop(L, 1);
@@ -2056,6 +2089,14 @@ void push_event(lua_State* L, const pencere_view_types_event_t& event) {
             break;
         case PENCERE_VIEW_TYPES_EVENT_FILES_LEFT:
             set_word(L, "type", "files_left");
+            break;
+        case PENCERE_VIEW_TYPES_EVENT_CARRIED:
+            // { id =, done = }: the system drag of what the element named `id` carried is over.
+            set_word(L, "type", "carried");
+            push_id(L, event.val.carried.id);
+            lua_setfield(L, -2, "id");
+            lua_pushboolean(L, event.val.carried.done);
+            lua_setfield(L, -2, "done");
             break;
         case PENCERE_VIEW_TYPES_EVENT_SAVING:
             // { type = "saving", handle =, name = }, neither when the person turned the panel away.
@@ -3262,6 +3303,20 @@ int reply_call(lua_State* L) {
         }
         lua_pop(L, 1);
     }
+    // How many points larger than the host's text the page is to be drawn: a whole number (a
+    // fraction is the page's mistake, and so is a number no host could draw).
+    get(L, 1, "text_size");
+    if (lua_type(L, -1) == LUA_TNUMBER) {
+        double points = lua_tonumber(L, -1);
+        if (!(points >= -1000000 && points <= 1000000) || points != std::floor(points)) {
+            luaL_error(L, "text_size is a whole number of points more than the host's text (below 0: less)");
+        }
+        out.text_size.is_some = true;
+        out.text_size.val = (int32_t)points;
+    } else if (!lua_isnil(L, -1)) {
+        luaL_error(L, "text_size is a whole number of points more than the host's text (below 0: less)");
+    }
+    lua_pop(L, 1);
     // When to wake the page, seconds from now. The prelude puts it (the earliest its timers and
     // the page ask); what is not a number of seconds is still an error of the script's.
     get(L, 1, "wake");
