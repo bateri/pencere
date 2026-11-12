@@ -29,6 +29,16 @@ the page's, asked of the terminal with `OSC 22` (a hand over what answers a clic
 field) and given back with the terminal; a terminal that does not know it ignores it.
 `PENCERE_TUI_TRACE=1` says, when the program ends, where the time of the start went.
 
+What the page asks of its host is done in cells too. An editor has the terminal's own cursor at its
+caret (it blinks as the person set the terminal to) and takes typing, a selection, and a paste in
+brackets; `Ctrl+Shift+C` copies the selection with `OSC 52` where the terminal tells it from `Ctrl+C`,
+which ends the program. A menu is a framed list over the page, a file panel is one line for a path
+(Tab completes it), and a link is an address on the bottom row that the terminal opens (`OSC 8`): no
+browser is started, since the terminal may be on another machine. A program that lends its terminal to
+a command (a shell, an editor) has the screen given back for it, and its view drawn anew after. Where
+the terminal has the Kitty graphics protocol a picture is sent once, and scrolling it only moves where
+it is placed.
+
 ## Use
 
 ```rust

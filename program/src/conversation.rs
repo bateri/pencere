@@ -91,6 +91,17 @@ impl Lent {
         self.finish(Ok(status));
     }
 
+    /// The command, for the holder that runs it ([`crate::Tty::lend`]); what is left is a command
+    /// that does nothing, which [`Lent::command`] would then show.
+    pub(crate) fn take_command(&mut self) -> Command {
+        std::mem::replace(&mut *self.command, Command::new("true"))
+    }
+
+    /// Says how the command ended, or why it could not be run.
+    pub(crate) fn ended(mut self, status: io::Result<ExitStatus>) {
+        self.finish(status);
+    }
+
     fn finish(&mut self, status: io::Result<ExitStatus>) {
         if !self.told {
             self.told = true;

@@ -1662,7 +1662,9 @@ A host:
   not, and draws it in its place of the draw list (`Paint::Editor`), over the room's fill and under
   what covers it; draws its carets (their corners, light and outline as the options say, `caret.*`) blinks and moves them (`caret.motion`) on
   its own clock, as the options of the editor that has the keyboard say (the page is asked for no frames
-  for it, whether the caret blinks or glides); gives it its system's input method (what is composed, and the questions of where the
+  for it, whether the caret blinks or glides; a host that has a cursor of its own, as a terminal does, MAY draw
+  and blink that at the main caret instead, and then draws none of the page's: `Page::set_host_caret`, and the box
+  of the caret from `PageEditors::caret` and `PageEditors::rect`); gives it its system's input method (what is composed, and the questions of where the
   caret is and what is around it, answered at once, in the units its system counts in) and its
   pasteboard (text reaches an editor from it only on the person's key or the person's pick of a menu entry
   the host performs itself, `Host::paste`: a page cannot ask for it; what the page has an editor copy or

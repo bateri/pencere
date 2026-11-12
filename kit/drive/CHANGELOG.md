@@ -34,6 +34,10 @@ All notable changes to the `pencere-drive` crate are recorded here. The format f
   modifiers; `Input::Move` and `Input::Release` carry `mods`.
 - **`Headless`** drives them: `pinch`, `pinch_at`, `magnify_at`, `smart_magnify`, `rotate`, `swipe`,
   `force`, `click_extra` and `trackpad_at` (the fingers of a trackpad moving a box or the page).
+- `Page::set_host_caret`: a host that draws the caret itself, as a terminal does with its cursor,
+  says so, and the page draws none of its own (the selection stays) and asks for no frame to blink
+  one. Off unless the host sets it. `PageEditors::caret`: where the main selection's caret is (the end
+  that moves) in units of UTF-16, to ask `PageEditors::rect` for its box.
 - `Page::binds` says whether a key with its modifiers is one the page binds to a command, so a
   host can tell a key that moves a view from one the page answers with a command.
 - `Headless::spills`: the boxes of the last frame that stand past the inside of the box they are

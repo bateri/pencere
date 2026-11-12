@@ -14,9 +14,9 @@ use std::os::fd::RawFd;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::Error;
 use crate::session::PanicHook;
 use crate::terminal::{self, ENTER_ALTERNATE, Modes, Pipe, TakeError, Taken, Terminal};
+use crate::{Error, Lent, foreground};
 
 /// How large the terminal's window is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -130,6 +130,36 @@ impl<'a> Tty<'a> {
         let mut bytes = ENTER_ALTERNATE.to_vec();
         bytes.extend_from_slice(on);
         self.write_all(&bytes)
+    }
+
+    /// Lends the terminal to the command of `lent`, and waits until it has ended: the modes that
+    /// were switched on are switched off (what [`Tty::enter`] and [`Tty::leaving`] gave), the screen
+    /// is left, the terminal is given back as it was found and the command runs as its foreground
+    /// job; then the terminal is taken again and the screen is entered again with `on`. The
+    /// program's hand-off is told how the command ended, or why it could not be run. Nothing is
+    /// drawn or read meanwhile, and what the screen showed is gone from the terminal: the caller
+    /// draws it anew, switches on again what [`Tty::leaving`] had it take back, and asks for the
+    /// size.
+    ///
+    /// # Errors
+    ///
+    /// When the terminal cannot be written to as the screen is entered again.
+    pub fn lend(&mut self, mut lent: Lent, on: &[u8]) -> io::Result<()> {
+        let _ = self.write_all(&terminal::leave_bytes());
+        self.taken.lend();
+        let tty = self.terminal.input();
+        let outcome = foreground::start(lent.take_command(), tty).and_then(|job| {
+            let status = job.wait();
+            job.take_back();
+            status
+        });
+        self.taken.take_back();
+        terminal::note_alternate(true);
+        let mut bytes = ENTER_ALTERNATE.to_vec();
+        bytes.extend_from_slice(on);
+        let entered = self.write_all(&bytes);
+        lent.ended(outcome);
+        entered
     }
 
     /// What is written, before the screen is left, whenever the terminal is given back, in place of

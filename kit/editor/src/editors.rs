@@ -1030,6 +1030,13 @@ impl Editors {
         Some((start, end - start))
     }
 
+    /// Where the main selection of the editor with the keyboard has its caret (the end that moves,
+    /// whichever it is), likewise.
+    pub fn caret_utf16(&self) -> Option<usize> {
+        let buffer = self.focused_buffer()?;
+        buffer.utf16_of(buffer.main().head)
+    }
+
     /// What is composed, likewise.
     pub fn marked_utf16(&self) -> Option<(usize, usize)> {
         let buffer = self.focused_buffer()?;

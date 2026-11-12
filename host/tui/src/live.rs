@@ -16,13 +16,13 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use pencere::{
-    Bundle, Closed, Conversation, EndedBy, Kind, Options, Said, Shown, Size, Tty, View, Waker,
+    Bundle, Closed, Conversation, EndedBy, Kind, Lent, Options, Said, Shown, Size, Tty, View, Waker,
 };
 use pencere_drive::{FrameAt, Host, Page, Route, Setup};
 use pencere_sandbox::{Assets, Fault, Program, Script};
 use pencere_view::{
-    Button, Cursor, Drawing, FieldKind, Fill, Id, Input, Key, KeyConvention, Keyboard, Menu, Mods,
-    Panel, Phase, Point, copy_key,
+    Button, Cursor, Drawing, FieldKind, FileSource, Fill, Id, Input, Key, KeyConvention, Keyboard,
+    Menu, Mods, Panel, Phase, Point, copy_key,
 };
 
 use crate::field::{TextField, draw_fields};
@@ -30,6 +30,7 @@ use crate::input::{Decoder, Event, KeyEvent, Mouse, MouseKind};
 use crate::measure::Cells;
 use crate::memory;
 use crate::output::base64;
+use crate::overlay::{self, Answered, Chose, Handles, LinkBar, MenuBox, PanelBar};
 use crate::paint::{CanvasMode, ImageMode, Options as Paint, render};
 use crate::probe::{self, Found, Guess};
 use crate::screen::Screen;
@@ -77,9 +78,12 @@ const POINTER_OFF: &[u8] = b"\x1b]22;\x1b\\";
 
 /// What is written, before the screen is left, whenever the terminal is given back: the modes put
 /// back, the keyboard's flags taken back where they were asked for and the pointer's shape where the
-/// page chose one.
-fn off(keys: bool, pointer: bool) -> Vec<u8> {
+/// page chose one, and the pictures the terminal keeps given up where it was sent some.
+fn off(keys: bool, pointer: bool, pictures: bool) -> Vec<u8> {
     let mut bytes = Vec::new();
+    if pictures {
+        bytes.extend_from_slice(crate::output::FREE_ALL.as_bytes());
+    }
     if keys {
         bytes.extend_from_slice(KEYS_OFF);
     }
@@ -106,16 +110,29 @@ fn pointer_name(cursor: Cursor) -> &'static str {
     }
 }
 
-/// The files of the view's bundle, as the page reads them.
-struct Files(Bundle);
+/// The files of the view's bundle, as the page reads them, and the files the person gave it: those
+/// by the handle the page was given with the file (`file:` and the handle), never by a path.
+struct Files {
+    bundle: Bundle,
+    handles: Arc<Handles>,
+}
 
 impl Assets for Files {
     fn read(&self, path: &str) -> Option<Arc<[u8]>> {
-        self.0.get(path).map(|(_, data)| Arc::from(data))
+        if let Some(handle) = path.strip_prefix("file:") {
+            return self.handles.read(handle).map(Arc::from);
+        }
+        self.bundle.get(path).map(|(_, data)| Arc::from(data))
     }
 
     fn media_type(&self, path: &str) -> Option<String> {
-        self.0
+        if let Some(handle) = path.strip_prefix("file:") {
+            return self
+                .handles
+                .path_of(handle)
+                .map(|path| overlay::media_type_of(&path));
+        }
+        self.bundle
             .get(path)
             .map(|(media_type, _)| media_type.to_owned())
     }
@@ -246,6 +263,11 @@ struct Effects {
     notes: Vec<String>,
     /// The shape the pointer is to take, the last the page asked for.
     cursor: Option<Cursor>,
+    /// What the page asked to show the person: a menu, a panel, a link. One of each at most, the
+    /// first: the screen shows one thing at a time.
+    menu: Option<Menu>,
+    panel: Option<Panel>,
+    link: Option<String>,
 }
 
 impl Host for Effects {
@@ -278,21 +300,15 @@ impl Host for Effects {
     }
 
     fn link(&mut self, url: String) {
-        self.notes.push(format!(
-            "the page asked to open {url}, which this screen does not do"
-        ));
+        self.link.get_or_insert(url);
     }
 
-    fn menu(&mut self, _menu: Menu) {
-        self.notes
-            .push("the page asked for a menu, which this screen does not show".to_owned());
+    fn menu(&mut self, menu: Menu) {
+        self.menu.get_or_insert(menu);
     }
 
-    fn panel(&mut self, _panel: Panel) {
-        self.notes.push(
-            "the page asked for files or a place to save in, which this screen does not give"
-                .to_owned(),
-        );
+    fn panel(&mut self, panel: Panel) {
+        self.panel.get_or_insert(panel);
     }
 
     fn diagnostic(&mut self, words: String) {
@@ -454,6 +470,13 @@ fn held(page: &Page, event: &Event, next: Option<&Event>) -> bool {
         && !page.binds(key.key, key.mods)
 }
 
+/// What is shown over the page.
+enum Overlay {
+    Menu(MenuBox),
+    Panel(PanelBar),
+    Link(LinkBar),
+}
+
 /// The screen: the terminal, the page and the program, and what is known of what is shown.
 struct Live<'t> {
     tty: Tty<'t>,
@@ -474,6 +497,14 @@ struct Live<'t> {
     dragging: Option<Id>,
     pasteboard: Option<String>,
     press: Option<Press>,
+    /// What is shown over the page (a menu, the line of a panel, a link) and has the keys and the
+    /// pointer while it is.
+    overlay: Option<Overlay>,
+    /// The press that an overlay took: its release is the overlay's too, and the page, which would
+    /// act on a button under the menu, is not told of it.
+    press_taken: bool,
+    /// The files the person gave the page.
+    handles: Arc<Handles>,
     /// What came before the loop (typed while the terminal was asked what it is).
     early: Vec<Event>,
     /// A frame is due whatever the page says: the host changed something it shows.
@@ -492,6 +523,10 @@ struct Live<'t> {
     /// The shape the pointer was last given by `OSC 22`; none while the terminal's own is as it
     /// was.
     pointer: Option<Cursor>,
+    /// The terminal was lent to a command, and the view is not shown again yet.
+    lent_back: bool,
+    /// Pictures were sent to the terminal, which keeps them: they are given up when it is given back.
+    pictures: bool,
     /// The shape the page last asked for, and where the pointer last was (in the page's points).
     told: Cursor,
     pointer_at: Option<Point>,
@@ -512,7 +547,8 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
     let waker = tty.waker();
     // The page is started before the terminal is asked what it is: its interpreter is made on a
     // thread of its own, while the answers come.
-    let page = open_page(&bundle, &clock, &waker)?;
+    let handles = Handles::new();
+    let page = open_page(&bundle, &clock, &waker, &handles)?;
     trace.mark(|| "the page started".to_owned());
     let mut decoder = Decoder::new();
     let mut early = Vec::new();
@@ -538,7 +574,7 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
     });
     let keys = found.keyboard && tty.write_all(b"\x1b[>1u").is_ok();
     if keys {
-        tty.leaving(&off(true, false));
+        tty.leaving(&off(true, false, false));
     }
     let conversation = Conversation::waking(options, &waker);
     let size = tty.size();
@@ -559,12 +595,17 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
         dragging: None,
         pasteboard: None,
         press: None,
+        overlay: None,
+        press_taken: false,
+        handles,
         early,
         dirty: true,
         waiting: false,
         waits: 0,
         last_frame: 0.0,
         escape_at: None,
+        lent_back: false,
+        pictures: false,
         notes: Vec::new(),
         keys,
         pointer: None,
@@ -600,8 +641,16 @@ fn choose(views: &[View]) -> io::Result<(Shown, Bundle)> {
 }
 
 /// The page of the bundle, running on its module's thread.
-fn open_page(bundle: &Bundle, clock: &Arc<Clock>, waker: &Waker) -> io::Result<Page> {
-    let files: Arc<dyn Assets> = Arc::new(Files(bundle.clone()));
+fn open_page(
+    bundle: &Bundle,
+    clock: &Arc<Clock>,
+    waker: &Waker,
+    handles: &Arc<Handles>,
+) -> io::Result<Page> {
+    let files: Arc<dyn Assets> = Arc::new(Files {
+        bundle: bundle.clone(),
+        handles: Arc::clone(handles),
+    });
     let entry = bundle.entry();
     let (_, source) = bundle
         .get(entry)
@@ -618,7 +667,21 @@ fn open_page(bundle: &Bundle, clock: &Arc<Clock>, waker: &Waker) -> io::Result<P
         ..Setup::default()
     };
     let wake = waker.clone();
-    Ok(Page::script(script, setup, move || wake.wake()))
+    let mut page = Page::script(script, setup, move || wake.wake());
+    // The terminal draws the caret, as its own cursor, and blinks it as the person set it to.
+    page.set_host_caret(true);
+    Ok(page)
+}
+
+/// Whether a key that had the editor copy or cut is the person's word for the terminal's pasteboard:
+/// ⌘C and ⌘X (a terminal that reports the Super key), and ⌃X, which is cut where there is no ⌘.
+fn by_person(key: Key, mods: Mods) -> bool {
+    copy_key(key, mods)
+        || (mods.control
+            && !mods.shift
+            && !mods.alt
+            && !mods.command
+            && matches!(key, Key::Character(c) if c.eq_ignore_ascii_case(&'x')))
 }
 
 fn closed(shown: Shown, stop: &Stop) -> Closed {
@@ -762,7 +825,7 @@ impl Live<'_> {
             }
             Event::Mouse(mouse) => {
                 let answered = matches!(mouse.kind, MouseKind::Press(_) | MouseKind::Release(_));
-                self.mouse(mouse);
+                self.mouse(mouse)?;
                 answered
             }
             Event::Paste(text) => {
@@ -813,6 +876,12 @@ impl Live<'_> {
         {
             return Err(Stop::by(EndedBy::Signal(2)));
         }
+        if self.overlay.is_some() {
+            if down {
+                self.overlay_key(key, mods, text.as_deref())?;
+            }
+            return Ok(());
+        }
         if !down {
             self.page.key_up(key, mods);
             return Ok(());
@@ -820,6 +889,18 @@ impl Live<'_> {
         if let Some(id) = self.focused_field() {
             self.field_key(id, key, mods, text.as_deref());
             return Ok(());
+        }
+        // ⌃⇧C copies what is selected where a terminal tells it from ⌃C, which is the interrupt
+        // (one that reports no modifiers of a letter's key sends the same byte for both, and the
+        // interrupt wins). Not in the editor's own table, for it is the person's terminal's.
+        if mods.control
+            && mods.shift
+            && !mods.alt
+            && !mods.command
+            && matches!(key, Key::Character(c) if c.eq_ignore_ascii_case(&'c'))
+            && let Some(selected) = self.selected_text()
+        {
+            return self.copy(selected, true);
         }
         match self.page.key(key, mods) {
             Route::Type => {
@@ -831,7 +912,7 @@ impl Live<'_> {
                     self.page.editors().type_text(&typed);
                 }
             }
-            Route::Copy(text) | Route::Cut(text) => self.copy(text, copy_key(key, mods))?,
+            Route::Copy(text) | Route::Cut(text) => self.copy(text, by_person(key, mods))?,
             Route::Paste => {
                 if let Some(text) = self.pasteboard.clone() {
                     self.page.editors().paste(&text);
@@ -840,6 +921,13 @@ impl Live<'_> {
             _ => {}
         }
         Ok(())
+    }
+
+    /// What is selected in the editor that has the keyboard, if anything is.
+    fn selected_text(&mut self) -> Option<String> {
+        let editors = self.page.editors();
+        let (start, len) = editors.selected().filter(|(_, len)| *len > 0)?;
+        editors.text(start, len)
     }
 
     /// The field that has the keyboard, if the page still has it.
@@ -887,6 +975,13 @@ impl Live<'_> {
     }
 
     fn paste(&mut self, text: &str) {
+        if let Some(overlay) = &mut self.overlay {
+            if let Overlay::Panel(bar) = overlay {
+                bar.paste(text);
+                self.dirty = true;
+            }
+            return;
+        }
         if let Some(id) = self.focused_field() {
             let kind = self.kind_of(id);
             let field = self
@@ -932,9 +1027,12 @@ impl Live<'_> {
         )
     }
 
-    fn mouse(&mut self, mouse: Mouse) {
+    fn mouse(&mut self, mouse: Mouse) -> Flow {
         let at = Self::point(&mouse);
         self.pointer_at = Some(at);
+        if self.overlay.is_some() || self.press_taken {
+            return self.overlay_mouse(&mouse);
+        }
         match mouse.kind {
             MouseKind::Move => self.page.input(Input::Move {
                 at,
@@ -972,6 +1070,7 @@ impl Live<'_> {
             // Said which button by the decoder.
             MouseKind::Up => {}
         }
+        Ok(())
     }
 
     fn pressed(&mut self, mouse: &Mouse, button: Button) {
@@ -1050,6 +1149,155 @@ impl Live<'_> {
         }
     }
 
+    // --- What is over the page ----------------------------------------------------------------
+
+    fn cell_of(&self, mouse: &Mouse) -> (u16, u16) {
+        (mouse.col, mouse.row)
+    }
+
+    /// The pointer while something is over the page: it is the overlay's, and the page hears none of
+    /// it, the release of the press that picked a line included.
+    fn overlay_mouse(&mut self, mouse: &Mouse) -> Flow {
+        let (col, row) = self.cell_of(mouse);
+        let Some(overlay) = &mut self.overlay else {
+            // The overlay went with a press: its release is not the page's.
+            if matches!(mouse.kind, MouseKind::Release(_)) {
+                self.press_taken = false;
+            }
+            return Ok(());
+        };
+        match (&mut *overlay, mouse.kind) {
+            (Overlay::Menu(menu), MouseKind::Move | MouseKind::Drag(_)) => {
+                if menu.hover(col, row) {
+                    self.dirty = true;
+                }
+            }
+            (Overlay::Menu(menu), MouseKind::Press(_)) => {
+                self.press_taken = true;
+                match menu.press(col, row) {
+                    Chose::Nothing => {}
+                    Chose::Pick(index) => {
+                        let serial = menu.serial();
+                        self.overlay = None;
+                        self.dirty = true;
+                        self.pick(serial, index)?;
+                    }
+                    Chose::Dismissed => {
+                        self.overlay = None;
+                        self.dirty = true;
+                    }
+                }
+            }
+            (Overlay::Panel(bar), MouseKind::Press(_)) => {
+                self.press_taken = true;
+                let area = bar.area((self.size.cols, self.size.rows));
+                if area.contains(col, row) && row + 1 == area.row + area.rows {
+                    bar.press(col, mouse.mods.shift);
+                    self.dirty = true;
+                }
+            }
+            (Overlay::Link(_), MouseKind::Press(_)) => {
+                // The terminal opens a link by its own click (with the key it asks for) where the
+                // mouse is reported; a press anywhere else turns the line away.
+                self.press_taken = true;
+                self.overlay = None;
+                self.dirty = true;
+            }
+            (_, MouseKind::Release(_)) => self.press_taken = false,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// A key while something is over the page.
+    fn overlay_key(&mut self, key: Key, mods: Mods, text: Option<&str>) -> Flow {
+        let handles = Arc::clone(&self.handles);
+        let Some(overlay) = &mut self.overlay else {
+            return Ok(());
+        };
+        self.dirty = true;
+        match overlay {
+            Overlay::Menu(menu) => match menu.key(key, mods).0 {
+                Chose::Nothing => {}
+                Chose::Pick(index) => {
+                    let serial = menu.serial();
+                    self.overlay = None;
+                    self.pick(serial, index)?;
+                }
+                Chose::Dismissed => self.overlay = None,
+            },
+            Overlay::Panel(bar) => match bar.key(key, mods, text, &handles) {
+                Answered::Open => {}
+                Answered::Turned => {
+                    let panel = bar.panel().clone();
+                    self.overlay = None;
+                    self.panel_answered(&panel, Answered::Turned)?;
+                }
+                answer @ (Answered::Gave(_) | Answered::Chose(_)) => {
+                    let panel = bar.panel().clone();
+                    self.overlay = None;
+                    self.panel_answered(&panel, answer)?;
+                }
+            },
+            // Any key turns the line away.
+            Overlay::Link(_) => self.overlay = None,
+        }
+        Ok(())
+    }
+
+    /// The person picked the `index`th line of the menu the page asked for as number `serial`.
+    fn pick(&mut self, serial: u64, index: usize) -> Flow {
+        let mut effects = Effects::default();
+        self.page.pick(serial, index, &mut effects);
+        self.apply(effects)?;
+        self.pump()
+    }
+
+    /// What the person did with the panel: the page is told, a panel turned away included.
+    fn panel_answered(&mut self, panel: &Panel, answer: Answered) -> Flow {
+        match answer {
+            Answered::Gave(entries) => {
+                self.page.give(Point::default(), FileSource::Pick, entries);
+            }
+            Answered::Chose(saving) => self.page.saving(Some(saving)),
+            Answered::Turned | Answered::Open => match panel {
+                Panel::Pick { .. } => {
+                    self.page
+                        .give(Point::default(), FileSource::Pick, Vec::new())
+                }
+                Panel::Save { .. } => self.page.saving(None),
+            },
+        }
+        self.pump()
+    }
+
+    /// Shows what the page asked to show, where nothing is shown over it already: a menu and a panel
+    /// asked for while another is up are passed over (the page is not told), a link replaces a link.
+    fn show(&mut self, effects: &mut Effects) {
+        let size = (self.size.cols, self.size.rows);
+        if let Some(url) = effects.link.take()
+            && overlay::openable(&url)
+            && matches!(self.overlay, None | Some(Overlay::Link(_)))
+        {
+            self.overlay = Some(Overlay::Link(LinkBar::new(url)));
+            self.dirty = true;
+        }
+        if self.overlay.is_some() {
+            return;
+        }
+        if let Some(menu) = effects.menu.take() {
+            let at = (
+                (menu.at.x / COLUMN).floor().max(0.0) as u16,
+                (menu.at.y / ROW).floor().max(0.0) as u16,
+            );
+            self.overlay = Some(Overlay::Menu(MenuBox::new(&menu, at, size)));
+            self.dirty = true;
+        } else if let Some(panel) = effects.panel.take() {
+            self.overlay = Some(Overlay::Panel(PanelBar::new(panel)));
+            self.dirty = true;
+        }
+    }
+
     // --- What the page says -------------------------------------------------------------------
 
     /// Takes what the page has said and gives it where it goes, and the other way round, until
@@ -1069,7 +1317,8 @@ impl Live<'_> {
         Ok(())
     }
 
-    fn apply(&mut self, effects: Effects) -> Flow {
+    fn apply(&mut self, mut effects: Effects) -> Flow {
+        self.show(&mut effects);
         for message in &effects.sent {
             self.conversation.send(message);
         }
@@ -1133,6 +1382,12 @@ impl Live<'_> {
         self.take_pointer(wanted)
     }
 
+    /// What is written when the terminal is given back, as the screen stands.
+    fn leaving(&self) {
+        self.tty
+            .leaving(&off(self.keys, self.pointer.is_some(), self.pictures));
+    }
+
     /// The pointer takes the shape asked for, where it is not the one it has: written only
     /// when it changes, and given back with the terminal (the first time one is chosen). The arrow
     /// is what the terminal has until a shape was chosen.
@@ -1140,10 +1395,8 @@ impl Live<'_> {
         if self.pointer.unwrap_or_default() == cursor {
             return Ok(());
         }
-        if self.pointer.is_none() {
-            self.tty.leaving(&off(self.keys, true));
-        }
         self.pointer = Some(cursor);
+        self.leaving();
         let bytes = format!("\x1b]22;{}\x1b\\", pointer_name(cursor));
         self.tty
             .write_all(bytes.as_bytes())
@@ -1164,21 +1417,49 @@ impl Live<'_> {
                     self.page.message(&text);
                 }
                 Said::Closed => return Err(Stop::by(EndedBy::Program)),
-                Said::Reopened(views) => self.reopen(views.as_deref())?,
+                Said::Reopened(views) => {
+                    self.lent_back = false;
+                    self.reopen(views.as_deref())?;
+                }
                 Said::HandedOff(lent) => {
-                    // Dropped, the program is told the command could not be started.
-                    drop(lent);
-                    let note = "the program asked to lend the terminal to a command, which this \
-                                screen does not do"
-                        .to_owned();
-                    if !self.notes.contains(&note) {
-                        self.notes.push(note);
-                    }
+                    self.lend(lent)?;
+                    // The view is shown again when the command is done, as the program's session
+                    // shows it: a reopening that came meanwhile says it with the kinds of view it
+                    // brought, and is the one to do it.
+                    self.lent_back = true;
                 }
                 _ => {}
             }
         }
+        if std::mem::take(&mut self.lent_back) {
+            self.reopen(None)?;
+        }
         Ok(any)
+    }
+
+    /// The program lent the terminal to a command: the modes are given back and the command runs
+    /// as the terminal's foreground job, which this waits for; then the screen is taken again, and
+    /// all of it is drawn anew (the terminal had it cleared, and what the command wrote is not
+    /// ours).
+    fn lend(&mut self, lent: Lent) -> Flow {
+        self.tty
+            .lend(lent, ON)
+            .map_err(|error| Stop::io(&self.tty, &error))?;
+        if self.keys {
+            self.tty
+                .write_all(b"\x1b[>1u")
+                .map_err(|error| Stop::io(&self.tty, &error))?;
+        }
+        self.pointer = None;
+        self.pictures = false;
+        self.leaving();
+        self.decoder = Decoder::new();
+        self.escape_at = None;
+        self.press = None;
+        self.size = self.tty.size();
+        self.screen.forget();
+        self.dirty = true;
+        Ok(())
     }
 
     /// The program shows its view anew: the page is made again, from the view it brings (or the
@@ -1190,15 +1471,20 @@ impl Live<'_> {
             self.shown = shown;
             self.bundle = bundle;
         }
-        let page = open_page(&self.bundle, &self.clock, &self.waker).map_err(|error| Stop {
-            by: EndedBy::Error,
-            code: Some("view".to_owned()),
-            message: Some(error.to_string()),
-        })?;
+        let page =
+            open_page(&self.bundle, &self.clock, &self.waker, &self.handles).map_err(|error| {
+                Stop {
+                    by: EndedBy::Error,
+                    code: Some("view".to_owned()),
+                    message: Some(error.to_string()),
+                }
+            })?;
         self.page = page;
         self.fields.clear();
         self.focus = None;
         self.dragging = None;
+        self.overlay = None;
+        self.press_taken = false;
         self.dirty = true;
         Ok(())
     }
@@ -1267,8 +1553,38 @@ impl Live<'_> {
         );
         self.waits = if frame.waiting { self.waits + 1 } else { 0 };
         self.waiting = frame.waiting && self.waits < PATIENCE_FRAMES;
-        let cursor = self.draw_fields(&mut frame.grid, &theme);
+        let mut cursor = self.draw_fields(&mut frame.grid, &theme);
+        if cursor.is_none() && self.overlay.is_none() {
+            cursor = self.editor_cursor();
+        }
+        if let Some(overlay) = &self.overlay {
+            cursor = None;
+            let area = match overlay {
+                Overlay::Menu(menu) => {
+                    menu.draw(&mut frame.grid, &theme);
+                    Some(menu.area())
+                }
+                Overlay::Panel(bar) => {
+                    cursor = bar.draw(&mut frame.grid, &theme);
+                    Some(bar.area((cols, rows)))
+                }
+                Overlay::Link(bar) => {
+                    frame.links.extend(bar.draw(&mut frame.grid, &theme));
+                    Some(bar.area((cols, rows)))
+                }
+            };
+            // A picture that is drawn over the grounds would cover what is over the page.
+            if let Some(area) = area {
+                frame.placements.retain(|p| {
+                    p.z != crate::output::BEHIND_TEXT || !area.meets(p.col, p.row, p.cols, p.rows)
+                });
+            }
+        }
         let bytes = self.screen.draw(&frame, cursor);
+        if self.screen.holds_pictures() && !self.pictures {
+            self.pictures = true;
+            self.leaving();
+        }
         if self.trace.frames() < TRACED_FRAMES {
             let sent = bytes.len();
             self.trace.mark(|| format!("frame, {sent} bytes written"));
@@ -1286,9 +1602,25 @@ impl Live<'_> {
         spent.pixels += frame
             .placements
             .iter()
-            .map(|p| p.rgba.len() as u64)
+            .map(|p| 4 * u64::from(p.width) * u64::from(p.height))
             .sum::<u64>();
         Ok(())
+    }
+
+    /// The cell the terminal's cursor goes to for the editor that has the keyboard: the cell its
+    /// caret is in, where that is on the screen. The terminal draws it, and blinks it, as the person
+    /// set it to; the page's own caret is not drawn.
+    fn editor_cursor(&mut self) -> Option<(u16, u16)> {
+        let mut editors = self.page.editors();
+        editors.focused()?;
+        let at = editors.caret()?;
+        let rect = editors.rect(at)?;
+        // The caret's box starts at its place between two characters: the nearer cell edge. A tall
+        // line's caret is in the row its middle is in.
+        let col = (rect.x / COLUMN + 0.5).floor();
+        let row = ((rect.y + rect.h / 2.0) / ROW).floor();
+        let on = |at: f32, of: u16| at >= 0.0 && at < f32::from(of);
+        (on(col, self.size.cols) && on(row, self.size.rows)).then_some((col as u16, row as u16))
     }
 
     /// The pixels of a cell of the terminal, where it says (a guess where it does not).

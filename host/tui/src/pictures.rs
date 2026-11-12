@@ -10,6 +10,10 @@ use pencere_view::{Picture, Rect};
 /// The pixels of a picture.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Raster {
+    /// What names these pixels and no other, where whoever has them has a name for them (the
+    /// sandbox's: [`pencere_sandbox::Bitmap::id`]): a terminal that was sent them is not sent them
+    /// again. `None` for pixels that have none; they are named by what they are.
+    pub id: Option<u64>,
     pub width: u32,
     pub height: u32,
     /// `4 * width * height` bytes, sRGB, **premultiplied** by the opacity, rows from the top.
@@ -116,6 +120,7 @@ impl Pictures for Images {
     fn raster(&self, picture: &Picture) -> Option<Raster> {
         let bitmap = Images::picture(self, picture)?;
         Some(Raster {
+            id: Some(bitmap.id),
             width: bitmap.width,
             height: bitmap.height,
             pixels: bitmap.pixels().to_vec(),

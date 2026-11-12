@@ -6,6 +6,11 @@ All notable changes to the `pencere-editor` crate are recorded here. The format 
 
 ## [Unreleased]
 
+### Added
+
+- `Editors::caret_utf16`: the caret of the main selection of the editor that has the keyboard (the end
+  that moves), in units of UTF-16.
+
 ### Changed
 
 - On a host that draws in cells (`Measure::grid` of the engine) a row of the editor is a row of the

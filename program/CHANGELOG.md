@@ -8,6 +8,11 @@ All notable changes to the `pencere` crate are recorded here. The format follows
 
 ### Added
 
+- **`Tty::lend`: the terminal lent to a command from a screen the program draws itself.** Given the
+  program's `Lent` (what `Said::HandedOff` carries) and the bytes that switch the screen's modes on, it
+  writes the modes back, leaves the alternate screen, gives the terminal back as it was found, runs
+  the command as its foreground job and waits for it, takes the terminal again and enters the screen
+  again. The program's hand-off is told how the command ended, or why it could not be run.
 - **A program may draw its own view where no terminal hosts it: `Options::screen`.** It is given the
   program's options (without the fallback and the screen) and the terminal as a `Tty`, taken for a
   screen the program draws on itself, and returns how the view closed. `serve` runs it where the

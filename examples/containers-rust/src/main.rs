@@ -10,6 +10,8 @@
 //! ```text
 //! containers-rust            the view, the terminal's or its own; the list as text if neither
 //! containers-rust --script F the view is the Lua script in the file F (to try a script of one's own)
+//! containers-rust --bundle D the view is the files of the directory D, its entry `main.lua`
+//! containers-rust --hand-off the view may call `handoff`, which lends the terminal to `printf`
 //! containers-rust --flood    the view, with the readings pushed as fast as the terminal takes them
 //! containers-rust --stall N  the view, with the readings stopping after N seconds (a Docker that hangs)
 //! containers-rust --text     the list as text, whatever the terminal is
@@ -28,13 +30,15 @@ mod table;
 #[cfg(test)]
 mod view_tests;
 
-use std::borrow::Cow;
-use std::process::ExitCode;
+use std::process::{Command, ExitCode};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use pencere::{Bundle, EndedBy, Kind, NoViewReason, Options, Outcome, Subscription, View};
+use pencere::{
+    Bundle, EndedBy, HandOffResult, Kind, NoViewReason, Options, Outcome, Subscription, View,
+    ViewControl,
+};
 use serde_json::{Value, json};
 
 /// The page, a script in the Lua language.
@@ -51,8 +55,10 @@ fn main() -> ExitCode {
     let mut flood = false;
     let mut stall = None;
     let mut script = None;
+    let mut directory = None;
     let mut text = false;
     let mut json = false;
+    let mut hand_off = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -78,6 +84,14 @@ fn main() -> ExitCode {
                     return ExitCode::from(64);
                 }
             },
+            "--bundle" => match args.next() {
+                Some(path) => directory = Some(path),
+                None => {
+                    eprintln!("{USAGE}");
+                    return ExitCode::from(64);
+                }
+            },
+            "--hand-off" => hand_off = true,
             "--text" => text = true,
             "--json" => json = true,
             "--help" | "-h" => {
@@ -103,24 +117,34 @@ fn main() -> ExitCode {
             print!("{}", table::json());
             ExitCode::SUCCESS
         }
-        (false, false) => match script {
-            Some(bytes) => shown("containers.lua", bytes.into(), flood, stall),
-            None => shown("containers.lua", SCRIPT.into(), flood, stall),
-        },
+        (false, false) => {
+            let bundle = match (directory, script) {
+                (Some(path), _) => Bundle::from_dir(path, "main.lua"),
+                (None, Some(bytes)) => Bundle::single("containers.lua", bytes),
+                (None, None) => Bundle::single("containers.lua", SCRIPT),
+            };
+            match bundle {
+                Ok(bundle) => shown(bundle, flood, stall, hand_off),
+                Err(why) => {
+                    eprintln!("containers-rust: {why}");
+                    ExitCode::from(66)
+                }
+            }
+        }
     }
 }
 
 /// The view, the terminal's or the one this program draws itself, and the list as text if neither.
-fn shown(name: &str, file: Cow<'static, [u8]>, flood: bool, stall: Option<Duration>) -> ExitCode {
-    let bundle = match Bundle::single(name, file) {
-        Ok(bundle) => bundle,
-        Err(why) => {
-            eprintln!("containers-rust: {why}");
-            return ExitCode::from(66);
-        }
-    };
+fn shown(bundle: Bundle, flood: bool, stall: Option<Duration>, hand_off: bool) -> ExitCode {
     let upload = Arc::new(Upload::default());
-    let options = handlers(flood, stall, &upload)
+    let control = ViewControl::default();
+    let mut options = handlers(flood, stall, &upload).control(control.clone());
+    if hand_off {
+        options = options.call("handoff", move |params, _call| {
+            Ok(hand_off_word(&control, &params))
+        });
+    }
+    let options = options
         .view(View::new(Kind::Lua, &[LUA_VERSION], bundle))
         .program("containers-rust")
         .title("Containers")
@@ -164,6 +188,22 @@ fn shown(name: &str, file: Cow<'static, [u8]>, flood: bool, stall: Option<Durati
         }
     }
     ExitCode::from(outcome.shell_status())
+}
+
+/// The call a view makes to see the terminal lent to a command (`--hand-off`): the command writes
+/// the word the view gave, and the answer, which is the old view's and is lost with it, says how it
+/// ended.
+fn hand_off_word(control: &ViewControl, params: &Value) -> Value {
+    let word = params
+        .get("word")
+        .and_then(Value::as_str)
+        .unwrap_or("handed");
+    let mut command = Command::new("printf");
+    command.arg("%s").arg(word);
+    match control.hand_off(command).wait() {
+        HandOffResult::Returned(Ok(status)) => json!({ "code": status.code() }),
+        _ => json!({ "code": null }),
+    }
 }
 
 /// What the program does for its view, wherever the view is: the readings, and the payload counted
@@ -268,10 +308,12 @@ fn printable(words: &str) -> String {
     words.chars().filter(|c| !c.is_control()).collect()
 }
 
-const USAGE: &str = "usage: containers-rust [--script FILE] [--flood] [--stall N] | --text | --json\n\n  \
+const USAGE: &str = "usage: containers-rust [--script FILE | --bundle DIR] [--flood] [--stall N] [--hand-off] | --text | --json\n\n  \
     (no option)  a view in a terminal that shows one, the list as text in one that does not\n  \
     --script F   the view as the Lua script in the file F\n  \
+    --bundle D   the view as the files of the directory D, its entry `main.lua`\n  \
     --flood      the view, with the readings pushed as fast as the terminal takes them\n  \
     --stall N    the view, with the readings stopping after N seconds\n  \
+    --hand-off   the view, which may call `handoff` to have the terminal lent to `printf`\n  \
     --text       the list as text\n  \
     --json       the list as JSON, a line for each container";

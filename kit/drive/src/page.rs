@@ -979,6 +979,18 @@ impl Page {
         }
     }
 
+    /// Whether the host draws the caret itself, as a terminal host does with its cursor: the page
+    /// draws none of its own (the selection stays) and asks for no frame to blink one. The host
+    /// finds where the caret is from [`Page::editors`]. Off, as for a host that draws what the page
+    /// paints.
+    pub fn set_host_caret(&mut self, host: bool) {
+        let state = &mut self.state;
+        if state.editing.blink.is_host() != host {
+            state.editing.blink.set_host(host);
+            state.redraw = true;
+        }
+    }
+
     /// What the host says of how its terminal draws its cursor and its selection
     /// ([`pencere_sandbox::Program::terminal_look`]) is not what it was: the page is told
     /// ([`Event::TerminalLook`]) and reads it again. Called where the host calls the page's other
@@ -1847,6 +1859,13 @@ impl PageEditors<'_> {
     /// The main selection of the editor with the keyboard: where it starts and how long it is.
     pub fn selected(&self) -> Option<(usize, usize)> {
         self.page.state.editing.editors.selected_utf16()
+    }
+
+    /// Where the caret of its main selection is, likewise: the end of it that moves, not the one
+    /// that stays. A host that draws the caret itself ([`Page::set_host_caret`]) asks for its box
+    /// with [`PageEditors::rect`].
+    pub fn caret(&self) -> Option<usize> {
+        self.page.state.editing.editors.caret_utf16()
     }
 
     /// What the input method composes there, likewise.

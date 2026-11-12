@@ -8,13 +8,15 @@
 //! ground of the half that was drawn last: the box in front is the one the words belong to. A page
 //! laid out on the cells has its boxes on cell edges; what it writes smaller is drawn as a line.
 
+use std::sync::Arc;
+
 use pencere_sandbox::draw_figure;
 use pencere_view::{DrawList, Figure, Paint, Picture, Quad, Rect, Run};
 
 use crate::color::Rgb;
 use crate::grid::{Attrs, Bg, Cell, Grid};
 use crate::measure::char_width;
-use crate::output::{self, BEHIND_TEXT, GROUND, Placement};
+use crate::output::{self, BEHIND_TEXT, GROUND, Pixels, Placement};
 use crate::pictures::{Pictures, Raster};
 use crate::theme::Theme;
 
@@ -76,11 +78,23 @@ pub struct Stats {
     pub split: usize,
 }
 
+/// A run of cells on one row that is a link the terminal can open (OSC 8): the columns `from` up to
+/// `to`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Link {
+    pub row: u16,
+    pub from: u16,
+    pub to: u16,
+    pub url: String,
+}
+
 /// A page drawn: its cells, and the pictures the terminal is to draw.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Frame {
     pub grid: Grid,
     pub placements: Vec<Placement>,
+    /// The runs of cells that are links.
+    pub links: Vec<Link>,
     /// Whether a picture had no pixels yet: ask again when it has.
     pub waiting: bool,
     pub stats: Stats,
@@ -588,14 +602,16 @@ impl Painter<'_> {
                 row: r0 as u16,
                 cols: (c1 - c0) as u16,
                 rows: (r1 - r0) as u16,
-                width: 1,
-                height: 1,
-                rgba: vec![
+                pixels: Pixels::solid([
                     rgb.r,
                     rgb.g,
                     rgb.b,
                     (alpha * 255.0).round().clamp(0.0, 255.0) as u8,
-                ],
+                ]),
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
                 z: BEHIND_TEXT,
             });
         }
@@ -981,6 +997,7 @@ impl Painter<'_> {
             self.waiting = true;
             return;
         };
+        let raster = Arc::new(raster);
         let (rx0, ry0) = (picture.rect.x, picture.rect.y);
         let (rx1, ry1) = (rx0 + picture.rect.w, ry0 + picture.rect.h);
         let opacity = picture.opacity.clamp(0.0, 1.0);
@@ -1100,7 +1117,7 @@ impl Painter<'_> {
     fn place(
         &mut self,
         (c0, r0, c1, r1): (i32, i32, i32, i32),
-        raster: &Raster,
+        raster: &Arc<Raster>,
         source: (f32, f32, f32, f32),
         tint: Option<(Rgb, f32)>,
         opacity: f32,
@@ -1112,44 +1129,16 @@ impl Painter<'_> {
         let x1 = edge(u0.max(u1), raster.width).clamp(x0 + 1, raster.width.max(1));
         let y0 = edge(v0.min(v1), raster.height).min(raster.height.saturating_sub(1));
         let y1 = edge(v0.max(v1), raster.height).clamp(y0 + 1, raster.height.max(1));
-        let (width, height) = (x1 - x0, y1 - y0);
-        let mut rgba = Vec::with_capacity(width as usize * height as usize * 4);
-        for y in y0..y1 {
-            for x in x0..x1 {
-                let [r, g, b, a] = raster.at(x, y);
-                let alpha = f32::from(a) / 255.0 * opacity;
-                rgba.extend_from_slice(&match tint {
-                    Some((color, strength)) => [
-                        color.r,
-                        color.g,
-                        color.b,
-                        (alpha * strength * 255.0).round().clamp(0.0, 255.0) as u8,
-                    ],
-                    None if a == 0 => [0; 4],
-                    None => {
-                        let straight = |c: u8| {
-                            (f32::from(c) * 255.0 / f32::from(a))
-                                .round()
-                                .clamp(0.0, 255.0) as u8
-                        };
-                        [
-                            straight(r),
-                            straight(g),
-                            straight(b),
-                            (alpha * 255.0).round().clamp(0.0, 255.0) as u8,
-                        ]
-                    }
-                });
-            }
-        }
         self.placements.push(Placement {
             col: c0 as u16,
             row: r0 as u16,
             cols: (c1 - c0) as u16,
             rows: (r1 - r0) as u16,
-            width,
-            height,
-            rgba,
+            pixels: Pixels::of(Arc::clone(raster), tint, opacity),
+            x: x0,
+            y: y0,
+            width: x1 - x0,
+            height: y1 - y0,
             z,
         });
     }
@@ -1190,12 +1179,13 @@ impl Painter<'_> {
                 let Some(bitmap) = draw_figure(&drawn, resolve) else {
                     return;
                 };
-                let raster = Raster {
+                let raster = Arc::new(Raster {
+                    id: None,
                     width: bitmap.width,
                     height: bitmap.height,
                     pixels: bitmap.pixels().to_vec(),
                     crop: Rect::new(0.0, 0.0, 1.0, 1.0),
-                };
+                });
                 let seen = intersect(rect, &figure.clip);
                 let (v0, v1) = (c0.max(self.col(seen.x)), c1.min(self.col(seen.x + seen.w)));
                 let (w0, w1) = (r0.max(self.row(seen.y)), r1.min(self.row(seen.y + seen.h)));
@@ -1244,6 +1234,7 @@ impl Painter<'_> {
                     return;
                 };
                 let raster = Raster {
+                    id: None,
                     width: bitmap.width,
                     height: bitmap.height,
                     pixels: bitmap.pixels().to_vec(),
@@ -1452,6 +1443,7 @@ impl Painter<'_> {
         Frame {
             grid: Grid::new(canvas.cols as u16, canvas.rows as u16, cells),
             placements,
+            links: Vec::new(),
             waiting,
             stats,
         }

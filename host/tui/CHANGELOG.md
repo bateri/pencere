@@ -8,6 +8,32 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 ### Added
 
+- **A menu, a panel and a link over the page.** `Host::menu` is a framed list of cells (the arrows,
+  Enter, Escape and the pointer pick, and a press outside turns it away; a Paste line is shown
+  dimmed: a page cannot read the terminal's pasteboard, the person pastes with the terminal's own
+  paste). `Host::panel` is one line for a path, with Tab to complete it, for Open (a file becomes a
+  handle the page draws with `file:<handle>` and has a `path`) and for Save (the page's proposed
+  name goes after a folder). `Host::link` shows an http or https address on the bottom row as a link
+  the terminal opens (`OSC 8`); no browser is started. Written as cells over the page, so the screen's
+  difference writes them like the rest.
+- **The editor.** The terminal's own cursor stands at the caret of the editor that has the keyboard
+  and blinks as the person set it to; the page does not draw a caret of its own. A paste in brackets
+  goes in at the caret, and what an input method composes arrives as the text it makes. `Ctrl+Shift+C`
+  copies what is selected to the terminal's pasteboard (`OSC 52`) where the terminal tells it from
+  `Ctrl+C`, which ends the program; so does `Ctrl+X`, which cuts. What the page asks to copy on its
+  own is never written to the pasteboard.
+- **A terminal lent to a command.** A program's hand-off (`Said::HandedOff`) gives the modes back,
+  runs the command as the terminal's foreground job, takes the terminal again and draws the view
+  anew.
+- **Pictures are sent once.** The pixels of a picture go to a terminal with the Kitty graphics
+  protocol once, under a number, and a placement is put by number with the part it shows; scrolling
+  a picture writes only where it goes. Pixels that are not shown are given up when more than 128 MiB
+  are kept, the least lately shown first, and all of them when the terminal is given back, when the
+  window is resized and after a hand-off. Placements that overlap in one layer stay in the order they
+  were drawn.
+- `Pixels`, the whole of the pixels of a picture the terminal draws (made into what the terminal
+  takes only when it is sent them), and `Raster::id`, which names pixels.
+- `Frame::links` and `Link`: the runs of cells that are links, written under `OSC 8`.
 - The screen tells its page what it draws (`Program::draws`): always `cells`, and `coarse_images`
   where the terminal has no Kitty graphics. The page is started before the terminal is asked what it
   is, so a page that asks first waits (on its own thread, ten seconds at the most) for the answer.
@@ -67,3 +93,8 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   `Module` does that for keys that follow one another), where each key waited for a page of its
   own and a held key fell behind. A key the page binds to a command (`Page::binds`) still waits for
   its answer.
+
+### Changed
+
+- `Placement` is a part of some `Pixels` (`pixels`, `x`, `y`, `width`, `height`) and not the bytes of
+  the part: `Placement::rgba` makes them. `Raster` has an `id`.

@@ -683,6 +683,7 @@ fn picture(rect: Rect, tint: Option<Color>) -> Paint {
 
 fn red(width: u32, height: u32) -> Raster {
     Raster {
+        id: None,
         width,
         height,
         pixels: [255, 0, 0, 255].repeat((width * height) as usize),
@@ -710,7 +711,7 @@ fn a_picture_is_placed_in_the_cells_of_its_box_and_the_cells_are_the_terminals()
         (2, 1, 8, 3)
     );
     assert_eq!((placed.width, placed.height), (4, 4));
-    assert_eq!(placed.rgba.get(..4), Some(&[255, 0, 0, 255][..]));
+    assert_eq!(placed.rgba().get(..4), Some(&[255, 0, 0, 255][..]));
     // It covers its cells altogether: it is drawn under their grounds, which are the terminal's.
     assert_eq!(placed.z, -1_073_741_825);
     assert_eq!(bg(&frame, 2, 1), Bg::Default);
@@ -752,6 +753,7 @@ fn a_picture_a_terminal_cannot_draw_is_half_blocks_where_it_is_large() {
 #[test]
 fn an_icon_keeps_the_grounds_under_it_and_is_the_colour_it_is_tinted() {
     let faint = Raster {
+        id: None,
         width: 1,
         height: 1,
         pixels: vec![64, 0, 0, 128],
@@ -768,12 +770,13 @@ fn an_icon_keeps_the_grounds_under_it_and_is_the_colour_it_is_tinted() {
     assert_eq!(placed.z, -1);
     assert_eq!(bg(&frame, 1, 0), Bg::Rgb(BOX));
     // The tint, with the opacity the pixel has.
-    assert_eq!(placed.rgba, vec![0x58, 0xa6, 0xff, 128]);
+    assert_eq!(placed.rgba(), vec![0x58, 0xa6, 0xff, 128]);
 }
 
 #[test]
 fn a_pixel_the_terminal_gets_is_not_premultiplied() {
     let faint = Raster {
+        id: None,
         width: 1,
         height: 1,
         pixels: vec![64, 32, 0, 128],
@@ -783,7 +786,7 @@ fn a_pixel_the_terminal_gets_is_not_premultiplied() {
         items: vec![picture(Rect::new(0.0, 0.0, 2.0, 2.0), None)],
     };
     let frame = render(&list, 2, 1, &dark(), &One(faint), &Options::default());
-    assert_eq!(frame.placements[0].rgba, vec![128, 64, 0, 128]);
+    assert_eq!(frame.placements[0].rgba(), vec![128, 64, 0, 128]);
 }
 
 fn line(from: (f32, f32), to: (f32, f32), width: f32) -> Paint {
@@ -993,7 +996,7 @@ fn a_tint_over_a_picture_the_terminal_draws_is_a_picture_over_it() {
         .find(|placed| placed.z == -1)
         .expect("a picture over the picture");
     assert_eq!((tint.col, tint.row, tint.cols, tint.rows), (1, 0, 2, 1));
-    assert_eq!(tint.rgba[3], 77);
+    assert_eq!(tint.rgba()[3], 77);
     // On the page's own ground it is laid on the ground, as ever.
     let own = frame.grid.cell(0, 2).expect("a cell");
     assert_ne!(own.bg, Bg::Default);

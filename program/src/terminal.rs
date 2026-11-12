@@ -286,6 +286,11 @@ pub(crate) fn set_leave(bytes: &[u8]) {
     }
 }
 
+/// What is written when the terminal is given back, before the screen is left, as it stands.
+pub(crate) fn leave_bytes() -> Vec<u8> {
+    LEAVE.lock().map(|leave| leave.clone()).unwrap_or_default()
+}
+
 /// Whether the person asked to stop the program (⌃Z), once.
 pub(crate) fn take_stop() -> bool {
     STOPPED.swap(false, Ordering::SeqCst)

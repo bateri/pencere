@@ -201,6 +201,9 @@ pub(crate) struct Blink {
     moved: bool,
     /// The host's keyboard is in the page, in the person's window.
     active: bool,
+    /// The host draws the caret itself (a terminal's cursor, which it also blinks): the page's own
+    /// is never drawn, and no frame is asked for it.
+    host: bool,
 }
 
 impl Blink {
@@ -209,7 +212,18 @@ impl Blink {
             since: None,
             moved: true,
             active: true,
+            host: false,
         }
+    }
+
+    /// Whether the host draws the caret ([`Page::set_host_caret`]).
+    pub(crate) fn set_host(&mut self, host: bool) {
+        self.host = host;
+        self.moved = true;
+    }
+
+    pub(crate) fn is_host(&self) -> bool {
+        self.host
     }
 
     /// Something moved the caret, or the editor took the keyboard.
@@ -239,6 +253,9 @@ impl Blink {
             self.moved = true;
             return (CaretPhase::Dark, None);
         };
+        if self.host {
+            return (CaretPhase::Dark, None);
+        }
         if !self.active {
             self.moved = true;
             return (CaretPhase::Away, None);
@@ -325,6 +342,22 @@ mod tests {
         assert_eq!(blink.at(3.5, false, c), (Lit, Some(4.0)), "back, and lit");
         blink.moved();
         assert_eq!(blink.at(4.0, true, c), (Lit, None), "Reduce Motion");
+    }
+
+    #[test]
+    fn a_caret_the_host_draws_is_never_drawn_by_the_page_and_asks_for_no_frame() {
+        let mut blink = Blink::new();
+        blink.set_host(true);
+        let c = caret(0.5);
+        assert_eq!(blink.at(1.0, false, c), (Dark, None));
+        blink.moved();
+        assert_eq!(blink.at(1.2, false, c), (Dark, None));
+        blink.set_host(false);
+        assert_eq!(
+            blink.at(2.0, false, c),
+            (Lit, Some(2.5)),
+            "the page's again"
+        );
     }
 
     #[test]
