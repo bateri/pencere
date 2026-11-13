@@ -1032,7 +1032,8 @@ fn a_square_picture_is_a_square_on_the_pixels_of_a_terminal_whose_cell_is_not_on
         panic!("one picture: {:?}", frame.placements.len());
     };
     // The picture is 108 across and 108 down, put 6 pixels down the first of the six rows it
-    // touches: its pixels as they are, and the cells' own ground under what they have of the rest.
+    // touches: its pixels as they are, and the ground that was behind its box under what the first
+    // and the last row have of the rest.
     assert_eq!(
         (placed.col, placed.row, placed.cols, placed.rows),
         (0, 0, 12, 6)
@@ -1041,12 +1042,14 @@ fn a_square_picture_is_a_square_on_the_pixels_of_a_terminal_whose_cell_is_not_on
     assert_eq!((placed.width, placed.height), (108, 108));
     assert_eq!(red_across(placed), (108, 108));
     assert_eq!(placed.z, -1_073_741_825);
-    let [ground] = &under[..] else {
-        panic!("the colour under the cells it covers a part of");
-    };
+    let rows: Vec<_> = under
+        .iter()
+        .map(|ground| (ground.col, ground.row, ground.cols, ground.rows))
+        .collect();
     assert_eq!(
-        (ground.col, ground.row, ground.cols, ground.rows),
-        (0, 0, 12, 6)
+        rows,
+        vec![(0, 0, 12, 1), (0, 5, 12, 1)],
+        "the colour under the cells it covers a part of"
     );
     // A picture that fills its box (cut at its sides) fills all of it: it is on the cells, whole.
     let mut cover = picture(Rect::new(0.0, 0.0, 12.0, 12.0), None);
@@ -1199,36 +1202,47 @@ fn a_picture_that_is_scrolled_is_sent_once_and_only_put_where_it_moved_to() {
 }
 
 #[test]
-fn a_picture_is_not_drawn_outside_the_cells_of_its_box() {
+fn a_picture_is_drawn_where_the_page_laid_it_out_and_is_cut_at_its_clip_and_not_at_its_cells() {
     // The box the grid made is whole cells and the picture the page wrote for it is not: it is the
-    // written size in the middle of them, and may stand a few pixels out of them. What the terminal
-    // draws of it stops at the cells, where the page's own boxes do.
+    // written size in the middle of them, and stands a few pixels out of them. It is drawn there, at
+    // the pixels the layout gave it, and cut where it is not seen (its clip), not where its box ends.
     let options = Options {
+        col: 8.0,
+        row: 18.0,
         pixels: (13, 29),
         ..Options::default()
     };
-    let cells = Rect::new(10.0, 10.0, 20.0, 20.0);
-    let exact = Rect::new(9.6, 9.7, 20.8, 20.6);
-    let mut paint = picture(exact, None);
-    if let Paint::Image(picture) = &mut paint {
-        picture.cells = cells;
-    }
-    let list = DrawList { items: vec![paint] };
-    let frame = render(&list, 40, 20, &dark(), &Named(3), &options);
-    assert!(!frame.placements.is_empty());
-    for placed in &frame.placements {
-        assert!(
-            placed.col >= 10
-                && placed.row >= 5
-                && placed.col + placed.cols <= 30
-                && placed.row + placed.rows <= 15,
-            "a picture over cells ({}, {}) for ({}, {}) in a box of the cells (10, 5) for (20, 10)",
-            placed.col,
-            placed.row,
-            placed.cols,
-            placed.rows
-        );
-    }
+    let cells = Rect::new(80.0, 90.0, 160.0, 180.0);
+    let exact = Rect::new(76.8, 87.3, 166.4, 185.4);
+    let draw = |clip: Rect| {
+        let mut paint = picture(exact, None);
+        if let Paint::Image(picture) = &mut paint {
+            picture.cells = cells;
+            picture.clip = clip;
+        }
+        let list = DrawList { items: vec![paint] };
+        render(&list, 40, 20, &dark(), &Named(3), &options)
+    };
+    let frame = draw(world());
+    let placed = frame
+        .placements
+        .iter()
+        .find(|placed| placed.z == -1_073_741_825)
+        .expect("the picture");
+    // 9.6 across is the pixel 125 (cell 9, 8 pixels in); 9.7 down is the pixel 141 (row 4, 25 in).
+    assert_eq!((placed.col, placed.row), (9, 4));
+    assert_eq!(placed.offset, Some((8, 25)));
+    assert_eq!((placed.width, placed.height), (270, 298));
+    // Cut at a clip that is the box, it stops at the box.
+    let frame = draw(cells);
+    let placed = frame
+        .placements
+        .iter()
+        .find(|placed| placed.z == -1_073_741_825)
+        .expect("the picture");
+    assert_eq!((placed.col, placed.row), (10, 5));
+    assert_eq!(placed.offset, Some((0, 0)));
+    assert_eq!((placed.width, placed.height), (260, 290));
 }
 
 #[test]

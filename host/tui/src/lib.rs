@@ -30,6 +30,8 @@
 //! the cell, so it is a caret and not a bar over the word.
 
 mod color;
+#[doc(hidden)]
+pub mod compose;
 mod field;
 mod grid;
 mod input;
@@ -43,7 +45,6 @@ mod pictures;
 mod probe;
 mod screen;
 mod theme;
-mod zlib;
 
 pub use color::Rgb;
 pub use field::{show_hints, show_texts};

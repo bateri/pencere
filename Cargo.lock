@@ -1279,6 +1279,7 @@ name = "pencere-tui"
 version = "0.4.1"
 dependencies = [
  "libc",
+ "miniz_oxide 0.9.1",
  "pencere",
  "pencere-drive",
  "pencere-fake-host",

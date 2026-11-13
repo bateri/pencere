@@ -28,6 +28,10 @@ pencere-drive = { path = "../../kit/drive", version = "0.4.1", default-features 
 # that carries its own view shows where no terminal hosts it.
 pencere = { path = "../../program", version = "0.4.1" }
 
+# The deflate that packs the pixels of a picture for a terminal that takes them so (Kitty's `o=z`); the
+# decoder PDF and PNG reading already link carries the same crate.
+miniz_oxide = "0.9"
+
 [features]
 default = ["compiler", "pdf"]
 # What the sandbox and the drive are built with (their features of the same names).

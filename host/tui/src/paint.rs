@@ -8,6 +8,8 @@
 //! ground of the half that was drawn last: the box in front is the one the words belong to. A page
 //! laid out on the cells has its boxes on cell edges; what it writes smaller is drawn as a line.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use pencere_sandbox::draw_figure;
@@ -16,7 +18,7 @@ use pencere_view::{DrawList, Figure, Paint, Picture, Quad, Rect, Run};
 use crate::color::Rgb;
 use crate::grid::{Attrs, Bg, Cell, Grid};
 use crate::measure::char_width;
-use crate::output::{self, BEHIND_TEXT, GROUND, OVER_TEXT, Pixels, Placement};
+use crate::output::{self, BEHIND_TEXT, GROUND, OVER_TEXT, Piece, Pixels, Placement};
 use crate::pictures::{Pictures, Raster};
 use crate::theme::Theme;
 
@@ -140,6 +142,7 @@ pub fn render(
         placements: Vec::new(),
         placed_at: Vec::new(),
         shown: Vec::new(),
+        behind: None,
         lines: Vec::new(),
         waiting: false,
         overlaps: 0,
@@ -233,6 +236,23 @@ const SLIVER_PIXELS: usize = 1 << 16;
 /// that is more, as large as a side of its own holds), and the most pixels it has there.
 const WHOLE_SIDE: f32 = 3900.0;
 const WHOLE_PIXELS: f32 = 12_000_000.0;
+
+/// The side of the pieces a picture is cut in where it is more than a screen holds ([`WHOLE_SIDE`],
+/// [`WHOLE_PIXELS`]), pixels of the terminal: a grid laid over the picture that does not move, so that
+/// a piece that is seen again is the same pixels (and is not sent again) whichever part of the page
+/// they were drawn in.
+const TILE: u32 = 1024;
+
+/// How far from the size a picture is drawn at the pixels its pieces are cut from may be, as a share
+/// of it.
+const TILE_SCALE: f32 = 0.1;
+
+/// How far from the page's own proportions a terminal's cell may be for a picture to be drawn at
+/// the pixels the page laid it out at, as a share: a cell of 13 by 29 pixels is 0.9% off the page's
+/// 8 by 18, which no eye sees in a page, and the edges of the pages then stand where the layout has
+/// them; a cell that is further off draws a picture the largest it can be in its box with its
+/// proportions kept (a square is square).
+const PROPORTION_SLACK: f32 = 0.01;
 
 /// How many times larger a picture is drawn than its raster is, at the most, to be sent as pixels of
 /// its own size: a raster that is less than that (the page that stands in for one that is being
@@ -345,6 +365,38 @@ impl Canvas {
                     .is_some_and(|solid| *solid > tick)
             })
         })
+    }
+
+    /// The boxes of cells (`col`, `row`, the column and the row after the last) of the cells (`col`,
+    /// `row`, `cols`, `rows`) that no item after the `tick`th gave a ground that hides what is under
+    /// it, each row's runs joined with the same run of the row under it.
+    fn open_runs(
+        &self,
+        (col, row, cols, rows): (i32, i32, i32, i32),
+        tick: u32,
+    ) -> Vec<(i32, i32, i32, i32)> {
+        let mut boxes: Vec<(i32, i32, i32, i32)> = Vec::new();
+        for y in row..row + rows {
+            let mut x = col;
+            while x < col + cols {
+                if self.hidden_after((x, y, 1, 1), tick) {
+                    x += 1;
+                    continue;
+                }
+                let start = x;
+                while x < col + cols && !self.hidden_after((x, y, 1, 1), tick) {
+                    x += 1;
+                }
+                match boxes
+                    .iter_mut()
+                    .find(|(c0, r0, c1, r1)| *c0 == start && *c1 == x && *r1 == y && *r0 <= y)
+                {
+                    Some((_, _, _, r1)) => *r1 = y + 1,
+                    None => boxes.push((start, y, x, y + 1)),
+                }
+            }
+        }
+        boxes
     }
 
     /// Lays `color` over the pixel with `alpha` of it.
@@ -470,6 +522,45 @@ struct Line {
     at: u32,
 }
 
+/// The ground that was under the last box given a solid fill, as it was before the fill.
+struct Behind {
+    /// The box (pixels of the page) and the count of the item that filled it.
+    rect: Rect,
+    tick: u32,
+    /// The pixels of the grid that were kept, row by row, and the rows' length.
+    span: Span,
+    ground: Vec<Rgb>,
+}
+
+/// How a picture at the pixels of the terminal lies: the part of the screen it is seen on (whole
+/// pixels of the terminal), whether it covers what is under it altogether, and whether it is smaller
+/// than its box (its proportions kept on the terminal's own pixels).
+#[derive(Clone, Copy)]
+struct Landing {
+    pixels: (u32, u32, u32, u32),
+    covers: bool,
+    inset: bool,
+}
+
+/// Where a picture that is too large to be held whole is cut: the grid of [`TILE`] over it, and the
+/// pieces of it that are seen.
+struct Tiles {
+    /// What names the picture (its file, its page), with `whole`: the same piece is the same pixels.
+    key: u64,
+    /// The whole picture as large as it is drawn, and where its top-left corner is, pixels of the
+    /// terminal.
+    whole: (u32, u32),
+    corner: (i64, i64),
+    /// The pieces that are seen: the columns and the rows of the grid, the last not included.
+    columns: (u32, u32),
+    rows: (u32, u32),
+    /// What the pieces come to of the picture, as shares of it: what is asked of whoever has the
+    /// pixels.
+    shown: Rect,
+    /// The part of the screen the picture is seen in, pixels of the terminal.
+    seen: Rect,
+}
+
 struct Painter<'a> {
     theme: &'a Theme,
     pictures: &'a dyn Pictures,
@@ -486,6 +577,9 @@ struct Painter<'a> {
     /// The pictures the terminal draws over the cells they cover, each as the box the page has it in
     /// and as the rectangle it is drawn on (the proportions it has on the terminal's pixels).
     shown: Vec<(Rect, Rect)>,
+    /// What was under the box that was filled last: where a picture in that box covers a part of a
+    /// cell, the rest of the cell is what was behind the box and not the box's own ground.
+    behind: Option<Behind>,
     /// The lines along cells that have words in them, which are drawn once the whole list has been:
     /// whether the words cut a line is what the cells that nothing is laid over say.
     lines: Vec<Line>,
@@ -1171,6 +1265,7 @@ impl Painter<'_> {
             if alpha < 0.98 {
                 self.tint(visible, rgb, alpha);
             } else {
+                self.keep_behind(quad.rect, visible);
                 self.fill(visible, |_, _| (rgb, alpha));
             }
         } else if let Some(gradient) = quad.gradient {
@@ -1336,10 +1431,20 @@ impl Painter<'_> {
         // sent is the same pixels for every frame of it.
         let in_pixels = mode == ImageMode::Kitty && picture.tint.is_none() && picture.turn == 0.0;
         let mut request = self.request(&asked);
+        // Where it is more than that, it is asked for in the pieces of a grid that is over it (what is
+        // seen, rounded out to them), which are the same pixels for each frame of a scroll.
+        let mut tiles = None;
+        // A picture whose proportions are kept on the terminal's own pixels (it is not at the pixels the
+        // layout has it at) is the whole of what the page's box shows of it: the box's fill beyond it
+        // is not drawn.
+        let inset = in_pixels && (drawn != picture.rect || crop != picture.crop);
         if in_pixels {
             let all = request.full();
             if all.w.max(all.h) <= WHOLE_SIDE && all.w * all.h <= WHOLE_PIXELS {
                 request.shown = Rect::new(0.0, 0.0, 1.0, 1.0);
+            } else if let Some(cut) = self.tiles_of(picture, drawn, crop) {
+                request.shown = cut.shown;
+                tiles = Some(cut);
             }
         }
         let Some(raster) = self.pictures.raster(&request) else {
@@ -1374,8 +1479,14 @@ impl Painter<'_> {
                 self.mosaic(visible, &raster, shares(whole, part, raster.crop), opacity);
             }
             ImageMode::Kitty => {
-                if in_pixels && self.picture_in_pixels(picture, drawn, &raster) {
-                    return;
+                if in_pixels {
+                    let drawn_in_pixels = match &tiles {
+                        Some(cut) => self.picture_in_tiles(picture, drawn, &raster, cut, inset),
+                        None => self.picture_in_pixels(picture, drawn, &raster, inset),
+                    };
+                    if drawn_in_pixels {
+                        return;
+                    }
                 }
                 // The cells the picture is seen in: those that the part of it its clip leaves
                 // touches.
@@ -1468,15 +1579,19 @@ impl Painter<'_> {
 
     /// A picture that is not an icon, at the pixels of the terminal: the pixels of the raster made as
     /// large as the picture is drawn (named by what they are of and that size, and never by where they
-    /// stand), and put at the pixel the picture is at, in the cells of its box and no others (the
-    /// corners it is rounded out to stop there); a picture that is moved is only put again. Says
-    /// whether it did: a raster that is far smaller than the size it is drawn at (the page that
-    /// stands in for one that is drawn) is stretched over the cells instead, as the terminal does
-    /// it for less than it would be sent as pixels.
-    fn picture_in_pixels(&mut self, picture: &Picture, drawn: Rect, raster: &Arc<Raster>) -> bool {
-        let Some((b0, b1, b2, b3)) = self.box_cells(picture) else {
-            return false;
-        };
+    /// stand), and put at the pixel the layout has the picture at, where it is seen (in its clip and on
+    /// the screen: the cells of its box are not what it is cut at); a picture that is moved is only put
+    /// again. The cells it covers a part of are the terminal's, and the rest of each is the ground that
+    /// was behind the picture's box. Says whether it did: a raster that is far smaller than the size it
+    /// is drawn at (the page that stands in for one that is drawn) is stretched over the cells instead,
+    /// as the terminal does it for less than it would be sent as pixels.
+    fn picture_in_pixels(
+        &mut self,
+        picture: &Picture,
+        drawn: Rect,
+        raster: &Arc<Raster>,
+        inset: bool,
+    ) -> bool {
         let (cell_w, cell_h) = self.cell_pixels();
         let (across, down) = (cell_w as f32 / self.cw, cell_h as f32 / self.ch());
         let sound = |length: f32| length.is_finite() && length > 0.0;
@@ -1511,14 +1626,14 @@ impl Painter<'_> {
             (on_screen.x - crop.x * wide).round() as i64,
             (on_screen.y - crop.y * high).round() as i64,
         );
-        // What is seen of it: the part inside the clip and the cells of the box.
-        let area = Rect::new(
-            b0 as f32 * cell_w as f32,
-            b1 as f32 * cell_h as f32,
-            (b2 - b0) as f32 * cell_w as f32,
-            (b3 - b1) as f32 * cell_h as f32,
+        // What is seen of it: the part inside the clip and on the screen.
+        let screen = Rect::new(
+            0.0,
+            0.0,
+            (self.canvas.cols as u32 * cell_w) as f32,
+            (self.canvas.rows as u32 * cell_h) as f32,
         );
-        let seen = intersect(&intersect(&on_screen, &px(picture.clip)), &area);
+        let seen = intersect(&intersect(&on_screen, &px(picture.clip)), &screen);
         if seen.w <= 0.0 || seen.h <= 0.0 {
             return true;
         }
@@ -1553,6 +1668,265 @@ impl Painter<'_> {
             height: (y1 - y0) as u32,
             z: if covers { GROUND } else { BEHIND_TEXT },
         };
+        let landing = Landing {
+            pixels: (px0, py0, px1, py1),
+            covers,
+            inset,
+        };
+        self.lay_in_pixels(picture, drawn, raster, landing, vec![shown]);
+        true
+    }
+
+    /// Where a picture that is too large to be held whole is cut, and which pieces of the grid are
+    /// seen of it; `None` where it is not seen (or has no size).
+    fn tiles_of(&self, picture: &Picture, drawn: Rect, crop: Rect) -> Option<Tiles> {
+        let (cell_w, cell_h) = self.cell_pixels();
+        let (across, down) = (cell_w as f32 / self.cw, cell_h as f32 / self.ch());
+        let sound = |length: f32| length.is_finite() && length > 0.0;
+        if !(sound(across)
+            && sound(down)
+            && sound(drawn.w)
+            && sound(drawn.h)
+            && sound(crop.w)
+            && sound(crop.h))
+        {
+            return None;
+        }
+        let px = |rect: Rect| {
+            Rect::new(
+                rect.x * across,
+                rect.y * down,
+                rect.w * across,
+                rect.h * down,
+            )
+        };
+        let on_screen = px(drawn);
+        let (wide, high) = (on_screen.w / crop.w, on_screen.h / crop.h);
+        let whole = (wide.round().max(1.0) as u32, high.round().max(1.0) as u32);
+        let corner = (
+            (on_screen.x - crop.x * wide).round() as i64,
+            (on_screen.y - crop.y * high).round() as i64,
+        );
+        let screen = Rect::new(
+            0.0,
+            0.0,
+            (self.canvas.cols as u32 * cell_w) as f32,
+            (self.canvas.rows as u32 * cell_h) as f32,
+        );
+        let seen = intersect(&intersect(&on_screen, &px(picture.clip)), &screen);
+        if seen.w <= 0.0 || seen.h <= 0.0 {
+            return None;
+        }
+        // What is seen of the picture itself, in its own pixels, and the pieces of the grid it is in.
+        let along = |from: f32, to: f32, corner: i64, whole: u32| -> Option<(u32, u32)> {
+            let first = (from.floor() as i64 - corner).clamp(0, i64::from(whole));
+            let last = (to.ceil() as i64 - corner).clamp(0, i64::from(whole));
+            (last > first).then_some((first as u32, last as u32))
+        };
+        let (a0, a1) = along(seen.x, seen.x + seen.w, corner.0, whole.0)?;
+        let (b0, b1) = along(seen.y, seen.y + seen.h, corner.1, whole.1)?;
+        let columns = (a0 / TILE, a1.div_ceil(TILE));
+        let rows = (b0 / TILE, b1.div_ceil(TILE));
+        let (x0, x1) = (columns.0 * TILE, (columns.1 * TILE).min(whole.0));
+        let (y0, y1) = (rows.0 * TILE, (rows.1 * TILE).min(whole.1));
+        let share =
+            |from: u32, to: u32, of: u32| (from as f32 / of as f32, (to - from) as f32 / of as f32);
+        let ((sx, sw), (sy, sh)) = (share(x0, x1, whole.0), share(y0, y1, whole.1));
+        let mut hasher = DefaultHasher::new();
+        (picture.src.as_str(), picture.page, whole).hash(&mut hasher);
+        Some(Tiles {
+            key: hasher.finish(),
+            whole,
+            corner,
+            columns,
+            rows,
+            shown: Rect::new(sx, sy, sw, sh),
+            seen,
+        })
+    }
+
+    /// A picture that is too large to be held whole, at the pixels of the terminal: the pieces of the
+    /// grid laid over it that are seen, each as the pixels of the raster it is cut from (named by what
+    /// the picture is, how large it is drawn, and where in it the piece is, so that a piece that is
+    /// seen again is not sent again, whichever part of the page the raster is), put at the pixel the
+    /// layout has the picture at. A piece the raster does not hold is not drawn (the ground is seen
+    /// where it is) and a raster that holds none of them is not drawn this way: says whether it was.
+    fn picture_in_tiles(
+        &mut self,
+        picture: &Picture,
+        drawn: Rect,
+        raster: &Arc<Raster>,
+        tiles: &Tiles,
+        inset: bool,
+    ) -> bool {
+        let (cell_w, cell_h) = self.cell_pixels();
+        let (across, down) = (cell_w as f32 / self.cw, cell_h as f32 / self.ch());
+        let sound = |length: f32| length.is_finite() && length > 0.0;
+        let crop = raster.crop;
+        if !(sound(crop.w) && sound(crop.h) && raster.width > 0 && raster.height > 0) {
+            return false;
+        }
+        let on_screen = Rect::new(
+            drawn.x * across,
+            drawn.y * down,
+            drawn.w * across,
+            drawn.h * down,
+        );
+        // Where the raster is in the picture as it is drawn: from its corner, pixels of the terminal.
+        let (wide, high) = (on_screen.w / crop.w, on_screen.h / crop.h);
+        let mut left = on_screen.x - crop.x * wide - tiles.corner.0 as f32;
+        let mut top = on_screen.y - crop.y * high - tiles.corner.1 as f32;
+        let (mut width, mut height) = (wide, high);
+        let (raster_w, raster_h) = (raster.width as f32, raster.height as f32);
+        if (width - raster_w).abs() < 1.0 && (height - raster_h).abs() < 1.0 {
+            // Drawn at the size it is shown at: its pixels are the picture's, one to one.
+            (left, top, width, height) = (left.round(), top.round(), raster_w, raster_h);
+        }
+        let step = (raster_w / width, raster_h / height);
+        // Pixels that are not nearly the size the picture is drawn at (the page that stands in for a
+        // part not yet drawn, or the most the sandbox draws of a side) are not kept as its pieces
+        // for good: the picture is stretched over its cells until the pixels come.
+        if !(1.0 - TILE_SCALE..=1.0 + TILE_SCALE).contains(&step.0)
+            || !(1.0 - TILE_SCALE..=1.0 + TILE_SCALE).contains(&step.1)
+        {
+            self.waiting = true;
+            return false;
+        }
+        // The pieces whose every pixel it holds.
+        let held = |piece: u32, whole: u32, from: f32, length: f32| {
+            let (a, b) = (piece * TILE, ((piece + 1) * TILE).min(whole));
+            a as f32 >= from - 0.5 && b as f32 <= from + length + 0.5
+        };
+        let columns: Vec<u32> = (tiles.columns.0..tiles.columns.1)
+            .filter(|&column| held(column, tiles.whole.0, left, width))
+            .collect();
+        let rows: Vec<u32> = (tiles.rows.0..tiles.rows.1)
+            .filter(|&row| held(row, tiles.whole.1, top, height))
+            .collect();
+        let (Some(&c0), Some(&c1), Some(&r0), Some(&r1)) =
+            (columns.first(), columns.last(), rows.first(), rows.last())
+        else {
+            self.waiting = true;
+            return false;
+        };
+        if columns.len() < (tiles.columns.1 - tiles.columns.0) as usize
+            || rows.len() < (tiles.rows.1 - tiles.rows.0) as usize
+        {
+            self.waiting = true;
+        }
+        let piece = |first: u32, last: u32, whole: u32, corner: i64| {
+            (
+                corner + i64::from(first * TILE),
+                corner + i64::from(((last + 1) * TILE).min(whole)),
+            )
+        };
+        let (held_x0, held_x1) = piece(c0, c1, tiles.whole.0, tiles.corner.0);
+        let (held_y0, held_y1) = piece(r0, r1, tiles.whole.1, tiles.corner.1);
+        // What is seen of those, in whole pixels of the terminal.
+        let seen = tiles.seen;
+        let x0 = (seen.x.round() as i64).max(held_x0);
+        let x1 = ((seen.x + seen.w).round() as i64).min(held_x1);
+        let y0 = (seen.y.round() as i64).max(held_y0);
+        let y1 = ((seen.y + seen.h).round() as i64).min(held_y1);
+        let (Ok(px0), Ok(py0), Ok(px1), Ok(py1)) = (
+            u32::try_from(x0),
+            u32::try_from(y0),
+            u32::try_from(x1),
+            u32::try_from(y1),
+        ) else {
+            return true;
+        };
+        if px1 <= px0 || py1 <= py0 {
+            return true;
+        }
+        let opacity = picture.opacity.clamp(0.0, 1.0);
+        let covers = opacity >= 0.999 && raster.is_opaque();
+        let mut placed = Vec::new();
+        for row in r0..=r1 {
+            for column in c0..=c1 {
+                let (a0, a1) = (column * TILE, ((column + 1) * TILE).min(tiles.whole.0));
+                let (b0, b1) = (row * TILE, ((row + 1) * TILE).min(tiles.whole.1));
+                let (tx0, ty0) = (
+                    tiles.corner.0 + i64::from(a0),
+                    tiles.corner.1 + i64::from(b0),
+                );
+                let (tx1, ty1) = (
+                    tiles.corner.0 + i64::from(a1),
+                    tiles.corner.1 + i64::from(b1),
+                );
+                let (sx0, sx1) = (x0.max(tx0), x1.min(tx1));
+                let (sy0, sy1) = (y0.max(ty0), y1.min(ty1));
+                let (Ok(u0), Ok(v0), Ok(u1), Ok(v1)) = (
+                    u32::try_from(sx0),
+                    u32::try_from(sy0),
+                    u32::try_from(sx1),
+                    u32::try_from(sy1),
+                ) else {
+                    continue;
+                };
+                if u1 <= u0 || v1 <= v0 {
+                    continue;
+                }
+                let (col, row_at, cols, rows, offset) = self.in_cells((u0, v0, u1, v1));
+                placed.push(Placement {
+                    col,
+                    row: row_at,
+                    cols,
+                    rows,
+                    offset: Some(offset),
+                    pixels: Pixels::tile(
+                        Arc::clone(raster),
+                        Piece {
+                            key: tiles.key,
+                            whole: tiles.whole,
+                            at: (a0, b0),
+                            size: (a1 - a0, b1 - b0),
+                            scale: (
+                                (step.0 * 20.0).round() as u32,
+                                (step.1 * 20.0).round() as u32,
+                            ),
+                        },
+                        ((a0 as f32 - left) * step.0, (b0 as f32 - top) * step.1),
+                        step,
+                        opacity,
+                    ),
+                    x: (sx0 - tx0) as u32,
+                    y: (sy0 - ty0) as u32,
+                    width: u1 - u0,
+                    height: v1 - v0,
+                    z: if covers { GROUND } else { BEHIND_TEXT },
+                });
+            }
+        }
+        let landing = Landing {
+            pixels: (px0, py0, px1, py1),
+            covers,
+            inset,
+        };
+        self.lay_in_pixels(picture, drawn, raster, landing, placed);
+        true
+    }
+
+    /// What goes with a picture at the pixels of the terminal, whether it is one placement or the
+    /// pieces of one: the cells it covers altogether are drawn in the grid's pixels too, for what is
+    /// laid over them; at its edge, where it covers a part of a cell, the cell is the terminal's and
+    /// the rest of it is what was behind the picture's box.
+    fn lay_in_pixels(
+        &mut self,
+        picture: &Picture,
+        drawn: Rect,
+        raster: &Arc<Raster>,
+        landing: Landing,
+        placed: Vec<Placement>,
+    ) {
+        let (cell_w, cell_h) = self.cell_pixels();
+        let Landing {
+            pixels,
+            covers,
+            inset,
+        } = landing;
+        let (px0, py0, px1, py1) = pixels;
+        let (col, row, cols, rows, _) = self.in_cells(pixels);
         if covers {
             let touched = (
                 i32::from(col),
@@ -1560,13 +1934,11 @@ impl Painter<'_> {
                 i32::from(col + cols),
                 i32::from(row + rows),
             );
-            // The cells the picture covers altogether are drawn in the grid's pixels too, for what is
-            // laid over them; at the picture's edge, where it covers a part of a cell, the cell is the
-            // terminal's and its own ground is under the picture.
+            if inset {
+                self.bare_the_margins(picture, touched);
+            }
             let (whole_c0, whole_c1) = ((px0.div_ceil(cell_w)) as i32, (px1 / cell_w) as i32);
             let (whole_r0, whole_r1) = ((py0.div_ceil(cell_h)) as i32, (py1 / cell_h) as i32);
-            let apart = (whole_c0, whole_r0, whole_c1, whole_r1) != touched;
-            let ground = self.canvas.ground_at(touched.0, touched.1 * 2);
             if whole_c1 > whole_c0 && whole_r1 > whole_r0 {
                 let whole = (drawn.x, drawn.y, drawn.x + drawn.w, drawn.y + drawn.h);
                 let part = (
@@ -1581,7 +1953,7 @@ impl Painter<'_> {
                     x1: whole_c1,
                     y1: whole_r1 * 2,
                 };
-                self.mosaic(region, raster, shares(whole, part, crop), 1.0);
+                self.mosaic(region, raster, shares(whole, part, raster.crop), 1.0);
             }
             self.shown.push((picture.rect, drawn));
             for row in touched.1..touched.3 {
@@ -1589,35 +1961,183 @@ impl Painter<'_> {
                     self.canvas.open(col, row);
                 }
             }
-            if apart {
-                self.placed_at.push(self.canvas.tick);
-                self.placements.push(Placement {
-                    col,
-                    row,
-                    cols,
-                    rows,
-                    offset: None,
-                    pixels: Pixels::solid([ground.r, ground.g, ground.b, 255]),
-                    x: 0,
-                    y: 0,
-                    width: 1,
-                    height: 1,
-                    z: GROUND - 1,
-                });
+            self.under_the_edge(
+                picture,
+                touched,
+                (whole_c0, whole_r0, whole_c1, whole_r1),
+                (px0, py0, px1, py1),
+            );
+        }
+        for placement in placed {
+            self.placed_at.push(self.canvas.tick);
+            self.placements.push(placement);
+        }
+    }
+
+    /// Keeps the ground that is in `visible` (pixels of the grid) before the box `rect` is filled.
+    fn keep_behind(&mut self, rect: Rect, visible: Span) {
+        let span = visible.meet(self.canvas.bounds());
+        if span.is_empty() {
+            self.behind = None;
+            return;
+        }
+        let mut ground = Vec::with_capacity(((span.x1 - span.x0) * (span.y1 - span.y0)) as usize);
+        for y in span.y0..span.y1 {
+            for x in span.x0..span.x1 {
+                ground.push(self.canvas.ground_at(x, y));
             }
         }
-        self.placed_at.push(self.canvas.tick);
-        self.placements.push(shown);
-        true
+        self.behind = Some(Behind {
+            rect,
+            tick: self.canvas.tick,
+            span,
+            ground,
+        });
+    }
+
+    /// The ground at the pixel `x`, `y` of the grid that was behind the box `picture` is in: what was
+    /// there before the box was filled where the box's fill is the item just before the picture, and
+    /// else what is there.
+    fn behind_ground(&self, picture: &Picture, x: i32, y: i32) -> Rgb {
+        if let Some(behind) = self.kept_behind(picture) {
+            let span = behind.span;
+            if x >= span.x0 && x < span.x1 && y >= span.y0 && y < span.y1 {
+                let at = ((y - span.y0) * (span.x1 - span.x0) + (x - span.x0)) as usize;
+                if let Some(ground) = behind.ground.get(at) {
+                    return *ground;
+                }
+            }
+        }
+        self.canvas.ground_at(x, y)
+    }
+
+    /// The ground kept before the box `picture` is in was filled, where its fill is the item just
+    /// before the picture.
+    fn kept_behind(&self, picture: &Picture) -> Option<&Behind> {
+        let behind = self.behind.as_ref()?;
+        let same = |a: f32, b: f32| (a - b).abs() < 1e-3;
+        let (cells, rect) = (picture.cells, behind.rect);
+        (behind.tick + 1 == self.canvas.tick
+            && same(cells.x, rect.x)
+            && same(cells.y, rect.y)
+            && same(cells.w, rect.w)
+            && same(cells.h, rect.h))
+        .then_some(behind)
+    }
+
+    /// The box of a picture that is smaller than it is its fill only where the picture is: the cells
+    /// the picture does not touch (`touched`) have the ground that was behind the box again, as the
+    /// page laid the fill for a picture of the box's proportions and it is not that picture.
+    fn bare_the_margins(&mut self, picture: &Picture, touched: (i32, i32, i32, i32)) {
+        let Some(behind) = self.kept_behind(picture) else {
+            return;
+        };
+        let span = behind.span;
+        let width = (span.x1 - span.x0) as usize;
+        let mut bare = Vec::new();
+        for y in span.y0..span.y1 {
+            let row = y.div_euclid(2);
+            for x in span.x0..span.x1 {
+                let inside = x >= touched.0 && x < touched.2 && row >= touched.1 && row < touched.3;
+                let at = (y - span.y0) as usize * width + (x - span.x0) as usize;
+                if let (false, Some(ground)) = (inside, behind.ground.get(at)) {
+                    bare.push((x, y, *ground));
+                }
+            }
+        }
+        for (x, y, ground) in bare {
+            self.canvas.paint(x, y, ground, 1.0);
+        }
+    }
+
+    /// The cells of `touched` that the picture, at the pixels `(x0, y0, x1, y1)` of the terminal,
+    /// covers a part of and not all (those that are not in `whole`): each is laid on the ground that was
+    /// behind the picture's box, under the picture, in a picture of that colour stretched over runs of
+    /// the cells that have it. (The cells the terminal has no ground for would be its own.)
+    fn under_the_edge(
+        &mut self,
+        picture: &Picture,
+        touched: (i32, i32, i32, i32),
+        whole: (i32, i32, i32, i32),
+        (x0, y0, x1, y1): (u32, u32, u32, u32),
+    ) {
+        let (cell_w, cell_h) = self.cell_pixels();
+        let (cell_w, cell_h) = (cell_w as i32, cell_h as i32);
+        let covered_in = |from: i32, to: i32, cell: i32, size: i32| -> (i32, i32) {
+            (
+                (from - cell * size).clamp(0, size),
+                (to - cell * size).clamp(0, size),
+            )
+        };
+        let mut rows: Vec<Vec<(i32, Option<Rgb>)>> = Vec::new();
+        for row in touched.1..touched.3 {
+            let mut cells = Vec::new();
+            for col in touched.0..touched.2 {
+                let inside = col >= whole.0 && col < whole.2 && row >= whole.1 && row < whole.3;
+                if inside {
+                    cells.push((col, None));
+                    continue;
+                }
+                // The half of the cell that is more of what is left of it is the one whose ground it is.
+                let (top, bottom) = covered_in(y0 as i32, y1 as i32, row, cell_h);
+                let (left, right) = covered_in(x0 as i32, x1 as i32, col, cell_w);
+                let half = if top > 0 || bottom < cell_h {
+                    i32::from(cell_h - bottom > top)
+                } else {
+                    let _ = (left, right);
+                    0
+                };
+                cells.push((col, Some(self.behind_ground(picture, col, row * 2 + half))));
+            }
+            rows.push(cells);
+        }
+        // Runs of one colour along a row, and the rows that have the same run one under the other.
+        let mut boxes: Vec<(i32, i32, i32, i32, Rgb)> = Vec::new();
+        for (n, cells) in rows.iter().enumerate() {
+            let row = touched.1 + n as i32;
+            for group in cells.chunk_by(|a, b| a.1 == b.1) {
+                let (Some((first, Some(color))), Some((last, _))) = (group.first(), group.last())
+                else {
+                    continue;
+                };
+                let (c0, c1, color) = (*first, *last + 1, *color);
+                match boxes.iter_mut().find(|(_, r1, b0, b1, rgb)| {
+                    *r1 == row && *b0 == c0 && *b1 == c1 && *rgb == color
+                }) {
+                    Some((_, r1, _, _, _)) => *r1 = row + 1,
+                    None => boxes.push((row, row + 1, c0, c1, color)),
+                }
+            }
+        }
+        for (r0, r1, c0, c1, color) in boxes {
+            self.placed_at.push(self.canvas.tick);
+            self.placements.push(Placement {
+                col: c0 as u16,
+                row: r0 as u16,
+                cols: (c1 - c0) as u16,
+                rows: (r1 - r0) as u16,
+                offset: None,
+                pixels: Pixels::solid([color.r, color.g, color.b, 255]),
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                z: GROUND - 1,
+            });
+        }
     }
 
     /// The rectangle a picture is drawn on, and what of the picture it shows: the box the page put it
-    /// in with its proportions kept on the terminal's own pixels. The page's pixels are not square
-    /// there (a cell of the grid is as high as two columns and the terminal's is not), so what the
-    /// page drew to its proportions would be stretched by the difference; the whole of the box is
-    /// filled (`cover`, the picture cut at its sides) or the picture is made smaller than it
-    /// (`contain`), in the middle either way. An icon (a tinted picture) fills its cells as a character
-    /// does and is left as the page's grid put it.
+    /// in, at the pixels the layout has it at, where the terminal's cell has the proportions of the
+    /// page's to a hundredth ([`PROPORTION_SLACK`]); else with its proportions kept on the terminal's
+    /// own pixels. The page's pixels are not square there (a cell of the grid is as high as two
+    /// columns and the terminal's is not), so what the page drew to its proportions would be stretched
+    /// by the difference; the whole of the box is filled (`cover`, the picture cut at its sides) or
+    /// the picture is made smaller than it (`contain`), in the middle either way. Of the box the page
+    /// wrote and not of the cells it is in: the cells are what the grid made of the box, and what the
+    /// layout gave a picture is where it is, so that two pictures of one size are one size however
+    /// their boxes fall on the cells. An icon (a tinted picture) fills its cells as a character does
+    /// and is left as the page's grid put it.
     fn fitted(&self, picture: &Picture) -> (Rect, Rect) {
         let (rect, crop) = (picture.rect, picture.crop);
         let (across, down) = (
@@ -1629,23 +2149,15 @@ impl Painter<'_> {
             || picture.tint.is_some()
             || !(sound(rect.w) && sound(rect.h) && sound(crop.w) && sound(crop.h))
             || !(sound(across) && sound(down))
+            || (across / down - 1.0).abs() <= PROPORTION_SLACK
         {
             return (rect, crop);
         }
         // The proportions of the whole picture, which the page laid out in its own square pixels, and
-        // the box it fills on the terminal's pixels: the box the page wrote for it, no more than the
-        // cells of its box in the grid (the place the page wrote may stand a few pixels past them,
-        // where the picture would cover the words of the cells beside it; it is made smaller to be in
-        // them, whole, and not cut).
+        // the box it fills on the terminal's pixels.
         let natural = (rect.w / crop.w) / (rect.h / crop.h);
-        let in_cells = intersect(&rect, &picture.cells);
-        let held = if sound(in_cells.w) && sound(in_cells.h) {
-            in_cells
-        } else {
-            rect
-        };
-        let (box_w, box_h) = (held.w * across, held.h * down);
-        let centre = (held.x + held.w / 2.0, held.y + held.h / 2.0);
+        let (box_w, box_h) = (rect.w * across, rect.h * down);
+        let centre = (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
         let whole = crop.w >= 0.999 && crop.h >= 0.999;
         if whole {
             let (w, h) = if box_w / box_h > natural {
@@ -1663,7 +2175,7 @@ impl Painter<'_> {
             let image_h = image_w / natural;
             let (shown_w, shown_h) = (box_w / image_w, box_h / image_h);
             (
-                held,
+                rect,
                 Rect::new(
                     (1.0 - shown_w) / 2.0,
                     (1.0 - shown_h) / 2.0,
@@ -2019,23 +2531,37 @@ impl Painter<'_> {
         } = self;
         // A picture the terminal draws over the grounds (an icon, the tint over a picture) is not
         // hidden by a ground drawn after it, as one under the grounds is: a box laid over it (a
-        // palette, a dialog) leaves it out.
+        // palette, a dialog) leaves it out; a colour stretched over cells (the scrim of a dialog, a
+        // tint) stays over the cells that no box was laid over, and is not left out for the cells of
+        // the box that is in the way of its rectangle.
         let placements: Vec<Placement> = placements
             .into_iter()
             .zip(placed_at)
-            .filter(|(placed, at)| {
-                placed.z != BEHIND_TEXT
-                    || !canvas.hidden_after(
-                        (
-                            i32::from(placed.col),
-                            i32::from(placed.row),
-                            i32::from(placed.cols),
-                            i32::from(placed.rows),
-                        ),
-                        *at,
-                    )
+            .flat_map(|(placed, at)| {
+                let cells = (
+                    i32::from(placed.col),
+                    i32::from(placed.row),
+                    i32::from(placed.cols),
+                    i32::from(placed.rows),
+                );
+                if placed.z != BEHIND_TEXT || !canvas.hidden_after(cells, at) {
+                    return vec![placed];
+                }
+                if placed.offset.is_some() || !placed.pixels.is_solid() {
+                    return Vec::new();
+                }
+                canvas
+                    .open_runs(cells, at)
+                    .into_iter()
+                    .map(|(c0, r0, c1, r1)| Placement {
+                        col: c0 as u16,
+                        row: r0 as u16,
+                        cols: (c1 - c0) as u16,
+                        rows: (r1 - r0) as u16,
+                        ..placed.clone()
+                    })
+                    .collect()
             })
-            .map(|(placed, _)| placed)
             .collect();
         let mut stats = Stats {
             overlaps,

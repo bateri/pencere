@@ -42,7 +42,7 @@ pub(crate) fn questions() -> Vec<u8> {
 /// are packed (zlib: a pixel of nothing); the device attributes.
 pub(crate) fn graphics_question() -> Vec<u8> {
     let mut out = String::from("\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\");
-    let packed = crate::output::base64(&crate::zlib::compress(&[0; 4]));
+    let packed = crate::output::base64(&miniz_oxide::deflate::compress_to_vec_zlib(&[0; 4], 1));
     out.push_str(&format!(
         "\x1b_Gi={COMPRESSION},s=1,v=1,a=q,t=d,f=32,o=z;{packed}\x1b\\"
     ));

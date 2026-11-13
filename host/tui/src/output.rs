@@ -23,6 +23,16 @@ pub(crate) enum Name {
         tint: Option<([u8; 3], u32)>,
         opacity: u32,
     },
+    /// A piece of a picture that is too large to be kept whole, of a grid laid over it that does not
+    /// move: named by what the picture is, how large it is drawn, and where in it the piece is, so that
+    /// it is the same pixels whichever drawing of the picture they were cut from.
+    Tile {
+        key: u64,
+        whole: (u32, u32),
+        at: (u32, u32),
+        scale: (u32, u32),
+        opacity: u32,
+    },
 }
 
 /// Where the pixels of a raster are from, for what names them.
@@ -41,6 +51,14 @@ enum Made {
         tint: Option<(Rgb, f32)>,
         opacity: f32,
     },
+    /// The pixels of a raster from `from` (its pixel at the piece's top-left corner), `step` of them
+    /// to a pixel of the piece.
+    Tile {
+        raster: Arc<Raster>,
+        from: (f32, f32),
+        step: (f32, f32),
+        opacity: f32,
+    },
 }
 
 /// The pixels of a picture the terminal draws, whole: what a placement shows a part of. They are
@@ -51,6 +69,19 @@ pub struct Pixels {
     width: u32,
     height: u32,
     made: Made,
+}
+
+/// Which piece of which picture: `key` names the picture, `whole` is how large it is drawn, `at` is
+/// where in it the piece starts and `size` how large the piece is (all in pixels), and `scale` how
+/// large the pixels it is cut from are to the picture as it is drawn (in twentieths): pixels drawn at
+/// another size are other pixels of the same piece.
+#[derive(Debug, Clone, Copy)]
+pub struct Piece {
+    pub key: u64,
+    pub whole: (u32, u32),
+    pub at: (u32, u32),
+    pub size: (u32, u32),
+    pub scale: (u32, u32),
 }
 
 impl Pixels {
@@ -109,6 +140,41 @@ impl Pixels {
         }
     }
 
+    /// Whether these are one pixel of one colour, which is what stretches over any cells.
+    pub(crate) fn is_solid(&self) -> bool {
+        matches!(self.made, Made::Solid(_))
+    }
+
+    /// The piece of a picture that `piece` says: the part of `raster` that is there, `from` its pixel
+    /// at the corner and `step` pixels of it to one of the piece. Two of them are the same pixels where
+    /// they are of the same picture at the same size and place, whatever raster they were cut from.
+    #[must_use]
+    pub fn tile(
+        raster: Arc<Raster>,
+        piece: Piece,
+        from: (f32, f32),
+        step: (f32, f32),
+        opacity: f32,
+    ) -> Self {
+        Self {
+            name: Name::Tile {
+                key: piece.key,
+                whole: piece.whole,
+                at: piece.at,
+                scale: piece.scale,
+                opacity: opacity.to_bits(),
+            },
+            width: piece.size.0.max(1),
+            height: piece.size.1.max(1),
+            made: Made::Tile {
+                raster,
+                from,
+                step,
+                opacity,
+            },
+        }
+    }
+
     pub(crate) fn name(&self) -> Name {
         self.name
     }
@@ -129,6 +195,28 @@ impl Pixels {
                 tint,
                 opacity,
             } => (raster, *tint, *opacity),
+            Made::Tile {
+                raster,
+                from,
+                step,
+                opacity,
+            } => {
+                let mut rgba = Vec::with_capacity((x1 - x0) as usize * (y1 - y0) as usize * 4);
+                let columns: Vec<(u32, Vec<f32>)> = (x0..x1)
+                    .map(|x| span_weights(raster.width, from.0, step.0, x))
+                    .collect();
+                for y in y0..y1 {
+                    let row = span_weights(raster.height, from.1, step.1, y);
+                    for column in &columns {
+                        rgba.extend_from_slice(&straight(
+                            average(raster, column, &row),
+                            None,
+                            *opacity,
+                        ));
+                    }
+                }
+                return rgba;
+            }
         };
         let mut rgba = Vec::with_capacity((x1 - x0) as usize * (y1 - y0) as usize * 4);
         // Where it is not the size of the raster, what is under each of its pixels.
@@ -149,7 +237,7 @@ impl Pixels {
         };
         for y in y0..y1 {
             for x in x0..x1 {
-                let [r, g, b, a] = if native {
+                let pixel = if native {
                     raster.at(x, y)
                 } else {
                     let (column, row) =
@@ -159,32 +247,38 @@ impl Pixels {
                         _ => [0; 4],
                     }
                 };
-                let alpha = f32::from(a) / 255.0 * opacity;
-                rgba.extend_from_slice(&match tint {
-                    Some((color, strength)) => [
-                        color.r,
-                        color.g,
-                        color.b,
-                        (alpha * strength * 255.0).round().clamp(0.0, 255.0) as u8,
-                    ],
-                    None if a == 0 => [0; 4],
-                    None => {
-                        let straight = |c: u8| {
-                            (f32::from(c) * 255.0 / f32::from(a))
-                                .round()
-                                .clamp(0.0, 255.0) as u8
-                        };
-                        [
-                            straight(r),
-                            straight(g),
-                            straight(b),
-                            (alpha * 255.0).round().clamp(0.0, 255.0) as u8,
-                        ]
-                    }
-                });
+                rgba.extend_from_slice(&straight(pixel, tint, opacity));
             }
         }
         rgba
+    }
+}
+
+/// A pixel of a raster (premultiplied) as the terminal takes it: with the tint and the opacity, and
+/// the opacity **not** multiplied in.
+fn straight([r, g, b, a]: [u8; 4], tint: Option<(Rgb, f32)>, opacity: f32) -> [u8; 4] {
+    let alpha = f32::from(a) / 255.0 * opacity;
+    match tint {
+        Some((color, strength)) => [
+            color.r,
+            color.g,
+            color.b,
+            (alpha * strength * 255.0).round().clamp(0.0, 255.0) as u8,
+        ],
+        None if a == 0 => [0; 4],
+        None => {
+            let straight = |c: u8| {
+                (f32::from(c) * 255.0 / f32::from(a))
+                    .round()
+                    .clamp(0.0, 255.0) as u8
+            };
+            [
+                straight(r),
+                straight(g),
+                straight(b),
+                (alpha * 255.0).round().clamp(0.0, 255.0) as u8,
+            ]
+        }
     }
 }
 
@@ -193,11 +287,18 @@ impl Pixels {
 /// pixel takes the share of the ones it covers; where it is grown it is a blend of the two about its
 /// middle.
 fn weights(from: u32, to: u32, at: u32) -> (u32, Vec<f32>) {
-    let (from_f, to_f) = (from.max(1) as f32, to.max(1) as f32);
-    if from >= to {
-        let (low, high) = (at as f32 * from_f / to_f, (at + 1) as f32 * from_f / to_f);
+    span_weights(from, 0.0, from.max(1) as f32 / to.max(1) as f32, at)
+}
+
+/// As [`weights`], for the pixel `at` of a part of a picture that starts at the pixel `start` of a
+/// raster `length` across (or down) and takes `step` of its pixels to one of its own.
+fn span_weights(length: u32, start: f32, step: f32, at: u32) -> (u32, Vec<f32>) {
+    let last_pixel = length.saturating_sub(1);
+    if step >= 1.0 {
+        let low = (start + at as f32 * step).max(0.0);
+        let high = start + (at + 1) as f32 * step;
         let first = low.floor() as u32;
-        let last = (high.ceil() as u32).clamp(first + 1, from.max(1));
+        let last = (high.ceil() as u32).clamp(first + 1, length.max(1));
         let shares: Vec<f32> = (first..last)
             .map(|i| ((i + 1) as f32).min(high) - (i as f32).max(low))
             .collect();
@@ -206,11 +307,11 @@ fn weights(from: u32, to: u32, at: u32) -> (u32, Vec<f32>) {
             .into_iter()
             .map(|share| share / total.max(f32::EPSILON))
             .collect();
-        (first.min(from.saturating_sub(1)), shares)
+        (first.min(last_pixel), shares)
     } else {
-        let middle = (at as f32 + 0.5) * from_f / to_f - 0.5;
-        let first = (middle.floor().max(0.0) as u32).min(from.saturating_sub(1));
-        let after = (first + 1).min(from.saturating_sub(1));
+        let middle = start + (at as f32 + 0.5) * step - 0.5;
+        let first = (middle.floor().max(0.0) as u32).min(last_pixel);
+        let after = (first + 1).min(last_pixel);
         let t = (middle - first as f32).clamp(0.0, 1.0);
         if after == first {
             (first, vec![1.0])
@@ -250,6 +351,17 @@ impl Clone for Pixels {
                 } => Made::Raster {
                     raster: Arc::clone(raster),
                     tint: *tint,
+                    opacity: *opacity,
+                },
+                Made::Tile {
+                    raster,
+                    from,
+                    step,
+                    opacity,
+                } => Made::Tile {
+                    raster: Arc::clone(raster),
+                    from: *from,
+                    step: *step,
                     opacity: *opacity,
                 },
             },
@@ -395,6 +507,10 @@ fn geometry(placement: &Placement) -> String {
     }
 }
 
+/// How hard the pixels of a picture are packed (`miniz_oxide`'s levels run 0 to 10): the fastest that
+/// still shrinks them, since a page is packed while the person waits for it.
+const PACK_LEVEL: u8 = 1;
+
 /// The sequences that give a terminal the whole of `pixels` to keep under `id`, and draw nothing; with
 /// the pixels compressed (zlib, which the terminal says it takes) where `compress` says to be, and
 /// they are smaller so.
@@ -403,7 +519,7 @@ pub(crate) fn store(out: &mut String, id: u32, pixels: &Pixels, compress: bool) 
     let whole = (0, 0, pixels.width, pixels.height);
     let rgba = pixels.rgba(whole);
     if compress {
-        let packed = crate::zlib::compress(&rgba);
+        let packed = miniz_oxide::deflate::compress_to_vec_zlib(&rgba, PACK_LEVEL);
         if packed.len() < rgba.len() {
             first.push_str(",o=z");
             pieces(out, &first, &base64(&packed));

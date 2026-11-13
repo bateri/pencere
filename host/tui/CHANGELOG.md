@@ -128,8 +128,15 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 - **Breaking: `Placement` has `offset`.** A part put at a pixel of its first cell, as large as its
   own pixels, has `Some((x, y))`; one that has `None` is stretched over its cells, as before.
-- **A picture stops at the cells of its box.** The place a page wrote for a picture may stand a few
-  pixels past the cells of its box; the picture is made smaller to be inside them, whole.
+- **A picture is where the page put it.** Where the terminal's cell has the page's proportions to a
+  hundredth, a picture is at the pixel its layout has it at and is cut where the page cuts it; on a
+  cell that has not, it keeps its proportions inside its box, with the ground of the box's parent at
+  its sides.
+- **Pages of a PDF stand on the same pixel columns,** scrolled by less than a cell or not, and a
+  picture under a palette is as dim as the cells are, and is not sent again for it.
+- **A page larger than a screen is sent in pieces,** a grid of 1024 pixels laid over it that does not
+  move: a piece that is seen again is not sent again, whatever part of the page the pixels came from.
+- Pixels are packed (`o=z`) by `miniz_oxide`; the crate's own deflate is gone.
 - **The marks of a found word and the lines over words are pictures of their own size,** put where the
   page has them, to the pixel, and not the cells they touch.
 - **A tmux variable that leaked into another terminal does not keep the host from being asked.**
