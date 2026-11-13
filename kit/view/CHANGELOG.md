@@ -95,6 +95,9 @@ mods }` and `Input::Release` has `mods`, so a host or a page that builds or matc
 
 ### Changed
 
+- **Breaking:** `Picture` has `cells`, the box the page's grid made of the element the image is in
+  (`rect` where the page has no grid), so that a host that draws more finely than the cells does not
+  draw outside them.
 - **Breaking:** `Picture` has `shown`, so a host that builds one with a struct literal names it
   (`crop` where it knows no better: `(0, 0, 1, 1)` is all of the image).
 - **Breaking: an element that is no editor holds no room for an editor's options**

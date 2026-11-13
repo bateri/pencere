@@ -72,7 +72,9 @@
 //! environment variable [`SCREEN_VARIABLE`] forces it (`1`, even where a terminal hosts views) or
 //! keeps it from running (`0`). In tmux and screen ([`in_multiplexer`]) the terminal is not asked
 //! first either: neither passes the question to a host, and both keep what they are sent in such a
-//! string for the title of the window.
+//! string for the title of the window. Where the environment only may say so (`TMUX` or `STY`, which a
+//! terminal started from a shell in them has too) the terminal is asked what it is, and the host is
+//! asked only if it is neither.
 
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
@@ -759,6 +761,9 @@ pub fn serve(mut options: Options) -> Result<Outcome, Error> {
     let screen = options.screen.take();
     let wish = std::env::var(SCREEN_VARIABLE).ok();
     let screen = screen.filter(|_| wish.as_deref() != Some("0"));
+    let doubtful = screen.is_some()
+        && wish.as_deref() != Some("1")
+        && screen::environment(|name| std::env::var(name).ok()) == screen::Environment::Leaked;
     let outcome = if screen.is_some() && (wish.as_deref() == Some("1") || in_multiplexer()) {
         // No terminal is asked: the person wants the program's own screen, or the terminal is one
         // that has no host to answer (and would show the question as the title of its window).
@@ -772,7 +777,7 @@ pub fn serve(mut options: Options) -> Result<Outcome, Error> {
             message: None,
         }))
     } else {
-        session::run(&options, &terminal)
+        session::run(&options, &terminal, doubtful)
     };
     drop(watching);
     let outcome = outcome?;

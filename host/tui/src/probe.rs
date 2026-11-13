@@ -20,23 +20,32 @@ use crate::theme::Theme;
 /// The longest the answers of a round are waited for.
 const PATIENCE: Duration = Duration::from_millis(1000);
 
+/// The number of the image the question of whether the terminal takes pixels that are packed is
+/// about (the plain question is 31): the terminal's answer says which it is.
+pub(crate) const COMPRESSION: u32 = 32;
+
 /// The first round: the colours, the text colour and ground and the sixteen of the palette; whether the
-/// keyboard has the Kitty protocol; what the terminal is, by its version and by its kind; the device
-/// attributes.
+/// keyboard has the Kitty protocol; what the terminal is, by its version and by its kind; how many
+/// pixels a cell is; the device attributes.
 pub(crate) fn questions() -> Vec<u8> {
     let mut out = String::from("\x1b]10;?\x1b\\\x1b]11;?\x1b\\");
     for index in 0..16 {
         out.push_str(&format!("\x1b]4;{index};?\x1b\\"));
     }
     out.push_str("\x1b[?u");
-    out.push_str("\x1b[>q\x1b[>c");
+    out.push_str("\x1b[>q\x1b[>c\x1b[16t");
     out.push_str("\x1b[c");
     out.into_bytes()
 }
 
-/// The second round: whether the Kitty graphics protocol takes a picture; the device attributes.
+/// The second round: whether the Kitty graphics protocol takes a picture, and takes one whose pixels
+/// are packed (zlib: a pixel of nothing); the device attributes.
 pub(crate) fn graphics_question() -> Vec<u8> {
     let mut out = String::from("\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\");
+    let packed = crate::output::base64(&crate::zlib::compress(&[0; 4]));
+    out.push_str(&format!(
+        "\x1b_Gi={COMPRESSION},s=1,v=1,a=q,t=d,f=32,o=z;{packed}\x1b\\"
+    ));
     out.push_str("\x1b[c");
     out.into_bytes()
 }
@@ -51,6 +60,10 @@ pub(crate) struct Found {
     pub depth: Depth,
     /// The Kitty graphics protocol took a picture.
     pub graphics: bool,
+    /// It takes pixels that are packed (`o=z`) too.
+    pub compression: bool,
+    /// How many pixels a cell is, across and down, where the terminal said.
+    pub cell: Option<(u32, u32)>,
     /// The Kitty keyboard protocol is there.
     pub keyboard: bool,
     /// The terminal is tmux or screen: by what the environment says or by what the terminal said it
@@ -102,6 +115,8 @@ fn found(guess: &Guess, replies: &[Reply], fenced: bool) -> Found {
     let mut theme = guess.theme;
     let mut colors = false;
     let mut graphics = false;
+    let mut compression = false;
+    let mut cell = None;
     let mut keyboard = false;
     let mut multiplexer = guess.multiplexer;
     // The ground first: it says whether the palette that fills the rest is a light one's or a
@@ -131,7 +146,9 @@ fn found(guess: &Guess, replies: &[Reply], fenced: bool) -> Found {
                 }
                 colors = true;
             }
-            Reply::Graphics { ok } => graphics |= *ok,
+            Reply::Graphics { id, ok } if *id == COMPRESSION => compression |= *ok,
+            Reply::Graphics { ok, .. } => graphics |= *ok,
+            Reply::CellSize { width, height } => cell = Some((*width, *height)),
             Reply::KeyboardFlags(_) => keyboard = true,
             Reply::Name(name) => multiplexer |= multiplexer_named(name),
             Reply::Attributes(_) | Reply::Cursor { .. } => {}
@@ -143,6 +160,8 @@ fn found(guess: &Guess, replies: &[Reply], fenced: bool) -> Found {
         depth: guess.depth,
         // A multiplexer does not draw the pictures of the terminal behind it, whatever answered.
         graphics: graphics && !multiplexer,
+        compression: compression && graphics && !multiplexer,
+        cell,
         keyboard,
         multiplexer,
         fenced,
@@ -249,7 +268,7 @@ mod tests {
             Reply::Color(Slot::Background, light),
             Reply::Color(Slot::Foreground, Rgb::new(0x10, 0x10, 0x10)),
             Reply::Color(Slot::Ansi(4), Rgb::new(0, 0, 0xff)),
-            Reply::Graphics { ok: true },
+            Reply::Graphics { id: 31, ok: true },
             Reply::KeyboardFlags(0),
         ];
         let found = found(&guess(), &replies, true);
@@ -271,6 +290,39 @@ mod tests {
     }
 
     #[test]
+    fn the_size_of_a_cell_and_whether_pixels_may_be_packed_are_what_the_terminal_says() {
+        let replies = [
+            Reply::Graphics { id: 31, ok: true },
+            Reply::Graphics {
+                id: COMPRESSION,
+                ok: true,
+            },
+            Reply::CellSize {
+                width: 13,
+                height: 29,
+            },
+        ];
+        let found = found(&guess(), &replies, true);
+        assert!(found.graphics && found.compression);
+        assert_eq!(found.cell, Some((13, 29)));
+        // A terminal that took the plain picture and refused the packed one is sent pixels as they are.
+        let refused = [
+            Reply::Graphics { id: 31, ok: true },
+            Reply::Graphics {
+                id: COMPRESSION,
+                ok: false,
+            },
+        ];
+        let found = super::found(&guess(), &refused, true);
+        assert!(found.graphics && !found.compression && found.cell.is_none());
+        // The question is asked and the size is asked for.
+        assert!(questions().windows(5).any(|window| window == b"\x1b[16t"));
+        let asked = graphics_question();
+        let has = |needle: &[u8]| asked.windows(needle.len()).any(|window| window == needle);
+        assert!(has(b"i=32,") && has(b"o=z;"));
+    }
+
+    #[test]
     fn the_question_of_pictures_is_not_in_the_first_round() {
         let has = |bytes: &[u8]| bytes.windows(4).any(|window| window == b"a=q,");
         assert!(!has(&questions()));
@@ -281,13 +333,13 @@ mod tests {
     fn a_terminal_that_says_it_is_tmux_draws_no_pictures_whatever_answers() {
         let replies = [
             Reply::Name("tmux 3.7c".to_owned()),
-            Reply::Graphics { ok: true },
+            Reply::Graphics { id: 31, ok: true },
         ];
         let found = found(&guess(), &replies, true);
         assert!(found.multiplexer && !found.graphics);
         let ghostty = [
             Reply::Name("ghostty 1.2".to_owned()),
-            Reply::Graphics { ok: true },
+            Reply::Graphics { id: 31, ok: true },
         ];
         let found = super::found(&guess(), &ghostty, true);
         assert!(!found.multiplexer && found.graphics);
@@ -296,7 +348,11 @@ mod tests {
             multiplexer: true,
             ..guess()
         };
-        let found = super::found(&by_environment, &[Reply::Graphics { ok: true }], true);
+        let found = super::found(
+            &by_environment,
+            &[Reply::Graphics { id: 31, ok: true }],
+            true,
+        );
         assert!(found.multiplexer && !found.graphics);
     }
 }

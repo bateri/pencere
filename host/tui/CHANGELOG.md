@@ -48,6 +48,11 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
   are kept, the least lately shown first, and all of them when the terminal is given back, when the
   window is resized and after a hand-off. Placements that overlap in one layer stay in the order they
   were drawn.
+- **A picture is sent at the size it is drawn, and a page that scrolls is not sent again.** A picture
+  is made as large as it is drawn and stored once; each frame only puts it, at its pixel and with the
+  part of it that shows, and a mark or a line over words is a small picture of its own, stored once
+  per size and colour. The terminal is asked how large a cell is (`CSI 16 t`, asked again when the
+  window changes) and pixels go packed (`o=z`) to a terminal that says it takes them.
 - `Pixels`, the whole of the pixels of a picture the terminal draws (made into what the terminal
   takes only when it is sent them), and `Raster::id`, which names pixels.
 - `Frame::links` and `Link`: the runs of cells that are links, written under `OSC 8`.
@@ -121,6 +126,15 @@ All notable changes to the `pencere-tui` crate are recorded here. The format fol
 
 ### Changed
 
+- **Breaking: `Placement` has `offset`.** A part put at a pixel of its first cell, as large as its
+  own pixels, has `Some((x, y))`; one that has `None` is stretched over its cells, as before.
+- **A picture stops at the cells of its box.** The place a page wrote for a picture may stand a few
+  pixels past the cells of its box; the picture is made smaller to be inside them, whole.
+- **The marks of a found word and the lines over words are pictures of their own size,** put where the
+  page has them, to the pixel, and not the cells they touch.
+- **A tmux variable that leaked into another terminal does not keep the host from being asked.**
+  Where only `TMUX` or `STY` says it, the terminal is asked what it is; `TERM` and `TERM_PROGRAM` say it
+  for sure.
 - **A picture the terminal draws over the grounds** (an icon, the tint laid over a picture) **is left
   out where a box drawn after it covers it** (a palette, a dialog): it showed through them. A picture
   that covers its cells altogether was under their grounds already.

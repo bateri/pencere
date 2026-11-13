@@ -18,18 +18,33 @@ use crate::session::PanicHook;
 use crate::terminal::{self, ENTER_ALTERNATE, Modes, Pipe, TakeError, Taken, Terminal};
 use crate::{Error, Lent, foreground};
 
-/// Whether the environment says the program runs in tmux or screen: the variables they set for what runs
-/// in them, and the terminal's name, which an `ssh` carries over to the machine on the other side (where
-/// their variables are not) and which both give their windows (`screen`, `screen-256color`,
-/// `tmux-256color`). Neither passes what a host is asked in a string of its own (tmux and screen keep it
-/// for the title of the window) or draws the pictures of the terminal behind it, so that the program
-/// draws its own screen without asking.
-#[must_use]
-pub fn in_multiplexer() -> bool {
-    multiplexed(|name| std::env::var(name).ok())
+/// What the environment says of whether the program runs in tmux or screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Environment {
+    /// It does: the terminal's name (`screen`, `screen-256color`, `tmux-256color`, which an `ssh` carries
+    /// over to the machine on the other side) or `TERM_PROGRAM=tmux`, which only they say.
+    Is,
+    /// It may: `TMUX` or `STY` is set, which they give what runs in them, and which a terminal started
+    /// from such a shell (a bateri pane, a Ghostty window) is given too, though it is not them.
+    Leaked,
+    /// Nothing says so.
+    Not,
 }
 
-fn multiplexed(var: impl Fn(&str) -> Option<String>) -> bool {
+/// Whether the program runs inside tmux or screen, as far as the environment can say it: the name of the
+/// terminal they give their windows, or the program they say they are. Neither passes what a host is
+/// asked in a string of its own (tmux and screen keep it for the title of the window) or draws the
+/// pictures of the terminal behind it, so that the program draws its own screen without asking.
+///
+/// `TMUX` and `STY` alone do not say it: a pane of another terminal, started from a shell that was in
+/// tmux, has them too. There the terminal is asked what it is before the host is (see
+/// [`Options::screen`](crate::Options::screen)).
+#[must_use]
+pub fn in_multiplexer() -> bool {
+    environment(|name| std::env::var(name).ok()) == Environment::Is
+}
+
+pub(crate) fn environment(var: impl Fn(&str) -> Option<String>) -> Environment {
     let set = |name: &str| var(name).is_some_and(|value| !value.is_empty());
     let named = |name: &str| {
         var(name).is_some_and(|value| {
@@ -37,15 +52,118 @@ fn multiplexed(var: impl Fn(&str) -> Option<String>) -> bool {
             value.starts_with("screen") || value.starts_with("tmux")
         })
     };
-    set("TMUX") || set("STY") || named("TERM") || var("TERM_PROGRAM").as_deref() == Some("tmux")
+    if named("TERM") || var("TERM_PROGRAM").as_deref() == Some("tmux") {
+        Environment::Is
+    } else if set("TMUX") || set("STY") {
+        Environment::Leaked
+    } else {
+        Environment::Not
+    }
+}
+
+/// What the terminal said when it was asked what it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Asked {
+    /// tmux or screen.
+    Multiplexer,
+    /// Another terminal, or one that said nothing.
+    Other,
+    /// A signal that ends the program came while it was waited for.
+    Signal(libc::c_int),
+}
+
+/// How long the terminal is waited for to say what it is.
+const WHO: Duration = Duration::from_millis(1000);
+
+/// Asks the terminal what it is (the secondary device attributes, tmux's `>84` and screen's `>83`) and
+/// whether it is there (the device attributes, which every terminal answers and which end the wait), and
+/// reads the answers: before the host is asked, in a terminal the environment cannot say is tmux or
+/// screen, which would keep the offer for the title of the pane.
+pub(crate) fn ask_what_it_is(terminal: &Terminal, pipe: &Pipe) -> Asked {
+    let mut writer = crate::link::Writer::new(terminal.output());
+    writer.raw(WHO_IS_THERE);
+    if writer.flush_within(WHO).is_err() {
+        return Asked::Other;
+    }
+    let deadline = std::time::Instant::now() + WHO;
+    let mut heard = Vec::new();
+    let mut buffer = [0_u8; 256];
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        let Ok(ready) = terminal::wait(terminal.input(), None, pipe.read_end(), Some(left)) else {
+            break;
+        };
+        if ready.wake {
+            pipe.drain();
+        }
+        if let Some(signal) = terminal::take_signal() {
+            return Asked::Signal(signal);
+        }
+        if ready.input
+            && let terminal::Read::Bytes(got) =
+                terminal::read(terminal.input(), &mut buffer, ready.hangup)
+        {
+            heard.extend_from_slice(buffer.get(..got).unwrap_or_default());
+            if replies(&heard).1 {
+                break;
+            }
+        }
+        if ready.hangup {
+            break;
+        }
+    }
+    match replies(&heard).0 {
+        Some(83 | 84) => Asked::Multiplexer,
+        _ => Asked::Other,
+    }
+}
+
+/// The two questions: what it is, and the fence that comes after the answer to it.
+const WHO_IS_THERE: &[u8] = b"\x1b[>c\x1b[c";
+
+/// What is in the stream the terminal wrote: the kind a terminal says it is in its secondary
+/// attributes (`CSI > Pp ; Pv ; Pc c`), and whether its device attributes (`CSI ? … c`) came.
+fn replies(bytes: &[u8]) -> (Option<u32>, bool) {
+    let (mut kind, mut fenced) = (None, false);
+    let mut at = 0;
+    while let Some(found) = bytes
+        .get(at..)
+        .and_then(|rest| rest.windows(2).position(|pair| pair == b"\x1b["))
+    {
+        let start = at + found + 2;
+        let Some(&leader) = bytes.get(start) else {
+            break;
+        };
+        let body = bytes.get(start + 1..).unwrap_or_default();
+        let end = body
+            .iter()
+            .position(|byte| !matches!(byte, b'0'..=b'9' | b';'));
+        let ended = end.and_then(|end| body.get(end)) == Some(&b'c');
+        match (leader, ended, end) {
+            (b'>', true, Some(end)) => {
+                let first = body.get(..end).unwrap_or_default();
+                let digits = first.split(|byte| *byte == b';').next().unwrap_or_default();
+                kind = std::str::from_utf8(digits)
+                    .ok()
+                    .and_then(|digits| digits.parse().ok());
+            }
+            (b'?', true, _) => fenced = true,
+            _ => {}
+        }
+        at = start;
+    }
+    (kind, fenced)
 }
 
 #[cfg(test)]
 mod multiplexer_tests {
-    use super::multiplexed;
+    use super::{Environment, environment, replies};
 
-    fn said(pairs: &'static [(&'static str, &'static str)]) -> bool {
-        multiplexed(move |name| {
+    fn said(pairs: &'static [(&'static str, &'static str)]) -> Environment {
+        environment(move |name| {
             pairs
                 .iter()
                 .find(|(have, _)| *have == name)
@@ -54,22 +172,64 @@ mod multiplexer_tests {
     }
 
     #[test]
-    fn the_environment_of_tmux_and_screen_says_so() {
-        assert!(said(&[("TMUX", "/tmp/tmux-501/default,1,0")]));
-        assert!(said(&[("STY", "123.pts-0.host")]));
-        assert!(said(&[("TERM", "screen-256color")]));
-        assert!(said(&[("TERM", "tmux-256color")]));
-        assert!(said(&[
-            ("TERM", "xterm-256color"),
-            ("TERM_PROGRAM", "tmux")
-        ]));
-        assert!(!said(&[("TERM", "xterm-256color")]));
-        assert!(!said(&[
-            ("TERM", "xterm-ghostty"),
-            ("TMUX", ""),
-            ("STY", "")
-        ]));
-        assert!(!said(&[]));
+    fn the_name_of_the_terminal_or_the_program_says_it_is_tmux_or_screen() {
+        assert_eq!(said(&[("TERM", "screen-256color")]), Environment::Is);
+        assert_eq!(said(&[("TERM", "tmux-256color")]), Environment::Is);
+        assert_eq!(
+            said(&[("TERM", "xterm-256color"), ("TERM_PROGRAM", "tmux")]),
+            Environment::Is
+        );
+        // Whatever else is in the environment.
+        assert_eq!(
+            said(&[("TERM", "screen"), ("TMUX", "/tmp/tmux-501/default,1,0")]),
+            Environment::Is
+        );
+    }
+
+    #[test]
+    fn a_variable_they_give_what_runs_in_them_may_have_leaked_into_a_terminal_that_is_not_theirs() {
+        assert_eq!(
+            said(&[("TMUX", "/tmp/tmux-501/default,1,0")]),
+            Environment::Leaked
+        );
+        assert_eq!(said(&[("STY", "123.pts-0.host")]), Environment::Leaked);
+        // A bateri pane, and a Ghostty window, started from a tmux shell.
+        assert_eq!(
+            said(&[
+                ("TERM", "xterm-256color"),
+                ("TERM_PROGRAM", "bateri"),
+                ("TMUX", "/tmp/tmux-501/default,1,0"),
+            ]),
+            Environment::Leaked
+        );
+        // A screen with the `TERM` of a terminal (`term xterm-256color`) keeps its `STY`.
+        assert_eq!(
+            said(&[("TERM", "xterm-256color"), ("STY", "123.pts-0.host")]),
+            Environment::Leaked
+        );
+    }
+
+    #[test]
+    fn nothing_in_the_environment_is_nothing() {
+        assert_eq!(said(&[("TERM", "xterm-256color")]), Environment::Not);
+        assert_eq!(
+            said(&[("TERM", "xterm-ghostty"), ("TMUX", ""), ("STY", "")]),
+            Environment::Not
+        );
+        assert_eq!(said(&[]), Environment::Not);
+    }
+
+    #[test]
+    fn what_a_terminal_says_it_is_and_that_it_has_finished_is_read_however_the_stream_is_cut() {
+        assert_eq!(replies(b"\x1b[>84;0;0c\x1b[?1;2c"), (Some(84), true));
+        assert_eq!(replies(b"\x1b[>83;40003;0c\x1b[?1;2c"), (Some(83), true));
+        assert_eq!(replies(b"\x1b[>1;4000;29c\x1b[?62;4c"), (Some(1), true));
+        // Typing in between, and a terminal that says only that it is there.
+        assert_eq!(replies(b"ls\r\x1b[?62;4c"), (None, true));
+        // What has not all come.
+        assert_eq!(replies(b"\x1b[>84;0"), (None, false));
+        assert_eq!(replies(b"\x1b[>84;0;0c\x1b[?1"), (Some(84), false));
+        assert_eq!(replies(b""), (None, false));
     }
 }
 

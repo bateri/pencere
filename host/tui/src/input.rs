@@ -67,8 +67,11 @@ pub enum Reply {
     Color(Slot, Rgb),
     /// The Kitty keyboard protocol's flags in force: only a terminal that has it answers.
     KeyboardFlags(u32),
-    /// The Kitty graphics protocol answered a query (`ok` when it took it).
-    Graphics { ok: bool },
+    /// The Kitty graphics protocol answered a query, the one whose image number was `id` (`ok` when it
+    /// took it).
+    Graphics { id: u32, ok: bool },
+    /// How many pixels a cell of the terminal is (`CSI 16 t`), across and down.
+    CellSize { width: u32, height: u32 },
     /// Where the cursor is (`CSI r;c R`), from 1.
     Cursor { row: u16, col: u16 },
     /// What the terminal says it is: its name and version (`CSI > q`: `tmux 3.7c`), or, from a
@@ -474,7 +477,15 @@ fn graphics_reply(body: &[u8], used: usize) -> Found {
         return Found::Skip(used);
     }
     let ok = body.ends_with(b";OK");
-    Found::Event(Event::Reply(Reply::Graphics { ok }), used)
+    // The keys are before the `;`: `i=` is the number of the image the question was about.
+    let keys = body.get(1..).unwrap_or_default();
+    let keys = keys.split(|byte| *byte == b';').next().unwrap_or_default();
+    let id = std::str::from_utf8(keys)
+        .unwrap_or("")
+        .split(',')
+        .find_map(|key| key.strip_prefix("i=")?.parse().ok())
+        .unwrap_or(0);
+    Found::Event(Event::Reply(Reply::Graphics { id, ok }), used)
 }
 
 fn osc_reply(body: &[u8], used: usize) -> Found {
@@ -564,6 +575,13 @@ fn csi(data: &[u8]) -> Found {
         b'I' if body.is_empty() => Some(Event::Focus(true)),
         b'O' if body.is_empty() => Some(Event::Focus(false)),
         b'u' => kitty_key(body),
+        // The size of a cell: `CSI 6 ; height ; width t`.
+        b't' if body.starts_with("6;") => match numbers(body).as_slice() {
+            &[_, height, width] if height > 0 && width > 0 => {
+                Some(Event::Reply(Reply::CellSize { width, height }))
+            }
+            _ => None,
+        },
         // The secondary attributes: the first number is the terminal's kind. Two terminals that
         // draw nothing of their own are known by it, tmux (84, `T`) and screen (83, `S`).
         b'c' if body.starts_with('>') => match numbers(body.get(1..).unwrap_or("")).first() {
@@ -947,7 +965,7 @@ mod tests {
     #[test]
     fn the_answers_of_the_terminal() {
         let events = decode_all(
-            b"\x1b]11;rgb:1e1e/1e1e/2e2e\x07\x1b]10;rgb:ff/ff/ff\x1b\\\x1b]4;1;rgb:cc/00/00\x07\x1b[?62;4c\x1b[?0u\x1b[I\x1b_Gi=31;OK\x1b\\",
+            b"\x1b]11;rgb:1e1e/1e1e/2e2e\x07\x1b]10;rgb:ff/ff/ff\x1b\\\x1b]4;1;rgb:cc/00/00\x07\x1b[?62;4c\x1b[?0u\x1b[I\x1b_Gi=31;OK\x1b\\\x1b_Gi=32;ENOENT:no\x1b\\\x1b[6;29;13t",
         );
         assert_eq!(
             events,
@@ -958,7 +976,12 @@ mod tests {
                 Event::Reply(Reply::Attributes(vec![62, 4])),
                 Event::Reply(Reply::KeyboardFlags(0)),
                 Event::Focus(true),
-                Event::Reply(Reply::Graphics { ok: true }),
+                Event::Reply(Reply::Graphics { id: 31, ok: true }),
+                Event::Reply(Reply::Graphics { id: 32, ok: false }),
+                Event::Reply(Reply::CellSize {
+                    width: 13,
+                    height: 29
+                }),
             ]
         );
     }

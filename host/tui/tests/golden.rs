@@ -2,7 +2,8 @@
 //! words, and the cells it has to be drawn into.
 
 use pencere_tui::{
-    Bg, Cells, ImageMode, NoPictures, Options, Pictures, Raster, Rgb, Theme, render, text_width,
+    Bg, Cells, Depth, ImageMode, NoPictures, Options, Pictures, Raster, Rgb, Screen, Theme, render,
+    text_width,
 };
 use pencere_view::{
     Color, DrawList, Family, Figure, Font, Gradient, Measure, Paint, Picture, Point, Quad, Rect,
@@ -438,9 +439,12 @@ fn what_is_laid_over_a_picture_is_laid_where_the_terminal_draws_that_part_of_it(
     // A point of the picture 1.0 down it is at 1.6 of the grid, which is 19 pixels down (12 a unit):
     // the terminal draws that point there.
     let (top, bottom) = inked_rows(mark).expect("it has colour");
-    let first = u32::from(mark.row) * 24 + top;
+    let (_, down) = mark
+        .offset
+        .expect("it is its own pixels, put at one of a cell");
+    let first = u32::from(mark.row) * 24 + down + top;
     assert_eq!(first, 19, "its top, in the terminal's pixels");
-    assert_eq!(u32::from(mark.row) * 24 + bottom, 43, "its bottom");
+    assert_eq!(u32::from(mark.row) * 24 + down + bottom, 43, "its bottom");
 }
 
 #[test]
@@ -929,6 +933,7 @@ fn picture(rect: Rect, tint: Option<Color>) -> Paint {
         src: "a.png".to_owned(),
         page: 1,
         rect,
+        cells: rect,
         crop: Rect::new(0.0, 0.0, 1.0, 1.0),
         shown: Rect::new(0.0, 0.0, 1.0, 1.0),
         tint,
@@ -995,6 +1000,18 @@ fn red_across(placed: &pencere_tui::Placement) -> (u32, u32) {
     (columns as u32, rows as u32)
 }
 
+/// Red pixels as many as the picture's rectangle is wide and high, as the sandbox's are for the
+/// size a picture is drawn at.
+struct RedAsked;
+
+impl Pictures for RedAsked {
+    fn raster(&self, picture: &Picture) -> Option<Raster> {
+        let width = picture.rect.w.round().max(1.0) as u32;
+        let height = picture.rect.h.round().max(1.0) as u32;
+        Some(red(width, height))
+    }
+}
+
 #[test]
 fn a_square_picture_is_a_square_on_the_pixels_of_a_terminal_whose_cell_is_not_one_to_two() {
     // The page is laid out in a cell of one by two; this terminal's is nine pixels by twenty, so the
@@ -1006,30 +1023,48 @@ fn a_square_picture_is_a_square_on_the_pixels_of_a_terminal_whose_cell_is_not_on
     let list = DrawList {
         items: vec![picture(Rect::new(0.0, 0.0, 12.0, 12.0), None)],
     };
-    let frame = render(&list, 12, 6, &dark(), &One(red(4, 4)), &options);
-    let [placed] = &frame.placements[..] else {
+    let frame = render(&list, 12, 6, &dark(), &RedAsked, &options);
+    let (under, over): (Vec<_>, Vec<_>) = frame
+        .placements
+        .iter()
+        .partition(|placed| placed.z < -1_073_741_825);
+    let [placed] = &over[..] else {
         panic!("one picture: {:?}", frame.placements.len());
     };
-    assert_eq!((placed.cols, placed.rows), (12, 6));
-    assert_eq!((placed.width, placed.height), (108, 120));
-    // The picture is 108 across and 108 down, in the middle of the 120 of its cells; the rest of them is
-    // their ground, which the picture covers.
+    // The picture is 108 across and 108 down, put 6 pixels down the first of the six rows it
+    // touches: its pixels as they are, and the cells' own ground under what they have of the rest.
+    assert_eq!(
+        (placed.col, placed.row, placed.cols, placed.rows),
+        (0, 0, 12, 6)
+    );
+    assert_eq!(placed.offset, Some((0, 6)));
+    assert_eq!((placed.width, placed.height), (108, 108));
     assert_eq!(red_across(placed), (108, 108));
-    // A picture that fills its box (cut at its sides) fills all of it, and is stretched to its cells.
+    assert_eq!(placed.z, -1_073_741_825);
+    let [ground] = &under[..] else {
+        panic!("the colour under the cells it covers a part of");
+    };
+    assert_eq!(
+        (ground.col, ground.row, ground.cols, ground.rows),
+        (0, 0, 12, 6)
+    );
+    // A picture that fills its box (cut at its sides) fills all of it: it is on the cells, whole.
     let mut cover = picture(Rect::new(0.0, 0.0, 12.0, 12.0), None);
     if let Paint::Image(picture) = &mut cover {
         picture.crop = Rect::new(0.0, 0.25, 1.0, 0.5);
         picture.shown = picture.crop;
     }
     let list = DrawList { items: vec![cover] };
-    let frame = render(&list, 12, 6, &dark(), &One(red(4, 4)), &options);
+    let frame = render(&list, 12, 6, &dark(), &RedAsked, &options);
     let [placed] = &frame.placements[..] else {
-        panic!("one picture");
+        panic!("one picture, and nothing under it: {:?}", frame.placements);
     };
     assert_eq!(
         (placed.col, placed.row, placed.cols, placed.rows),
         (0, 0, 12, 6)
     );
+    assert_eq!(placed.offset, Some((0, 0)));
+    assert_eq!((placed.width, placed.height), (108, 120));
     assert!(
         placed
             .rgba()
@@ -1072,6 +1107,128 @@ fn an_icon_is_stretched_over_the_cells_it_is_nearest_and_a_picture_on_the_cells_
         (1, 0, 2, 1)
     );
     assert_eq!((placed.width, placed.height), (16, 16));
+}
+
+/// The pictures of a stream written to a terminal: how many sent pixels (`a=t`, `a=T`) and how many
+/// placed them (`a=p`) it holds.
+fn graphics(stream: &[u8]) -> (usize, usize) {
+    let count = |needle: &[u8]| {
+        stream
+            .windows(needle.len())
+            .filter(|window| *window == needle)
+            .count()
+    };
+    (
+        count(b"\x1b_Ga=t,") + count(b"\x1b_Ga=T,"),
+        count(b"\x1b_Ga=p,"),
+    )
+}
+
+/// Pixels the size that is asked for, as the sandbox's are, all one picture whatever the part of it
+/// that is seen: the same name for every frame.
+struct Named(u64);
+
+impl Pictures for Named {
+    fn raster(&self, picture: &Picture) -> Option<Raster> {
+        let width = picture.rect.w.round().max(1.0) as u32;
+        let height = picture.rect.h.round().max(1.0) as u32;
+        Some(Raster {
+            id: Some(self.0),
+            pixels: [200, 200, 200, 255].repeat((width * height) as usize),
+            width,
+            height,
+            crop: Rect::new(0.0, 0.0, 1.0, 1.0),
+        })
+    }
+}
+
+/// A mark on a picture the way the page writes one: a faint box with the place it was written at.
+fn mark(rect: Rect) -> Paint {
+    Paint::Quad(Quad {
+        rect,
+        radii: [0.0; 4],
+        fill: Some(Color::from(Role::Accent).faded(0.3)),
+        gradient: None,
+        border: None,
+        shadow: None,
+        clip: world(),
+        exact: Some(rect),
+    })
+}
+
+#[test]
+fn a_picture_that_is_scrolled_is_sent_once_and_only_put_where_it_moved_to() {
+    // A page of a document in a box of the screen, a mark on a word of it, and the page carried up the
+    // screen by less than a cell at a time, the way a wheel turns it: on a terminal whose cell is 13
+    // by 29 pixels, which is not the page's one to two. What the terminal is sent for it is the
+    // pixels of the page and of the mark once, and then where they are.
+    let options = Options {
+        pixels: (13, 29),
+        ..Options::default()
+    };
+    let mut screen = Screen::new(Depth::True);
+    let mut sent = Vec::new();
+    for step in 0..24 {
+        let top = 3.0 - step as f32 * 0.7;
+        let list = DrawList {
+            items: vec![
+                quad(Rect::new(0.0, 0.0, 40.0, 40.0), Role::Raised(1)),
+                picture(Rect::new(4.0, top, 30.0, 40.0), None),
+                mark(Rect::new(10.3, top + 5.2, 6.5, 1.1)),
+            ],
+        };
+        let frame = render(&list, 40, 20, &dark(), &Named(7), &options);
+        let bytes = screen.draw(&frame, None);
+        let (loads, places) = graphics(&bytes);
+        sent.push((loads, places));
+    }
+    // The first frame is sent the page, the mark and the colour under the cells that the page covers
+    // a part of; no frame after it is sent anything but where they are.
+    assert!(
+        sent.first().is_some_and(|(loads, _)| *loads <= 3),
+        "the first frame sends a picture, a mark and a ground: {sent:?}"
+    );
+    assert!(
+        sent.iter().skip(1).all(|(loads, _)| *loads == 0),
+        "pixels sent again over 24 frames of a scroll: {sent:?}"
+    );
+    assert!(
+        sent.iter().all(|(_, places)| *places > 0),
+        "every frame puts the picture where it is: {sent:?}"
+    );
+}
+
+#[test]
+fn a_picture_is_not_drawn_outside_the_cells_of_its_box() {
+    // The box the grid made is whole cells and the picture the page wrote for it is not: it is the
+    // written size in the middle of them, and may stand a few pixels out of them. What the terminal
+    // draws of it stops at the cells, where the page's own boxes do.
+    let options = Options {
+        pixels: (13, 29),
+        ..Options::default()
+    };
+    let cells = Rect::new(10.0, 10.0, 20.0, 20.0);
+    let exact = Rect::new(9.6, 9.7, 20.8, 20.6);
+    let mut paint = picture(exact, None);
+    if let Paint::Image(picture) = &mut paint {
+        picture.cells = cells;
+    }
+    let list = DrawList { items: vec![paint] };
+    let frame = render(&list, 40, 20, &dark(), &Named(3), &options);
+    assert!(!frame.placements.is_empty());
+    for placed in &frame.placements {
+        assert!(
+            placed.col >= 10
+                && placed.row >= 5
+                && placed.col + placed.cols <= 30
+                && placed.row + placed.rows <= 15,
+            "a picture over cells ({}, {}) for ({}, {}) in a box of the cells (10, 5) for (20, 10)",
+            placed.col,
+            placed.row,
+            placed.cols,
+            placed.rows
+        );
+    }
 }
 
 #[test]

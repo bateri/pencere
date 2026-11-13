@@ -316,7 +316,15 @@ struct Session<'a> {
 }
 
 /// Shows the view and returns how it ended; the terminal is given back on every path.
-pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Error> {
+///
+/// Where `doubtful` is set (the environment says tmux or screen may be the terminal and does not say it
+/// is) the terminal is asked what it is before the host is: tmux and screen keep what a host is asked
+/// for the title of the pane, so that they have no host to ask.
+pub(crate) fn run(
+    options: &Options,
+    terminal: &Terminal,
+    doubtful: bool,
+) -> Result<Outcome, Error> {
     let no_view = |reason| {
         Ok(Outcome::NoView(NoView {
             reason,
@@ -335,6 +343,15 @@ pub(crate) fn run(options: &Options, terminal: &Terminal) -> Result<Outcome, Err
         Err(TakeError::Failed) => return no_view(NoViewReason::NoTty),
     };
     let _hook = PanicHook::install();
+    if doubtful {
+        match crate::screen::ask_what_it_is(terminal, &pipe) {
+            crate::screen::Asked::Multiplexer => return no_view(NoViewReason::NoHost),
+            crate::screen::Asked::Signal(signal) => {
+                return no_view(NoViewReason::Interrupted(signal));
+            }
+            crate::screen::Asked::Other => {}
+        }
+    }
     let (sender, work) = sync_channel(WORK_ROOM);
     let outbox = Outbox::new(sender, Some(Arc::clone(&pipe)));
     let _bound = options

@@ -15,9 +15,11 @@ use crate::pictures::Raster;
 pub(crate) enum Name {
     /// One pixel of a colour (a box the terminal draws over the cells' grounds).
     Solid([u8; 4]),
-    /// A raster as it is shown: the tint and the opacity it is drawn with change its pixels.
+    /// A raster as it is shown: the size it is made to, and the tint and the opacity it is drawn with,
+    /// change its pixels.
     Raster {
         source: Source,
+        size: (u32, u32),
         tint: Option<([u8; 3], u32)>,
         opacity: u32,
     },
@@ -66,6 +68,21 @@ impl Pixels {
     /// `raster` drawn with `tint` (its colour and how much of it) and `opacity`.
     #[must_use]
     pub fn of(raster: Arc<Raster>, tint: Option<(Rgb, f32)>, opacity: f32) -> Self {
+        let size = (raster.width, raster.height);
+        Self::scaled(raster, size, tint, opacity)
+    }
+
+    /// As [`Pixels::of`], made `width` by `height` pixels: the raster is drawn again at that size when the
+    /// pixels are made for a terminal (an average of what is under each, so that a picture that is
+    /// held larger than it is drawn is no coarser for it), not before; two of them are the same pixels
+    /// where they come of the same raster, at the same size.
+    #[must_use]
+    pub fn scaled(
+        raster: Arc<Raster>,
+        (width, height): (u32, u32),
+        tint: Option<(Rgb, f32)>,
+        opacity: f32,
+    ) -> Self {
         let source = raster.id.map_or_else(
             || {
                 let mut hash = DefaultHasher::new();
@@ -78,11 +95,12 @@ impl Pixels {
         Self {
             name: Name::Raster {
                 source,
+                size: (width.max(1), height.max(1)),
                 tint: tint.map(|(color, share)| ([color.r, color.g, color.b], share.to_bits())),
                 opacity: opacity.to_bits(),
             },
-            width: raster.width,
-            height: raster.height,
+            width: width.max(1),
+            height: height.max(1),
             made: Made::Raster {
                 raster,
                 tint,
@@ -113,9 +131,34 @@ impl Pixels {
             } => (raster, *tint, *opacity),
         };
         let mut rgba = Vec::with_capacity((x1 - x0) as usize * (y1 - y0) as usize * 4);
+        // Where it is not the size of the raster, what is under each of its pixels.
+        let native = (raster.width, raster.height) == (self.width, self.height);
+        let columns: Vec<(u32, Vec<f32>)> = if native {
+            Vec::new()
+        } else {
+            (x0..x1)
+                .map(|x| weights(raster.width, self.width, x))
+                .collect()
+        };
+        let rows: Vec<(u32, Vec<f32>)> = if native {
+            Vec::new()
+        } else {
+            (y0..y1)
+                .map(|y| weights(raster.height, self.height, y))
+                .collect()
+        };
         for y in y0..y1 {
             for x in x0..x1 {
-                let [r, g, b, a] = raster.at(x, y);
+                let [r, g, b, a] = if native {
+                    raster.at(x, y)
+                } else {
+                    let (column, row) =
+                        (columns.get((x - x0) as usize), rows.get((y - y0) as usize));
+                    match (column, row) {
+                        (Some(column), Some(row)) => average(raster, column, row),
+                        _ => [0; 4],
+                    }
+                };
                 let alpha = f32::from(a) / 255.0 * opacity;
                 rgba.extend_from_slice(&match tint {
                     Some((color, strength)) => [
@@ -143,6 +186,53 @@ impl Pixels {
         }
         rgba
     }
+}
+
+/// The pixels of a raster `from` across (or down) that a pixel `at` of one `to` across takes, and how
+/// much of each: the first pixel and the shares, which add up to one. Where the raster is shrunk each
+/// pixel takes the share of the ones it covers; where it is grown it is a blend of the two about its
+/// middle.
+fn weights(from: u32, to: u32, at: u32) -> (u32, Vec<f32>) {
+    let (from_f, to_f) = (from.max(1) as f32, to.max(1) as f32);
+    if from >= to {
+        let (low, high) = (at as f32 * from_f / to_f, (at + 1) as f32 * from_f / to_f);
+        let first = low.floor() as u32;
+        let last = (high.ceil() as u32).clamp(first + 1, from.max(1));
+        let shares: Vec<f32> = (first..last)
+            .map(|i| ((i + 1) as f32).min(high) - (i as f32).max(low))
+            .collect();
+        let total: f32 = shares.iter().sum();
+        let shares = shares
+            .into_iter()
+            .map(|share| share / total.max(f32::EPSILON))
+            .collect();
+        (first.min(from.saturating_sub(1)), shares)
+    } else {
+        let middle = (at as f32 + 0.5) * from_f / to_f - 0.5;
+        let first = (middle.floor().max(0.0) as u32).min(from.saturating_sub(1));
+        let after = (first + 1).min(from.saturating_sub(1));
+        let t = (middle - first as f32).clamp(0.0, 1.0);
+        if after == first {
+            (first, vec![1.0])
+        } else {
+            (first, vec![1.0 - t, t])
+        }
+    }
+}
+
+/// The pixel of `raster` that the `across` and `down` shares (from [`weights`]) average, premultiplied.
+fn average(raster: &Raster, (x, across): &(u32, Vec<f32>), (y, down): &(u32, Vec<f32>)) -> [u8; 4] {
+    let mut sum = [0.0_f32; 4];
+    for (j, share_y) in down.iter().enumerate() {
+        for (i, share_x) in across.iter().enumerate() {
+            let pixel = raster.at(x + i as u32, y + j as u32);
+            let share = share_x * share_y;
+            for (total, channel) in sum.iter_mut().zip(pixel) {
+                *total += f32::from(channel) * share;
+            }
+        }
+    }
+    sum.map(|channel| channel.round().clamp(0.0, 255.0) as u8)
 }
 
 impl Clone for Pixels {
@@ -188,12 +278,17 @@ impl Eq for Pixels {}
 /// A picture the terminal draws: where it goes, and the part of some pixels it shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Placement {
-    /// The cell its top-left corner is at, from 0.
+    /// The cell its top-left corner is in, from 0.
     pub col: u16,
     pub row: u16,
-    /// The cells it covers: the part of the pixels is drawn to fill them.
+    /// The cells it covers: where it has no `offset` the part of the pixels is drawn to fill them,
+    /// and where it has, they are the cells that the part, drawn as large as it is, touches.
     pub cols: u16,
     pub rows: u16,
+    /// Where in that cell its corner stands, pixels, for a part drawn as large as it is (the pixels
+    /// of the terminal and not of the cells it passes over); `None` for one that is stretched over
+    /// `cols` by `rows` cells.
+    pub offset: Option<(u32, u32)>,
     /// The pixels it is a part of, which stay the same as it moves.
     pub pixels: Pixels,
     /// Where in them the part it shows starts, and how large it is (pixels).
@@ -273,17 +368,49 @@ fn pieces(out: &mut String, first: &str, data: &str) {
 pub(crate) fn kitty(out: &mut String, placement: &Placement) {
     // `C=1` leaves the cursor where it is.
     let first = format!(
-        "a=T,f=32,s={},v={},c={},r={},z={},C=1",
-        placement.width, placement.height, placement.cols, placement.rows, placement.z,
+        "a=T,f=32,s={},v={}{},z={},C=1",
+        placement.width,
+        placement.height,
+        geometry(placement),
+        placement.z,
     );
     pieces(out, &first, &base64(&placement.rgba()));
 }
 
-/// The sequences that give a terminal the whole of `pixels` to keep under `id`, and draw nothing.
-pub(crate) fn store(out: &mut String, id: u32, pixels: &Pixels) {
-    let first = format!("a=t,i={id},f=32,s={},v={}", pixels.width, pixels.height);
+/// The keys that say where in its cells a placement is drawn, and how large: the cells it is stretched
+/// over, or the pixels it is in its first cell.
+fn geometry(placement: &Placement) -> String {
+    match placement.offset {
+        None => format!(",c={},r={}", placement.cols, placement.rows),
+        Some((x, y)) => {
+            let mut keys = String::new();
+            if x > 0 {
+                let _ = write!(keys, ",X={x}");
+            }
+            if y > 0 {
+                let _ = write!(keys, ",Y={y}");
+            }
+            keys
+        }
+    }
+}
+
+/// The sequences that give a terminal the whole of `pixels` to keep under `id`, and draw nothing; with
+/// the pixels compressed (zlib, which the terminal says it takes) where `compress` says to be, and
+/// they are smaller so.
+pub(crate) fn store(out: &mut String, id: u32, pixels: &Pixels, compress: bool) {
+    let mut first = format!("a=t,i={id},f=32,s={},v={}", pixels.width, pixels.height);
     let whole = (0, 0, pixels.width, pixels.height);
-    pieces(out, &first, &base64(&pixels.rgba(whole)));
+    let rgba = pixels.rgba(whole);
+    if compress {
+        let packed = crate::zlib::compress(&rgba);
+        if packed.len() < rgba.len() {
+            first.push_str(",o=z");
+            pieces(out, &first, &base64(&packed));
+            return;
+        }
+    }
+    pieces(out, &first, &base64(&rgba));
 }
 
 /// The sequence that draws the part `placement` shows of the pixels kept under `id`, as the
@@ -292,8 +419,8 @@ pub(crate) fn store(out: &mut String, id: u32, pixels: &Pixels) {
 pub(crate) fn put(out: &mut String, id: u32, put: u32, placement: &Placement, z: i32) {
     let _ = write!(
         out,
-        "\x1b_Ga=p,i={id},p={put},c={},r={},z={z},C=1,q=2",
-        placement.cols, placement.rows,
+        "\x1b_Ga=p,i={id},p={put}{},z={z},C=1,q=2",
+        geometry(placement),
     );
     let pixels = &placement.pixels;
     if (placement.x, placement.y, placement.width, placement.height)

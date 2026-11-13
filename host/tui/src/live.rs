@@ -26,7 +26,7 @@ use pencere_view::{
 };
 
 use crate::field::{TextField, draw_fields};
-use crate::input::{Decoder, Event, KeyEvent, Mouse, MouseKind};
+use crate::input::{Decoder, Event, KeyEvent, Mouse, MouseKind, Reply};
 use crate::measure::Cells;
 use crate::memory;
 use crate::output::base64;
@@ -566,6 +566,9 @@ struct Live<'t> {
     decoder: Decoder,
     screen: Screen,
     found: Found,
+    /// How many pixels a cell is, across and down, as the terminal last said it (`CSI 16 t`); none
+    /// before it has, and while it is asked again after the window changed.
+    cell: Option<(u32, u32)>,
     size: Size,
     /// The host's text fields, by the name the page gave them, and which has the keyboard.
     fields: HashMap<Id, TextField>,
@@ -661,6 +664,8 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
     }
     let conversation = Conversation::waking(options, &waker);
     let size = tty.size();
+    let mut screen = Screen::new(found.depth);
+    screen.compress_pixels(found.compression);
     let mut live = Live {
         tty,
         clock,
@@ -670,7 +675,8 @@ pub fn run(options: Options, tty: Tty<'_>) -> io::Result<Closed> {
         page,
         conversation,
         decoder,
-        screen: Screen::new(found.depth),
+        screen,
+        cell: found.cell,
         found,
         size,
         fields: HashMap::new(),
@@ -813,6 +819,7 @@ impl Live<'_> {
         let _ = self.tty.take_stop();
         if self.tty.take_resize() {
             self.size = self.tty.size();
+            self.ask_cell();
             self.screen.forget();
             self.dirty = true;
             let size = self.size;
@@ -917,6 +924,15 @@ impl Live<'_> {
             }
             Event::Focus(active) => {
                 self.page.set_active(active);
+                false
+            }
+            // The answer to the question of how large a cell is, asked again after the window
+            // changed: the page is drawn again to it.
+            Event::Reply(Reply::CellSize { width, height }) => {
+                if self.cell != Some((width, height)) {
+                    self.cell = Some((width, height));
+                    self.dirty = true;
+                }
                 false
             }
             // The answer to a question that was not waited for.
@@ -1565,9 +1581,20 @@ impl Live<'_> {
         self.escape_at = None;
         self.press = None;
         self.size = self.tty.size();
+        self.ask_cell();
         self.screen.forget();
         self.dirty = true;
         Ok(())
+    }
+
+    /// The terminal is asked again how many pixels a cell is, where it said before: a window of
+    /// another size has cells of another, and what it said is not true until it says so again (the
+    /// pixels of the window, over the cells it has, are what is drawn by meanwhile).
+    fn ask_cell(&mut self) {
+        if self.found.cell.is_some() {
+            self.cell = None;
+            let _ = self.tty.write_all(b"\x1b[16t");
+        }
     }
 
     /// The program shows its view anew: the page is made again, from the view it brings (or the
@@ -1739,6 +1766,9 @@ impl Live<'_> {
 
     /// The pixels of a cell of the terminal, where it says (a guess where it does not).
     fn cell_pixels(&self) -> (u32, u32) {
+        if let Some((width, height)) = self.cell {
+            return (width.max(1), height.max(1));
+        }
         let (cols, rows) = (u32::from(self.size.cols), u32::from(self.size.rows));
         if self.size.width > 0 && self.size.height > 0 && cols > 0 && rows > 0 {
             (

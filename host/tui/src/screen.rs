@@ -19,6 +19,8 @@ pub struct Screen {
     placed: Vec<Put>,
     /// The pixels the terminal keeps, and the numbers it keeps them under.
     stored: Store,
+    /// The terminal takes pixels compressed (zlib), and they are sent so.
+    compress: bool,
     /// The links the terminal was told of: a row that has one is written whole when it changes, so
     /// that every cell of it is written under the link and none is left under one it has not.
     linked: Vec<Link>,
@@ -38,10 +40,17 @@ impl Screen {
             shown: None,
             placed: Vec::new(),
             stored: Store::new(),
+            compress: false,
             linked: Vec::new(),
             cursor: None,
             bar: false,
         }
+    }
+
+    /// Sends the pixels of pictures compressed (zlib, `o=z`), for a terminal that said it takes them
+    /// so.
+    pub fn compress_pixels(&mut self, on: bool) {
+        self.compress = on;
     }
 
     /// Whether the terminal was sent pictures it may still keep.
@@ -293,7 +302,7 @@ impl Screen {
                     let bytes = placement.pixels.bytes();
                     self.make_room(out, bytes, &wanted);
                     let id = self.stored.id();
-                    output::store(out, id, &placement.pixels);
+                    output::store(out, id, &placement.pixels, self.compress);
                     self.stored.bytes += bytes;
                     self.stored.used = true;
                     self.stored.kept.insert(
@@ -541,6 +550,7 @@ mod tests {
             row,
             cols: 4,
             rows: 2,
+            offset: None,
             pixels: crate::output::Pixels::of(raster, None, 1.0),
             x: 0,
             y: 2,

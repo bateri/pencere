@@ -43,6 +43,7 @@ mod pictures;
 mod probe;
 mod screen;
 mod theme;
+mod zlib;
 
 pub use color::Rgb;
 pub use field::{show_hints, show_texts};

@@ -81,6 +81,10 @@ pub struct Picture {
     /// Where the image is drawn, pixels: the box it is in for `cover`; for `contain` the part of
     /// the box the whole image takes, centred.
     pub rect: Rect,
+    /// The box the page's grid made of the element the image is in, pixels: whole cells, where `rect`
+    /// is the place the page wrote for it (no more than a cell off on each side). `rect` where the
+    /// page has no grid. A host that draws more finely than the cells does not draw outside it.
+    pub cells: Rect,
     /// What `rect` shows of the image, as shares of it: `(0, 0, 1, 1)` is all of it, and `cover`
     /// is the middle of it where the proportions of the box are not its own.
     pub crop: Rect,
@@ -514,6 +518,7 @@ fn place_image(node: &Node, image: &Placed) -> Option<Picture> {
         src: image.src.clone(),
         page: image.page,
         rect,
+        cells: node.rect,
         crop,
         shown,
         tint: image.tint,

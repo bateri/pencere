@@ -998,6 +998,7 @@ mod tests {
             row,
             cols: 2,
             rows: 1,
+            offset: None,
             pixels: crate::output::Pixels::of(raster, None, 1.0),
             x: 0,
             y: 0,
